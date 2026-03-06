@@ -10,8 +10,8 @@ import (
 // Data contains the items for this page.
 // Next is an opaque continuation token; when empty there are no more pages.
 type Page[T any] struct {
-	Data []T
 	Next string
+	Data []T
 }
 
 // New creates a Page from a fully sorted slice, applying cursor-based pagination.

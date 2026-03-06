@@ -93,7 +93,7 @@ client = boto3.client('ses', endpoint_url='http://localhost:8000')`,
 		})
 	}
 
-	identities := h.SESOps.Backend.ListIdentities()
+	identities := h.SESOps.Backend.ListIdentities("", 0).Data
 
 	h.renderTemplate(w, "ses/index.html", sesIndexData{
 		PageData: PageData{Title: "SES Inbox", ActiveTab: "ses",

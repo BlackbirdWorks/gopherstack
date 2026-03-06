@@ -55,8 +55,14 @@ type certificateSummary struct {
 	DomainName     string `json:"DomainName"`
 }
 
+type listCertificatesInput struct {
+	NextToken string `json:"NextToken"`
+	MaxItems  int    `json:"MaxItems"`
+}
+
 type listCertificatesOutput struct {
 	CertificateSummaryList []certificateSummary `json:"CertificateSummaryList"`
+	NextToken              string               `json:"NextToken,omitempty"`
 }
 
 type deleteCertificateOutput struct{}
@@ -249,7 +255,7 @@ func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
 	case "DescribeCertificate":
 		return h.jsonDescribeCertificate(body)
 	case "ListCertificates":
-		return h.jsonListCertificates()
+		return h.jsonListCertificates(body)
 	case "DeleteCertificate":
 		return h.jsonDeleteCertificate(body)
 	case "ListTagsForCertificate":
@@ -309,17 +315,20 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 	}, nil
 }
 
-func (h *Handler) jsonListCertificates() (any, error) {
-	certs := h.Backend.ListCertificates()
-	summaries := make([]certificateSummary, 0, len(certs))
-	for _, c := range certs {
+func (h *Handler) jsonListCertificates(body []byte) (any, error) {
+	var input listCertificatesInput
+	_ = json.Unmarshal(body, &input)
+
+	p := h.Backend.ListCertificates(input.NextToken, input.MaxItems)
+	summaries := make([]certificateSummary, 0, len(p.Data))
+	for _, c := range p.Data {
 		summaries = append(summaries, certificateSummary{
 			CertificateArn: c.ARN,
 			DomainName:     c.DomainName,
 		})
 	}
 
-	return &listCertificatesOutput{CertificateSummaryList: summaries}, nil
+	return &listCertificatesOutput{CertificateSummaryList: summaries, NextToken: p.Next}, nil
 }
 
 func (h *Handler) jsonDeleteCertificate(body []byte) (any, error) {

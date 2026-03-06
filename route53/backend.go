@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // Errors returned by the backend.
@@ -199,8 +200,10 @@ func (b *InMemoryBackend) GetHostedZone(zoneID string) (*HostedZone, error) {
 	return &cp, nil
 }
 
-// ListHostedZones returns all hosted zones sorted by name.
-func (b *InMemoryBackend) ListHostedZones() ([]HostedZone, error) {
+const route53DefaultMaxItems = 100
+
+// ListHostedZones returns hosted zones sorted by name, with optional pagination.
+func (b *InMemoryBackend) ListHostedZones(marker string, maxItems int) (page.Page[HostedZone], error) {
 	b.mu.RLock("ListHostedZones")
 	defer b.mu.RUnlock()
 
@@ -213,7 +216,7 @@ func (b *InMemoryBackend) ListHostedZones() ([]HostedZone, error) {
 
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 
-	return result, nil
+	return page.New(result, marker, maxItems, route53DefaultMaxItems), nil
 }
 
 // ChangeAction is the action type for ChangeResourceRecordSets.

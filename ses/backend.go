@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 // Errors returned by the SES backend.
@@ -72,8 +73,10 @@ func (b *InMemoryBackend) DeleteIdentity(identity string) error {
 	return nil
 }
 
-// ListIdentities returns all registered identities sorted alphabetically.
-func (b *InMemoryBackend) ListIdentities() []string {
+const sesDefaultMaxItems = 100
+
+// ListIdentities returns a paginated list of registered identities sorted alphabetically.
+func (b *InMemoryBackend) ListIdentities(nextToken string, maxItems int) page.Page[string] {
 	b.mu.RLock("ListIdentities")
 	defer b.mu.RUnlock()
 
@@ -84,7 +87,7 @@ func (b *InMemoryBackend) ListIdentities() []string {
 
 	sort.Strings(out)
 
-	return out
+	return page.New(out, nextToken, maxItems, sesDefaultMaxItems)
 }
 
 // GetIdentityVerificationAttributes returns verification status for each requested identity.

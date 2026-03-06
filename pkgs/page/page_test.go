@@ -14,17 +14,17 @@ func TestNew(t *testing.T) {
 	all5 := []string{"a", "b", "c", "d", "e"}
 
 	// pre-compute tokens for chained cases
-	p1 := page.New(all5, "", 2, 100)         // ["a","b"], Next -> offset 2
-	p2 := page.New(all5, p1.Next, 2, 100)    // ["c","d"], Next -> offset 4
-	_ = page.New(all5, p2.Next, 2, 100)      // ["e"], Next == ""
+	p1 := page.New(all5, "", 2, 100)      // ["a","b"], Next -> offset 2
+	p2 := page.New(all5, p1.Next, 2, 100) // ["c","d"], Next -> offset 4
+	_ = page.New(all5, p2.Next, 2, 100)   // ["e"], Next == ""
 
 	tests := []struct {
 		name         string
-		input        []string
 		token        string
+		input        []string
+		wantData     []string
 		limit        int
 		defaultLimit int
-		wantData     []string
 		wantHasNext  bool
 	}{
 		{

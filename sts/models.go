@@ -54,7 +54,7 @@ type AssumedRoleUser struct {
 type Credentials struct {
 	AccessKeyID     string `xml:"AccessKeyId"`
 	SecretAccessKey string `xml:"SecretAccessKey"`
-	SessionToken    string `xml:"SessionToken"` //nolint:gosec // G117: field name, not a stored secret
+	SessionToken    string `xml:"SessionToken"`
 	Expiration      string `xml:"Expiration"`
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -210,7 +211,7 @@ func (h *Handler) createCacheCluster(c *echo.Context, form url.Values) error {
 
 func (h *Handler) deleteCacheCluster(c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
-	clusters, descErr := h.Backend.DescribeClusters(id)
+	clusters, descErr := h.Backend.DescribeClusters(id, "", 0)
 	if descErr != nil {
 		if errors.Is(descErr, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -218,7 +219,7 @@ func (h *Handler) deleteCacheCluster(c *echo.Context, form url.Values) error {
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
 	}
-	cl := clusters[0]
+	cl := clusters.Data[0]
 	if err := h.Backend.DeleteCluster(id); err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -241,7 +242,15 @@ func (h *Handler) deleteCacheCluster(c *echo.Context, form url.Values) error {
 
 func (h *Handler) describeCacheClusters(c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
-	clusters, err := h.Backend.DescribeClusters(id)
+	marker := form.Get("Marker")
+	maxRecords := 0
+	if s := form.Get("MaxRecords"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			maxRecords = n
+		}
+	}
+
+	p, err := h.Backend.DescribeClusters(id, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -256,16 +265,18 @@ func (h *Handler) describeCacheClusters(c *echo.Context, form url.Values) error 
 	type result struct {
 		XMLName       xml.Name      `xml:"DescribeCacheClustersResponse"`
 		Xmlns         string        `xml:"xmlns,attr"`
+		Marker        string        `xml:"DescribeCacheClustersResult>Marker,omitempty"`
 		CacheClusters cacheClusters `xml:"DescribeCacheClustersResult>CacheClusters"`
 	}
 
-	items := make([]cacheClusterXML, 0, len(clusters))
-	for i := range clusters {
-		items = append(items, clusterToXML(&clusters[i], clusters[i].Status))
+	items := make([]cacheClusterXML, 0, len(p.Data))
+	for i := range p.Data {
+		items = append(items, clusterToXML(&p.Data[i], p.Data[i].Status))
 	}
 
 	return xmlResp(c, http.StatusOK, result{
 		Xmlns:         elasticacheNS,
+		Marker:        p.Next,
 		CacheClusters: cacheClusters{CacheCluster: items},
 	})
 }
@@ -343,7 +354,7 @@ func (h *Handler) createReplicationGroup(c *echo.Context, form url.Values) error
 
 func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error {
 	id := form.Get("ReplicationGroupId")
-	rgs, descErr := h.Backend.DescribeReplicationGroups(id)
+	rgs, descErr := h.Backend.DescribeReplicationGroups(id, "", 0)
 	if descErr != nil {
 		if errors.Is(descErr, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -351,7 +362,7 @@ func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", descErr.Error())
 	}
-	rg := rgs[0]
+	rg := rgs.Data[0]
 	if err := h.Backend.DeleteReplicationGroup(id); err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -385,7 +396,15 @@ func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error
 
 func (h *Handler) describeReplicationGroups(c *echo.Context, form url.Values) error {
 	id := form.Get("ReplicationGroupId")
-	rgs, err := h.Backend.DescribeReplicationGroups(id)
+	marker := form.Get("Marker")
+	maxRecords := 0
+	if s := form.Get("MaxRecords"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			maxRecords = n
+		}
+	}
+
+	p, err := h.Backend.DescribeReplicationGroups(id, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -406,11 +425,12 @@ func (h *Handler) describeReplicationGroups(c *echo.Context, form url.Values) er
 	type result struct {
 		XMLName           xml.Name          `xml:"DescribeReplicationGroupsResponse"`
 		Xmlns             string            `xml:"xmlns,attr"`
+		Marker            string            `xml:"DescribeReplicationGroupsResult>Marker,omitempty"`
 		ReplicationGroups replicationGroups `xml:"DescribeReplicationGroupsResult>ReplicationGroups"`
 	}
 
-	items := make([]replicationGroup, 0, len(rgs))
-	for _, rg := range rgs {
+	items := make([]replicationGroup, 0, len(p.Data))
+	for _, rg := range p.Data {
 		items = append(items, replicationGroup{
 			ReplicationGroupID: rg.ReplicationGroupID,
 			Description:        rg.Description,
@@ -421,6 +441,7 @@ func (h *Handler) describeReplicationGroups(c *echo.Context, form url.Values) er
 
 	return xmlResp(c, http.StatusOK, result{
 		Xmlns:             elasticacheNS,
+		Marker:            p.Next,
 		ReplicationGroups: replicationGroups{ReplicationGroup: items},
 	})
 }

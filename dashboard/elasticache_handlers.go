@@ -162,12 +162,12 @@ func (h *DashboardHandler) elastiCacheClusterDetail(c *echo.Context) error {
 
 	id := c.Request().URL.Query().Get("id")
 
-	clusters, err := h.ElastiCacheOps.Backend.DescribeClusters(id)
-	if err != nil || len(clusters) == 0 {
+	clusters, err := h.ElastiCacheOps.Backend.DescribeClusters(id, "", 0)
+	if err != nil || len(clusters.Data) == 0 {
 		return c.NoContent(http.StatusNotFound)
 	}
 
-	cl := clusters[0]
+	cl := clusters.Data[0]
 
 	h.renderTemplate(w, "elasticache/cluster_detail.html", elastiCacheClusterDetailData{
 		PageData: PageData{Title: "Cluster: " + cl.ClusterID, ActiveTab: "elasticache",
