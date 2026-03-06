@@ -148,6 +148,7 @@ type ListUsersResponse struct {
 
 // ListUsersResult contains the list of users.
 type ListUsersResult struct {
+	Marker      string    `xml:"Marker,omitempty"`
 	Users       []UserXML `xml:"Users>member"`
 	IsTruncated bool      `xml:"IsTruncated"`
 }
@@ -207,6 +208,7 @@ type ListRolesResponse struct {
 
 // ListRolesResult contains the list of roles.
 type ListRolesResult struct {
+	Marker      string    `xml:"Marker,omitempty"`
 	Roles       []RoleXML `xml:"Roles>member"`
 	IsTruncated bool      `xml:"IsTruncated"`
 }
@@ -252,6 +254,7 @@ type ListPoliciesResponse struct {
 
 // ListPoliciesResult contains the list of policies.
 type ListPoliciesResult struct {
+	Marker      string      `xml:"Marker,omitempty"`
 	Policies    []PolicyXML `xml:"Policies>member"`
 	IsTruncated bool        `xml:"IsTruncated"`
 }
@@ -315,6 +318,21 @@ type AddUserToGroupResponse struct {
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
+// ListGroupsResponse is the XML response for ListGroups.
+type ListGroupsResponse struct {
+	XMLName          xml.Name         `xml:"ListGroupsResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	ListGroupsResult ListGroupsResult `xml:"ListGroupsResult"`
+}
+
+// ListGroupsResult contains the list of groups.
+type ListGroupsResult struct {
+	Marker      string     `xml:"Marker,omitempty"`
+	Groups      []GroupXML `xml:"Groups>member"`
+	IsTruncated bool       `xml:"IsTruncated"`
+}
+
 // ---- Access Key XML responses ----
 
 // AccessKeyXML is the XML representation of an IAM AccessKey.
@@ -364,6 +382,7 @@ type ListAccessKeysResponse struct {
 
 // ListAccessKeysResult contains the list of access key metadata.
 type ListAccessKeysResult struct {
+	Marker            string                 `xml:"Marker,omitempty"`
 	AccessKeyMetadata []AccessKeyMetadataXML `xml:"AccessKeyMetadata>member"`
 	IsTruncated       bool                   `xml:"IsTruncated"`
 }
@@ -409,6 +428,7 @@ type ListInstanceProfilesResponse struct {
 
 // ListInstanceProfilesResult contains the list of instance profiles.
 type ListInstanceProfilesResult struct {
+	Marker           string               `xml:"Marker,omitempty"`
 	InstanceProfiles []InstanceProfileXML `xml:"InstanceProfiles>member"`
 	IsTruncated      bool                 `xml:"IsTruncated"`
 }

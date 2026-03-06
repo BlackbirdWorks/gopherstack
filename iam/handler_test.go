@@ -97,11 +97,11 @@ func TestInMemoryBackend_Users(t *testing.T) {
 		b := iam.NewInMemoryBackend()
 		_, _ = b.CreateUser("bob", "/")
 		_, _ = b.CreateUser("alice", "/")
-		users, err := b.ListUsers()
+		users, err := b.ListUsers("", 0)
 		require.NoError(t, err)
-		require.Len(t, users, 2)
-		assert.Equal(t, "alice", users[0].UserName) // sorted
-		assert.Equal(t, "bob", users[1].UserName)
+		require.Len(t, users.Data, 2)
+		assert.Equal(t, "alice", users.Data[0].UserName) // sorted
+		assert.Equal(t, "bob", users.Data[1].UserName)
 	})
 
 	t.Run("ListAllUsers", func(t *testing.T) {
@@ -168,10 +168,10 @@ func TestInMemoryBackend_Roles(t *testing.T) {
 		b := iam.NewInMemoryBackend()
 		_, _ = b.CreateRole("ZRole", "/", "")
 		_, _ = b.CreateRole("ARole", "/", "")
-		roles, err := b.ListRoles()
+		roles, err := b.ListRoles("", 0)
 		require.NoError(t, err)
-		require.Len(t, roles, 2)
-		assert.Equal(t, "ARole", roles[0].RoleName) // sorted
+		require.Len(t, roles.Data, 2)
+		assert.Equal(t, "ARole", roles.Data[0].RoleName) // sorted
 	})
 
 	t.Run("ListAllRoles", func(t *testing.T) {
@@ -196,9 +196,9 @@ func TestInMemoryBackend_Policies(t *testing.T) {
 		assert.Equal(t, "MyPolicy", pol.PolicyName)
 		assert.NotEmpty(t, pol.Arn)
 
-		policies, err := b.ListPolicies()
+		policies, err := b.ListPolicies("", 0)
 		require.NoError(t, err)
-		require.Len(t, policies, 1)
+		require.Len(t, policies.Data, 1)
 	})
 
 	t.Run("CreatePolicyAlreadyExists", func(t *testing.T) {
@@ -217,8 +217,8 @@ func TestInMemoryBackend_Policies(t *testing.T) {
 		require.NoError(t, err)
 		err = b.DeletePolicy(pol.Arn)
 		require.NoError(t, err)
-		policies, _ := b.ListPolicies()
-		assert.Empty(t, policies)
+		policies, _ := b.ListPolicies("", 0)
+		assert.Empty(t, policies.Data)
 	})
 
 	t.Run("DeletePolicyNotFound", func(t *testing.T) {
@@ -349,10 +349,10 @@ func TestInMemoryBackend_AccessKeys(t *testing.T) {
 		assert.NotEmpty(t, ak.AccessKeyID)
 		assert.NotEmpty(t, ak.SecretAccessKey)
 
-		keys, err := b.ListAccessKeys("alice")
+		keys, err := b.ListAccessKeys("alice", "", 0)
 		require.NoError(t, err)
-		require.Len(t, keys, 1)
-		assert.Equal(t, ak.AccessKeyID, keys[0].AccessKeyID)
+		require.Len(t, keys.Data, 1)
+		assert.Equal(t, ak.AccessKeyID, keys.Data[0].AccessKeyID)
 	})
 
 	t.Run("CreateAccessKeyUserNotFound", func(t *testing.T) {
@@ -369,8 +369,8 @@ func TestInMemoryBackend_AccessKeys(t *testing.T) {
 		ak, _ := b.CreateAccessKey("alice")
 		err := b.DeleteAccessKey("alice", ak.AccessKeyID)
 		require.NoError(t, err)
-		keys, _ := b.ListAccessKeys("alice")
-		assert.Empty(t, keys)
+		keys, _ := b.ListAccessKeys("alice", "", 0)
+		assert.Empty(t, keys.Data)
 	})
 
 	t.Run("DeleteAccessKeyNotFound", func(t *testing.T) {
@@ -384,7 +384,7 @@ func TestInMemoryBackend_AccessKeys(t *testing.T) {
 	t.Run("ListAccessKeysUserNotFound", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, err := b.ListAccessKeys("nonexistent")
+		_, err := b.ListAccessKeys("nonexistent", "", 0)
 		require.ErrorIs(t, err, iam.ErrUserNotFound)
 	})
 
@@ -409,9 +409,9 @@ func TestInMemoryBackend_InstanceProfiles(t *testing.T) {
 		assert.Equal(t, "MyProfile", ip.InstanceProfileName)
 		assert.Contains(t, ip.Arn, "MyProfile")
 
-		profiles, err := b.ListInstanceProfiles()
+		profiles, err := b.ListInstanceProfiles("", 0)
 		require.NoError(t, err)
-		require.Len(t, profiles, 1)
+		require.Len(t, profiles.Data, 1)
 	})
 
 	t.Run("CreateInstanceProfileAlreadyExists", func(t *testing.T) {
@@ -429,8 +429,8 @@ func TestInMemoryBackend_InstanceProfiles(t *testing.T) {
 		_, _ = b.CreateInstanceProfile("MyProfile", "/")
 		err := b.DeleteInstanceProfile("MyProfile")
 		require.NoError(t, err)
-		profiles, _ := b.ListInstanceProfiles()
-		assert.Empty(t, profiles)
+		profiles, _ := b.ListInstanceProfiles("", 0)
+		assert.Empty(t, profiles.Data)
 	})
 
 	t.Run("DeleteInstanceProfileNotFound", func(t *testing.T) {
@@ -1185,10 +1185,10 @@ func TestIAMHandler_SortCoverage(t *testing.T) {
 		b := iam.NewInMemoryBackend()
 		_, _ = b.CreatePolicy("ZPolicy", "/", "")
 		_, _ = b.CreatePolicy("APolicy", "/", "")
-		policies, err := b.ListPolicies()
+		policies, err := b.ListPolicies("", 0)
 		require.NoError(t, err)
-		require.Len(t, policies, 2)
-		assert.Equal(t, "APolicy", policies[0].PolicyName)
+		require.Len(t, policies.Data, 2)
+		assert.Equal(t, "APolicy", policies.Data[0].PolicyName)
 	})
 
 	t.Run("ListAccessKeys_TwoKeys", func(t *testing.T) {
@@ -1197,9 +1197,9 @@ func TestIAMHandler_SortCoverage(t *testing.T) {
 		_, _ = b.CreateUser("alice", "/")
 		_, _ = b.CreateAccessKey("alice")
 		_, _ = b.CreateAccessKey("alice")
-		keys, err := b.ListAccessKeys("alice")
+		keys, err := b.ListAccessKeys("alice", "", 0)
 		require.NoError(t, err)
-		require.Len(t, keys, 2)
+		require.Len(t, keys.Data, 2)
 	})
 
 	t.Run("ListAllAccessKeys_TwoKeys", func(t *testing.T) {
@@ -1217,10 +1217,10 @@ func TestIAMHandler_SortCoverage(t *testing.T) {
 		b := iam.NewInMemoryBackend()
 		_, _ = b.CreateInstanceProfile("ZProfile", "/")
 		_, _ = b.CreateInstanceProfile("AProfile", "/")
-		profiles, err := b.ListInstanceProfiles()
+		profiles, err := b.ListInstanceProfiles("", 0)
 		require.NoError(t, err)
-		require.Len(t, profiles, 2)
-		assert.Equal(t, "AProfile", profiles[0].InstanceProfileName)
+		require.Len(t, profiles.Data, 2)
+		assert.Equal(t, "AProfile", profiles.Data[0].InstanceProfileName)
 	})
 }
 
@@ -1680,6 +1680,171 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			err := h.Handler()(c)
 			require.NoError(t, err)
 			assertErrorCode(t, rec, tc.wantCode)
+		})
+	}
+}
+
+func TestIAMBackend_ListUsers_Pagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		marker      string
+		maxItems    int
+		wantLen     int
+		wantHasNext bool
+	}{
+		{
+			name:        "all users default limit",
+			maxItems:    0,
+			wantLen:     3,
+			wantHasNext: false,
+		},
+		{
+			name:        "first page of 2",
+			maxItems:    2,
+			wantLen:     2,
+			wantHasNext: true,
+		},
+		{
+			name:        "page size larger than total",
+			maxItems:    10,
+			wantLen:     3,
+			wantHasNext: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iam.NewInMemoryBackend()
+			_, _ = b.CreateUser("alice", "/")
+			_, _ = b.CreateUser("bob", "/")
+			_, _ = b.CreateUser("charlie", "/")
+
+			p, err := b.ListUsers(tt.marker, tt.maxItems)
+			require.NoError(t, err)
+			assert.Len(t, p.Data, tt.wantLen)
+			assert.Equal(t, tt.wantHasNext, p.Next != "")
+		})
+	}
+}
+
+func TestIAMBackend_ListUsers_MarkerRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+
+	for _, name := range []string{"alice", "bob", "charlie", "dave"} {
+		_, _ = b.CreateUser(name, "/")
+	}
+
+	first, err := b.ListUsers("", 2)
+	require.NoError(t, err)
+	require.Len(t, first.Data, 2)
+	require.NotEmpty(t, first.Next)
+
+	second, err := b.ListUsers(first.Next, 2)
+	require.NoError(t, err)
+	require.Len(t, second.Data, 2)
+	assert.Empty(t, second.Next)
+
+	allNames := make([]string, 0, 4)
+	for _, u := range first.Data {
+		allNames = append(allNames, u.UserName)
+	}
+
+	for _, u := range second.Data {
+		allNames = append(allNames, u.UserName)
+	}
+
+	assert.Equal(t, []string{"alice", "bob", "charlie", "dave"}, allNames)
+}
+
+func TestIAMHandler_ListUsers_Pagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		params      map[string]string
+		name        string
+		wantLen     int
+		wantHasNext bool
+	}{
+		{
+			name:        "all users",
+			params:      nil,
+			wantLen:     3,
+			wantHasNext: false,
+		},
+		{
+			name:        "first page MaxItems=2",
+			params:      map[string]string{"MaxItems": "2"},
+			wantLen:     2,
+			wantHasNext: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			_, _ = b.CreateUser("alice", "/")
+			_, _ = b.CreateUser("bob", "/")
+			_, _ = b.CreateUser("charlie", "/")
+
+			e := echo.New()
+			req := iamRequest("ListUsers", tt.params)
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp iam.ListUsersResponse
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Len(t, resp.ListUsersResult.Users, tt.wantLen)
+			assert.Equal(t, tt.wantHasNext, resp.ListUsersResult.IsTruncated)
+		})
+	}
+}
+
+func TestIAMHandler_ListGroups(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		params  map[string]string
+		name    string
+		wantLen int
+	}{
+		{
+			name:    "all groups",
+			params:  nil,
+			wantLen: 2,
+		},
+		{
+			name:    "first page MaxItems=1",
+			params:  map[string]string{"MaxItems": "1"},
+			wantLen: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler(t)
+			_, _ = b.CreateGroup("Admins", "/")
+			_, _ = b.CreateGroup("Devs", "/")
+
+			e := echo.New()
+			req := iamRequest("ListGroups", tt.params)
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp iam.ListGroupsResponse
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Len(t, resp.ListGroupsResult.Groups, tt.wantLen)
 		})
 	}
 }

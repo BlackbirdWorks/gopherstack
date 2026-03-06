@@ -313,6 +313,18 @@ func TestHandlerActions_ListQueues(t *testing.T) {
 			wantCode:     http.StatusOK,
 			wantURLCount: 1,
 		},
+		{
+			name: "pagination with max results",
+			setup: func(t *testing.T, h *sqs.Handler) {
+				t.Helper()
+				doCreateQueue(t, h, "page-queue-a")
+				doCreateQueue(t, h, "page-queue-b")
+				doCreateQueue(t, h, "page-queue-c")
+			},
+			body:         map[string]any{"MaxResults": 2},
+			wantCode:     http.StatusOK,
+			wantURLCount: 2,
+		},
 	}
 
 	for _, tt := range tests {
@@ -328,12 +340,49 @@ func TestHandlerActions_ListQueues(t *testing.T) {
 			require.Equal(t, tt.wantCode, rec.Code)
 
 			var resp struct {
+				NextToken string   `json:"NextToken"`
 				QueueURLs []string `json:"QueueUrls"`
 			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 			assert.Len(t, resp.QueueURLs, tt.wantURLCount)
 		})
 	}
+}
+
+func TestHandlerActions_ListQueues_PaginationRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doCreateQueue(t, h, "rtp-queue-a")
+	doCreateQueue(t, h, "rtp-queue-b")
+	doCreateQueue(t, h, "rtp-queue-c")
+
+	var allURLs []string
+	var nextToken string
+
+	for {
+		body := map[string]any{"MaxResults": 2}
+		if nextToken != "" {
+			body["NextToken"] = nextToken
+		}
+
+		rec := doRequest(t, h, "ListQueues", body)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var resp struct {
+			NextToken string   `json:"NextToken"`
+			QueueURLs []string `json:"QueueUrls"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		allURLs = append(allURLs, resp.QueueURLs...)
+		nextToken = resp.NextToken
+
+		if nextToken == "" {
+			break
+		}
+	}
+
+	assert.Len(t, allURLs, 3)
 }
 
 func TestHandlerActions_GetQueueUrl(t *testing.T) {

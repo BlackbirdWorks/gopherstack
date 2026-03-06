@@ -129,10 +129,13 @@ type DeleteQueueInput struct {
 // ListQueuesInput is the input for ListQueues.
 type ListQueuesInput struct {
 	QueueNamePrefix string
+	NextToken       string
+	MaxResults      int
 }
 
 // ListQueuesOutput is the output for ListQueues.
 type ListQueuesOutput struct {
+	NextToken string
 	QueueURLs []string
 }
 
@@ -338,6 +341,7 @@ type GetQueueURLResponse struct {
 
 // ListQueuesResult holds the result of a ListQueues operation.
 type ListQueuesResult struct {
+	NextToken string   `xml:"NextToken,omitempty"`
 	QueueURLs []string `xml:"QueueUrl"`
 }
 
