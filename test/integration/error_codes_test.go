@@ -5,7 +5,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
-	ebtypes "github.com/aws/aws-sdk-go-v2/service/eventbridge/types"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -22,6 +21,7 @@ import (
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	swfsdk "github.com/aws/aws-sdk-go-v2/service/swf"
 	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -478,8 +478,13 @@ func TestIntegration_ErrorCodes_EventBridge(t *testing.T) {
 			check: func(t *testing.T, err error) {
 				t.Helper()
 				require.Error(t, err)
-				var illegalStatus *ebtypes.IllegalStatusException
-				assert.ErrorAs(t, err, &illegalStatus, "expected IllegalStatusException")
+				// The EventBridge SDK's DeleteEventBus deserializer only dispatches
+				// ConcurrentModificationException and InternalException to typed errors.
+				// IllegalStatusException falls through to *smithy.GenericAPIError, so we
+				// verify the wire code via the smithy.APIError interface.
+				var apiErr smithy.APIError
+				require.ErrorAs(t, err, &apiErr, "expected smithy.APIError")
+				assert.Equal(t, "IllegalStatusException", apiErr.ErrorCode())
 			},
 		},
 	}
