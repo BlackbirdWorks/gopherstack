@@ -34,14 +34,14 @@ var (
 
 // Handler is the Echo HTTP handler for ECR operations.
 type Handler struct {
-	Backend         *InMemoryBackend
+	Backend         Backend
 	registryHandler http.Handler
 	registryEnabled bool
 }
 
 // NewHandler creates a new ECR handler.
 // registryHandler may be nil when the local registry is disabled.
-func NewHandler(backend *InMemoryBackend, registryHandler http.Handler) *Handler {
+func NewHandler(backend Backend, registryHandler http.Handler) *Handler {
 	return &Handler{
 		Backend:         backend,
 		registryHandler: registryHandler,
@@ -311,7 +311,7 @@ func (h *Handler) handleGetAuthorizationToken(
 	token := base64.StdEncoding.EncodeToString([]byte(dummyUser + ":" + dummyPassword))
 	expiresAt := time.Now().Add(tokenTTL).Unix()
 
-	proxyEndpoint := h.Backend.endpoint
+	proxyEndpoint := h.Backend.ProxyEndpoint()
 
 	return &getAuthorizationTokenOutput{
 		AuthorizationData: []authorizationDataView{

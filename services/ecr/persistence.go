@@ -49,12 +49,22 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
+// Snapshot implements persistence.Persistable by delegating to the backend
+// when it implements Snapshottable. Returns nil for non-snapshottable backends.
 func (h *Handler) Snapshot() []byte {
-	return h.Backend.Snapshot()
+	if s, ok := h.Backend.(Snapshottable); ok {
+		return s.Snapshot()
+	}
+
+	return nil
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable by delegating to the backend
+// when it implements Snapshottable. Non-snapshottable backends are skipped.
 func (h *Handler) Restore(data []byte) error {
-	return h.Backend.Restore(data)
+	if s, ok := h.Backend.(Snapshottable); ok {
+		return s.Restore(data)
+	}
+
+	return nil
 }

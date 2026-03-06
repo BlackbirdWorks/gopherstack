@@ -27,6 +27,9 @@ type Repository struct {
 	RepositoryURI  string    `json:"repositoryUri"`
 }
 
+// compile-time assertion: InMemoryBackend must satisfy the Backend interface.
+var _ Backend = (*InMemoryBackend)(nil)
+
 // InMemoryBackend stores ECR repository state in memory.
 type InMemoryBackend struct {
 	repos     map[string]*Repository
@@ -53,6 +56,15 @@ func (b *InMemoryBackend) SetEndpoint(endpoint string) {
 	defer b.mu.Unlock()
 
 	b.endpoint = endpoint
+}
+
+// ProxyEndpoint returns the registry endpoint used in repository URIs and
+// authorization tokens. It satisfies the Backend interface.
+func (b *InMemoryBackend) ProxyEndpoint() string {
+	b.mu.RLock("ProxyEndpoint")
+	defer b.mu.RUnlock()
+
+	return b.endpoint
 }
 
 // CreateRepository creates a new ECR repository.
