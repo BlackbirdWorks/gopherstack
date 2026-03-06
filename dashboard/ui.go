@@ -973,18 +973,20 @@ func (h *DashboardHandler) handleS3File(w http.ResponseWriter, r *http.Request, 
 type SettingsPageData struct {
 	PageData
 
-	AccountID string
-	Region    string
-	LatencyMs int
+	AccountID  string
+	Region     string
+	LatencyMs  int
+	EnforceIAM bool
 }
 
 // settingsIndex renders the read-only settings/config page.
 func (h *DashboardHandler) settingsIndex(c *echo.Context) error {
 	data := SettingsPageData{
-		PageData:  PageData{Title: "Settings", ActiveTab: "settings"},
-		AccountID: h.GlobalConfig.AccountID,
-		Region:    h.GlobalConfig.Region,
-		LatencyMs: h.GlobalConfig.LatencyMs,
+		PageData:   PageData{Title: "Settings", ActiveTab: "settings"},
+		AccountID:  h.GlobalConfig.AccountID,
+		Region:     h.GlobalConfig.Region,
+		LatencyMs:  h.GlobalConfig.LatencyMs,
+		EnforceIAM: h.GlobalConfig.EnforceIAM,
 	}
 
 	h.renderTemplate(c.Response(), "settings.html", data)

@@ -254,27 +254,85 @@ func loadSNS(ctx context.Context, snsClient *sns.Client, _ *sqs.Client) error {
 }
 
 func loadIAM(ctx context.Context, iamClient *iam.Client) {
+	log := pkgslogger.Load(ctx)
+
+	// Create a demo user.
 	userName := "demo-user"
 	_, err := iamClient.CreateUser(ctx, &iam.CreateUserInput{
 		UserName: &userName,
 	})
 	if err != nil {
-		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create IAM user", "error", err)
+		log.WarnContext(ctx, "Failed to create IAM user", "error", err)
 	} else {
-		pkgslogger.Load(ctx).InfoContext(ctx, "Created IAM user", "name", userName)
+		log.InfoContext(ctx, "Created IAM user", "name", userName)
 	}
 
+	// Create a managed policy with a real document.
+	policyName := "demo-s3-read-only"
+	policyDoc := `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket"],"Resource":"*"}]}`
+	createPolicyOut, err := iamClient.CreatePolicy(ctx, &iam.CreatePolicyInput{
+		PolicyName:     &policyName,
+		PolicyDocument: aws.String(policyDoc),
+		Description:    aws.String("Demo read-only S3 policy"),
+	})
+	if err != nil {
+		log.WarnContext(ctx, "Failed to create IAM policy", "error", err)
+	} else {
+		log.InfoContext(ctx, "Created IAM policy", "name", policyName)
+
+		// Attach the policy to the demo user.
+		_, err = iamClient.AttachUserPolicy(ctx, &iam.AttachUserPolicyInput{
+			UserName:  &userName,
+			PolicyArn: createPolicyOut.Policy.Arn,
+		})
+		if err != nil {
+			log.WarnContext(ctx, "Failed to attach policy to demo user", "error", err)
+		}
+	}
+
+	// Create a demo group and add the user.
+	groupName := "demo-group"
+	_, err = iamClient.CreateGroup(ctx, &iam.CreateGroupInput{
+		GroupName: &groupName,
+	})
+	if err != nil {
+		log.WarnContext(ctx, "Failed to create IAM group", "error", err)
+	} else {
+		log.InfoContext(ctx, "Created IAM group", "name", groupName)
+
+		_, err = iamClient.AddUserToGroup(ctx, &iam.AddUserToGroupInput{
+			GroupName: &groupName,
+			UserName:  &userName,
+		})
+		if err != nil {
+			log.WarnContext(ctx, "Failed to add demo user to group", "error", err)
+		}
+	}
+
+	// Create a role.
 	roleName := "demo-role"
 	assumePolicyDoc := `{"Version":"2012-10-17","Statement":[{"Effect":"Allow",` +
 		`"Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`
 	_, err = iamClient.CreateRole(ctx, &iam.CreateRoleInput{
 		RoleName:                 &roleName,
 		AssumeRolePolicyDocument: aws.String(assumePolicyDoc),
+		Description:              aws.String("Demo EC2 instance role"),
 	})
 	if err != nil {
-		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create IAM role", "error", err)
+		log.WarnContext(ctx, "Failed to create IAM role", "error", err)
 	} else {
-		pkgslogger.Load(ctx).InfoContext(ctx, "Created IAM role", "name", roleName)
+		log.InfoContext(ctx, "Created IAM role", "name", roleName)
+	}
+
+	// Create an access key for the demo user so the enforcement badge is meaningful.
+	_, err = iamClient.CreateAccessKey(ctx, &iam.CreateAccessKeyInput{
+		UserName: &userName,
+	})
+	if err != nil {
+		log.WarnContext(ctx, "Failed to create access key for demo user", "error", err)
+	} else {
+		log.InfoContext(ctx, "Created access key for demo user")
 	}
 }
 

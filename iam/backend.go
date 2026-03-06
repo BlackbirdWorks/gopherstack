@@ -94,6 +94,10 @@ type StorageBackend interface {
 	ListAllGroups() []Group
 	ListAllAccessKeys() []AccessKey
 	ListAllInstanceProfiles() []InstanceProfile
+
+	// Enforcement helpers
+	GetUserByAccessKeyID(accessKeyID string) (*User, error)
+	GetPoliciesForUser(userName string) ([]string, error)
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -777,4 +781,49 @@ func policyNameFromARN(arn string) string {
 	}
 
 	return arn
+}
+
+// GetUserByAccessKeyID returns the User associated with the given access key ID.
+// Returns ErrAccessKeyNotFound if no key with that ID exists.
+func (b *InMemoryBackend) GetUserByAccessKeyID(accessKeyID string) (*User, error) {
+	b.mu.RLock("GetUserByAccessKeyID")
+	defer b.mu.RUnlock()
+
+	ak, exists := b.accessKeys[accessKeyID]
+	if !exists {
+		return nil, fmt.Errorf("%w: access key %q not found", ErrAccessKeyNotFound, accessKeyID)
+	}
+
+	u, exists := b.users[ak.UserName]
+	if !exists {
+		return nil, fmt.Errorf("%w: user %q not found for access key", ErrUserNotFound, ak.UserName)
+	}
+
+	return &u, nil
+}
+
+// GetPoliciesForUser returns the policy documents for all policies attached to the named user.
+// Policies that are referenced but not found in the backend are silently skipped.
+func (b *InMemoryBackend) GetPoliciesForUser(userName string) ([]string, error) {
+	b.mu.RLock("GetPoliciesForUser")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	arns := b.userPolicies[userName]
+	docs := make([]string, 0, len(arns))
+
+	for _, policyArn := range arns {
+		for _, p := range b.policies {
+			if p.Arn == policyArn && p.PolicyDocument != "" {
+				docs = append(docs, p.PolicyDocument)
+
+				break
+			}
+		}
+	}
+
+	return docs, nil
 }

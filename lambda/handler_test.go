@@ -2702,3 +2702,104 @@ func TestHandler_TagsRoute(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_IAMAction(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandler(t)
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   string
+	}{
+		{
+			name:   "create_function",
+			method: http.MethodPost,
+			path:   "/2015-03-31/functions",
+			want:   "lambda:CreateFunction",
+		},
+		{
+			name:   "list_functions",
+			method: http.MethodGet,
+			path:   "/2015-03-31/functions",
+			want:   "lambda:ListFunctions",
+		},
+		{
+			name:   "get_function",
+			method: http.MethodGet,
+			path:   "/2015-03-31/functions/my-func",
+			want:   "lambda:GetFunction",
+		},
+		{
+			name:   "delete_function",
+			method: http.MethodDelete,
+			path:   "/2015-03-31/functions/my-func",
+			want:   "lambda:DeleteFunction",
+		},
+		{
+			name:   "update_code",
+			method: http.MethodPut,
+			path:   "/2015-03-31/functions/my-func/code",
+			want:   "lambda:UpdateFunctionCode",
+		},
+		{
+			name:   "invoke",
+			method: http.MethodPost,
+			path:   "/2015-03-31/functions/my-func/invocations",
+			want:   "lambda:InvokeFunction",
+		},
+		{
+			name:   "list_tags",
+			method: http.MethodGet,
+			path:   "/2015-03-31/tags/arn:aws:lambda:us-east-1:0:function:f",
+			want:   "lambda:ListTags",
+		},
+		{
+			name:   "tag_resource",
+			method: http.MethodPost,
+			path:   "/2015-03-31/tags/arn:aws:lambda:us-east-1:0:function:f",
+			want:   "lambda:TagResource",
+		},
+		{name: "non_lambda_path", method: http.MethodGet, path: "/s3/bucket", want: ""},
+		{
+			name:   "esm_create",
+			method: http.MethodPost,
+			path:   "/2015-03-31/event-source-mappings",
+			want:   "lambda:CreateEventSourceMapping",
+		},
+		{
+			name:   "esm_list",
+			method: http.MethodGet,
+			path:   "/2015-03-31/event-source-mappings",
+			want:   "lambda:ListEventSourceMappings",
+		},
+		{
+			name:   "esm_get",
+			method: http.MethodGet,
+			path:   "/2015-03-31/event-source-mappings/uuid-1234",
+			want:   "lambda:GetEventSourceMapping",
+		},
+		{
+			name:   "esm_delete",
+			method: http.MethodDelete,
+			path:   "/2015-03-31/event-source-mappings/uuid-1234",
+			want:   "lambda:DeleteEventSourceMapping",
+		},
+		{
+			name:   "esm_update",
+			method: http.MethodPut,
+			path:   "/2015-03-31/event-source-mappings/uuid-1234",
+			want:   "lambda:UpdateEventSourceMapping",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			assert.Equal(t, tt.want, h.IAMAction(req))
+		})
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	"github.com/blackbirdworks/gopherstack/internal/teststack"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
 // newIAMStack creates an integration stack with a real IAM backend wired in.
@@ -397,4 +398,47 @@ func TestIAMDashboard_DeleteGroup(t *testing.T) {
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
+}
+
+func TestIAMDashboard_EnforcementBadge(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantText   string
+		enforceIAM bool
+	}{
+		{
+			name:       "enforcement_disabled_shows_badge",
+			enforceIAM: false,
+			wantText:   "Enforcement Disabled",
+		},
+		{
+			name:       "enforcement_enabled_shows_badge",
+			enforceIAM: true,
+			wantText:   "Policy Enforcement Active",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := dashboard.NewHandler(dashboard.Config{
+				Logger: slog.Default(),
+				GlobalConfig: config.GlobalConfig{
+					AccountID:  "000000000000",
+					Region:     "us-east-1",
+					EnforceIAM: tt.enforceIAM,
+				},
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/dashboard/iam", nil)
+			rec := httptest.NewRecorder()
+			h.SubRouter.ServeHTTP(rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantText)
+		})
+	}
 }

@@ -140,33 +140,35 @@ type CLI struct {
 	stsClient                    *stssdk.Client
 	sqsClient                    *sqssdk.Client
 	secretsManagerClient         *secretsmanager.Client
-	AccountID                    string                 `                                  name:"account-id"         env:"ACCOUNT_ID"           default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
-	Port                         string                 `                                  name:"port"               env:"PORT"                 default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
-	ElastiCacheEngine            string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"   default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine             string                 `                                  name:"opensearch-engine"  env:"OPENSEARCH_ENGINE"    default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                           //nolint:lll // config struct tags are intentionally verbose
-	Region                       string                 `                                  name:"region"             env:"REGION"               default:"us-east-1"    help:"AWS region."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	LogLevel                     string                 `                                  name:"log-level"          env:"LOG_LEVEL"            default:"info"         help:"Log level (debug|info|warn|error)."`                                                           //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr                string                 `                                  name:"dns-addr"           env:"DNS_ADDR"             default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                             //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP                 string                 `                                  name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"       default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                   //nolint:lll // config struct tags are intentionally verbose
-	DataDir                      string                 `                                  name:"data-dir"           env:"GOPHERSTACK_DATA_DIR" default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."` //nolint:lll // config struct tags are intentionally verbose
+	AccountID                    string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
+	Port                         string                 `                                  name:"port"               env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine            string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine             string                 `                                  name:"opensearch-engine"  env:"OPENSEARCH_ENGINE"       default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                           //nolint:lll // config struct tags are intentionally verbose
+	Region                       string                 `                                  name:"region"             env:"REGION"                  default:"us-east-1"    help:"AWS region."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	LogLevel                     string                 `                                  name:"log-level"          env:"LOG_LEVEL"               default:"info"         help:"Log level (debug|info|warn|error)."`                                                           //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr                string                 `                                  name:"dns-addr"           env:"DNS_ADDR"                default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                             //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP                 string                 `                                  name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"          default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                   //nolint:lll // config struct tags are intentionally verbose
+	DataDir                      string                 `                                  name:"data-dir"           env:"GOPHERSTACK_DATA_DIR"    default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."` //nolint:lll // config struct tags are intentionally verbose
 	S3                           s3backend.Settings     `embed:"" prefix:"s3-"`
-	InitScripts                  []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                                help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
+	InitScripts                  []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                                   help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
 	Lambda                       lambdabackend.Settings `embed:"" prefix:"lambda-"`
 	DynamoDB                     ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
-	PortRangeStart               int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"     default:"10000"        help:"Start of the port range for resource endpoints."`                                                                            //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd                 int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"       default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`                                                                  //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout            time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"         default:"30s"          help:"Per-script timeout for init hooks."`                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	Demo                         bool                   `                                  name:"demo"               env:"DEMO"                 default:"false"        help:"Load demo data on startup."`                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	Persist                      bool                   `                                  name:"persist"            env:"PERSIST"              default:"false"        help:"Enable snapshot-based persistence across restarts."`                                                                         //nolint:lll // config struct tags are intentionally verbose
-	LatencyMs                    int                    `                                  name:"latency-ms"         env:"LATENCY_MS"           default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."` //nolint:lll // config struct tags are intentionally verbose
+	PortRangeStart               int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"        default:"10000"        help:"Start of the port range for resource endpoints."`                                                                            //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd                 int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"          default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`                                                                  //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout            time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"            default:"30s"          help:"Per-script timeout for init hooks."`                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	Demo                         bool                   `                                  name:"demo"               env:"DEMO"                    default:"false"        help:"Load demo data on startup."`                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Persist                      bool                   `                                  name:"persist"            env:"PERSIST"                 default:"false"        help:"Enable snapshot-based persistence across restarts."`                                                                         //nolint:lll // config struct tags are intentionally verbose
+	EnforceIAM                   bool                   `                                  name:"enforce-iam"        env:"GOPHERSTACK_ENFORCE_IAM" default:"false"        help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                //nolint:lll // config struct tags are intentionally verbose
+	LatencyMs                    int                    `                                  name:"latency-ms"         env:"LATENCY_MS"              default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
 func (c *CLI) GetGlobalConfig() config.GlobalConfig {
 	return config.GlobalConfig{
-		AccountID: c.AccountID,
-		Region:    c.Region,
-		LatencyMs: c.LatencyMs,
+		AccountID:  c.AccountID,
+		Region:     c.Region,
+		LatencyMs:  c.LatencyMs,
+		EnforceIAM: c.EnforceIAM,
 	}
 }
 
@@ -567,7 +569,14 @@ func run(ctx context.Context, cli CLI) error {
 
 	e := buildEchoServer(ctx, log, persistManager, services, cli)
 
-	if setupErr := setupRegistry(e, log, services, cli.LatencyMs); setupErr != nil {
+	if setupErr := setupRegistry(
+		e,
+		log,
+		services,
+		cli.LatencyMs,
+		cli.EnforceIAM,
+		cli.GetGlobalConfig(),
+	); setupErr != nil {
 		return setupErr
 	}
 
@@ -1678,11 +1687,31 @@ func setupRegistry(
 	log *slog.Logger,
 	services []service.Registerable,
 	latencyMs int,
+	enforceIAM bool,
+	globalCfg config.GlobalConfig,
 ) error {
 	registry := service.NewRegistry()
 
 	if latencyMs > 0 {
 		registry.SetLatencyMs(latencyMs)
+	}
+
+	if enforceIAM {
+		iamBackend := findIAMBackend(services)
+		if iamBackend != nil {
+			log.Info("IAM policy enforcement enabled")
+
+			ecfg := iambackend.EnforcementConfig{
+				AccountID:         globalCfg.AccountID,
+				Region:            globalCfg.Region,
+				ResourceProviders: buildResourcePolicyProviders(services),
+				ActionExtractors:  buildActionExtractors(services),
+			}
+
+			registry.Use(service.Middleware(iambackend.EnforcementMiddleware(iamBackend, ecfg)))
+		} else {
+			log.Warn("IAM enforcement requested but IAM backend not found; enforcement disabled")
+		}
 	}
 
 	for _, svc := range services {
@@ -1697,6 +1726,125 @@ func setupRegistry(
 	e.Use(router.RouteHandler())
 
 	return nil
+}
+
+// findIAMBackend locates the IAM EnforcementBackend from the service list.
+func findIAMBackend(services []service.Registerable) iambackend.EnforcementBackend {
+	for _, svc := range services {
+		if h, ok := svc.(*iambackend.Handler); ok {
+			if b, ok2 := h.Backend.(iambackend.EnforcementBackend); ok2 {
+				return b
+			}
+		}
+	}
+
+	return nil
+}
+
+// buildActionExtractors collects ActionExtractor implementations from all registered
+// services. Services that implement the iam.ActionExtractor interface are automatically
+// included so their REST-API action mappings are used by the enforcement middleware.
+func buildActionExtractors(services []service.Registerable) []iambackend.ActionExtractor {
+	var extractors []iambackend.ActionExtractor
+
+	for _, svc := range services {
+		if ae, ok := svc.(iambackend.ActionExtractor); ok {
+			extractors = append(extractors, ae)
+		}
+	}
+
+	return extractors
+}
+
+// buildResourcePolicyProviders builds a list of ResourcePolicyProvider adapters
+// from the registered service backends that support resource-based policies.
+func buildResourcePolicyProviders(services []service.Registerable) []iambackend.ResourcePolicyProvider {
+	var providers []iambackend.ResourcePolicyProvider
+
+	for _, svc := range services {
+		switch h := svc.(type) {
+		case *s3backend.S3Handler:
+			if b, ok := h.Backend.(s3PolicyBackend); ok {
+				providers = append(providers, &s3PolicyAdapter{backend: b})
+			}
+		case *sqsbackend.Handler:
+			if b, ok := h.Backend.(sqsPolicyBackend); ok {
+				providers = append(providers, &sqsPolicyAdapter{backend: b})
+			}
+		}
+	}
+
+	return providers
+}
+
+// s3PolicyBackend is the minimal S3 backend interface needed for bucket policies.
+type s3PolicyBackend interface {
+	GetBucketPolicy(ctx context.Context, bucketName string) (string, error)
+}
+
+// sqsPolicyBackend is the minimal SQS backend interface needed for queue policies.
+type sqsPolicyBackend interface {
+	GetQueueAttributes(input *sqsbackend.GetQueueAttributesInput) (*sqsbackend.GetQueueAttributesOutput, error)
+}
+
+// s3PolicyAdapter wraps an S3 backend to implement ResourcePolicyProvider.
+// It handles ARNs of the form arn:aws:s3:::bucket or arn:aws:s3:::bucket/key.
+type s3PolicyAdapter struct {
+	backend s3PolicyBackend
+}
+
+func (a *s3PolicyAdapter) GetResourcePolicy(ctx context.Context, resourceARN string) (string, error) {
+	const prefix = "arn:aws:s3:::"
+	if !strings.HasPrefix(resourceARN, prefix) {
+		return "", nil
+	}
+
+	path := strings.TrimPrefix(resourceARN, prefix)
+	bucketName, _, _ := strings.Cut(path, "/")
+
+	if bucketName == "" {
+		return "", nil
+	}
+
+	return a.backend.GetBucketPolicy(ctx, bucketName)
+}
+
+// sqsPolicyAdapter wraps a SQS backend to implement ResourcePolicyProvider.
+// It handles ARNs of the form arn:aws:sqs:region:account:queue-name.
+type sqsPolicyAdapter struct {
+	backend sqsPolicyBackend
+}
+
+func (a *sqsPolicyAdapter) GetResourcePolicy(_ context.Context, resourceARN string) (string, error) {
+	const prefix = "arn:aws:sqs:"
+	if !strings.HasPrefix(resourceARN, prefix) {
+		return "", nil
+	}
+
+	// arn:aws:sqs:region:account:queue-name → extract queue name (last segment)
+	parts := strings.Split(resourceARN, ":")
+	const arnParts = 6
+	if len(parts) < arnParts {
+		return "", nil
+	}
+
+	queueName := parts[len(parts)-1]
+	if queueName == "" {
+		return "", nil
+	}
+
+	accountID := parts[4]
+	queueURL := "http://localhost/" + accountID + "/" + queueName
+
+	out, err := a.backend.GetQueueAttributes(&sqsbackend.GetQueueAttributesInput{
+		QueueURL:       queueURL,
+		AttributeNames: []string{"Policy"},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return out.Attributes["Policy"], nil
 }
 
 // startEmbeddedDNS creates and starts the embedded DNS server.

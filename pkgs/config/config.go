@@ -11,6 +11,10 @@ type GlobalConfig struct {
 	// LatencyMs is the maximum simulated response latency in milliseconds.
 	// Each request sleeps for a random duration in [0, LatencyMs). Zero disables latency simulation.
 	LatencyMs int
+	// EnforceIAM enables IAM policy enforcement when true.
+	// When false (default), all requests are allowed regardless of policies.
+	// When true, every incoming AWS API request is evaluated against attached IAM policies.
+	EnforceIAM bool
 }
 
 // Provider is implemented by the CLI / any runtime configuration object

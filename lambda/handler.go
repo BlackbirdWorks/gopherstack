@@ -304,6 +304,69 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
+// IAMAction returns the IAM action for a Lambda HTTP request.
+// It implements iam.ActionExtractor, providing per-service action extraction
+// for Lambda REST API paths that are not covered by the global action mapper.
+func (h *Handler) IAMAction(r *http.Request) string {
+	path := r.URL.Path
+	method := r.Method
+
+	switch {
+	case strings.HasPrefix(path, lambdaLayersPathPrefix):
+		rest := strings.TrimPrefix(path, lambdaLayersPathPrefix)
+
+		return "lambda:" + extractLayerOperation(strings.TrimPrefix(rest, "/"), method)
+	case strings.HasPrefix(path, lambdaPathPrefix) || strings.HasPrefix(path, lambda2020PathPrefix):
+		prefix := lambdaPathPrefix
+		if strings.HasPrefix(path, lambda2020PathPrefix) {
+			prefix = lambda2020PathPrefix
+		}
+
+		rest := strings.TrimPrefix(path, prefix)
+
+		for _, route := range lambdaOpRoutes {
+			if route.method == method && route.match(rest) {
+				return "lambda:" + route.op
+			}
+		}
+
+		return ""
+	case strings.HasPrefix(path, esmPathPrefix):
+		rest := strings.TrimPrefix(path, esmPathPrefix)
+
+		return esmIAMAction(method, strings.TrimPrefix(rest, "/"))
+	case strings.HasPrefix(path, lambdaTagsPathPrefix):
+		if method == http.MethodGet {
+			return "lambda:ListTags"
+		}
+
+		return "lambda:TagResource"
+	}
+
+	return ""
+}
+
+// esmIAMAction returns the IAM action for an event source mapping request.
+// rest is the path after the ESM prefix with the leading slash stripped.
+func esmIAMAction(method, rest string) string {
+	switch method {
+	case http.MethodPost:
+		return "lambda:CreateEventSourceMapping"
+	case http.MethodGet:
+		if rest == "" {
+			return "lambda:ListEventSourceMappings"
+		}
+
+		return "lambda:GetEventSourceMapping"
+	case http.MethodDelete:
+		return "lambda:DeleteEventSourceMapping"
+	case http.MethodPut:
+		return "lambda:UpdateEventSourceMapping"
+	}
+
+	return ""
+}
+
 // handlerEntry binds a route to a handler function.
 type handlerEntry struct {
 	execute func(c *echo.Context, rest string) error

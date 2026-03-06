@@ -49,6 +49,20 @@
                             {{end}}
                         </dd>
                     </div>
+                    <div class="flex justify-between items-center">
+                        <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">IAM Enforcement</dt>
+                        <dd>
+                            {{if .EnforceIAM}}
+                            <span class="px-2 py-1 text-xs font-mono bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded">
+                                enabled
+                            </span>
+                            {{else}}
+                            <span class="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded">
+                                disabled
+                            </span>
+                            {{end}}
+                        </dd>
+                    </div>
                 </dl>
             </div>
 
@@ -63,6 +77,7 @@
                     <li>--account-id / ACCOUNT_ID</li>
                     <li>--region / REGION</li>
                     <li>--latency-ms / LATENCY_MS</li>
+                    <li>--enforce-iam / GOPHERSTACK_ENFORCE_IAM</li>
                 </ul>
             </div>
 
