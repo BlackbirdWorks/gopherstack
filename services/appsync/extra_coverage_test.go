@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -494,6 +493,3 @@ func TestRenderVTL_ResolveExpr_AllBranches(t *testing.T) {
 		})
 	}
 }
-
-// Ensure the unused strings import doesn't trigger lint (used in handler_test.go).
-var _ = strings.NewReader

@@ -1,3 +1,5 @@
+// Package appsync exposes unexported functions for use in external test packages.
+// These exports exist solely for testing and must not be called from production code.
 package appsync
 
 // RenderVTL is the exported test hook for the VTL template renderer.

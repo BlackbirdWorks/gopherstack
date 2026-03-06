@@ -43,6 +43,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -133,6 +134,7 @@ type CLI struct {
 	route53resolverHandler       service.Registerable
 	transcribeHandler            service.Registerable
 	supportHandler               service.Registerable
+	appSyncHandler               service.Registerable
 	snsClient                    *sns.Client
 	kmsClient                    *kms.Client
 	iamClient                    *iam.Client
@@ -750,6 +752,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.rdsHandler = byName["RDS"]
 	cli.transcribeHandler = byName["Transcribe"]
 	cli.supportHandler = byName["Support"]
+	cli.appSyncHandler = byName["AppSync"]
 }
 
 // initializeServices initializes all service providers.
@@ -802,6 +805,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
+
+	// Wire AppSync → Lambda for LAMBDA resolver execution.
+	wireAppSyncLambda(byName["AppSync"], byName["Lambda"])
 
 	// Wire Resource Groups Tagging API → service backends so GetResources, TagResources, etc.
 	// aggregate and mutate tags across all services.
@@ -877,6 +883,7 @@ func getServiceProviders() []service.Provider {
 		&transcribebackend.Provider{},
 		&supportbackend.Provider{},
 		&cognitoidpbackend.Provider{},
+		&appsyncbackend.Provider{},
 	}
 }
 
@@ -1332,6 +1339,26 @@ func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
 	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
 		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
 			smH.SetLambdaInvoker(lambdaBk)
+		}
+	}
+}
+
+// wireAppSyncLambda connects the AppSync backend to the Lambda backend so that
+// LAMBDA data source resolvers can invoke Lambda functions.
+func wireAppSyncLambda(appSyncReg, lambdaReg service.Registerable) {
+	appSyncH, ok := appSyncReg.(*appsyncbackend.Handler)
+	if !ok {
+		return
+	}
+
+	appSyncBk, bkOk := appSyncH.Backend.(*appsyncbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			appSyncBk.SetLambdaInvoker(lambdaBk)
 		}
 	}
 }
