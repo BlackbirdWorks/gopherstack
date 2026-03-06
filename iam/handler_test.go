@@ -1578,10 +1578,10 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:   "DeleteRole_NotFound",
-			action: "DeleteRole",
-			params: map[string]string{"RoleName": "ghost"},
-			setup:  func(_ *iam.InMemoryBackend) {},
+			name:       "DeleteRole_NotFound",
+			action:     "DeleteRole",
+			params:     map[string]string{"RoleName": "ghost"},
+			setup:      func(_ *iam.InMemoryBackend) {},
 			wantCode:   "NoSuchEntity",
 			wantStatus: http.StatusBadRequest,
 		},
@@ -1679,6 +1679,50 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			action:     "DeleteInstanceProfile",
 			params:     map[string]string{"InstanceProfileName": "ghost"},
 			wantCode:   "NoSuchEntity",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "DeleteUser_DeleteConflict",
+			action: "DeleteUser",
+			params: map[string]string{"UserName": "alice"},
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("alice", "/")
+				pol, _ := b.CreatePolicy("StuckPolicy", "/", "")
+				_ = b.AttachUserPolicy("alice", pol.Arn)
+			},
+			wantCode:   "DeleteConflict",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "DeleteRole_DeleteConflict",
+			action: "DeleteRole",
+			params: map[string]string{"RoleName": "MyRole"},
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateRole("MyRole", "/", "")
+				pol, _ := b.CreatePolicy("RolePolicy", "/", "")
+				_ = b.AttachRolePolicy("MyRole", pol.Arn)
+			},
+			wantCode:   "DeleteConflict",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "CreateRole_MalformedPolicyDocument",
+			action: "CreateRole",
+			params: map[string]string{
+				"RoleName":                 "BadRole",
+				"AssumeRolePolicyDocument": "not-json",
+			},
+			wantCode:   "MalformedPolicyDocument",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "CreatePolicy_MalformedPolicyDocument",
+			action: "CreatePolicy",
+			params: map[string]string{
+				"PolicyName":     "BadPolicy",
+				"PolicyDocument": "not-json",
+			},
+			wantCode:   "MalformedPolicyDocument",
 			wantStatus: http.StatusBadRequest,
 		},
 	} {

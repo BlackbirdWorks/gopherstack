@@ -1,6 +1,7 @@
 package iam
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -39,6 +40,10 @@ var (
 	ErrInstanceProfileAlreadyExists = errors.New("EntityAlreadyExists")
 	// ErrInvalidAction is returned when an unknown IAM action is requested.
 	ErrInvalidAction = errors.New("InvalidAction")
+	// ErrMalformedPolicyDocument is returned when a policy document is not valid JSON.
+	ErrMalformedPolicyDocument = errors.New("MalformedPolicyDocument")
+	// ErrDeleteConflict is returned when an entity has attached resources that prevent deletion.
+	ErrDeleteConflict = errors.New("DeleteConflict")
 )
 
 // StorageBackend defines the interface for the IAM in-memory store.
@@ -175,6 +180,10 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	if len(b.userPolicies[userName]) > 0 {
+		return fmt.Errorf("%w: user %q has attached policies", ErrDeleteConflict, userName)
+	}
+
 	delete(b.users, userName)
 
 	return nil
@@ -212,6 +221,10 @@ func (b *InMemoryBackend) CreateRole(roleName, path, assumeRolePolicyDocument st
 		return nil, fmt.Errorf("%w: role %q already exists", ErrRoleAlreadyExists, roleName)
 	}
 
+	if assumeRolePolicyDocument != "" && !json.Valid([]byte(assumeRolePolicyDocument)) {
+		return nil, fmt.Errorf("%w: invalid JSON in AssumeRolePolicyDocument", ErrMalformedPolicyDocument)
+	}
+
 	p := normPath(path)
 	r := Role{
 		RoleName:                 roleName,
@@ -233,6 +246,10 @@ func (b *InMemoryBackend) DeleteRole(roleName string) error {
 
 	if _, exists := b.roles[roleName]; !exists {
 		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if len(b.rolePolicies[roleName]) > 0 {
+		return fmt.Errorf("%w: role %q has attached policies", ErrDeleteConflict, roleName)
 	}
 
 	delete(b.roles, roleName)
@@ -279,6 +296,10 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 		return nil, fmt.Errorf("%w: policy %q already exists", ErrPolicyAlreadyExists, policyName)
 	}
 
+	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
+		return nil, fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
+	}
+
 	p := normPath(path)
 	pol := Policy{
 		PolicyName:     policyName,
@@ -297,6 +318,20 @@ func (b *InMemoryBackend) CreatePolicy(policyName, path, policyDocument string) 
 func (b *InMemoryBackend) DeletePolicy(policyArn string) error {
 	b.mu.Lock("DeletePolicy")
 	defer b.mu.Unlock()
+
+	// Check for attachment conflicts before deleting — iterating the policy maps
+	// directly avoids a redundant join through b.users / b.roles.
+	for userName, attached := range b.userPolicies {
+		if slices.Contains(attached, policyArn) {
+			return fmt.Errorf("%w: policy %q is attached to user %q", ErrDeleteConflict, policyArn, userName)
+		}
+	}
+
+	for roleName, attached := range b.rolePolicies {
+		if slices.Contains(attached, policyArn) {
+			return fmt.Errorf("%w: policy %q is attached to role %q", ErrDeleteConflict, policyArn, roleName)
+		}
+	}
 
 	for name, p := range b.policies {
 		if p.Arn == policyArn {

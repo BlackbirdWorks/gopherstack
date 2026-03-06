@@ -81,6 +81,65 @@ func TestIntegration_ErrorCodes_IAM(t *testing.T) {
 				assert.ErrorAs(t, err, &noSuchEntity, "expected NoSuchEntityException")
 			},
 		},
+		{
+			name: "MalformedPolicyDocumentException_CreateRole",
+			operation: func(t *testing.T) error {
+				t.Helper()
+				_, err := client.CreateRole(ctx, &iamsdk.CreateRoleInput{
+					RoleName:                 aws.String("bad-role-" + uuid.NewString()[:8]),
+					AssumeRolePolicyDocument: aws.String("not-json"),
+				})
+
+				return err
+			},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.Error(t, err)
+				var malformed *iamtypes.MalformedPolicyDocumentException
+				assert.ErrorAs(t, err, &malformed, "expected MalformedPolicyDocumentException")
+			},
+		},
+		{
+			name: "DeleteConflictException_DeleteUserWithPolicy",
+			operation: func(t *testing.T) error {
+				t.Helper()
+				userName := "conflict-user-" + uuid.NewString()[:8]
+				_, err := client.CreateUser(ctx, &iamsdk.CreateUserInput{UserName: aws.String(userName)})
+				require.NoError(t, err)
+
+				polName := "conflict-pol-" + uuid.NewString()[:8]
+				polOut, err := client.CreatePolicy(ctx, &iamsdk.CreatePolicyInput{
+					PolicyName:     aws.String(polName),
+					PolicyDocument: aws.String(`{"Version":"2012-10-17","Statement":[]}`),
+				})
+				require.NoError(t, err)
+
+				t.Cleanup(func() {
+					_, _ = client.DetachUserPolicy(ctx, &iamsdk.DetachUserPolicyInput{
+						UserName:  aws.String(userName),
+						PolicyArn: polOut.Policy.Arn,
+					})
+					_, _ = client.DeleteUser(ctx, &iamsdk.DeleteUserInput{UserName: aws.String(userName)})
+					_, _ = client.DeletePolicy(ctx, &iamsdk.DeletePolicyInput{PolicyArn: polOut.Policy.Arn})
+				})
+
+				_, err = client.AttachUserPolicy(ctx, &iamsdk.AttachUserPolicyInput{
+					UserName:  aws.String(userName),
+					PolicyArn: polOut.Policy.Arn,
+				})
+				require.NoError(t, err)
+
+				_, err = client.DeleteUser(ctx, &iamsdk.DeleteUserInput{UserName: aws.String(userName)})
+
+				return err
+			},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.Error(t, err)
+				var deleteConflict *iamtypes.DeleteConflictException
+				assert.ErrorAs(t, err, &deleteConflict, "expected DeleteConflictException")
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -254,6 +313,31 @@ func TestIntegration_ErrorCodes_KMS(t *testing.T) {
 				require.Error(t, err)
 				var invalidState *kmstypes.KMSInvalidStateException
 				assert.ErrorAs(t, err, &invalidState, "expected KMSInvalidStateException")
+			},
+		},
+		{
+			name: "InvalidKeyUsageException_Encrypt_SignVerifyKey",
+			operation: func(t *testing.T) error {
+				t.Helper()
+				createOut, createErr := client.CreateKey(ctx, &kms.CreateKeyInput{
+					Description: aws.String("test-sign-verify-" + uuid.NewString()[:8]),
+					KeyUsage:    kmstypes.KeyUsageTypeSignVerify,
+				})
+				require.NoError(t, createErr)
+				keyID := *createOut.KeyMetadata.KeyId
+
+				_, err := client.Encrypt(ctx, &kms.EncryptInput{
+					KeyId:     aws.String(keyID),
+					Plaintext: []byte("test"),
+				})
+
+				return err
+			},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+				require.Error(t, err)
+				var invalidKeyUsage *kmstypes.InvalidKeyUsageException
+				assert.ErrorAs(t, err, &invalidKeyUsage, "expected InvalidKeyUsageException")
 			},
 		},
 	}

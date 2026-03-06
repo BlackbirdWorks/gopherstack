@@ -872,6 +872,10 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errors.Is(reqErr, ErrGroupAlreadyExists),
 		errors.Is(reqErr, ErrInstanceProfileAlreadyExists):
 		code = "EntityAlreadyExists"
+	case errors.Is(reqErr, ErrDeleteConflict):
+		code = "DeleteConflict"
+	case errors.Is(reqErr, ErrMalformedPolicyDocument):
+		code = "MalformedPolicyDocument"
 	case errors.Is(reqErr, ErrInvalidAction):
 		code = "InvalidAction"
 	default:
