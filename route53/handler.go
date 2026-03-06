@@ -286,9 +286,9 @@ type xmlListHostedZonesResponse struct {
 	XMLName     xml.Name        `xml:"ListHostedZonesResponse"`
 	Xmlns       string          `xml:"xmlns,attr"`
 	MaxItems    string          `xml:"MaxItems"`
+	NextMarker  string          `xml:"NextMarker,omitempty"`
 	HostedZones []xmlHostedZone `xml:"HostedZones>HostedZone"`
 	IsTruncated bool            `xml:"IsTruncated"`
-	NextMarker  string          `xml:"NextMarker,omitempty"`
 }
 
 type xmlChangeResourceRecordSetsResponse struct {

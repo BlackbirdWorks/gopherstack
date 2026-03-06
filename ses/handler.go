@@ -399,8 +399,8 @@ type xmlMemberList struct {
 }
 
 type listIdentitiesResult struct {
-	Identities xmlMemberList `xml:"Identities"`
 	NextToken  string        `xml:"NextToken,omitempty"`
+	Identities xmlMemberList `xml:"Identities"`
 }
 
 type listIdentitiesResponse struct {

@@ -385,8 +385,8 @@ func (h *Handler) handleListStacks(form url.Values, c *echo.Context) error {
 	}
 
 	type listResult struct {
-		StackSummaries []summaryXML `xml:"StackSummaries>member"`
 		NextToken      string       `xml:"NextToken,omitempty"`
+		StackSummaries []summaryXML `xml:"StackSummaries>member"`
 	}
 	type response struct {
 		XMLName   xml.Name   `xml:"ListStacksResponse"`
@@ -624,8 +624,8 @@ func (h *Handler) handleListChangeSets(form url.Values, c *echo.Context) error {
 	}
 
 	type listResult struct {
-		Summaries []summaryXML `xml:"Summaries>member"`
 		NextToken string       `xml:"NextToken,omitempty"`
+		Summaries []summaryXML `xml:"Summaries>member"`
 	}
 	type response struct {
 		XMLName   xml.Name   `xml:"ListChangeSetsResponse"`

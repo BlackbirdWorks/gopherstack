@@ -210,7 +210,7 @@ func TestDashboard_SES_DeleteIdentity(t *testing.T) {
 		require.Equal(t, http.StatusFound, w.Code)
 
 		// Verify identity is gone.
-		identities := stack.SESHandler.Backend.ListIdentities()
+		identities := stack.SESHandler.Backend.ListIdentities("", 0).Data
 		assert.NotContains(t, identities, "del@example.com")
 	})
 

@@ -61,8 +61,8 @@ type listCertificatesInput struct {
 }
 
 type listCertificatesOutput struct {
-	CertificateSummaryList []certificateSummary `json:"CertificateSummaryList"`
 	NextToken              string               `json:"NextToken,omitempty"`
+	CertificateSummaryList []certificateSummary `json:"CertificateSummaryList"`
 }
 
 type deleteCertificateOutput struct{}

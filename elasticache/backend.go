@@ -211,15 +211,13 @@ func (b *InMemoryBackend) DescribeClusters(id, marker string, maxRecords int) (p
 		if !exists {
 			return page.Page[Cluster]{}, ErrClusterNotFound
 		}
-		out := *c
 
-		return page.Page[Cluster]{Data: []Cluster{out}}, nil
+		return page.Page[Cluster]{Data: []Cluster{*c}}, nil
 	}
 
 	out := make([]Cluster, 0, len(b.clusters))
 	for _, c := range b.clusters {
-		cp := *c
-		out = append(out, cp)
+		out = append(out, *c)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ClusterID < out[j].ClusterID })
@@ -282,7 +280,10 @@ func (b *InMemoryBackend) DeleteReplicationGroup(id string) error {
 }
 
 // DescribeReplicationGroups returns one replication group by id, or a paginated list of all when id is empty.
-func (b *InMemoryBackend) DescribeReplicationGroups(id, marker string, maxRecords int) (page.Page[ReplicationGroup], error) {
+func (b *InMemoryBackend) DescribeReplicationGroups(
+	id, marker string,
+	maxRecords int,
+) (page.Page[ReplicationGroup], error) {
 	b.mu.RLock("DescribeReplicationGroups")
 	defer b.mu.RUnlock()
 
@@ -291,15 +292,13 @@ func (b *InMemoryBackend) DescribeReplicationGroups(id, marker string, maxRecord
 		if !exists {
 			return page.Page[ReplicationGroup]{}, ErrReplicationGroupNotFound
 		}
-		out := *rg
 
-		return page.Page[ReplicationGroup]{Data: []ReplicationGroup{out}}, nil
+		return page.Page[ReplicationGroup]{Data: []ReplicationGroup{*rg}}, nil
 	}
 
 	out := make([]ReplicationGroup, 0, len(b.replicationGroups))
 	for _, rg := range b.replicationGroups {
-		cp := *rg
-		out = append(out, cp)
+		out = append(out, *rg)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].ReplicationGroupID < out[j].ReplicationGroupID })
