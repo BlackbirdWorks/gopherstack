@@ -6,7 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	kmsbackend "github.com/blackbirdworks/gopherstack/kms"
+	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 )
 
 // kmsKeyDetailData is the template data for the KMS key detail page.

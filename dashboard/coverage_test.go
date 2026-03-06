@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cwlogsbackend "github.com/blackbirdworks/gopherstack/cloudwatchlogs"
+	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
 // TestDashboard_Metrics covers getMetricsJSON and metricsIndex.

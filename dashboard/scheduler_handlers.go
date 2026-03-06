@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	schedulerbackend "github.com/blackbirdworks/gopherstack/scheduler"
+	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
 // schedulerView is the view model for a single EventBridge Scheduler schedule.

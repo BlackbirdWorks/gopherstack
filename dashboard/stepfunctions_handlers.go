@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	sfnbackend "github.com/blackbirdworks/gopherstack/stepfunctions"
+	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
 // stepFunctionsIndexData is the template data for the Step Functions list page.

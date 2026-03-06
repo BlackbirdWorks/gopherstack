@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	schedulerbackend "github.com/blackbirdworks/gopherstack/scheduler"
+	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 )
 
 // TestSchedulerDashboard verifies the Scheduler dashboard UI renders schedules and supports create/delete.

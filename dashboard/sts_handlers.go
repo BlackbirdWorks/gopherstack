@@ -3,7 +3,7 @@ package dashboard
 import (
 	"github.com/labstack/echo/v5"
 
-	stsbackend "github.com/blackbirdworks/gopherstack/sts"
+	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 )
 
 // stsIndexData is the template data for the STS caller-identity overview page.

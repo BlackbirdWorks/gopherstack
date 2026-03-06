@@ -6,7 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/sns"
+	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
 // snsIndexData is the template data for the SNS topics list page.

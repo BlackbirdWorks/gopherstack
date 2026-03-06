@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	cfnbackend "github.com/blackbirdworks/gopherstack/cloudformation"
+	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 )
 
 // cloudFormationIndexData is the template data for the CloudFormation stacks list page.

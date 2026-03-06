@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
+	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
 
 // TestCloudWatchDashboard verifies the CloudWatch dashboard UI renders metrics.

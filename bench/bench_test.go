@@ -21,12 +21,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/blackbirdworks/gopherstack/dynamodb"
-	"github.com/blackbirdworks/gopherstack/dynamodb/models"
-	"github.com/blackbirdworks/gopherstack/kms"
-	"github.com/blackbirdworks/gopherstack/s3"
-	"github.com/blackbirdworks/gopherstack/secretsmanager"
-	"github.com/blackbirdworks/gopherstack/sqs"
+	"github.com/blackbirdworks/gopherstack/services/dynamodb"
+	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
+	"github.com/blackbirdworks/gopherstack/services/kms"
+	"github.com/blackbirdworks/gopherstack/services/s3"
+	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	"github.com/blackbirdworks/gopherstack/services/sqs"
 
 	"github.com/stretchr/testify/require"
 )

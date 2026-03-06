@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	lambdabackend "github.com/blackbirdworks/gopherstack/lambda"
+	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
 // TestE2E_LambdaDashboard_EmptyState verifies that the Lambda dashboard renders

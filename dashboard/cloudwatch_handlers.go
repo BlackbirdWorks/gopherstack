@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	cwbackend "github.com/blackbirdworks/gopherstack/cloudwatch"
+	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
 
 // cloudWatchIndexData is the template data for the CloudWatch overview page.

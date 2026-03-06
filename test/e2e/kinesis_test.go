@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
+	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
 // TestKinesisDashboard verifies the Kinesis dashboard UI renders streams.

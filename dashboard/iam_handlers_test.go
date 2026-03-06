@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
-	iambackend "github.com/blackbirdworks/gopherstack/iam"
 	"github.com/blackbirdworks/gopherstack/internal/teststack"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 )
 
 // newIAMStack creates an integration stack with a real IAM backend wired in.

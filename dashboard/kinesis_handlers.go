@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	kinesisbackend "github.com/blackbirdworks/gopherstack/kinesis"
+	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 )
 
 // kinesisStreamView is the view model for a single stream in the index listing.
