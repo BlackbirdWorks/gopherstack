@@ -540,7 +540,9 @@ func matchResourcePath(pattern, urlPath string) (map[string]string, bool) {
 	for i, seg := range patternSegs {
 		// Greedy variable {param+} must be the last pattern segment.
 		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "+}") {
-			// If the greedy segment is not the last, the pattern is malformed — treat as non-matching.
+			// If the greedy segment is not the last, the pattern is malformed.
+			// Return non-matching so callers receive a 404 rather than an incorrect match.
+			// Real AWS API Gateway disallows greedy variables in non-terminal position.
 			if i != len(patternSegs)-1 {
 				return nil, false
 			}
