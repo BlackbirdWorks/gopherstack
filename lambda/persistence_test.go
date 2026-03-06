@@ -51,8 +51,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *lambda.InMemoryBackend, _ string) {
 				t.Helper()
 
-				fns := b.ListFunctions()
-				assert.Empty(t, fns)
+				fns := b.ListFunctions("", 0)
+				assert.Empty(t, fns.Data)
 			},
 		},
 	}

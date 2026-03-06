@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -525,13 +526,14 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 func (h *Handler) handleListESMs(c *echo.Context) error {
 	if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
 		functionName := c.Request().URL.Query().Get("FunctionName")
-		mappings := lambdaBk.ListEventSourceMappings(functionName)
-		resp := make([]jsonESMResponse, len(mappings))
-		for i, m := range mappings {
+		marker, maxItems := parsePaginationParams(c.Request())
+		p := lambdaBk.ListEventSourceMappings(functionName, marker, maxItems)
+		resp := make([]jsonESMResponse, len(p.Data))
+		for i, m := range p.Data {
 			resp[i] = toJSONESMResponse(m)
 		}
 
-		return c.JSON(http.StatusOK, jsonListESMResponse{EventSourceMappings: resp})
+		return c.JSON(http.StatusOK, jsonListESMResponse{EventSourceMappings: resp, NextMarker: p.Next})
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
@@ -697,11 +699,27 @@ func (h *Handler) handleGetFunction(c *echo.Context, name string) error {
 	})
 }
 
+// parsePaginationParams extracts Marker and MaxItems from the request query string.
+func parsePaginationParams(r *http.Request) (string, int) {
+	marker := r.URL.Query().Get("Marker")
+	maxItems := 0
+
+	if v := r.URL.Query().Get("MaxItems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
+
+	return marker, maxItems
+}
+
 func (h *Handler) handleListFunctions(c *echo.Context) error {
-	fns := h.Backend.ListFunctions()
+	marker, maxItems := parsePaginationParams(c.Request())
+	p := h.Backend.ListFunctions(marker, maxItems)
 
 	return c.JSON(http.StatusOK, &ListFunctionsOutput{
-		Functions: fns,
+		Functions:  p.Data,
+		NextMarker: p.Next,
 	})
 }
 
@@ -1079,7 +1097,9 @@ func (h *Handler) handleListVersionsByFunction(c *echo.Context, name string) err
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	versions, err := lambdaBk.ListVersionsByFunction(name)
+	marker, maxItems := parsePaginationParams(c.Request())
+
+	p, err := lambdaBk.ListVersionsByFunction(name, marker, maxItems)
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
@@ -1089,7 +1109,7 @@ func (h *Handler) handleListVersionsByFunction(c *echo.Context, name string) err
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 	}
 
-	return c.JSON(http.StatusOK, &ListVersionsByFunctionOutput{Versions: versions})
+	return c.JSON(http.StatusOK, &ListVersionsByFunctionOutput{Versions: p.Data, NextMarker: p.Next})
 }
 
 // handleCreateAlias handles POST /2015-03-31/functions/{name}/aliases.
@@ -1162,7 +1182,9 @@ func (h *Handler) handleListAliases(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
 	}
 
-	aliases, err := lambdaBk.ListAliases(name)
+	marker, maxItems := parsePaginationParams(c.Request())
+
+	p, err := lambdaBk.ListAliases(name, marker, maxItems)
 	if err != nil {
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
@@ -1172,7 +1194,7 @@ func (h *Handler) handleListAliases(c *echo.Context, name string) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 	}
 
-	return c.JSON(http.StatusOK, &ListAliasesOutput{Aliases: aliases})
+	return c.JSON(http.StatusOK, &ListAliasesOutput{Aliases: p.Data, NextMarker: p.Next})
 }
 
 // handleUpdateAlias handles PUT /2015-03-31/functions/{name}/aliases/{aliasName}.

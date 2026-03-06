@@ -88,7 +88,7 @@ func (p *EventSourcePoller) run(ctx context.Context) {
 
 // poll iterates over all enabled event source mappings and processes new records.
 func (p *EventSourcePoller) poll(ctx context.Context) {
-	mappings := p.lambdaBackend.ListEventSourceMappings("")
+	mappings := p.lambdaBackend.ListEventSourceMappings("", "", 0).Data
 	for _, m := range mappings {
 		if m.State != ESMStateEnabled {
 			continue

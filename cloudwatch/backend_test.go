@@ -29,9 +29,9 @@ func TestCloudWatchBackend_PutMetricData_Multiple(t *testing.T) {
 		{MetricName: "CPU", Value: 20, Count: 1, Sum: 20, Min: 20, Max: 20, Timestamp: time.Now()},
 	}
 	require.NoError(t, b.PutMetricData("AWS/EC2", data))
-	metrics, err := b.ListMetrics("AWS/EC2", "CPU")
+	metrics, err := b.ListMetrics("AWS/EC2", "CPU", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, metrics, 1)
+	assert.Len(t, metrics.Data, 1)
 }
 
 func TestCloudWatchBackend_ListMetrics(t *testing.T) {
@@ -45,18 +45,18 @@ func TestCloudWatchBackend_ListMetrics(t *testing.T) {
 		{MetricName: "M2", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: time.Now()},
 	})
 
-	all, err := b.ListMetrics("", "")
+	all, err := b.ListMetrics("", "", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, all, 2)
+	assert.Len(t, all.Data, 2)
 
-	ns1, err := b.ListMetrics("NS1", "")
+	ns1, err := b.ListMetrics("NS1", "", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, ns1, 1)
-	assert.Equal(t, "M1", ns1[0].MetricName)
+	assert.Len(t, ns1.Data, 1)
+	assert.Equal(t, "M1", ns1.Data[0].MetricName)
 
-	byName, err := b.ListMetrics("", "M2")
+	byName, err := b.ListMetrics("", "M2", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, byName, 1)
+	assert.Len(t, byName.Data, 1)
 }
 
 func TestCloudWatchBackend_GetMetricStatistics(t *testing.T) {
@@ -205,12 +205,12 @@ func TestCloudWatchBackend_PutAndDescribeAlarms(t *testing.T) {
 	}
 	require.NoError(t, b.PutMetricAlarm(alarm))
 
-	alarms, err := b.DescribeAlarms(nil, "")
+	alarms, err := b.DescribeAlarms(nil, "", "", 0)
 	require.NoError(t, err)
-	require.Len(t, alarms, 1)
-	assert.Equal(t, "high-cpu", alarms[0].AlarmName)
-	assert.Contains(t, alarms[0].AlarmArn, "high-cpu")
-	assert.Equal(t, "INSUFFICIENT_DATA", alarms[0].StateValue)
+	require.Len(t, alarms.Data, 1)
+	assert.Equal(t, "high-cpu", alarms.Data[0].AlarmName)
+	assert.Contains(t, alarms.Data[0].AlarmArn, "high-cpu")
+	assert.Equal(t, "INSUFFICIENT_DATA", alarms.Data[0].StateValue)
 }
 
 func TestCloudWatchBackend_DescribeAlarms(t *testing.T) {
@@ -255,9 +255,9 @@ func TestCloudWatchBackend_DescribeAlarms(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			alarms, err := b.DescribeAlarms(tt.alarmNames, tt.stateValue)
+			alarms, err := b.DescribeAlarms(tt.alarmNames, tt.stateValue, "", 0)
 			require.NoError(t, err)
-			assert.Len(t, alarms, tt.wantCount)
+			assert.Len(t, alarms.Data, tt.wantCount)
 		})
 	}
 }
@@ -298,9 +298,9 @@ func TestCloudWatchBackend_DeleteAlarms(t *testing.T) {
 
 			require.NoError(t, b.DeleteAlarms(tt.names))
 
-			alarms, err := b.DescribeAlarms(nil, "")
+			alarms, err := b.DescribeAlarms(nil, "", "", 0)
 			require.NoError(t, err)
-			assert.Len(t, alarms, tt.wantRemaining)
+			assert.Len(t, alarms.Data, tt.wantRemaining)
 		})
 	}
 }
@@ -319,10 +319,10 @@ func TestCloudWatchBackend_PutMetricAlarm_UpdateExisting(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "upd", Threshold: 10}))
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "upd", Threshold: 20}))
-	alarms, err := b.DescribeAlarms(nil, "")
+	alarms, err := b.DescribeAlarms(nil, "", "", 0)
 	require.NoError(t, err)
-	assert.Len(t, alarms, 1)
-	assert.InDelta(t, 20.0, alarms[0].Threshold, 0.01)
+	assert.Len(t, alarms.Data, 1)
+	assert.InDelta(t, 20.0, alarms.Data[0].Threshold, 0.01)
 }
 
 func TestCloudWatchBackend_NewInMemoryBackend(t *testing.T) {

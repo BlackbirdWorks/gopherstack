@@ -409,24 +409,31 @@ func (h *Handler) cborGetMetricData(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborListMetrics(input cbor.Map, c *echo.Context) error {
 	namespace := cborStr(input, "Namespace")
 	metricName := cborStr(input, "MetricName")
+	nextToken := cborStr(input, "NextToken")
+	maxResults := int(cborInt32(input, "MaxResults"))
 
-	metrics, err := h.Backend.ListMetrics(namespace, metricName)
+	p, err := h.Backend.ListMetrics(namespace, metricName, nextToken, maxResults)
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	mList := make(cbor.List, 0, len(metrics))
+	mList := make(cbor.List, 0, len(p.Data))
 
-	for _, m := range metrics {
+	for _, m := range p.Data {
 		mList = append(mList, cbor.Map{
 			"Namespace":  cbor.String(m.Namespace),
 			"MetricName": cbor.String(m.MetricName),
 		})
 	}
 
-	return writeCBOR(c, cbor.Map{
+	resp := cbor.Map{
 		"Metrics": mList,
-	})
+	}
+	if p.Next != "" {
+		resp["NextToken"] = cbor.String(p.Next)
+	}
+
+	return writeCBOR(c, resp)
 }
 
 func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
@@ -457,15 +464,17 @@ func (h *Handler) cborPutMetricAlarm(input cbor.Map, c *echo.Context) error {
 func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 	alarmNames := cborStrList(input, "AlarmNames")
 	stateValue := cborStr(input, "StateValue")
+	nextToken := cborStr(input, "NextToken")
+	maxRecords := int(cborInt32(input, "MaxRecords"))
 
-	alarms, err := h.Backend.DescribeAlarms(alarmNames, stateValue)
+	p, err := h.Backend.DescribeAlarms(alarmNames, stateValue, nextToken, maxRecords)
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	alarmList := make(cbor.List, 0, len(alarms))
+	alarmList := make(cbor.List, 0, len(p.Data))
 
-	for _, a := range alarms {
+	for _, a := range p.Data {
 		alarmList = append(alarmList, cbor.Map{
 			"AlarmName":          cbor.String(a.AlarmName),
 			"AlarmArn":           cbor.String(a.AlarmArn),
@@ -486,10 +495,15 @@ func (h *Handler) cborDescribeAlarms(input cbor.Map, c *echo.Context) error {
 		})
 	}
 
-	return writeCBOR(c, cbor.Map{
+	resp := cbor.Map{
 		"MetricAlarms":    alarmList,
 		"CompositeAlarms": cbor.List{},
-	})
+	}
+	if p.Next != "" {
+		resp["NextToken"] = cbor.String(p.Next)
+	}
+
+	return writeCBOR(c, resp)
 }
 
 func (h *Handler) cborDeleteAlarms(input cbor.Map, c *echo.Context) error {

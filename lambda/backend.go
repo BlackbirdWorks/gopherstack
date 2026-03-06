@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -50,11 +51,14 @@ var (
 // versionLatest is the sentinel qualifier for the live function configuration.
 const versionLatest = "$LATEST"
 
+// lambdaDefaultMaxItems is the default page size for ListFunctions.
+const lambdaDefaultMaxItems = 50
+
 // StorageBackend defines the interface for Lambda backend operations.
 type StorageBackend interface {
 	CreateFunction(fn *FunctionConfiguration) error
 	GetFunction(name string) (*FunctionConfiguration, error)
-	ListFunctions() []*FunctionConfiguration
+	ListFunctions(marker string, maxItems int) page.Page[*FunctionConfiguration]
 	DeleteFunction(name string) error
 	UpdateFunction(fn *FunctionConfiguration) error
 	InvokeFunction(ctx context.Context, name string, invocationType InvocationType, payload []byte) ([]byte, int, error)
@@ -240,8 +244,11 @@ func (b *InMemoryBackend) GetEventSourceMapping(uuid string) (*EventSourceMappin
 	return m, nil
 }
 
-// ListEventSourceMappings returns all event source mappings, optionally filtered by function name.
-func (b *InMemoryBackend) ListEventSourceMappings(functionName string) []*EventSourceMapping {
+// ListEventSourceMappings returns a page of event source mappings, optionally filtered by function name.
+func (b *InMemoryBackend) ListEventSourceMappings(
+	functionName, marker string,
+	maxItems int,
+) page.Page[*EventSourceMapping] {
 	b.mu.RLock("ListEventSourceMappings")
 	defer b.mu.RUnlock()
 
@@ -254,7 +261,11 @@ func (b *InMemoryBackend) ListEventSourceMappings(functionName string) []*EventS
 		result = append(result, m)
 	}
 
-	return result
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].UUID < result[j].UUID
+	})
+
+	return page.New(result, marker, maxItems, lambdaDefaultMaxItems)
 }
 
 // DeleteEventSourceMapping removes an event source mapping by UUID.
@@ -562,8 +573,8 @@ func (b *InMemoryBackend) GetFunction(name string) (*FunctionConfiguration, erro
 	return fn, nil
 }
 
-// ListFunctions returns all Lambda function configurations sorted by name.
-func (b *InMemoryBackend) ListFunctions() []*FunctionConfiguration {
+// ListFunctions returns a page of Lambda function configurations sorted by name.
+func (b *InMemoryBackend) ListFunctions(marker string, maxItems int) page.Page[*FunctionConfiguration] {
 	b.mu.RLock("ListFunctions")
 	defer b.mu.RUnlock()
 
@@ -576,7 +587,7 @@ func (b *InMemoryBackend) ListFunctions() []*FunctionConfiguration {
 		return fns[i].FunctionName < fns[j].FunctionName
 	})
 
-	return fns
+	return page.New(fns, marker, maxItems, lambdaDefaultMaxItems)
 }
 
 // DeleteFunction removes a Lambda function and cleans up its runtime server.
@@ -692,14 +703,17 @@ func (b *InMemoryBackend) GetVersion(name, version string) (*FunctionVersion, er
 	return nil, ErrVersionNotFound
 }
 
-// ListVersionsByFunction returns all published versions for a function (including $LATEST).
-func (b *InMemoryBackend) ListVersionsByFunction(name string) ([]*FunctionVersion, error) {
+// ListVersionsByFunction returns a page of published versions for a function (including $LATEST).
+func (b *InMemoryBackend) ListVersionsByFunction(
+	name, marker string,
+	maxItems int,
+) (page.Page[*FunctionVersion], error) {
 	b.mu.RLock("ListVersionsByFunction")
 	defer b.mu.RUnlock()
 
 	fn, ok := b.functions[name]
 	if !ok {
-		return nil, ErrFunctionNotFound
+		return page.Page[*FunctionVersion]{}, ErrFunctionNotFound
 	}
 
 	result := make([]*FunctionVersion, 0, len(b.versions[name])+1)
@@ -708,7 +722,7 @@ func (b *InMemoryBackend) ListVersionsByFunction(name string) ([]*FunctionVersio
 	result = append(result, fnToVersion(fn))
 	result = append(result, b.versions[name]...)
 
-	return result, nil
+	return page.New(result, marker, maxItems, lambdaDefaultMaxItems), nil
 }
 
 // versionInList reports whether target matches any version in the list.
@@ -781,13 +795,13 @@ func (b *InMemoryBackend) GetAlias(name, aliasName string) (*FunctionAlias, erro
 	return alias, nil
 }
 
-// ListAliases returns all aliases for a function sorted by name.
-func (b *InMemoryBackend) ListAliases(name string) ([]*FunctionAlias, error) {
+// ListAliases returns a page of aliases for a function sorted by name.
+func (b *InMemoryBackend) ListAliases(name, marker string, maxItems int) (page.Page[*FunctionAlias], error) {
 	b.mu.RLock("ListAliases")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.functions[name]; !ok {
-		return nil, ErrFunctionNotFound
+		return page.Page[*FunctionAlias]{}, ErrFunctionNotFound
 	}
 
 	aliasMap := b.aliases[name]
@@ -801,7 +815,7 @@ func (b *InMemoryBackend) ListAliases(name string) ([]*FunctionAlias, error) {
 		return result[i].Name < result[j].Name
 	})
 
-	return result, nil
+	return page.New(result, marker, maxItems, lambdaDefaultMaxItems), nil
 }
 
 // UpdateAlias updates an existing alias.

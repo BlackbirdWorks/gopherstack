@@ -460,7 +460,10 @@ func buildGetMetricStatisticsResponse(metricName string, dps []Datapoint) any {
 func (h *Handler) handleListMetrics(form url.Values, c *echo.Context) error {
 	namespace := form.Get("Namespace")
 	metricName := form.Get("MetricName")
-	metrics, err := h.Backend.ListMetrics(namespace, metricName)
+	nextToken := form.Get("NextToken")
+	maxResults, _ := strconv.Atoi(form.Get("MaxResults"))
+
+	p, err := h.Backend.ListMetrics(namespace, metricName, nextToken, maxResults)
 	if err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -474,8 +477,8 @@ func (h *Handler) handleListMetrics(form url.Values, c *echo.Context) error {
 		MetricName string   `xml:"MetricName"`
 		Dimensions []dimXML `xml:"Dimensions>member,omitempty"`
 	}
-	members := make([]metricXML, 0, len(metrics))
-	for _, m := range metrics {
+	members := make([]metricXML, 0, len(p.Data))
+	for _, m := range p.Data {
 		dims := make([]dimXML, 0, len(m.Dimensions))
 		for _, d := range m.Dimensions {
 			dims = append(dims, dimXML(d))
@@ -484,7 +487,7 @@ func (h *Handler) handleListMetrics(form url.Values, c *echo.Context) error {
 	}
 
 	type listResult struct {
-		NextToken string      `xml:"NextToken"`
+		NextToken string      `xml:"NextToken,omitempty"`
 		Metrics   []metricXML `xml:"Metrics>member"`
 	}
 	type response struct {
@@ -496,7 +499,7 @@ func (h *Handler) handleListMetrics(form url.Values, c *echo.Context) error {
 
 	return writeXML(c, response{
 		Xmlns:     cloudwatchNS,
-		Result:    listResult{Metrics: members},
+		Result:    listResult{Metrics: members, NextToken: p.Next},
 		RequestID: uuid.New().String(),
 	})
 }
@@ -538,8 +541,10 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 	alarmNames := parseMemberList(form, "AlarmNames.")
 	stateValue := form.Get("StateValue")
+	nextToken := form.Get("NextToken")
+	maxRecords, _ := strconv.Atoi(form.Get("MaxRecords"))
 
-	alarms, err := h.Backend.DescribeAlarms(alarmNames, stateValue)
+	p, err := h.Backend.DescribeAlarms(alarmNames, stateValue, nextToken, maxRecords)
 	if err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
@@ -558,8 +563,8 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 		EvaluationPeriods  int32   `xml:"EvaluationPeriods"`
 		Period             int32   `xml:"Period"`
 	}
-	members := make([]alarmXML, 0, len(alarms))
-	for _, a := range alarms {
+	members := make([]alarmXML, 0, len(p.Data))
+	for _, a := range p.Data {
 		members = append(members, alarmXML{
 			AlarmName:          a.AlarmName,
 			AlarmArn:           a.AlarmArn,
@@ -577,6 +582,7 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 	}
 
 	type descResult struct {
+		NextToken    string     `xml:"NextToken,omitempty"`
 		MetricAlarms []alarmXML `xml:"MetricAlarms>member"`
 	}
 	type response struct {
@@ -588,7 +594,7 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 
 	return writeXML(c, response{
 		Xmlns:     cloudwatchNS,
-		Result:    descResult{MetricAlarms: members},
+		Result:    descResult{MetricAlarms: members, NextToken: p.Next},
 		RequestID: uuid.New().String(),
 	})
 }
