@@ -730,44 +730,8 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 // initializeServices initializes all service providers.
 func initializeServices(appCtx *service.AppContext) ([]service.Registerable, error) {
 	var services []service.Registerable
-	serviceProviders := []service.Provider{
-		&ddbbackend.Provider{},
-		&s3backend.Provider{},
-		&ssmbackend.Provider{},
-		&iambackend.Provider{},
-		&stsbackend.Provider{},
-		&snsbackend.Provider{},
-		&sqsbackend.Provider{},
-		&kmsbackend.Provider{},
-		&secretsmanagerbackend.Provider{},
-		&lambdabackend.Provider{},
-		&ebbackend.Provider{},
-		&apigwbackend.Provider{},
-		&cwlogsbackend.Provider{},
-		&sfnbackend.Provider{},
-		&cwbackend.Provider{},
-		&kinesisbackend.Provider{},
-		&elasticachebackend.Provider{},
-		&route53backend.Provider{},
-		&sesbackend.Provider{},
-		&ec2backend.Provider{},
-		&opensearchbackend.Provider{},
-		&acmbackend.Provider{},
-		&redshiftbackend.Provider{},
-		&awsconfigbackend.Provider{},
-		&s3controlbackend.Provider{},
-		&resourcegroupsbackend.Provider{},
-		&resourcegroupstaggingapibackend.Provider{},
-		&swfbackend.Provider{},
-		&firehosebackend.Provider{},
-		&schedulerbackend.Provider{},
-		&route53resolverbackend.Provider{},
-		&rdsbackend.Provider{},
-		&transcribebackend.Provider{},
-		&supportbackend.Provider{},
-	}
 
-	for _, provider := range serviceProviders {
+	for _, provider := range getServiceProviders() {
 		svc, err := provider.Init(appCtx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to init %s: %w", provider.Name(), err)
@@ -848,6 +812,46 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// The router sorts services by MatchPriority() at startup, so registration order
 	// does not affect routing correctness.
 	return services, nil
+}
+
+// getServiceProviders returns the list of all available service providers.
+func getServiceProviders() []service.Provider {
+	return []service.Provider{
+		&ddbbackend.Provider{},
+		&s3backend.Provider{},
+		&ssmbackend.Provider{},
+		&iambackend.Provider{},
+		&stsbackend.Provider{},
+		&snsbackend.Provider{},
+		&sqsbackend.Provider{},
+		&kmsbackend.Provider{},
+		&secretsmanagerbackend.Provider{},
+		&lambdabackend.Provider{},
+		&ebbackend.Provider{},
+		&apigwbackend.Provider{},
+		&cwlogsbackend.Provider{},
+		&sfnbackend.Provider{},
+		&cwbackend.Provider{},
+		&kinesisbackend.Provider{},
+		&elasticachebackend.Provider{},
+		&route53backend.Provider{},
+		&sesbackend.Provider{},
+		&ec2backend.Provider{},
+		&opensearchbackend.Provider{},
+		&acmbackend.Provider{},
+		&redshiftbackend.Provider{},
+		&awsconfigbackend.Provider{},
+		&s3controlbackend.Provider{},
+		&resourcegroupsbackend.Provider{},
+		&resourcegroupstaggingapibackend.Provider{},
+		&swfbackend.Provider{},
+		&firehosebackend.Provider{},
+		&schedulerbackend.Provider{},
+		&route53resolverbackend.Provider{},
+		&rdsbackend.Provider{},
+		&transcribebackend.Provider{},
+		&supportbackend.Provider{},
+	}
 }
 
 // startBackgroundWorkers starts all background workers from services.
