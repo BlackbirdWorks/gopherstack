@@ -63,7 +63,7 @@ func TestIntegration_Route53_ResourceRecordSetsChangedWaiter(t *testing.T) {
 	start := time.Now()
 	err = waiter.Wait(ctx, &route53sdk.GetChangeInput{
 		Id: aws.String(changeID),
-	}, 30*time.Second)
+	}, 5*time.Second)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err, "ResourceRecordSetsChangedWaiter should succeed because change returns INSYNC")

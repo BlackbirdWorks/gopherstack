@@ -40,7 +40,7 @@ func TestIntegration_ElastiCache_CacheClusterAvailableWaiter(t *testing.T) {
 	start := time.Now()
 	err = waiter.Wait(ctx, &elasticachesdk.DescribeCacheClustersInput{
 		CacheClusterId: aws.String(clusterID),
-	}, 30*time.Second)
+	}, 5*time.Second)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err, "CacheClusterAvailableWaiter should succeed after cluster is created")

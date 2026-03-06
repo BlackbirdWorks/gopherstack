@@ -94,7 +94,7 @@ func TestIntegration_DDB_TableExistsWaiter(t *testing.T) {
 	start := time.Now()
 	err = waiter.Wait(ctx, &dynamodb.DescribeTableInput{
 		TableName: aws.String(tableName),
-	}, 30*time.Second)
+	}, 5*time.Second)
 	elapsed := time.Since(start)
 
 	t.Logf("TableExistsWaiter completed in %v", elapsed)

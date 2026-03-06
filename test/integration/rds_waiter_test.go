@@ -42,7 +42,7 @@ func TestIntegration_RDS_DBInstanceAvailableWaiter(t *testing.T) {
 	start := time.Now()
 	err = waiter.Wait(ctx, &rdssdk.DescribeDBInstancesInput{
 		DBInstanceIdentifier: aws.String(id),
-	}, 30*time.Second)
+	}, 5*time.Second)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err, "DBInstanceAvailableWaiter should succeed after instance is created")
@@ -80,7 +80,7 @@ func TestIntegration_RDS_DBInstanceDeletedWaiter(t *testing.T) {
 	start := time.Now()
 	err = waiter.Wait(ctx, &rdssdk.DescribeDBInstancesInput{
 		DBInstanceIdentifier: aws.String(id),
-	}, 30*time.Second)
+	}, 5*time.Second)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err, "DBInstanceDeletedWaiter should succeed after instance is deleted")

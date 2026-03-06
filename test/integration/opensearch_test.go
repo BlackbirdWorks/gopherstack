@@ -140,11 +140,13 @@ func TestIntegration_OpenSearch_ProcessingFieldWaiterCompatibility(t *testing.T)
 	require.True(t, ok, "expected DomainStatus key")
 
 	// Processing should be false (domain is immediately ready in the mock)
-	processing, _ := status["Processing"].(bool)
+	processing, ok := status["Processing"].(bool)
+	require.True(t, ok, "Processing field must be a boolean in DomainStatus")
 	assert.False(t, processing, "Processing should be false (domain ready) immediately after creation")
 
 	// DomainProcessingStatus should be Active
-	processingStatus, _ := status["DomainProcessingStatus"].(string)
+	processingStatus, ok := status["DomainProcessingStatus"].(string)
+	require.True(t, ok, "DomainProcessingStatus field must be a string in DomainStatus")
 	assert.Equal(t, "Active", processingStatus, "DomainProcessingStatus should be Active")
 
 	// DescribeDomain should also return Processing: false
@@ -154,6 +156,7 @@ func TestIntegration_OpenSearch_ProcessingFieldWaiterCompatibility(t *testing.T)
 	descStatus, ok := descBody["DomainStatus"].(map[string]any)
 	require.True(t, ok)
 
-	descProcessing, _ := descStatus["Processing"].(bool)
+	descProcessing, ok := descStatus["Processing"].(bool)
+	require.True(t, ok, "Processing field must be a boolean in DescribeDomain DomainStatus")
 	assert.False(t, descProcessing, "DescribeDomain should also return Processing: false")
 }

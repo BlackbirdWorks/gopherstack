@@ -43,7 +43,7 @@ func TestIntegration_CloudFormation_StackCreateCompleteWaiter(t *testing.T) {
 
 	waiter := cloudformationsdk.NewStackCreateCompleteWaiter(client)
 	start := time.Now()
-	err = waiter.Wait(ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)}, 30*time.Second)
+	err = waiter.Wait(ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)}, 5*time.Second)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err, "StackCreateCompleteWaiter should succeed after CreateStack")
@@ -92,7 +92,7 @@ func TestIntegration_CloudFormation_StackUpdateCompleteWaiter(t *testing.T) {
 
 	waiter := cloudformationsdk.NewStackUpdateCompleteWaiter(client)
 	start := time.Now()
-	err = waiter.Wait(ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)}, 30*time.Second)
+	err = waiter.Wait(ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)}, 5*time.Second)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err, "StackUpdateCompleteWaiter should succeed after UpdateStack")
@@ -121,7 +121,7 @@ func TestIntegration_CloudFormation_StackDeleteCompleteWaiter(t *testing.T) {
 
 	waiter := cloudformationsdk.NewStackDeleteCompleteWaiter(client)
 	start := time.Now()
-	err = waiter.Wait(ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)}, 30*time.Second)
+	err = waiter.Wait(ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)}, 5*time.Second)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err, "StackDeleteCompleteWaiter should succeed after DeleteStack")

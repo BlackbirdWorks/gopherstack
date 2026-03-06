@@ -44,7 +44,7 @@ func TestIntegration_ACM_CertificateValidatedWaiter(t *testing.T) {
 	start := time.Now()
 	err = waiter.Wait(ctx, &acmsdk.DescribeCertificateInput{
 		CertificateArn: aws.String(certARN),
-	}, 30*time.Second)
+	}, 5*time.Second)
 	elapsed := time.Since(start)
 
 	require.NoError(t, err, "CertificateValidatedWaiter should succeed because certificate is already ISSUED")
