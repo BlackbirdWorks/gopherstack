@@ -162,8 +162,10 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 
 // ChaosRegions returns all regions this Step Functions instance handles.
 func (h *Handler) ChaosRegions() []string {
-	if b, ok := h.Backend.(*InMemoryBackend); ok && b.region != "" {
-		return []string{b.region}
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		if r := b.Region(); r != "" {
+			return []string{r}
+		}
 	}
 
 	return []string{config.DefaultRegion}

@@ -134,10 +134,13 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 			effects := store.GetEffects()
 			if delayMs := effects.TotalDelayMs(); delayMs > 0 {
 				delay := time.Duration(delayMs) * time.Millisecond
+				timer := time.NewTimer(delay)
 
 				select {
-				case <-time.After(delay):
+				case <-timer.C:
 				case <-ctx.Done():
+					timer.Stop()
+
 					return ctx.Err()
 				}
 			}
