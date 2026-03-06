@@ -20,6 +20,18 @@ const (
 	FunctionStateFailed FunctionState = "Failed"
 )
 
+// LastUpdateStatus represents the status of the last update to a Lambda function.
+type LastUpdateStatus string
+
+const (
+	// LastUpdateStatusSuccessful means the last update succeeded.
+	LastUpdateStatusSuccessful LastUpdateStatus = "Successful"
+	// LastUpdateStatusFailed means the last update failed.
+	LastUpdateStatusFailed LastUpdateStatus = "Failed"
+	// LastUpdateStatusInProgress means an update is in progress.
+	LastUpdateStatusInProgress LastUpdateStatus = "InProgress"
+)
+
 // InvocationType for Lambda invocations. Must remain a type alias (= string) because
 // multiple packages (apigateway, eventbridge, secretsmanager, stepfunctions) define
 // LambdaInvoker interfaces with InvokeFunction(... invocationType string ...).
@@ -53,27 +65,28 @@ type FunctionLayer struct {
 
 // FunctionConfiguration represents a Lambda function's configuration.
 type FunctionConfiguration struct {
-	CreatedAt    time.Time          `json:"-"`
-	Environment  *EnvironmentConfig `json:"Environment,omitempty"`
-	Handler      string             `json:"Handler,omitempty"`
-	RevisionID   string             `json:"RevisionId"`
-	ImageURI     string             `json:"ImageUri,omitempty"`
-	PackageType  string             `json:"PackageType"`
-	StateReason  string             `json:"StateReason,omitempty"`
-	Role         string             `json:"Role"`
-	LastModified string             `json:"LastModified"`
-	Runtime      string             `json:"Runtime,omitempty"`
-	FunctionArn  string             `json:"FunctionArn"`
-	Description  string             `json:"Description"`
-	FunctionName string             `json:"FunctionName"`
-	State        FunctionState      `json:"State"`
-	S3BucketCode string             `json:"-"`
-	S3KeyCode    string             `json:"-"`
-	ZipData      []byte             `json:"-"`
-	Layers       []*FunctionLayer   `json:"Layers,omitempty"`
-	MemorySize   int                `json:"MemorySize"`
-	Timeout      int                `json:"Timeout"`
-	CodeSize     int64              `json:"CodeSize"`
+	CreatedAt        time.Time          `json:"-"`
+	Environment      *EnvironmentConfig `json:"Environment,omitempty"`
+	Handler          string             `json:"Handler,omitempty"`
+	RevisionID       string             `json:"RevisionId"`
+	ImageURI         string             `json:"ImageUri,omitempty"`
+	PackageType      string             `json:"PackageType"`
+	StateReason      string             `json:"StateReason,omitempty"`
+	Role             string             `json:"Role"`
+	LastModified     string             `json:"LastModified"`
+	Runtime          string             `json:"Runtime,omitempty"`
+	FunctionArn      string             `json:"FunctionArn"`
+	Description      string             `json:"Description"`
+	FunctionName     string             `json:"FunctionName"`
+	State            FunctionState      `json:"State"`
+	LastUpdateStatus LastUpdateStatus   `json:"LastUpdateStatus"`
+	S3BucketCode     string             `json:"-"`
+	S3KeyCode        string             `json:"-"`
+	ZipData          []byte             `json:"-"`
+	Layers           []*FunctionLayer   `json:"Layers,omitempty"`
+	MemorySize       int                `json:"MemorySize"`
+	Timeout          int                `json:"Timeout"`
+	CodeSize         int64              `json:"CodeSize"`
 }
 
 // EnvironmentConfig holds Lambda function environment variables.

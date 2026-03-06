@@ -18,12 +18,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	acmsdk "github.com/aws/aws-sdk-go-v2/service/acm"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -31,6 +33,7 @@ import (
 	kmssdk "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdaclientsdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
+	route53sdk "github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	schedulersdk "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -551,6 +554,26 @@ func createSWFClient(t *testing.T) *swfsdk.Client {
 	})
 }
 
+// createEC2Client returns an EC2 client pointed at the shared test container.
+func createEC2Client(t *testing.T) *ec2sdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return ec2sdk.NewFromConfig(cfg, func(o *ec2sdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
 // createSchedulerClient returns an EventBridge Scheduler client pointed at the shared test container.
 func createSchedulerClient(t *testing.T) *schedulersdk.Client {
 	t.Helper()
@@ -567,6 +590,46 @@ func createSchedulerClient(t *testing.T) *schedulersdk.Client {
 	}
 
 	return schedulersdk.NewFromConfig(cfg, func(o *schedulersdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createACMClient returns an ACM client pointed at the shared test container.
+func createACMClient(t *testing.T) *acmsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return acmsdk.NewFromConfig(cfg, func(o *acmsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRoute53Client returns a Route53 client pointed at the shared test container.
+func createRoute53Client(t *testing.T) *route53sdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return route53sdk.NewFromConfig(cfg, func(o *route53sdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

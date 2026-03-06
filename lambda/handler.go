@@ -736,25 +736,26 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 
 	now := time.Now().UTC()
 	fn := &FunctionConfiguration{
-		FunctionName: input.FunctionName,
-		FunctionArn:  buildARN(h.DefaultRegion, h.AccountID, input.FunctionName),
-		Description:  input.Description,
-		ImageURI:     input.Code.ImageURI,
-		PackageType:  input.PackageType,
-		Runtime:      input.Runtime,
-		Handler:      input.Handler,
-		Role:         input.Role,
-		MemorySize:   memorySize,
-		Timeout:      timeout,
-		Environment:  input.Environment,
-		Layers:       layerARNsToFunctionLayers(input.Layers),
-		State:        FunctionStateActive,
-		CreatedAt:    now,
-		LastModified: now.Format(time.RFC3339),
-		RevisionID:   uuid.New().String(),
-		ZipData:      input.Code.ZipFile,
-		S3BucketCode: input.Code.S3Bucket,
-		S3KeyCode:    input.Code.S3Key,
+		FunctionName:     input.FunctionName,
+		FunctionArn:      buildARN(h.DefaultRegion, h.AccountID, input.FunctionName),
+		Description:      input.Description,
+		ImageURI:         input.Code.ImageURI,
+		PackageType:      input.PackageType,
+		Runtime:          input.Runtime,
+		Handler:          input.Handler,
+		Role:             input.Role,
+		MemorySize:       memorySize,
+		Timeout:          timeout,
+		Environment:      input.Environment,
+		Layers:           layerARNsToFunctionLayers(input.Layers),
+		State:            FunctionStateActive,
+		LastUpdateStatus: LastUpdateStatusSuccessful,
+		CreatedAt:        now,
+		LastModified:     now.Format(time.RFC3339),
+		RevisionID:       uuid.New().String(),
+		ZipData:          input.Code.ZipFile,
+		S3BucketCode:     input.Code.S3Bucket,
+		S3KeyCode:        input.Code.S3Key,
 	}
 
 	if len(fn.ZipData) > 0 {
@@ -856,6 +857,7 @@ func (h *Handler) handleUpdateFunctionCode(c *echo.Context, name string) error {
 
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
 	fn.RevisionID = uuid.New().String()
+	fn.LastUpdateStatus = LastUpdateStatusSuccessful
 
 	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())
@@ -919,6 +921,7 @@ func (h *Handler) handleUpdateFunctionConfiguration(c *echo.Context, name string
 
 	fn.LastModified = time.Now().UTC().Format(time.RFC3339)
 	fn.RevisionID = uuid.New().String()
+	fn.LastUpdateStatus = LastUpdateStatusSuccessful
 
 	if updateErr := h.Backend.UpdateFunction(fn); updateErr != nil {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", updateErr.Error())

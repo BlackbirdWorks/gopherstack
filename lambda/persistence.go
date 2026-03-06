@@ -100,8 +100,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	// Clear code bytes on restore — code must be re-deployed.
+	// Also normalize LastUpdateStatus so persisted functions are waiter-compatible
+	// after upgrade from a pre-change snapshot.
 	for _, fn := range snap.Functions {
 		fn.ZipData = nil
+
+		if fn.LastUpdateStatus == "" {
+			fn.LastUpdateStatus = LastUpdateStatusSuccessful
+		}
 	}
 
 	// Clear layer zip data on restore — layers must be re-published.
