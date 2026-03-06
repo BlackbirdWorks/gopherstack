@@ -15,6 +15,9 @@ var dynamicRefPattern = regexp.MustCompile(`\{\{resolve:([^:}]+):([^}]+)\}\}`)
 // ErrDynamicRefFailed is returned when a dynamic reference cannot be resolved.
 var ErrDynamicRefFailed = errors.New("dynamic reference resolution failed")
 
+// errJSONKeyNotFound is returned when a JSON key is absent from a secret value.
+var errJSONKeyNotFound = errors.New("json key not found in secret")
+
 const (
 	// splitTwo splits a string into at most 2 parts on ":".
 	splitTwo = 2
@@ -26,6 +29,8 @@ const (
 	smJSONKeyParts = 3
 	// smJSONKeyIndex is the index of the optional JSON key within secretsmanager parts.
 	smJSONKeyIndex = 2
+	// maxDynamicRefIterations caps the resolution loop to prevent runaway cycles.
+	maxDynamicRefIterations = 100
 )
 
 // DynamicRefResolver is the interface for resolving CloudFormation dynamic references.
@@ -39,56 +44,73 @@ type DynamicRefResolver interface {
 	ResolveSecret(secretID, jsonKey string) (string, error)
 }
 
-// resolveDynamicRef resolves a single `{{resolve:...}}` string using the provided resolver.
-// If the string is not a dynamic reference it is returned unchanged.
+// resolveDynamicRef resolves all `{{resolve:...}}` occurrences within the string
+// using the provided resolver. If the string contains no dynamic references it is
+// returned unchanged.
 func resolveDynamicRef(s string, resolver DynamicRefResolver) (string, error) {
 	if !strings.Contains(s, "{{resolve:") {
 		return s, nil
 	}
 
-	match := dynamicRefPattern.FindStringSubmatch(s)
-	if match == nil {
-		return s, nil
-	}
-
-	service := match[1]
-	rest := match[2]
-
-	var resolved string
-
-	var err error
-
-	switch service {
-	case "ssm":
-		// Format: {{resolve:ssm:parameter-name}} or {{resolve:ssm:parameter-name:version}}
-		name := strings.SplitN(rest, ":", splitTwo)[0]
-		resolved, err = resolver.ResolveSSMParameter(name)
-	case "ssm-secure":
-		// Format: {{resolve:ssm-secure:parameter-name}} or {{resolve:ssm-secure:parameter-name:version}}
-		name := strings.SplitN(rest, ":", splitTwo)[0]
-		resolved, err = resolver.ResolveSSMSecureParameter(name)
-	case "secretsmanager":
-		// Format: {{resolve:secretsmanager:secret-id}}
-		//      or {{resolve:secretsmanager:secret-id:SecretString:json-key:version-stage:version-id}}
-		parts := strings.SplitN(rest, ":", smMaxParts)
-		secretID := parts[0]
-
-		jsonKey := ""
-		if len(parts) >= smJSONKeyParts {
-			jsonKey = parts[smJSONKeyIndex]
+	for i := range maxDynamicRefIterations {
+		// FindStringSubmatchIndex returns the byte offsets of the full match and
+		// capture groups so we can replace the exact occurrence.
+		loc := dynamicRefPattern.FindStringSubmatchIndex(s)
+		if loc == nil {
+			return s, nil
 		}
 
-		resolved, err = resolver.ResolveSecret(secretID, jsonKey)
-	default:
-		return "", fmt.Errorf("%w: unsupported service %q in reference %q", ErrDynamicRefFailed, service, match[0])
+		_ = i // iteration counter used only for the loop bound
+
+		fullStart, fullEnd := loc[0], loc[1]
+		service := s[loc[2]:loc[3]]
+		rest := s[loc[4]:loc[5]]
+
+		var resolved string
+
+		var err error
+
+		switch service {
+		case "ssm":
+			// Format: {{resolve:ssm:parameter-name}} or {{resolve:ssm:parameter-name:version}}
+			name := strings.SplitN(rest, ":", splitTwo)[0]
+			resolved, err = resolver.ResolveSSMParameter(name)
+		case "ssm-secure":
+			// Format: {{resolve:ssm-secure:parameter-name}} or {{resolve:ssm-secure:parameter-name:version}}
+			name := strings.SplitN(rest, ":", splitTwo)[0]
+			resolved, err = resolver.ResolveSSMSecureParameter(name)
+		case "secretsmanager":
+			// Format: {{resolve:secretsmanager:secret-id}}
+			//      or {{resolve:secretsmanager:secret-id:SecretString:json-key:version-stage:version-id}}
+			parts := strings.SplitN(rest, ":", smMaxParts)
+			secretID := parts[0]
+
+			jsonKey := ""
+			if len(parts) >= smJSONKeyParts && parts[1] == "SecretString" {
+				jsonKey = parts[smJSONKeyIndex]
+			}
+
+			resolved, err = resolver.ResolveSecret(secretID, jsonKey)
+		default:
+			ref := s[fullStart:fullEnd]
+
+			return "", fmt.Errorf("%w: unsupported service %q in reference %q", ErrDynamicRefFailed, service, ref)
+		}
+
+		if err != nil {
+			return "", fmt.Errorf("%w: %s: %w", ErrDynamicRefFailed, s[fullStart:fullEnd], err)
+		}
+
+		// Replace only the exact matched bytes to avoid touching any other
+		// occurrence of the same pattern elsewhere in the string.
+		s = s[:fullStart] + resolved + s[fullEnd:]
 	}
 
-	if err != nil {
-		return "", fmt.Errorf("%w: %s: %w", ErrDynamicRefFailed, match[0], err)
-	}
-
-	// Replace the matched reference within the full string (supports embedded refs).
-	return strings.ReplaceAll(s, match[0], resolved), nil
+	return "", fmt.Errorf(
+		"%w: too many dynamic references in a single value (limit %d)",
+		ErrDynamicRefFailed,
+		maxDynamicRefIterations,
+	)
 }
 
 // resolveDynamicRefsInValue recursively walks a value tree and replaces any
@@ -158,12 +180,12 @@ func ResolveDynamicRefsInTemplate(tmpl *Template, resolver DynamicRefResolver) e
 func resolveJSONKey(secretValue, key string) (string, error) {
 	var obj map[string]any
 	if err := json.Unmarshal([]byte(secretValue), &obj); err != nil {
-		return "", fmt.Errorf("%w: secret is not valid JSON: %w", ErrDynamicRefFailed, err)
+		return "", fmt.Errorf("secret is not valid JSON: %w", err)
 	}
 
 	v, ok := obj[key]
 	if !ok {
-		return "", fmt.Errorf("%w: key %q not found in secret JSON", ErrDynamicRefFailed, key)
+		return "", fmt.Errorf("%w: key %q not found in secret JSON", errJSONKeyNotFound, key)
 	}
 
 	return fmt.Sprintf("%v", v), nil

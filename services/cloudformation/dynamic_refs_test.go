@@ -64,11 +64,20 @@ func (s *stubResolver) ResolveSecret(secretID, jsonKey string) (string, error) {
 
 // ---- ResolveDynamicRefsInTemplate unit tests --------------------------------
 
+func mustParseTemplate(t *testing.T, body string) *cloudformation.Template {
+	t.Helper()
+
+	tmpl, err := cloudformation.ParseTemplate(body)
+	require.NoError(t, err)
+
+	return tmpl
+}
+
 func TestResolveDynamicRefsInTemplate_SSM(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func() *cloudformation.Template
+		setup    func(t *testing.T) *cloudformation.Template
 		name     string
 		resolver cloudformation.DynamicRefResolver
 		wantProp string
@@ -76,8 +85,10 @@ func TestResolveDynamicRefsInTemplate_SSM(t *testing.T) {
 	}{
 		{
 			name: "ssm_resolved",
-			setup: func() *cloudformation.Template {
-				tmpl, _ := cloudformation.ParseTemplate(`{
+			setup: func(t *testing.T) *cloudformation.Template {
+				t.Helper()
+
+				return mustParseTemplate(t, `{
 					"Resources": {
 						"MyQueue": {
 							"Type": "AWS::SQS::Queue",
@@ -87,16 +98,16 @@ func TestResolveDynamicRefsInTemplate_SSM(t *testing.T) {
 						}
 					}
 				}`)
-
-				return tmpl
 			},
 			resolver: &stubResolver{params: map[string]string{"/app/queue-name": "my-queue"}},
 			wantProp: "my-queue",
 		},
 		{
 			name: "ssm_with_version_ignored",
-			setup: func() *cloudformation.Template {
-				tmpl, _ := cloudformation.ParseTemplate(`{
+			setup: func(t *testing.T) *cloudformation.Template {
+				t.Helper()
+
+				return mustParseTemplate(t, `{
 					"Resources": {
 						"R": {
 							"Type": "AWS::SQS::Queue",
@@ -106,16 +117,16 @@ func TestResolveDynamicRefsInTemplate_SSM(t *testing.T) {
 						}
 					}
 				}`)
-
-				return tmpl
 			},
 			resolver: &stubResolver{params: map[string]string{"/app/q": "versioned-queue"}},
 			wantProp: "versioned-queue",
 		},
 		{
 			name: "ssm_not_found",
-			setup: func() *cloudformation.Template {
-				tmpl, _ := cloudformation.ParseTemplate(`{
+			setup: func(t *testing.T) *cloudformation.Template {
+				t.Helper()
+
+				return mustParseTemplate(t, `{
 					"Resources": {
 						"R": {
 							"Type": "AWS::SQS::Queue",
@@ -125,16 +136,16 @@ func TestResolveDynamicRefsInTemplate_SSM(t *testing.T) {
 						}
 					}
 				}`)
-
-				return tmpl
 			},
 			resolver: &stubResolver{params: map[string]string{}},
 			wantErr:  true,
 		},
 		{
 			name: "nil_resolver_noop",
-			setup: func() *cloudformation.Template {
-				tmpl, _ := cloudformation.ParseTemplate(`{
+			setup: func(t *testing.T) *cloudformation.Template {
+				t.Helper()
+
+				return mustParseTemplate(t, `{
 					"Resources": {
 						"R": {
 							"Type": "AWS::SQS::Queue",
@@ -144,11 +155,31 @@ func TestResolveDynamicRefsInTemplate_SSM(t *testing.T) {
 						}
 					}
 				}`)
-
-				return tmpl
 			},
 			resolver: nil,
 			wantProp: "{{resolve:ssm:/param}}",
+		},
+		{
+			name: "multiple_refs_in_single_string",
+			setup: func(t *testing.T) *cloudformation.Template {
+				t.Helper()
+
+				return mustParseTemplate(t, `{
+					"Resources": {
+						"R": {
+							"Type": "AWS::SQS::Queue",
+							"Properties": {
+								"QueueName": "{{resolve:ssm:/app/prefix}}-{{resolve:ssm:/app/suffix}}"
+							}
+						}
+					}
+				}`)
+			},
+			resolver: &stubResolver{params: map[string]string{
+				"/app/prefix": "pre",
+				"/app/suffix": "suf",
+			}},
+			wantProp: "pre-suf",
 		},
 	}
 
@@ -156,7 +187,7 @@ func TestResolveDynamicRefsInTemplate_SSM(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tmpl := tt.setup()
+			tmpl := tt.setup(t)
 			err := cloudformation.ResolveDynamicRefsInTemplate(tmpl, tt.resolver)
 
 			if tt.wantErr {
@@ -181,7 +212,7 @@ func TestResolveDynamicRefsInTemplate_SecretsManager(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func() *cloudformation.Template
+		setup    func(t *testing.T) *cloudformation.Template
 		resolver cloudformation.DynamicRefResolver
 		name     string
 		wantProp string
@@ -189,8 +220,10 @@ func TestResolveDynamicRefsInTemplate_SecretsManager(t *testing.T) {
 	}{
 		{
 			name: "secretsmanager_full_secret",
-			setup: func() *cloudformation.Template {
-				tmpl, _ := cloudformation.ParseTemplate(`{
+			setup: func(t *testing.T) *cloudformation.Template {
+				t.Helper()
+
+				return mustParseTemplate(t, `{
 					"Resources": {
 						"R": {
 							"Type": "AWS::S3::Bucket",
@@ -200,16 +233,16 @@ func TestResolveDynamicRefsInTemplate_SecretsManager(t *testing.T) {
 						}
 					}
 				}`)
-
-				return tmpl
 			},
 			resolver: &stubResolver{secrets: map[string]string{"my-secret": "secret-value"}},
 			wantProp: "secret-value",
 		},
 		{
 			name: "secretsmanager_not_found",
-			setup: func() *cloudformation.Template {
-				tmpl, _ := cloudformation.ParseTemplate(`{
+			setup: func(t *testing.T) *cloudformation.Template {
+				t.Helper()
+
+				return mustParseTemplate(t, `{
 					"Resources": {
 						"R": {
 							"Type": "AWS::S3::Bucket",
@@ -219,16 +252,16 @@ func TestResolveDynamicRefsInTemplate_SecretsManager(t *testing.T) {
 						}
 					}
 				}`)
-
-				return tmpl
 			},
 			resolver: &stubResolver{secrets: map[string]string{}},
 			wantErr:  true,
 		},
 		{
 			name: "unsupported_service",
-			setup: func() *cloudformation.Template {
-				tmpl, _ := cloudformation.ParseTemplate(`{
+			setup: func(t *testing.T) *cloudformation.Template {
+				t.Helper()
+
+				return mustParseTemplate(t, `{
 					"Resources": {
 						"R": {
 							"Type": "AWS::S3::Bucket",
@@ -238,11 +271,30 @@ func TestResolveDynamicRefsInTemplate_SecretsManager(t *testing.T) {
 						}
 					}
 				}`)
-
-				return tmpl
 			},
 			resolver: &stubResolver{},
 			wantErr:  true,
+		},
+		{
+			name: "secretsmanager_without_SecretString_marker_no_json_extraction",
+			setup: func(t *testing.T) *cloudformation.Template {
+				t.Helper()
+
+				// Parts after split: [secret-id, version-stage] - no "SecretString" marker,
+				// so json-key extraction should NOT be triggered.
+				return mustParseTemplate(t, `{
+					"Resources": {
+						"R": {
+							"Type": "AWS::S3::Bucket",
+							"Properties": {
+								"BucketName": "{{resolve:secretsmanager:my-secret:AWSCURRENT}}"
+							}
+						}
+					}
+				}`)
+			},
+			resolver: &stubResolver{secrets: map[string]string{"my-secret": "raw-value"}},
+			wantProp: "raw-value",
 		},
 	}
 
@@ -250,7 +302,7 @@ func TestResolveDynamicRefsInTemplate_SecretsManager(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tmpl := tt.setup()
+			tmpl := tt.setup(t)
 			err := cloudformation.ResolveDynamicRefsInTemplate(tmpl, tt.resolver)
 
 			if tt.wantErr {
@@ -586,7 +638,7 @@ func TestNewDynamicRefResolver_RealSSM(t *testing.T) {
 func TestNewDynamicRefResolver_RealSecretsManager(t *testing.T) {
 	t.Parallel()
 
-	smBackend := secretsmanager.NewInMemoryBackendWithConfig("us-east-1", "000000000000")
+	smBackend := secretsmanager.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	_, _ = smBackend.CreateSecret(&secretsmanager.CreateSecretInput{
 		Name:         "my-secret",
 		SecretString: "top-secret",

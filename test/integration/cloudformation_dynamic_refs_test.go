@@ -6,12 +6,61 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// waitForStackStatus polls DescribeStacks until the stack is no longer in any
+// in-progress state, then returns the final status.  It fails the test after
+// the given deadline.
+func waitForStackStatus(
+	t *testing.T,
+	client *cloudformationsdk.Client,
+	stackName string,
+	deadline time.Duration,
+) string {
+	t.Helper()
+
+	ctx := t.Context()
+	cutoff := time.Now().Add(deadline)
+
+	for {
+		descOut, err := client.DescribeStacks(ctx, &cloudformationsdk.DescribeStacksInput{
+			StackName: aws.String(stackName),
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, descOut.Stacks)
+
+		status := string(descOut.Stacks[0].StackStatus)
+
+		// Terminal states – stop polling.
+		switch types.StackStatus(status) {
+		case types.StackStatusCreateComplete,
+			types.StackStatusCreateFailed,
+			types.StackStatusRollbackComplete,
+			types.StackStatusRollbackFailed,
+			types.StackStatusUpdateComplete,
+			types.StackStatusUpdateFailed,
+			types.StackStatusDeleteComplete,
+			types.StackStatusDeleteFailed:
+			return status
+		default:
+			// In-progress or other transient states — keep polling.
+		}
+
+		if time.Now().After(cutoff) {
+			require.Fail(t, "timeout waiting for stack to reach a terminal state", "last status: %s", status)
+
+			return status
+		}
+
+		time.Sleep(250 * time.Millisecond)
+	}
+}
 
 func TestIntegration_CloudFormation_DynamicRefs_SSM(t *testing.T) {
 	t.Parallel()
@@ -55,15 +104,11 @@ func TestIntegration_CloudFormation_DynamicRefs_SSM(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, createOut.StackId)
 
-	// Allow async processing.
-	time.Sleep(500 * time.Millisecond)
-
-	descOut, err := cfnClient.DescribeStacks(ctx, &cloudformationsdk.DescribeStacksInput{
+	waiter := cloudformationsdk.NewStackCreateCompleteWaiter(cfnClient)
+	err = waiter.Wait(ctx, &cloudformationsdk.DescribeStacksInput{
 		StackName: aws.String(stackName),
-	})
+	}, 5*time.Minute)
 	require.NoError(t, err)
-	require.NotEmpty(t, descOut.Stacks)
-	assert.Equal(t, "CREATE_COMPLETE", string(descOut.Stacks[0].StackStatus))
 
 	t.Cleanup(func() {
 		_, _ = cfnClient.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
@@ -97,15 +142,8 @@ func TestIntegration_CloudFormation_DynamicRefs_SSMMissing(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, createOut.StackId)
 
-	// Allow async processing.
-	time.Sleep(500 * time.Millisecond)
-
-	descOut, err := cfnClient.DescribeStacks(ctx, &cloudformationsdk.DescribeStacksInput{
-		StackName: aws.String(stackName),
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, descOut.Stacks)
-	assert.Equal(t, "CREATE_FAILED", string(descOut.Stacks[0].StackStatus))
+	finalStatus := waitForStackStatus(t, cfnClient, stackName, 2*time.Minute)
+	assert.Equal(t, "CREATE_FAILED", finalStatus)
 
 	// Verify that stack events document the failure.
 	eventsOut, err := cfnClient.DescribeStackEvents(ctx, &cloudformationsdk.DescribeStackEventsInput{
@@ -174,15 +212,11 @@ func TestIntegration_CloudFormation_DynamicRefs_SecretsManager(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, createOut.StackId)
 
-	// Allow async processing.
-	time.Sleep(500 * time.Millisecond)
-
-	descOut, err := cfnClient.DescribeStacks(ctx, &cloudformationsdk.DescribeStacksInput{
+	waiter := cloudformationsdk.NewStackCreateCompleteWaiter(cfnClient)
+	err = waiter.Wait(ctx, &cloudformationsdk.DescribeStacksInput{
 		StackName: aws.String(stackName),
-	})
+	}, 5*time.Minute)
 	require.NoError(t, err)
-	require.NotEmpty(t, descOut.Stacks)
-	assert.Equal(t, "CREATE_COMPLETE", string(descOut.Stacks[0].StackStatus))
 
 	t.Cleanup(func() {
 		_, _ = cfnClient.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
@@ -216,15 +250,8 @@ func TestIntegration_CloudFormation_DynamicRefs_SecretsManagerMissing(t *testing
 	require.NoError(t, err)
 	assert.NotEmpty(t, createOut.StackId)
 
-	// Allow async processing.
-	time.Sleep(500 * time.Millisecond)
-
-	descOut, err := cfnClient.DescribeStacks(ctx, &cloudformationsdk.DescribeStacksInput{
-		StackName: aws.String(stackName),
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, descOut.Stacks)
-	assert.Equal(t, "CREATE_FAILED", string(descOut.Stacks[0].StackStatus))
+	finalStatus := waitForStackStatus(t, cfnClient, stackName, 2*time.Minute)
+	assert.Equal(t, "CREATE_FAILED", finalStatus)
 
 	t.Cleanup(func() {
 		_, _ = cfnClient.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
