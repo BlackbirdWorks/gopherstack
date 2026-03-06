@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -78,20 +81,52 @@ func TestIntegration_TaggingAPI_TagResources(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	// First create an SQS queue to tag.
-	sqsResp := taggingAPIPost(t, "GetResources", map[string]any{
-		"ResourceTypeFilters": []string{"sqs:queue"},
-	})
-	defer sqsResp.Body.Close()
+	// Create a queue so we have a real ARN to tag.
+	sqsClient := createSQSClient(t)
+	ctx := t.Context()
 
+	queueName := "tag-api-test-queue-" + t.Name()
+	createOut, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName: aws.String(queueName),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createOut.QueueUrl)
+
+	// Retrieve the queue ARN.
+	attrOut, err := sqsClient.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl:       createOut.QueueUrl,
+		AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	require.NoError(t, err)
+
+	queueARN := attrOut.Attributes[string(sqstypes.QueueAttributeNameQueueArn)]
+	require.NotEmpty(t, queueARN)
+
+	// Tag the queue via the Tagging API.
 	resp := taggingAPIPost(t, "TagResources", map[string]any{
-		"ResourceARNList": []string{"arn:aws:sqs:us-east-1:000000000000:nonexistent"},
-		"Tags":            map[string]string{"test-key": "test-value"},
+		"ResourceARNList": []string{queueARN},
+		"Tags":            map[string]string{"integration-test": "true", "service": "sqs"},
 	})
 	body := taggingAPIBody(t, resp)
 
-	// FailedResourcesMap is expected since queue does not exist; the API still returns 200.
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", body)
+
+	// Decode the response and assert no failures.
+	var tagOut map[string]any
+	require.NoError(t, json.Unmarshal([]byte(body), &tagOut))
+	assert.Empty(t, tagOut["FailedResourcesMap"], "expected no tag failures")
+
+	// Verify via GetResources that the tagged queue appears when filtering by tag.
+	getResp := taggingAPIPost(t, "GetResources", map[string]any{
+		"TagFilters": []map[string]any{
+			{"Key": "integration-test", "Values": []string{"true"}},
+		},
+		"ResourceTypeFilters": []string{"sqs:queue"},
+	})
+	getBody := taggingAPIBody(t, getResp)
+
+	require.Equal(t, http.StatusOK, getResp.StatusCode, "body: %s", getBody)
+	assert.Contains(t, getBody, queueARN, "expected tagged queue to appear in GetResources")
 }
 
 func TestIntegration_TaggingAPI_UntagResources(t *testing.T) {

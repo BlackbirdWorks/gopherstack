@@ -362,10 +362,11 @@ type FailureInfo struct {
 }
 
 // TagResources applies tags to the specified resources by routing to registered ARN taggers.
-// Resources whose ARN does not match any tagger are silently skipped.
+// Resources whose ARN does not match any registered tagger are reported in FailedResourcesMap
+// with an InvalidParameterException, matching the AWS API behavior.
 func (b *InMemoryBackend) TagResources(input *TagResourcesInput) *TagResourcesOutput {
 	b.mu.RLock("TagResources")
-	taggers := b.taggers
+	taggers := slices.Clone(b.taggers)
 	b.mu.RUnlock()
 
 	failed := make(map[string]FailureInfo)
@@ -423,7 +424,7 @@ type UntagResourcesOutput struct {
 // UntagResources removes the specified tag keys from the given resources.
 func (b *InMemoryBackend) UntagResources(input *UntagResourcesInput) *UntagResourcesOutput {
 	b.mu.RLock("UntagResources")
-	untaggers := b.untaggers
+	untaggers := slices.Clone(b.untaggers)
 	b.mu.RUnlock()
 
 	failed := make(map[string]FailureInfo)

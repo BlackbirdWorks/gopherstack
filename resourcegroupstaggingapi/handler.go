@@ -113,13 +113,25 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var typeErr *json.UnmarshalTypeError
 
 	code := http.StatusInternalServerError
+	errType := "InternalFailure"
 
 	switch {
-	case errors.Is(err, ErrUnknownOperation), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case errors.Is(err, ErrUnknownOperation):
 		code = http.StatusBadRequest
+		errType = "UnknownOperationException"
+	case errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		code = http.StatusBadRequest
+		errType = "ValidationException"
 	}
 
-	return c.JSON(code, map[string]string{"message": err.Error()})
+	payload, _ := json.Marshal(service.JSONErrorResponse{
+		Type:    errType,
+		Message: err.Error(),
+	})
+
+	c.Response().Header().Set("Content-Type", "application/x-amz-json-1.1")
+
+	return c.JSONBlob(code, payload)
 }
 
 type getTagKeysInput struct{}

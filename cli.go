@@ -1310,26 +1310,54 @@ func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
 	}
 }
 
+// arnServiceIs returns true if the ARN's service segment (the third colon-delimited field)
+// matches the given service name exactly. This is more precise than a substring search since
+// ARN format is "arn:aws:SERVICE:REGION:ACCOUNT:RESOURCE".
+func arnServiceIs(a, serviceName string) bool {
+	// Fast path: ARN must start with "arn:aws:" (or "arn:aws-cn:", "arn:aws-us-gov:", etc.)
+	// We split on ":" up to 3 parts to extract just the service field.
+	start := strings.Index(a, ":")
+	if start < 0 {
+		return false
+	}
+
+	start++ // skip past first ":"
+
+	next := strings.Index(a[start:], ":")
+	if next < 0 {
+		return false
+	}
+
+	start += next + 1 // skip past second ":"
+
+	end := strings.Index(a[start:], ":")
+	if end < 0 {
+		return false
+	}
+
+	return a[start:start+end] == serviceName
+}
+
 // registerTaggingService wires a single service's provider, ARN tagger, and ARN untagger into
-// the Resource Groups Tagging API backend. arnSegment is the service-specific ARN fragment used
-// to route tag operations (e.g., ":sqs:", ":sns:").
+// the Resource Groups Tagging API backend. arnService is the AWS service name used to match
+// the service segment of an ARN (e.g., "sqs", "sns", "lambda").
 func registerTaggingService(
 	bk *resourcegroupstaggingapibackend.InMemoryBackend,
 	provider resourcegroupstaggingapibackend.ResourceProvider,
-	arnSegment string,
+	arnService string,
 	tagger func(string, map[string]string) error,
 	untagger func(string, []string) error,
 ) {
 	bk.RegisterProvider(provider)
 	bk.RegisterARNTagger(func(arn string, newTags map[string]string) (bool, error) {
-		if !strings.Contains(arn, arnSegment) {
+		if !arnServiceIs(arn, arnService) {
 			return false, nil
 		}
 
 		return true, tagger(arn, newTags)
 	})
 	bk.RegisterARNUntagger(func(arn string, keys []string) (bool, error) {
-		if !strings.Contains(arn, arnSegment) {
+		if !arnServiceIs(arn, arnService) {
 			return false, nil
 		}
 
@@ -1389,7 +1417,7 @@ func wireTaggingDDB(bk *resourcegroupstaggingapibackend.InMemoryBackend, ddbReg 
 
 			return out
 		},
-		":dynamodb:",
+		"dynamodb",
 		func(arn string, newTags map[string]string) error {
 			sdkTags := make([]ddbsdktypes.Tag, 0, len(newTags))
 			for k, v := range newTags {
@@ -1440,7 +1468,7 @@ func wireTaggingSQS(bk *resourcegroupstaggingapibackend.InMemoryBackend, sqsReg 
 
 			return out
 		},
-		":sqs:",
+		"sqs",
 		sqsBk.TagQueueByARN,
 		sqsBk.UntagQueueByARN,
 	)
@@ -1471,7 +1499,7 @@ func wireTaggingSNS(bk *resourcegroupstaggingapibackend.InMemoryBackend, snsReg 
 
 			return out
 		},
-		":sns:",
+		"sns",
 		snsBk.TagTopicByARN,
 		snsBk.UntagTopicByARN,
 	)
@@ -1497,7 +1525,7 @@ func wireTaggingLambda(bk *resourcegroupstaggingapibackend.InMemoryBackend, lamb
 
 			return out
 		},
-		":lambda:",
+		"lambda",
 		lambdaH.TagFunctionByARN,
 		lambdaH.UntagFunctionByARN,
 	)
@@ -1523,7 +1551,7 @@ func wireTaggingKMS(bk *resourcegroupstaggingapibackend.InMemoryBackend, kmsReg 
 
 			return out
 		},
-		":kms:",
+		"kms",
 		kmsH.TagKeyByARN,
 		kmsH.UntagKeyByARN,
 	)
@@ -1554,7 +1582,7 @@ func wireTaggingSM(bk *resourcegroupstaggingapibackend.InMemoryBackend, smReg se
 
 			return out
 		},
-		":secretsmanager:",
+		"secretsmanager",
 		smBk.TagSecretByARN,
 		smBk.UntagSecretByARN,
 	)

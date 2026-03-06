@@ -46,10 +46,9 @@ func TestGetResources_TagFilter(t *testing.T) {
 	})
 
 	tests := []struct {
-		name         string
-		wantNotFound string
-		tagFilters   []resourcegroupstaggingapi.TagFilter
-		wantARNs     []string
+		name       string
+		tagFilters []resourcegroupstaggingapi.TagFilter
+		wantARNs   []string
 	}{
 		{
 			name:       "match_by_key_any_value",
