@@ -245,19 +245,20 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 }
 
 // repositoryView is the JSON representation of a repository.
+// createdAt is serialised as a Unix epoch float64 (seconds) so that the AWS
+// SDK v2 deserialiser, which expects a JSON Number for timestamp fields, can
+// decode it correctly.
 type repositoryView struct {
-	CreatedAt      *time.Time `json:"createdAt,omitempty"`
-	RegistryID     string     `json:"registryId"`
-	RepositoryARN  string     `json:"repositoryArn"`
-	RepositoryName string     `json:"repositoryName"`
-	RepositoryURI  string     `json:"repositoryUri"`
+	RegistryID     string  `json:"registryId"`
+	RepositoryARN  string  `json:"repositoryArn"`
+	RepositoryName string  `json:"repositoryName"`
+	RepositoryURI  string  `json:"repositoryUri"`
+	CreatedAt      float64 `json:"createdAt"`
 }
 
 func toRepositoryView(r Repository) repositoryView {
-	t := r.CreatedAt
-
 	return repositoryView{
-		CreatedAt:      &t,
+		CreatedAt:      float64(r.CreatedAt.Unix()),
 		RegistryID:     r.RegistryID,
 		RepositoryARN:  r.RepositoryARN,
 		RepositoryName: r.RepositoryName,
