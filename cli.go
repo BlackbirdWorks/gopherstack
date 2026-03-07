@@ -53,6 +53,7 @@ import (
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -138,6 +139,7 @@ type CLI struct {
 	supportHandler               service.Registerable
 	appSyncHandler               service.Registerable
 	ecrHandler                   service.Registerable
+	ecsHandler                   service.Registerable
 	snsClient                    *sns.Client
 	kmsClient                    *kms.Client
 	iamClient                    *iam.Client
@@ -433,6 +435,11 @@ func (c *CLI) GetSupportHandler() service.Registerable { return c.supportHandler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
+
+// GetECSHandler returns the ECS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetECSHandler() service.Registerable { return c.ecsHandler }
 
 // rootCLI is the top-level kong grammar. The server flags live in Serve
 // (the default command); "health" is an explicit subcommand used as a
@@ -762,6 +769,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.supportHandler = byName["Support"]
 	cli.appSyncHandler = byName["AppSync"]
 	cli.ecrHandler = byName["ECR"]
+	cli.ecsHandler = byName["ECS"]
 }
 
 // initializeServices initializes all service providers.
@@ -895,6 +903,7 @@ func getServiceProviders() []service.Provider {
 		&transcribebackend.Provider{},
 		&supportbackend.Provider{},
 		&ecrbackend.Provider{},
+		&ecsbackend.Provider{},
 		&cognitoidpbackend.Provider{},
 		&appsyncbackend.Provider{},
 	}
