@@ -154,3 +154,213 @@ func TestSNSToSQSDelivery(t *testing.T) {
 		})
 	}
 }
+
+func TestSNSToSQSRawMessageDelivery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		publishAttrs     map[string]snsbackend.MessageAttribute
+		publishMessage   string
+		publishSubject   string
+		name             string
+		wantBody         string
+		wantAttrDataType string
+		wantAttrKey      string
+	}{
+		{
+			name:           "RawDeliveryBodyIsPlainMessage",
+			publishMessage: "raw payload",
+			publishSubject: "subj",
+			wantBody:       "raw payload",
+		},
+		{
+			name:           "RawDeliveryPreservesMessageAttributes",
+			publishMessage: "order created",
+			publishAttrs: map[string]snsbackend.MessageAttribute{
+				"event-type": {DataType: "String", StringValue: "order.created"},
+			},
+			wantBody:         "order created",
+			wantAttrKey:      "event-type",
+			wantAttrDataType: "String",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			snsBk, sqsBk := newWiredPair()
+
+			topic, err := snsBk.CreateTopic("raw-topic", nil)
+			require.NoError(t, err)
+
+			_, err = sqsBk.CreateQueue(&sqs.CreateQueueInput{
+				QueueName: "raw-queue",
+				Endpoint:  "localhost:8000",
+			})
+			require.NoError(t, err)
+
+			sub, err := snsBk.Subscribe(topic.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:raw-queue", "")
+			require.NoError(t, err)
+
+			err = snsBk.SetSubscriptionAttributes(sub.SubscriptionArn, "RawMessageDelivery", "true")
+			require.NoError(t, err)
+
+			_, err = snsBk.Publish(topic.TopicArn, tt.publishMessage, tt.publishSubject, "", tt.publishAttrs)
+			require.NoError(t, err)
+
+			out, err := sqsBk.ReceiveMessage(&sqs.ReceiveMessageInput{
+				QueueURL:            "http://localhost:8000/000000000000/raw-queue",
+				MaxNumberOfMessages: 1,
+				WaitTimeSeconds:     0,
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Messages, 1)
+
+			assert.Equal(t, tt.wantBody, out.Messages[0].Body)
+
+			// Ensure the body is NOT an SNS envelope (no "Type": "Notification" wrapper).
+			var env map[string]any
+			if jsonErr := json.Unmarshal([]byte(out.Messages[0].Body), &env); jsonErr == nil {
+				assert.NotEqual(t, "Notification", env["Type"], "raw delivery body must not be SNS envelope")
+			}
+
+			if tt.wantAttrKey != "" {
+				attr, ok := out.Messages[0].MessageAttributes[tt.wantAttrKey]
+				require.True(t, ok, "expected message attribute %q", tt.wantAttrKey)
+				assert.Equal(t, tt.wantAttrDataType, attr.DataType)
+			}
+		})
+	}
+}
+
+func TestSNSToSQSDLQ(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		publishMessage string
+		setupDLQ       bool
+		wantDLQMsg     bool
+	}{
+		{
+			name:           "DLQReceivesMessageOnDeliveryFailure",
+			publishMessage: "failed delivery",
+			setupDLQ:       true,
+			wantDLQMsg:     true,
+		},
+		{
+			name:           "NoDLQNoRouting",
+			publishMessage: "failed delivery",
+			setupDLQ:       false,
+			wantDLQMsg:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			snsBk, sqsBk := newWiredPair()
+
+			topic, err := snsBk.CreateTopic("dlq-topic", nil)
+			require.NoError(t, err)
+
+			// Subscribe to a queue that does NOT exist so delivery fails.
+			sub, err := snsBk.Subscribe(
+				topic.TopicArn,
+				"sqs",
+				"arn:aws:sqs:us-east-1:000000000000:nonexistent-queue",
+				"",
+			)
+			require.NoError(t, err)
+
+			if tt.setupDLQ {
+				// Create the DLQ queue.
+				_, err = sqsBk.CreateQueue(&sqs.CreateQueueInput{
+					QueueName: "my-dlq",
+					Endpoint:  "localhost:8000",
+				})
+				require.NoError(t, err)
+
+				err = snsBk.SetSubscriptionAttributes(
+					sub.SubscriptionArn,
+					"RedrivePolicy",
+					`{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:000000000000:my-dlq"}`,
+				)
+				require.NoError(t, err)
+			}
+
+			_, err = snsBk.Publish(topic.TopicArn, tt.publishMessage, "", "", nil)
+			require.NoError(t, err)
+
+			if !tt.setupDLQ {
+				return
+			}
+
+			out, err := sqsBk.ReceiveMessage(&sqs.ReceiveMessageInput{
+				QueueURL:            "http://localhost:8000/000000000000/my-dlq",
+				MaxNumberOfMessages: 1,
+				WaitTimeSeconds:     0,
+			})
+			require.NoError(t, err)
+
+			if tt.wantDLQMsg {
+				require.Len(t, out.Messages, 1)
+				assert.Equal(t, tt.publishMessage, out.Messages[0].Body)
+			} else {
+				assert.Empty(t, out.Messages)
+			}
+		})
+	}
+}
+
+func TestSetSubscriptionAttributesRoundtrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		attrName  string
+		attrValue string
+		wantValue string
+	}{
+		{
+			name:      "RawMessageDeliveryTrue",
+			attrName:  "RawMessageDelivery",
+			attrValue: "true",
+			wantValue: "true",
+		},
+		{
+			name:      "RawMessageDeliveryFalse",
+			attrName:  "RawMessageDelivery",
+			attrValue: "false",
+			wantValue: "false",
+		},
+		{
+			name:      "RedrivePolicy",
+			attrName:  "RedrivePolicy",
+			attrValue: `{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:000000000000:my-dlq"}`,
+			wantValue: `{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:000000000000:my-dlq"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			snsBk := snsbackend.NewInMemoryBackend()
+			topic, err := snsBk.CreateTopic("attr-topic", nil)
+			require.NoError(t, err)
+
+			sub, err := snsBk.Subscribe(topic.TopicArn, "sqs", "arn:aws:sqs:us-east-1:000000000000:q", "")
+			require.NoError(t, err)
+
+			err = snsBk.SetSubscriptionAttributes(sub.SubscriptionArn, tt.attrName, tt.attrValue)
+			require.NoError(t, err)
+
+			attrs, err := snsBk.GetSubscriptionAttributes(sub.SubscriptionArn)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantValue, attrs[tt.attrName])
+		})
+	}
+}

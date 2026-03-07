@@ -2163,3 +2163,106 @@ func TestCreateTopicInRegion_Backend(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, topic2.TopicArn, "arn:aws:sns:us-east-1:000000000000:default-topic")
 }
+
+func TestSNSHandler_SetSubscriptionAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup            func(b *sns.InMemoryBackend) string
+		form             url.Values
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name: "missing_subscription_arn",
+			form: url.Values{
+				"Action":        {"SetSubscriptionAttributes"},
+				"AttributeName": {"RawMessageDelivery"},
+			},
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: []string{"InvalidParameter"},
+		},
+		{
+			name: "missing_attribute_name",
+			form: url.Values{
+				"Action":          {"SetSubscriptionAttributes"},
+				"SubscriptionArn": {"arn:aws:sns:us-east-1:000000000000:t:x"},
+			},
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: []string{"InvalidParameter"},
+		},
+		{
+			name: "not_found",
+			form: url.Values{
+				"Action":          {"SetSubscriptionAttributes"},
+				"SubscriptionArn": {"arn:aws:sns:us-east-1:000000000000:t:nonexistent"},
+				"AttributeName":   {"RawMessageDelivery"},
+				"AttributeValue":  {"true"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "set_raw_message_delivery",
+			setup: func(b *sns.InMemoryBackend) string {
+				b.CreateTopic("attr-topic", nil)
+				sub, _ := b.Subscribe(
+					"arn:aws:sns:us-east-1:000000000000:attr-topic",
+					"sqs",
+					"arn:aws:sqs:us-east-1:000000000000:q",
+					"",
+				)
+
+				return sub.SubscriptionArn
+			},
+			form: url.Values{
+				"Action":         {"SetSubscriptionAttributes"},
+				"AttributeName":  {"RawMessageDelivery"},
+				"AttributeValue": {"true"},
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"SetSubscriptionAttributesResponse"},
+		},
+		{
+			name: "set_redrive_policy",
+			setup: func(b *sns.InMemoryBackend) string {
+				b.CreateTopic("rdq-topic", nil)
+				sub, _ := b.Subscribe(
+					"arn:aws:sns:us-east-1:000000000000:rdq-topic",
+					"sqs",
+					"arn:aws:sqs:us-east-1:000000000000:q",
+					"",
+				)
+
+				return sub.SubscriptionArn
+			},
+			form: url.Values{
+				"Action":         {"SetSubscriptionAttributes"},
+				"AttributeName":  {"RedrivePolicy"},
+				"AttributeValue": {`{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:000000000000:dlq"}`},
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"SetSubscriptionAttributesResponse"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := sns.NewInMemoryBackend()
+			h := sns.NewHandler(b)
+
+			form := tt.form
+			if tt.setup != nil {
+				subArn := tt.setup(b)
+				form.Set("SubscriptionArn", subArn)
+			}
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
