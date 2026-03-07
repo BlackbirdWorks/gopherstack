@@ -316,9 +316,19 @@ func (b *InMemoryBackend) GetQueueAttributes(input *GetQueueAttributesInput) (*G
 
 // computeDynamicAttributes returns the dynamically computed attributes for a queue.
 func computeDynamicAttributes(q *Queue) map[string]string {
+	now := time.Now()
+	delayed := 0
+
+	for _, msg := range q.messages {
+		if now.Before(msg.VisibleAt) {
+			delayed++
+		}
+	}
+
 	return map[string]string{
-		AttrApproxMessages:           strconv.Itoa(len(q.messages)),
+		AttrApproxMessages:           strconv.Itoa(len(q.messages) - delayed),
 		AttrApproxMessagesNotVisible: strconv.Itoa(len(q.inFlightMessages)),
+		attrApproxMessagesDelayed:    strconv.Itoa(delayed),
 	}
 }
 
@@ -398,6 +408,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 			attrSentTimestamp:      sentTS,
 			attrApproxReceiveCount: attrValZero,
 		},
+		VisibleAt: resolveMessageVisibleAt(now, input.DelaySeconds, q.Attributes[attrDelaySeconds]),
 	}
 
 	if q.IsFIFO {
@@ -416,6 +427,22 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	}
 
 	return &SendMessageOutput{MessageID: msgID, MD5OfBody: md5Body, MD5OfMessageAttributes: md5Attrs}, nil
+}
+
+// resolveMessageVisibleAt computes the earliest time the message should be visible.
+// Message-level delaySeconds takes precedence over the queue-level attribute.
+// A zero time.Time{} return value means the message is immediately visible (no delay).
+func resolveMessageVisibleAt(now time.Time, msgDelaySeconds int, queueDelayAttr string) time.Time {
+	if msgDelaySeconds > 0 {
+		return now.Add(time.Duration(msgDelaySeconds) * time.Second)
+	}
+
+	if qd, err := strconv.Atoi(queueDelayAttr); err == nil && qd > 0 {
+		return now.Add(time.Duration(qd) * time.Second)
+	}
+
+	// Zero time means no delay — the message is immediately visible to consumers.
+	return time.Time{}
 }
 
 // checkDedup checks for a duplicate FIFO message and returns the original output if found.
@@ -582,41 +609,42 @@ func reQueueExpired(q *Queue, now time.Time) {
 	q.inFlightMessages = stillInFlight
 }
 
-// pickMessages moves up to maxMessages from the queue to in-flight and returns them.
+// pickMessages moves up to maxMessages visible (non-delayed) messages from the
+// queue to in-flight and returns them. Messages whose VisibleAt is in the future
+// are skipped and remain in the queue.
 func pickMessages(q *Queue, maxMessages, vt int, now time.Time) []*Message {
-	count := min(maxMessages, len(q.messages))
-	if count == 0 {
-		return nil
+	result := make([]*Message, 0, maxMessages)
+	remaining := make([]*Message, 0, len(q.messages))
+
+	for _, msg := range q.messages {
+		if len(result) < maxMessages && !now.Before(msg.VisibleAt) {
+			receipt := uuid.New().String()
+			msg.ReceiptHandle = receipt
+			msg.ApproximateReceiveCount++
+			msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
+
+			// Set ApproximateFirstReceiveTimestamp on the first receive.
+			if msg.ApproximateFirstReceiveTimestamp == 0 {
+				msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
+				msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(
+					msg.ApproximateFirstReceiveTimestamp,
+					10,
+				)
+			}
+
+			inf := &InFlightMessage{
+				VisibleAt:     now.Add(time.Duration(vt) * time.Second),
+				ReceiptHandle: receipt,
+				Msg:           msg,
+			}
+			q.inFlightMessages = append(q.inFlightMessages, inf)
+			result = append(result, msg)
+		} else {
+			remaining = append(remaining, msg)
+		}
 	}
 
-	picked := q.messages[:count]
-	q.messages = q.messages[count:]
-
-	result := make([]*Message, 0, len(picked))
-
-	for _, msg := range picked {
-		receipt := uuid.New().String()
-		msg.ReceiptHandle = receipt
-		msg.ApproximateReceiveCount++
-		msg.Attributes[attrApproxReceiveCount] = strconv.Itoa(msg.ApproximateReceiveCount)
-
-		// Set ApproximateFirstReceiveTimestamp on the first receive.
-		if msg.ApproximateFirstReceiveTimestamp == 0 {
-			msg.ApproximateFirstReceiveTimestamp = now.UnixMilli()
-			msg.Attributes[attrApproxFirstReceiveTimestamp] = strconv.FormatInt(
-				msg.ApproximateFirstReceiveTimestamp,
-				10,
-			)
-		}
-
-		inf := &InFlightMessage{
-			VisibleAt:     now.Add(time.Duration(vt) * time.Second),
-			ReceiptHandle: receipt,
-			Msg:           msg,
-		}
-		q.inFlightMessages = append(q.inFlightMessages, inf)
-		result = append(result, msg)
-	}
+	q.messages = remaining
 
 	return result
 }
