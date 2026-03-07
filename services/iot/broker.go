@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 
 	mqtt "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
@@ -17,7 +18,8 @@ var ErrBrokerNotStarted = errors.New("mqtt broker not started")
 
 // Broker wraps a mochi-mqtt server to provide the IoT MQTT endpoint.
 type Broker struct {
-	server  *mqtt.Server
+	// server is accessed atomically to avoid data races between Start and Publish.
+	server  atomic.Pointer[mqtt.Server]
 	backend *InMemoryBackend
 	logger  *slog.Logger
 	port    int
@@ -35,11 +37,11 @@ func NewBroker(backend *InMemoryBackend, port int, logger *slog.Logger) *Broker 
 // Start initialises the MQTT server, registers the rule hook, and begins listening.
 // It blocks until ctx is cancelled.
 func (b *Broker) Start(ctx context.Context) error {
-	b.server = mqtt.New(&mqtt.Options{
+	s := mqtt.New(&mqtt.Options{
 		Logger: b.logger,
 	})
 
-	if err := b.server.AddHook(new(auth.AllowHook), nil); err != nil {
+	if err := s.AddHook(new(auth.AllowHook), nil); err != nil {
 		return fmt.Errorf("iot broker: add auth hook: %w", err)
 	}
 
@@ -49,7 +51,7 @@ func (b *Broker) Start(ctx context.Context) error {
 		ctx:     ctx,
 	}
 
-	if err := b.server.AddHook(hook, nil); err != nil {
+	if err := s.AddHook(hook, nil); err != nil {
 		return fmt.Errorf("iot broker: add rule hook: %w", err)
 	}
 
@@ -58,16 +60,19 @@ func (b *Broker) Start(ctx context.Context) error {
 		Address: fmt.Sprintf(":%d", b.port),
 	})
 
-	if err := b.server.AddListener(tcp); err != nil {
+	if err := s.AddListener(tcp); err != nil {
 		return fmt.Errorf("iot broker: add listener: %w", err)
 	}
 
+	// Store the server atomically before Serve() so Publish() can access it concurrently.
+	b.server.Store(s)
+
 	go func() {
 		<-ctx.Done()
-		_ = b.server.Close()
+		_ = s.Close()
 	}()
 
-	if err := b.server.Serve(); err != nil {
+	if err := s.Serve(); err != nil {
 		return fmt.Errorf("iot broker: serve: %w", err)
 	}
 
@@ -76,11 +81,12 @@ func (b *Broker) Start(ctx context.Context) error {
 
 // Publish delivers a message directly to the broker (used by the IoT Data Plane).
 func (b *Broker) Publish(topic string, payload []byte, retain bool, qos byte) error {
-	if b.server == nil {
+	s := b.server.Load()
+	if s == nil {
 		return ErrBrokerNotStarted
 	}
 
-	return b.server.Publish(topic, payload, retain, qos)
+	return s.Publish(topic, payload, retain, qos)
 }
 
 // ruleHook is a mochi-mqtt hook that evaluates IoT rules on every published message.

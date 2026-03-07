@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -71,7 +72,8 @@ func matchParts(pattern, topic []string) bool {
 	}
 
 	if pattern[0] == "#" {
-		return true
+		// # must be the last segment; only matches if no more pattern segments follow.
+		return len(pattern) == 1
 	}
 
 	if len(topic) == 0 {
@@ -181,13 +183,12 @@ func compareValues(fieldVal any, rawVal, op string) bool {
 }
 
 func parseFloat(s string, out *float64) error {
-	var f float64
-
-	if n, err := fmt.Sscanf(s, "%f", &f); n == 1 && err == nil {
-		*out = f
-
-		return nil
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return fmt.Errorf("%w: %q", ErrCannotParseFloat, s)
 	}
 
-	return fmt.Errorf("%w: %q", ErrCannotParseFloat, s)
+	*out = f
+
+	return nil
 }

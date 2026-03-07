@@ -14,7 +14,8 @@ import (
 
 const (
 	iotDPMatchPriority = 88
-	unknownOperation   = "Unknown"
+	// maxPublishBodyBytes limits the size of MQTT publish request bodies.
+	maxPublishBodyBytes = 128 * 1024
 )
 
 // Handler is the Echo HTTP handler for IoT Data Plane operations.
@@ -67,18 +68,26 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "topic is required"})
 		}
 
-		// Accept the raw body as the MQTT payload; also accept a JSON wrapper.
+		// Limit the request body size to prevent excessive memory usage.
+		c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxPublishBodyBytes)
+
 		body, err := io.ReadAll(c.Request().Body)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
 		}
 
 		payload := body
 
 		// If the body is a JSON object with a "payload" key, unwrap it.
-		var wrapper PublishInput
-		if jsonErr := json.Unmarshal(body, &wrapper); jsonErr == nil && wrapper.Payload != "" {
-			payload = []byte(wrapper.Payload)
+		// Use map[string]json.RawMessage to detect the key regardless of the value.
+		var wrapper map[string]json.RawMessage
+		if jsonErr := json.Unmarshal(body, &wrapper); jsonErr == nil {
+			if rawPayload, ok := wrapper["payload"]; ok {
+				var payloadStr string
+				if unmarshalErr := json.Unmarshal(rawPayload, &payloadStr); unmarshalErr == nil {
+					payload = []byte(payloadStr)
+				}
+			}
 		}
 
 		if publishErr := h.Backend.Publish(topic, payload); publishErr != nil {

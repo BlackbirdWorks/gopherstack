@@ -39,9 +39,8 @@ type RuleAction struct {
 
 // SQSAction sends the matched message to an SQS queue.
 type SQSAction struct {
-	QueueURL  string `json:"queueUrl"`
-	RoleARN   string `json:"roleArn"`
-	UseBase64 bool   `json:"useBase64"`
+	QueueURL string `json:"queueUrl"`
+	RoleARN  string `json:"roleArn"`
 }
 
 // LambdaAction invokes a Lambda function with the matched message payload.

@@ -112,9 +112,13 @@ func TestMain(m *testing.M) {
 		},
 		AutoRemove:   true,
 		ExposedPorts: []string{"8000/tcp", "1883/tcp"},
-		WaitingFor: wait.ForHTTP("/").
-			WithStatusCodeMatcher(func(_ int) bool { return true }).
-			WithStartupTimeout(60 * time.Second),
+		WaitingFor: wait.ForAll(
+			wait.ForHTTP("/").
+				WithStatusCodeMatcher(func(_ int) bool { return true }).
+				WithStartupTimeout(60*time.Second),
+			wait.ForListeningPort("1883/tcp").
+				WithStartupTimeout(60*time.Second),
+		),
 	}
 
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
