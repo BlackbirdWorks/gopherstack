@@ -283,7 +283,12 @@ func TestIntegration_SNS_SQS_RedrivePolicy(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, recvOut.Messages, "DLQ should have received the failed message")
-	assert.Equal(t, msgBody, *recvOut.Messages[0].Body)
+	// DLQ receives the same body that was attempted to the failed queue.
+	// Without RawMessageDelivery=true, that body is the SNS envelope JSON.
+	var dlqEnvelope map[string]any
+	require.NoError(t, json.Unmarshal([]byte(*recvOut.Messages[0].Body), &dlqEnvelope))
+	assert.Equal(t, "Notification", dlqEnvelope["Type"])
+	assert.Equal(t, msgBody, dlqEnvelope["Message"])
 
 	_, _ = snsClient.DeleteTopic(ctx, &snssdk.DeleteTopicInput{TopicArn: aws.String(topicArn)})
 	_, _ = sqsClient.DeleteQueue(ctx, &sqssdk.DeleteQueueInput{QueueUrl: aws.String(dlqURL)})

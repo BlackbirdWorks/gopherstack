@@ -72,7 +72,7 @@ func (b *InMemoryBackend) deliverSNSSubscription(
 	// Best-effort delivery: on failure, route to the dead-letter queue if configured.
 	_, err := b.SendMessage(input)
 	if err != nil && sub.RedrivePolicy != "" {
-		b.deliverToDLQ(sub.RedrivePolicy, ev.Message, ev.Attributes)
+		b.deliverToDLQ(sub.RedrivePolicy, body, msgAttrs)
 	}
 }
 
@@ -89,11 +89,12 @@ func buildDeliveryBody(
 	return buildSNSEnvelope(ev, queueName), nil
 }
 
-// deliverToDLQ sends the message to the dead-letter queue specified in the redrive policy.
+// deliverToDLQ sends the message body and attributes (exactly as attempted during the failed
+// delivery) to the dead-letter queue specified in the redrive policy.
 // The redrivePolicy JSON must have the form {"deadLetterTargetArn":"arn:aws:sqs:..."}.
 func (b *InMemoryBackend) deliverToDLQ(
-	redrivePolicy, message string,
-	attrs map[string]events.SNSMessageAttributeSnapshot,
+	redrivePolicy, body string,
+	msgAttrs map[string]MessageAttributeValue,
 ) {
 	var policy struct {
 		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
@@ -114,10 +115,9 @@ func (b *InMemoryBackend) deliverToDLQ(
 
 	input := &SendMessageInput{
 		QueueURL:    "internal/" + dlqName,
-		MessageBody: message,
+		MessageBody: body,
 	}
 
-	msgAttrs := snsAttrsToSQSAttrs(attrs)
 	if len(msgAttrs) > 0 {
 		input.MessageAttributes = msgAttrs
 	}

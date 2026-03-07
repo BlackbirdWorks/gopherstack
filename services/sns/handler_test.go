@@ -2244,6 +2244,27 @@ func TestSNSHandler_SetSubscriptionAttributes(t *testing.T) {
 			wantStatus:       http.StatusOK,
 			wantBodyContains: []string{"SetSubscriptionAttributesResponse"},
 		},
+		{
+			name: "unknown_attribute_returns_error",
+			setup: func(b *sns.InMemoryBackend) string {
+				b.CreateTopic("unk-topic", nil)
+				sub, _ := b.Subscribe(
+					"arn:aws:sns:us-east-1:000000000000:unk-topic",
+					"sqs",
+					"arn:aws:sqs:us-east-1:000000000000:q",
+					"",
+				)
+
+				return sub.SubscriptionArn
+			},
+			form: url.Values{
+				"Action":         {"SetSubscriptionAttributes"},
+				"AttributeName":  {"UnknownAttribute"},
+				"AttributeValue": {"some-value"},
+			},
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: []string{"InvalidParameter"},
+		},
 	}
 
 	for _, tt := range tests {

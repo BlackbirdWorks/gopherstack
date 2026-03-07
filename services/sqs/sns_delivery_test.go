@@ -307,7 +307,12 @@ func TestSNSToSQSDLQ(t *testing.T) {
 
 			if tt.wantDLQMsg {
 				require.Len(t, out.Messages, 1)
-				assert.Equal(t, tt.publishMessage, out.Messages[0].Body)
+				// DLQ receives the same body that was attempted to the failed queue.
+				// Without RawMessageDelivery, that is the SNS envelope JSON.
+				var env map[string]string
+				require.NoError(t, json.Unmarshal([]byte(out.Messages[0].Body), &env))
+				assert.Equal(t, "Notification", env["Type"])
+				assert.Equal(t, tt.publishMessage, env["Message"])
 			} else {
 				assert.Empty(t, out.Messages)
 			}

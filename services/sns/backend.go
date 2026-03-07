@@ -283,7 +283,7 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 		"Protocol":             sub.Protocol,
 		"Endpoint":             sub.Endpoint,
 		"Owner":                sub.Owner,
-		"PendingConfirmation":  "false",
+		"PendingConfirmation":  strconv.FormatBool(sub.PendingConfirmation),
 		attrRawMessageDelivery: strconv.FormatBool(sub.RawMessageDelivery),
 	}
 
@@ -315,6 +315,8 @@ func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, a
 		sub.FilterPolicy = attrValue
 	case attrRedrivePolicy:
 		sub.RedrivePolicy = attrValue
+	default:
+		return ErrInvalidParameter
 	}
 
 	return nil

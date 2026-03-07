@@ -310,14 +310,16 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 
 	// Apply subscription attributes passed at subscribe time (e.g. RawMessageDelivery, RedrivePolicy).
 	attrs := extractFormAttributes(c)
+	ctx := c.Request().Context()
+	log := logger.Load(ctx)
+
 	for k, v := range attrs {
 		if k == attrFilterPolicy {
 			continue // already handled by Subscribe
 		}
 
-		if err := h.Backend.SetSubscriptionAttributes(sub.SubscriptionArn, k, v); err != nil {
-			log := logger.Load(c.Request().Context())
-			log.Warn("failed to set subscription attribute", "attr", k, "error", err)
+		if setErr := h.Backend.SetSubscriptionAttributes(sub.SubscriptionArn, k, v); setErr != nil {
+			log.WarnContext(ctx, "failed to set subscription attribute", "attr", k, "error", setErr)
 		}
 	}
 
