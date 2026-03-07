@@ -47,7 +47,7 @@ func (rc *ResourceCreator) createIAMRole(
 
 	assumeRolePolicyDocument := strProp(props, "AssumeRolePolicyDocument", params, physicalIDs)
 
-	role, err := rc.backends.IAM.Backend.CreateRole(roleName, path, assumeRolePolicyDocument)
+	role, err := rc.backends.IAM.Backend.CreateRole(roleName, path, assumeRolePolicyDocument, "")
 	if err != nil {
 		return "", fmt.Errorf("create IAM role %s: %w", roleName, err)
 	}

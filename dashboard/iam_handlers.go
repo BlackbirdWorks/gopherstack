@@ -78,7 +78,7 @@ func (h *DashboardHandler) iamCreateUser(c *echo.Context) error {
 	path := r.FormValue("path")
 
 	if h.IAMOps != nil {
-		if _, err := h.IAMOps.Backend.CreateUser(userName, path); err != nil {
+		if _, err := h.IAMOps.Backend.CreateUser(userName, path, ""); err != nil {
 			h.Logger.Error("failed to create IAM user", "error", err)
 
 			return c.String(http.StatusInternalServerError, "Failed to create user: "+err.Error())
@@ -127,7 +127,7 @@ func (h *DashboardHandler) iamCreateRole(c *echo.Context) error {
 	doc := r.FormValue("assumeRolePolicyDocument")
 
 	if h.IAMOps != nil {
-		if _, err := h.IAMOps.Backend.CreateRole(roleName, path, doc); err != nil {
+		if _, err := h.IAMOps.Backend.CreateRole(roleName, path, doc, ""); err != nil {
 			h.Logger.Error("failed to create IAM role", "error", err)
 
 			return c.String(http.StatusInternalServerError, "Failed to create role: "+err.Error())

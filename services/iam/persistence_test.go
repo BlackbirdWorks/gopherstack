@@ -19,7 +19,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *iam.InMemoryBackend) string {
-				user, err := b.CreateUser("testuser", "/")
+				user, err := b.CreateUser("testuser", "/", "")
 				if err != nil {
 					return ""
 				}

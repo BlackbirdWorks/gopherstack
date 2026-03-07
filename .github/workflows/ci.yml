@@ -132,7 +132,7 @@ jobs:
           tofu_wrapper: false
 
       - name: Cache OpenTofu providers
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/gopherstack-tofu-provider-cache
           key: tofu-providers-${{ runner.os }}-aws5
