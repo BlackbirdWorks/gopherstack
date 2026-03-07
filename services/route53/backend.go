@@ -15,9 +15,10 @@ import (
 
 // Errors returned by the backend.
 var (
-	ErrHostedZoneNotFound = errors.New("NoSuchHostedZone")
-	ErrInvalidInput       = errors.New("InvalidInput")
-	ErrInvalidAction      = errors.New("InvalidChangeBatch")
+	ErrHostedZoneNotFound  = errors.New("NoSuchHostedZone")
+	ErrInvalidInput        = errors.New("InvalidInput")
+	ErrInvalidAction       = errors.New("InvalidChangeBatch")
+	ErrHealthCheckNotFound = errors.New("NoSuchHealthCheck")
 )
 
 const (
@@ -26,6 +27,62 @@ const (
 	// recordTypeCNAME is the DNS CNAME record type.
 	recordTypeCNAME = "CNAME"
 )
+
+// HealthCheckType is the type of health check.
+type HealthCheckType string
+
+const (
+	// HealthCheckTypeHTTP is an HTTP health check.
+	HealthCheckTypeHTTP HealthCheckType = "HTTP"
+	// HealthCheckTypeHTTPS is an HTTPS health check.
+	HealthCheckTypeHTTPS HealthCheckType = "HTTPS"
+	// HealthCheckTypeTCP is a TCP health check.
+	HealthCheckTypeTCP HealthCheckType = "TCP"
+	// HealthCheckTypeCalculated is a calculated health check.
+	HealthCheckTypeCalculated HealthCheckType = "CALCULATED"
+	// HealthCheckTypeCloudWatchMetric is a CloudWatch alarm health check.
+	HealthCheckTypeCloudWatchMetric HealthCheckType = "CLOUDWATCH_METRIC"
+)
+
+// HealthCheckConfig holds the configuration for a health check.
+type HealthCheckConfig struct {
+	IPAddress                string          `json:"ipAddress,omitempty"`
+	FullyQualifiedDomainName string          `json:"fullyQualifiedDomainName,omitempty"`
+	ResourcePath             string          `json:"resourcePath,omitempty"`
+	Type                     HealthCheckType `json:"type"`
+	ChildHealthChecks        []string        `json:"childHealthChecks,omitempty"`
+	Port                     int             `json:"port,omitempty"`
+	RequestInterval          int             `json:"requestInterval,omitempty"`
+	FailureThreshold         int             `json:"failureThreshold,omitempty"`
+	HealthThreshold          int             `json:"healthThreshold,omitempty"`
+	Inverted                 bool            `json:"inverted,omitempty"`
+}
+
+// HealthCheck represents a Route 53 health check.
+type HealthCheck struct {
+	CreatedAt       time.Time         `json:"createdAt"`
+	ID              string            `json:"id"`
+	CallerReference string            `json:"callerReference"`
+	Status          string            `json:"status"`
+	Config          HealthCheckConfig `json:"config"`
+}
+
+// FailoverPolicy is the failover role for a record set.
+type FailoverPolicy string
+
+const (
+	// FailoverPrimary is the primary record in failover routing.
+	FailoverPrimary FailoverPolicy = "PRIMARY"
+	// FailoverSecondary is the secondary record in failover routing.
+	FailoverSecondary FailoverPolicy = "SECONDARY"
+)
+
+// GeoLocation represents a geolocation routing target.
+type GeoLocation struct {
+	ContinentCode   string `json:"continentCode,omitempty"`
+	CountryCode     string `json:"countryCode,omitempty"`
+	SubdivisionCode string `json:"subdivisionCode,omitempty"`
+}
 
 // DNSRegistrar can register and deregister hostnames with an embedded DNS server.
 type DNSRegistrar interface {
@@ -58,36 +115,51 @@ type AliasTarget struct {
 
 // ResourceRecordSet represents a DNS resource record set.
 type ResourceRecordSet struct {
-	AliasTarget *AliasTarget     `json:"aliasTarget,omitempty"`
-	Name        string           `json:"name"`
-	Type        string           `json:"type"`
-	Records     []ResourceRecord `json:"records"`
-	TTL         int64            `json:"ttl"`
+	AliasTarget   *AliasTarget     `json:"aliasTarget,omitempty"`
+	GeoLocation   *GeoLocation     `json:"geoLocation,omitempty"`
+	Name          string           `json:"name"`
+	Type          string           `json:"type"`
+	SetIdentifier string           `json:"setIdentifier,omitempty"`
+	Failover      FailoverPolicy   `json:"failover,omitempty"`
+	Region        string           `json:"region,omitempty"`
+	HealthCheckID string           `json:"healthCheckId,omitempty"`
+	Records       []ResourceRecord `json:"records"`
+	TTL           int64            `json:"ttl"`
+	Weight        int64            `json:"weight,omitempty"`
 }
 
 // recordSetKey builds the map key for a resource record set.
-func recordSetKey(name, rrType string) string {
-	return strings.ToLower(strings.TrimSuffix(name, ".")) + "|" + strings.ToUpper(rrType)
+// When SetIdentifier is non-empty it is included so routing-policy records
+// with the same name/type can coexist.
+func recordSetKey(name, rrType, setIdentifier string) string {
+	base := strings.ToLower(strings.TrimSuffix(name, ".")) + "|" + strings.ToUpper(rrType)
+	if setIdentifier != "" {
+		return base + "|" + setIdentifier
+	}
+
+	return base
 }
 
 // zoneData holds per-zone state.
 type zoneData struct {
-	records map[string]*ResourceRecordSet // key: "name|TYPE"
+	records map[string]*ResourceRecordSet // key: "name|TYPE" or "name|TYPE|SetIdentifier"
 	zone    HostedZone
 }
 
 // InMemoryBackend stores Route 53 state in memory.
 type InMemoryBackend struct {
-	dns   DNSRegistrar
-	zones map[string]*zoneData // key: zone ID
-	mu    *lockmetrics.RWMutex
+	dns          DNSRegistrar
+	zones        map[string]*zoneData    // key: zone ID
+	healthChecks map[string]*HealthCheck // key: health check ID
+	mu           *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		zones: make(map[string]*zoneData),
-		mu:    lockmetrics.New("route53"),
+		zones:        make(map[string]*zoneData),
+		healthChecks: make(map[string]*HealthCheck),
+		mu:           lockmetrics.New("route53"),
 	}
 }
 
@@ -247,7 +319,7 @@ func (b *InMemoryBackend) ChangeResourceRecordSets(zoneID string, changes []Chan
 	for _, ch := range changes {
 		rrs := ch.ResourceRecordSet
 		rrs.Name = normaliseName(rrs.Name)
-		key := recordSetKey(rrs.Name, rrs.Type)
+		key := recordSetKey(rrs.Name, rrs.Type, rrs.SetIdentifier)
 
 		switch ch.Action {
 		case ChangeActionCreate, ChangeActionUpsert:
@@ -300,8 +372,150 @@ func (b *InMemoryBackend) ListResourceRecordSets(zoneID string) ([]ResourceRecor
 			return result[i].Name < result[j].Name
 		}
 
-		return result[i].Type < result[j].Type
+		if result[i].Type != result[j].Type {
+			return result[i].Type < result[j].Type
+		}
+
+		return result[i].SetIdentifier < result[j].SetIdentifier
 	})
 
 	return result, nil
+}
+
+const (
+	healthCheckIDChars  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	healthCheckIDLength = 36
+	defaultHealthStatus = "Healthy"
+)
+
+func randomHealthCheckID() string {
+	buf := make([]byte, healthCheckIDLength)
+	n := uint64(len(healthCheckIDChars))
+
+	for i := range buf {
+		var v [8]byte
+		_, _ = rand.Read(v[:])
+		buf[i] = healthCheckIDChars[binary.BigEndian.Uint64(v[:])%n]
+	}
+
+	return string(buf)
+}
+
+// CreateHealthCheck creates a new health check.
+func (b *InMemoryBackend) CreateHealthCheck(callerRef string, cfg HealthCheckConfig) (*HealthCheck, error) {
+	if callerRef == "" {
+		return nil, fmt.Errorf("%w: callerReference is required", ErrInvalidInput)
+	}
+
+	if cfg.Type == "" {
+		return nil, fmt.Errorf("%w: health check type is required", ErrInvalidInput)
+	}
+
+	b.mu.Lock("CreateHealthCheck")
+	defer b.mu.Unlock()
+
+	hc := &HealthCheck{
+		ID:              randomHealthCheckID(),
+		CallerReference: callerRef,
+		Config:          cfg,
+		Status:          defaultHealthStatus,
+		CreatedAt:       time.Now(),
+	}
+
+	b.healthChecks[hc.ID] = hc
+
+	cp := *hc
+
+	return &cp, nil
+}
+
+// GetHealthCheck returns a single health check.
+func (b *InMemoryBackend) GetHealthCheck(id string) (*HealthCheck, error) {
+	b.mu.RLock("GetHealthCheck")
+	defer b.mu.RUnlock()
+
+	hc, ok := b.healthChecks[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
+	}
+
+	cp := *hc
+
+	return &cp, nil
+}
+
+// ListHealthChecks returns all health checks.
+func (b *InMemoryBackend) ListHealthChecks(marker string, maxItems int) (page.Page[HealthCheck], error) {
+	b.mu.RLock("ListHealthChecks")
+	defer b.mu.RUnlock()
+
+	result := make([]HealthCheck, 0, len(b.healthChecks))
+	for _, hc := range b.healthChecks {
+		cp := *hc
+		result = append(result, cp)
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+
+	return page.New(result, marker, maxItems, route53DefaultMaxItems), nil
+}
+
+// DeleteHealthCheck removes a health check.
+func (b *InMemoryBackend) DeleteHealthCheck(id string) error {
+	b.mu.Lock("DeleteHealthCheck")
+	defer b.mu.Unlock()
+
+	if _, ok := b.healthChecks[id]; !ok {
+		return fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
+	}
+
+	delete(b.healthChecks, id)
+
+	return nil
+}
+
+// UpdateHealthCheck updates configuration fields of an existing health check.
+func (b *InMemoryBackend) UpdateHealthCheck(id string, cfg HealthCheckConfig) (*HealthCheck, error) {
+	b.mu.Lock("UpdateHealthCheck")
+	defer b.mu.Unlock()
+
+	hc, ok := b.healthChecks[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
+	}
+
+	hc.Config = cfg
+
+	cp := *hc
+
+	return &cp, nil
+}
+
+// GetHealthCheckStatus returns the mocked health status for a health check.
+func (b *InMemoryBackend) GetHealthCheckStatus(id string) (string, error) {
+	b.mu.RLock("GetHealthCheckStatus")
+	defer b.mu.RUnlock()
+
+	hc, ok := b.healthChecks[id]
+	if !ok {
+		return "", fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
+	}
+
+	return hc.Status, nil
+}
+
+// SetHealthCheckStatus overrides the mocked health status for a health check.
+// This allows tests to simulate failover scenarios.
+func (b *InMemoryBackend) SetHealthCheckStatus(id, status string) error {
+	b.mu.Lock("SetHealthCheckStatus")
+	defer b.mu.Unlock()
+
+	hc, ok := b.healthChecks[id]
+	if !ok {
+		return fmt.Errorf("%w: health check %s not found", ErrHealthCheckNotFound, id)
+	}
+
+	hc.Status = status
+
+	return nil
 }

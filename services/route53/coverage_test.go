@@ -154,6 +154,25 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		},
 		{name: "get_zone_is_get", method: http.MethodGet, path: "/2013-04-01/hostedzone/Z123", want: "GetHostedZone"},
 		{name: "put_hostedzone_is_unknown", method: http.MethodPut, path: "/2013-04-01/hostedzone", want: "Unknown"},
+		// Health check-related operation extraction.
+		{
+			name:   "delete_healthcheck_is_delete_hc",
+			method: http.MethodDelete,
+			path:   "/2013-04-01/healthcheck/HCID",
+			want:   "DeleteHealthCheck",
+		},
+		{
+			name:   "get_hc_status_is_get_status",
+			method: http.MethodGet,
+			path:   "/2013-04-01/healthcheck/HCID/status",
+			want:   "GetHealthCheckStatus",
+		},
+		{
+			name:   "post_hc_status_is_unknown",
+			method: http.MethodPost,
+			path:   "/2013-04-01/healthcheck/HCID/status",
+			want:   "Unknown",
+		},
 	}
 
 	for _, tt := range tests {

@@ -7,6 +7,7 @@ type backendSnapshot struct {
 	Events     map[string][]StackEvent              `json:"events"`
 	Resources  map[string]map[string]*StackResource `json:"resources"`
 	ChangeSets map[string]map[string]*ChangeSet     `json:"changeSets"`
+	Exports    map[string]*Export                   `json:"exports"`
 	AccountID  string                               `json:"accountID"`
 	Region     string                               `json:"region"`
 }
@@ -22,6 +23,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Events:     b.events,
 		Resources:  b.resources,
 		ChangeSets: b.changeSets,
+		Exports:    b.exports,
 		AccountID:  b.accountID,
 		Region:     b.region,
 	}
@@ -62,10 +64,15 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.ChangeSets = make(map[string]map[string]*ChangeSet)
 	}
 
+	if snap.Exports == nil {
+		snap.Exports = make(map[string]*Export)
+	}
+
 	b.stacks = snap.Stacks
 	b.events = snap.Events
 	b.resources = snap.Resources
 	b.changeSets = snap.ChangeSets
+	b.exports = snap.Exports
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

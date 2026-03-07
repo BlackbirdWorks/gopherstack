@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -16,10 +17,13 @@ import (
 )
 
 var (
-	ErrStackNotFound      = errors.New("Stack with id does not exist")
-	ErrStackAlreadyExists = errors.New("Stack already exists")
-	ErrChangeSetNotFound  = errors.New("ChangeSet not found")
-	ErrChangeSetExists    = errors.New("ChangeSet already exists")
+	ErrStackNotFound      = errors.New("stack with id does not exist")
+	ErrStackAlreadyExists = errors.New("stack already exists")
+	ErrChangeSetNotFound  = errors.New("change set not found")
+	ErrChangeSetExists    = errors.New("change set already exists")
+	ErrResourceNotFound   = errors.New("resource not found in stack")
+	ErrExportNotFound     = errors.New("export with given name not found")
+	ErrDuplicateExport    = errors.New("export already exists and is owned by another stack")
 )
 
 // StorageBackend defines the interface for the CloudFormation in-memory backend.
@@ -30,6 +34,11 @@ type StorageBackend interface {
 	DescribeStack(nameOrID string) (*Stack, error)
 	ListStacks(statusFilter []string, nextToken string) (page.Page[StackSummary], error)
 	DescribeStackEvents(nameOrID string) ([]StackEvent, error)
+	DescribeStackResource(nameOrID, logicalID string) (*StackResource, error)
+	ListStackResources(nameOrID, nextToken string) (page.Page[StackResourceSummary], error)
+	DescribeStackResources(nameOrID string) ([]StackResource, error)
+	ListExports(nextToken string) (page.Page[Export], error)
+	ListImports(exportName, nextToken string) (page.Page[string], error)
 	CreateChangeSet(
 		ctx context.Context,
 		stackName, changeSetName, templateBody, description string,
@@ -49,6 +58,7 @@ type InMemoryBackend struct {
 	events     map[string][]StackEvent
 	resources  map[string]map[string]*StackResource
 	changeSets map[string]map[string]*ChangeSet
+	exports    map[string]*Export
 	creator    *ResourceCreator
 	resolver   DynamicRefResolver
 	mu         *lockmetrics.RWMutex
@@ -91,6 +101,7 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 		events:     make(map[string][]StackEvent),
 		resources:  make(map[string]map[string]*StackResource),
 		changeSets: make(map[string]map[string]*ChangeSet),
+		exports:    make(map[string]*Export),
 		creator:    creator,
 		resolver:   resolver,
 		accountID:  accountID,
@@ -170,57 +181,115 @@ func (b *InMemoryBackend) CreateStack(
 
 	// Parse and provision resources.
 	if templateBody != "" {
-		tmpl, err := ParseTemplate(templateBody)
-		if err != nil {
-			stack.StackStatus = statusCreateFailed
-			stack.StackStatusReason = err.Error()
-			b.addEvent(arn, name, name, arn, cfnStackType, statusCreateFailed, err.Error())
-
-			return stack, nil
-		}
-		stack.Description = tmpl.Description
-
-		if dynErr := ResolveDynamicRefsInTemplate(tmpl, b.resolver); dynErr != nil {
-			stack.StackStatus = statusCreateFailed
-			stack.StackStatusReason = dynErr.Error()
-			b.addEvent(arn, name, name, arn, cfnStackType, statusCreateFailed, dynErr.Error())
-
-			return stack, nil
-		}
-
-		resolvedParams := ResolveParameters(tmpl, params)
-		physicalIDs := make(map[string]string)
-
-		for logicalID, res := range tmpl.Resources {
-			b.addEvent(arn, name, logicalID, "", res.Type, statusCreateInProgress, "")
-			physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
-			if cerr != nil {
-				stack.StackStatus = statusCreateFailed
-				stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
-				b.addEvent(arn, name, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
-				b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, cerr.Error())
-				b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
-
-				return stack, nil
-			}
-			physicalIDs[logicalID] = physicalID
-			b.resources[arn][logicalID] = &StackResource{
-				LogicalID:  logicalID,
-				PhysicalID: physicalID,
-				Type:       res.Type,
-				Status:     statusCreateComplete,
-				Properties: res.Properties,
-			}
-			b.addEvent(arn, name, logicalID, physicalID, res.Type, statusCreateComplete, "")
-		}
-
-		stack.Outputs = resolveOutputs(tmpl, resolvedParams, physicalIDs)
+		b.createStackFromTemplate(ctx, stack, params)
 	}
 
-	stack.StackStatus = statusCreateComplete
-	b.addEvent(arn, name, name, arn, cfnStackType, statusCreateComplete, "")
+	if stack.StackStatus != statusCreateFailed && stack.StackStatus != statusRollbackComplete {
+		stack.StackStatus = statusCreateComplete
+		b.addEvent(arn, name, name, arn, cfnStackType, statusCreateComplete, "")
+	}
 
 	return stack, nil
+}
+
+// createStackFromTemplate parses and applies a template during CreateStack.
+// It updates stack.StackStatus on failure.
+func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *Stack, params []Parameter) {
+	arn := stack.StackID
+	name := stack.StackName
+
+	tmpl, err := ParseTemplate(stack.TemplateBody)
+	if err != nil {
+		stack.StackStatus = statusCreateFailed
+		stack.StackStatusReason = err.Error()
+		b.addEvent(arn, name, name, arn, cfnStackType, statusCreateFailed, err.Error())
+
+		return
+	}
+	stack.Description = tmpl.Description
+
+	if dynErr := ResolveDynamicRefsInTemplate(tmpl, b.resolver); dynErr != nil {
+		stack.StackStatus = statusCreateFailed
+		stack.StackStatusReason = dynErr.Error()
+		b.addEvent(arn, name, name, arn, cfnStackType, statusCreateFailed, dynErr.Error())
+
+		return
+	}
+
+	resolvedParams := ResolveParameters(tmpl, params)
+
+	// Validate that all Fn::ImportValue references can be satisfied before
+	// creating any resources.
+	if impErr := validateImportValues(tmpl, resolvedParams, b.buildExportsMap()); impErr != nil {
+		stack.StackStatus = statusCreateFailed
+		stack.StackStatusReason = impErr.Error()
+		b.addEvent(arn, name, name, arn, cfnStackType, statusCreateFailed, impErr.Error())
+
+		return
+	}
+
+	physicalIDs := b.provisionResources(ctx, stack, tmpl, resolvedParams)
+	if stack.StackStatus == statusCreateFailed {
+		return
+	}
+
+	rctx := resolveCtx{
+		params:      resolvedParams,
+		physicalIDs: physicalIDs,
+		exports:     b.buildExportsMap(),
+		conditions:  evaluateConditions(tmpl.Conditions, resolvedParams, physicalIDs),
+		mappings:    tmpl.Mappings,
+	}
+	var exportMap map[string]string
+	stack.Outputs, exportMap = resolveOutputsWithContext(tmpl, rctx)
+
+	if regErr := b.registerExports(stack.StackID, exportMap); regErr != nil {
+		stack.StackStatus = statusCreateFailed
+		stack.StackStatusReason = regErr.Error()
+		b.addEvent(arn, name, name, arn, cfnStackType, statusCreateFailed, regErr.Error())
+	}
+}
+
+// provisionResources creates all resources defined in the template.
+// Returns the physicalIDs map. On failure, stack.StackStatus is set to
+// statusCreateFailed and rollback events are emitted.
+func (b *InMemoryBackend) provisionResources(
+	ctx context.Context,
+	stack *Stack,
+	tmpl *Template,
+	resolvedParams map[string]string,
+) map[string]string {
+	arn := stack.StackID
+	name := stack.StackName
+	physicalIDs := make(map[string]string)
+
+	for logicalID, res := range tmpl.Resources {
+		b.addEvent(arn, name, logicalID, "", res.Type, statusCreateInProgress, "")
+		physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
+		if cerr != nil {
+			stack.StackStatus = statusCreateFailed
+			stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
+			b.addEvent(arn, name, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
+			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, cerr.Error())
+			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
+
+			return physicalIDs
+		}
+		physicalIDs[logicalID] = physicalID
+		b.resources[arn][logicalID] = &StackResource{
+			Timestamp:  time.Now(),
+			LogicalID:  logicalID,
+			PhysicalID: physicalID,
+			Type:       res.Type,
+			Status:     statusCreateComplete,
+			Properties: res.Properties,
+			StackID:    arn,
+			StackName:  name,
+		}
+		b.addEvent(arn, name, logicalID, physicalID, res.Type, statusCreateComplete, "")
+	}
+
+	return physicalIDs
 }
 
 // UpdateStack updates an existing stack.
@@ -295,15 +364,70 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 	}
 
 	resolvedParams := ResolveParameters(tmpl, stack.Parameters)
-	physicalIDs := make(map[string]string)
 
+	// Pre-populate physicalIDs from existing resources.
+	physicalIDs := make(map[string]string, len(b.resources[stack.StackID]))
 	for logicalID, res := range b.resources[stack.StackID] {
 		physicalIDs[logicalID] = res.PhysicalID
 	}
 
+	// Validate that all Fn::ImportValue references can be satisfied before
+	// updating any resources.
+	if impErr := validateImportValues(tmpl, resolvedParams, b.buildExportsMap()); impErr != nil {
+		stack.StackStatus = statusUpdateFailed
+		stack.StackStatusReason = impErr.Error()
+		b.addEvent(
+			stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+			cfnStackType, statusUpdateFailed, impErr.Error(),
+		)
+
+		return false
+	}
+
+	if !b.updateResources(ctx, stack, tmpl, resolvedParams, physicalIDs) {
+		return false
+	}
+
+	b.removeExports(stack.StackID)
+
+	rctx := resolveCtx{
+		params:      resolvedParams,
+		physicalIDs: physicalIDs,
+		exports:     b.buildExportsMap(),
+		conditions:  evaluateConditions(tmpl.Conditions, resolvedParams, physicalIDs),
+		mappings:    tmpl.Mappings,
+	}
+
+	var exportMap map[string]string
+	stack.Outputs, exportMap = resolveOutputsWithContext(tmpl, rctx)
+
+	if regErr := b.registerExports(stack.StackID, exportMap); regErr != nil {
+		stack.StackStatus = statusUpdateFailed
+		stack.StackStatusReason = regErr.Error()
+		b.addEvent(
+			stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+			cfnStackType, statusUpdateFailed, regErr.Error(),
+		)
+
+		return false
+	}
+
+	return true
+}
+
+// updateResources reconciles existing resources and creates newly declared ones.
+// Returns true on success; on failure it sets stack.StackStatus and returns false.
+func (b *InMemoryBackend) updateResources(
+	ctx context.Context,
+	stack *Stack,
+	tmpl *Template,
+	resolvedParams map[string]string,
+	physicalIDs map[string]string,
+) bool {
 	for logicalID, res := range tmpl.Resources {
 		if existing, exists := b.resources[stack.StackID][logicalID]; exists {
 			existing.Status = statusUpdateComplete
+			existing.Timestamp = time.Now()
 			b.addEvent(
 				stack.StackID,
 				stack.StackName,
@@ -325,17 +449,18 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 
 			physicalIDs[logicalID] = physicalID
 			b.resources[stack.StackID][logicalID] = &StackResource{
+				Timestamp:  time.Now(),
 				LogicalID:  logicalID,
 				PhysicalID: physicalID,
 				Type:       res.Type,
 				Status:     statusCreateComplete,
 				Properties: res.Properties,
+				StackID:    stack.StackID,
+				StackName:  stack.StackName,
 			}
 			b.addEvent(stack.StackID, stack.StackName, logicalID, physicalID, res.Type, statusCreateComplete, "")
 		}
 	}
-
-	stack.Outputs = resolveOutputs(tmpl, resolvedParams, physicalIDs)
 
 	return true
 }
@@ -365,6 +490,7 @@ func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) erro
 	now := time.Now()
 	stack.DeletionTime = &now
 	stack.StackStatus = statusDeleteComplete
+	b.removeExports(stack.StackID)
 	b.addEvent(
 		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
 		cfnStackType, statusDeleteComplete, "",
@@ -622,4 +748,161 @@ func (b *InMemoryBackend) ListAll() []*Stack {
 	}
 
 	return stacks
+}
+
+// DescribeStackResource returns details for a single resource in a stack.
+func (b *InMemoryBackend) DescribeStackResource(nameOrID, logicalID string) (*StackResource, error) {
+	b.mu.RLock("DescribeStackResource")
+	defer b.mu.RUnlock()
+
+	stack, ok := b.resolveStack(nameOrID)
+	if !ok {
+		return nil, ErrStackNotFound
+	}
+
+	res, ok := b.resources[stack.StackID][logicalID]
+	if !ok {
+		return nil, ErrResourceNotFound
+	}
+
+	return res, nil
+}
+
+// ListStackResources returns paginated summaries of all resources in a stack.
+func (b *InMemoryBackend) ListStackResources(nameOrID, nextToken string) (page.Page[StackResourceSummary], error) {
+	b.mu.RLock("ListStackResources")
+	defer b.mu.RUnlock()
+
+	stack, ok := b.resolveStack(nameOrID)
+	if !ok {
+		return page.Page[StackResourceSummary]{}, ErrStackNotFound
+	}
+
+	resMap := b.resources[stack.StackID]
+	summaries := make([]StackResourceSummary, 0, len(resMap))
+
+	for _, res := range resMap {
+		summaries = append(summaries, StackResourceSummary{
+			Timestamp:          res.Timestamp,
+			LogicalResourceID:  res.LogicalID,
+			PhysicalResourceID: res.PhysicalID,
+			ResourceType:       res.Type,
+			ResourceStatus:     res.Status,
+		})
+	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].LogicalResourceID < summaries[j].LogicalResourceID
+	})
+
+	return page.New(summaries, nextToken, 0, cfnDefaultPageSize), nil
+}
+
+// DescribeStackResources returns all resources for a stack (or matching a physical resource ID).
+func (b *InMemoryBackend) DescribeStackResources(nameOrID string) ([]StackResource, error) {
+	b.mu.RLock("DescribeStackResources")
+	defer b.mu.RUnlock()
+
+	stack, ok := b.resolveStack(nameOrID)
+	if !ok {
+		return nil, ErrStackNotFound
+	}
+
+	resMap := b.resources[stack.StackID]
+	resources := make([]StackResource, 0, len(resMap))
+
+	for _, res := range resMap {
+		resources = append(resources, *res)
+	}
+
+	sort.Slice(resources, func(i, j int) bool {
+		return resources[i].LogicalID < resources[j].LogicalID
+	})
+
+	return resources, nil
+}
+
+// ListExports returns all exported output values across all stacks.
+func (b *InMemoryBackend) ListExports(nextToken string) (page.Page[Export], error) {
+	b.mu.RLock("ListExports")
+	defer b.mu.RUnlock()
+
+	exports := make([]Export, 0, len(b.exports))
+	for _, exp := range b.exports {
+		exports = append(exports, *exp)
+	}
+
+	sort.Slice(exports, func(i, j int) bool { return exports[i].Name < exports[j].Name })
+
+	return page.New(exports, nextToken, 0, cfnDefaultPageSize), nil
+}
+
+// ListImports returns the names of stacks that import the given export.
+func (b *InMemoryBackend) ListImports(exportName, nextToken string) (page.Page[string], error) {
+	b.mu.RLock("ListImports")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.exports[exportName]; !ok {
+		return page.Page[string]{}, ErrExportNotFound
+	}
+
+	var stackNames []string
+
+	for _, stack := range b.stacks {
+		if stack.StackStatus == statusDeleteComplete {
+			continue
+		}
+
+		// Build resolved params to handle non-literal import names like {"Ref": "Param"}.
+		var resolvedParams map[string]string
+		if tmpl, err := ParseTemplate(stack.TemplateBody); err == nil {
+			resolvedParams = ResolveParameters(tmpl, stack.Parameters)
+		}
+
+		refs := collectImportValues(stack.TemplateBody, resolvedParams)
+		if slices.Contains(refs, exportName) {
+			stackNames = append(stackNames, stack.StackName)
+		}
+	}
+
+	sort.Strings(stackNames)
+
+	return page.New(stackNames, nextToken, 0, cfnDefaultPageSize), nil
+}
+
+// registerExports upserts exports for a stack from the given export map.
+// It returns ErrDuplicateExport if an export name is already owned by a different stack.
+func (b *InMemoryBackend) registerExports(stackID string, exportMap map[string]string) error {
+	for name, value := range exportMap {
+		if existing, ok := b.exports[name]; ok && existing.ExportingStackID != stackID {
+			return fmt.Errorf("%w: %s", ErrDuplicateExport, name)
+		}
+
+		b.exports[name] = &Export{
+			ExportingStackID: stackID,
+			Name:             name,
+			Value:            value,
+		}
+	}
+
+	return nil
+}
+
+// removeExports removes all exports owned by the given stack.
+func (b *InMemoryBackend) removeExports(stackID string) {
+	for name, exp := range b.exports {
+		if exp.ExportingStackID == stackID {
+			delete(b.exports, name)
+		}
+	}
+}
+
+// buildExportsMap builds a name→value map of all current exports (for Fn::ImportValue resolution).
+func (b *InMemoryBackend) buildExportsMap() map[string]string {
+	m := make(map[string]string, len(b.exports))
+	for name, exp := range b.exports {
+		m[name] = exp.Value
+	}
+
+	return m
 }

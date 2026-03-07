@@ -331,3 +331,135 @@ func findResourceRecordSet(
 
 	return nil
 }
+
+// route53HealthCheckView is the view model for a single health check.
+type route53HealthCheckView struct {
+	ID     string
+	Type   string
+	Target string
+	Status string
+}
+
+// route53HealthCheckIndexData is the template data for the Route 53 health checks index page.
+type route53HealthCheckIndexData struct {
+	PageData
+
+	HealthChecks []route53HealthCheckView
+}
+
+// route53HealthCheckIndex renders the list of all Route 53 health checks.
+func (h *DashboardHandler) route53HealthCheckIndex(c *echo.Context) error {
+	w := c.Response()
+
+	if h.Route53Ops == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	p, err := h.Route53Ops.Backend.ListHealthChecks("", 0)
+	if err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	views := make([]route53HealthCheckView, 0, len(p.Data))
+
+	for _, hc := range p.Data {
+		target := hc.Config.IPAddress
+		if target == "" {
+			target = hc.Config.FullyQualifiedDomainName
+		}
+
+		views = append(views, route53HealthCheckView{
+			ID:     hc.ID,
+			Type:   string(hc.Config.Type),
+			Target: target,
+			Status: hc.Status,
+		})
+	}
+
+	h.renderTemplate(w, "route53/healthchecks.html", route53HealthCheckIndexData{
+		PageData: PageData{Title: "Route 53 Health Checks", ActiveTab: "route53",
+			Snippet: &SnippetData{
+				ID:    "route53-healthcheck-operations",
+				Title: "Using Route53 Health Checks",
+				Cli:   `aws route53 list-health-checks --endpoint-url http://localhost:8000`,
+				Go: `// Create a health check
+client := route53.NewFromConfig(cfg)
+out, err := client.CreateHealthCheck(ctx, &route53.CreateHealthCheckInput{
+    CallerReference: aws.String("unique-ref"),
+    HealthCheckConfig: &types.HealthCheckConfig{
+        Type: types.HealthCheckTypeHttp,
+        IPAddress: aws.String("192.0.2.1"),
+        Port: aws.Int32(80),
+        ResourcePath: aws.String("/health"),
+    },
+})`,
+				Python: `# Create a health check
+response = client.create_health_check(
+    CallerReference='unique-ref',
+    HealthCheckConfig={
+        'Type': 'HTTP',
+        'IPAddress': '192.0.2.1',
+        'Port': 80,
+        'ResourcePath': '/health',
+    }
+)`,
+			}},
+		HealthChecks: views,
+	})
+
+	return nil
+}
+
+// route53CreateHealthCheck handles POST /dashboard/route53/healthchecks/create.
+func (h *DashboardHandler) route53CreateHealthCheck(c *echo.Context) error {
+	if h.Route53Ops == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	if err := c.Request().ParseForm(); err != nil {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
+	hcType := c.Request().FormValue("hc_type")
+	ipAddress := c.Request().FormValue("hc_ip")
+	fqdn := c.Request().FormValue("hc_fqdn")
+	resourcePath := c.Request().FormValue("hc_path")
+	callerRef := fmt.Sprintf("dashboard-hc-%s", hcType)
+
+	if hcType == "" {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
+	cfg := route53backend.HealthCheckConfig{
+		Type:                     route53backend.HealthCheckType(hcType),
+		IPAddress:                ipAddress,
+		FullyQualifiedDomainName: fqdn,
+		ResourcePath:             resourcePath,
+		RequestInterval:          30, //nolint:mnd // standard Route53 default
+		FailureThreshold:         3,  //nolint:mnd // standard Route53 default
+	}
+
+	if _, err := h.Route53Ops.Backend.CreateHealthCheck(callerRef, cfg); err != nil {
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	return c.Redirect(http.StatusFound, "/dashboard/route53/healthchecks")
+}
+
+// route53DeleteHealthCheck handles DELETE /dashboard/route53/healthchecks/delete.
+func (h *DashboardHandler) route53DeleteHealthCheck(c *echo.Context) error {
+	if h.Route53Ops == nil {
+		return c.NoContent(http.StatusServiceUnavailable)
+	}
+
+	hcID := c.Request().URL.Query().Get("id")
+	if hcID == "" {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
+	if err := h.Route53Ops.Backend.DeleteHealthCheck(hcID); err != nil {
+		return c.NoContent(http.StatusNotFound)
+	}
+
+	return c.Redirect(http.StatusFound, "/dashboard/route53/healthchecks")
+}

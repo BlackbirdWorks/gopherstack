@@ -39,6 +39,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeStacks",
 		"ListStacks",
 		"DescribeStackEvents",
+		"DescribeStackResource",
+		"ListStackResources",
+		"DescribeStackResources",
+		"ListExports",
+		"ListImports",
 		"CreateChangeSet",
 		"DescribeChangeSet",
 		"ExecuteChangeSet",
@@ -111,34 +116,78 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		action := r.Form.Get("Action")
 		c.Response().Header().Set("Content-Type", "text/xml")
 
-		switch action {
-		case "CreateStack":
-			return h.handleCreateStack(r.Form, c)
-		case "UpdateStack":
-			return h.handleUpdateStack(r.Form, c)
-		case "DeleteStack":
-			return h.handleDeleteStack(r.Form, c)
-		case "DescribeStacks":
-			return h.handleDescribeStacks(r.Form, c)
-		case "ListStacks":
-			return h.handleListStacks(r.Form, c)
-		case "DescribeStackEvents":
-			return h.handleDescribeStackEvents(r.Form, c)
-		case "CreateChangeSet":
-			return h.handleCreateChangeSet(r.Form, c)
-		case "DescribeChangeSet":
-			return h.handleDescribeChangeSet(r.Form, c)
-		case "ExecuteChangeSet":
-			return h.handleExecuteChangeSet(r.Form, c)
-		case "DeleteChangeSet":
-			return h.handleDeleteChangeSet(r.Form, c)
-		case "ListChangeSets":
-			return h.handleListChangeSets(r.Form, c)
-		case "GetTemplate":
-			return h.handleGetTemplate(r.Form, c)
-		default:
-			return h.xmlError(c, "InvalidAction", "unknown action: "+action)
-		}
+		return h.dispatch(action, r.Form, c)
+	}
+}
+
+func (h *Handler) dispatch(action string, form url.Values, c *echo.Context) error {
+	if handled, err := h.dispatchStackOps(action, form, c); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchResourceOps(action, form, c); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchChangeSetOps(action, form, c); handled {
+		return err
+	}
+
+	return h.xmlError(c, "InvalidAction", "unknown action: "+action)
+}
+
+func (h *Handler) dispatchStackOps(action string, form url.Values, c *echo.Context) (bool, error) {
+	switch action {
+	case "CreateStack":
+		return true, h.handleCreateStack(form, c)
+	case "UpdateStack":
+		return true, h.handleUpdateStack(form, c)
+	case "DeleteStack":
+		return true, h.handleDeleteStack(form, c)
+	case "DescribeStacks":
+		return true, h.handleDescribeStacks(form, c)
+	case "ListStacks":
+		return true, h.handleListStacks(form, c)
+	case "DescribeStackEvents":
+		return true, h.handleDescribeStackEvents(form, c)
+	case "GetTemplate":
+		return true, h.handleGetTemplate(form, c)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) dispatchResourceOps(action string, form url.Values, c *echo.Context) (bool, error) {
+	switch action {
+	case "DescribeStackResource":
+		return true, h.handleDescribeStackResource(form, c)
+	case "ListStackResources":
+		return true, h.handleListStackResources(form, c)
+	case "DescribeStackResources":
+		return true, h.handleDescribeStackResources(form, c)
+	case "ListExports":
+		return true, h.handleListExports(form, c)
+	case "ListImports":
+		return true, h.handleListImports(form, c)
+	default:
+		return false, nil
+	}
+}
+
+func (h *Handler) dispatchChangeSetOps(action string, form url.Values, c *echo.Context) (bool, error) {
+	switch action {
+	case "CreateChangeSet":
+		return true, h.handleCreateChangeSet(form, c)
+	case "DescribeChangeSet":
+		return true, h.handleDescribeChangeSet(form, c)
+	case "ExecuteChangeSet":
+		return true, h.handleExecuteChangeSet(form, c)
+	case "DeleteChangeSet":
+		return true, h.handleDeleteChangeSet(form, c)
+	case "ListChangeSets":
+		return true, h.handleListChangeSets(form, c)
+	default:
+		return false, nil
 	}
 }
 
@@ -665,6 +714,221 @@ func (h *Handler) handleGetTemplate(form url.Values, c *echo.Context) error {
 	return writeXML(c, response{
 		Xmlns:     cfnNS,
 		Result:    result{TemplateBody: body},
+		RequestID: uuid.New().String(),
+	})
+}
+
+func (h *Handler) handleDescribeStackResource(form url.Values, c *echo.Context) error {
+	stackName := form.Get("StackName")
+	logicalID := form.Get("LogicalResourceId")
+
+	if stackName == "" || logicalID == "" {
+		return h.xmlError(c, "ValidationError", "StackName and LogicalResourceId are required")
+	}
+
+	res, err := h.Backend.DescribeStackResource(stackName, logicalID)
+	if err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
+	type resourceDetailXML struct {
+		StackID            string `xml:"StackId,omitempty"`
+		StackName          string `xml:"StackName,omitempty"`
+		LogicalResourceID  string `xml:"LogicalResourceId"`
+		PhysicalResourceID string `xml:"PhysicalResourceId,omitempty"`
+		ResourceType       string `xml:"ResourceType"`
+		ResourceStatus     string `xml:"ResourceStatus"`
+		LastUpdated        string `xml:"LastUpdatedTimestamp"`
+	}
+	type descResult struct {
+		StackResourceDetail resourceDetailXML `xml:"StackResourceDetail"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"DescribeStackResourceResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    descResult `xml:"DescribeStackResourceResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns: cfnNS,
+		Result: descResult{
+			StackResourceDetail: resourceDetailXML{
+				StackID:            res.StackID,
+				StackName:          res.StackName,
+				LogicalResourceID:  res.LogicalID,
+				PhysicalResourceID: res.PhysicalID,
+				ResourceType:       res.Type,
+				ResourceStatus:     res.Status,
+				LastUpdated:        res.Timestamp.Format("2006-01-02T15:04:05Z"),
+			},
+		},
+		RequestID: uuid.New().String(),
+	})
+}
+
+func (h *Handler) handleListStackResources(form url.Values, c *echo.Context) error {
+	stackName := form.Get("StackName")
+	nextToken := form.Get("NextToken")
+
+	if stackName == "" {
+		return h.xmlError(c, "ValidationError", "StackName is required")
+	}
+
+	p, err := h.Backend.ListStackResources(stackName, nextToken)
+	if err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
+	type summaryXML struct {
+		LogicalResourceID  string `xml:"LogicalResourceId"`
+		PhysicalResourceID string `xml:"PhysicalResourceId,omitempty"`
+		ResourceType       string `xml:"ResourceType"`
+		ResourceStatus     string `xml:"ResourceStatus"`
+		LastUpdated        string `xml:"LastUpdatedTimestamp"`
+	}
+	members := make([]summaryXML, 0, len(p.Data))
+	for _, s := range p.Data {
+		members = append(members, summaryXML{
+			LogicalResourceID:  s.LogicalResourceID,
+			PhysicalResourceID: s.PhysicalResourceID,
+			ResourceType:       s.ResourceType,
+			ResourceStatus:     s.ResourceStatus,
+			LastUpdated:        s.Timestamp.Format("2006-01-02T15:04:05Z"),
+		})
+	}
+
+	type listResult struct {
+		NextToken              string       `xml:"NextToken,omitempty"`
+		StackResourceSummaries []summaryXML `xml:"StackResourceSummaries>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"ListStackResourcesResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    listResult `xml:"ListStackResourcesResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cfnNS,
+		Result:    listResult{StackResourceSummaries: members, NextToken: p.Next},
+		RequestID: uuid.New().String(),
+	})
+}
+
+func (h *Handler) handleDescribeStackResources(form url.Values, c *echo.Context) error {
+	stackName := form.Get("StackName")
+	if stackName == "" {
+		return h.xmlError(c, "ValidationError", "StackName is required")
+	}
+
+	resources, err := h.Backend.DescribeStackResources(stackName)
+	if err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
+	type resourceXML struct {
+		StackID            string `xml:"StackId,omitempty"`
+		StackName          string `xml:"StackName,omitempty"`
+		LogicalResourceID  string `xml:"LogicalResourceId"`
+		PhysicalResourceID string `xml:"PhysicalResourceId,omitempty"`
+		ResourceType       string `xml:"ResourceType"`
+		ResourceStatus     string `xml:"ResourceStatus"`
+		Timestamp          string `xml:"Timestamp"`
+	}
+	members := make([]resourceXML, 0, len(resources))
+	for _, r := range resources {
+		members = append(members, resourceXML{
+			StackID:            r.StackID,
+			StackName:          r.StackName,
+			LogicalResourceID:  r.LogicalID,
+			PhysicalResourceID: r.PhysicalID,
+			ResourceType:       r.Type,
+			ResourceStatus:     r.Status,
+			Timestamp:          r.Timestamp.Format("2006-01-02T15:04:05Z"),
+		})
+	}
+
+	type descResult struct {
+		StackResources []resourceXML `xml:"StackResources>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"DescribeStackResourcesResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    descResult `xml:"DescribeStackResourcesResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cfnNS,
+		Result:    descResult{StackResources: members},
+		RequestID: uuid.New().String(),
+	})
+}
+
+func (h *Handler) handleListExports(form url.Values, c *echo.Context) error {
+	nextToken := form.Get("NextToken")
+
+	p, err := h.Backend.ListExports(nextToken)
+	if err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
+	type exportXML struct {
+		ExportingStackID string `xml:"ExportingStackId"`
+		Name             string `xml:"Name"`
+		Value            string `xml:"Value"`
+	}
+	members := make([]exportXML, 0, len(p.Data))
+	for _, exp := range p.Data {
+		members = append(members, exportXML(exp))
+	}
+
+	type listResult struct {
+		NextToken string      `xml:"NextToken,omitempty"`
+		Exports   []exportXML `xml:"Exports>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"ListExportsResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    listResult `xml:"ListExportsResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cfnNS,
+		Result:    listResult{Exports: members, NextToken: p.Next},
+		RequestID: uuid.New().String(),
+	})
+}
+
+func (h *Handler) handleListImports(form url.Values, c *echo.Context) error {
+	exportName := form.Get("ExportName")
+	nextToken := form.Get("NextToken")
+
+	if exportName == "" {
+		return h.xmlError(c, "ValidationError", "ExportName is required")
+	}
+
+	p, err := h.Backend.ListImports(exportName, nextToken)
+	if err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
+	type listResult struct {
+		NextToken string   `xml:"NextToken,omitempty"`
+		Imports   []string `xml:"Imports>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"ListImportsResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    listResult `xml:"ListImportsResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cfnNS,
+		Result:    listResult{Imports: p.Data, NextToken: p.Next},
 		RequestID: uuid.New().String(),
 	})
 }

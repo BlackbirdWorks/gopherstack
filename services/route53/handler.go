@@ -20,13 +20,16 @@ import (
 )
 
 const (
-	route53PathPrefix   = "/2013-04-01/"
-	route53HostedZone   = "/2013-04-01/hostedzone"
-	route53Namespace    = "https://route53.amazonaws.com/doc/2013-04-01/"
-	route53RRSetSuffix  = "/rrset"
-	route53HZPrefix     = "/2013-04-01/hostedzone/"
-	route53TagsPrefix   = "/2013-04-01/tags/"
-	route53ChangePrefix = "/2013-04-01/change/"
+	route53PathPrefix        = "/2013-04-01/"
+	route53HostedZone        = "/2013-04-01/hostedzone"
+	route53Namespace         = "https://route53.amazonaws.com/doc/2013-04-01/"
+	route53RRSetSuffix       = "/rrset"
+	route53HZPrefix          = "/2013-04-01/hostedzone/"
+	route53TagsPrefix        = "/2013-04-01/tags/"
+	route53ChangePrefix      = "/2013-04-01/change/"
+	route53HealthCheckRoot   = "/2013-04-01/healthcheck"
+	route53HealthCheckPrefix = "/2013-04-01/healthcheck/"
+	route53StatusSuffix      = "/status"
 	// zoneIDAndRest is the number of parts when splitting a zone path at the first "/".
 	zoneIDAndRest = 2
 )
@@ -100,6 +103,47 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListResourceRecordSets",
 		"ListTagsForResource",
 		"ChangeTagsForResource",
+		"CreateHealthCheck",
+		"GetHealthCheck",
+		"ListHealthChecks",
+		"DeleteHealthCheck",
+		"UpdateHealthCheck",
+		"GetHealthCheckStatus",
+	}
+}
+
+// extractHealthCheckOperation maps a health-check path+method to an operation name.
+// Returns "" when the path does not match any health check route.
+func extractHealthCheckOperation(path, method string) string {
+	switch {
+	case path == route53HealthCheckRoot && method == http.MethodPost:
+		return "CreateHealthCheck"
+	case path == route53HealthCheckRoot && method == http.MethodGet:
+		return "ListHealthChecks"
+	}
+
+	if !strings.HasPrefix(path, route53HealthCheckPrefix) {
+		return ""
+	}
+
+	if method == http.MethodGet && strings.HasSuffix(path, route53StatusSuffix) {
+		return "GetHealthCheckStatus"
+	}
+
+	// Any non-GET request to the /status sub-path is not a valid health check operation.
+	if strings.HasSuffix(path, route53StatusSuffix) {
+		return ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "GetHealthCheck"
+	case http.MethodDelete:
+		return "DeleteHealthCheck"
+	case http.MethodPost:
+		return "UpdateHealthCheck"
+	default:
+		return ""
 	}
 }
 
@@ -117,13 +161,17 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "ChangeResourceRecordSets"
 	case strings.HasSuffix(path, route53RRSetSuffix) && method == http.MethodGet:
 		return "ListResourceRecordSets"
-	case method == http.MethodDelete:
+	case method == http.MethodDelete && strings.HasPrefix(path, route53HZPrefix):
 		return "DeleteHostedZone"
-	case method == http.MethodGet:
+	case method == http.MethodGet && strings.HasPrefix(path, route53HZPrefix):
 		return "GetHostedZone"
-	default:
-		return "Unknown"
 	}
+
+	if op := extractHealthCheckOperation(path, method); op != "" {
+		return op
+	}
+
+	return "Unknown"
 }
 
 // ExtractResource extracts the zone ID from the request path.
@@ -138,17 +186,67 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
-// IAMAction returns the IAM action for a Route53 HTTP request.
-// It implements iam.ActionExtractor, providing per-service action extraction
-// for Route53 REST API paths that are not covered by the global action mapper.
-func (h *Handler) IAMAction(r *http.Request) string {
-	path := r.URL.Path
-	if !strings.HasPrefix(path, route53PathPrefix) {
+// iamActionForHealthCheck maps a health-check path+method to an IAM action string.
+// Returns "" when the path does not match any health check route.
+func iamActionForHealthCheck(path, method string) string {
+	switch {
+	case path == route53HealthCheckRoot && method == http.MethodPost:
+		return "route53:CreateHealthCheck"
+	case path == route53HealthCheckRoot && method == http.MethodGet:
+		return "route53:ListHealthChecks"
+	}
+
+	if !strings.HasPrefix(path, route53HealthCheckPrefix) {
 		return ""
 	}
 
-	method := r.Method
+	if method == http.MethodGet && strings.HasSuffix(path, route53StatusSuffix) {
+		return "route53:GetHealthCheckStatus"
+	}
 
+	// Any non-GET request to the /status sub-path is not a valid IAM-mapped operation.
+	if strings.HasSuffix(path, route53StatusSuffix) {
+		return ""
+	}
+
+	switch method {
+	case http.MethodGet:
+		return "route53:GetHealthCheck"
+	case http.MethodDelete:
+		return "route53:DeleteHealthCheck"
+	case http.MethodPost:
+		return "route53:UpdateHealthCheck"
+	default:
+		return ""
+	}
+}
+
+// IAMAction returns the IAM action for a Route53 HTTP request.
+// It implements iam.ActionExtractor, providing per-service action extraction
+// for Route53 REST API paths that are not covered by the global action mapper.
+// iamActionForHostedZone maps hosted zone / rrset paths to IAM action strings.
+// Returns "" when the path does not match.
+func iamActionForHostedZone(path, method string) string {
+	if action := iamActionForHostedZoneRoot(path, method); action != "" {
+		return action
+	}
+
+	switch {
+	case strings.HasPrefix(path, route53TagsPrefix) && method == http.MethodGet:
+		return "route53:ListTagsForResource"
+	case strings.HasPrefix(path, route53TagsPrefix):
+		return "route53:ChangeTagsForResource"
+	case method == http.MethodDelete && strings.HasPrefix(path, route53HZPrefix):
+		return "route53:DeleteHostedZone"
+	case method == http.MethodGet && strings.HasPrefix(path, route53HZPrefix):
+		return "route53:GetHostedZone"
+	default:
+		return ""
+	}
+}
+
+// iamActionForHostedZoneRoot maps the hosted zone root and rrset paths to IAM action strings.
+func iamActionForHostedZoneRoot(path, method string) string {
 	switch {
 	case path == route53HostedZone && method == http.MethodPost:
 		return "route53:CreateHostedZone"
@@ -158,16 +256,25 @@ func (h *Handler) IAMAction(r *http.Request) string {
 		return "route53:ChangeResourceRecordSets"
 	case strings.HasSuffix(path, route53RRSetSuffix) && method == http.MethodGet:
 		return "route53:ListResourceRecordSets"
-	case strings.HasPrefix(path, route53TagsPrefix):
-		if method == http.MethodGet {
-			return "route53:ListTagsForResource"
-		}
+	default:
+		return ""
+	}
+}
 
-		return "route53:ChangeTagsForResource"
-	case method == http.MethodDelete:
-		return "route53:DeleteHostedZone"
-	case method == http.MethodGet:
-		return "route53:GetHostedZone"
+func (h *Handler) IAMAction(r *http.Request) string {
+	path := r.URL.Path
+	if !strings.HasPrefix(path, route53PathPrefix) {
+		return ""
+	}
+
+	method := r.Method
+
+	if action := iamActionForHostedZone(path, method); action != "" {
+		return action
+	}
+
+	if action := iamActionForHealthCheck(path, method); action != "" {
+		return action
 	}
 
 	return "route53:GetChange"
@@ -184,6 +291,10 @@ func (h *Handler) routeRequest(c *echo.Context, path, method string) error {
 		return h.routeTags(c, path, method)
 	case strings.HasPrefix(path, route53ChangePrefix):
 		return h.routeChange(c, path, method)
+	case path == route53HealthCheckRoot:
+		return h.routeHealthCheckRoot(c, method)
+	case strings.HasPrefix(path, route53HealthCheckPrefix):
+		return h.routeHealthCheck(c, path, method)
 	default:
 		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 			fmt.Sprintf("unknown Route53 endpoint: %s %s", method, path))
@@ -245,6 +356,41 @@ func (h *Handler) routeChange(c *echo.Context, path, method string) error {
 
 	return xmlError(c, http.StatusNotFound, "NoSuchOperation",
 		"unsupported method on change")
+}
+
+func (h *Handler) routeHealthCheckRoot(c *echo.Context, method string) error {
+	switch method {
+	case http.MethodPost:
+		return h.createHealthCheck(c)
+	case http.MethodGet:
+		return h.listHealthChecks(c)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on /healthcheck")
+	}
+}
+
+func (h *Handler) routeHealthCheck(c *echo.Context, path, method string) error {
+	if strings.HasSuffix(path, route53StatusSuffix) {
+		if method == http.MethodGet {
+			return h.getHealthCheckStatus(c, path)
+		}
+
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on health check status")
+	}
+
+	switch method {
+	case http.MethodGet:
+		return h.getHealthCheck(c, path)
+	case http.MethodDelete:
+		return h.deleteHealthCheck(c, path)
+	case http.MethodPost:
+		return h.updateHealthCheck(c, path)
+	default:
+		return xmlError(c, http.StatusNotFound, "NoSuchOperation",
+			"unsupported method on health check")
+	}
 }
 
 // Handler returns the Echo handler function for Route 53 requests.
@@ -342,12 +488,31 @@ type xmlResourceRecord struct {
 	Value string `xml:"Value"`
 }
 
+type xmlAliasTarget struct {
+	HostedZoneID         string `xml:"HostedZoneId"`
+	DNSName              string `xml:"DNSName"`
+	EvaluateTargetHealth bool   `xml:"EvaluateTargetHealth"`
+}
+
+type xmlGeoLocation struct {
+	ContinentCode   string `xml:"ContinentCode,omitempty"`
+	CountryCode     string `xml:"CountryCode,omitempty"`
+	SubdivisionCode string `xml:"SubdivisionCode,omitempty"`
+}
+
 type xmlResourceRecordSet struct {
 	XMLName         xml.Name            `xml:"ResourceRecordSet"`
+	AliasTarget     *xmlAliasTarget     `xml:"AliasTarget,omitempty"`
+	GeoLocation     *xmlGeoLocation     `xml:"GeoLocation,omitempty"`
 	Name            string              `xml:"Name"`
 	Type            string              `xml:"Type"`
+	SetIdentifier   string              `xml:"SetIdentifier,omitempty"`
+	Failover        string              `xml:"Failover,omitempty"`
+	Region          string              `xml:"Region,omitempty"`
+	HealthCheckID   string              `xml:"HealthCheckId,omitempty"`
 	ResourceRecords []xmlResourceRecord `xml:"ResourceRecords>ResourceRecord,omitempty"`
 	TTL             int64               `xml:"TTL,omitempty"`
+	Weight          int64               `xml:"Weight,omitempty"`
 }
 
 type xmlListResourceRecordSetsResponse struct {
@@ -369,10 +534,17 @@ type xmlCreateHostedZoneRequest struct {
 
 // xmlResourceRecordSetChange is the ResourceRecordSet element within a change batch entry.
 type xmlResourceRecordSetChange struct {
+	AliasTarget     *xmlAliasTarget     `xml:"AliasTarget"`
+	GeoLocation     *xmlGeoLocation     `xml:"GeoLocation"`
 	Name            string              `xml:"Name"`
 	Type            string              `xml:"Type"`
+	SetIdentifier   string              `xml:"SetIdentifier"`
+	Failover        string              `xml:"Failover"`
+	Region          string              `xml:"Region"`
+	HealthCheckID   string              `xml:"HealthCheckId"`
 	ResourceRecords []xmlResourceRecord `xml:"ResourceRecords>ResourceRecord"`
 	TTL             int64               `xml:"TTL"`
+	Weight          int64               `xml:"Weight"`
 }
 
 // xmlChange is a single change entry within a ChangeBatch.
@@ -530,14 +702,39 @@ func (h *Handler) changeResourceRecordSets(c *echo.Context) error {
 			records[i] = ResourceRecord(rr)
 		}
 
+		rrs := ResourceRecordSet{
+			Name:          ch.ResourceRecordSet.Name,
+			Type:          ch.ResourceRecordSet.Type,
+			TTL:           ch.ResourceRecordSet.TTL,
+			Records:       records,
+			SetIdentifier: ch.ResourceRecordSet.SetIdentifier,
+			Failover:      FailoverPolicy(ch.ResourceRecordSet.Failover),
+			Region:        ch.ResourceRecordSet.Region,
+			HealthCheckID: ch.ResourceRecordSet.HealthCheckID,
+			Weight:        ch.ResourceRecordSet.Weight,
+		}
+
+		if ch.ResourceRecordSet.AliasTarget != nil {
+			at := ch.ResourceRecordSet.AliasTarget
+			rrs.AliasTarget = &AliasTarget{
+				HostedZoneID:         at.HostedZoneID,
+				DNSName:              at.DNSName,
+				EvaluateTargetHealth: at.EvaluateTargetHealth,
+			}
+		}
+
+		if ch.ResourceRecordSet.GeoLocation != nil {
+			gl := ch.ResourceRecordSet.GeoLocation
+			rrs.GeoLocation = &GeoLocation{
+				ContinentCode:   gl.ContinentCode,
+				CountryCode:     gl.CountryCode,
+				SubdivisionCode: gl.SubdivisionCode,
+			}
+		}
+
 		changes = append(changes, Change{
-			Action: ChangeAction(strings.ToUpper(ch.Action)),
-			ResourceRecordSet: ResourceRecordSet{
-				Name:    ch.ResourceRecordSet.Name,
-				Type:    ch.ResourceRecordSet.Type,
-				TTL:     ch.ResourceRecordSet.TTL,
-				Records: records,
-			},
+			Action:            ChangeAction(strings.ToUpper(ch.Action)),
+			ResourceRecordSet: rrs,
 		})
 	}
 
@@ -577,12 +774,35 @@ func (h *Handler) listResourceRecordSets(c *echo.Context) error {
 			xmlRecs[j] = xmlResourceRecord(rr)
 		}
 
-		xmlRecords[i] = xmlResourceRecordSet{
+		xrrs := xmlResourceRecordSet{
 			Name:            rrs.Name,
 			Type:            rrs.Type,
 			TTL:             rrs.TTL,
 			ResourceRecords: xmlRecs,
+			SetIdentifier:   rrs.SetIdentifier,
+			Failover:        string(rrs.Failover),
+			Region:          rrs.Region,
+			HealthCheckID:   rrs.HealthCheckID,
+			Weight:          rrs.Weight,
 		}
+
+		if rrs.AliasTarget != nil {
+			xrrs.AliasTarget = &xmlAliasTarget{
+				HostedZoneID:         rrs.AliasTarget.HostedZoneID,
+				DNSName:              rrs.AliasTarget.DNSName,
+				EvaluateTargetHealth: rrs.AliasTarget.EvaluateTargetHealth,
+			}
+		}
+
+		if rrs.GeoLocation != nil {
+			xrrs.GeoLocation = &xmlGeoLocation{
+				ContinentCode:   rrs.GeoLocation.ContinentCode,
+				CountryCode:     rrs.GeoLocation.CountryCode,
+				SubdivisionCode: rrs.GeoLocation.SubdivisionCode,
+			}
+		}
+
+		xmlRecords[i] = xrrs
 	}
 
 	resp := xmlListResourceRecordSetsResponse{
@@ -785,6 +1005,8 @@ func handleBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrHostedZoneNotFound):
 		return xmlError(c, http.StatusNotFound, "NoSuchHostedZone", err.Error())
+	case errors.Is(err, ErrHealthCheckNotFound):
+		return xmlError(c, http.StatusNotFound, "NoSuchHealthCheck", err.Error())
 	case errors.Is(err, ErrInvalidInput):
 		return xmlError(c, http.StatusBadRequest, "InvalidInput", err.Error())
 	case errors.Is(err, ErrInvalidAction):
@@ -792,4 +1014,319 @@ func handleBackendError(c *echo.Context, err error) error {
 	default:
 		return xmlError(c, http.StatusInternalServerError, "InternalError", err.Error())
 	}
+}
+
+// ---- Health check XML types ----
+
+type xmlHealthCheckConfig struct {
+	IPAddress                string   `xml:"IPAddress,omitempty"`
+	FullyQualifiedDomainName string   `xml:"FullyQualifiedDomainName,omitempty"`
+	ResourcePath             string   `xml:"ResourcePath,omitempty"`
+	Type                     string   `xml:"Type"`
+	ChildHealthChecks        []string `xml:"ChildHealthChecks>ChildHealthCheck,omitempty"`
+	Port                     int      `xml:"Port,omitempty"`
+	RequestInterval          int      `xml:"RequestInterval,omitempty"`
+	FailureThreshold         int      `xml:"FailureThreshold,omitempty"`
+	HealthThreshold          int      `xml:"HealthThreshold,omitempty"`
+	Inverted                 bool     `xml:"Inverted,omitempty"`
+}
+
+type xmlHealthCheck struct {
+	XMLName         xml.Name             `xml:"HealthCheck"`
+	ID              string               `xml:"Id"`
+	CallerReference string               `xml:"CallerReference"`
+	Config          xmlHealthCheckConfig `xml:"HealthCheckConfig"`
+}
+
+type xmlCreateHealthCheckRequest struct {
+	XMLName         xml.Name             `xml:"CreateHealthCheckRequest"`
+	CallerReference string               `xml:"CallerReference"`
+	Config          xmlHealthCheckConfig `xml:"HealthCheckConfig"`
+}
+
+type xmlUpdateHealthCheckRequest struct {
+	Inverted                 *bool    `xml:"Inverted"`
+	XMLName                  xml.Name `xml:"UpdateHealthCheckRequest"`
+	IPAddress                string   `xml:"IPAddress,omitempty"`
+	FullyQualifiedDomainName string   `xml:"FullyQualifiedDomainName,omitempty"`
+	ResourcePath             string   `xml:"ResourcePath,omitempty"`
+	Port                     int      `xml:"Port,omitempty"`
+	RequestInterval          int      `xml:"RequestInterval,omitempty"`
+	FailureThreshold         int      `xml:"FailureThreshold,omitempty"`
+	HealthThreshold          int      `xml:"HealthThreshold,omitempty"`
+}
+
+type xmlCreateHealthCheckResponse struct {
+	XMLName     xml.Name       `xml:"CreateHealthCheckResponse"`
+	Xmlns       string         `xml:"xmlns,attr"`
+	HealthCheck xmlHealthCheck `xml:"HealthCheck"`
+}
+
+type xmlGetHealthCheckResponse struct {
+	XMLName     xml.Name       `xml:"GetHealthCheckResponse"`
+	Xmlns       string         `xml:"xmlns,attr"`
+	HealthCheck xmlHealthCheck `xml:"HealthCheck"`
+}
+
+type xmlListHealthChecksResponse struct {
+	XMLName      xml.Name         `xml:"ListHealthChecksResponse"`
+	Xmlns        string           `xml:"xmlns,attr"`
+	MaxItems     string           `xml:"MaxItems"`
+	NextMarker   string           `xml:"NextMarker,omitempty"`
+	HealthChecks []xmlHealthCheck `xml:"HealthChecks>HealthCheck"`
+	IsTruncated  bool             `xml:"IsTruncated"`
+}
+
+type xmlDeleteHealthCheckResponse struct {
+	XMLName xml.Name `xml:"DeleteHealthCheckResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
+}
+
+type xmlUpdateHealthCheckResponse struct {
+	XMLName     xml.Name       `xml:"UpdateHealthCheckResponse"`
+	Xmlns       string         `xml:"xmlns,attr"`
+	HealthCheck xmlHealthCheck `xml:"HealthCheck"`
+}
+
+type xmlHealthCheckObservation struct {
+	StatusReport struct {
+		CheckedTime time.Time `xml:"CheckedTime"`
+		Status      string    `xml:"Status"`
+	} `xml:"StatusReport"`
+	Region    string `xml:"Region"`
+	IPAddress string `xml:"IPAddress"`
+}
+
+type xmlGetHealthCheckStatusResponse struct {
+	XMLName                 xml.Name                    `xml:"GetHealthCheckStatusResponse"`
+	Xmlns                   string                      `xml:"xmlns,attr"`
+	HealthCheckObservations []xmlHealthCheckObservation `xml:"HealthCheckObservations>HealthCheckObservation"`
+}
+
+// toXMLHealthCheck converts a HealthCheck to its XML representation.
+func toXMLHealthCheck(hc *HealthCheck) xmlHealthCheck {
+	return xmlHealthCheck{
+		ID:              hc.ID,
+		CallerReference: hc.CallerReference,
+		Config: xmlHealthCheckConfig{
+			IPAddress:                hc.Config.IPAddress,
+			FullyQualifiedDomainName: hc.Config.FullyQualifiedDomainName,
+			ResourcePath:             hc.Config.ResourcePath,
+			Type:                     string(hc.Config.Type),
+			Port:                     hc.Config.Port,
+			RequestInterval:          hc.Config.RequestInterval,
+			FailureThreshold:         hc.Config.FailureThreshold,
+			HealthThreshold:          hc.Config.HealthThreshold,
+			Inverted:                 hc.Config.Inverted,
+			ChildHealthChecks:        hc.Config.ChildHealthChecks,
+		},
+	}
+}
+
+// extractHealthCheckID returns the health check ID from a path like /2013-04-01/healthcheck/{Id}...
+func extractHealthCheckID(path string) string {
+	rest := strings.TrimPrefix(path, route53HealthCheckPrefix)
+	parts := strings.SplitN(rest, "/", zoneIDAndRest)
+	if len(parts) > 0 {
+		return parts[0]
+	}
+
+	return ""
+}
+
+// ---- Health check handlers ----
+
+func (h *Handler) createHealthCheck(c *echo.Context) error {
+	ctx := c.Request().Context()
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlCreateHealthCheckRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	cfg := HealthCheckConfig{
+		IPAddress:                req.Config.IPAddress,
+		FullyQualifiedDomainName: req.Config.FullyQualifiedDomainName,
+		ResourcePath:             req.Config.ResourcePath,
+		Type:                     HealthCheckType(req.Config.Type),
+		Port:                     req.Config.Port,
+		RequestInterval:          req.Config.RequestInterval,
+		FailureThreshold:         req.Config.FailureThreshold,
+		HealthThreshold:          req.Config.HealthThreshold,
+		Inverted:                 req.Config.Inverted,
+		ChildHealthChecks:        req.Config.ChildHealthChecks,
+	}
+
+	hc, err := h.Backend.CreateHealthCheck(req.CallerReference, cfg)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 CreateHealthCheck", "id", hc.ID)
+
+	resp := xmlCreateHealthCheckResponse{
+		Xmlns:       route53Namespace,
+		HealthCheck: toXMLHealthCheck(hc),
+	}
+
+	c.Response().Header().Set("Location", "/2013-04-01/healthcheck/"+hc.ID)
+
+	return writeXML(c, http.StatusCreated, resp)
+}
+
+func (h *Handler) getHealthCheck(c *echo.Context, path string) error {
+	ctx := c.Request().Context()
+	id := extractHealthCheckID(path)
+
+	hc, err := h.Backend.GetHealthCheck(id)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 GetHealthCheck", "id", id)
+
+	return writeXML(c, http.StatusOK, xmlGetHealthCheckResponse{
+		Xmlns:       route53Namespace,
+		HealthCheck: toXMLHealthCheck(hc),
+	})
+}
+
+func (h *Handler) listHealthChecks(c *echo.Context) error {
+	q := c.Request().URL.Query()
+	marker := q.Get("marker")
+	maxItems := 0
+
+	if v := q.Get("maxitems"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxItems = n
+		}
+	}
+
+	p, err := h.Backend.ListHealthChecks(marker, maxItems)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	xmlHCs := make([]xmlHealthCheck, len(p.Data))
+	for i := range p.Data {
+		xmlHCs[i] = toXMLHealthCheck(&p.Data[i])
+	}
+
+	return writeXML(c, http.StatusOK, xmlListHealthChecksResponse{
+		Xmlns:        route53Namespace,
+		HealthChecks: xmlHCs,
+		IsTruncated:  p.Next != "",
+		NextMarker:   p.Next,
+		MaxItems:     strconv.Itoa(maxItems),
+	})
+}
+
+func (h *Handler) deleteHealthCheck(c *echo.Context, path string) error {
+	ctx := c.Request().Context()
+	id := extractHealthCheckID(path)
+
+	if err := h.Backend.DeleteHealthCheck(id); err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 DeleteHealthCheck", "id", id)
+
+	return writeXML(c, http.StatusOK, xmlDeleteHealthCheckResponse{Xmlns: route53Namespace})
+}
+
+func (h *Handler) updateHealthCheck(c *echo.Context, path string) error {
+	ctx := c.Request().Context()
+	id := extractHealthCheckID(path)
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to read request body")
+	}
+
+	var req xmlUpdateHealthCheckRequest
+	if err = xml.Unmarshal(body, &req); err != nil {
+		return xmlError(c, http.StatusBadRequest, "InvalidInput", "failed to parse XML: "+err.Error())
+	}
+
+	existing, err := h.Backend.GetHealthCheck(id)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	// Merge non-zero fields from the request into the existing config.
+	cfg := existing.Config
+	if req.IPAddress != "" {
+		cfg.IPAddress = req.IPAddress
+	}
+
+	if req.FullyQualifiedDomainName != "" {
+		cfg.FullyQualifiedDomainName = req.FullyQualifiedDomainName
+	}
+
+	if req.ResourcePath != "" {
+		cfg.ResourcePath = req.ResourcePath
+	}
+
+	if req.Port != 0 {
+		cfg.Port = req.Port
+	}
+
+	if req.RequestInterval != 0 {
+		cfg.RequestInterval = req.RequestInterval
+	}
+
+	if req.FailureThreshold != 0 {
+		cfg.FailureThreshold = req.FailureThreshold
+	}
+
+	if req.HealthThreshold != 0 {
+		cfg.HealthThreshold = req.HealthThreshold
+	}
+
+	if req.Inverted != nil {
+		cfg.Inverted = *req.Inverted
+	}
+
+	hc, err := h.Backend.UpdateHealthCheck(id, cfg)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 UpdateHealthCheck", "id", id)
+
+	return writeXML(c, http.StatusOK, xmlUpdateHealthCheckResponse{
+		Xmlns:       route53Namespace,
+		HealthCheck: toXMLHealthCheck(hc),
+	})
+}
+
+func (h *Handler) getHealthCheckStatus(c *echo.Context, path string) error {
+	ctx := c.Request().Context()
+	// path is /2013-04-01/healthcheck/{id}/status — strip the /status suffix first.
+	withoutStatus := strings.TrimSuffix(path, route53StatusSuffix)
+	id := extractHealthCheckID(withoutStatus)
+
+	status, err := h.Backend.GetHealthCheckStatus(id)
+	if err != nil {
+		return handleBackendError(c, err)
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "Route53 GetHealthCheckStatus", "id", id, "status", status)
+
+	obs := xmlHealthCheckObservation{
+		Region:    "us-east-1",
+		IPAddress: "0.0.0.0",
+	}
+	obs.StatusReport.Status = status
+	obs.StatusReport.CheckedTime = time.Now()
+
+	return writeXML(c, http.StatusOK, xmlGetHealthCheckStatusResponse{
+		Xmlns:                   route53Namespace,
+		HealthCheckObservations: []xmlHealthCheckObservation{obs},
+	})
 }
