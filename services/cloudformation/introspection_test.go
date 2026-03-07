@@ -43,15 +43,35 @@ func TestResolveValue_NewIntrinsics(t *testing.T) {
 			expected: "",
 		},
 		{
-			name:     "fn_split_produces_joined",
-			input:    map[string]any{"Fn::Split": []any{":", "a:b:c"}},
-			expected: "a,b,c",
+			name:  "fn_split_produces_joined",
+			input: map[string]any{"Fn::Split": []any{":", "a:b:c"}},
+			// Fn::Split returns a null-byte-delimited list (internal encoding).
+			expected: "a\x00b\x00c",
+		},
+		{
+			// Fn::Select picking from the null-byte-encoded output of a previous Fn::Split
+			name: "fn_select_from_split_encoded",
+			input: map[string]any{
+				"Fn::Select": []any{float64(1), "a\x00b\x00c"},
+			},
+			expected: "b",
+		},
+		{
+			// The canonical pattern: Fn::Select wrapping Fn::Split inline
+			name: "fn_select_inline_split",
+			input: map[string]any{
+				"Fn::Select": []any{
+					float64(1),
+					map[string]any{"Fn::Split": []any{":", "x:y:z"}},
+				},
+			},
+			expected: "y",
 		},
 		{
 			name:  "fn_importvalue_no_exports",
 			input: map[string]any{"Fn::ImportValue": "shared-vpc-id"},
-			// When no exports are available, returns the name itself.
-			expected: "shared-vpc-id",
+			// When no exports are available, returns an unresolved-import marker.
+			expected: "\x01unresolved-import:shared-vpc-id",
 		},
 	}
 
@@ -542,6 +562,35 @@ func TestBackend_ExportOutput_IncludesExportName(t *testing.T) {
 	require.Len(t, stack.Outputs, 1)
 	assert.Equal(t, "BucketName", stack.Outputs[0].OutputKey)
 	assert.Equal(t, "shared-bucket", stack.Outputs[0].ExportName)
+}
+
+func TestBackend_DuplicateExportFails(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+
+	// First stack creates the export.
+	stack1, err := b.CreateStack(t.Context(), "first-stack", exportTemplate, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "CREATE_COMPLETE", stack1.StackStatus)
+
+	// Second stack tries to create the same export name — should fail.
+	stack2, err := b.CreateStack(t.Context(), "second-stack", exportTemplate, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "CREATE_FAILED", stack2.StackStatus)
+	assert.Contains(t, stack2.StackStatusReason, "shared-bucket")
+}
+
+func TestBackend_UnresolvedImportFails(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+
+	// Try to create a stack that imports a non-existent export.
+	stack, err := b.CreateStack(t.Context(), "importer-stack", importTemplate, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "CREATE_FAILED", stack.StackStatus)
+	assert.Contains(t, stack.StackStatusReason, "shared-bucket")
 }
 
 // ---- Handler: DescribeStackResource -----------------------------------------

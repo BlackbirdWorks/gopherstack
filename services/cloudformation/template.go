@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -11,6 +13,10 @@ import (
 
 // ErrEmptyTemplate is returned when a template body is empty.
 var ErrEmptyTemplate = errors.New("template body is empty")
+
+// splitSep is the internal separator used by Fn::Split to encode a list as a string.
+// A null byte cannot appear in CloudFormation string values, making it unambiguous.
+const splitSep = "\x00"
 
 // Template represents a parsed CloudFormation template.
 type Template struct {
@@ -99,21 +105,31 @@ type resolveCtx struct {
 }
 
 // evaluateConditions evaluates the Conditions section of a template and returns
-// a map of condition name to bool. It uses fixed-point iteration to handle
-// conditions that reference other conditions (via the Condition key).
+// a map of condition name to bool. It uses fixed-point iteration with sorted keys
+// and snapshot-based reads to ensure deterministic, order-independent evaluation
+// even when conditions reference other conditions (via the Condition key).
 func evaluateConditions(raw map[string]any, params, physicalIDs map[string]string) map[string]bool {
 	result := make(map[string]bool, len(raw))
 
-	// Iterate until stable to handle cross-condition references.
+	// Build a sorted key list for deterministic iteration order.
+	names := make([]string, 0, len(raw))
+	for name := range raw {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	// Iterate until stable. Each pass reads from a snapshot of the previous
+	// state so that results don't depend on the evaluation order within a pass.
 	for range len(raw) + 1 {
+		prev := make(map[string]bool, len(result))
+		maps.Copy(prev, result)
+
 		changed := false
 
-		for name, expr := range raw {
-			prev := result[name]
-			next := evalConditionExpr(expr, params, physicalIDs, result)
-			result[name] = next
-
-			if next != prev {
+		for _, name := range names {
+			next := evalConditionExpr(raw[name], params, physicalIDs, prev)
+			if result[name] != next {
+				result[name] = next
 				changed = true
 			}
 		}
@@ -293,7 +309,8 @@ func resolveMiscIntrinsic(val map[string]any, ctx resolveCtx) string {
 			}
 		}
 
-		return name
+		// Export not found; return a sentinel so callers can detect unresolved imports.
+		return unresolvedImportMarker(name)
 	}
 
 	return fmt.Sprintf("%v", val)
@@ -323,25 +340,31 @@ func resolveJoin(args []any, ctx resolveCtx) string {
 }
 
 func resolveSplit(args []any, ctx resolveCtx) string {
-	// Fn::Split returns a list; we return a comma-joined representation
-	// so it can be consumed by Fn::Select or similar.
+	// Fn::Split produces a list. We encode it as a null-byte-delimited string
+	// so that Fn::Select can later consume it without ambiguity.
 	delimiter, _ := args[0].(string)
 	sourceStr := resolveValueCtx(args[1], ctx)
 
-	return strings.Join(strings.Split(sourceStr, delimiter), ",")
+	return strings.Join(strings.Split(sourceStr, delimiter), splitSep)
 }
 
 func resolveSelect(args []any, ctx resolveCtx) string {
-	var index int
+	index := extractSelectIndex(args[0])
 
-	switch idx := args[0].(type) {
-	case int:
-		index = idx
-	case float64:
-		index = int(idx)
-	case string:
-		// If parsing fails, index remains 0 (zero value), which is the fallback.
-		_, _ = fmt.Sscanf(idx, "%d", &index)
+	// Special case: second argument is Fn::Split evaluated inline. Resolve the
+	// split directly so we have access to the raw parts rather than the encoded form.
+	if splitMap, isSplitMap := args[1].(map[string]any); isSplitMap {
+		if splitArgs, isSplit := splitMap["Fn::Split"].([]any); isSplit && len(splitArgs) == 2 {
+			delimiter, _ := splitArgs[0].(string)
+			sourceStr := resolveValueCtx(splitArgs[1], ctx)
+			parts := strings.Split(sourceStr, delimiter)
+
+			if index >= 0 && index < len(parts) {
+				return strings.TrimSpace(parts[index])
+			}
+
+			return ""
+		}
 	}
 
 	switch items := args[1].(type) {
@@ -350,14 +373,36 @@ func resolveSelect(args []any, ctx resolveCtx) string {
 			return resolveValueCtx(items[index], ctx)
 		}
 	case string:
-		// Might be a comma-separated list from Fn::Split
-		parts := strings.Split(items, ",")
-		if index >= 0 && index < len(parts) {
-			return strings.TrimSpace(parts[index])
+		// Might be a null-byte-delimited list produced by Fn::Split.
+		if strings.Contains(items, splitSep) {
+			parts := strings.Split(items, splitSep)
+			if index >= 0 && index < len(parts) {
+				return strings.TrimSpace(parts[index])
+			}
+		} else if index == 0 {
+			return items
 		}
 	}
 
 	return ""
+}
+
+// extractSelectIndex parses the first argument of Fn::Select into an int index.
+func extractSelectIndex(v any) int {
+	switch idx := v.(type) {
+	case int:
+		return idx
+	case float64:
+		return int(idx)
+	case string:
+		var i int
+		// If parsing fails, index remains 0 (zero value), which is the fallback.
+		_, _ = fmt.Sscanf(idx, "%d", &i)
+
+		return i
+	}
+
+	return 0
 }
 
 func resolveFindInMap(args []any, ctx resolveCtx) string {
@@ -412,6 +457,12 @@ func resolveIf(args []any, ctx resolveCtx) string {
 	return resolveValueCtx(args[2], ctx)
 }
 
+// unresolvedImportMarker returns a distinctive placeholder for an Fn::ImportValue
+// that could not be resolved. The marker is detectable by validateImportValues.
+func unresolvedImportMarker(name string) string {
+	return "\x01unresolved-import:" + name
+}
+
 // resolveOutputsWithContext resolves template outputs using the full resolve context.
 // It also returns a map of export name -> value for outputs that define Export.Name.
 func resolveOutputsWithContext(
@@ -447,8 +498,54 @@ func resolveOutputsWithContext(
 	return outputs, exports
 }
 
-// collectImportValues scans a template body for all Fn::ImportValue references.
-func collectImportValues(templateBody string) []string {
+// validateImportValues checks that all Fn::ImportValue references in the template
+// can be resolved against the available exports. Returns an error describing the
+// first missing export, or nil if all imports are satisfied.
+func validateImportValues(tmpl *Template, resolvedParams map[string]string, exports map[string]string) error {
+	for _, res := range tmpl.Resources {
+		if err := validateImportValuesInValue(res.Properties, resolvedParams, exports); err != nil {
+			return err
+		}
+	}
+
+	for _, out := range tmpl.Outputs {
+		if err := validateImportValuesInValue(out.Value, resolvedParams, exports); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateImportValuesInValue(v any, params map[string]string, exports map[string]string) error {
+	switch val := v.(type) {
+	case map[string]any:
+		if importVal, hasImport := val["Fn::ImportValue"]; hasImport {
+			name := resolveScalar(importVal, params, nil)
+			if _, ok := exports[name]; !ok {
+				return fmt.Errorf("%w: %s", ErrExportNotFound, name)
+			}
+		}
+
+		for _, child := range val {
+			if err := validateImportValuesInValue(child, params, exports); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, item := range val {
+			if err := validateImportValuesInValue(item, params, exports); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// collectImportValues scans a template body for all Fn::ImportValue export name references.
+// It uses the resolved params to evaluate non-literal import names (e.g. Ref, Fn::Sub).
+func collectImportValues(templateBody string, params map[string]string) []string {
 	if templateBody == "" {
 		return nil
 	}
@@ -460,31 +557,34 @@ func collectImportValues(templateBody string) []string {
 
 	var refs []string
 	for _, res := range tmpl.Resources {
-		collectImportValuesFromValue(res.Properties, &refs)
+		collectImportValuesFromValue(res.Properties, params, &refs)
 	}
 
 	for _, out := range tmpl.Outputs {
-		collectImportValuesFromValue(out.Value, &refs)
+		collectImportValuesFromValue(out.Value, params, &refs)
 	}
 
 	return refs
 }
 
-func collectImportValuesFromValue(v any, refs *[]string) {
+func collectImportValuesFromValue(v any, params map[string]string, refs *[]string) {
 	switch val := v.(type) {
 	case map[string]any:
 		if importVal, hasImport := val["Fn::ImportValue"]; hasImport {
-			if name, isStr := importVal.(string); isStr {
+			// Resolve the import name — it may be a literal string or a Ref intrinsic
+			// such as {"Ref": "ExportNameParam"}.
+			name := resolveScalar(importVal, params, nil)
+			if name != "" {
 				*refs = append(*refs, name)
 			}
 		}
 
 		for _, child := range val {
-			collectImportValuesFromValue(child, refs)
+			collectImportValuesFromValue(child, params, refs)
 		}
 	case []any:
 		for _, item := range val {
-			collectImportValuesFromValue(item, refs)
+			collectImportValuesFromValue(item, params, refs)
 		}
 	}
 }
