@@ -126,8 +126,13 @@ func extractHealthCheckOperation(path, method string) string {
 		return ""
 	}
 
-	if strings.HasSuffix(path, route53StatusSuffix) {
+	if method == http.MethodGet && strings.HasSuffix(path, route53StatusSuffix) {
 		return "GetHealthCheckStatus"
+	}
+
+	// Any non-GET request to the /status sub-path is not a valid health check operation.
+	if strings.HasSuffix(path, route53StatusSuffix) {
+		return ""
 	}
 
 	switch method {
@@ -156,7 +161,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "ChangeResourceRecordSets"
 	case strings.HasSuffix(path, route53RRSetSuffix) && method == http.MethodGet:
 		return "ListResourceRecordSets"
-	case method == http.MethodDelete:
+	case method == http.MethodDelete && strings.HasPrefix(path, route53HZPrefix):
 		return "DeleteHostedZone"
 	case method == http.MethodGet && strings.HasPrefix(path, route53HZPrefix):
 		return "GetHostedZone"
@@ -195,8 +200,13 @@ func iamActionForHealthCheck(path, method string) string {
 		return ""
 	}
 
-	if strings.HasSuffix(path, route53StatusSuffix) {
+	if method == http.MethodGet && strings.HasSuffix(path, route53StatusSuffix) {
 		return "route53:GetHealthCheckStatus"
+	}
+
+	// Any non-GET request to the /status sub-path is not a valid IAM-mapped operation.
+	if strings.HasSuffix(path, route53StatusSuffix) {
+		return ""
 	}
 
 	switch method {
@@ -1035,6 +1045,7 @@ type xmlCreateHealthCheckRequest struct {
 }
 
 type xmlUpdateHealthCheckRequest struct {
+	Inverted                 *bool    `xml:"Inverted"`
 	XMLName                  xml.Name `xml:"UpdateHealthCheckRequest"`
 	IPAddress                string   `xml:"IPAddress,omitempty"`
 	FullyQualifiedDomainName string   `xml:"FullyQualifiedDomainName,omitempty"`
@@ -1043,7 +1054,6 @@ type xmlUpdateHealthCheckRequest struct {
 	RequestInterval          int      `xml:"RequestInterval,omitempty"`
 	FailureThreshold         int      `xml:"FailureThreshold,omitempty"`
 	HealthThreshold          int      `xml:"HealthThreshold,omitempty"`
-	Inverted                 bool     `xml:"Inverted,omitempty"`
 }
 
 type xmlCreateHealthCheckResponse struct {
@@ -1278,7 +1288,9 @@ func (h *Handler) updateHealthCheck(c *echo.Context, path string) error {
 		cfg.HealthThreshold = req.HealthThreshold
 	}
 
-	cfg.Inverted = req.Inverted
+	if req.Inverted != nil {
+		cfg.Inverted = *req.Inverted
+	}
 
 	hc, err := h.Backend.UpdateHealthCheck(id, cfg)
 	if err != nil {

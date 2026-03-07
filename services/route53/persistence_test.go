@@ -78,13 +78,15 @@ func TestInMemoryBackend_SnapshotRestore_HealthChecks(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup  func(b *route53.InMemoryBackend) string
+		setup  func(t *testing.T, b *route53.InMemoryBackend) string
 		verify func(t *testing.T, b *route53.InMemoryBackend, id string)
 		name   string
 	}{
 		{
 			name: "health_check_round_trip",
-			setup: func(b *route53.InMemoryBackend) string {
+			setup: func(t *testing.T, b *route53.InMemoryBackend) string {
+				t.Helper()
+
 				hc, err := b.CreateHealthCheck("ref-hc-001", route53.HealthCheckConfig{
 					Type:             route53.HealthCheckTypeHTTP,
 					IPAddress:        "192.0.2.1",
@@ -92,9 +94,7 @@ func TestInMemoryBackend_SnapshotRestore_HealthChecks(t *testing.T) {
 					ResourcePath:     "/health",
 					FailureThreshold: 3,
 				})
-				if err != nil {
-					return ""
-				}
+				require.NoError(t, err)
 
 				return hc.ID
 			},
@@ -116,7 +116,7 @@ func TestInMemoryBackend_SnapshotRestore_HealthChecks(t *testing.T) {
 			t.Parallel()
 
 			original := route53.NewInMemoryBackend()
-			id := tt.setup(original)
+			id := tt.setup(t, original)
 
 			snap := original.Snapshot()
 			require.NotNil(t, snap)

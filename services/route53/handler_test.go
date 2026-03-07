@@ -901,6 +901,44 @@ func TestHealthCheck_UpdateNonexistent(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
+func TestHealthCheck_UpdateInverted_PreservesExisting(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler(t)
+
+	// Create with Inverted=true via a dedicated create body.
+	createBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>inverted-hc-ref</CallerReference>
+  <HealthCheckConfig>
+    <Type>HTTP</Type>
+    <IPAddress>192.0.2.1</IPAddress>
+    <Port>80</Port>
+    <Inverted>true</Inverted>
+  </HealthCheckConfig>
+</CreateHealthCheckRequest>`
+
+	createRec := send(t, h, http.MethodPost, "/2013-04-01/healthcheck", createBody)
+	require.Equal(t, http.StatusCreated, createRec.Code)
+	hcID := extractHealthCheckID(t, createRec.Body.String())
+
+	// Update without sending <Inverted> — existing Inverted value must be preserved.
+	updateBody := `<?xml version="1.0" encoding="UTF-8"?>
+<UpdateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <IPAddress>10.0.0.1</IPAddress>
+</UpdateHealthCheckRequest>`
+
+	updateRec := send(t, h, http.MethodPost, "/2013-04-01/healthcheck/"+hcID, updateBody)
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	// Verify the updated IP while Inverted is still true.
+	getRec := send(t, h, http.MethodGet, "/2013-04-01/healthcheck/"+hcID, "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+	body := getRec.Body.String()
+	assert.Contains(t, body, "10.0.0.1")
+	assert.Contains(t, body, "<Inverted>true</Inverted>")
+}
+
 // ---- Routing policy tests ----
 
 func TestRoutingPolicy_Weighted(t *testing.T) {
