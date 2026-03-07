@@ -397,8 +397,8 @@ func (h *Handler) handleListTagsForResource(
 
 // tagResourceInput is the request body for TagResource.
 type tagResourceInput struct {
-	ResourceArn string            `json:"resourceArn"`
 	Tags        map[string]string `json:"tags"`
+	ResourceArn string            `json:"resourceArn"`
 }
 
 type tagResourceOutput struct{}
