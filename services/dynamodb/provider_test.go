@@ -38,19 +38,28 @@ func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		config   any
-		wantName string
+		name          string
+		config        any
+		wantName      string
+		wantSvcNotNil bool
 	}{
 		{
-			name:     "no_config",
-			config:   nil,
-			wantName: "DynamoDB",
+			name:          "no_config",
+			config:        nil,
+			wantName:      "DynamoDB",
+			wantSvcNotNil: true,
 		},
 		{
-			name:     "with_config",
-			config:   &mockDDBConfig{},
-			wantName: "DynamoDB",
+			name:          "with_dynamodb_config",
+			config:        &mockDDBConfig{},
+			wantName:      "DynamoDB",
+			wantSvcNotNil: true,
+		},
+		{
+			name:          "with_unrelated_config_type",
+			config:        struct{ Foo string }{Foo: "bar"},
+			wantName:      "DynamoDB",
+			wantSvcNotNil: true,
 		},
 	}
 

@@ -166,7 +166,9 @@ func TestHandler_HandlerUtilities(t *testing.T) {
 
 		db := dynamodb.NewInMemoryDB()
 		h := dynamodb.NewHandler(db)
-		h.WithJanitor(dynamodb.Settings{}) // should not panic
+		h2 := h.WithJanitor(dynamodb.Settings{}) // DefaultRegion should fall back to config default
+		// The default region from config.DefaultRegion is "us-east-1"
+		assert.NotEmpty(t, h2.DefaultRegion, "DefaultRegion should be set to the config default")
 	})
 
 	t.Run("StartWorker starts janitor goroutine", func(t *testing.T) {
