@@ -2,15 +2,17 @@ package kms
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 type backendSnapshot struct {
-	Keys      map[string]*Key   `json:"keys"`
-	Aliases   map[string]*Alias `json:"aliases"`
-	Grants    map[string]*Grant `json:"grants"`
-	Policies  map[string]string `json:"policies"`
-	AccountID string            `json:"accountID"`
-	Region    string            `json:"region"`
+	Keys         map[string]*Key                  `json:"keys"`
+	Aliases      map[string]*Alias                `json:"aliases"`
+	Grants       map[string]*Grant                `json:"grants"`
+	Policies     map[string]string                `json:"policies"`
+	KeyMaterials map[string]serializedKeyMaterial `json:"key_materials,omitempty"`
+	AccountID    string                           `json:"accountID"`
+	Region       string                           `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -19,13 +21,25 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	serialized := make(map[string]serializedKeyMaterial, len(b.keyMaterials))
+
+	for keyID, km := range b.keyMaterials {
+		s, err := marshalKeyMaterial(km)
+		if err != nil {
+			return nil
+		}
+
+		serialized[keyID] = s
+	}
+
 	snap := backendSnapshot{
-		Keys:      b.keys,
-		Aliases:   b.aliases,
-		Grants:    b.grants,
-		Policies:  b.policies,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Keys:         b.keys,
+		Aliases:      b.aliases,
+		Grants:       b.grants,
+		Policies:     b.policies,
+		KeyMaterials: serialized,
+		AccountID:    b.accountID,
+		Region:       b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -64,10 +78,23 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Policies = make(map[string]string)
 	}
 
+	// Restore key materials.
+	restored := make(map[string]*keyMaterial, len(snap.KeyMaterials))
+
+	for keyID, s := range snap.KeyMaterials {
+		km, err := unmarshalKeyMaterial(s)
+		if err != nil {
+			return fmt.Errorf("restoring key material for %s: %w", keyID, err)
+		}
+
+		restored[keyID] = km
+	}
+
 	b.keys = snap.Keys
 	b.aliases = snap.Aliases
 	b.grants = snap.Grants
 	b.policies = snap.Policies
+	b.keyMaterials = restored
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

@@ -75,6 +75,8 @@ type KeyMetadata struct {
 	KeySpec string `json:"KeySpec,omitempty"`
 	// EncryptionAlgorithms lists the encryption algorithms supported by this key.
 	EncryptionAlgorithms []string `json:"EncryptionAlgorithms,omitempty"`
+	// SigningAlgorithms lists the signing algorithms supported by this key.
+	SigningAlgorithms []string `json:"SigningAlgorithms,omitempty"`
 	// MultiRegion indicates whether this is a multi-region key.
 	MultiRegion bool `json:"MultiRegion"`
 	// CreationDate is the Unix timestamp when the key was created.
@@ -97,6 +99,8 @@ type CreateKeyInput struct {
 	Description string `json:"Description,omitempty"`
 	// KeyUsage is the cryptographic operation (default ENCRYPT_DECRYPT).
 	KeyUsage string `json:"KeyUsage,omitempty"`
+	// KeySpec identifies the cryptographic algorithm to use for the key (e.g. SYMMETRIC_DEFAULT, RSA_2048).
+	KeySpec string `json:"KeySpec,omitempty"`
 	// Region is the AWS region for ARN construction (optional; defaults to backend region).
 	Region string `json:"-"`
 }
@@ -393,4 +397,57 @@ type GetKeyPolicyInput struct {
 type GetKeyPolicyOutput struct {
 	Policy     string `json:"Policy"`
 	PolicyName string `json:"PolicyName"`
+}
+
+// SignInput is the request payload for Sign.
+type SignInput struct {
+	KeyID            string `json:"KeyId"`
+	MessageType      string `json:"MessageType,omitempty"`
+	SigningAlgorithm string `json:"SigningAlgorithm"`
+	Message          []byte `json:"Message"`
+}
+
+// SignOutput is the response payload for Sign.
+type SignOutput struct {
+	KeyID            string `json:"KeyId"`
+	SigningAlgorithm string `json:"SigningAlgorithm"`
+	Signature        []byte `json:"Signature"`
+}
+
+// VerifyInput is the request payload for Verify.
+type VerifyInput struct {
+	KeyID            string `json:"KeyId"`
+	MessageType      string `json:"MessageType,omitempty"`
+	SigningAlgorithm string `json:"SigningAlgorithm"`
+	Message          []byte `json:"Message"`
+	Signature        []byte `json:"Signature"`
+}
+
+// VerifyOutput is the response payload for Verify.
+type VerifyOutput struct {
+	KeyID            string `json:"KeyId"`
+	SigningAlgorithm string `json:"SigningAlgorithm"`
+	SignatureValid   bool   `json:"SignatureValid"`
+}
+
+// GetPublicKeyInput is the request payload for GetPublicKey.
+type GetPublicKeyInput struct {
+	// KeyId identifies the asymmetric KMS key whose public key to retrieve.
+	KeyID string `json:"KeyId"`
+}
+
+// GetPublicKeyOutput is the response payload for GetPublicKey.
+type GetPublicKeyOutput struct {
+	// KeyId is the ID of the asymmetric KMS key.
+	KeyID string `json:"KeyId"`
+	// PublicKey is the DER-encoded public key.
+	PublicKey []byte `json:"PublicKey"`
+	// KeySpec is the key spec of the key.
+	KeySpec string `json:"KeySpec"`
+	// KeyUsage is the intended use of the key.
+	KeyUsage string `json:"KeyUsage"`
+	// SigningAlgorithms lists the signing algorithms supported by this key.
+	SigningAlgorithms []string `json:"SigningAlgorithms,omitempty"`
+	// EncryptionAlgorithms lists the encryption algorithms (empty for sign keys).
+	EncryptionAlgorithms []string `json:"EncryptionAlgorithms,omitempty"`
 }

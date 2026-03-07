@@ -1,8 +1,6 @@
 package kms
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -41,6 +39,8 @@ var (
 	ErrCiphertextTooShort = errors.New("ciphertext too short")
 	// ErrInvalidDataKeySize is returned when a data key size is invalid or too large.
 	ErrInvalidDataKeySize = errors.New("ValidationException: invalid data key size")
+	// ErrInvalidSignature is returned when a signature verification fails.
+	ErrInvalidSignature = errors.New("KMSInvalidSignatureException")
 )
 
 const (
@@ -49,8 +49,6 @@ const (
 )
 
 const (
-	// mockMasterKeyStr is the 32-byte AES-256 master key used for mock encryption.
-	mockMasterKeyStr = "gopherstack-kms-master-key-32by!"
 	// keyIDPrefixLen is the length of the key ID prefix embedded in ciphertext blobs.
 	keyIDPrefixLen = 36
 	// defaultListLimit is the default maximum number of results for list operations.
@@ -73,6 +71,9 @@ type StorageBackend interface {
 		input *GenerateDataKeyWithoutPlaintextInput,
 	) (*GenerateDataKeyWithoutPlaintextOutput, error)
 	ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, error)
+	Sign(input *SignInput) (*SignOutput, error)
+	Verify(input *VerifyInput) (*VerifyOutput, error)
+	GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyOutput, error)
 	CreateAlias(input *CreateAliasInput) error
 	DeleteAlias(input *DeleteAliasInput) error
 	ListAliases(input *ListAliasesInput) (*ListAliasesOutput, error)
@@ -94,13 +95,14 @@ type StorageBackend interface {
 
 // InMemoryBackend is a concurrency-safe in-memory KMS backend.
 type InMemoryBackend struct {
-	keys      map[string]*Key
-	aliases   map[string]*Alias
-	grants    map[string]*Grant
-	policies  map[string]string
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	keys         map[string]*Key
+	aliases      map[string]*Alias
+	grants       map[string]*Grant
+	policies     map[string]string
+	keyMaterials map[string]*keyMaterial
+	mu           *lockmetrics.RWMutex
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend creates and returns a new empty KMS backend with default account/region.
@@ -111,13 +113,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new KMS backend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		keys:      make(map[string]*Key),
-		aliases:   make(map[string]*Alias),
-		grants:    make(map[string]*Grant),
-		policies:  make(map[string]string),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("kms"),
+		keys:         make(map[string]*Key),
+		aliases:      make(map[string]*Alias),
+		grants:       make(map[string]*Grant),
+		policies:     make(map[string]string),
+		keyMaterials: make(map[string]*keyMaterial),
+		accountID:    accountID,
+		region:       region,
+		mu:           lockmetrics.New("kms"),
 	}
 }
 
@@ -142,76 +145,16 @@ func (b *InMemoryBackend) resolveKeyID(keyID string) (string, error) {
 	return keyID, nil
 }
 
-// encryptData encrypts plaintext with AES-256-GCM, embedding the key ID in the blob.
-func encryptData(plaintext []byte, keyID string) ([]byte, error) {
-	block, err := aes.NewCipher([]byte(mockMasterKeyStr))
-	if err != nil {
-		return nil, err
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	nonce := make([]byte, gcm.NonceSize())
-	if _, readErr := io.ReadFull(rand.Reader, nonce); readErr != nil {
-		return nil, readErr
-	}
-
-	aad := []byte(keyID)
-	encrypted := gcm.Seal(nonce, nonce, plaintext, aad)
-
-	// Prepend fixed-length key ID so decryption can extract it
-	result := make([]byte, keyIDPrefixLen+len(encrypted))
-	copy(result[:keyIDPrefixLen], padKeyID(keyID))
-	copy(result[keyIDPrefixLen:], encrypted)
-
-	return result, nil
-}
-
-// padKeyID pads or truncates a key ID to exactly keyIDPrefixLen bytes.
-func padKeyID(keyID string) []byte {
-	b := make([]byte, keyIDPrefixLen)
-	copy(b, keyID)
-
-	return b
+// encryptData encrypts plaintext using the per-key AES-256-GCM material, embedding the key ID.
+// Kept as a compatibility shim; callers should use encryptSymmetric directly.
+func encryptData(plaintext []byte, keyID string, km *keyMaterial) ([]byte, error) {
+	return encryptSymmetric(plaintext, keyID, km)
 }
 
 // decryptData decrypts a ciphertext blob produced by encryptData.
 // Returns (plaintext, resolvedKeyID, error).
-func decryptData(blob []byte) ([]byte, string, error) {
-	if len(blob) < keyIDPrefixLen {
-		return nil, "", ErrCiphertextTooShort
-	}
-
-	keyID := strings.TrimRight(string(blob[:keyIDPrefixLen]), "\x00")
-	encrypted := blob[keyIDPrefixLen:]
-
-	block, err := aes.NewCipher([]byte(mockMasterKeyStr))
-	if err != nil {
-		return nil, "", err
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, "", err
-	}
-
-	nonceSize := gcm.NonceSize()
-	if len(encrypted) < nonceSize {
-		return nil, "", ErrCiphertextTooShort
-	}
-
-	nonce, cipherOnly := encrypted[:nonceSize], encrypted[nonceSize:]
-	aad := []byte(keyID)
-
-	plaintext, openErr := gcm.Open(nil, nonce, cipherOnly, aad)
-	if openErr != nil {
-		return nil, "", fmt.Errorf("%w: %w", ErrInvalidCiphertext, openErr)
-	}
-
-	return plaintext, keyID, nil
+func decryptData(blob []byte, km *keyMaterial) ([]byte, string, error) {
+	return decryptSymmetric(blob, km)
 }
 
 // CreateKey creates a new KMS key and stores it in the backend.
@@ -221,9 +164,28 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 
 	keyID := uuid.New().String()
 	keyUsage := input.KeyUsage
+	keySpec := input.KeySpec
 
+	// Derive keyUsage from keySpec when not explicitly specified.
 	if keyUsage == "" {
-		keyUsage = KeyUsageEncryptDecrypt
+		switch keySpec {
+		case keySpecSymmetric, "":
+			keyUsage = KeyUsageEncryptDecrypt
+		default:
+			keyUsage = KeyUsageSignVerify
+		}
+	}
+
+	// Derive keySpec from keyUsage when not explicitly specified.
+	if keySpec == "" {
+		switch keyUsage {
+		case KeyUsageEncryptDecrypt:
+			keySpec = keySpecSymmetric
+		case KeyUsageSignVerify:
+			keySpec = keySpecRSA2048
+		default:
+			keySpec = keySpecSymmetric
+		}
 	}
 
 	region := b.region
@@ -238,18 +200,18 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		Description:  input.Description,
 		KeyState:     KeyStateEnabled,
 		KeyUsage:     keyUsage,
+		KeySpec:      keySpec,
 		CreationDate: UnixTimeFloat(time.Now()),
 		Enabled:      true,
 	}
 
-	switch keyUsage {
-	case KeyUsageEncryptDecrypt:
-		key.KeySpec = "SYMMETRIC_DEFAULT"
-	case KeyUsageSignVerify:
-		key.KeySpec = "RSA_2048"
+	km, err := generateKeyMaterial(keySpec)
+	if err != nil {
+		return nil, fmt.Errorf("generating key material for spec %q: %w", keySpec, err)
 	}
 
 	b.keys[keyID] = key
+	b.keyMaterials[keyID] = km
 
 	return &CreateKeyOutput{
 		KeyMetadata: keyToMetadata(key),
@@ -332,7 +294,9 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 		return nil, fmt.Errorf("%w: key %q is not usable for encryption", ErrInvalidKeyUsage, key.KeyID)
 	}
 
-	blob, encErr := encryptData(input.Plaintext, key.KeyID)
+	km := b.keyMaterials[key.KeyID]
+
+	blob, encErr := encryptData(input.Plaintext, key.KeyID, km)
 	if encErr != nil {
 		return nil, encErr
 	}
@@ -348,10 +312,12 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 	b.mu.RLock("Decrypt")
 	defer b.mu.RUnlock()
 
-	plaintext, keyID, err := decryptData(input.CiphertextBlob)
-	if err != nil {
-		return nil, err
+	// Extract the key ID from the blob prefix first, then look up material.
+	if len(input.CiphertextBlob) < keyIDPrefixLen {
+		return nil, ErrCiphertextTooShort
 	}
+
+	keyID := strings.TrimRight(string(input.CiphertextBlob[:keyIDPrefixLen]), "\x00")
 
 	key, lookupErr := b.lookupKey(keyID)
 	if lookupErr != nil {
@@ -364,6 +330,13 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 
 	if key.KeyUsage != KeyUsageEncryptDecrypt {
 		return nil, fmt.Errorf("%w: key %q is not usable for decryption", ErrInvalidKeyUsage, key.KeyID)
+	}
+
+	km := b.keyMaterials[key.KeyID]
+
+	plaintext, _, err := decryptData(input.CiphertextBlob, km)
+	if err != nil {
+		return nil, err
 	}
 
 	return &DecryptOutput{
@@ -404,7 +377,9 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 		return nil, randErr
 	}
 
-	blob, encErr := encryptData(plaintextKey, key.KeyID)
+	km := b.keyMaterials[key.KeyID]
+
+	blob, encErr := encryptData(plaintextKey, key.KeyID, km)
 	if encErr != nil {
 		return nil, encErr
 	}
@@ -421,7 +396,19 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 	b.mu.RLock("ReEncrypt")
 	defer b.mu.RUnlock()
 
-	plaintext, sourceKeyID, err := decryptData(input.CiphertextBlob)
+	// Extract source key ID from blob to look up its material.
+	if len(input.CiphertextBlob) < keyIDPrefixLen {
+		return nil, ErrCiphertextTooShort
+	}
+
+	sourceKeyID := strings.TrimRight(string(input.CiphertextBlob[:keyIDPrefixLen]), "\x00")
+
+	sourceKM, ok := b.keyMaterials[sourceKeyID]
+	if !ok {
+		return nil, ErrKeyNotFound
+	}
+
+	plaintext, _, err := decryptData(input.CiphertextBlob, sourceKM)
 	if err != nil {
 		return nil, err
 	}
@@ -439,7 +426,9 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 		return nil, fmt.Errorf("%w: destination key %q is not usable for encryption", ErrInvalidKeyUsage, destKey.KeyID)
 	}
 
-	blob, encErr := encryptData(plaintext, destKey.KeyID)
+	destKM := b.keyMaterials[destKey.KeyID]
+
+	blob, encErr := encryptData(plaintext, destKey.KeyID, destKM)
 	if encErr != nil {
 		return nil, encErr
 	}
@@ -448,6 +437,114 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 		CiphertextBlob: blob,
 		KeyID:          destKey.KeyID,
 		SourceKeyID:    sourceKeyID,
+	}, nil
+}
+
+// Sign creates a digital signature for the specified message using an asymmetric KMS key.
+func (b *InMemoryBackend) Sign(input *SignInput) (*SignOutput, error) {
+	b.mu.RLock("Sign")
+	defer b.mu.RUnlock()
+
+	key, err := b.lookupKey(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if key.KeyState != KeyStateEnabled {
+		return nil, keyStateError(key)
+	}
+
+	if key.KeyUsage != KeyUsageSignVerify {
+		return nil, fmt.Errorf("%w: key %q is not usable for signing", ErrInvalidKeyUsage, key.KeyID)
+	}
+
+	km := b.keyMaterials[key.KeyID]
+
+	messageType := input.MessageType
+	if messageType == "" {
+		messageType = "RAW"
+	}
+
+	sig, signErr := signWithKeyMaterial(input.Message, messageType, input.SigningAlgorithm, km)
+	if signErr != nil {
+		return nil, signErr
+	}
+
+	return &SignOutput{
+		KeyID:            key.Arn,
+		Signature:        sig,
+		SigningAlgorithm: input.SigningAlgorithm,
+	}, nil
+}
+
+// Verify verifies a digital signature using an asymmetric KMS key.
+func (b *InMemoryBackend) Verify(input *VerifyInput) (*VerifyOutput, error) {
+	b.mu.RLock("Verify")
+	defer b.mu.RUnlock()
+
+	key, err := b.lookupKey(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if key.KeyState != KeyStateEnabled {
+		return nil, keyStateError(key)
+	}
+
+	if key.KeyUsage != KeyUsageSignVerify {
+		return nil, fmt.Errorf("%w: key %q is not usable for verification", ErrInvalidKeyUsage, key.KeyID)
+	}
+
+	km := b.keyMaterials[key.KeyID]
+
+	messageType := input.MessageType
+	if messageType == "" {
+		messageType = "RAW"
+	}
+
+	valid, verifyErr := verifyWithKeyMaterial(input.Message, input.Signature, messageType, input.SigningAlgorithm, km)
+	if verifyErr != nil {
+		return nil, verifyErr
+	}
+
+	return &VerifyOutput{
+		KeyID:            key.Arn,
+		SignatureValid:   valid,
+		SigningAlgorithm: input.SigningAlgorithm,
+	}, nil
+}
+
+// GetPublicKey returns the public key for an asymmetric KMS key.
+func (b *InMemoryBackend) GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyOutput, error) {
+	b.mu.RLock("GetPublicKey")
+	defer b.mu.RUnlock()
+
+	key, err := b.lookupKey(input.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if key.KeyState != KeyStateEnabled {
+		return nil, keyStateError(key)
+	}
+
+	if key.KeyUsage != KeyUsageSignVerify {
+		return nil, fmt.Errorf("%w: key %q does not have an asymmetric public key", ErrInvalidKeyUsage, key.KeyID)
+	}
+
+	km := b.keyMaterials[key.KeyID]
+
+	der, pubErr := publicKeyDER(km)
+	if pubErr != nil {
+		return nil, pubErr
+	}
+
+	return &GetPublicKeyOutput{
+		KeyID:             key.KeyID,
+		PublicKey:         der,
+		KeySpec:           key.KeySpec,
+		KeyUsage:          key.KeyUsage,
+		SigningAlgorithms: defaultSigningAlgorithms(key.KeySpec),
 	}, nil
 }
 
@@ -714,6 +811,7 @@ func keyToMetadata(k *Key) KeyMetadata {
 		Description:  k.Description,
 		KeyState:     k.KeyState,
 		KeyUsage:     k.KeyUsage,
+		KeySpec:      k.KeySpec,
 		CreationDate: k.CreationDate,
 		KeyManager:   "CUSTOMER",
 		Origin:       "AWS_KMS",
@@ -722,10 +820,9 @@ func keyToMetadata(k *Key) KeyMetadata {
 
 	switch k.KeyUsage {
 	case KeyUsageEncryptDecrypt:
-		meta.KeySpec = "SYMMETRIC_DEFAULT"
 		meta.EncryptionAlgorithms = []string{"SYMMETRIC_DEFAULT"}
 	case KeyUsageSignVerify:
-		meta.KeySpec = "RSA_2048"
+		meta.SigningAlgorithms = defaultSigningAlgorithms(k.KeySpec)
 	}
 
 	return meta
