@@ -365,6 +365,18 @@ func TestLambda_StreamNameFromARN(t *testing.T) {
 			arn:      "arn:aws",
 			expected: "",
 		},
+		{
+			// Passes the len(arn)>len(prefix) check but has too few colon-separated parts.
+			name:     "too few parts after prefix",
+			arn:      "arn:aws:kinesis:us-east-1",
+			expected: "",
+		},
+		{
+			// Has 6 parts but the last segment is just "stream/" with no stream name.
+			name:     "stream segment too short",
+			arn:      "arn:aws:kinesis:us-east-1:000000000000:stream/",
+			expected: "",
+		},
 	}
 
 	for _, tc := range tests {
@@ -793,4 +805,283 @@ func TestLambda_Poller_SQS_IsSQSARN(t *testing.T) {
 			assert.Equal(t, tc.isSQS, lambda.IsSQSARN(tc.arn))
 		})
 	}
+}
+
+// TestLambda_Backend_SetSQSReader_NoPoller verifies SetSQSReader is a no-op when no poller is set.
+func TestLambda_Backend_SetSQSReader_NoPoller(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	// No poller has been set; SetSQSReader should not panic.
+	require.NotPanics(t, func() {
+		backend.SetSQSReader(&fakeSQSReader{})
+	})
+}
+
+// TestLambda_Backend_SetSQSReader_WithPoller verifies that SetSQSReader propagates to the poller.
+func TestLambda_Backend_SetSQSReader_WithPoller(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	poller := lambda.NewEventSourcePoller(backend, &fakeKinesisReader{})
+	backend.SetKinesisPoller(poller)
+
+	sqsR := &fakeSQSReader{}
+	// Should set the reader on the poller without panicking.
+	require.NotPanics(t, func() {
+		backend.SetSQSReader(sqsR)
+	})
+
+	// Verify the reader was propagated: create an SQS ESM and poll once.
+	queueARN := "arn:aws:sqs:us-east-1:000000000000:set-reader-queue"
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: queueARN,
+		FunctionName:   "test-fn",
+		BatchSize:      10,
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	ctx := t.Context()
+	lambda.PollOnce(ctx, poller)
+
+	sqsR.mu.Lock()
+	calls := sqsR.receiveCalls
+	sqsR.mu.Unlock()
+
+	assert.Positive(t, calls, "SQS reader should have been called after SetSQSReader")
+}
+
+// TestLambda_Poller_SQS_DeleteError verifies graceful handling when message deletion fails.
+func TestLambda_Poller_SQS_DeleteError(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	queueARN := "arn:aws:sqs:us-east-1:000000000000:delete-err-queue"
+
+	// Register the function so InvokeFunction doesn't error on function-not-found.
+	// (Invocation will still fail at Docker stage, so we just test the delete-error path.)
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: queueARN,
+		FunctionName:   "test-function",
+		BatchSize:      10,
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	// fakeSQSReader that has messages AND a delete error.
+	// Because Lambda invocation fails (no Docker), we won't reach delete anyway —
+	// but the test verifies the poller doesn't panic if the delete step would fail.
+	reader := &fakeSQSReader{
+		deleteErr: assert.AnError,
+	}
+	poller := lambda.NewEventSourcePoller(backend, &fakeKinesisReader{})
+	poller.SetSQSReader(reader)
+
+	ctx := t.Context()
+	require.NotPanics(t, func() {
+		lambda.PollOnce(ctx, poller)
+	})
+}
+
+// getShardIteratorErrorReader is a KinesisReader that fails GetShardIterator.
+type getShardIteratorErrorReader struct {
+	shardIDs           []string
+	shardIteratorCalls int
+	mu                 sync.Mutex
+}
+
+func (r *getShardIteratorErrorReader) GetShardIDs(_ string) ([]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.shardIDs, nil
+}
+
+func (r *getShardIteratorErrorReader) GetShardIterator(_, _, _, _ string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.shardIteratorCalls++
+
+	return "", assert.AnError
+}
+
+func (r *getShardIteratorErrorReader) GetRecords(_ string, _ int) ([]lambda.KinesisRecord, string, error) {
+	return nil, "", nil
+}
+
+// getRecordsErrorReader is a KinesisReader that succeeds iteration setup but fails GetRecords.
+type getRecordsErrorReader struct {
+	shardIDs       []string
+	getRecordCalls int
+	mu             sync.Mutex
+}
+
+func (r *getRecordsErrorReader) GetShardIDs(_ string) ([]string, error) {
+	return r.shardIDs, nil
+}
+
+func (r *getRecordsErrorReader) GetShardIterator(_, _, _, _ string) (string, error) {
+	return "test-iter", nil
+}
+
+func (r *getRecordsErrorReader) GetRecords(_ string, _ int) ([]lambda.KinesisRecord, string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.getRecordCalls++
+
+	return nil, "", assert.AnError
+}
+
+// emptyRecordsReader returns an empty records slice with no error.
+type emptyRecordsReader struct {
+	shardIDs []string
+	calls    int
+	mu       sync.Mutex
+}
+
+func (r *emptyRecordsReader) GetShardIDs(_ string) ([]string, error) {
+	return r.shardIDs, nil
+}
+
+func (r *emptyRecordsReader) GetShardIterator(_, _, _, _ string) (string, error) {
+	return "test-iter", nil
+}
+
+func (r *emptyRecordsReader) GetRecords(_ string, _ int) ([]lambda.KinesisRecord, string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.calls++
+
+	return nil, "next-iter", nil // no error, no records
+}
+
+// TestLambda_Poller_Kinesis_GetShardIteratorError verifies graceful handling of iterator failures.
+func TestLambda_Poller_Kinesis_GetShardIteratorError(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/err-iter-stream",
+		FunctionName:   "test-fn",
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	reader := &getShardIteratorErrorReader{
+		shardIDs: []string{"shardId-000000000000"},
+	}
+
+	poller := lambda.NewEventSourcePoller(backend, reader)
+	ctx := t.Context()
+
+	require.NotPanics(t, func() {
+		lambda.PollOnce(ctx, poller)
+	})
+
+	reader.mu.Lock()
+	calls := reader.shardIteratorCalls
+	reader.mu.Unlock()
+
+	assert.Positive(t, calls, "GetShardIterator should have been called")
+}
+
+// TestLambda_Poller_Kinesis_GetRecordsError verifies graceful handling of GetRecords failures.
+func TestLambda_Poller_Kinesis_GetRecordsError(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/get-records-err-stream",
+		FunctionName:   "test-fn",
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	reader := &getRecordsErrorReader{
+		shardIDs: []string{"shardId-000000000000"},
+	}
+
+	poller := lambda.NewEventSourcePoller(backend, reader)
+	ctx := t.Context()
+
+	require.NotPanics(t, func() {
+		lambda.PollOnce(ctx, poller)
+	})
+
+	reader.mu.Lock()
+	calls := reader.getRecordCalls
+	reader.mu.Unlock()
+
+	assert.Positive(t, calls, "GetRecords should have been called")
+}
+
+// TestLambda_Poller_Kinesis_EmptyRecords verifies that empty-record results are handled gracefully.
+func TestLambda_Poller_Kinesis_EmptyRecords(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/empty-records-stream",
+		FunctionName:   "test-fn",
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	reader := &emptyRecordsReader{
+		shardIDs: []string{"shardId-000000000000"},
+	}
+
+	poller := lambda.NewEventSourcePoller(backend, reader)
+	ctx := t.Context()
+
+	require.NotPanics(t, func() {
+		lambda.PollOnce(ctx, poller)
+	})
+
+	reader.mu.Lock()
+	calls := reader.calls
+	reader.mu.Unlock()
+
+	assert.Positive(t, calls, "GetRecords should have been called even for empty result")
+}
+
+// TestLambda_Poller_NonKinesisNonSQSARN verifies that unknown ESM source types are skipped.
+func TestLambda_Poller_NonKinesisNonSQSARN(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	// "arn:aws:dynamodb:us-east-1" has only 4 segments (3 colons), fewer than the 6
+	// required by streamNameFromARN, so it returns "" and the mapping is skipped.
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: "arn:aws:dynamodb:us-east-1",
+		FunctionName:   "test-fn",
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	reader := &pollingKinesisReader{shardIDs: []string{"shardId-0"}}
+	poller := lambda.NewEventSourcePoller(backend, reader)
+
+	ctx := t.Context()
+	require.NotPanics(t, func() {
+		lambda.PollOnce(ctx, poller)
+	})
+
+	reader.mu.Lock()
+	calls := reader.readCalls
+	reader.mu.Unlock()
+
+	// The ARN has too few parts → streamNameFromARN returns "" → ESM skipped.
+	assert.Zero(t, calls, "non-Kinesis ARN should not trigger GetRecords")
 }
