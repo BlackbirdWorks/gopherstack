@@ -174,7 +174,7 @@ func TestIntegration_KMS_GenerateDataKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, dataKeyOut.Plaintext)
 	assert.NotEmpty(t, dataKeyOut.CiphertextBlob)
-	assert.Equal(t, keyID, *dataKeyOut.KeyId)
+	assert.Equal(t, *createOut.KeyMetadata.Arn, *dataKeyOut.KeyId)
 	// AES-256 plaintext key is 32 bytes
 	assert.Len(t, dataKeyOut.Plaintext, 32)
 }
