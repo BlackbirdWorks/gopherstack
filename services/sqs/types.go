@@ -65,6 +65,7 @@ type MessageAttributeValue struct {
 type Message struct {
 	MessageAttributes                map[string]MessageAttributeValue `json:"messageAttributes,omitempty"`
 	Attributes                       map[string]string                `json:"attributes,omitempty"`
+	VisibleAt                        time.Time                        `json:"visibleAt,omitzero"`
 	Body                             string                           `json:"body"`
 	MessageGroupID                   string                           `json:"messageGroupID,omitempty"`
 	MessageDeduplicationID           string                           `json:"messageDeduplicationID,omitempty"`
