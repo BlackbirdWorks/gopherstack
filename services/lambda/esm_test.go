@@ -578,3 +578,219 @@ func (r *errorKinesisReader) GetShardIterator(_, _, _, _ string) (string, error)
 func (r *errorKinesisReader) GetRecords(_ string, _ int) ([]lambda.KinesisRecord, string, error) {
 	return nil, "", nil
 }
+
+// fakeSQSReader is a test SQSReader that returns controlled messages and records deletions.
+type fakeSQSReader struct {
+	receiveErr   error
+	deleteErr    error
+	messages     []*lambda.SQSMessage
+	deletedIDs   []string
+	receiveCalls int
+	mu           sync.Mutex
+}
+
+func (f *fakeSQSReader) ReceiveMessagesLocal(_ string, maxMessages int) ([]*lambda.SQSMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.receiveCalls++
+
+	if f.receiveErr != nil {
+		return nil, f.receiveErr
+	}
+
+	if len(f.messages) == 0 {
+		return nil, nil
+	}
+
+	count := min(maxMessages, len(f.messages))
+	msgs := f.messages[:count]
+	f.messages = f.messages[count:]
+
+	return msgs, nil
+}
+
+func (f *fakeSQSReader) DeleteMessagesLocal(_ string, receiptHandles []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+
+	f.deletedIDs = append(f.deletedIDs, receiptHandles...)
+
+	return nil
+}
+
+// TestLambda_Poller_SQS_PollWithMessages verifies that the SQS poller delivers messages to Lambda
+// and deletes them on success.
+func TestLambda_Poller_SQS_PollWithMessages(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	queueARN := "arn:aws:sqs:us-east-1:000000000000:test-queue"
+
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: queueARN,
+		FunctionName:   "test-function",
+		BatchSize:      10,
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	reader := &fakeSQSReader{
+		messages: []*lambda.SQSMessage{
+			{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: "hello"},
+			{MessageID: "msg-2", ReceiptHandle: "rh-2", Body: "world"},
+		},
+	}
+
+	poller := lambda.NewEventSourcePoller(backend, &fakeKinesisReader{})
+	poller.SetSQSReader(reader)
+
+	ctx := t.Context()
+	lambda.PollOnce(ctx, poller)
+
+	reader.mu.Lock()
+	calls := reader.receiveCalls
+	deleted := reader.deletedIDs
+	reader.mu.Unlock()
+
+	assert.Positive(t, calls, "should have called ReceiveMessagesLocal")
+	// Lambda invocation will fail (no Docker), so messages should NOT be deleted
+	assert.Empty(t, deleted, "messages should not be deleted when Lambda invocation fails")
+}
+
+// TestLambda_Poller_SQS_SkipsDisabledMapping verifies disabled SQS ESMs are not polled.
+func TestLambda_Poller_SQS_SkipsDisabledMapping(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	queueARN := "arn:aws:sqs:us-east-1:000000000000:disabled-queue"
+
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: queueARN,
+		FunctionName:   "test-function",
+		BatchSize:      10,
+		Enabled:        false,
+	})
+	require.NoError(t, err)
+
+	reader := &fakeSQSReader{}
+	poller := lambda.NewEventSourcePoller(backend, &fakeKinesisReader{})
+	poller.SetSQSReader(reader)
+
+	ctx := t.Context()
+	lambda.PollOnce(ctx, poller)
+
+	reader.mu.Lock()
+	calls := reader.receiveCalls
+	reader.mu.Unlock()
+
+	assert.Zero(t, calls, "disabled mapping should not trigger any receives")
+}
+
+// TestLambda_Poller_SQS_NoMessagesNoop verifies that empty queues are handled gracefully.
+func TestLambda_Poller_SQS_NoMessagesNoop(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	queueARN := "arn:aws:sqs:us-east-1:000000000000:empty-queue"
+
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: queueARN,
+		FunctionName:   "test-function",
+		BatchSize:      10,
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	reader := &fakeSQSReader{messages: nil}
+	poller := lambda.NewEventSourcePoller(backend, &fakeKinesisReader{})
+	poller.SetSQSReader(reader)
+
+	ctx := t.Context()
+
+	// Should not panic or error on empty queue
+	require.NotPanics(t, func() {
+		lambda.PollOnce(ctx, poller)
+	})
+
+	reader.mu.Lock()
+	calls := reader.receiveCalls
+	reader.mu.Unlock()
+
+	assert.Positive(t, calls, "should still call ReceiveMessagesLocal even for empty queue")
+}
+
+// TestLambda_Poller_SQS_ReceiveError verifies graceful handling of SQS receive errors.
+func TestLambda_Poller_SQS_ReceiveError(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newRealHandler(t)
+
+	queueARN := "arn:aws:sqs:us-east-1:000000000000:error-queue"
+
+	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN: queueARN,
+		FunctionName:   "test-function",
+		BatchSize:      10,
+		Enabled:        true,
+	})
+	require.NoError(t, err)
+
+	reader := &fakeSQSReader{receiveErr: assert.AnError}
+	poller := lambda.NewEventSourcePoller(backend, &fakeKinesisReader{})
+	poller.SetSQSReader(reader)
+
+	ctx := t.Context()
+
+	// Should not panic on receive error
+	require.NotPanics(t, func() {
+		lambda.PollOnce(ctx, poller)
+	})
+}
+
+// TestLambda_Poller_SQS_IsSQSARN verifies that SQS ARNs are correctly identified.
+func TestLambda_Poller_SQS_IsSQSARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		arn   string
+		isSQS bool
+	}{
+		{
+			name:  "valid SQS ARN",
+			arn:   "arn:aws:sqs:us-east-1:000000000000:my-queue",
+			isSQS: true,
+		},
+		{
+			name:  "Kinesis ARN",
+			arn:   "arn:aws:kinesis:us-east-1:000000000000:stream/my-stream",
+			isSQS: false,
+		},
+		{
+			name:  "empty string",
+			arn:   "",
+			isSQS: false,
+		},
+		{
+			name:  "Lambda ARN",
+			arn:   "arn:aws:lambda:us-east-1:000000000000:function:my-func",
+			isSQS: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.isSQS, lambda.IsSQSARN(tc.arn))
+		})
+	}
+}

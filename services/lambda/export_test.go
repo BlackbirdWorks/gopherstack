@@ -82,3 +82,9 @@ func ParseLayerARN(layerVersionARN string) (string, int64) {
 func PrepareLayerMount(b *InMemoryBackend, fn *FunctionConfiguration) (string, []string, error) {
 	return b.prepareLayerMount(fn)
 }
+
+// IsSQSARN exports the internal isSQSARN function for testing.
+func IsSQSARN(resourceARN string) bool { return isSQSARN(resourceARN) }
+
+// SetSQSReaderOnPoller exports SetSQSReader on EventSourcePoller for testing.
+func SetSQSReaderOnPoller(p *EventSourcePoller, r SQSReader) { p.SetSQSReader(r) }
