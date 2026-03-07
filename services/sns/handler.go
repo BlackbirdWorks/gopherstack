@@ -64,6 +64,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"Publish",
 		"PublishBatch",
 		"GetSubscriptionAttributes",
+		"SetSubscriptionAttributes",
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
@@ -184,6 +185,7 @@ func (h *Handler) buildActions() map[string]snsActionFn {
 		"Publish":                   h.handlePublish,
 		"PublishBatch":              h.handlePublishBatch,
 		"GetSubscriptionAttributes": h.handleGetSubscriptionAttributes,
+		"SetSubscriptionAttributes": h.handleSetSubscriptionAttributes,
 		"ListTagsForResource":       h.handleListTagsForResource,
 		"TagResource":               h.handleTagResource,
 		"UntagResource":             h.handleUntagResource,
@@ -304,6 +306,21 @@ func (h *Handler) handleSubscribe(c *echo.Context) error {
 	sub, err := h.Backend.Subscribe(topicArn, protocol, endpoint, filterPolicy)
 	if err != nil {
 		return h.handleBackendError(c, err)
+	}
+
+	// Apply subscription attributes passed at subscribe time (e.g. RawMessageDelivery, RedrivePolicy).
+	attrs := extractFormAttributes(c)
+	ctx := c.Request().Context()
+	log := logger.Load(ctx)
+
+	for k, v := range attrs {
+		if k == attrFilterPolicy {
+			continue // already handled by Subscribe
+		}
+
+		if setErr := h.Backend.SetSubscriptionAttributes(sub.SubscriptionArn, k, v); setErr != nil {
+			log.WarnContext(ctx, "failed to set subscription attribute", "attr", k, "error", setErr)
+		}
 	}
 
 	subArn := sub.SubscriptionArn
@@ -470,6 +487,29 @@ func (h *Handler) handleGetSubscriptionAttributes(c *echo.Context) error {
 	return h.writeXML(c, GetSubscriptionAttributesResponse{
 		GetSubscriptionAttributesResult: GetSubscriptionAttributesResult{Attributes: entries},
 		ResponseMetadata:                ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleSetSubscriptionAttributes(c *echo.Context) error {
+	subscriptionArn := c.Request().FormValue("SubscriptionArn")
+	attrName := c.Request().FormValue("AttributeName")
+	attrValue := c.Request().FormValue("AttributeValue")
+
+	if subscriptionArn == "" || attrName == "" {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"SubscriptionArn and AttributeName are required",
+		)
+	}
+
+	if err := h.Backend.SetSubscriptionAttributes(subscriptionArn, attrName, attrValue); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, SetSubscriptionAttributesResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
 	})
 }
 
@@ -649,7 +689,7 @@ func extractFilterPolicy(form url.Values) string {
 			return ""
 		}
 
-		if key == "FilterPolicy" {
+		if key == attrFilterPolicy {
 			return form.Get(fmt.Sprintf("Attributes.entry.%d.value", i))
 		}
 	}

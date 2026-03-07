@@ -31,6 +31,10 @@ var (
 
 const (
 	pageSize = 25
+
+	attrFilterPolicy       = "FilterPolicy"
+	attrRawMessageDelivery = "RawMessageDelivery"
+	attrRedrivePolicy      = "RedrivePolicy"
 )
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -47,6 +51,7 @@ type StorageBackend interface {
 	ListSubscriptions(nextToken string) ([]Subscription, string, error)
 	ListSubscriptionsByTopic(topicArn, nextToken string) ([]Subscription, string, error)
 	GetSubscriptionAttributes(subscriptionArn string) (map[string]string, error)
+	SetSubscriptionAttributes(subscriptionArn, attrName, attrValue string) error
 	Publish(topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute) (string, error)
 	ListAllTopics() []Topic
 	ListAllSubscriptions() []Subscription
@@ -272,14 +277,49 @@ func (b *InMemoryBackend) GetSubscriptionAttributes(subscriptionArn string) (map
 		return nil, ErrSubscriptionNotFound
 	}
 
-	return map[string]string{
-		"SubscriptionArn":     sub.SubscriptionArn,
-		"TopicArn":            sub.TopicArn,
-		"Protocol":            sub.Protocol,
-		"Endpoint":            sub.Endpoint,
-		"Owner":               sub.Owner,
-		"PendingConfirmation": "false",
-	}, nil
+	attrs := map[string]string{
+		"SubscriptionArn":      sub.SubscriptionArn,
+		"TopicArn":             sub.TopicArn,
+		"Protocol":             sub.Protocol,
+		"Endpoint":             sub.Endpoint,
+		"Owner":                sub.Owner,
+		"PendingConfirmation":  strconv.FormatBool(sub.PendingConfirmation),
+		attrRawMessageDelivery: strconv.FormatBool(sub.RawMessageDelivery),
+	}
+
+	if sub.FilterPolicy != "" {
+		attrs[attrFilterPolicy] = sub.FilterPolicy
+	}
+
+	if sub.RedrivePolicy != "" {
+		attrs[attrRedrivePolicy] = sub.RedrivePolicy
+	}
+
+	return attrs, nil
+}
+
+// SetSubscriptionAttributes sets a single attribute on a subscription.
+func (b *InMemoryBackend) SetSubscriptionAttributes(subscriptionArn, attrName, attrValue string) error {
+	b.mu.Lock("SetSubscriptionAttributes")
+	defer b.mu.Unlock()
+
+	sub, exists := b.subscriptions[subscriptionArn]
+	if !exists {
+		return ErrSubscriptionNotFound
+	}
+
+	switch attrName {
+	case attrRawMessageDelivery:
+		sub.RawMessageDelivery = strings.EqualFold(attrValue, "true")
+	case attrFilterPolicy:
+		sub.FilterPolicy = attrValue
+	case attrRedrivePolicy:
+		sub.RedrivePolicy = attrValue
+	default:
+		return ErrInvalidParameter
+	}
+
+	return nil
 }
 
 // ListSubscriptions returns a page of subscriptions and the next pagination token.
@@ -387,10 +427,12 @@ func (b *InMemoryBackend) Publish(
 		}
 
 		subs = append(subs, events.SNSSubscriptionSnapshot{
-			SubscriptionARN: sub.SubscriptionArn,
-			Protocol:        sub.Protocol,
-			Endpoint:        sub.Endpoint,
-			FilterPolicy:    sub.FilterPolicy,
+			SubscriptionARN:    sub.SubscriptionArn,
+			Protocol:           sub.Protocol,
+			Endpoint:           sub.Endpoint,
+			FilterPolicy:       sub.FilterPolicy,
+			RawMessageDelivery: sub.RawMessageDelivery,
+			RedrivePolicy:      sub.RedrivePolicy,
 		})
 	}
 

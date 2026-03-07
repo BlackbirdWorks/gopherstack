@@ -16,6 +16,8 @@ type Subscription struct {
 	Endpoint            string `json:"endpoint"`
 	Owner               string `json:"owner"`
 	FilterPolicy        string `json:"filterPolicy,omitempty"`
+	RedrivePolicy       string `json:"redrivePolicy,omitempty"`
+	RawMessageDelivery  bool   `json:"rawMessageDelivery,omitempty"`
 	PendingConfirmation bool   `json:"pendingConfirmation"`
 }
 
@@ -227,4 +229,10 @@ type GetSubscriptionAttributesResponse struct {
 	XMLName                         xml.Name                        `xml:"https://sns.amazonaws.com/doc/2010-03-31/ GetSubscriptionAttributesResponse"` //nolint:lll // XML namespace
 	ResponseMetadata                ResponseMetadata                `xml:"ResponseMetadata"`
 	GetSubscriptionAttributesResult GetSubscriptionAttributesResult `xml:"GetSubscriptionAttributesResult"`
+}
+
+// SetSubscriptionAttributesResponse is the XML response for SetSubscriptionAttributes.
+type SetSubscriptionAttributesResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ SetSubscriptionAttributesResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
