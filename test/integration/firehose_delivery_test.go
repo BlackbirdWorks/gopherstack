@@ -1,8 +1,9 @@
 package integration_test
 
 import (
-	"archive/zip"
 	"bytes"
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -20,7 +21,6 @@ import (
 	pkglogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	firehosepkg "github.com/blackbirdworks/gopherstack/services/firehose"
-	lambdapkg "github.com/blackbirdworks/gopherstack/services/lambda"
 	s3pkg "github.com/blackbirdworks/gopherstack/services/s3"
 )
 
@@ -48,66 +48,50 @@ func newFirehoseS3Server(t *testing.T) (*firehosepkg.InMemoryBackend, *s3pkg.InM
 	return fhBk, s3Bk
 }
 
-// newFirehoseS3LambdaServer builds an in-process server with Firehose, S3, and Lambda backends.
-func newFirehoseS3LambdaServer(t *testing.T) (
-	*firehosepkg.InMemoryBackend,
-	*s3pkg.InMemoryBackend,
-	*lambdapkg.InMemoryBackend,
-) {
-	t.Helper()
+// keepOrDropLambdaInvoker is a mock LambdaInvoker that marks records whose decoded data
+// contains "keep" as Ok and all other records as Dropped — mirroring the Python transform
+// used in Firehose transformation tests, but without needing Docker or a real Lambda runtime.
+type keepOrDropLambdaInvoker struct{}
 
-	s3Bk := s3pkg.NewInMemoryBackend(nil)
-	lBk := lambdapkg.NewInMemoryBackend(nil, nil, lambdapkg.DefaultSettings(), "000000000000", "us-east-1")
-	fhBk := firehosepkg.NewInMemoryBackend("000000000000", "us-east-1")
-	fhBk.SetS3Backend(s3Bk)
-	fhBk.SetLambdaBackend(lBk)
-
-	lambdaHandler := lambdapkg.NewHandler(lBk)
-	lambdaHandler.AccountID = "000000000000"
-	lambdaHandler.DefaultRegion = "us-east-1"
-
-	e := echo.New()
-	e.Pre(pkglogger.EchoMiddleware(slog.Default()))
-
-	reg := service.NewRegistry()
-	require.NoError(t, reg.Register(s3pkg.NewHandler(s3Bk)))
-	require.NoError(t, reg.Register(firehosepkg.NewHandler(fhBk)))
-	require.NoError(t, reg.Register(lambdaHandler))
-
-	e.Use(service.NewServiceRouter(reg).RouteHandler())
-
-	srv := httptest.NewServer(e)
-	t.Cleanup(srv.Close)
-
-	return fhBk, s3Bk, lBk
+// transformRecord is a minimal representation of a record in a Firehose transform event/response.
+type transformRecord struct {
+	RecordID string `json:"recordId"`
+	Result   string `json:"result,omitempty"`
+	Data     string `json:"data"`
 }
 
-// buildTransformZip creates a zip containing a Python Lambda function that transforms Firehose
-// records: records whose decoded data contains "keep" are marked Ok; others are Dropped.
-func buildTransformZip(t *testing.T) []byte {
-	t.Helper()
+// transformEvent is the Firehose Lambda transform event payload.
+type transformEvent struct {
+	Records []transformRecord `json:"records"`
+}
 
-	py := strings.TrimSpace(`
-import base64
+func (keepOrDropLambdaInvoker) InvokeFunction(
+	_ context.Context,
+	_ string,
+	_ string,
+	payload []byte,
+) ([]byte, int, error) {
+	var event transformEvent
+	if err := json.Unmarshal(payload, &event); err != nil {
+		return nil, 500, err
+	}
 
-def handler(event, context):
-    out = []
-    for rec in event.get("records", []):
-        data = base64.b64decode(rec["data"]).decode("utf-8")
-        result = "Ok" if "keep" in data else "Dropped"
-        out.append({"recordId": rec["recordId"], "result": result, "data": rec["data"]})
-    return {"records": out}
-`)
+	out := make([]transformRecord, len(event.Records))
+	for i, rec := range event.Records {
+		decoded, err := base64.StdEncoding.DecodeString(rec.Data)
+		result := "Dropped"
+		if err == nil && strings.Contains(string(decoded), "keep") {
+			result = "Ok"
+		}
+		out[i] = transformRecord{RecordID: rec.RecordID, Result: result, Data: rec.Data}
+	}
 
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	f, err := zw.Create("index.py")
-	require.NoError(t, err)
-	_, err = f.Write([]byte(py))
-	require.NoError(t, err)
-	require.NoError(t, zw.Close())
+	resp, err := json.Marshal(map[string]any{"records": out})
+	if err != nil {
+		return nil, 500, err
+	}
 
-	return buf.Bytes()
+	return resp, 200, nil
 }
 
 // getS3Object retrieves an object body by key from the in-memory S3 backend.
@@ -284,20 +268,12 @@ func TestIntegration_Firehose_UpdateDestination(t *testing.T) {
 func TestIntegration_Firehose_LambdaTransformation(t *testing.T) {
 	t.Parallel()
 
-	fhBk, s3Bk, lBk := newFirehoseS3LambdaServer(t)
+	fhBk, s3Bk := newFirehoseS3Server(t)
+	fhBk.SetLambdaBackend(keepOrDropLambdaInvoker{})
 	ctx := t.Context()
 
 	_, err := s3Bk.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String("lambda-bucket")})
 	require.NoError(t, err)
-
-	// Register the transformation Lambda.
-	require.NoError(t, lBk.CreateFunction(&lambdapkg.FunctionConfiguration{
-		FunctionName: "fh-transform",
-		Runtime:      "python3.12",
-		Handler:      "index.handler",
-		Role:         "arn:aws:iam::000000000000:role/lambda",
-		ZipData:      buildTransformZip(t),
-	}))
 
 	_, err = fhBk.CreateDeliveryStream(firehosepkg.CreateDeliveryStreamInput{
 		Name: "lambda-stream",
