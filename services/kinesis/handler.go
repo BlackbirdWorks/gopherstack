@@ -1200,26 +1200,31 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
 
+	// The AWS SDK event stream middleware blocks until it receives an "initial-response"
+	// message. This must be written before any event messages or the SDK and the
+	// readEventStream goroutine will deadlock: the middleware waits on initialResponse
+	// while the goroutine waits for someone to drain the stream channel.
+	// The payload is an empty JSON object because SubscribeToShardOutput has no fields.
+	initialResponseMsg := encodeEventStreamMsg([][2]string{
+		{":event-type", "initial-response"},
+		{":message-type", "event"},
+		{":content-type", "application/json"},
+	}, []byte("{}"))
+
 	eventMsg := encodeEventStreamMsg([][2]string{
 		{":event-type", "SubscribeToShardEvent"},
 		{":message-type", "event"},
 		{":content-type", "application/json"},
 	}, eventPayload)
 
-	// End-of-stream message: empty payload.
-	endMsg := encodeEventStreamMsg([][2]string{
-		{":message-type", "event"},
-		{":event-type", ""},
-	}, nil)
-
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
 
-	if _, err = c.Response().Write(eventMsg); err != nil {
+	if _, err = c.Response().Write(initialResponseMsg); err != nil {
 		return err
 	}
 
-	_, err = c.Response().Write(endMsg)
+	_, err = c.Response().Write(eventMsg)
 
 	return err
 }
