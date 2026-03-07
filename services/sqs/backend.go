@@ -431,7 +431,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 // resolveMessageVisibleAt computes the earliest time the message should be visible.
 // Message-level delaySeconds takes precedence over the queue-level attribute.
-// A zero time.Time{} return value means the message is immediately visible (no delay).
+// A zero [time.Time] return value means the message is immediately visible (no delay).
 func resolveMessageVisibleAt(now time.Time, msgDelaySeconds int, queueDelayAttr string) time.Time {
 	if msgDelaySeconds > 0 {
 		return now.Add(time.Duration(msgDelaySeconds) * time.Second)
