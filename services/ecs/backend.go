@@ -2,6 +2,7 @@ package ecs
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -199,8 +200,7 @@ func (b *InMemoryBackend) resolveCluster(cluster string) string {
 
 // clusterKey extracts the cluster name from either a full ARN or a bare name.
 func clusterKey(clusterRef string) string {
-	// ARN format: arn:aws:ecs:<region>:<account>:cluster/<name>
-	if len(clusterRef) > 0 && clusterRef[0] != 'a' {
+	if !strings.HasPrefix(clusterRef, "arn:") {
 		return clusterRef
 	}
 
@@ -419,11 +419,7 @@ func (b *InMemoryBackend) ListTaskDefinitions(familyPrefix string) ([]string, er
 	var arns []string
 
 	for family, revs := range b.taskDefinitions {
-		if familyPrefix != "" && len(family) < len(familyPrefix) {
-			continue
-		}
-
-		if familyPrefix != "" && family[:len(familyPrefix)] != familyPrefix {
+		if familyPrefix != "" && !strings.HasPrefix(family, familyPrefix) {
 			continue
 		}
 

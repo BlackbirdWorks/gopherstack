@@ -207,15 +207,11 @@ func errorCode(err error) string {
 		return false
 	}
 
-	e := err
-
-	for e != nil {
-		msg := e.Error()
+	for currentErr := err; currentErr != nil; currentErr = errors.Unwrap(currentErr) {
+		msg := currentErr.Error()
 		if !isSentinel(msg) {
 			return msg
 		}
-
-		e = errors.Unwrap(e)
 	}
 
 	return "ServerException"

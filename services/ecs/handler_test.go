@@ -1522,3 +1522,82 @@ func TestECS_Reconciler_RunOnce_NoServices(t *testing.T) {
 	// Should not panic with no services.
 	reconciler.RunOnce(t.Context())
 }
+
+func TestECS_Backend_CreateService_LaunchTypeDefault(t *testing.T) {
+	t.Parallel()
+
+	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+
+	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
+		Family:               "default-lt-task",
+		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
+	})
+	require.NoError(t, err)
+
+	svc, err := backend.CreateService(ecs.CreateServiceInput{
+		ServiceName:    "default-lt-svc",
+		TaskDefinition: td.TaskDefinitionArn,
+		DesiredCount:   1,
+	})
+	require.NoError(t, err)
+	// Default launch type is FARGATE.
+	assert.Equal(t, "FARGATE", svc.LaunchType)
+}
+
+func TestECS_Backend_RunTask_LaunchTypeDefault(t *testing.T) {
+	t.Parallel()
+
+	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+
+	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
+		Family:               "default-lt-run",
+		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
+	})
+	require.NoError(t, err)
+
+	tasks, err := backend.RunTask(ecs.RunTaskInput{
+		TaskDefinition: td.TaskDefinitionArn,
+		Count:          1,
+	})
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+	// Default launch type is FARGATE.
+	assert.Equal(t, "FARGATE", tasks[0].LaunchType)
+}
+
+func TestECS_Backend_StopOldestServiceTask_NoTasks(t *testing.T) {
+	t.Parallel()
+
+	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+
+	_, err := backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "empty-cluster"})
+	require.NoError(t, err)
+
+	// Should not error when no tasks exist.
+	err = backend.StopOldestServiceTask("empty-cluster", "nonexistent-svc")
+	require.NoError(t, err)
+}
+
+func TestECS_Handler_DescribeTasks_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doECSRequest(t, h, "DescribeTasks", map[string]any{
+		"tasks": []string{"arn:aws:ecs:us-east-1:000000000000:task/default/nonexistent"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestECS_Handler_StopTask_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	// Create the default cluster first via RunTask initialization.
+	tdArn := registerTestTaskDef(t, h, "stop-not-found")
+	doECSRequest(t, h, "RunTask", map[string]any{"taskDefinition": tdArn})
+
+	rec := doECSRequest(t, h, "StopTask", map[string]any{
+		"task": "arn:aws:ecs:us-east-1:000000000000:task/default/nonexistent",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
