@@ -90,3 +90,7 @@ func (j *Janitor) SweepTTL(ctx context.Context) {
 
 // StreamShardID exposes the canonical shard ID for stream tests.
 const StreamShardID = streamShardID
+
+func (j *Janitor) RunOnce(ctx context.Context) {
+	j.runOnce(ctx)
+}

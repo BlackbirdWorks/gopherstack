@@ -55,3 +55,11 @@ func TestErrorHelpers(t *testing.T) {
 		})
 	}
 }
+
+func TestNewTransactionInProgressException(t *testing.T) {
+	t.Parallel()
+
+	err := dynamodb.NewTransactionInProgressException("tx in progress")
+	assert.Contains(t, err.Type, "TransactionInProgressException")
+	assert.Equal(t, "tx in progress", err.Message)
+}
