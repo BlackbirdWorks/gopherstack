@@ -115,10 +115,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GenerateDataKey",
 		"GenerateDataKeyWithoutPlaintext",
 		"GetKeyRotationStatus",
+		"GetPublicKey",
 		"ListAliases",
 		"ListKeys",
 		"ReEncrypt",
 		"ScheduleKeyDeletion",
+		"Sign",
+		"Verify",
 		"CreateAlias",
 		"DeleteAlias",
 		"CreateGrant",
@@ -280,7 +283,7 @@ func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 	}
 }
 
-// buildCryptoActions returns dispatch entries for encrypt, decrypt, and data-key operations.
+// buildCryptoActions returns dispatch entries for encrypt, decrypt, sign, verify, and data-key operations.
 func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 	return map[string]kmsActionFn{
 		"Encrypt": func(_ string, b []byte) (any, error) {
@@ -322,6 +325,30 @@ func (h *Handler) buildCryptoActions() map[string]kmsActionFn {
 			}
 
 			return h.Backend.ReEncrypt(&input)
+		},
+		"Sign": func(_ string, b []byte) (any, error) {
+			var input SignInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.Sign(&input)
+		},
+		"Verify": func(_ string, b []byte) (any, error) {
+			var input VerifyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.Verify(&input)
+		},
+		"GetPublicKey": func(_ string, b []byte) (any, error) {
+			var input GetPublicKeyInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetPublicKey(&input)
 		},
 	}
 }
@@ -522,6 +549,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "AlreadyExistsException"
 	case errors.Is(reqErr, ErrInvalidCiphertext), errors.Is(reqErr, ErrCiphertextTooShort):
 		errorType = "InvalidCiphertextException"
+	case errors.Is(reqErr, ErrInvalidSignature):
+		errorType = "KMSInvalidSignatureException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"
 	default:

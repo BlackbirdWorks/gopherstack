@@ -1,6 +1,7 @@
 package kms_test
 
 import (
+	"crypto/sha512"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/kms"
@@ -114,14 +116,14 @@ func TestKMSBackendEncryptDecrypt(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, encOut.CiphertextBlob)
-	assert.Equal(t, key.KeyMetadata.KeyID, encOut.KeyID)
+	assert.Equal(t, key.KeyMetadata.Arn, encOut.KeyID)
 
 	decOut, err := backend.Decrypt(&kms.DecryptInput{
 		CiphertextBlob: encOut.CiphertextBlob,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, plaintext, decOut.Plaintext)
-	assert.Equal(t, key.KeyMetadata.KeyID, decOut.KeyID)
+	assert.Equal(t, key.KeyMetadata.Arn, decOut.KeyID)
 }
 
 // TestKMSBackendEncryptDisabledKey verifies encryption fails for disabled keys.
@@ -169,7 +171,7 @@ func TestKMSBackendGenerateDataKey(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, out.Plaintext, 32)
 		assert.NotEmpty(t, out.CiphertextBlob)
-		assert.Equal(t, key.KeyMetadata.KeyID, out.KeyID)
+		assert.Equal(t, key.KeyMetadata.Arn, out.KeyID)
 	})
 
 	t.Run("AES128", func(t *testing.T) {
@@ -220,8 +222,8 @@ func TestKMSBackendReEncrypt(t *testing.T) {
 		DestinationKeyID: key2.KeyMetadata.KeyID,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, key2.KeyMetadata.KeyID, reEncOut.KeyID)
-	assert.Equal(t, key1.KeyMetadata.KeyID, reEncOut.SourceKeyID)
+	assert.Equal(t, key2.KeyMetadata.Arn, reEncOut.KeyID)
+	assert.Equal(t, key1.KeyMetadata.Arn, reEncOut.SourceKeyID)
 
 	// Decrypt re-encrypted blob
 	decOut, err := backend.Decrypt(&kms.DecryptInput{
@@ -655,7 +657,7 @@ func TestKMSHandlerReEncrypt(t *testing.T) {
 
 	var reEncOut kms.ReEncryptOutput
 	require.NoError(t, json.Unmarshal(reEncRec.Body.Bytes(), &reEncOut))
-	assert.Equal(t, out2.KeyMetadata.KeyID, reEncOut.KeyID)
+	assert.Equal(t, out2.KeyMetadata.Arn, reEncOut.KeyID)
 }
 
 // TestKMSHandlerMethodNotAllowed verifies non-POST requests are rejected.
@@ -912,7 +914,7 @@ func TestKMSResolveKeyIDAlias(t *testing.T) {
 		Plaintext: []byte("hello"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, key.KeyMetadata.KeyID, out.KeyID)
+	assert.Equal(t, key.KeyMetadata.Arn, out.KeyID)
 }
 
 // TestKMSParseMarkerBadToken verifies parseMarker handles invalid tokens gracefully.
@@ -936,16 +938,15 @@ func TestKMSResolveKeyIDARN(t *testing.T) {
 
 	backend := kms.NewInMemoryBackend()
 	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
-	keyID := key.KeyMetadata.KeyID
 
 	// Use ARN format to encrypt
-	arn := key.KeyMetadata.Arn
+	keyArn := key.KeyMetadata.Arn
 	out, err := backend.Encrypt(&kms.EncryptInput{
-		KeyID:     arn,
+		KeyID:     keyArn,
 		Plaintext: []byte("arn-test"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, keyID, out.KeyID)
+	assert.Equal(t, keyArn, out.KeyID)
 }
 
 // TestKMSHandlerInternalError verifies the InternalServiceError path.
@@ -1286,7 +1287,7 @@ func TestKMSGenerateDataKeyWithoutPlaintext(t *testing.T) {
 	var out kms.GenerateDataKeyWithoutPlaintextOutput
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.NotEmpty(t, out.CiphertextBlob)
-	assert.Equal(t, keyID, out.KeyID)
+	assert.Equal(t, keyOut.KeyMetadata.Arn, out.KeyID)
 }
 
 // TestKMSRetireGrant verifies RetireGrant and ListRetirableGrants operations.
@@ -1481,4 +1482,1247 @@ func TestKMSBackendInvalidKeyUsage(t *testing.T) {
 			require.ErrorIs(t, err, kms.ErrInvalidKeyUsage)
 		})
 	}
+}
+
+// TestKMSBackendSignVerify verifies round-trip sign and verify using an RSA key.
+func TestKMSBackendSignVerify(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		keySpec          string
+		signingAlgorithm string
+		name             string
+	}{
+		{
+			name:             "RSA_PSS_SHA_256",
+			keySpec:          "RSA_2048",
+			signingAlgorithm: "RSASSA_PSS_SHA_256",
+		},
+		{
+			name:             "RSA_PKCS1v15_SHA_256",
+			keySpec:          "RSA_2048",
+			signingAlgorithm: "RSASSA_PKCS1_V1_5_SHA_256",
+		},
+		{
+			name:             "ECDSA_P256_SHA_256",
+			keySpec:          "ECC_NIST_P256",
+			signingAlgorithm: "ECDSA_SHA_256",
+		},
+		{
+			name:             "ECDSA_P384_SHA_384",
+			keySpec:          "ECC_NIST_P384",
+			signingAlgorithm: "ECDSA_SHA_384",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := kms.NewInMemoryBackend()
+
+			keyOut, err := backend.CreateKey(&kms.CreateKeyInput{
+				KeyUsage: kms.KeyUsageSignVerify,
+				KeySpec:  tt.keySpec,
+			})
+			require.NoError(t, err)
+			keyID := keyOut.KeyMetadata.KeyID
+
+			message := []byte("hello, cryptographic world")
+
+			signOut, err := backend.Sign(&kms.SignInput{
+				KeyID:            keyID,
+				Message:          message,
+				MessageType:      "RAW",
+				SigningAlgorithm: tt.signingAlgorithm,
+			})
+			require.NoError(t, err)
+			assert.NotEmpty(t, signOut.Signature)
+			assert.NotEqual(t, message, signOut.Signature)
+			assert.Equal(t, tt.signingAlgorithm, signOut.SigningAlgorithm)
+
+			verifyOut, err := backend.Verify(&kms.VerifyInput{
+				KeyID:            keyID,
+				Message:          message,
+				MessageType:      "RAW",
+				Signature:        signOut.Signature,
+				SigningAlgorithm: tt.signingAlgorithm,
+			})
+			require.NoError(t, err)
+			assert.True(t, verifyOut.SignatureValid)
+		})
+	}
+}
+
+// TestKMSBackendVerifyInvalidSignature verifies that tampered signatures are rejected.
+func TestKMSBackendVerifyInvalidSignature(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+
+	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "RSA_2048",
+	})
+	require.NoError(t, err)
+	keyID := keyOut.KeyMetadata.KeyID
+
+	message := []byte("test message")
+
+	signOut, err := backend.Sign(&kms.SignInput{
+		KeyID:            keyID,
+		Message:          message,
+		MessageType:      "RAW",
+		SigningAlgorithm: "RSASSA_PSS_SHA_256",
+	})
+	require.NoError(t, err)
+
+	// Tamper with the signature
+	tampered := make([]byte, len(signOut.Signature))
+	copy(tampered, signOut.Signature)
+	tampered[0] ^= 0xFF
+
+	_, err = backend.Verify(&kms.VerifyInput{
+		KeyID:            keyID,
+		Message:          message,
+		MessageType:      "RAW",
+		Signature:        tampered,
+		SigningAlgorithm: "RSASSA_PSS_SHA_256",
+	})
+	require.ErrorIs(t, err, kms.ErrInvalidSignature)
+}
+
+// TestKMSBackendGetPublicKey verifies retrieval of asymmetric public keys.
+func TestKMSBackendGetPublicKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		keySpec string
+		name    string
+	}{
+		{name: "RSA_2048", keySpec: "RSA_2048"},
+		{name: "ECC_NIST_P256", keySpec: "ECC_NIST_P256"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := kms.NewInMemoryBackend()
+			keyOut, err := backend.CreateKey(&kms.CreateKeyInput{
+				KeyUsage: kms.KeyUsageSignVerify,
+				KeySpec:  tt.keySpec,
+			})
+			require.NoError(t, err)
+
+			pubKeyOut, err := backend.GetPublicKey(&kms.GetPublicKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
+			require.NoError(t, err)
+			assert.NotEmpty(t, pubKeyOut.PublicKey)
+			assert.Equal(t, tt.keySpec, pubKeyOut.KeySpec)
+			assert.Equal(t, kms.KeyUsageSignVerify, pubKeyOut.KeyUsage)
+		})
+	}
+}
+
+// TestKMSBackendSignWrongKeyType verifies that Sign fails on symmetric keys.
+func TestKMSBackendSignWrongKeyType(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	symKey, err := backend.CreateKey(&kms.CreateKeyInput{KeyUsage: kms.KeyUsageEncryptDecrypt})
+	require.NoError(t, err)
+
+	_, err = backend.Sign(&kms.SignInput{
+		KeyID:            symKey.KeyMetadata.KeyID,
+		Message:          []byte("test"),
+		MessageType:      "RAW",
+		SigningAlgorithm: "RSASSA_PSS_SHA_256",
+	})
+	require.ErrorIs(t, err, kms.ErrInvalidKeyUsage)
+}
+
+// TestKMSBackendSignVerifyDigestMode verifies signing and verification with MessageType=DIGEST.
+func TestKMSBackendSignVerifyDigestMode(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "RSA_2048",
+	})
+	require.NoError(t, err)
+	keyID := keyOut.KeyMetadata.KeyID
+
+	rawMsg := []byte("data to sign")
+
+	// Sign using RAW mode first to get signature
+	signOut, err := backend.Sign(&kms.SignInput{
+		KeyID:            keyID,
+		Message:          rawMsg,
+		MessageType:      "RAW",
+		SigningAlgorithm: "RSASSA_PSS_SHA_512",
+	})
+	require.NoError(t, err)
+
+	// Verify using DIGEST mode (pre-computed hash)
+	d512 := sha512.Sum512(rawMsg)
+	digest512 := d512[:]
+	verifyOut, err := backend.Verify(&kms.VerifyInput{
+		KeyID:            keyID,
+		Message:          digest512,
+		MessageType:      "DIGEST",
+		Signature:        signOut.Signature,
+		SigningAlgorithm: "RSASSA_PSS_SHA_512",
+	})
+	require.NoError(t, err)
+	assert.True(t, verifyOut.SignatureValid)
+}
+
+// TestKMSSnapshotRestoreWithKeyMaterials verifies that key materials survive snapshot/restore.
+func TestKMSSnapshotRestoreWithKeyMaterials(t *testing.T) {
+	t.Parallel()
+
+	original := kms.NewInMemoryBackend()
+
+	// Create symmetric key and encrypt something
+	symKey, err := original.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+	plaintext := []byte("persistence test data")
+	encOut, err := original.Encrypt(&kms.EncryptInput{
+		KeyID:     symKey.KeyMetadata.KeyID,
+		Plaintext: plaintext,
+	})
+	require.NoError(t, err)
+
+	// Create asymmetric key and sign something
+	asymKey, err := original.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P256",
+	})
+	require.NoError(t, err)
+	signOut, err := original.Sign(&kms.SignInput{
+		KeyID:            asymKey.KeyMetadata.KeyID,
+		Message:          plaintext,
+		MessageType:      "RAW",
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.NoError(t, err)
+
+	// Snapshot and restore to new backend
+	snap := original.Snapshot()
+	require.NotEmpty(t, snap)
+
+	restored := kms.NewInMemoryBackend()
+	require.NoError(t, restored.Restore(snap))
+
+	// Decrypt using restored backend — must use same per-key material
+	decOut, err := restored.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, decOut.Plaintext)
+
+	// Verify using restored backend — must use same per-key material
+	verifyOut, err := restored.Verify(&kms.VerifyInput{
+		KeyID:            asymKey.KeyMetadata.KeyID,
+		Message:          plaintext,
+		MessageType:      "RAW",
+		Signature:        signOut.Signature,
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.NoError(t, err)
+	assert.True(t, verifyOut.SignatureValid)
+}
+
+// TestKMSBackendSignVerifyAdditionalKeySpecs verifies sign/verify with RSA_3072, RSA_4096, and ECC variants.
+func TestKMSBackendSignVerifyAdditionalKeySpecs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		keySpec          string
+		signingAlgorithm string
+		name             string
+	}{
+		{
+			name:             "RSA_3072_PSS",
+			keySpec:          "RSA_3072",
+			signingAlgorithm: "RSASSA_PSS_SHA_384",
+		},
+		{
+			name:             "RSA_4096_PKCS1v15",
+			keySpec:          "RSA_4096",
+			signingAlgorithm: "RSASSA_PKCS1_V1_5_SHA_512",
+		},
+		{
+			name:             "ECC_NIST_P521",
+			keySpec:          "ECC_NIST_P521",
+			signingAlgorithm: "ECDSA_SHA_512",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+				KeyUsage: kms.KeyUsageSignVerify,
+				KeySpec:  tt.keySpec,
+			})
+			require.NoError(t, err)
+
+			msg := []byte("test-" + tt.name)
+			signOut, err := b.Sign(&kms.SignInput{
+				KeyID:            keyOut.KeyMetadata.KeyID,
+				Message:          msg,
+				MessageType:      "RAW",
+				SigningAlgorithm: tt.signingAlgorithm,
+			})
+			require.NoError(t, err)
+
+			verifyOut, err := b.Verify(&kms.VerifyInput{
+				KeyID:            keyOut.KeyMetadata.KeyID,
+				Message:          msg,
+				MessageType:      "RAW",
+				Signature:        signOut.Signature,
+				SigningAlgorithm: tt.signingAlgorithm,
+			})
+			require.NoError(t, err)
+			assert.True(t, verifyOut.SignatureValid)
+		})
+	}
+}
+
+// TestKMSBackendUnsupportedKeySpec verifies that CreateKey fails with an unknown key spec.
+func TestKMSBackendUnsupportedKeySpec(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	_, err := b.CreateKey(&kms.CreateKeyInput{
+		KeySpec: "UNSUPPORTED_SPEC",
+	})
+	require.Error(t, err)
+}
+
+// TestKMSHandlerSignVerify verifies Sign and Verify dispatch through the HTTP handler.
+func TestKMSHandlerSignVerify(t *testing.T) {
+	t.Parallel()
+
+	h := kms.NewHandler(kms.NewInMemoryBackend())
+
+	// Create an asymmetric key
+	createBody, _ := json.Marshal(map[string]any{
+		"KeyUsage": kms.KeyUsageSignVerify,
+		"KeySpec":  "RSA_2048",
+	})
+	rec := doKMSHTTPRequest(t, h, "CreateKey", string(createBody))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	keyMeta, ok := createResp["KeyMetadata"].(map[string]any)
+	require.True(t, ok)
+	keyID, ok := keyMeta["KeyId"].(string)
+	require.True(t, ok)
+
+	message := []byte("handler-sign-test")
+	signBody, _ := json.Marshal(map[string]any{
+		"KeyId":            keyID,
+		"Message":          message,
+		"MessageType":      "RAW",
+		"SigningAlgorithm": "RSASSA_PSS_SHA_256",
+	})
+	rec = doKMSHTTPRequest(t, h, "Sign", string(signBody))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var signResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &signResp))
+	sigRaw, ok := signResp["Signature"]
+	require.True(t, ok)
+	assert.NotEmpty(t, sigRaw)
+
+	// Verify via handler
+	verifyBody, _ := json.Marshal(map[string]any{
+		"KeyId":            keyID,
+		"Message":          message,
+		"MessageType":      "RAW",
+		"Signature":        sigRaw,
+		"SigningAlgorithm": "RSASSA_PSS_SHA_256",
+	})
+	rec = doKMSHTTPRequest(t, h, "Verify", string(verifyBody))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var verifyResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verifyResp))
+	assert.True(t, verifyResp["SignatureValid"].(bool))
+}
+
+// TestKMSHandlerGetPublicKey verifies GetPublicKey dispatch through the HTTP handler.
+func TestKMSHandlerGetPublicKey(t *testing.T) {
+	t.Parallel()
+
+	h := kms.NewHandler(kms.NewInMemoryBackend())
+
+	createBody, _ := json.Marshal(map[string]any{
+		"KeyUsage": kms.KeyUsageSignVerify,
+		"KeySpec":  "ECC_NIST_P256",
+	})
+	rec := doKMSHTTPRequest(t, h, "CreateKey", string(createBody))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	keyMeta := createResp["KeyMetadata"].(map[string]any)
+	keyID := keyMeta["KeyId"].(string)
+
+	getKeyBody, _ := json.Marshal(map[string]any{"KeyId": keyID})
+	rec = doKMSHTTPRequest(t, h, "GetPublicKey", string(getKeyBody))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var pubResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pubResp))
+	assert.NotEmpty(t, pubResp["PublicKey"])
+	assert.Equal(t, "ECC_NIST_P256", pubResp["KeySpec"])
+}
+
+// TestKMSHandlerInvalidSignatureError verifies that a bad signature returns KMSInvalidSignatureException.
+func TestKMSHandlerInvalidSignatureError(t *testing.T) {
+	t.Parallel()
+
+	h := kms.NewHandler(kms.NewInMemoryBackend())
+
+	createBody, _ := json.Marshal(map[string]any{
+		"KeyUsage": kms.KeyUsageSignVerify,
+		"KeySpec":  "RSA_2048",
+	})
+	rec := doKMSHTTPRequest(t, h, "CreateKey", string(createBody))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	keyMeta := createResp["KeyMetadata"].(map[string]any)
+	keyID := keyMeta["KeyId"].(string)
+
+	badSig := []byte("this-is-not-a-valid-signature")
+	verifyBody, _ := json.Marshal(map[string]any{
+		"KeyId":            keyID,
+		"Message":          []byte("test"),
+		"MessageType":      "RAW",
+		"Signature":        badSig,
+		"SigningAlgorithm": "RSASSA_PSS_SHA_256",
+	})
+
+	rec = doKMSHTTPRequest(t, h, "Verify", string(verifyBody))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "KMSInvalidSignatureException", errResp["__type"])
+}
+
+// TestKMSSnapshotRestoreRSA3072 verifies snapshot/restore preserves RSA-3072 key material.
+func TestKMSSnapshotRestoreRSA3072(t *testing.T) {
+	t.Parallel()
+
+	original := kms.NewInMemoryBackend()
+	keyOut, err := original.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "RSA_3072",
+	})
+	require.NoError(t, err)
+
+	msg := []byte("rsa-3072-persistence-test")
+	signOut, err := original.Sign(&kms.SignInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          msg,
+		MessageType:      "RAW",
+		SigningAlgorithm: "RSASSA_PSS_SHA_384",
+	})
+	require.NoError(t, err)
+
+	snap := original.Snapshot()
+	require.NotEmpty(t, snap)
+
+	restored := kms.NewInMemoryBackend()
+	require.NoError(t, restored.Restore(snap))
+
+	verifyOut, err := restored.Verify(&kms.VerifyInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          msg,
+		MessageType:      "RAW",
+		Signature:        signOut.Signature,
+		SigningAlgorithm: "RSASSA_PSS_SHA_384",
+	})
+	require.NoError(t, err)
+	assert.True(t, verifyOut.SignatureValid)
+}
+
+// TestKMSBackendGetPublicKeySymmetricFails verifies GetPublicKey on symmetric keys returns an error.
+func TestKMSBackendGetPublicKeySymmetricFails(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{KeyUsage: kms.KeyUsageEncryptDecrypt})
+	require.NoError(t, err)
+
+	_, err = b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
+	require.ErrorIs(t, err, kms.ErrInvalidKeyUsage)
+}
+
+// TestKMSBackendVerifyDisabledKey verifies that Verify fails on a disabled key.
+func TestKMSBackendVerifyDisabledKey(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P256",
+	})
+	require.NoError(t, err)
+	keyID := keyOut.KeyMetadata.KeyID
+
+	signOut, err := b.Sign(&kms.SignInput{
+		KeyID:            keyID,
+		Message:          []byte("test"),
+		MessageType:      "RAW",
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyID}))
+
+	_, err = b.Verify(&kms.VerifyInput{
+		KeyID:            keyID,
+		Message:          []byte("test"),
+		MessageType:      "RAW",
+		Signature:        signOut.Signature,
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.ErrorIs(t, err, kms.ErrKeyDisabled)
+}
+
+// TestKMSBackendSignDisabledKey verifies that Sign fails on a disabled key.
+func TestKMSBackendSignDisabledKey(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "RSA_2048",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyOut.KeyMetadata.KeyID}))
+
+	_, err = b.Sign(&kms.SignInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          []byte("test"),
+		MessageType:      "RAW",
+		SigningAlgorithm: "RSASSA_PSS_SHA_256",
+	})
+	require.ErrorIs(t, err, kms.ErrKeyDisabled)
+}
+
+// TestKMSKeyMetadataSigningAlgorithms verifies that DescribeKey returns signing algorithms
+// for asymmetric keys.
+func TestKMSKeyMetadataSigningAlgorithms(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "RSA_2048",
+	})
+	require.NoError(t, err)
+
+	descOut, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
+	require.NoError(t, err)
+	assert.NotEmpty(t, descOut.KeyMetadata.SigningAlgorithms)
+	assert.Contains(t, descOut.KeyMetadata.SigningAlgorithms, "RSASSA_PSS_SHA_256")
+}
+
+// TestKMSBackendSignUnsupportedAlgorithm verifies that unsupported signing algorithms return an error.
+func TestKMSBackendSignUnsupportedAlgorithm(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "RSA_2048",
+	})
+	require.NoError(t, err)
+
+	_, err = b.Sign(&kms.SignInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          []byte("test"),
+		MessageType:      "RAW",
+		SigningAlgorithm: "UNSUPPORTED_ALGORITHM",
+	})
+	require.Error(t, err)
+}
+
+// TestKMSBackendVerifyUnsupportedAlgorithm verifies that unsupported algorithms return an error.
+func TestKMSBackendVerifyUnsupportedAlgorithm(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "RSA_2048",
+	})
+	require.NoError(t, err)
+
+	_, err = b.Verify(&kms.VerifyInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          []byte("test"),
+		MessageType:      "RAW",
+		Signature:        []byte("sig"),
+		SigningAlgorithm: "UNSUPPORTED_ALGORITHM",
+	})
+	require.Error(t, err)
+}
+
+// TestKMSBackendVerifyECDSAInvalidASN1 verifies that a non-ASN.1 ECDSA signature is rejected.
+func TestKMSBackendVerifyECDSAInvalidASN1(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P256",
+	})
+	require.NoError(t, err)
+
+	// Provide a signature that is not valid ASN.1
+	invalidSig := []byte("not-asn1-signature-data-at-all-!!!!")
+	_, err = b.Verify(&kms.VerifyInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          []byte("test message"),
+		MessageType:      "RAW",
+		Signature:        invalidSig,
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.ErrorIs(t, err, kms.ErrInvalidSignature)
+}
+
+// TestKMSBackendVerifyECDSAWrongSignature verifies that a well-formed but wrong ECDSA signature is rejected.
+func TestKMSBackendVerifyECDSAWrongSignature(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P256",
+	})
+	require.NoError(t, err)
+	keyID := keyOut.KeyMetadata.KeyID
+
+	// Sign one message
+	signOut, err := b.Sign(&kms.SignInput{
+		KeyID:            keyID,
+		Message:          []byte("message-a"),
+		MessageType:      "RAW",
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.NoError(t, err)
+
+	// Verify against a different message — should fail
+	_, err = b.Verify(&kms.VerifyInput{
+		KeyID:            keyID,
+		Message:          []byte("message-b"),
+		MessageType:      "RAW",
+		Signature:        signOut.Signature,
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.ErrorIs(t, err, kms.ErrInvalidSignature)
+}
+
+// TestKMSHandlerSnapshotRestore verifies the handler Snapshot and Restore wrapper methods.
+func TestKMSHandlerSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend)
+
+	// Create a key and encrypt something to populate state
+	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "snapshot-test"})
+	require.NoError(t, err)
+	encOut, err := backend.Encrypt(&kms.EncryptInput{
+		KeyID:     keyOut.KeyMetadata.KeyID,
+		Plaintext: []byte("snap-data"),
+	})
+	require.NoError(t, err)
+
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	// Restore into a new backend via handler wrapper
+	backend2 := kms.NewInMemoryBackend()
+	h2 := kms.NewHandler(backend2)
+	require.NoError(t, h2.Restore(snap))
+
+	// Decrypt with restored handler's backend
+	decOut, err := backend2.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	require.NoError(t, err)
+	assert.Equal(t, []byte("snap-data"), decOut.Plaintext)
+}
+
+// TestKMSBackendSnapshotRestoreECDSA verifies snapshot/restore preserves ECDSA key material.
+func TestKMSBackendSnapshotRestoreECDSA(t *testing.T) {
+	t.Parallel()
+
+	orig := kms.NewInMemoryBackend()
+	keyOut, err := orig.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P384",
+	})
+	require.NoError(t, err)
+
+	msg := []byte("ecdsa-snapshot-test")
+	signOut, err := orig.Sign(&kms.SignInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          msg,
+		MessageType:      "RAW",
+		SigningAlgorithm: "ECDSA_SHA_384",
+	})
+	require.NoError(t, err)
+
+	snap := orig.Snapshot()
+	require.NotEmpty(t, snap)
+
+	restored := kms.NewInMemoryBackend()
+	require.NoError(t, restored.Restore(snap))
+
+	verifyOut, err := restored.Verify(&kms.VerifyInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          msg,
+		MessageType:      "RAW",
+		Signature:        signOut.Signature,
+		SigningAlgorithm: "ECDSA_SHA_384",
+	})
+	require.NoError(t, err)
+	assert.True(t, verifyOut.SignatureValid)
+}
+
+// TestKMSBackendGetPublicKeyDisabledKey verifies GetPublicKey fails on a disabled key.
+func TestKMSBackendGetPublicKeyDisabledKey(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P256",
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyOut.KeyMetadata.KeyID}))
+
+	_, err = b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: keyOut.KeyMetadata.KeyID})
+	require.ErrorIs(t, err, kms.ErrKeyDisabled)
+}
+
+// TestKMSBackendGetPublicKeyNotFound verifies GetPublicKey returns ErrKeyNotFound.
+func TestKMSBackendGetPublicKeyNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	_, err := b.GetPublicKey(&kms.GetPublicKeyInput{KeyID: "non-existent-key"})
+	require.ErrorIs(t, err, kms.ErrKeyNotFound)
+}
+
+// TestKMSHandlerChaosOperations verifies the chaos-related handler methods.
+func TestKMSHandlerChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend)
+	h.DefaultRegion = "eu-west-1"
+
+	assert.Equal(t, "kms", h.ChaosServiceName())
+	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
+	assert.Equal(t, []string{"eu-west-1"}, h.ChaosRegions())
+}
+
+// TestKMSHandlerTaggedKeysByARN verifies TaggedKeys, TagKeyByARN, and UntagKeyByARN.
+func TestKMSHandlerTaggedKeysByARN(t *testing.T) {
+	t.Parallel()
+
+	backend := kms.NewInMemoryBackend()
+	h := kms.NewHandler(backend)
+
+	// Create a key
+	keyOut, err := backend.CreateKey(&kms.CreateKeyInput{Description: "tagged"})
+	require.NoError(t, err)
+	keyARN := keyOut.KeyMetadata.Arn
+
+	// TaggedKeys should return the key with empty tags
+	tagged := h.TaggedKeys()
+	require.Len(t, tagged, 1)
+	assert.Equal(t, keyARN, tagged[0].ARN)
+
+	// TagKeyByARN
+	require.NoError(t, h.TagKeyByARN(keyARN, map[string]string{"env": "test"}))
+
+	taggedAfter := h.TaggedKeys()
+	require.Len(t, taggedAfter, 1)
+	assert.Equal(t, "test", taggedAfter[0].Tags["env"])
+
+	// TagKeyByARN on non-existent ARN should fail
+	err = h.TagKeyByARN("arn:aws:kms:us-east-1:000000000000:key/non-existent", map[string]string{})
+	require.ErrorIs(t, err, kms.ErrKeyNotFound)
+
+	// UntagKeyByARN
+	require.NoError(t, h.UntagKeyByARN(keyARN, []string{"env"}))
+
+	taggedFinal := h.TaggedKeys()
+	require.Len(t, taggedFinal, 1)
+	assert.Empty(t, taggedFinal[0].Tags["env"])
+
+	// UntagKeyByARN on non-existent ARN should fail
+	err = h.UntagKeyByARN("arn:aws:kms:us-east-1:000000000000:key/non-existent", []string{"env"})
+	require.ErrorIs(t, err, kms.ErrKeyNotFound)
+}
+
+// TestKMSBackendRetireGrantAllPaths verifies all RetireGrant branches.
+func TestKMSBackendRetireGrantAllPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("by_grant_id", func(t *testing.T) {
+		t.Parallel()
+
+		b := kms.NewInMemoryBackend()
+		keyOut, err := b.CreateKey(&kms.CreateKeyInput{})
+		require.NoError(t, err)
+
+		grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+			KeyID:            keyOut.KeyMetadata.KeyID,
+			GranteePrincipal: "arn:aws:iam::123:role/test",
+			Operations:       []string{"Decrypt"},
+		})
+		require.NoError(t, err)
+
+		require.NoError(t, b.RetireGrant(&kms.RetireGrantInput{
+			GrantID: grantOut.GrantID,
+		}))
+
+		// Retiring again should fail
+		err = b.RetireGrant(&kms.RetireGrantInput{GrantID: grantOut.GrantID})
+		require.ErrorIs(t, err, kms.ErrGrantNotFound)
+	})
+
+	t.Run("by_grant_id_with_key", func(t *testing.T) {
+		t.Parallel()
+
+		b := kms.NewInMemoryBackend()
+		keyOut, err := b.CreateKey(&kms.CreateKeyInput{})
+		require.NoError(t, err)
+
+		grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+			KeyID:            keyOut.KeyMetadata.KeyID,
+			GranteePrincipal: "arn:aws:iam::123:role/test",
+			Operations:       []string{"Decrypt"},
+		})
+		require.NoError(t, err)
+
+		require.NoError(t, b.RetireGrant(&kms.RetireGrantInput{
+			GrantID: grantOut.GrantID,
+			KeyID:   keyOut.KeyMetadata.KeyID,
+		}))
+	})
+
+	t.Run("empty_grant_id_returns_error", func(t *testing.T) {
+		t.Parallel()
+
+		b := kms.NewInMemoryBackend()
+		err := b.RetireGrant(&kms.RetireGrantInput{GrantID: ""})
+		require.ErrorIs(t, err, kms.ErrGrantNotFound)
+	})
+
+	t.Run("wrong_key_id_returns_error", func(t *testing.T) {
+		t.Parallel()
+
+		b := kms.NewInMemoryBackend()
+		key1, err := b.CreateKey(&kms.CreateKeyInput{})
+		require.NoError(t, err)
+		key2, err := b.CreateKey(&kms.CreateKeyInput{})
+		require.NoError(t, err)
+
+		grantOut, err := b.CreateGrant(&kms.CreateGrantInput{
+			KeyID:            key1.KeyMetadata.KeyID,
+			GranteePrincipal: "arn:aws:iam::123:role/test",
+			Operations:       []string{"Decrypt"},
+		})
+		require.NoError(t, err)
+
+		err = b.RetireGrant(&kms.RetireGrantInput{
+			GrantID: grantOut.GrantID,
+			KeyID:   key2.KeyMetadata.KeyID,
+		})
+		require.ErrorIs(t, err, kms.ErrGrantNotFound)
+	})
+}
+
+// TestKMSBackendDecryptCiphertextTooShort verifies Decrypt fails with short ciphertext.
+func TestKMSBackendDecryptCiphertextTooShort(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	_, err := b.Decrypt(&kms.DecryptInput{CiphertextBlob: []byte("short")})
+	require.ErrorIs(t, err, kms.ErrCiphertextTooShort)
+}
+
+// TestKMSBackendGetKeyPolicyDefaultAndCustom verifies GetKeyPolicy returns default policy.
+func TestKMSBackendGetKeyPolicyDefaultAndCustom(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+	keyID := keyOut.KeyMetadata.KeyID
+
+	// Default policy
+	out, err := b.GetKeyPolicy(&kms.GetKeyPolicyInput{KeyID: keyID})
+	require.NoError(t, err)
+	assert.NotEmpty(t, out.Policy)
+	assert.Equal(t, "default", out.PolicyName)
+
+	// Custom policy
+	customPolicy := `{"Version":"2012-10-17","Statement":[]}`
+	require.NoError(t, b.PutKeyPolicy(&kms.PutKeyPolicyInput{
+		KeyID:  keyID,
+		Policy: customPolicy,
+	}))
+	out2, err := b.GetKeyPolicy(&kms.GetKeyPolicyInput{
+		KeyID:      keyID,
+		PolicyName: "custom",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, customPolicy, out2.Policy)
+	assert.Equal(t, "custom", out2.PolicyName)
+}
+
+// TestKMSBackendDecryptNonExistentKey verifies Decrypt returns ErrKeyNotFound when the ciphertext
+// prefix references a key that does not exist.
+func TestKMSBackendDecryptNonExistentKey(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	key, err := b.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+
+	// Encrypt with a valid key to confirm the normal path works.
+	encOut, err := b.Encrypt(&kms.EncryptInput{
+		KeyID:     key.KeyMetadata.KeyID,
+		Plaintext: []byte("data"),
+	})
+	require.NoError(t, err)
+
+	// Fabricate a ciphertext blob whose key ID prefix references a non-existent key.
+	// Decrypt should fail with ErrKeyNotFound (not a data-corruption error).
+	badBlob := make([]byte, 36+28) // keyIDPrefixLen + minimum nonce/ct size
+	copy(badBlob[:36], "nonexistent-key-id-000000000000000")
+	_, err = b.Decrypt(&kms.DecryptInput{CiphertextBlob: badBlob})
+	require.ErrorIs(t, err, kms.ErrKeyNotFound)
+
+	// Confirm successful decrypt recovers the expected plaintext.
+	decOut, err := b.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	require.NoError(t, err)
+	assert.Equal(t, []byte("data"), decOut.Plaintext)
+}
+
+// TestKMSBackendPutKeyPolicyNotFound verifies PutKeyPolicy fails for missing keys.
+func TestKMSBackendPutKeyPolicyNotFound(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	err := b.PutKeyPolicy(&kms.PutKeyPolicyInput{
+		KeyID:  "non-existent",
+		Policy: `{"Version":"2012-10-17"}`,
+	})
+	require.ErrorIs(t, err, kms.ErrKeyNotFound)
+}
+
+// TestKMSBackendReEncryptShortBlob verifies ReEncrypt fails with ciphertext too short.
+func TestKMSBackendReEncryptShortBlob(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	destKey, err := b.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+
+	_, err = b.ReEncrypt(&kms.ReEncryptInput{
+		CiphertextBlob:   []byte("short"),
+		DestinationKeyID: destKey.KeyMetadata.KeyID,
+	})
+	require.ErrorIs(t, err, kms.ErrCiphertextTooShort)
+}
+
+// mockConfigProvider implements config.Provider for testing.
+type mockConfigProvider struct{}
+
+func (m *mockConfigProvider) GetGlobalConfig() config.GlobalConfig {
+	return config.GlobalConfig{
+		AccountID: "123456789012",
+		Region:    "ap-southeast-2",
+	}
+}
+
+// TestKMSProviderWithConfig verifies that Init uses config.Provider when available.
+func TestKMSProviderWithConfig(t *testing.T) {
+	t.Parallel()
+
+	p := &kms.Provider{}
+	ctx := &service.AppContext{
+		Logger: slog.Default(),
+		Config: &mockConfigProvider{},
+	}
+
+	svc, err := p.Init(ctx)
+	require.NoError(t, err)
+	assert.NotNil(t, svc)
+}
+
+// TestKMSCreateKeyIncompatibleSpecUsage verifies that CreateKey fails when KeySpec
+// and KeyUsage are incompatible (e.g. RSA key with ENCRYPT_DECRYPT usage).
+func TestKMSCreateKeyIncompatibleSpecUsage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		keySpec  string
+		keyUsage string
+	}{
+		{
+			name:     "RSA_2048_with_ENCRYPT_DECRYPT",
+			keySpec:  "RSA_2048",
+			keyUsage: kms.KeyUsageEncryptDecrypt,
+		},
+		{
+			name:     "ECC_NIST_P256_with_ENCRYPT_DECRYPT",
+			keySpec:  "ECC_NIST_P256",
+			keyUsage: kms.KeyUsageEncryptDecrypt,
+		},
+		{
+			name:     "SYMMETRIC_DEFAULT_with_SIGN_VERIFY",
+			keySpec:  "SYMMETRIC_DEFAULT",
+			keyUsage: kms.KeyUsageSignVerify,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			_, err := b.CreateKey(&kms.CreateKeyInput{
+				KeySpec:  tt.keySpec,
+				KeyUsage: tt.keyUsage,
+			})
+			require.ErrorIs(t, err, kms.ErrInvalidKeyUsage)
+		})
+	}
+}
+
+// TestKMSSignVerifyAlgorithmKeySpecMismatch verifies that Sign/Verify reject algorithms
+// that are incompatible with the key spec (e.g. ECDSA_SHA_256 on ECC_NIST_P384).
+func TestKMSSignVerifyAlgorithmKeySpecMismatch(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P384",
+	})
+	require.NoError(t, err)
+
+	msg := []byte("test")
+
+	// ECDSA_SHA_256 is only valid for ECC_NIST_P256, not ECC_NIST_P384
+	_, signErr := b.Sign(&kms.SignInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          msg,
+		MessageType:      "RAW",
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.Error(t, signErr)
+
+	_, verifyErr := b.Verify(&kms.VerifyInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          msg,
+		MessageType:      "RAW",
+		Signature:        []byte("sig"),
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.Error(t, verifyErr)
+}
+
+// TestKMSHashAndAlgorithmInvalidMessageType verifies that an invalid message type is rejected.
+func TestKMSHashAndAlgorithmInvalidMessageType(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "RSA_2048",
+	})
+	require.NoError(t, err)
+
+	_, err = b.Sign(&kms.SignInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          []byte("test"),
+		MessageType:      "INVALID_TYPE",
+		SigningAlgorithm: "RSASSA_PSS_SHA_256",
+	})
+	require.Error(t, err)
+}
+
+// TestKMSKeyMaterialUnavailableAfterManualRestore verifies that Encrypt/Sign/Verify
+// return ErrKeyMaterialUnavailable when key material is missing after a snapshot restore
+// from an old format that did not persist key materials.
+func TestKMSKeyMaterialUnavailableAfterManualRestore(t *testing.T) {
+	t.Parallel()
+
+	orig := kms.NewInMemoryBackend()
+	symKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+	asymKey, err := orig.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P256",
+	})
+	require.NoError(t, err)
+
+	// Build a snapshot without key_materials to simulate an old-format snapshot.
+	snap := orig.Snapshot()
+	require.NotEmpty(t, snap)
+
+	// Strip key_materials from the JSON.
+	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
+
+	restored := kms.NewInMemoryBackend()
+	require.NoError(t, restored.Restore([]byte(stripped)))
+
+	// Encrypt should fail with ErrKeyMaterialUnavailable.
+	_, encErr := restored.Encrypt(&kms.EncryptInput{
+		KeyID:     symKey.KeyMetadata.KeyID,
+		Plaintext: []byte("test"),
+	})
+	require.ErrorIs(t, encErr, kms.ErrKeyMaterialUnavailable)
+
+	// Sign should fail with ErrKeyMaterialUnavailable.
+	_, signErr := restored.Sign(&kms.SignInput{
+		KeyID:            asymKey.KeyMetadata.KeyID,
+		Message:          []byte("test"),
+		MessageType:      "RAW",
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.ErrorIs(t, signErr, kms.ErrKeyMaterialUnavailable)
+}
+
+// TestKMSReEncryptSourceKeyValidation verifies that ReEncrypt validates source key state and usage.
+func TestKMSReEncryptSourceKeyValidation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("disabled_source_key", func(t *testing.T) {
+		t.Parallel()
+
+		b := kms.NewInMemoryBackend()
+		srcKey, err := b.CreateKey(&kms.CreateKeyInput{})
+		require.NoError(t, err)
+		dstKey, err := b.CreateKey(&kms.CreateKeyInput{})
+		require.NoError(t, err)
+
+		encOut, err := b.Encrypt(&kms.EncryptInput{
+			KeyID:     srcKey.KeyMetadata.KeyID,
+			Plaintext: []byte("test"),
+		})
+		require.NoError(t, err)
+
+		// Disable source key
+		require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: srcKey.KeyMetadata.KeyID}))
+
+		_, err = b.ReEncrypt(&kms.ReEncryptInput{
+			CiphertextBlob:   encOut.CiphertextBlob,
+			DestinationKeyID: dstKey.KeyMetadata.KeyID,
+		})
+		require.ErrorIs(t, err, kms.ErrKeyDisabled)
+	})
+}
+
+// TestKMSBackendReEncryptKeyMaterialUnavailable verifies that ReEncrypt returns ErrKeyMaterialUnavailable
+// when the source key's material is missing after an old-format snapshot restore.
+func TestKMSBackendReEncryptKeyMaterialUnavailable(t *testing.T) {
+	t.Parallel()
+
+	orig := kms.NewInMemoryBackend()
+	srcKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+	dstKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+
+	encOut, err := orig.Encrypt(&kms.EncryptInput{
+		KeyID:     srcKey.KeyMetadata.KeyID,
+		Plaintext: []byte("test"),
+	})
+	require.NoError(t, err)
+
+	// Simulate old-format snapshot without key materials.
+	snap := orig.Snapshot()
+	require.NotEmpty(t, snap)
+	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
+
+	restored := kms.NewInMemoryBackend()
+	require.NoError(t, restored.Restore([]byte(stripped)))
+
+	_, err = restored.ReEncrypt(&kms.ReEncryptInput{
+		CiphertextBlob:   encOut.CiphertextBlob,
+		DestinationKeyID: dstKey.KeyMetadata.KeyID,
+	})
+	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
+}
+
+// TestKMSBackendDecryptKeyMaterialUnavailable verifies that Decrypt returns ErrKeyMaterialUnavailable
+// when key material is missing after an old-format snapshot restore.
+func TestKMSBackendDecryptKeyMaterialUnavailable(t *testing.T) {
+	t.Parallel()
+
+	orig := kms.NewInMemoryBackend()
+	key, err := orig.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+
+	encOut, err := orig.Encrypt(&kms.EncryptInput{
+		KeyID:     key.KeyMetadata.KeyID,
+		Plaintext: []byte("test"),
+	})
+	require.NoError(t, err)
+
+	snap := orig.Snapshot()
+	require.NotEmpty(t, snap)
+	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
+
+	restored := kms.NewInMemoryBackend()
+	require.NoError(t, restored.Restore([]byte(stripped)))
+
+	_, err = restored.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
+}
+
+// TestKMSBackendGetPublicKeyMaterialUnavailable verifies GetPublicKey returns ErrKeyMaterialUnavailable
+// when key material is missing.
+func TestKMSBackendGetPublicKeyMaterialUnavailable(t *testing.T) {
+	t.Parallel()
+
+	orig := kms.NewInMemoryBackend()
+	key, err := orig.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P256",
+	})
+	require.NoError(t, err)
+
+	snap := orig.Snapshot()
+	require.NotEmpty(t, snap)
+	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
+
+	restored := kms.NewInMemoryBackend()
+	require.NoError(t, restored.Restore([]byte(stripped)))
+
+	_, err = restored.GetPublicKey(&kms.GetPublicKeyInput{KeyID: key.KeyMetadata.KeyID})
+	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
 }
