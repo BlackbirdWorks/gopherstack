@@ -286,8 +286,6 @@ func TestIntegration_IoT_MQTTPublishAndSubscribe(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			select {
 			case msg := <-received:
 				assert.Equal(t, tt.want, string(msg))
@@ -330,8 +328,6 @@ func TestIntegration_IoT_DataPlane_Publish(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			resp := iotRequest(t, http.MethodPost, "/topics/"+topic, map[string]any{
 				"payload": tt.payload,
 			})
@@ -404,8 +400,6 @@ func TestIntegration_IoT_Rule_ForwardsToSQS(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			// Poll SQS for the forwarded message.
 			var receivedBody string
 
