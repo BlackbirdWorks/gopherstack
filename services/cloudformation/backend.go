@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -16,10 +17,12 @@ import (
 )
 
 var (
-	ErrStackNotFound      = errors.New("Stack with id does not exist")
-	ErrStackAlreadyExists = errors.New("Stack already exists")
-	ErrChangeSetNotFound  = errors.New("ChangeSet not found")
-	ErrChangeSetExists    = errors.New("ChangeSet already exists")
+	ErrStackNotFound      = errors.New("stack with id does not exist")
+	ErrStackAlreadyExists = errors.New("stack already exists")
+	ErrChangeSetNotFound  = errors.New("change set not found")
+	ErrChangeSetExists    = errors.New("change set already exists")
+	ErrResourceNotFound   = errors.New("resource not found in stack")
+	ErrExportNotFound     = errors.New("export with given name not found")
 )
 
 // StorageBackend defines the interface for the CloudFormation in-memory backend.
@@ -30,6 +33,11 @@ type StorageBackend interface {
 	DescribeStack(nameOrID string) (*Stack, error)
 	ListStacks(statusFilter []string, nextToken string) (page.Page[StackSummary], error)
 	DescribeStackEvents(nameOrID string) ([]StackEvent, error)
+	DescribeStackResource(nameOrID, logicalID string) (*StackResource, error)
+	ListStackResources(nameOrID, nextToken string) (page.Page[StackResourceSummary], error)
+	DescribeStackResources(nameOrID string) ([]StackResource, error)
+	ListExports(nextToken string) (page.Page[Export], error)
+	ListImports(exportName, nextToken string) (page.Page[string], error)
 	CreateChangeSet(
 		ctx context.Context,
 		stackName, changeSetName, templateBody, description string,
@@ -49,6 +57,7 @@ type InMemoryBackend struct {
 	events     map[string][]StackEvent
 	resources  map[string]map[string]*StackResource
 	changeSets map[string]map[string]*ChangeSet
+	exports    map[string]*Export
 	creator    *ResourceCreator
 	resolver   DynamicRefResolver
 	mu         *lockmetrics.RWMutex
@@ -91,6 +100,7 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 		events:     make(map[string][]StackEvent),
 		resources:  make(map[string]map[string]*StackResource),
 		changeSets: make(map[string]map[string]*ChangeSet),
+		exports:    make(map[string]*Export),
 		creator:    creator,
 		resolver:   resolver,
 		accountID:  accountID,
@@ -205,16 +215,28 @@ func (b *InMemoryBackend) CreateStack(
 			}
 			physicalIDs[logicalID] = physicalID
 			b.resources[arn][logicalID] = &StackResource{
+				Timestamp:  time.Now(),
 				LogicalID:  logicalID,
 				PhysicalID: physicalID,
 				Type:       res.Type,
 				Status:     statusCreateComplete,
 				Properties: res.Properties,
+				StackID:    arn,
+				StackName:  name,
 			}
 			b.addEvent(arn, name, logicalID, physicalID, res.Type, statusCreateComplete, "")
 		}
 
-		stack.Outputs = resolveOutputs(tmpl, resolvedParams, physicalIDs)
+		rctx := resolveCtx{
+			params:      resolvedParams,
+			physicalIDs: physicalIDs,
+			exports:     b.buildExportsMap(),
+			conditions:  evaluateConditions(tmpl.Conditions, resolvedParams, physicalIDs),
+			mappings:    tmpl.Mappings,
+		}
+		var exportMap map[string]string
+		stack.Outputs, exportMap = resolveOutputsWithContext(tmpl, rctx)
+		b.registerExports(stack.StackID, exportMap)
 	}
 
 	stack.StackStatus = statusCreateComplete
@@ -304,6 +326,7 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 	for logicalID, res := range tmpl.Resources {
 		if existing, exists := b.resources[stack.StackID][logicalID]; exists {
 			existing.Status = statusUpdateComplete
+			existing.Timestamp = time.Now()
 			b.addEvent(
 				stack.StackID,
 				stack.StackName,
@@ -325,17 +348,32 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 
 			physicalIDs[logicalID] = physicalID
 			b.resources[stack.StackID][logicalID] = &StackResource{
+				Timestamp:  time.Now(),
 				LogicalID:  logicalID,
 				PhysicalID: physicalID,
 				Type:       res.Type,
 				Status:     statusCreateComplete,
 				Properties: res.Properties,
+				StackID:    stack.StackID,
+				StackName:  stack.StackName,
 			}
 			b.addEvent(stack.StackID, stack.StackName, logicalID, physicalID, res.Type, statusCreateComplete, "")
 		}
 	}
 
-	stack.Outputs = resolveOutputs(tmpl, resolvedParams, physicalIDs)
+	b.removeExports(stack.StackID)
+
+	rctx := resolveCtx{
+		params:      resolvedParams,
+		physicalIDs: physicalIDs,
+		exports:     b.buildExportsMap(),
+		conditions:  evaluateConditions(tmpl.Conditions, resolvedParams, physicalIDs),
+		mappings:    tmpl.Mappings,
+	}
+
+	var exportMap map[string]string
+	stack.Outputs, exportMap = resolveOutputsWithContext(tmpl, rctx)
+	b.registerExports(stack.StackID, exportMap)
 
 	return true
 }
@@ -365,6 +403,7 @@ func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) erro
 	now := time.Now()
 	stack.DeletionTime = &now
 	stack.StackStatus = statusDeleteComplete
+	b.removeExports(stack.StackID)
 	b.addEvent(
 		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
 		cfnStackType, statusDeleteComplete, "",
@@ -622,4 +661,148 @@ func (b *InMemoryBackend) ListAll() []*Stack {
 	}
 
 	return stacks
+}
+
+// DescribeStackResource returns details for a single resource in a stack.
+func (b *InMemoryBackend) DescribeStackResource(nameOrID, logicalID string) (*StackResource, error) {
+	b.mu.RLock("DescribeStackResource")
+	defer b.mu.RUnlock()
+
+	stack, ok := b.resolveStack(nameOrID)
+	if !ok {
+		return nil, ErrStackNotFound
+	}
+
+	res, ok := b.resources[stack.StackID][logicalID]
+	if !ok {
+		return nil, ErrResourceNotFound
+	}
+
+	return res, nil
+}
+
+// ListStackResources returns paginated summaries of all resources in a stack.
+func (b *InMemoryBackend) ListStackResources(nameOrID, nextToken string) (page.Page[StackResourceSummary], error) {
+	b.mu.RLock("ListStackResources")
+	defer b.mu.RUnlock()
+
+	stack, ok := b.resolveStack(nameOrID)
+	if !ok {
+		return page.Page[StackResourceSummary]{}, ErrStackNotFound
+	}
+
+	resMap := b.resources[stack.StackID]
+	summaries := make([]StackResourceSummary, 0, len(resMap))
+
+	for _, res := range resMap {
+		summaries = append(summaries, StackResourceSummary{
+			Timestamp:          res.Timestamp,
+			LogicalResourceID:  res.LogicalID,
+			PhysicalResourceID: res.PhysicalID,
+			ResourceType:       res.Type,
+			ResourceStatus:     res.Status,
+		})
+	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		return summaries[i].LogicalResourceID < summaries[j].LogicalResourceID
+	})
+
+	return page.New(summaries, nextToken, 0, cfnDefaultPageSize), nil
+}
+
+// DescribeStackResources returns all resources for a stack (or matching a physical resource ID).
+func (b *InMemoryBackend) DescribeStackResources(nameOrID string) ([]StackResource, error) {
+	b.mu.RLock("DescribeStackResources")
+	defer b.mu.RUnlock()
+
+	stack, ok := b.resolveStack(nameOrID)
+	if !ok {
+		return nil, ErrStackNotFound
+	}
+
+	resMap := b.resources[stack.StackID]
+	resources := make([]StackResource, 0, len(resMap))
+
+	for _, res := range resMap {
+		resources = append(resources, *res)
+	}
+
+	sort.Slice(resources, func(i, j int) bool {
+		return resources[i].LogicalID < resources[j].LogicalID
+	})
+
+	return resources, nil
+}
+
+// ListExports returns all exported output values across all stacks.
+func (b *InMemoryBackend) ListExports(nextToken string) (page.Page[Export], error) {
+	b.mu.RLock("ListExports")
+	defer b.mu.RUnlock()
+
+	exports := make([]Export, 0, len(b.exports))
+	for _, exp := range b.exports {
+		exports = append(exports, *exp)
+	}
+
+	sort.Slice(exports, func(i, j int) bool { return exports[i].Name < exports[j].Name })
+
+	return page.New(exports, nextToken, 0, cfnDefaultPageSize), nil
+}
+
+// ListImports returns the names of stacks that import the given export.
+func (b *InMemoryBackend) ListImports(exportName, nextToken string) (page.Page[string], error) {
+	b.mu.RLock("ListImports")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.exports[exportName]; !ok {
+		return page.Page[string]{}, ErrExportNotFound
+	}
+
+	var stackNames []string
+
+	for _, stack := range b.stacks {
+		if stack.StackStatus == statusDeleteComplete {
+			continue
+		}
+
+		refs := collectImportValues(stack.TemplateBody)
+		if slices.Contains(refs, exportName) {
+			stackNames = append(stackNames, stack.StackName)
+		}
+	}
+
+	sort.Strings(stackNames)
+
+	return page.New(stackNames, nextToken, 0, cfnDefaultPageSize), nil
+}
+
+// registerExports upserts exports for a stack from the given export map.
+func (b *InMemoryBackend) registerExports(stackID string, exportMap map[string]string) {
+	for name, value := range exportMap {
+		b.exports[name] = &Export{
+			ExportingStackID: stackID,
+			Name:             name,
+			Value:            value,
+		}
+	}
+}
+
+// removeExports removes all exports owned by the given stack.
+func (b *InMemoryBackend) removeExports(stackID string) {
+	for name, exp := range b.exports {
+		if exp.ExportingStackID == stackID {
+			delete(b.exports, name)
+		}
+	}
+}
+
+// buildExportsMap builds a name→value map of all current exports (for Fn::ImportValue resolution).
+func (b *InMemoryBackend) buildExportsMap() map[string]string {
+	m := make(map[string]string, len(b.exports))
+	for name, exp := range b.exports {
+		m[name] = exp.Value
+	}
+
+	return m
 }

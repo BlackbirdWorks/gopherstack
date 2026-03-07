@@ -29,6 +29,24 @@ type Output struct {
 	OutputKey   string `xml:"OutputKey"             json:"outputKey"`
 	OutputValue string `xml:"OutputValue"           json:"outputValue"`
 	Description string `xml:"Description,omitempty" json:"description,omitempty"`
+	ExportName  string `xml:"ExportName,omitempty"  json:"exportName,omitempty"`
+}
+
+// Export represents a cross-stack export (from ListExports).
+type Export struct {
+	ExportingStackID string `xml:"ExportingStackId" json:"exportingStackID"`
+	Name             string `xml:"Name"             json:"name"`
+	Value            string `xml:"Value"            json:"value"`
+}
+
+// StackResourceSummary is a brief summary of a resource within a stack (for ListStackResources).
+type StackResourceSummary struct {
+	Timestamp            time.Time `xml:"LastUpdatedTimestamp"           json:"timestamp"`
+	LogicalResourceID    string    `xml:"LogicalResourceId"              json:"logicalResourceID"`
+	PhysicalResourceID   string    `xml:"PhysicalResourceId,omitempty"   json:"physicalResourceID,omitempty"`
+	ResourceType         string    `xml:"ResourceType"                   json:"resourceType"`
+	ResourceStatus       string    `xml:"ResourceStatus"                 json:"resourceStatus"`
+	ResourceStatusReason string    `xml:"ResourceStatusReason,omitempty" json:"resourceStatusReason,omitempty"`
 }
 
 // Tag is a CloudFormation resource tag.
@@ -61,11 +79,14 @@ type StackEvent struct {
 
 // StackResource represents a resource within a stack.
 type StackResource struct {
+	Timestamp  time.Time      `json:"timestamp"`
 	Properties map[string]any `json:"properties,omitempty"`
 	LogicalID  string         `json:"logicalID"`
 	PhysicalID string         `json:"physicalID"`
 	Type       string         `json:"type"`
 	Status     string         `json:"status"`
+	StackID    string         `json:"stackID"`
+	StackName  string         `json:"stackName"`
 }
 
 // ChangeSet represents a CloudFormation change set.
