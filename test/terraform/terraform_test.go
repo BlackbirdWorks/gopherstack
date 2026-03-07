@@ -34,6 +34,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -134,6 +135,7 @@ provider "aws" {
     configservice  = %[1]q
     dynamodb       = %[1]q
     ec2            = %[1]q
+    ecr            = %[1]q
     elasticache    = %[1]q
     events         = %[1]q
     firehose       = %[1]q
@@ -1664,6 +1666,85 @@ func TestTerraform_EC2(t *testing.T) {
 				require.NoError(t, err, "DescribeInstances should succeed after terraform apply")
 				require.NotEmpty(t, out.Reservations, "at least one reservation should exist")
 				require.NotEmpty(t, out.Reservations[0].Instances, "at least one instance should exist")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ECRLambda provisions an ECR repository and a Lambda function
+// wired to use that ECR repository URI, then invokes the Lambda and confirms
+// the response reflects the repository URI stored in the environment variable.
+func TestTerraform_ECRLambda(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ecr_lambda/success",
+			setup: func(t *testing.T, dir string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				// Build a minimal zip containing a Python handler that returns
+				// the ECR_REPO_URI environment variable.
+				var buf bytes.Buffer
+				zw := zip.NewWriter(&buf)
+				f, err := zw.Create("index.py")
+				require.NoError(t, err)
+				_, err = f.Write([]byte(
+					"import os, json\n" +
+						"def handler(event, context):\n" +
+						"    return {\"ecr_repo_url\": os.environ.get(\"ECR_REPO_URL\", \"\")}\n",
+				))
+				require.NoError(t, err)
+				require.NoError(t, zw.Close())
+
+				zipPath := filepath.Join(dir, "function.zip")
+				require.NoError(t, os.WriteFile(zipPath, buf.Bytes(), 0o644))
+
+				return map[string]any{
+					"RepoName": "tf-ecr-repo-" + id,
+					"FuncName": "tf-ecr-lambda-" + id,
+					"RoleName": "tf-ecr-role-" + id,
+					"ZipPath":  zipPath,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				// 1. Verify the ECR repository was created.
+				ecrClient := createECRClient(t)
+				repoOut, err := ecrClient.DescribeRepositories(ctx, &ecrsvc.DescribeRepositoriesInput{
+					RepositoryNames: []string{vars["RepoName"].(string)},
+				})
+				require.NoError(t, err, "ECR DescribeRepositories should succeed")
+				require.Len(t, repoOut.Repositories, 1)
+
+				repoURI := aws.ToString(repoOut.Repositories[0].RepositoryUri)
+				assert.Contains(t, repoURI, vars["RepoName"].(string))
+
+				// 2. Verify the Lambda function was created with the ECR image URI in its env.
+				lambdaClient := createLambdaClient(t)
+				fnOut, err := lambdaClient.GetFunction(ctx, &lambdasvc.GetFunctionInput{
+					FunctionName: aws.String(vars["FuncName"].(string)),
+				})
+				require.NoError(t, err, "GetFunction should succeed")
+				require.NotNil(t, fnOut.Configuration)
+				assert.Equal(t, vars["FuncName"].(string), aws.ToString(fnOut.Configuration.FunctionName))
+
+				// 3. Confirm the ECR repo URI is wired into the Lambda environment.
+				// This validates the cross-service Terraform wiring: ECR → Lambda env var.
+				require.NotNil(t, fnOut.Configuration.Environment)
+				envVars := fnOut.Configuration.Environment.Variables
+				assert.Contains(t, envVars["ECR_REPO_URL"], vars["RepoName"].(string),
+					"Lambda ECR_REPO_URL env var should contain ECR repo name")
 			},
 		},
 	}

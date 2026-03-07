@@ -52,6 +52,7 @@ import (
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -136,6 +137,7 @@ type CLI struct {
 	transcribeHandler            service.Registerable
 	supportHandler               service.Registerable
 	appSyncHandler               service.Registerable
+	ecrHandler                   service.Registerable
 	snsClient                    *sns.Client
 	kmsClient                    *kms.Client
 	iamClient                    *iam.Client
@@ -426,6 +428,11 @@ func (c *CLI) GetTranscribeHandler() service.Registerable { return c.transcribeH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSupportHandler() service.Registerable { return c.supportHandler }
+
+// GetECRHandler returns the ECR handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 
 // rootCLI is the top-level kong grammar. The server flags live in Serve
 // (the default command); "health" is an explicit subcommand used as a
@@ -754,6 +761,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.transcribeHandler = byName["Transcribe"]
 	cli.supportHandler = byName["Support"]
 	cli.appSyncHandler = byName["AppSync"]
+	cli.ecrHandler = byName["ECR"]
 }
 
 // initializeServices initializes all service providers.
@@ -886,6 +894,7 @@ func getServiceProviders() []service.Provider {
 		&rdsbackend.Provider{},
 		&transcribebackend.Provider{},
 		&supportbackend.Provider{},
+		&ecrbackend.Provider{},
 		&cognitoidpbackend.Provider{},
 		&appsyncbackend.Provider{},
 	}
@@ -1794,7 +1803,7 @@ func healthHandler(c *echo.Context) error {
 		Services: []string{
 			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
 			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions", "CloudWatch", "CloudFormation",
-			"Kinesis", "Route53", "SES",
+			"Kinesis", "Route53", "SES", "ECR",
 		},
 	})
 }
