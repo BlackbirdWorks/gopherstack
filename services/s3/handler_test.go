@@ -1555,6 +1555,148 @@ func TestHandler_NotificationDispatch_NoDispatchWithoutConfig(t *testing.T) {
 	assert.Empty(t, mock.deleted)
 }
 
+func TestHandler_NotificationDispatch_CopyObject(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "notif-copy")
+	mustPutObject(t, backend, "notif-copy", "src-key", []byte("source data"))
+
+	notifXML := `<NotificationConfiguration>` +
+		`<QueueConfiguration><Id>q1</Id>` +
+		`<Queue>arn:aws:sqs:us-east-1:000000000000:copy-queue</Queue>` +
+		`<Event>s3:ObjectCreated:*</Event></QueueConfiguration>` +
+		`</NotificationConfiguration>`
+	req := httptest.NewRequest(http.MethodPut, "/notif-copy?notification", strings.NewReader(notifXML))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	mock := &mockNotificationDispatcher{}
+	handler.SetNotificationDispatcher(mock)
+
+	req = httptest.NewRequest(http.MethodPut, "/notif-copy/dest-key", nil)
+	req.Header.Set("X-Amz-Copy-Source", "/notif-copy/src-key")
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.Eventually(t, func() bool {
+		mock.mu.Lock()
+		defer mock.mu.Unlock()
+
+		return len(mock.created) == 1
+	}, 200*time.Millisecond, 5*time.Millisecond)
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	assert.Equal(t, "notif-copy", mock.created[0].bucket)
+	assert.Equal(t, "dest-key", mock.created[0].key)
+}
+
+func TestHandler_NotificationDispatch_CompleteMultipartUpload(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "notif-mpu")
+
+	notifXML := `<NotificationConfiguration>` +
+		`<QueueConfiguration><Id>q1</Id>` +
+		`<Queue>arn:aws:sqs:us-east-1:000000000000:mpu-queue</Queue>` +
+		`<Event>s3:ObjectCreated:*</Event></QueueConfiguration>` +
+		`</NotificationConfiguration>`
+	req := httptest.NewRequest(http.MethodPut, "/notif-mpu?notification", strings.NewReader(notifXML))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	mock := &mockNotificationDispatcher{}
+	handler.SetNotificationDispatcher(mock)
+
+	// Start multipart upload.
+	req = httptest.NewRequest(http.MethodPost, "/notif-mpu/mp-key?uploads", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var initResp s3.InitiateMultipartUploadResult
+	require.NoError(t, xml.NewDecoder(rec.Body).Decode(&initResp))
+	uploadID := initResp.UploadID
+
+	// Upload a part.
+	req = httptest.NewRequest(
+		http.MethodPut,
+		"/notif-mpu/mp-key?partNumber=1&uploadId="+uploadID,
+		strings.NewReader("part1"),
+	)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	etag1 := rec.Header().Get("ETag")
+
+	// Complete the upload.
+	completeXML := fmt.Sprintf(
+		`<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>%s</ETag></Part></CompleteMultipartUpload>`,
+		etag1,
+	)
+	req = httptest.NewRequest(http.MethodPost, "/notif-mpu/mp-key?uploadId="+uploadID, strings.NewReader(completeXML))
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.Eventually(t, func() bool {
+		mock.mu.Lock()
+		defer mock.mu.Unlock()
+
+		return len(mock.created) == 1
+	}, 200*time.Millisecond, 5*time.Millisecond)
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	assert.Equal(t, "notif-mpu", mock.created[0].bucket)
+	assert.Equal(t, "mp-key", mock.created[0].key)
+}
+
+func TestHandler_NotificationDispatch_DeleteObjects(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "notif-delobj")
+	mustPutObject(t, backend, "notif-delobj", "key1", []byte("data1"))
+	mustPutObject(t, backend, "notif-delobj", "key2", []byte("data2"))
+
+	notifXML := `<NotificationConfiguration>` +
+		`<QueueConfiguration><Id>q1</Id>` +
+		`<Queue>arn:aws:sqs:us-east-1:000000000000:del-queue</Queue>` +
+		`<Event>s3:ObjectRemoved:*</Event></QueueConfiguration>` +
+		`</NotificationConfiguration>`
+	req := httptest.NewRequest(http.MethodPut, "/notif-delobj?notification", strings.NewReader(notifXML))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	mock := &mockNotificationDispatcher{}
+	handler.SetNotificationDispatcher(mock)
+
+	deleteXML := `<Delete><Object><Key>key1</Key></Object><Object><Key>key2</Key></Object></Delete>`
+	req = httptest.NewRequest(http.MethodPost, "/notif-delobj?delete", strings.NewReader(deleteXML))
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.Eventually(t, func() bool {
+		mock.mu.Lock()
+		defer mock.mu.Unlock()
+
+		return len(mock.deleted) == 2
+	}, 200*time.Millisecond, 5*time.Millisecond)
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	assert.Equal(t, "notif-delobj", mock.deleted[0].bucket)
+	assert.Equal(t, "notif-delobj", mock.deleted[1].bucket)
+}
+
 // ---- Object Lock tests ----
 
 func TestObjectLock_PutGetConfiguration(t *testing.T) {

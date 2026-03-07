@@ -152,6 +152,24 @@ func (h *S3Handler) completeMultipartUpload(
 		ETag:     *out.ETag,
 	}
 
+	// Dispatch S3 notification if configured.
+	if h.notifier != nil {
+		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
+			ctx,
+			bucketName,
+		); ncErr == nil && notifXML != "" {
+			etag := aws.ToString(out.ETag)
+			var size int64
+			if headOut, headErr := h.Backend.HeadObject(ctx, &s3.HeadObjectInput{
+				Bucket: aws.String(bucketName),
+				Key:    aws.String(key),
+			}); headErr == nil {
+				size = aws.ToInt64(headOut.ContentLength)
+			}
+			go h.notifier.DispatchObjectCreated(context.WithoutCancel(ctx), bucketName, key, etag, size, notifXML)
+		}
+	}
+
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 

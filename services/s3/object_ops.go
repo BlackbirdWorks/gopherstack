@@ -348,7 +348,7 @@ func (h *S3Handler) putObject(
 			notifXML != "" {
 			etag := aws.ToString(ver.ETag)
 			size := aws.ToInt64(ver.Size)
-			go h.notifier.DispatchObjectCreated(ctx, bucketName, key, etag, size, notifXML)
+			go h.notifier.DispatchObjectCreated(context.WithoutCancel(ctx), bucketName, key, etag, size, notifXML)
 		}
 	}
 
@@ -446,6 +446,17 @@ func (h *S3Handler) copyObject(
 	etag := ""
 	if destVer.ETag != nil {
 		etag = *destVer.ETag
+	}
+
+	// Dispatch S3 notification if configured.
+	if h.notifier != nil {
+		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
+			ctx,
+			destBucket,
+		); ncErr == nil && notifXML != "" {
+			size := aws.ToInt64(destVer.Size)
+			go h.notifier.DispatchObjectCreated(context.WithoutCancel(ctx), destBucket, destKey, etag, size, notifXML)
+		}
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, CopyObjectResult{
@@ -617,7 +628,7 @@ func (h *S3Handler) deleteObject(
 			bucketName,
 		); ncErr == nil &&
 			notifXML != "" {
-			go h.notifier.DispatchObjectDeleted(ctx, bucketName, key, notifXML)
+			go h.notifier.DispatchObjectDeleted(context.WithoutCancel(ctx), bucketName, key, notifXML)
 		}
 	}
 
@@ -695,6 +706,19 @@ func (h *S3Handler) deleteObjects(
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
+
+	// Dispatch S3 delete notifications for each successfully deleted object.
+	if h.notifier != nil {
+		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
+			ctx,
+			bucketName,
+		); ncErr == nil && notifXML != "" {
+			for _, d := range out.Deleted {
+				key := aws.ToString(d.Key)
+				go h.notifier.DispatchObjectDeleted(context.WithoutCancel(ctx), bucketName, key, notifXML)
+			}
+		}
+	}
 }
 
 func (h *S3Handler) putObjectTagging(

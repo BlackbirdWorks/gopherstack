@@ -354,3 +354,68 @@ func TestNotificationDispatcher_DispatchObjectDeleted(t *testing.T) {
 		})
 	}
 }
+
+// captureLambda is a test LambdaInvoker that records invocations.
+type captureLambda struct {
+	invocations []string
+	mu          sync.Mutex
+}
+
+func (c *captureLambda) InvokeFunction(_ context.Context, name, _ string, payload []byte) ([]byte, int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.invocations = append(c.invocations, name+":"+string(payload))
+
+	return nil, 200, nil
+}
+
+func TestNotificationDispatcher_DispatchToLambda(t *testing.T) {
+	t.Parallel()
+
+	const lambdaXML = `<NotificationConfiguration>
+<CloudFunctionConfiguration>
+  <Id>fn1</Id>
+  <CloudFunction>arn:aws:lambda:us-east-1:000000000000:function:my-fn</CloudFunction>
+  <Event>s3:ObjectCreated:*</Event>
+</CloudFunctionConfiguration>
+</NotificationConfiguration>`
+
+	tests := []struct {
+		name             string
+		notifXML         string
+		wantInvokePrefix string
+		wantInvokeCount  int
+	}{
+		{
+			name:             "lambda_invoked_on_created",
+			notifXML:         lambdaXML,
+			wantInvokeCount:  1,
+			wantInvokePrefix: "arn:aws:lambda:us-east-1:000000000000:function:my-fn:",
+		},
+		{
+			name:            "no_lambda_config_no_invocation",
+			notifXML:        `<NotificationConfiguration></NotificationConfiguration>`,
+			wantInvokeCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fn := &captureLambda{}
+			targets := &s3.NotificationTargets{LambdaInvoker: fn}
+			d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+			d.DispatchObjectCreated(t.Context(), "my-bucket", "test-key", "etag123", 42, tt.notifXML)
+
+			fn.mu.Lock()
+			defer fn.mu.Unlock()
+			assert.Len(t, fn.invocations, tt.wantInvokeCount)
+			if tt.wantInvokeCount > 0 && tt.wantInvokePrefix != "" {
+				assert.Greater(t, len(fn.invocations[0]), len(tt.wantInvokePrefix))
+				assert.Contains(t, fn.invocations[0], tt.wantInvokePrefix)
+			}
+		})
+	}
+}
