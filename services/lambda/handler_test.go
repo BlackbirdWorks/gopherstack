@@ -921,6 +921,41 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			wantOp: "InvokeFunction",
 		},
 		{name: "unknown", method: http.MethodGet, path: "/2015-03-31/functions/my-func/unknown", wantOp: "Unknown"},
+		{
+			// Layer list path exercises extractLayerOperation with rest == "" branch (correct prefix).
+			name:   "layers_list",
+			method: http.MethodGet,
+			path:   "/2018-10-31/layers",
+			wantOp: "ListLayers",
+		},
+		{
+			// Layer versions path: extractLayerOperation returns "" (n=2,lastSeg="" not in table) → "Unknown".
+			name:   "layer_versions_list",
+			method: http.MethodGet,
+			path:   "/2018-10-31/layers/my-layer/versions",
+			wantOp: "Unknown",
+		},
+		{
+			// Layer version get exercises extractLayerOperation with numParts==3 branch.
+			name:   "layer_version_get",
+			method: http.MethodGet,
+			path:   "/2018-10-31/layers/my-layer/versions/1",
+			wantOp: "GetLayerVersion",
+		},
+		{
+			// Layer version policy exercises extractLayerOperation with numParts==4, lastSeg="policy".
+			name:   "layer_version_policy_get",
+			method: http.MethodGet,
+			path:   "/2018-10-31/layers/my-layer/versions/1/policy",
+			wantOp: "GetLayerVersionPolicy",
+		},
+		{
+			// Layer path with bad format (parts[1]!="versions") → extractLayerOperation returns "" → "Unknown".
+			name:   "layer_bad_format",
+			method: http.MethodGet,
+			path:   "/2018-10-31/layers/my-layer/bad",
+			wantOp: "Unknown",
+		},
 	}
 
 	for _, tt := range tests {
@@ -2799,6 +2834,34 @@ func TestHandler_IAMAction(t *testing.T) {
 			path:   "/2015-03-31/event-source-mappings/uuid-1234",
 			want:   "lambda:UpdateEventSourceMapping",
 		},
+		{
+			// ESM with unrecognized method → esmIAMAction returns "".
+			name:   "esm_unknown_method",
+			method: http.MethodPatch,
+			path:   "/2015-03-31/event-source-mappings/uuid-1234",
+			want:   "",
+		},
+		{
+			// Lambda layers path → extractLayerOperation path in IAMAction (correct prefix).
+			name:   "layers_list",
+			method: http.MethodGet,
+			path:   "/2018-10-31/layers",
+			want:   "lambda:ListLayers",
+		},
+		{
+			// Lambda 2020-06-30 path prefix → lambda2020PathPrefix branch in IAMAction.
+			name:   "lambda_2020_get_function",
+			method: http.MethodGet,
+			path:   "/2020-06-30/functions/my-func",
+			want:   "lambda:GetFunction",
+		},
+		{
+			// Lambda path with no matching route → returns "".
+			name:   "lambda_path_unknown_sub_path",
+			method: http.MethodPatch,
+			path:   "/2015-03-31/functions/fn/unknown-route",
+			want:   "",
+		},
 	}
 
 	for _, tt := range tests {
@@ -2808,4 +2871,15 @@ func TestHandler_IAMAction(t *testing.T) {
 			assert.Equal(t, tt.want, h.IAMAction(req))
 		})
 	}
+}
+
+// TestHandler_ChaosProvider verifies that the Lambda handler implements the ChaosProvider interface.
+func TestHandler_ChaosProvider(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newHandler(t)
+
+	assert.Equal(t, "lambda", h.ChaosServiceName())
+	assert.NotEmpty(t, h.ChaosOperations())
+	assert.NotEmpty(t, h.ChaosRegions())
 }

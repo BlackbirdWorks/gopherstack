@@ -212,6 +212,18 @@ func (b *InMemoryBackend) StartKinesisPoller(ctx context.Context) {
 	}
 }
 
+// SetSQSReader sets the SQS reader on the event source poller so that SQS
+// queues can trigger Lambda functions via event source mappings.
+func (b *InMemoryBackend) SetSQSReader(r SQSReader) {
+	b.mu.RLock("SetSQSReader")
+	p := b.kinesisPoller
+	b.mu.RUnlock()
+
+	if p != nil {
+		p.SetSQSReader(r)
+	}
+}
+
 // CreateEventSourceMapping creates a new event source mapping.
 func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappingInput) (*EventSourceMapping, error) {
 	b.mu.Lock("CreateEventSourceMapping")

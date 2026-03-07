@@ -696,3 +696,56 @@ func TestFunctionURLConfig_HTTPEndpoint(t *testing.T) {
 	// Without Docker the invocation fails, so we expect a 500 error response.
 	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 }
+
+// TestInMemoryBackend_PublishVersion_WithEnvironment verifies that deepCopyEnvironment is exercised
+// when publishing a version of a function that has environment variables configured.
+func TestInMemoryBackend_PublishVersion_WithEnvironment(t *testing.T) {
+	t.Parallel()
+
+	backend := newSimpleBackend()
+
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "env-version-fn",
+		PackageType:  lambda.PackageTypeImage,
+		ImageURI:     "test:latest",
+		State:        lambda.FunctionStateActive,
+		Environment:  &lambda.EnvironmentConfig{Variables: map[string]string{"KEY": "val", "OTHER": "x"}},
+	}
+	require.NoError(t, backend.CreateFunction(fn))
+
+	v, err := backend.PublishVersion("env-version-fn", "with env")
+	require.NoError(t, err)
+	require.NotNil(t, v.Environment)
+	assert.Equal(t, "val", v.Environment.Variables["KEY"])
+	assert.Equal(t, "x", v.Environment.Variables["OTHER"])
+
+	// Modifying the original should not affect the published version snapshot.
+	fn.Environment.Variables["KEY"] = "mutated"
+	assert.Equal(t, "val", v.Environment.Variables["KEY"], "published version should be independent of original")
+}
+
+// TestInMemoryBackend_PublishVersion_WithLayers verifies that deepCopyFunctionLayers is exercised
+// when publishing a version of a function that has Lambda layers attached.
+func TestInMemoryBackend_PublishVersion_WithLayers(t *testing.T) {
+	t.Parallel()
+
+	backend := newSimpleBackend()
+
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "layers-version-fn",
+		PackageType:  lambda.PackageTypeImage,
+		ImageURI:     "test:latest",
+		State:        lambda.FunctionStateActive,
+		Layers: []*lambda.FunctionLayer{
+			{Arn: "arn:aws:lambda:us-east-1:0:layer:my-layer:1", CodeSize: 100},
+			{Arn: "arn:aws:lambda:us-east-1:0:layer:other-layer:2", CodeSize: 200},
+		},
+	}
+	require.NoError(t, backend.CreateFunction(fn))
+
+	v, err := backend.PublishVersion("layers-version-fn", "with layers")
+	require.NoError(t, err)
+	require.Len(t, v.Layers, 2)
+	assert.Equal(t, "arn:aws:lambda:us-east-1:0:layer:my-layer:1", v.Layers[0].Arn)
+	assert.Equal(t, "arn:aws:lambda:us-east-1:0:layer:other-layer:2", v.Layers[1].Arn)
+}
