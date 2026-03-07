@@ -10,7 +10,8 @@ type zoneDataSnapshot struct {
 }
 
 type backendSnapshot struct {
-	Zones map[string]*zoneDataSnapshot `json:"zones"`
+	Zones        map[string]*zoneDataSnapshot `json:"zones"`
+	HealthChecks map[string]*HealthCheck      `json:"healthChecks,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -20,7 +21,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Zones: make(map[string]*zoneDataSnapshot, len(b.zones)),
+		Zones:        make(map[string]*zoneDataSnapshot, len(b.zones)),
+		HealthChecks: make(map[string]*HealthCheck, len(b.healthChecks)),
 	}
 
 	for id, zd := range b.zones {
@@ -28,6 +30,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			Zone:    zd.zone,
 			Records: zd.records,
 		}
+	}
+
+	for id, hc := range b.healthChecks {
+		cp := *hc
+		snap.HealthChecks[id] = &cp
 	}
 
 	data, err := json.Marshal(snap)
@@ -66,6 +73,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			zone:    zds.Zone,
 			records: zds.Records,
 		}
+	}
+
+	if snap.HealthChecks == nil {
+		snap.HealthChecks = make(map[string]*HealthCheck)
+	}
+
+	b.healthChecks = make(map[string]*HealthCheck, len(snap.HealthChecks))
+
+	for id, hc := range snap.HealthChecks {
+		cp := *hc
+		b.healthChecks[id] = &cp
 	}
 
 	return nil

@@ -484,6 +484,9 @@ func (h *DashboardHandler) setupRoute53Routes() {
 	h.SubRouter.DELETE("/dashboard/route53/delete", h.route53DeleteZone)
 	h.SubRouter.POST("/dashboard/route53/record", h.route53CreateRecord)
 	h.SubRouter.DELETE("/dashboard/route53/record", h.route53DeleteRecord)
+	h.SubRouter.GET("/dashboard/route53/healthchecks", h.route53HealthCheckIndex)
+	h.SubRouter.POST("/dashboard/route53/healthchecks/create", h.route53CreateHealthCheck)
+	h.SubRouter.DELETE("/dashboard/route53/healthchecks/delete", h.route53DeleteHealthCheck)
 }
 
 func (h *DashboardHandler) setupEC2Routes() {
