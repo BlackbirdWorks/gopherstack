@@ -344,9 +344,7 @@ func (h *Handler) iamRoleDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"CreateRole": func(vals url.Values, reqID string) (any, error) {
 			r, err := h.Backend.CreateRole(
-				vals.Get(
-					"RoleName",
-				),
+				vals.Get("RoleName"),
 				vals.Get("Path"),
 				vals.Get("AssumeRolePolicyDocument"),
 				vals.Get("PermissionsBoundary"),
@@ -786,6 +784,7 @@ func (h *Handler) iamGroupInlinePolicyDispatchTable() map[string]iamActionFn {
 		},
 	}
 }
+
 func (h *Handler) iamPermissionBoundaryDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"PutUserPermissionsBoundary": func(vals url.Values, reqID string) (any, error) {
