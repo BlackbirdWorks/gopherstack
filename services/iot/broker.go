@@ -38,7 +38,8 @@ func NewBroker(backend *InMemoryBackend, port int, logger *slog.Logger) *Broker 
 // It blocks until ctx is cancelled.
 func (b *Broker) Start(ctx context.Context) error {
 	s := mqtt.New(&mqtt.Options{
-		Logger: b.logger,
+		Logger:       b.logger,
+		InlineClient: true,
 	})
 
 	if err := s.AddHook(new(auth.AllowHook), nil); err != nil {
