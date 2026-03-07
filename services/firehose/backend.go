@@ -397,6 +397,10 @@ func (b *InMemoryBackend) transformRecords(
 	}
 
 	payload := buildLambdaTransformPayload(records, streamARN, region)
+	if payload == nil {
+		// Payload marshaling failed; skip transformation and deliver original records.
+		return records
+	}
 
 	result, _, err := b.lambda.InvokeFunction(ctx, functionName, "RequestResponse", payload)
 	if err != nil {
@@ -418,7 +422,7 @@ func (b *InMemoryBackend) deliverToS3(
 	for _, rec := range records {
 		buf.Write(rec)
 		// Add newline separator if the record doesn't already end with one.
-		if len(rec) > 0 && rec[len(rec)-1] != '\n' {
+		if rec[len(rec)-1] != '\n' {
 			buf.WriteByte('\n')
 		}
 	}

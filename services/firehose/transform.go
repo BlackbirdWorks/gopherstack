@@ -56,7 +56,9 @@ func buildLambdaTransformPayload(records [][]byte, streamARN, region string) []b
 
 	payload, err := json.Marshal(event)
 	if err != nil {
-		return []byte("{}")
+		// If we can't marshal the payload, return nil to skip transformation
+		// and deliver the original records directly.
+		return nil
 	}
 
 	return payload
