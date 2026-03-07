@@ -60,6 +60,12 @@ import (
 //nolint:gochecknoglobals // Set in TestMain for integration tests.
 var endpoint string
 
+// mqttEndpoint is the MQTT broker URL for the running Gopherstack container.
+// This is initialized by TestMain before running integration tests.
+//
+//nolint:gochecknoglobals // Set in TestMain for integration tests.
+var mqttEndpoint string
+
 // sharedContainer holds a reference to the container for cleanup and log dumping on test failures.
 // This is initialized by TestMain before running integration tests.
 //
@@ -104,7 +110,7 @@ func TestMain(m *testing.M) {
 			},
 		},
 		AutoRemove:   true,
-		ExposedPorts: []string{"8000/tcp"},
+		ExposedPorts: []string{"8000/tcp", "1883/tcp"},
 		WaitingFor: wait.ForHTTP("/").
 			WithStatusCodeMatcher(func(_ int) bool { return true }).
 			WithStartupTimeout(60 * time.Second),
@@ -130,6 +136,14 @@ func TestMain(m *testing.M) {
 
 	endpoint = fmt.Sprintf("http://localhost:%s", mappedPort.Port())
 	logger.Info("Gopherstack running", "endpoint", endpoint)
+
+	mqttPort, err := container.MappedPort(ctx, "1883")
+	if err != nil {
+		logger.Warn("failed to get MQTT mapped port; IoT tests will be skipped", "error", err)
+	} else {
+		mqttEndpoint = fmt.Sprintf("tcp://localhost:%s", mqttPort.Port())
+		logger.Info("MQTT broker running", "endpoint", mqttEndpoint)
+	}
 
 	code := m.Run()
 

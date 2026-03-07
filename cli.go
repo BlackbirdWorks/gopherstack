@@ -54,6 +54,8 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -803,6 +805,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
 
+	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
+	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
+
 	// Wire Resource Groups Tagging API → service backends so GetResources, TagResources, etc.
 	// aggregate and mutate tags across all services.
 	wireResourceGroupsTagging(
@@ -877,6 +882,8 @@ func getServiceProviders() []service.Provider {
 		&transcribebackend.Provider{},
 		&supportbackend.Provider{},
 		&cognitoidpbackend.Provider{},
+		&iotbackend.Provider{},
+		&iotdataplanebackend.Provider{},
 	}
 }
 
@@ -1334,6 +1341,71 @@ func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
 			smH.SetLambdaInvoker(lambdaBk)
 		}
 	}
+}
+
+// wireIoTRules connects the IoT rule dispatcher to SQS and Lambda backends, and
+// wires the IoT MQTT broker into the IoT Data Plane backend.
+func wireIoTRules(iotReg, iotDPReg, sqsReg, lambdaReg service.Registerable) {
+	iotH, ok := iotReg.(*iotbackend.Handler)
+	if !ok {
+		return
+	}
+
+	iotBk, bkOk := iotH.Backend.(*iotbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	var sqsBk *sqsbackend.InMemoryBackend
+	var lambdaBk *lambdabackend.InMemoryBackend
+
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		sqsBk, _ = sqsH.Backend.(*sqsbackend.InMemoryBackend)
+	}
+
+	if lambdaH, lamOk := lambdaReg.(*lambdabackend.Handler); lamOk {
+		lambdaBk, _ = lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	}
+
+	iotBk.SetRuleDispatcher(&iotRuleDispatcher{sqs: sqsBk, lambda: lambdaBk})
+
+	// Wire the MQTT broker into the IoT Data Plane backend.
+	if iotDPReg != nil {
+		if dpH, dpOk := iotDPReg.(*iotdataplanebackend.Handler); dpOk {
+			if dpBk, dpBkOk := dpH.Backend.(*iotdataplanebackend.InMemoryBackend); dpBkOk {
+				dpBk.SetBroker(iotH.Broker())
+			}
+		}
+	}
+}
+
+// iotRuleDispatcher adapts the SQS and Lambda backends to the IoT RuleDispatcher interface.
+type iotRuleDispatcher struct {
+	sqs    *sqsbackend.InMemoryBackend
+	lambda *lambdabackend.InMemoryBackend
+}
+
+func (d *iotRuleDispatcher) SendToSQS(queueURL, body string) error {
+	if d.sqs == nil {
+		return nil
+	}
+
+	_, err := d.sqs.SendMessage(&sqsbackend.SendMessageInput{
+		QueueURL:    queueURL,
+		MessageBody: body,
+	})
+
+	return err
+}
+
+func (d *iotRuleDispatcher) InvokeLambda(ctx context.Context, functionARN string, payload []byte) error {
+	if d.lambda == nil {
+		return nil
+	}
+
+	_, _, err := d.lambda.InvokeFunction(ctx, functionARN, lambdabackend.InvocationTypeEvent, payload)
+
+	return err
 }
 
 // arnServiceIs returns true if the ARN's service segment (the third colon-delimited field)
