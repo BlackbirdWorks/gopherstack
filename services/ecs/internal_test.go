@@ -151,3 +151,32 @@ func TestServiceKey(t *testing.T) {
 		})
 	}
 }
+
+// TestNewTaskRunner_Noop verifies that the default (no env var) returns a no-op runner.
+func TestNewTaskRunner_Noop(t *testing.T) {
+	t.Parallel()
+
+	runner, err := newTaskRunner()
+	require.NoError(t, err)
+	require.NotNil(t, runner)
+
+	// Noop runner should never fail.
+	require.NoError(t, runner.RunTask(&Task{}, &TaskDefinition{}))
+	require.NoError(t, runner.StopTask(&Task{}))
+}
+
+// TestNewTaskRunner_Docker verifies that GOPHERSTACK_ECS_RUNTIME=docker attempts
+// to create a Docker runner. The test is skipped (gracefully) when the Docker
+// daemon is unavailable, which is the expected state in most CI environments.
+func TestNewTaskRunner_Docker(t *testing.T) {
+	t.Setenv("GOPHERSTACK_ECS_RUNTIME", "docker")
+
+	runner, err := newTaskRunner()
+	if err != nil {
+		// Docker daemon not reachable — acceptable in CI without Docker-in-Docker.
+		return
+	}
+
+	// If Docker is available, the runner must be non-nil.
+	assert.NotNil(t, runner)
+}

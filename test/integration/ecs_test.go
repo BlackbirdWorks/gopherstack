@@ -2,9 +2,12 @@ package integration_test
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/google/uuid"
@@ -534,4 +537,88 @@ func TestIntegration_ECS_ListTasks(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Len(t, out.TaskArns, 3)
+}
+
+// TestIntegration_ECS_DockerRuntime tests ECS task execution when the Docker
+// runtime is available. This test is skipped unless GOPHERSTACK_ECS_RUNTIME is
+// set to "docker" on the test server and the local environment exposes a
+// Docker-enabled Gopherstack endpoint via GOPHERSTACK_TEST_ECS_DOCKER_ENDPOINT.
+//
+// To run:
+//
+//	GOPHERSTACK_TEST_ECS_DOCKER_ENDPOINT=http://localhost:8000 \
+//	 go test ./test/integration/... -run TestIntegration_ECS_DockerRuntime
+func TestIntegration_ECS_DockerRuntime(t *testing.T) {
+	t.Parallel()
+
+	dockerEndpoint := os.Getenv("GOPHERSTACK_TEST_ECS_DOCKER_ENDPOINT")
+	if dockerEndpoint == "" {
+		t.Skip("skipping docker-runtime ECS test: GOPHERSTACK_TEST_ECS_DOCKER_ENDPOINT not set")
+	}
+
+	ctx := t.Context()
+	suffix := uuid.NewString()[:8]
+
+	cfg, err := config.LoadDefaultConfig(
+		ctx,
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err)
+
+	client := ecs.NewFromConfig(cfg, func(o *ecs.Options) {
+		o.BaseEndpoint = &dockerEndpoint
+	})
+
+	// Create a cluster.
+	clusterName := fmt.Sprintf("docker-cluster-%s", suffix)
+	_, err = client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	// Register a minimal nginx task definition.
+	family := fmt.Sprintf("docker-nginx-%s", suffix)
+	regOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String(family),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{
+				Name:      aws.String("nginx"),
+				Image:     aws.String("nginx:latest"),
+				Essential: aws.Bool(true),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Run the task via the Docker runtime; task should reach RUNNING.
+	runOut, err := client.RunTask(ctx, &ecs.RunTaskInput{
+		Cluster:        aws.String(clusterName),
+		TaskDefinition: regOut.TaskDefinition.TaskDefinitionArn,
+		Count:          aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, runOut.Tasks, 1)
+
+	taskArn := aws.ToString(runOut.Tasks[0].TaskArn)
+
+	// Verify the task transitioned from PROVISIONING to RUNNING.
+	descOut, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(clusterName),
+		Tasks:   []string{taskArn},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.Tasks, 1)
+	assert.Equal(t, "RUNNING", aws.ToString(descOut.Tasks[0].LastStatus),
+		"task should be RUNNING after Docker container start")
+
+	// Clean up: stop the task.
+	_, err = client.StopTask(ctx, &ecs.StopTaskInput{
+		Cluster: aws.String(clusterName),
+		Task:    aws.String(taskArn),
+		Reason:  aws.String("integration test cleanup"),
+	})
+	require.NoError(t, err)
 }

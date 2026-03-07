@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -1600,4 +1601,65 @@ func TestECS_Handler_StopTask_NotFound(t *testing.T) {
 		"task": "arn:aws:ecs:us-east-1:000000000000:task/default/nonexistent",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// ----- TaskRunner mock helpers -----
+
+// errContainerStart is the sentinel error used by failingRunner.
+var errContainerStart = errors.New("container start failed")
+
+// failingRunner is a TaskRunner that always returns an error from RunTask, causing
+// the task to remain at PROVISIONING rather than transitioning to RUNNING.
+type failingRunner struct{}
+
+func (r *failingRunner) RunTask(_ *ecs.Task, _ *ecs.TaskDefinition) error { return errContainerStart }
+func (r *failingRunner) StopTask(_ *ecs.Task) error                       { return nil }
+
+// TestECS_Backend_RunTask_ProvisioningStaysOnRunnerError verifies that when the
+// TaskRunner returns an error, the task status remains at PROVISIONING.
+func TestECS_Backend_RunTask_ProvisioningStaysOnRunnerError(t *testing.T) {
+	t.Parallel()
+
+	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, &failingRunner{})
+
+	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
+		Family:               "prov-err-task",
+		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx:latest"}},
+	})
+	require.NoError(t, err)
+
+	tasks, err := backend.RunTask(ecs.RunTaskInput{
+		TaskDefinition: td.TaskDefinitionArn,
+		Count:          1,
+	})
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+
+	// Task should remain PROVISIONING because the runner failed.
+	assert.Equal(t, "PROVISIONING", tasks[0].LastStatus)
+	assert.Equal(t, "RUNNING", tasks[0].DesiredStatus)
+}
+
+// TestECS_Backend_RunTask_TransitionToRunningWithRunner verifies that when the
+// TaskRunner succeeds, the task transitions from PROVISIONING to RUNNING.
+func TestECS_Backend_RunTask_TransitionToRunningWithRunner(t *testing.T) {
+	t.Parallel()
+
+	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+
+	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
+		Family:               "prov-ok-task",
+		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx:latest"}},
+	})
+	require.NoError(t, err)
+
+	tasks, err := backend.RunTask(ecs.RunTaskInput{
+		TaskDefinition: td.TaskDefinitionArn,
+		Count:          1,
+	})
+	require.NoError(t, err)
+	require.Len(t, tasks, 1)
+
+	// Noop runner succeeds → task transitions to RUNNING.
+	assert.Equal(t, "RUNNING", tasks[0].LastStatus)
 }
