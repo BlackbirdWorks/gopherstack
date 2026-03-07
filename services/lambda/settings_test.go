@@ -60,6 +60,14 @@ func TestDefaultSettings_EnvVarOverrides(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Not parallel: tests set environment variables.
+			// Clear all related env vars first for deterministic behavior regardless
+			// of what the developer or CI environment has set.
+			t.Setenv("LAMBDA_DOCKER_HOST", "")
+			t.Setenv("LAMBDA_POOL_SIZE", "")
+			t.Setenv("LAMBDA_IDLE_TIMEOUT", "")
+			t.Setenv("CONTAINER_RUNTIME", "")
+
+			// Apply per-test overrides.
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}

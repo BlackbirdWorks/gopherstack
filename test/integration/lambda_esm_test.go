@@ -117,9 +117,9 @@ func sqsARNToURL(arn string) string {
 //  5. Start the ESM poller.
 //  6. Wait (up to 60 s) for ApproximateNumberOfMessages and ApproximateNumberOfMessagesNotVisible to both reach 0.
 //  7. Verify that the queue is empty.
+//
+//nolint:paralleltest // cannot run in parallel: shares lambdaEchoImage and risks image removal mid-test
 func TestIntegration_Lambda_SQS_ESM(t *testing.T) {
-	t.Parallel()
-
 	ctx := t.Context()
 
 	// Attempt to create a container runtime. Skip gracefully if Docker is unavailable.

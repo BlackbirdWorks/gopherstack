@@ -635,9 +635,10 @@ func (f *fakeSQSReader) DeleteMessagesLocal(_ string, receiptHandles []string) e
 	return nil
 }
 
-// TestLambda_Poller_SQS_PollWithMessages verifies that the SQS poller delivers messages to Lambda
-// and deletes them on success.
-func TestLambda_Poller_SQS_PollWithMessages(t *testing.T) {
+// TestLambda_Poller_SQS_PollWithMessages_InvocationFails verifies that when Lambda invocation
+// fails (e.g. no container runtime available), messages are NOT deleted — preserving them for
+// visibility-timeout retry or DLQ processing.
+func TestLambda_Poller_SQS_PollWithMessages_InvocationFails(t *testing.T) {
 	t.Parallel()
 
 	_, backend := newRealHandler(t)
@@ -671,8 +672,9 @@ func TestLambda_Poller_SQS_PollWithMessages(t *testing.T) {
 	reader.mu.Unlock()
 
 	assert.Positive(t, calls, "should have called ReceiveMessagesLocal")
-	// Lambda invocation will fail (no Docker), so messages should NOT be deleted
-	assert.Empty(t, deleted, "messages should not be deleted when Lambda invocation fails")
+	// Lambda invocation fails (no Docker/port allocator in test backend), so messages
+	// must NOT be deleted — they should remain visible for retry/DLQ.
+	assert.Empty(t, deleted, "messages must not be deleted when Lambda invocation fails")
 }
 
 // TestLambda_Poller_SQS_SkipsDisabledMapping verifies disabled SQS ESMs are not polled.
@@ -855,6 +857,8 @@ func TestLambda_Backend_SetSQSReader_WithPoller(t *testing.T) {
 }
 
 // TestLambda_Poller_SQS_DeleteError verifies graceful handling when message deletion fails.
+// It stubs Lambda invocation so the poller reaches the delete step, then asserts that the
+// delete-error warning is handled without panic.
 func TestLambda_Poller_SQS_DeleteError(t *testing.T) {
 	t.Parallel()
 
@@ -862,8 +866,6 @@ func TestLambda_Poller_SQS_DeleteError(t *testing.T) {
 
 	queueARN := "arn:aws:sqs:us-east-1:000000000000:delete-err-queue"
 
-	// Register the function so InvokeFunction doesn't error on function-not-found.
-	// (Invocation will still fail at Docker stage, so we just test the delete-error path.)
 	_, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
 		EventSourceARN: queueARN,
 		FunctionName:   "test-function",
@@ -872,19 +874,29 @@ func TestLambda_Poller_SQS_DeleteError(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// fakeSQSReader that has messages AND a delete error.
-	// Because Lambda invocation fails (no Docker), we won't reach delete anyway —
-	// but the test verifies the poller doesn't panic if the delete step would fail.
+	// Supply at least one message so processSQSMapping does not return early.
 	reader := &fakeSQSReader{
+		messages:  []*lambda.SQSMessage{{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: "body"}},
 		deleteErr: assert.AnError,
 	}
 	poller := lambda.NewEventSourcePoller(backend, &fakeKinesisReader{})
 	poller.SetSQSReader(reader)
 
+	// Stub the invoker to return nil so the poller proceeds to the delete step.
+	lambda.SetSQSInvoker(poller, func(_ context.Context, _ string) error { return nil })
+
 	ctx := t.Context()
+	// Should not panic even when the delete step fails.
 	require.NotPanics(t, func() {
 		lambda.PollOnce(ctx, poller)
 	})
+
+	// Deletion was attempted: the fakeSQSReader's deleteErr should have been triggered.
+	reader.mu.Lock()
+	deleted := reader.deletedIDs
+	reader.mu.Unlock()
+
+	assert.Empty(t, deleted, "no receipt handles should be appended when deleteErr is set")
 }
 
 // getShardIteratorErrorReader is a KinesisReader that fails GetShardIterator.

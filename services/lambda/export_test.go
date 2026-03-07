@@ -88,3 +88,10 @@ func IsSQSARN(resourceARN string) bool { return isSQSARN(resourceARN) }
 
 // SetSQSReaderOnPoller exports SetSQSReader on EventSourcePoller for testing.
 func SetSQSReaderOnPoller(p *EventSourcePoller, r SQSReader) { p.SetSQSReader(r) }
+
+// SetSQSInvoker sets a test-only override for the Lambda invocation step in the
+// SQS ESM poller. When fn is non-nil it is called instead of InvokeFunction,
+// allowing unit tests to make Lambda invocation succeed without a Docker daemon.
+func SetSQSInvoker(p *EventSourcePoller, fn func(ctx context.Context, fnName string) error) {
+	p.sqsInvoker = fn
+}

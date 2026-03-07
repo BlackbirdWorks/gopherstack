@@ -66,6 +66,10 @@ type EventSourcePoller struct {
 	lambdaBackend  *InMemoryBackend
 	shardIterators map[string]string
 	mu             *lockmetrics.RWMutex
+	// sqsInvoker is an optional override for the Lambda invocation step used
+	// when processing SQS messages. When nil the real InMemoryBackend is used.
+	// Intended for use in unit tests only.
+	sqsInvoker func(ctx context.Context, fnName string) error
 }
 
 // NewEventSourcePoller creates a new EventSourcePoller.
@@ -386,9 +390,15 @@ func (p *EventSourcePoller) invokeLambdaForSQS(
 		fnName = m.FunctionARN
 	}
 
-	_, _, err = p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
-	if err != nil {
-		return nil, err
+	var invokeErr error
+	if p.sqsInvoker != nil {
+		invokeErr = p.sqsInvoker(ctx, fnName)
+	} else {
+		_, _, invokeErr = p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
+	}
+
+	if invokeErr != nil {
+		return nil, invokeErr
 	}
 
 	logger.Load(ctx).DebugContext(ctx, "esm sqs: invoked Lambda",
