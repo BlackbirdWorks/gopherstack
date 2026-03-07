@@ -50,7 +50,7 @@ func TestNormPath_Coverage(t *testing.T) {
 			t.Parallel()
 
 			b := iam.NewInMemoryBackend()
-			u, err := b.CreateUser("normpath-user-"+tt.name, tt.input)
+			u, err := b.CreateUser("normpath-user-"+tt.name, tt.input, "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantPath, u.Path)
 		})
@@ -63,7 +63,7 @@ func TestAttachRolePolicy_Idempotent(t *testing.T) {
 	t.Parallel()
 
 	b := iam.NewInMemoryBackend()
-	_, err := b.CreateRole("myrole", "/", "{}")
+	_, err := b.CreateRole("myrole", "/", "{}", "")
 	require.NoError(t, err)
 
 	policyArn := "arn:aws:iam::000000000000:policy/MyPolicy"
@@ -131,7 +131,7 @@ func TestHandler_GetTags_WithExistingTags(t *testing.T) {
 	e := echo.New()
 	h, b := newTestHandler(t)
 
-	_, err := b.CreateRole("tagged-role", "/", "{}")
+	_, err := b.CreateRole("tagged-role", "/", "{}", "")
 	require.NoError(t, err)
 
 	// Tag the role via HTTP
@@ -476,7 +476,7 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			name:   "AttachRolePolicy_success",
 			action: "AttachRolePolicy",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateRole("svc-role", "/", "{}")
+				_, _ = b.CreateRole("svc-role", "/", "{}", "")
 			},
 			params: map[string]string{
 				"RoleName":  "svc-role",
@@ -489,7 +489,7 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			name:   "DetachRolePolicy_success",
 			action: "DetachRolePolicy",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateRole("detach-role", "/", "{}")
+				_, _ = b.CreateRole("detach-role", "/", "{}", "")
 				_ = b.AttachRolePolicy("detach-role", "arn:aws:iam::aws:policy/Policy1")
 			},
 			params: map[string]string{
@@ -503,7 +503,7 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			name:   "ListAttachedRolePolicies_success",
 			action: "ListAttachedRolePolicies",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateRole("list-role", "/", "{}")
+				_, _ = b.CreateRole("list-role", "/", "{}", "")
 				_ = b.AttachRolePolicy("list-role", "arn:aws:iam::aws:policy/Policy1")
 			},
 			params:      map[string]string{"RoleName": "list-role"},
@@ -511,8 +511,11 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			wantContain: "ListAttachedRolePoliciesResponse",
 		},
 		{
-			name:        "ListRolePolicies_success",
-			action:      "ListRolePolicies",
+			name:   "ListRolePolicies_success",
+			action: "ListRolePolicies",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateRole("any-role", "/", "{}", "")
+			},
 			params:      map[string]string{"RoleName": "any-role"},
 			wantCode:    http.StatusOK,
 			wantContain: "ListRolePoliciesResponse",
@@ -528,7 +531,7 @@ func TestIAMHandler_PolicyDispatch(t *testing.T) {
 			name:   "ListAttachedUserPolicies_success",
 			action: "ListAttachedUserPolicies",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateUser("policy-user", "/")
+				_, _ = b.CreateUser("policy-user", "/", "")
 				_ = b.AttachUserPolicy("policy-user", "arn:aws:iam::aws:policy/ReadOnly")
 			},
 			params:      map[string]string{"UserName": "policy-user"},
@@ -573,7 +576,7 @@ func TestHandler_SnapshotRestore_Delegation(t *testing.T) {
 		{
 			name: "snapshot_and_restore_via_handler",
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateUser("snap-user", "/")
+				_, _ = b.CreateUser("snap-user", "/", "")
 			},
 		},
 		{
@@ -715,7 +718,7 @@ func TestIAMHandler_AttachUserPolicy_Success(t *testing.T) {
 	h, b := newTestHandler(t)
 	e := echo.New()
 
-	_, _ = b.CreateUser("policy-attach-user", "/")
+	_, _ = b.CreateUser("policy-attach-user", "/", "")
 
 	req := iamRequest("AttachUserPolicy", map[string]string{
 		"UserName":  "policy-attach-user",

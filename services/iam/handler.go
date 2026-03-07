@@ -2,6 +2,7 @@ package iam
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -87,11 +89,20 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateRole", "DeleteRole", "ListRoles", "GetRole",
 		"CreatePolicy", "DeletePolicy", "ListPolicies",
 		"GetPolicy", "GetPolicyVersion",
-		"AttachUserPolicy", "AttachRolePolicy",
+		"AttachUserPolicy", "DetachUserPolicy", "AttachRolePolicy",
 		"DetachRolePolicy",
 		"ListAttachedUserPolicies", "ListAttachedRolePolicies",
-		"ListRolePolicies",
+		"PutUserPolicy", "GetUserPolicy", "DeleteUserPolicy", "ListUserPolicies",
+		"PutRolePolicy", "GetRolePolicy", "DeleteRolePolicy", "ListRolePolicies",
+		"PutGroupPolicy", "GetGroupPolicy", "DeleteGroupPolicy", "ListGroupPolicies",
+		"PutUserPermissionsBoundary", "DeleteUserPermissionsBoundary",
+		"PutRolePermissionsBoundary", "DeleteRolePermissionsBoundary",
+		"UpdateAssumeRolePolicy",
+		"GetAccountAuthorizationDetails",
+		"SimulatePrincipalPolicy",
+		"GenerateCredentialReport", "GetCredentialReport",
 		"CreateGroup", "DeleteGroup", "AddUserToGroup", "ListGroups",
+		"AttachGroupPolicy", "DetachGroupPolicy", "ListAttachedGroupPolicies",
 		"CreateAccessKey", "DeleteAccessKey", "ListAccessKeys",
 		"CreateInstanceProfile", "DeleteInstanceProfile", "ListInstanceProfiles",
 		"ListRoleTags", "TagRole", "UntagRole",
@@ -259,6 +270,11 @@ func (h *Handler) buildDispatchTable() map[string]iamActionFn {
 		h.iamRoleDispatchTable(),
 		h.iamPolicyBasicDispatchTable(),
 		h.iamPolicyAttachDispatchTable(),
+		h.iamGroupAttachedPolicyDispatchTable(),
+		h.iamInlinePolicyDispatchTable(),
+		h.iamPermissionBoundaryDispatchTable(),
+		h.iamOtherOperationsDispatchTable(),
+		h.iamReportingDispatchTable(),
 		h.iamGroupDispatchTable(),
 		h.iamAccessKeyDispatchTable(),
 		h.iamInstanceProfileDispatchTable(),
@@ -276,7 +292,7 @@ func (h *Handler) buildDispatchTable() map[string]iamActionFn {
 func (h *Handler) iamUserDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"CreateUser": func(vals url.Values, reqID string) (any, error) {
-			u, err := h.Backend.CreateUser(vals.Get("UserName"), vals.Get("Path"))
+			u, err := h.Backend.CreateUser(vals.Get("UserName"), vals.Get("Path"), vals.Get("PermissionsBoundary"))
 			if err != nil {
 				return nil, err
 			}
@@ -334,7 +350,10 @@ func (h *Handler) iamRoleDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"CreateRole": func(vals url.Values, reqID string) (any, error) {
 			r, err := h.Backend.CreateRole(
-				vals.Get("RoleName"), vals.Get("Path"), vals.Get("AssumeRolePolicyDocument"),
+				vals.Get("RoleName"),
+				vals.Get("Path"),
+				vals.Get("AssumeRolePolicyDocument"),
+				vals.Get("PermissionsBoundary"),
 			)
 			if err != nil {
 				return nil, err
@@ -498,6 +517,13 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 
 			return &AttachUserPolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
+		"DetachUserPolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DetachUserPolicy(vals.Get("UserName"), vals.Get("PolicyArn")); err != nil {
+				return nil, err
+			}
+
+			return &DetachUserPolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
 		"AttachRolePolicy": func(vals url.Values, reqID string) (any, error) {
 			if err := h.Backend.AttachRolePolicy(vals.Get("RoleName"), vals.Get("PolicyArn")); err != nil {
 				return nil, err
@@ -546,23 +572,15 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 				ResponseMetadata:               ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"ListRolePolicies": func(_ url.Values, reqID string) (any, error) {
-			// Stub: return empty list of inline policy names.
-			type listRolePoliciesResult struct {
-				XMLName     xml.Name `xml:"ListRolePoliciesResult"`
-				PolicyNames []string `xml:"PolicyNames>member"`
-				IsTruncated bool     `xml:"IsTruncated"`
-			}
-			type listRolePoliciesResponse struct {
-				XMLName                xml.Name               `xml:"ListRolePoliciesResponse"`
-				Xmlns                  string                 `xml:"xmlns,attr"`
-				ResponseMetadata       ResponseMetadata       `xml:"ResponseMetadata"`
-				ListRolePoliciesResult listRolePoliciesResult `xml:"ListRolePoliciesResult"`
+		"ListRolePolicies": func(vals url.Values, reqID string) (any, error) {
+			names, err := h.Backend.ListRolePolicies(vals.Get("RoleName"))
+			if err != nil {
+				return nil, err
 			}
 
-			return &listRolePoliciesResponse{
+			return &ListRolePoliciesResponse{
 				Xmlns:                  iamXMLNS,
-				ListRolePoliciesResult: listRolePoliciesResult{PolicyNames: []string{}},
+				ListRolePoliciesResult: ListRolePoliciesResult{PolicyNames: names},
 				ResponseMetadata:       ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -583,6 +601,347 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 				Xmlns:                             iamXMLNS,
 				ListInstanceProfilesForRoleResult: listInstanceProfilesResult{InstanceProfiles: []any{}},
 				ResponseMetadata:                  ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) iamGroupAttachedPolicyDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"AttachGroupPolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.AttachGroupPolicy(vals.Get("GroupName"), vals.Get("PolicyArn")); err != nil {
+				return nil, err
+			}
+
+			return &AttachGroupPolicyResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DetachGroupPolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DetachGroupPolicy(vals.Get("GroupName"), vals.Get("PolicyArn")); err != nil {
+				return nil, err
+			}
+
+			return &DetachGroupPolicyResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"ListAttachedGroupPolicies": func(vals url.Values, reqID string) (any, error) {
+			policies, err := h.Backend.ListAttachedGroupPolicies(vals.Get("GroupName"))
+			if err != nil {
+				return nil, err
+			}
+
+			xmlPolicies := make([]AttachedPolicyXML, 0, len(policies))
+			for _, p := range policies {
+				xmlPolicies = append(xmlPolicies, AttachedPolicyXML(p))
+			}
+
+			return &ListAttachedGroupPoliciesResponse{
+				Xmlns:                           iamXMLNS,
+				ListAttachedGroupPoliciesResult: ListAttachedGroupPoliciesResult{AttachedPolicies: xmlPolicies},
+				ResponseMetadata:                ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) iamInlinePolicyDispatchTable() map[string]iamActionFn {
+	combined := make(map[string]iamActionFn)
+	maps.Copy(combined, h.iamUserRoleInlinePolicyDispatchTable())
+	maps.Copy(combined, h.iamGroupInlinePolicyDispatchTable())
+
+	return combined
+}
+
+// iamUserRoleInlinePolicyDispatchTable returns dispatch entries for user and role inline policies.
+func (h *Handler) iamUserRoleInlinePolicyDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"PutUserPolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.PutUserPolicy(
+				vals.Get("UserName"), vals.Get("PolicyName"), vals.Get("PolicyDocument"),
+			); err != nil {
+				return nil, err
+			}
+
+			return &PutUserPolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"GetUserPolicy": func(vals url.Values, reqID string) (any, error) {
+			doc, err := h.Backend.GetUserPolicy(vals.Get("UserName"), vals.Get("PolicyName"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &GetUserPolicyResponse{
+				Xmlns: iamXMLNS,
+				GetUserPolicyResult: GetUserPolicyResult{
+					UserName:       vals.Get("UserName"),
+					PolicyName:     vals.Get("PolicyName"),
+					PolicyDocument: doc,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DeleteUserPolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteUserPolicy(vals.Get("UserName"), vals.Get("PolicyName")); err != nil {
+				return nil, err
+			}
+
+			return &DeleteUserPolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"ListUserPolicies": func(vals url.Values, reqID string) (any, error) {
+			names, err := h.Backend.ListUserPolicies(vals.Get("UserName"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &ListUserPoliciesResponse{
+				Xmlns:                  iamXMLNS,
+				ListUserPoliciesResult: ListUserPoliciesResult{PolicyNames: names},
+				ResponseMetadata:       ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"PutRolePolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.PutRolePolicy(
+				vals.Get("RoleName"), vals.Get("PolicyName"), vals.Get("PolicyDocument"),
+			); err != nil {
+				return nil, err
+			}
+
+			return &PutRolePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"GetRolePolicy": func(vals url.Values, reqID string) (any, error) {
+			doc, err := h.Backend.GetRolePolicy(vals.Get("RoleName"), vals.Get("PolicyName"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &GetRolePolicyResponse{
+				Xmlns: iamXMLNS,
+				GetRolePolicyResult: GetRolePolicyResult{
+					RoleName:       vals.Get("RoleName"),
+					PolicyName:     vals.Get("PolicyName"),
+					PolicyDocument: doc,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DeleteRolePolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteRolePolicy(vals.Get("RoleName"), vals.Get("PolicyName")); err != nil {
+				return nil, err
+			}
+
+			return &DeleteRolePolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+	}
+}
+
+// iamGroupInlinePolicyDispatchTable returns dispatch entries for group inline policies.
+func (h *Handler) iamGroupInlinePolicyDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"PutGroupPolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.PutGroupPolicy(
+				vals.Get("GroupName"), vals.Get("PolicyName"), vals.Get("PolicyDocument"),
+			); err != nil {
+				return nil, err
+			}
+
+			return &PutGroupPolicyResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
+		},
+		"GetGroupPolicy": func(vals url.Values, reqID string) (any, error) {
+			doc, err := h.Backend.GetGroupPolicy(vals.Get("GroupName"), vals.Get("PolicyName"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &GetGroupPolicyResponse{
+				Xmlns: iamXMLNS,
+				GetGroupPolicyResult: GetGroupPolicyResult{
+					GroupName:      vals.Get("GroupName"),
+					PolicyName:     vals.Get("PolicyName"),
+					PolicyDocument: doc,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DeleteGroupPolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteGroupPolicy(vals.Get("GroupName"), vals.Get("PolicyName")); err != nil {
+				return nil, err
+			}
+
+			return &DeleteGroupPolicyResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"ListGroupPolicies": func(vals url.Values, reqID string) (any, error) {
+			names, err := h.Backend.ListGroupPolicies(vals.Get("GroupName"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &ListGroupPoliciesResponse{
+				Xmlns:                   iamXMLNS,
+				ListGroupPoliciesResult: ListGroupPoliciesResult{PolicyNames: names},
+				ResponseMetadata:        ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) iamPermissionBoundaryDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"PutUserPermissionsBoundary": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.PutUserPermissionsBoundary(
+				vals.Get("UserName"),
+				vals.Get("PermissionsBoundary"),
+			); err != nil {
+				return nil, err
+			}
+
+			return &PutUserPermissionsBoundaryResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DeleteUserPermissionsBoundary": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteUserPermissionsBoundary(vals.Get("UserName")); err != nil {
+				return nil, err
+			}
+
+			return &DeleteUserPermissionsBoundaryResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"PutRolePermissionsBoundary": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.PutRolePermissionsBoundary(
+				vals.Get("RoleName"),
+				vals.Get("PermissionsBoundary"),
+			); err != nil {
+				return nil, err
+			}
+
+			return &PutRolePermissionsBoundaryResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"DeleteRolePermissionsBoundary": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.DeleteRolePermissionsBoundary(vals.Get("RoleName")); err != nil {
+				return nil, err
+			}
+
+			return &DeleteRolePermissionsBoundaryResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) iamOtherOperationsDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"UpdateAssumeRolePolicy": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.UpdateAssumeRolePolicy(vals.Get("RoleName"), vals.Get("PolicyDocument")); err != nil {
+				return nil, err
+			}
+
+			return &UpdateAssumeRolePolicyResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
+func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"GetAccountAuthorizationDetails": func(_ url.Values, reqID string) (any, error) {
+			details := h.Backend.GetAccountAuthorizationDetails()
+
+			users := make([]UserDetailXML, 0, len(details.Users))
+			for _, u := range details.Users {
+				users = append(users, toUserDetailXML(u))
+			}
+
+			groups := make([]GroupDetailXML, 0, len(details.Groups))
+			for _, g := range details.Groups {
+				groups = append(groups, toGroupDetailXML(g))
+			}
+
+			roles := make([]RoleDetailXML, 0, len(details.Roles))
+			for _, r := range details.Roles {
+				roles = append(roles, toRoleDetailXML(r))
+			}
+
+			policies := make([]ManagedPolicyDetailXML, 0, len(details.Policies))
+			for i := range details.Policies {
+				policies = append(policies, toManagedPolicyDetailXML(&details.Policies[i]))
+			}
+
+			return &GetAccountAuthorizationDetailsResponse{
+				Xmlns: iamXMLNS,
+				GetAccountAuthorizationDetailsResult: GetAccountAuthorizationDetailsResult{
+					UserDetailList:  users,
+					GroupDetailList: groups,
+					RoleDetailList:  roles,
+					Policies:        policies,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"SimulatePrincipalPolicy": func(vals url.Values, reqID string) (any, error) {
+			actionNames := parseIndexedValues(vals, "ActionNames.member.")
+			resourceArns := parseIndexedValues(vals, "ResourceArns.member.")
+
+			results, err := h.Backend.SimulatePrincipalPolicy(
+				vals.Get("PolicySourceArn"), actionNames, resourceArns,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			xmlResults := make([]SimulationEvalResultXML, 0, len(results))
+			for _, r := range results {
+				xmlResults = append(xmlResults, SimulationEvalResultXML{
+					EvalActionName:   r.ActionName,
+					EvalResourceName: r.ResourceName,
+					EvalDecision:     r.Decision,
+				})
+			}
+
+			return &SimulatePrincipalPolicyResponse{
+				Xmlns: iamXMLNS,
+				SimulatePrincipalPolicyResult: SimulatePrincipalPolicyResult{
+					EvaluationResults: xmlResults,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"GenerateCredentialReport": func(_ url.Values, reqID string) (any, error) {
+			return &GenerateCredentialReportResponse{
+				Xmlns: iamXMLNS,
+				GenerateCredentialReportResult: GenerateCredentialReportResult{
+					State: "COMPLETE",
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"GetCredentialReport": func(_ url.Values, reqID string) (any, error) {
+			csv := h.Backend.GetCredentialReport()
+			encoded := base64.StdEncoding.EncodeToString([]byte(csv))
+
+			return &GetCredentialReportResponse{
+				Xmlns: iamXMLNS,
+				GetCredentialReportResult: GetCredentialReportResult{
+					Content:       encoded,
+					ReportFormat:  "text/csv",
+					GeneratedTime: time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 	}
@@ -910,7 +1269,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errors.Is(reqErr, ErrPolicyNotFound),
 		errors.Is(reqErr, ErrGroupNotFound),
 		errors.Is(reqErr, ErrAccessKeyNotFound),
-		errors.Is(reqErr, ErrInstanceProfileNotFound):
+		errors.Is(reqErr, ErrInstanceProfileNotFound),
+		errors.Is(reqErr, ErrInlinePolicyNotFound):
 		code = "NoSuchEntity"
 	case errors.Is(reqErr, ErrUserAlreadyExists),
 		errors.Is(reqErr, ErrRoleAlreadyExists),
@@ -972,17 +1332,26 @@ func newRequestID() string {
 // ---- XML conversion helpers ----
 
 func toUserXML(u *User) UserXML {
-	return UserXML{
+	x := UserXML{
 		Path:       u.Path,
 		UserName:   u.UserName,
 		UserID:     u.UserID,
 		Arn:        u.Arn,
 		CreateDate: isoTime(u.CreateDate),
 	}
+
+	if u.PermissionsBoundary != "" {
+		x.PermissionsBoundary = &PermissionsBoundaryXML{
+			PermissionsBoundaryArn:  u.PermissionsBoundary,
+			PermissionsBoundaryType: "Policy",
+		}
+	}
+
+	return x
 }
 
 func toRoleXML(r *Role) RoleXML {
-	return RoleXML{
+	x := RoleXML{
 		Path:                     r.Path,
 		RoleName:                 r.RoleName,
 		RoleID:                   r.RoleID,
@@ -990,6 +1359,15 @@ func toRoleXML(r *Role) RoleXML {
 		CreateDate:               isoTime(r.CreateDate),
 		AssumeRolePolicyDocument: r.AssumeRolePolicyDocument,
 	}
+
+	if r.PermissionsBoundary != "" {
+		x.PermissionsBoundary = &PermissionsBoundaryXML{
+			PermissionsBoundaryArn:  r.PermissionsBoundary,
+			PermissionsBoundaryType: "Policy",
+		}
+	}
+
+	return x
 }
 
 func toPolicyXML(p *Policy) PolicyXML {
@@ -1055,4 +1433,97 @@ func parseMaxItems(s string) int {
 	}
 
 	return n
+}
+
+// parseIndexedValues parses form values with a given prefix followed by an integer index.
+// Example: prefix "ActionNames.member." extracts "ActionNames.member.1", "ActionNames.member.2", etc.
+func parseIndexedValues(vals url.Values, prefix string) []string {
+	var result []string
+
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("%s%d", prefix, i))
+		if v == "" {
+			return result
+		}
+
+		result = append(result, v)
+	}
+}
+
+// ---- GetAccountAuthorizationDetails XML conversion helpers ----
+
+func toInlinePolicyEntriesXML(entries []InlinePolicyEntry) []InlinePolicyEntryXML {
+	result := make([]InlinePolicyEntryXML, 0, len(entries))
+
+	for _, e := range entries {
+		result = append(result, InlinePolicyEntryXML(e))
+	}
+
+	return result
+}
+
+func toAttachedPoliciesXML(policies []AttachedPolicy) []AttachedPolicyXML {
+	result := make([]AttachedPolicyXML, 0, len(policies))
+
+	for _, p := range policies {
+		result = append(result, AttachedPolicyXML(p))
+	}
+
+	return result
+}
+
+func toUserDetailXML(u UserDetail) UserDetailXML {
+	return UserDetailXML{
+		Path:                    u.Path,
+		UserName:                u.UserName,
+		UserID:                  u.UserID,
+		Arn:                     u.Arn,
+		CreateDate:              isoTime(u.CreateDate),
+		UserPolicyList:          toInlinePolicyEntriesXML(u.InlinePolicies),
+		AttachedManagedPolicies: toAttachedPoliciesXML(u.AttachedPolicies),
+		GroupList:               []string{},
+	}
+}
+
+func toGroupDetailXML(g GroupDetail) GroupDetailXML {
+	return GroupDetailXML{
+		Path:                    g.Path,
+		GroupName:               g.GroupName,
+		GroupID:                 g.GroupID,
+		Arn:                     g.Arn,
+		CreateDate:              isoTime(g.CreateDate),
+		GroupPolicyList:         toInlinePolicyEntriesXML(g.InlinePolicies),
+		AttachedManagedPolicies: toAttachedPoliciesXML(g.AttachedPolicies),
+	}
+}
+
+func toRoleDetailXML(r RoleDetail) RoleDetailXML {
+	return RoleDetailXML{
+		Path:                     r.Path,
+		RoleName:                 r.RoleName,
+		RoleID:                   r.RoleID,
+		Arn:                      r.Arn,
+		CreateDate:               isoTime(r.CreateDate),
+		AssumeRolePolicyDocument: r.AssumeRolePolicyDocument,
+		RolePolicyList:           toInlinePolicyEntriesXML(r.InlinePolicies),
+		AttachedManagedPolicies:  toAttachedPoliciesXML(r.AttachedPolicies),
+	}
+}
+
+func toManagedPolicyDetailXML(p *Policy) ManagedPolicyDetailXML {
+	return ManagedPolicyDetailXML{
+		PolicyName: p.PolicyName,
+		PolicyID:   p.PolicyID,
+		Arn:        p.Arn,
+		Path:       p.Path,
+		CreateDate: isoTime(p.CreateDate),
+		PolicyVersionList: []PolicyVersionXML{
+			{
+				Document:         p.PolicyDocument,
+				VersionID:        "v1",
+				IsDefaultVersion: true,
+				CreateDate:       isoTime(p.CreateDate),
+			},
+		},
+	}
 }

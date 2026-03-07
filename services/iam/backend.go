@@ -45,18 +45,20 @@ var (
 	ErrMalformedPolicyDocument = errors.New("MalformedPolicyDocument")
 	// ErrDeleteConflict is returned when an entity has attached resources that prevent deletion.
 	ErrDeleteConflict = errors.New("DeleteConflict")
+	// ErrInlinePolicyNotFound is returned when a requested inline policy does not exist.
+	ErrInlinePolicyNotFound = errors.New("NoSuchEntity")
 )
 
 // StorageBackend defines the interface for the IAM in-memory store.
 type StorageBackend interface {
 	// Users
-	CreateUser(userName, path string) (*User, error)
+	CreateUser(userName, path, permissionsBoundary string) (*User, error)
 	DeleteUser(userName string) error
 	ListUsers(marker string, maxItems int) (page.Page[User], error)
 	GetUser(userName string) (*User, error)
 
 	// Roles
-	CreateRole(roleName, path, assumeRolePolicyDocument string) (*Role, error)
+	CreateRole(roleName, path, assumeRolePolicyDocument, permissionsBoundary string) (*Role, error)
 	DeleteRole(roleName string) error
 	ListRoles(marker string, maxItems int) (page.Page[Role], error)
 	GetRole(roleName string) (*Role, error)
@@ -66,6 +68,7 @@ type StorageBackend interface {
 	DeletePolicy(policyArn string) error
 	ListPolicies(marker string, maxItems int) (page.Page[Policy], error)
 	AttachUserPolicy(userName, policyArn string) error
+	DetachUserPolicy(userName, policyArn string) error
 	AttachRolePolicy(roleName, policyArn string) error
 	DetachRolePolicy(roleName, policyArn string) error
 	ListAttachedUserPolicies(userName string) ([]AttachedPolicy, error)
@@ -73,11 +76,46 @@ type StorageBackend interface {
 	GetPolicy(policyArn string) (*Policy, error)
 	GetPolicyVersion(policyArn, versionID string) (*Policy, error)
 
+	// Inline Policies - Users
+	PutUserPolicy(userName, policyName, policyDocument string) error
+	GetUserPolicy(userName, policyName string) (string, error)
+	DeleteUserPolicy(userName, policyName string) error
+	ListUserPolicies(userName string) ([]string, error)
+
+	// Inline Policies - Roles
+	PutRolePolicy(roleName, policyName, policyDocument string) error
+	GetRolePolicy(roleName, policyName string) (string, error)
+	DeleteRolePolicy(roleName, policyName string) error
+	ListRolePolicies(roleName string) ([]string, error)
+
+	// Inline Policies - Groups
+	PutGroupPolicy(groupName, policyName, policyDocument string) error
+	GetGroupPolicy(groupName, policyName string) (string, error)
+	DeleteGroupPolicy(groupName, policyName string) error
+	ListGroupPolicies(groupName string) ([]string, error)
+
+	// Permission Boundaries
+	PutUserPermissionsBoundary(userName, policyArn string) error
+	DeleteUserPermissionsBoundary(userName string) error
+	PutRolePermissionsBoundary(roleName, policyArn string) error
+	DeleteRolePermissionsBoundary(roleName string) error
+
 	// Groups
 	CreateGroup(groupName, path string) (*Group, error)
 	DeleteGroup(groupName string) error
 	ListGroups(marker string, maxItems int) (page.Page[Group], error)
 	AddUserToGroup(groupName, userName string) error
+	AttachGroupPolicy(groupName, policyArn string) error
+	DetachGroupPolicy(groupName, policyArn string) error
+	ListAttachedGroupPolicies(groupName string) ([]AttachedPolicy, error)
+
+	// Assume Role Policy
+	UpdateAssumeRolePolicy(roleName, policyDocument string) error
+
+	// Reporting and simulation
+	GetAccountAuthorizationDetails() AccountAuthorizationDetails
+	SimulatePrincipalPolicy(principalArn string, actionNames, resourceArns []string) ([]SimulationResult, error)
+	GetCredentialReport() string
 
 	// Access Keys
 	CreateAccessKey(userName string) (*AccessKey, error)
@@ -113,11 +151,15 @@ type InMemoryBackend struct {
 	groups           map[string]Group
 	accessKeys       map[string]AccessKey
 	instanceProfiles map[string]InstanceProfile
-	// userPolicies and rolePolicies track attached policy ARNs keyed by entity name.
-	userPolicies map[string][]string // userName → []policyArn
-	rolePolicies map[string][]string // roleName → []policyArn
-	mu           *lockmetrics.RWMutex
-	accountID    string
+	// userPolicies, rolePolicies, and groupPolicies track attached policy ARNs keyed by entity name.
+	userPolicies        map[string][]string          // userName → []policyArn
+	rolePolicies        map[string][]string          // roleName → []policyArn
+	groupPolicies       map[string][]string          // groupName → []policyArn
+	userInlinePolicies  map[string]map[string]string // userName → policyName → document
+	roleInlinePolicies  map[string]map[string]string // roleName → policyName → document
+	groupInlinePolicies map[string]map[string]string // groupName → policyName → document
+	mu                  *lockmetrics.RWMutex
+	accountID           string
 }
 
 // NewInMemoryBackend creates a new empty IAM InMemoryBackend with default account ID.
@@ -128,16 +170,20 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new IAM InMemoryBackend with the given account ID.
 func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 	return &InMemoryBackend{
-		users:            make(map[string]User),
-		roles:            make(map[string]Role),
-		policies:         make(map[string]Policy),
-		groups:           make(map[string]Group),
-		accessKeys:       make(map[string]AccessKey),
-		instanceProfiles: make(map[string]InstanceProfile),
-		userPolicies:     make(map[string][]string),
-		rolePolicies:     make(map[string][]string),
-		accountID:        accountID,
-		mu:               lockmetrics.New("iam"),
+		users:               make(map[string]User),
+		roles:               make(map[string]Role),
+		policies:            make(map[string]Policy),
+		groups:              make(map[string]Group),
+		accessKeys:          make(map[string]AccessKey),
+		instanceProfiles:    make(map[string]InstanceProfile),
+		userPolicies:        make(map[string][]string),
+		rolePolicies:        make(map[string][]string),
+		groupPolicies:       make(map[string][]string),
+		userInlinePolicies:  make(map[string]map[string]string),
+		roleInlinePolicies:  make(map[string]map[string]string),
+		groupInlinePolicies: make(map[string]map[string]string),
+		accountID:           accountID,
+		mu:                  lockmetrics.New("iam"),
 	}
 }
 
@@ -159,7 +205,7 @@ func normPath(path string) string {
 // ---- Users ----
 
 // CreateUser creates a new IAM user.
-func (b *InMemoryBackend) CreateUser(userName, path string) (*User, error) {
+func (b *InMemoryBackend) CreateUser(userName, path, permissionsBoundary string) (*User, error) {
 	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
@@ -169,11 +215,12 @@ func (b *InMemoryBackend) CreateUser(userName, path string) (*User, error) {
 
 	p := normPath(path)
 	u := User{
-		UserName:   userName,
-		UserID:     newID("AIDA"),
-		Arn:        arn.Build("iam", "", b.accountID, "user"+p+userName),
-		Path:       p,
-		CreateDate: time.Now().UTC(),
+		UserName:            userName,
+		UserID:              newID("AIDA"),
+		Arn:                 arn.Build("iam", "", b.accountID, "user"+p+userName),
+		Path:                p,
+		CreateDate:          time.Now().UTC(),
+		PermissionsBoundary: permissionsBoundary,
 	}
 	b.users[userName] = u
 
@@ -191,6 +238,10 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 
 	if len(b.userPolicies[userName]) > 0 {
 		return fmt.Errorf("%w: user %q has attached policies", ErrDeleteConflict, userName)
+	}
+
+	if len(b.userInlinePolicies[userName]) > 0 {
+		return fmt.Errorf("%w: user %q has inline policies", ErrDeleteConflict, userName)
 	}
 
 	delete(b.users, userName)
@@ -222,7 +273,9 @@ func (b *InMemoryBackend) GetUser(userName string) (*User, error) {
 // ---- Roles ----
 
 // CreateRole creates a new IAM role.
-func (b *InMemoryBackend) CreateRole(roleName, path, assumeRolePolicyDocument string) (*Role, error) {
+func (b *InMemoryBackend) CreateRole(
+	roleName, path, assumeRolePolicyDocument, permissionsBoundary string,
+) (*Role, error) {
 	b.mu.Lock("CreateRole")
 	defer b.mu.Unlock()
 
@@ -242,6 +295,7 @@ func (b *InMemoryBackend) CreateRole(roleName, path, assumeRolePolicyDocument st
 		Path:                     p,
 		AssumeRolePolicyDocument: assumeRolePolicyDocument,
 		CreateDate:               time.Now().UTC(),
+		PermissionsBoundary:      permissionsBoundary,
 	}
 	b.roles[roleName] = r
 
@@ -259,6 +313,10 @@ func (b *InMemoryBackend) DeleteRole(roleName string) error {
 
 	if len(b.rolePolicies[roleName]) > 0 {
 		return fmt.Errorf("%w: role %q has attached policies", ErrDeleteConflict, roleName)
+	}
+
+	if len(b.roleInlinePolicies[roleName]) > 0 {
+		return fmt.Errorf("%w: role %q has inline policies", ErrDeleteConflict, roleName)
 	}
 
 	delete(b.roles, roleName)
@@ -386,6 +444,27 @@ func (b *InMemoryBackend) AttachUserPolicy(userName, policyArn string) error {
 	return nil
 }
 
+// DetachUserPolicy detaches a policy from a user.
+func (b *InMemoryBackend) DetachUserPolicy(userName, policyArn string) error {
+	b.mu.Lock("DetachUserPolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	policies := b.userPolicies[userName]
+	for i, p := range policies {
+		if p == policyArn {
+			b.userPolicies[userName] = append(policies[:i], policies[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return nil
+}
+
 // AttachRolePolicy attaches a policy to a role.
 func (b *InMemoryBackend) AttachRolePolicy(roleName, policyArn string) error {
 	b.mu.Lock("AttachRolePolicy")
@@ -458,6 +537,14 @@ func (b *InMemoryBackend) DeleteGroup(groupName string) error {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
 	}
 
+	if len(b.groupPolicies[groupName]) > 0 {
+		return fmt.Errorf("%w: group %q has attached policies", ErrDeleteConflict, groupName)
+	}
+
+	if len(b.groupInlinePolicies[groupName]) > 0 {
+		return fmt.Errorf("%w: group %q has inline policies", ErrDeleteConflict, groupName)
+	}
+
 	delete(b.groups, groupName)
 
 	return nil
@@ -477,6 +564,65 @@ func (b *InMemoryBackend) AddUserToGroup(groupName, userName string) error {
 	}
 
 	return nil
+}
+
+// AttachGroupPolicy attaches a policy to a group.
+func (b *InMemoryBackend) AttachGroupPolicy(groupName, policyArn string) error {
+	b.mu.Lock("AttachGroupPolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	if slices.Contains(b.groupPolicies[groupName], policyArn) {
+		return nil // already attached
+	}
+
+	b.groupPolicies[groupName] = append(b.groupPolicies[groupName], policyArn)
+
+	return nil
+}
+
+// DetachGroupPolicy detaches a policy from a group.
+func (b *InMemoryBackend) DetachGroupPolicy(groupName, policyArn string) error {
+	b.mu.Lock("DetachGroupPolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	policies := b.groupPolicies[groupName]
+	for i, p := range policies {
+		if p == policyArn {
+			b.groupPolicies[groupName] = append(policies[:i], policies[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return nil
+}
+
+// ListAttachedGroupPolicies returns all policy ARNs attached to the named group.
+func (b *InMemoryBackend) ListAttachedGroupPolicies(groupName string) ([]AttachedPolicy, error) {
+	b.mu.RLock("ListAttachedGroupPolicies")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	arns := b.groupPolicies[groupName]
+	result := make([]AttachedPolicy, 0, len(arns))
+
+	for _, a := range arns {
+		name := policyNameFromARN(a)
+		result = append(result, AttachedPolicy{PolicyName: name, PolicyArn: a})
+	}
+
+	return result, nil
 }
 
 // ListGroups returns a paginated list of IAM groups sorted by name.
@@ -846,4 +992,619 @@ func (b *InMemoryBackend) GetPoliciesForUser(userName string) ([]string, error) 
 	}
 
 	return docs, nil
+}
+
+// ---- Inline Policies ----
+
+// PutUserPolicy creates or replaces an inline policy on a user.
+func (b *InMemoryBackend) PutUserPolicy(userName, policyName, policyDocument string) error {
+	b.mu.Lock("PutUserPolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
+		return fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
+	}
+
+	if b.userInlinePolicies[userName] == nil {
+		b.userInlinePolicies[userName] = make(map[string]string)
+	}
+
+	b.userInlinePolicies[userName][policyName] = policyDocument
+
+	return nil
+}
+
+// GetUserPolicy retrieves an inline policy document from a user.
+func (b *InMemoryBackend) GetUserPolicy(userName, policyName string) (string, error) {
+	b.mu.RLock("GetUserPolicy")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return "", fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	doc, exists := b.userInlinePolicies[userName][policyName]
+	if !exists {
+		return "", fmt.Errorf(
+			"%w: inline policy %q not found on user %q",
+			ErrInlinePolicyNotFound,
+			policyName,
+			userName,
+		)
+	}
+
+	return doc, nil
+}
+
+// DeleteUserPolicy removes an inline policy from a user.
+func (b *InMemoryBackend) DeleteUserPolicy(userName, policyName string) error {
+	b.mu.Lock("DeleteUserPolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	if _, exists := b.userInlinePolicies[userName][policyName]; !exists {
+		return fmt.Errorf("%w: inline policy %q not found on user %q", ErrInlinePolicyNotFound, policyName, userName)
+	}
+
+	delete(b.userInlinePolicies[userName], policyName)
+
+	return nil
+}
+
+// ListUserPolicies returns sorted inline policy names for a user.
+func (b *InMemoryBackend) ListUserPolicies(userName string) ([]string, error) {
+	b.mu.RLock("ListUserPolicies")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.users[userName]; !exists {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	names := make([]string, 0, len(b.userInlinePolicies[userName]))
+	for name := range b.userInlinePolicies[userName] {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names, nil
+}
+
+// PutRolePolicy creates or replaces an inline policy on a role.
+func (b *InMemoryBackend) PutRolePolicy(roleName, policyName, policyDocument string) error {
+	b.mu.Lock("PutRolePolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
+		return fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
+	}
+
+	if b.roleInlinePolicies[roleName] == nil {
+		b.roleInlinePolicies[roleName] = make(map[string]string)
+	}
+
+	b.roleInlinePolicies[roleName][policyName] = policyDocument
+
+	return nil
+}
+
+// GetRolePolicy retrieves an inline policy document from a role.
+func (b *InMemoryBackend) GetRolePolicy(roleName, policyName string) (string, error) {
+	b.mu.RLock("GetRolePolicy")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return "", fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	doc, exists := b.roleInlinePolicies[roleName][policyName]
+	if !exists {
+		return "", fmt.Errorf(
+			"%w: inline policy %q not found on role %q",
+			ErrInlinePolicyNotFound,
+			policyName,
+			roleName,
+		)
+	}
+
+	return doc, nil
+}
+
+// DeleteRolePolicy removes an inline policy from a role.
+func (b *InMemoryBackend) DeleteRolePolicy(roleName, policyName string) error {
+	b.mu.Lock("DeleteRolePolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if _, exists := b.roleInlinePolicies[roleName][policyName]; !exists {
+		return fmt.Errorf("%w: inline policy %q not found on role %q", ErrInlinePolicyNotFound, policyName, roleName)
+	}
+
+	delete(b.roleInlinePolicies[roleName], policyName)
+
+	return nil
+}
+
+// ListRolePolicies returns sorted inline policy names for a role.
+func (b *InMemoryBackend) ListRolePolicies(roleName string) ([]string, error) {
+	b.mu.RLock("ListRolePolicies")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.roles[roleName]; !exists {
+		return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	names := make([]string, 0, len(b.roleInlinePolicies[roleName]))
+	for name := range b.roleInlinePolicies[roleName] {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names, nil
+}
+
+// PutGroupPolicy creates or replaces an inline policy on a group.
+func (b *InMemoryBackend) PutGroupPolicy(groupName, policyName, policyDocument string) error {
+	b.mu.Lock("PutGroupPolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
+		return fmt.Errorf("%w: invalid JSON in PolicyDocument", ErrMalformedPolicyDocument)
+	}
+
+	if b.groupInlinePolicies[groupName] == nil {
+		b.groupInlinePolicies[groupName] = make(map[string]string)
+	}
+
+	b.groupInlinePolicies[groupName][policyName] = policyDocument
+
+	return nil
+}
+
+// GetGroupPolicy retrieves an inline policy document from a group.
+func (b *InMemoryBackend) GetGroupPolicy(groupName, policyName string) (string, error) {
+	b.mu.RLock("GetGroupPolicy")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return "", fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	doc, exists := b.groupInlinePolicies[groupName][policyName]
+	if !exists {
+		return "", fmt.Errorf(
+			"%w: inline policy %q not found on group %q",
+			ErrInlinePolicyNotFound,
+			policyName,
+			groupName,
+		)
+	}
+
+	return doc, nil
+}
+
+// DeleteGroupPolicy removes an inline policy from a group.
+func (b *InMemoryBackend) DeleteGroupPolicy(groupName, policyName string) error {
+	b.mu.Lock("DeleteGroupPolicy")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	if _, exists := b.groupInlinePolicies[groupName][policyName]; !exists {
+		return fmt.Errorf("%w: inline policy %q not found on group %q", ErrInlinePolicyNotFound, policyName, groupName)
+	}
+
+	delete(b.groupInlinePolicies[groupName], policyName)
+
+	return nil
+}
+
+// ListGroupPolicies returns sorted inline policy names for a group.
+func (b *InMemoryBackend) ListGroupPolicies(groupName string) ([]string, error) {
+	b.mu.RLock("ListGroupPolicies")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	names := make([]string, 0, len(b.groupInlinePolicies[groupName]))
+	for name := range b.groupInlinePolicies[groupName] {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return names, nil
+}
+
+// ---- Permission Boundaries ----
+
+// PutUserPermissionsBoundary sets the permissions boundary on a user.
+func (b *InMemoryBackend) PutUserPermissionsBoundary(userName, policyArn string) error {
+	b.mu.Lock("PutUserPermissionsBoundary")
+	defer b.mu.Unlock()
+
+	u, exists := b.users[userName]
+	if !exists {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	u.PermissionsBoundary = policyArn
+	b.users[userName] = u
+
+	return nil
+}
+
+// DeleteUserPermissionsBoundary clears the permissions boundary on a user.
+func (b *InMemoryBackend) DeleteUserPermissionsBoundary(userName string) error {
+	b.mu.Lock("DeleteUserPermissionsBoundary")
+	defer b.mu.Unlock()
+
+	u, exists := b.users[userName]
+	if !exists {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	u.PermissionsBoundary = ""
+	b.users[userName] = u
+
+	return nil
+}
+
+// PutRolePermissionsBoundary sets the permissions boundary on a role.
+func (b *InMemoryBackend) PutRolePermissionsBoundary(roleName, policyArn string) error {
+	b.mu.Lock("PutRolePermissionsBoundary")
+	defer b.mu.Unlock()
+
+	r, exists := b.roles[roleName]
+	if !exists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	r.PermissionsBoundary = policyArn
+	b.roles[roleName] = r
+
+	return nil
+}
+
+// DeleteRolePermissionsBoundary clears the permissions boundary on a role.
+func (b *InMemoryBackend) DeleteRolePermissionsBoundary(roleName string) error {
+	b.mu.Lock("DeleteRolePermissionsBoundary")
+	defer b.mu.Unlock()
+
+	r, exists := b.roles[roleName]
+	if !exists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	r.PermissionsBoundary = ""
+	b.roles[roleName] = r
+
+	return nil
+}
+
+// ---- UpdateAssumeRolePolicy ----
+
+// UpdateAssumeRolePolicy updates the assume-role policy document on a role.
+func (b *InMemoryBackend) UpdateAssumeRolePolicy(roleName, policyDocument string) error {
+	b.mu.Lock("UpdateAssumeRolePolicy")
+	defer b.mu.Unlock()
+
+	r, exists := b.roles[roleName]
+	if !exists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if policyDocument != "" && !json.Valid([]byte(policyDocument)) {
+		return fmt.Errorf("%w: invalid JSON in AssumeRolePolicyDocument", ErrMalformedPolicyDocument)
+	}
+
+	r.AssumeRolePolicyDocument = policyDocument
+	b.roles[roleName] = r
+
+	return nil
+}
+
+// ---- AccountAuthorizationDetails and Simulation ----
+
+// InlinePolicyEntry is an inline policy name/document pair used in AccountAuthorizationDetails.
+type InlinePolicyEntry struct {
+	PolicyName     string
+	PolicyDocument string
+}
+
+// UserDetail holds user data and all associated policies for GetAccountAuthorizationDetails.
+type UserDetail struct {
+	User
+
+	AttachedPolicies []AttachedPolicy
+	InlinePolicies   []InlinePolicyEntry
+}
+
+// GroupDetail holds group data and all associated policies for GetAccountAuthorizationDetails.
+type GroupDetail struct {
+	Group
+
+	AttachedPolicies []AttachedPolicy
+	InlinePolicies   []InlinePolicyEntry
+}
+
+// RoleDetail holds role data and all associated policies for GetAccountAuthorizationDetails.
+type RoleDetail struct {
+	Role
+
+	AttachedPolicies []AttachedPolicy
+	InlinePolicies   []InlinePolicyEntry
+}
+
+// AccountAuthorizationDetails is the full IAM entity dump returned by GetAccountAuthorizationDetails.
+type AccountAuthorizationDetails struct {
+	Users    []UserDetail
+	Groups   []GroupDetail
+	Roles    []RoleDetail
+	Policies []Policy
+}
+
+// SimulationResult is the outcome of evaluating a single action/resource pair.
+type SimulationResult struct {
+	ActionName   string
+	ResourceName string
+	Decision     string // "allowed", "implicitDeny", or "explicitDeny"
+}
+
+// GetAccountAuthorizationDetails returns a full dump of all IAM entities and their policies.
+func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationDetails {
+	b.mu.RLock("GetAccountAuthorizationDetails")
+	defer b.mu.RUnlock()
+
+	// Build user details.
+	users := make([]UserDetail, 0, len(b.users))
+	for _, u := range b.users {
+		user := u
+		attached := attachedFromARNs(b.userPolicies[u.UserName])
+		inline := inlineEntries(b.userInlinePolicies[u.UserName])
+		users = append(users, UserDetail{User: user, AttachedPolicies: attached, InlinePolicies: inline})
+	}
+
+	sort.Slice(users, func(i, j int) bool { return users[i].UserName < users[j].UserName })
+
+	// Build group details.
+	groups := make([]GroupDetail, 0, len(b.groups))
+	for _, g := range b.groups {
+		group := g
+		attached := attachedFromARNs(b.groupPolicies[g.GroupName])
+		inline := inlineEntries(b.groupInlinePolicies[g.GroupName])
+		groups = append(groups, GroupDetail{Group: group, AttachedPolicies: attached, InlinePolicies: inline})
+	}
+
+	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
+
+	// Build role details.
+	roles := make([]RoleDetail, 0, len(b.roles))
+	for _, r := range b.roles {
+		role := r
+		attached := attachedFromARNs(b.rolePolicies[r.RoleName])
+		inline := inlineEntries(b.roleInlinePolicies[r.RoleName])
+		roles = append(roles, RoleDetail{Role: role, AttachedPolicies: attached, InlinePolicies: inline})
+	}
+
+	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
+
+	// Build managed policy list.
+	policies := make([]Policy, 0, len(b.policies))
+	for _, p := range b.policies {
+		policies = append(policies, p)
+	}
+
+	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
+
+	return AccountAuthorizationDetails{
+		Users:    users,
+		Groups:   groups,
+		Roles:    roles,
+		Policies: policies,
+	}
+}
+
+// attachedFromARNs converts a slice of policy ARNs to AttachedPolicy entries.
+func attachedFromARNs(arns []string) []AttachedPolicy {
+	result := make([]AttachedPolicy, 0, len(arns))
+
+	for _, a := range arns {
+		result = append(result, AttachedPolicy{PolicyName: policyNameFromARN(a), PolicyArn: a})
+	}
+
+	return result
+}
+
+// inlineEntries converts a policyName→document map to sorted InlinePolicyEntry slices.
+func inlineEntries(m map[string]string) []InlinePolicyEntry {
+	result := make([]InlinePolicyEntry, 0, len(m))
+
+	for name, doc := range m {
+		result = append(result, InlinePolicyEntry{PolicyName: name, PolicyDocument: doc})
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].PolicyName < result[j].PolicyName })
+
+	return result
+}
+
+// SimulatePrincipalPolicy evaluates a set of actions against a set of resources
+// for the given principal ARN, returning a result per action×resource pair.
+//
+// Supported principal ARN formats:
+//   - arn:aws:iam::<account>:user/<name>
+//   - arn:aws:iam::<account>:role/<name>
+func (b *InMemoryBackend) SimulatePrincipalPolicy(
+	principalArn string, actionNames, resourceArns []string,
+) ([]SimulationResult, error) {
+	b.mu.RLock("SimulatePrincipalPolicy")
+	defer b.mu.RUnlock()
+
+	policyDocs, err := b.collectPrincipalPolicies(principalArn)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resourceArns) == 0 {
+		resourceArns = []string{"*"}
+	}
+
+	results := make([]SimulationResult, 0, len(actionNames)*len(resourceArns))
+	for _, action := range actionNames {
+		for _, resource := range resourceArns {
+			evalResult := EvaluatePolicies(policyDocs, action, resource, ConditionContext{})
+
+			var decision string
+
+			switch evalResult {
+			case EvalAllow:
+				decision = "allowed"
+			case EvalExplicitDeny:
+				decision = "explicitDeny"
+			default:
+				decision = "implicitDeny"
+			}
+
+			results = append(results, SimulationResult{
+				ActionName:   action,
+				ResourceName: resource,
+				Decision:     decision,
+			})
+		}
+	}
+
+	return results, nil
+}
+
+// collectPrincipalPolicies returns all policy documents for the given principal ARN.
+// It looks at both inline policies and attached managed policies.
+func (b *InMemoryBackend) collectPrincipalPolicies(principalArn string) ([]string, error) {
+	const (
+		userPrefix = ":user/"
+		rolePrefix = ":role/"
+	)
+
+	switch {
+	case strings.Contains(principalArn, userPrefix):
+		idx := strings.LastIndex(principalArn, userPrefix)
+		userName := principalArn[idx+len(userPrefix):]
+
+		if _, exists := b.users[userName]; !exists {
+			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+		}
+
+		return b.collectEntityPolicies(b.userPolicies[userName], b.userInlinePolicies[userName]), nil
+
+	case strings.Contains(principalArn, rolePrefix):
+		idx := strings.LastIndex(principalArn, rolePrefix)
+		roleName := principalArn[idx+len(rolePrefix):]
+
+		if _, exists := b.roles[roleName]; !exists {
+			return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+		}
+
+		return b.collectEntityPolicies(b.rolePolicies[roleName], b.roleInlinePolicies[roleName]), nil
+
+	default:
+		return nil, fmt.Errorf("%w: unsupported principal ARN format %q", ErrUserNotFound, principalArn)
+	}
+}
+
+// collectEntityPolicies collects policy documents from attached ARNs and inline policies.
+func (b *InMemoryBackend) collectEntityPolicies(
+	attachedARNs []string, inlinePols map[string]string,
+) []string {
+	var docs []string
+
+	for _, policyArn := range attachedARNs {
+		for _, p := range b.policies {
+			if p.Arn == policyArn && p.PolicyDocument != "" {
+				docs = append(docs, p.PolicyDocument)
+
+				break
+			}
+		}
+	}
+
+	for _, doc := range inlinePols {
+		if doc != "" {
+			docs = append(docs, doc)
+		}
+	}
+
+	return docs
+}
+
+// credentialReportHeader is the CSV header for the credential report.
+const credentialReportHeader = "user,arn,user_creation_time,password_enabled,password_last_used," +
+	"password_last_changed,password_next_rotation,mfa_active," +
+	"access_key_1_active,access_key_1_last_rotated,access_key_1_last_used_date," +
+	"access_key_1_last_used_region,access_key_1_last_used_service," +
+	"access_key_2_active,access_key_2_last_rotated,access_key_2_last_used_date," +
+	"access_key_2_last_used_region,access_key_2_last_used_service," +
+	"cert_1_active,cert_1_last_rotated,cert_2_active,cert_2_last_rotated"
+
+// GetCredentialReport generates and returns a base64-encoded CSV credential report.
+// The report always includes the root account row followed by all IAM users.
+func (b *InMemoryBackend) GetCredentialReport() string {
+	b.mu.RLock("GetCredentialReport")
+	defer b.mu.RUnlock()
+
+	notApplicable := "N/A"
+	falseStr := "false"
+	noInfo := "no_information"
+
+	users := sortedUsers(b.users)
+	// 2 = header line + root account line
+	const extraRows = 2
+	lines := make([]string, 0, extraRows+len(users))
+	lines = append(lines, credentialReportHeader)
+
+	// Root account row.
+	rootArn := "arn:aws:iam::" + b.accountID + ":root"
+	lines = append(lines, strings.Join([]string{
+		"<root_account>", rootArn, time.Now().UTC().Format(time.RFC3339),
+		notApplicable, noInfo, notApplicable, notApplicable, falseStr,
+		falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
+		falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
+		falseStr, notApplicable, falseStr, notApplicable,
+	}, ","))
+
+	// One row per user, sorted by name.
+	for _, u := range users {
+		createdAt := u.CreateDate.UTC().Format(time.RFC3339)
+		lines = append(lines, strings.Join([]string{
+			u.UserName, u.Arn, createdAt,
+			falseStr, noInfo, notApplicable, notApplicable, falseStr,
+			falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
+			falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
+			falseStr, notApplicable, falseStr, notApplicable,
+		}, ","))
+	}
+
+	return strings.Join(lines, "\n")
 }
