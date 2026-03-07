@@ -54,7 +54,7 @@ func (n *noopBackend) CreateResource(_ string, _ string, _ string) (*apigateway.
 func (n *noopBackend) DeleteResource(_ string, _ string) error { return nil }
 
 func (n *noopBackend) PutMethod(
-	_ string, _ string, _ string, _ string, _ string, _ bool,
+	_ string, _ string, _ string, _ string, _ string, _ string, _ bool,
 ) (*apigateway.Method, error) {
 	return nil, errNoopNotImplemented
 }
@@ -335,7 +335,7 @@ func TestHandleRESTAPI_Branches(t *testing.T) {
 				api, _ := b.CreateRestAPI("api", "", nil)
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
-				_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", false)
+				_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
 
 				return fmt.Sprintf("/restapis/%s/resources/%s/methods/GET", api.ID, rootID)
 			},
@@ -799,7 +799,7 @@ func TestMethodActions_RESTPathCoverage(t *testing.T) {
 			setup: func(b *apigateway.InMemoryBackend) string {
 				api, _ := b.CreateRestAPI("api", "", nil)
 				resources, _, _ := b.GetResources(api.ID, "", 0)
-				_, _ = b.PutMethod(api.ID, resources[0].ID, "POST", "NONE", "", false)
+				_, _ = b.PutMethod(api.ID, resources[0].ID, "POST", "NONE", "", "", false)
 
 				return fmt.Sprintf("/restapis/%s/resources/%s/methods/POST", api.ID, resources[0].ID)
 			},
@@ -1149,7 +1149,7 @@ func TestHandler_RESTPath_Integration(t *testing.T) {
 			require.NoError(t, err)
 			rootID := resources[0].ID
 
-			_, err = backend.PutMethod(api.ID, rootID, "GET", "NONE", "", false)
+			_, err = backend.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
 			require.NoError(t, err)
 
 			// Ensure integration exists for GET and DELETE operations.

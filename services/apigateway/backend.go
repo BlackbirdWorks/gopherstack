@@ -17,14 +17,16 @@ import (
 )
 
 var (
-	ErrRestAPINotFound    = errors.New("NotFoundException")
-	ErrResourceNotFound   = errors.New("NotFoundException")
-	ErrMethodNotFound     = errors.New("NotFoundException")
-	ErrDeploymentNotFound = errors.New("NotFoundException")
-	ErrAuthorizerNotFound = errors.New("NotFoundException")
-	ErrValidatorNotFound  = errors.New("NotFoundException")
-	ErrAlreadyExists      = awserr.New("ConflictException", awserr.ErrAlreadyExists)
-	ErrInvalidParameter   = errors.New("BadRequestException")
+	ErrRestAPINotFound             = errors.New("NotFoundException")
+	ErrResourceNotFound            = errors.New("NotFoundException")
+	ErrMethodNotFound              = errors.New("NotFoundException")
+	ErrMethodResponseNotFound      = errors.New("NotFoundException")
+	ErrIntegrationResponseNotFound = errors.New("NotFoundException")
+	ErrDeploymentNotFound          = errors.New("NotFoundException")
+	ErrAuthorizerNotFound          = errors.New("NotFoundException")
+	ErrValidatorNotFound           = errors.New("NotFoundException")
+	ErrAlreadyExists               = awserr.New("ConflictException", awserr.ErrAlreadyExists)
+	ErrInvalidParameter            = errors.New("BadRequestException")
 )
 
 // StorageBackend is the interface for the API Gateway in-memory store.
@@ -42,7 +44,10 @@ type StorageBackend interface {
 	DeleteResource(restAPIID, resourceID string) error
 
 	// Methods
-	PutMethod(restAPIID, resourceID, httpMethod, authType, authorizerID string, apiKeyRequired bool) (*Method, error)
+	PutMethod(
+		restAPIID, resourceID, httpMethod, authType, authorizerID, requestValidatorID string,
+		apiKeyRequired bool,
+	) (*Method, error)
 	GetMethod(restAPIID, resourceID, httpMethod string) (*Method, error)
 	DeleteMethod(restAPIID, resourceID, httpMethod string) error
 
@@ -354,7 +359,7 @@ func (b *InMemoryBackend) DeleteResource(restAPIID, resourceID string) error {
 
 // PutMethod creates or replaces a method on a resource.
 func (b *InMemoryBackend) PutMethod(
-	restAPIID, resourceID, httpMethod, authType, authorizerID string,
+	restAPIID, resourceID, httpMethod, authType, authorizerID, requestValidatorID string,
 	apiKeyRequired bool,
 ) (*Method, error) {
 	b.mu.Lock("PutMethod")
@@ -370,12 +375,13 @@ func (b *InMemoryBackend) PutMethod(
 	}
 
 	m := &Method{
-		HTTPMethod:        httpMethod,
-		AuthorizationType: authType,
-		AuthorizerID:      authorizerID,
-		APIKeyRequired:    apiKeyRequired,
-		RequestParameters: make(map[string]bool),
-		MethodResponses:   make(map[string]*MethodResponse),
+		HTTPMethod:         httpMethod,
+		AuthorizationType:  authType,
+		AuthorizerID:       authorizerID,
+		RequestValidatorID: requestValidatorID,
+		APIKeyRequired:     apiKeyRequired,
+		RequestParameters:  make(map[string]bool),
+		MethodResponses:    make(map[string]*MethodResponse),
 	}
 	r.ResourceMethods[httpMethod] = m
 
@@ -570,7 +576,7 @@ func (b *InMemoryBackend) GetMethodResponse(
 	}
 	mr, ok := m.MethodResponses[statusCode]
 	if !ok {
-		return nil, fmt.Errorf("%w: method response %s not found", ErrMethodNotFound, statusCode)
+		return nil, fmt.Errorf("%w: method response %s not found", ErrMethodResponseNotFound, statusCode)
 	}
 	cp := *mr
 
@@ -595,7 +601,7 @@ func (b *InMemoryBackend) DeleteMethodResponse(restAPIID, resourceID, httpMethod
 		return fmt.Errorf("%w: method %s not found", ErrMethodNotFound, httpMethod)
 	}
 	if _, exists := m.MethodResponses[statusCode]; !exists {
-		return fmt.Errorf("%w: method response %s not found", ErrMethodNotFound, statusCode)
+		return fmt.Errorf("%w: method response %s not found", ErrMethodResponseNotFound, statusCode)
 	}
 	delete(m.MethodResponses, statusCode)
 
@@ -630,6 +636,7 @@ func (b *InMemoryBackend) PutIntegrationResponse(
 		StatusCode:         statusCode,
 		ResponseTemplates:  input.ResponseTemplates,
 		ResponseParameters: input.ResponseParameters,
+		SelectionPattern:   input.SelectionPattern,
 	}
 	if m.MethodIntegration.IntegrationResponses == nil {
 		m.MethodIntegration.IntegrationResponses = make(map[string]*IntegrationResponse)
@@ -665,7 +672,7 @@ func (b *InMemoryBackend) GetIntegrationResponse(
 	}
 	ir, ok := m.MethodIntegration.IntegrationResponses[statusCode]
 	if !ok {
-		return nil, fmt.Errorf("%w: integration response %s not found", ErrMethodNotFound, statusCode)
+		return nil, fmt.Errorf("%w: integration response %s not found", ErrIntegrationResponseNotFound, statusCode)
 	}
 	cp := *ir
 
@@ -693,7 +700,7 @@ func (b *InMemoryBackend) DeleteIntegrationResponse(restAPIID, resourceID, httpM
 		return fmt.Errorf("%w: integration not found for method %s", ErrMethodNotFound, httpMethod)
 	}
 	if _, exists := m.MethodIntegration.IntegrationResponses[statusCode]; !exists {
-		return fmt.Errorf("%w: integration response %s not found", ErrMethodNotFound, statusCode)
+		return fmt.Errorf("%w: integration response %s not found", ErrIntegrationResponseNotFound, statusCode)
 	}
 	delete(m.MethodIntegration.IntegrationResponses, statusCode)
 

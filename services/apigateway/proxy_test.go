@@ -790,3 +790,338 @@ func TestExtractLambdaFunctionName(t *testing.T) {
 		})
 	}
 }
+
+// captureAuthInvoker records the payload and returns a configurable response.
+type captureAuthInvoker struct {
+	returnError error
+	capturedFn  string
+	response    []byte
+}
+
+func (m *captureAuthInvoker) InvokeFunction(_ context.Context, fn, _ string, _ []byte) ([]byte, int, error) {
+	m.capturedFn = fn
+	if m.returnError != nil {
+		return nil, http.StatusInternalServerError, m.returnError
+	}
+
+	if m.response != nil {
+		return m.response, http.StatusOK, nil
+	}
+
+	return []byte(`{}`), http.StatusOK, nil
+}
+
+// setupAuthorizerAPI creates an API with a /secure resource associated with an authorizer.
+// Returns (handler, echoEngine, apiID).
+func setupAuthorizerAPI(
+	t *testing.T,
+	authType string,
+) (*apigateway.Handler, *echo.Echo, string) {
+	t.Helper()
+
+	backend := apigateway.NewInMemoryBackend()
+	h := apigateway.NewHandler(backend)
+	e := echo.New()
+
+	// Create REST API.
+	createRec := postWithHandler(t, h, e, "CreateRestApi", `{"name":"auth-api","description":"test"}`)
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	apiID := createResp["id"].(string)
+
+	// Get root resource.
+	listRec := postWithHandler(t, h, e, "GetResources", `{"restApiId":"`+apiID+`"}`)
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	rootID := listResp["item"].([]any)[0].(map[string]any)["id"].(string)
+
+	// Create /secure resource.
+	childRec := postWithHandler(t, h, e, "CreateResource",
+		`{"restApiId":"`+apiID+`","parentId":"`+rootID+`","pathPart":"secure"}`)
+	require.Equal(t, http.StatusCreated, childRec.Code)
+
+	var childResp map[string]any
+	require.NoError(t, json.Unmarshal(childRec.Body.Bytes(), &childResp))
+	childID := childResp["id"].(string)
+
+	// Create authorizer.
+	authBody := `{
+"restApiId":"` + apiID + `",
+"name":"test-auth",
+"type":"` + authType + `",
+"identitySource":"method.request.header.Authorization",
+"authorizerUri":"arn:aws:lambda:us-east-1:123:function:authFn"
+}`
+	authRec := postWithHandler(t, h, e, "CreateAuthorizer", authBody)
+	require.Equal(t, http.StatusCreated, authRec.Code)
+
+	var authResp map[string]any
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+	authID := authResp["id"].(string)
+
+	// PutMethod with authorizerId.
+	methodBody := `{
+"restApiId":"` + apiID + `",
+"resourceId":"` + childID + `",
+"httpMethod":"GET",
+"authorizationType":"CUSTOM",
+"authorizerId":"` + authID + `"
+}`
+	methodRec := postWithHandler(t, h, e, "PutMethod", methodBody)
+	require.Equal(t, http.StatusCreated, methodRec.Code)
+
+	// PutIntegration (MOCK so we can test the authorizer in isolation).
+	integBody := `{
+"restApiId":"` + apiID + `",
+"resourceId":"` + childID + `",
+"httpMethod":"GET",
+"type":"MOCK"
+}`
+	integRec := postWithHandler(t, h, e, "PutIntegration", integBody)
+	require.Equal(t, http.StatusCreated, integRec.Code)
+
+	// CreateDeployment.
+	deplRec := postWithHandler(t, h, e, "CreateDeployment",
+		`{"restApiId":"`+apiID+`","stageName":"prod","description":"v1"}`)
+	require.Equal(t, http.StatusCreated, deplRec.Code)
+
+	return h, e, apiID
+}
+
+// allowPolicy returns a standard "Allow" IAM policy response from a Lambda authorizer.
+func allowPolicy() []byte {
+	return []byte(`{"principalId":"u","policyDocument":{"Statement":[` +
+		`{"Effect":"Allow","Action":"execute-api:Invoke","Resource":"arn:*"}]}}`)
+}
+
+// denyPolicy returns a standard "Deny" IAM policy response from a Lambda authorizer.
+func denyPolicy() []byte {
+	return []byte(`{"principalId":"u","policyDocument":{"Statement":[` +
+		`{"Effect":"Deny","Action":"execute-api:Invoke","Resource":"arn:*"}]}}`)
+}
+
+// authReq sends a GET request with an optional Authorization header to /restapis/.../prod/_user_request_/secure.
+func authReq(
+	t *testing.T,
+	h *apigateway.Handler,
+	e *echo.Echo,
+	apiID, token string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	url := "/restapis/" + apiID + "/prod/_user_request_/secure"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+
+	if token != "" {
+		req.Header.Set("Authorization", token)
+	}
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+func TestRunAuthorizer_TOKEN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		invokerErr  error
+		name        string
+		invokerResp []byte
+		wantStatus  int
+		setInvoker  bool
+	}{
+		{
+			name:        "allow_returns_200",
+			invokerResp: allowPolicy(),
+			setInvoker:  true,
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "deny_returns_403",
+			invokerResp: denyPolicy(),
+			setInvoker:  true,
+			wantStatus:  http.StatusForbidden,
+		},
+		{
+			name:       "no_lambda_invoker_returns_503",
+			setInvoker: false,
+			wantStatus: http.StatusServiceUnavailable,
+		},
+		{
+			name:       "invocation_failure_returns_401",
+			invokerErr: errLambdaError,
+			setInvoker: true,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:        "malformed_response_returns_401",
+			invokerResp: []byte("not json"),
+			setInvoker:  true,
+			wantStatus:  http.StatusUnauthorized,
+		},
+		{
+			name:        "empty_policy_document_returns_403",
+			invokerResp: []byte(`{"principalId":"u","policyDocument":{"Statement":[]}}`),
+			setInvoker:  true,
+			wantStatus:  http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, e, apiID := setupAuthorizerAPI(t, "TOKEN")
+
+			if tt.setInvoker {
+				h.SetLambdaInvoker(&captureAuthInvoker{
+					response:    tt.invokerResp,
+					returnError: tt.invokerErr,
+				})
+			}
+
+			rec := authReq(t, h, e, apiID, "Bearer test-token")
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestRunAuthorizer_REQUEST(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		invokerResp []byte
+		wantStatus  int
+	}{
+		{
+			name:        "allow_returns_200",
+			invokerResp: allowPolicy(),
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "deny_returns_403",
+			invokerResp: denyPolicy(),
+			wantStatus:  http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, e, apiID := setupAuthorizerAPI(t, "REQUEST")
+			h.SetLambdaInvoker(&captureAuthInvoker{response: tt.invokerResp})
+
+			rec := authReq(t, h, e, apiID, "Bearer test-token")
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestRunAuthorizer_MethodArn_ResourcePath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "method_arn_uses_stripped_resource_path"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var capturedPayload []byte
+
+			// Use a captureInvoker to record the authorizer event payload, but return allow.
+			capture := &captureAuthInvokerWithCapture{
+				capturedPayload: &capturedPayload,
+				response:        allowPolicy(),
+			}
+
+			h, e, apiID := setupAuthorizerAPI(t, "TOKEN")
+			h.SetLambdaInvoker(capture)
+
+			rec := authReq(t, h, e, apiID, "Bearer token")
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			// Verify the methodArn in the captured event uses the stripped resource path ("/secure"),
+			// not the full proxy path ("/restapis/.../prod/_user_request_/secure").
+			var event map[string]any
+			require.NoError(t, json.Unmarshal(capturedPayload, &event))
+			methodArn, _ := event["methodArn"].(string)
+			assert.Contains(t, methodArn, "/secure", "methodArn should contain the stripped path")
+			assert.NotContains(t, methodArn, "_user_request_", "methodArn must not contain internal proxy prefix")
+		})
+	}
+}
+
+func TestRunAuthorizer_Cache(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "second_request_uses_cache"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			invoker := &captureAuthInvoker{response: allowPolicy()}
+			h, e, apiID := setupAuthorizerAPI(t, "TOKEN")
+
+			calls := 0
+			h.SetLambdaInvoker(&trackingInvoker{inner: invoker, calls: &calls})
+
+			// First request - should call Lambda.
+			rec1 := authReq(t, h, e, apiID, "Bearer cached-token")
+			assert.Equal(t, http.StatusOK, rec1.Code)
+			assert.Equal(t, 1, calls, "first request should call Lambda once")
+
+			// Second request with same token - should hit cache.
+			rec2 := authReq(t, h, e, apiID, "Bearer cached-token")
+			assert.Equal(t, http.StatusOK, rec2.Code)
+			assert.Equal(t, 1, calls, "second request should use cache, not call Lambda again")
+		})
+	}
+}
+
+// trackingInvoker wraps an invoker and counts calls.
+type trackingInvoker struct {
+	inner apigateway.LambdaInvoker
+	calls *int
+}
+
+func (t *trackingInvoker) InvokeFunction(ctx context.Context, fn, invType string, payload []byte) ([]byte, int, error) {
+	*t.calls++
+
+	return t.inner.InvokeFunction(ctx, fn, invType, payload)
+}
+
+// captureAuthInvokerWithCapture records the event payload and returns a configurable response.
+type captureAuthInvokerWithCapture struct {
+	capturedPayload *[]byte
+	response        []byte
+}
+
+func (m *captureAuthInvokerWithCapture) InvokeFunction(
+	_ context.Context,
+	_, _ string,
+	payload []byte,
+) ([]byte, int, error) {
+	if m.capturedPayload != nil {
+		*m.capturedPayload = make([]byte, len(payload))
+		copy(*m.capturedPayload, payload)
+	}
+
+	return m.response, http.StatusOK, nil
+}

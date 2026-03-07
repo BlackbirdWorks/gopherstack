@@ -210,7 +210,7 @@ func TestBackend_Method(t *testing.T) {
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
 
-				m, err := b.PutMethod(api.ID, rootID, "GET", "NONE", "", false)
+				m, err := b.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
 				require.NoError(t, err)
 				assert.Equal(t, "GET", m.HTTPMethod)
 
@@ -252,7 +252,7 @@ func TestBackend_Integration(t *testing.T) {
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
 
-				_, _ = b.PutMethod(api.ID, rootID, "POST", "NONE", "", false)
+				_, _ = b.PutMethod(api.ID, rootID, "POST", "NONE", "", "", false)
 
 				input := apigateway.PutIntegrationInput{Type: "MOCK"}
 				integ, err := b.PutIntegration(api.ID, rootID, "POST", input)
@@ -343,15 +343,156 @@ func TestBackend_Authorizer(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		want apigateway.Authorizer
+		testFunc func(t *testing.T)
+		name     string
 	}{
 		{
-			name: "create_get_update_delete",
-			want: apigateway.Authorizer{
-				Name:           "my-auth",
-				Type:           "TOKEN",
-				IdentitySource: "method.request.header.Authorization",
+			name: "create_authorizer",
+			testFunc: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, err := b.CreateRestAPI("api", "", nil)
+				require.NoError(t, err)
+
+				auth, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
+					Name:           "my-auth",
+					Type:           "TOKEN",
+					IdentitySource: "method.request.header.Authorization",
+				})
+				require.NoError(t, err)
+				assert.NotEmpty(t, auth.ID)
+				assert.Equal(t, "my-auth", auth.Name)
+				assert.Equal(t, "TOKEN", auth.Type)
+				assert.Equal(t, "method.request.header.Authorization", auth.IdentitySource)
+			},
+		},
+		{
+			name: "get_authorizer",
+			testFunc: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, err := b.CreateRestAPI("api", "", nil)
+				require.NoError(t, err)
+
+				created, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
+					Name: "my-auth",
+					Type: "TOKEN",
+				})
+				require.NoError(t, err)
+
+				got, err := b.GetAuthorizer(api.ID, created.ID)
+				require.NoError(t, err)
+				assert.Equal(t, created.ID, got.ID)
+				assert.Equal(t, created.Name, got.Name)
+				assert.Equal(t, created.Type, got.Type)
+			},
+		},
+		{
+			name: "get_nonexistent_authorizer_returns_error",
+			testFunc: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, err := b.CreateRestAPI("api", "", nil)
+				require.NoError(t, err)
+
+				_, err = b.GetAuthorizer(api.ID, "nonexistent")
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "list_authorizers",
+			testFunc: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, err := b.CreateRestAPI("api", "", nil)
+				require.NoError(t, err)
+
+				_, err = b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
+					Name: "my-auth",
+					Type: "TOKEN",
+				})
+				require.NoError(t, err)
+
+				auths, err := b.GetAuthorizers(api.ID)
+				require.NoError(t, err)
+				assert.Len(t, auths, 1)
+				assert.Equal(t, "my-auth", auths[0].Name)
+			},
+		},
+		{
+			name: "update_authorizer",
+			testFunc: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, err := b.CreateRestAPI("api", "", nil)
+				require.NoError(t, err)
+
+				created, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
+					Name: "my-auth",
+					Type: "TOKEN",
+				})
+				require.NoError(t, err)
+
+				updated, err := b.UpdateAuthorizer(api.ID, created.ID, apigateway.UpdateAuthorizerInput{
+					Name: "updated-auth",
+				})
+				require.NoError(t, err)
+				assert.Equal(t, created.ID, updated.ID)
+				assert.Equal(t, "updated-auth", updated.Name)
+				assert.Equal(t, created.Type, updated.Type)
+			},
+		},
+		{
+			name: "update_nonexistent_authorizer_returns_error",
+			testFunc: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, err := b.CreateRestAPI("api", "", nil)
+				require.NoError(t, err)
+
+				_, err = b.UpdateAuthorizer(api.ID, "nonexistent", apigateway.UpdateAuthorizerInput{Name: "x"})
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "delete_authorizer",
+			testFunc: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, err := b.CreateRestAPI("api", "", nil)
+				require.NoError(t, err)
+
+				created, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
+					Name: "my-auth",
+					Type: "TOKEN",
+				})
+				require.NoError(t, err)
+
+				err = b.DeleteAuthorizer(api.ID, created.ID)
+				require.NoError(t, err)
+
+				_, err = b.GetAuthorizer(api.ID, created.ID)
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "delete_nonexistent_authorizer_returns_error",
+			testFunc: func(t *testing.T) {
+				t.Helper()
+
+				b := apigateway.NewInMemoryBackend()
+				api, err := b.CreateRestAPI("api", "", nil)
+				require.NoError(t, err)
+
+				err = b.DeleteAuthorizer(api.ID, "nonexistent")
+				require.Error(t, err)
 			},
 		},
 	}
@@ -360,39 +501,7 @@ func TestBackend_Authorizer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := apigateway.NewInMemoryBackend()
-			api, err := b.CreateRestAPI("api", "", nil)
-			require.NoError(t, err)
-
-			auth, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
-				Name:           tt.want.Name,
-				Type:           tt.want.Type,
-				IdentitySource: tt.want.IdentitySource,
-			})
-			require.NoError(t, err)
-			assert.NotEmpty(t, auth.ID)
-			assert.Equal(t, tt.want.Name, auth.Name)
-			assert.Equal(t, tt.want.Type, auth.Type)
-
-			got, err := b.GetAuthorizer(api.ID, auth.ID)
-			require.NoError(t, err)
-			assert.Equal(t, auth.ID, got.ID)
-
-			auths, err := b.GetAuthorizers(api.ID)
-			require.NoError(t, err)
-			assert.Len(t, auths, 1)
-
-			updated, err := b.UpdateAuthorizer(api.ID, auth.ID, apigateway.UpdateAuthorizerInput{
-				Name: "updated-auth",
-			})
-			require.NoError(t, err)
-			assert.Equal(t, "updated-auth", updated.Name)
-
-			err = b.DeleteAuthorizer(api.ID, auth.ID)
-			require.NoError(t, err)
-
-			_, err = b.GetAuthorizer(api.ID, auth.ID)
-			require.Error(t, err)
+			tt.testFunc(t)
 		})
 	}
 }
@@ -515,7 +624,7 @@ func TestBackend_MethodResponse(t *testing.T) {
 			resources, _, _ := b.GetResources(api.ID, "", 0)
 			rootID := resources[0].ID
 
-			_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", false)
+			_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
 
 			mr, err := b.PutMethodResponse(api.ID, rootID, "GET", "200", apigateway.PutMethodResponseInput{
 				ResponseModels: map[string]string{"application/json": "Empty"},
@@ -554,7 +663,7 @@ func TestBackend_IntegrationResponse(t *testing.T) {
 			resources, _, _ := b.GetResources(api.ID, "", 0)
 			rootID := resources[0].ID
 
-			_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", false)
+			_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
 			_, _ = b.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{Type: "MOCK"})
 
 			ir, err := b.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{

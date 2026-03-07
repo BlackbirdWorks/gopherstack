@@ -74,12 +74,13 @@ type deleteResourceInput struct {
 }
 
 type putMethodInput struct {
-	RestAPIID         string `json:"restApiId"`
-	ResourceID        string `json:"resourceId"`
-	HTTPMethod        string `json:"httpMethod"`
-	AuthorizationType string `json:"authorizationType"`
-	AuthorizerID      string `json:"authorizerId"`
-	APIKeyRequired    bool   `json:"apiKeyRequired"`
+	RestAPIID          string `json:"restApiId"`
+	ResourceID         string `json:"resourceId"`
+	HTTPMethod         string `json:"httpMethod"`
+	AuthorizationType  string `json:"authorizationType"`
+	AuthorizerID       string `json:"authorizerId"`
+	RequestValidatorID string `json:"requestValidatorId"`
+	APIKeyRequired     bool   `json:"apiKeyRequired"`
 }
 
 type getMethodInput struct {
@@ -264,13 +265,17 @@ type deleteRequestValidatorInput struct {
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
 	Backend    StorageBackend
+	authCache  *authorizerCache
 	lambda     LambdaInvoker
 	httpClient *http.Client
 }
 
 // NewHandler creates a new API Gateway handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	return &Handler{
+		Backend:   backend,
+		authCache: newAuthorizerCache(),
+	}
 }
 
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
@@ -905,6 +910,7 @@ func (h *Handler) methodActions() map[string]actionFn {
 				input.HTTPMethod,
 				input.AuthorizationType,
 				input.AuthorizerID,
+				input.RequestValidatorID,
 				input.APIKeyRequired,
 			)
 			if err != nil {

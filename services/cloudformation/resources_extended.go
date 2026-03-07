@@ -439,6 +439,7 @@ func (rc *ResourceCreator) createAPIGatewayMethod(
 		httpMethod,
 		authorizationType,
 		"",
+		"",
 		false,
 	); err != nil {
 		return "", fmt.Errorf("create API Gateway method: %w", err)

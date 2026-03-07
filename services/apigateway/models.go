@@ -50,13 +50,14 @@ type Resource struct {
 
 // Method represents an API Gateway method on a resource.
 type Method struct {
-	RequestParameters map[string]bool            `json:"requestParameters,omitempty"`
-	MethodIntegration *Integration               `json:"methodIntegration,omitempty"`
-	MethodResponses   map[string]*MethodResponse `json:"methodResponses,omitempty"`
-	HTTPMethod        string                     `json:"httpMethod"`
-	AuthorizationType string                     `json:"authorizationType"`
-	AuthorizerID      string                     `json:"authorizerId,omitempty"`
-	APIKeyRequired    bool                       `json:"apiKeyRequired"`
+	RequestParameters  map[string]bool            `json:"requestParameters,omitempty"`
+	MethodIntegration  *Integration               `json:"methodIntegration,omitempty"`
+	MethodResponses    map[string]*MethodResponse `json:"methodResponses,omitempty"`
+	HTTPMethod         string                     `json:"httpMethod"`
+	AuthorizationType  string                     `json:"authorizationType"`
+	AuthorizerID       string                     `json:"authorizerId,omitempty"`
+	RequestValidatorID string                     `json:"requestValidatorId,omitempty"`
+	APIKeyRequired     bool                       `json:"apiKeyRequired"`
 }
 
 // Integration represents a method integration.
@@ -74,6 +75,7 @@ type IntegrationResponse struct {
 	ResponseTemplates  map[string]string `json:"responseTemplates,omitempty"`
 	ResponseParameters map[string]string `json:"responseParameters,omitempty"`
 	StatusCode         string            `json:"statusCode"`
+	SelectionPattern   string            `json:"selectionPattern,omitempty"`
 }
 
 // MethodResponse represents a method response configuration.
