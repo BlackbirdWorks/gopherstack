@@ -54,6 +54,10 @@ var (
 	ErrLayerVersionNotFound = errors.New("ResourceNotFoundException")
 	// ErrZipSlip is returned when a ZIP archive entry has a path that would escape the target directory.
 	ErrZipSlip = errors.New("zip entry escapes target directory")
+	// ErrEventInvokeConfigNotFound is returned when no event invoke config exists for the function.
+	ErrEventInvokeConfigNotFound = errors.New("ResourceNotFoundException")
+	// ErrTooManyRequests is returned when a function's reserved concurrency limit is exhausted.
+	ErrTooManyRequests = errors.New("TooManyRequestsException")
 )
 
 // versionLatest is the sentinel qualifier for the live function configuration.
@@ -130,6 +134,13 @@ type InMemoryBackend struct {
 	functionURLServers  map[string]*functionURLServer
 	functionURLConfigs  map[string]*FunctionURLConfig
 	versions            map[string][]*FunctionVersion
+	// eventInvokeConfigs stores async invocation config keyed by function name.
+	eventInvokeConfigs map[string]*FunctionEventInvokeConfig
+	// functionConcurrencies stores reserved concurrent executions per function name.
+	// A value of -1 means no limit is set (use account default).
+	functionConcurrencies map[string]int
+	// activeConcurrencies tracks the number of active synchronous invocations per function name.
+	activeConcurrencies map[string]int
 	// layers stores layer versions keyed by layerName → []LayerVersion (ordered by version).
 	layers map[string][]*LayerVersion
 	// layerVersionCounters tracks the next version number per layer.
@@ -153,23 +164,26 @@ func NewInMemoryBackend(
 	accountID, region string,
 ) *InMemoryBackend {
 	return &InMemoryBackend{
-		functions:            make(map[string]*FunctionConfiguration),
-		runtimes:             make(map[string]*functionRuntime),
-		eventSourceMappings:  make(map[string]*EventSourceMapping),
-		functionURLConfigs:   make(map[string]*FunctionURLConfig),
-		functionURLServers:   make(map[string]*functionURLServer),
-		versions:             make(map[string][]*FunctionVersion),
-		aliases:              make(map[string]map[string]*FunctionAlias),
-		versionCounters:      make(map[string]int),
-		layers:               make(map[string][]*LayerVersion),
-		layerVersionCounters: make(map[string]int64),
-		layerPolicies:        make(map[string]map[int64]map[string]*LayerVersionStatement),
-		docker:               dockerClient,
-		portAlloc:            portAlloc,
-		settings:             settings,
-		accountID:            accountID,
-		region:               region,
-		mu:                   lockmetrics.New("lambda"),
+		functions:             make(map[string]*FunctionConfiguration),
+		runtimes:              make(map[string]*functionRuntime),
+		eventSourceMappings:   make(map[string]*EventSourceMapping),
+		functionURLConfigs:    make(map[string]*FunctionURLConfig),
+		functionURLServers:    make(map[string]*functionURLServer),
+		versions:              make(map[string][]*FunctionVersion),
+		aliases:               make(map[string]map[string]*FunctionAlias),
+		versionCounters:       make(map[string]int),
+		layers:                make(map[string][]*LayerVersion),
+		layerVersionCounters:  make(map[string]int64),
+		layerPolicies:         make(map[string]map[int64]map[string]*LayerVersionStatement),
+		eventInvokeConfigs:    make(map[string]*FunctionEventInvokeConfig),
+		functionConcurrencies: make(map[string]int),
+		activeConcurrencies:   make(map[string]int),
+		docker:                dockerClient,
+		portAlloc:             portAlloc,
+		settings:              settings,
+		accountID:             accountID,
+		region:                region,
+		mu:                    lockmetrics.New("lambda"),
 	}
 }
 
@@ -1053,6 +1067,18 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 		return nil, http.StatusNoContent, nil
 	}
 
+	// Enforce reserved concurrency limits.
+	// For async (Event) invocations: if reserved concurrency is 0, reject immediately.
+	// For sync (RequestResponse) invocations: if active count >= reserved, reject.
+	trackConcurrency, concErr := b.acquireConcurrencySlot(fn.FunctionName, invocationType)
+	if concErr != nil {
+		return nil, http.StatusTooManyRequests, concErr
+	}
+
+	if trackConcurrency {
+		defer b.releaseConcurrencySlot(fn.FunctionName)
+	}
+
 	srv, srvErr := b.getOrCreateRuntime(ctx, fn)
 	if srvErr != nil {
 		return nil, http.StatusInternalServerError, srvErr
@@ -1091,6 +1117,54 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	b.pushInvocationLog(fn.FunctionName, payload, result)
 
 	return result, http.StatusOK, nil
+}
+
+// acquireConcurrencySlot checks and optionally increments the active concurrency counter
+// for a function. It returns (true, nil) when a slot was acquired (caller must release),
+// (false, nil) when the function has no reserved concurrency limit, or (false, err) when
+// the limit is already exhausted. Must not be called with b.mu held.
+func (b *InMemoryBackend) acquireConcurrencySlot(functionName string, invocationType InvocationType) (bool, error) {
+	b.mu.Lock("acquireConcurrencySlot")
+	defer b.mu.Unlock()
+
+	reserved, hasLimit := b.functionConcurrencies[functionName]
+	if !hasLimit {
+		return false, nil
+	}
+
+	// Reserved concurrency of 0 disables all invocations regardless of type.
+	if reserved == 0 {
+		return false, fmt.Errorf("%w: reserved concurrency is 0 for function %s", ErrTooManyRequests, functionName)
+	}
+
+	// For async (Event) invocations we don't track the slot — queue depth handles back-pressure.
+	if invocationType == InvocationTypeEvent {
+		return false, nil
+	}
+
+	active := b.activeConcurrencies[functionName]
+	if active >= reserved {
+		return false, fmt.Errorf(
+			"%w: concurrent execution limit reached for function %s",
+			ErrTooManyRequests,
+			functionName,
+		)
+	}
+
+	b.activeConcurrencies[functionName]++
+
+	return true, nil
+}
+
+// releaseConcurrencySlot decrements the active concurrency counter for a function.
+// Must not be called with b.mu held.
+func (b *InMemoryBackend) releaseConcurrencySlot(functionName string) {
+	b.mu.Lock("releaseConcurrencySlot")
+	defer b.mu.Unlock()
+
+	if b.activeConcurrencies[functionName] > 0 {
+		b.activeConcurrencies[functionName]--
+	}
 }
 
 // pushInvocationLog writes a minimal invocation log entry to CloudWatch Logs when a backend is set.
@@ -1884,4 +1958,223 @@ func buildLayerPolicy(stmts map[string]*LayerVersionStatement) (string, error) {
 	}
 
 	return string(data), nil
+}
+
+// maxRetryAttempts is the maximum allowed value for MaximumRetryAttempts.
+const maxRetryAttempts = 2
+
+// minEventAgeInSeconds is the minimum allowed value for MaximumEventAgeInSeconds.
+const minEventAgeInSeconds = 60
+
+// maxEventAgeInSeconds is the maximum allowed value for MaximumEventAgeInSeconds.
+const maxEventAgeInSeconds = 21600
+
+// PutFunctionEventInvokeConfig creates or replaces the event invoke configuration for a function.
+func (b *InMemoryBackend) PutFunctionEventInvokeConfig(
+	name string,
+	input *PutFunctionEventInvokeConfigInput,
+) (*FunctionEventInvokeConfig, error) {
+	b.mu.Lock("PutFunctionEventInvokeConfig")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	if err := validateEventInvokeConfigInput(input); err != nil {
+		return nil, err
+	}
+
+	cfg := &FunctionEventInvokeConfig{
+		FunctionArn:              fn.FunctionArn,
+		LastModified:             time.Now().UTC(),
+		MaximumRetryAttempts:     input.MaximumRetryAttempts,
+		MaximumEventAgeInSeconds: input.MaximumEventAgeInSeconds,
+		DestinationConfig:        input.DestinationConfig,
+	}
+
+	b.eventInvokeConfigs[name] = cfg
+
+	return cfg, nil
+}
+
+// GetFunctionEventInvokeConfig returns the event invoke configuration for a function.
+func (b *InMemoryBackend) GetFunctionEventInvokeConfig(name string) (*FunctionEventInvokeConfig, error) {
+	b.mu.RLock("GetFunctionEventInvokeConfig")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	cfg, ok := b.eventInvokeConfigs[name]
+	if !ok {
+		return nil, ErrEventInvokeConfigNotFound
+	}
+
+	return cfg, nil
+}
+
+// UpdateFunctionEventInvokeConfig updates the event invoke configuration for a function.
+// It returns ErrEventInvokeConfigNotFound if no config exists yet.
+func (b *InMemoryBackend) UpdateFunctionEventInvokeConfig(
+	name string,
+	input *PutFunctionEventInvokeConfigInput,
+) (*FunctionEventInvokeConfig, error) {
+	b.mu.Lock("UpdateFunctionEventInvokeConfig")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	cfg, ok := b.eventInvokeConfigs[name]
+	if !ok {
+		return nil, ErrEventInvokeConfigNotFound
+	}
+
+	if err := validateEventInvokeConfigInput(input); err != nil {
+		return nil, err
+	}
+
+	if input.MaximumRetryAttempts != nil {
+		cfg.MaximumRetryAttempts = input.MaximumRetryAttempts
+	}
+
+	if input.MaximumEventAgeInSeconds != nil {
+		cfg.MaximumEventAgeInSeconds = input.MaximumEventAgeInSeconds
+	}
+
+	if input.DestinationConfig != nil {
+		cfg.DestinationConfig = input.DestinationConfig
+	}
+
+	cfg.FunctionArn = fn.FunctionArn
+	cfg.LastModified = time.Now().UTC()
+
+	return cfg, nil
+}
+
+// DeleteFunctionEventInvokeConfig removes the event invoke configuration for a function.
+func (b *InMemoryBackend) DeleteFunctionEventInvokeConfig(name string) error {
+	b.mu.Lock("DeleteFunctionEventInvokeConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return ErrFunctionNotFound
+	}
+
+	if _, ok := b.eventInvokeConfigs[name]; !ok {
+		return ErrEventInvokeConfigNotFound
+	}
+
+	delete(b.eventInvokeConfigs, name)
+
+	return nil
+}
+
+// ListFunctionEventInvokeConfigs returns a page of event invoke configurations for a function.
+func (b *InMemoryBackend) ListFunctionEventInvokeConfigs(
+	name, marker string,
+	maxItems int,
+) ([]*FunctionEventInvokeConfig, string, error) {
+	b.mu.RLock("ListFunctionEventInvokeConfigs")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, "", ErrFunctionNotFound
+	}
+
+	var result []*FunctionEventInvokeConfig
+
+	if cfg, ok := b.eventInvokeConfigs[name]; ok {
+		result = []*FunctionEventInvokeConfig{cfg}
+	}
+
+	p := page.New(result, marker, maxItems, lambdaDefaultMaxItems)
+
+	return p.Data, p.Next, nil
+}
+
+// validateEventInvokeConfigInput validates MaximumRetryAttempts and MaximumEventAgeInSeconds.
+func validateEventInvokeConfigInput(input *PutFunctionEventInvokeConfigInput) error {
+	if input.MaximumRetryAttempts != nil {
+		v := *input.MaximumRetryAttempts
+		if v < 0 || v > maxRetryAttempts {
+			return fmt.Errorf(
+				"%w: MaximumRetryAttempts must be between 0 and %d",
+				ErrInvalidParameterValue,
+				maxRetryAttempts,
+			)
+		}
+	}
+
+	if input.MaximumEventAgeInSeconds != nil {
+		v := *input.MaximumEventAgeInSeconds
+		if v < minEventAgeInSeconds || v > maxEventAgeInSeconds {
+			return fmt.Errorf(
+				"%w: MaximumEventAgeInSeconds must be between %d and %d",
+				ErrInvalidParameterValue, minEventAgeInSeconds, maxEventAgeInSeconds,
+			)
+		}
+	}
+
+	return nil
+}
+
+// PutFunctionConcurrency sets the reserved concurrent executions for a function.
+// Setting ReservedConcurrentExecutions to 0 disables all invocations of the function.
+func (b *InMemoryBackend) PutFunctionConcurrency(name string, reserved int) (*FunctionConcurrency, error) {
+	b.mu.Lock("PutFunctionConcurrency")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	if reserved < 0 {
+		return nil, fmt.Errorf("%w: ReservedConcurrentExecutions must be >= 0", ErrInvalidParameterValue)
+	}
+
+	b.functionConcurrencies[name] = reserved
+	fn.ReservedConcurrentExecutions = &reserved
+
+	return &FunctionConcurrency{ReservedConcurrentExecutions: reserved}, nil
+}
+
+// GetFunctionConcurrency returns the reserved concurrent executions for a function.
+func (b *InMemoryBackend) GetFunctionConcurrency(name string) (*FunctionConcurrency, error) {
+	b.mu.RLock("GetFunctionConcurrency")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	reserved, ok := b.functionConcurrencies[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	return &FunctionConcurrency{ReservedConcurrentExecutions: reserved}, nil
+}
+
+// DeleteFunctionConcurrency removes the reserved concurrency setting for a function,
+// restoring it to the account-level default.
+func (b *InMemoryBackend) DeleteFunctionConcurrency(name string) error {
+	b.mu.Lock("DeleteFunctionConcurrency")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return ErrFunctionNotFound
+	}
+
+	delete(b.functionConcurrencies, name)
+	fn.ReservedConcurrentExecutions = nil
+
+	return nil
 }
