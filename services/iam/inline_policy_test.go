@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -11,6 +12,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/iam"
+)
+
+const (
+	// allowS3GetObjectPolicy is a minimal allow-S3-GetObject IAM policy for use in tests.
+	allowS3GetObjectPolicy = `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`
+
+	// allowS3WildcardPolicy is a minimal allow-all-S3 IAM policy for use in tests.
+	allowS3WildcardPolicy = `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Allow","Action":"s3:*","Resource":"*"}]}`
+
+	// denyAllPolicy is a minimal deny-all IAM policy for use in tests.
+	denyAllPolicy = `{"Version":"2012-10-17","Statement":[` +
+		`{"Effect":"Deny","Action":"*","Resource":"*"}]}`
 )
 
 func TestInMemoryBackend_UserInlinePolicies(t *testing.T) {
@@ -943,4 +958,421 @@ func TestIAMHandler_CreateRoleWithPermissionsBoundary(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetAccountAuthorizationDetails(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*iam.InMemoryBackend)
+		name         string
+		wantUsers    int
+		wantGroups   int
+		wantRoles    int
+		wantPolicies int
+	}{
+		{
+			name:  "empty_account",
+			setup: func(_ *iam.InMemoryBackend) {},
+		},
+		{
+			name: "populated_account",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("alice", "/", "")
+				_, _ = b.CreateUser("bob", "/", "")
+				_, _ = b.CreateGroup("admins", "/")
+				_, _ = b.CreateRole("my-role", "/", `{"Version":"2012-10-17"}`, "")
+				pol, _ := b.CreatePolicy("MyPolicy", "/", `{"Version":"2012-10-17"}`)
+				_ = b.AttachUserPolicy("alice", pol.Arn)
+				_ = b.PutUserPolicy("alice", "InlineP", `{"Version":"2012-10-17"}`)
+				_ = b.PutRolePolicy("my-role", "InlineR", `{"Version":"2012-10-17"}`)
+			},
+			wantUsers:    2,
+			wantGroups:   1,
+			wantRoles:    1,
+			wantPolicies: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+			tt.setup(b)
+
+			req := iamRequest("GetAccountAuthorizationDetails", nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp iam.GetAccountAuthorizationDetailsResponse
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+
+			assert.Len(t, resp.GetAccountAuthorizationDetailsResult.UserDetailList, tt.wantUsers)
+			assert.Len(t, resp.GetAccountAuthorizationDetailsResult.GroupDetailList, tt.wantGroups)
+			assert.Len(t, resp.GetAccountAuthorizationDetailsResult.RoleDetailList, tt.wantRoles)
+			assert.Len(t, resp.GetAccountAuthorizationDetailsResult.Policies, tt.wantPolicies)
+			assert.False(t, resp.GetAccountAuthorizationDetailsResult.IsTruncated)
+		})
+	}
+}
+
+func TestGetAccountAuthorizationDetails_InlinePoliciesIncluded(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h, b := newTestHandler(t)
+
+	_, _ = b.CreateUser("alice", "/", "")
+	_ = b.PutUserPolicy("alice", "MyInline", `{"Version":"2012-10-17"}`)
+
+	req := iamRequest("GetAccountAuthorizationDetails", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp iam.GetAccountAuthorizationDetailsResponse
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+
+	require.Len(t, resp.GetAccountAuthorizationDetailsResult.UserDetailList, 1)
+	user := resp.GetAccountAuthorizationDetailsResult.UserDetailList[0]
+	assert.Equal(t, "alice", user.UserName)
+	require.Len(t, user.UserPolicyList, 1)
+	assert.Equal(t, "MyInline", user.UserPolicyList[0].PolicyName)
+}
+
+func TestSimulatePrincipalPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		setup          func(*iam.InMemoryBackend)
+		params         map[string]string
+		wantDecision   string
+		wantHTTPStatus int
+		wantErr        bool
+	}{
+		{
+			name: "user_with_allow_policy",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("alice", "/", "")
+				pol, _ := b.CreatePolicy("AllowS3", "/", allowS3GetObjectPolicy)
+				_ = b.AttachUserPolicy("alice", pol.Arn)
+			},
+			params: map[string]string{
+				"PolicySourceArn":       "arn:aws:iam::000000000000:user/alice",
+				"ActionNames.member.1":  "s3:GetObject",
+				"ResourceArns.member.1": "arn:aws:s3:::my-bucket/key",
+			},
+			wantDecision:   "allowed",
+			wantHTTPStatus: http.StatusOK,
+		},
+		{
+			name: "user_implicit_deny",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("bob", "/", "")
+			},
+			params: map[string]string{
+				"PolicySourceArn":      "arn:aws:iam::000000000000:user/bob",
+				"ActionNames.member.1": "s3:DeleteObject",
+			},
+			wantDecision:   "implicitDeny",
+			wantHTTPStatus: http.StatusOK,
+		},
+		{
+			name: "role_with_inline_deny",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateRole("my-role", "/", `{}`, "")
+				_ = b.PutRolePolicy("my-role", "DenyAll", denyAllPolicy)
+			},
+			params: map[string]string{
+				"PolicySourceArn":      "arn:aws:iam::000000000000:role/my-role",
+				"ActionNames.member.1": "s3:GetObject",
+			},
+			wantDecision:   "explicitDeny",
+			wantHTTPStatus: http.StatusOK,
+		},
+		{
+			name:  "user_not_found",
+			setup: func(_ *iam.InMemoryBackend) {},
+			params: map[string]string{
+				"PolicySourceArn":      "arn:aws:iam::000000000000:user/nonexistent",
+				"ActionNames.member.1": "s3:GetObject",
+			},
+			wantHTTPStatus: http.StatusBadRequest,
+			wantErr:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+			tt.setup(b)
+
+			req := iamRequest("SimulatePrincipalPolicy", tt.params)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantHTTPStatus, rec.Code)
+
+			if !tt.wantErr {
+				var resp iam.SimulatePrincipalPolicyResponse
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+
+				require.NotEmpty(t, resp.SimulatePrincipalPolicyResult.EvaluationResults)
+				assert.Equal(t, tt.wantDecision, resp.SimulatePrincipalPolicyResult.EvaluationResults[0].EvalDecision)
+			}
+		})
+	}
+}
+
+func TestGenerateAndGetCredentialReport(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(*iam.InMemoryBackend)
+		check  func(*testing.T, *httptest.ResponseRecorder)
+		name   string
+		action string
+	}{
+		{
+			name:   "GenerateCredentialReport_returns_complete",
+			setup:  func(_ *iam.InMemoryBackend) {},
+			action: "GenerateCredentialReport",
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+
+				var resp iam.GenerateCredentialReportResponse
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, "COMPLETE", resp.GenerateCredentialReportResult.State)
+			},
+		},
+		{
+			name:   "GetCredentialReport_empty",
+			setup:  func(_ *iam.InMemoryBackend) {},
+			action: "GetCredentialReport",
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+
+				var resp iam.GetCredentialReportResponse
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+
+				result := resp.GetCredentialReportResult
+				assert.Equal(t, "text/csv", result.ReportFormat)
+				assert.NotEmpty(t, result.Content)
+				assert.NotEmpty(t, result.GeneratedTime)
+			},
+		},
+		{
+			name: "GetCredentialReport_with_users",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("alice", "/", "")
+				_, _ = b.CreateUser("bob", "/", "")
+			},
+			action: "GetCredentialReport",
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+
+				var resp iam.GetCredentialReportResponse
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+
+				content := resp.GetCredentialReportResult.Content
+				assert.NotEmpty(t, content)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+			tt.setup(b)
+
+			req := iamRequest(tt.action, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			tt.check(t, rec)
+		})
+	}
+}
+
+func TestGetAccountAuthorizationDetails_Backend(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup         func(*iam.InMemoryBackend)
+		name          string
+		wantUserCount int
+		wantRoleCount int
+	}{
+		{
+			name:  "empty",
+			setup: func(_ *iam.InMemoryBackend) {},
+		},
+		{
+			name: "users_and_roles",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("alice", "/", "")
+				_, _ = b.CreateRole("exec", "/", "{}", "")
+			},
+			wantUserCount: 1,
+			wantRoleCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iam.NewInMemoryBackend()
+			tt.setup(b)
+
+			details := b.GetAccountAuthorizationDetails()
+			assert.Len(t, details.Users, tt.wantUserCount)
+			assert.Len(t, details.Roles, tt.wantRoleCount)
+		})
+	}
+}
+
+func TestSimulatePrincipalPolicy_Backend(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr      error
+		setup        func(*iam.InMemoryBackend)
+		name         string
+		principalArn string
+		wantDecision string
+		actions      []string
+		resources    []string
+	}{
+		{
+			name: "allow_via_managed_policy",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("alice", "/", "")
+				pol, _ := b.CreatePolicy("AllowS3", "/", allowS3WildcardPolicy)
+				_ = b.AttachUserPolicy("alice", pol.Arn)
+			},
+			principalArn: "arn:aws:iam::000000000000:user/alice",
+			actions:      []string{"s3:GetObject"},
+			resources:    []string{"*"},
+			wantDecision: "allowed",
+		},
+		{
+			name: "implicit_deny_no_policy",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("bob", "/", "")
+			},
+			principalArn: "arn:aws:iam::000000000000:user/bob",
+			actions:      []string{"ec2:DescribeInstances"},
+			wantDecision: "implicitDeny",
+		},
+		{
+			name:         "user_not_found_error",
+			setup:        func(_ *iam.InMemoryBackend) {},
+			principalArn: "arn:aws:iam::000000000000:user/nobody",
+			actions:      []string{"s3:GetObject"},
+			wantErr:      iam.ErrUserNotFound,
+		},
+		{
+			name:         "role_not_found_error",
+			setup:        func(_ *iam.InMemoryBackend) {},
+			principalArn: "arn:aws:iam::000000000000:role/nobody",
+			actions:      []string{"s3:GetObject"},
+			wantErr:      iam.ErrRoleNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iam.NewInMemoryBackend()
+			tt.setup(b)
+
+			results, err := b.SimulatePrincipalPolicy(tt.principalArn, tt.actions, tt.resources)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotEmpty(t, results)
+			assert.Equal(t, tt.wantDecision, results[0].Decision)
+		})
+	}
+}
+
+func TestGetCredentialReport_Backend(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup         func(*iam.InMemoryBackend)
+		name          string
+		wantUserLines int
+	}{
+		{
+			name:          "no_users",
+			setup:         func(_ *iam.InMemoryBackend) {},
+			wantUserLines: 2, // header + root
+		},
+		{
+			name: "with_users",
+			setup: func(b *iam.InMemoryBackend) {
+				_, _ = b.CreateUser("alice", "/", "")
+				_, _ = b.CreateUser("bob", "/", "")
+			},
+			wantUserLines: 4, // header + root + 2 users
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iam.NewInMemoryBackend()
+			tt.setup(b)
+
+			report := b.GetCredentialReport()
+			assert.NotEmpty(t, report)
+
+			lines := len(splitLines(report))
+			assert.Equal(t, tt.wantUserLines, lines)
+		})
+	}
+}
+
+// splitLines splits a string on newlines, filtering empty lines.
+func splitLines(s string) []string {
+	var lines []string
+
+	for l := range strings.SplitSeq(s, "\n") {
+		if l != "" {
+			lines = append(lines, l)
+		}
+	}
+
+	return lines
 }

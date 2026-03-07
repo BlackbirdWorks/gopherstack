@@ -726,3 +726,127 @@ type ListAttachedGroupPoliciesResult struct {
 	AttachedPolicies []AttachedPolicyXML `xml:"AttachedPolicies>member"`
 	IsTruncated      bool                `xml:"IsTruncated"`
 }
+
+// ---- GetAccountAuthorizationDetails XML types ----
+
+// InlinePolicyEntryXML is an inline policy name/document pair in GetAccountAuthorizationDetails.
+type InlinePolicyEntryXML struct {
+	PolicyName     string `xml:"PolicyName"`
+	PolicyDocument string `xml:"PolicyDocument"`
+}
+
+// UserDetailXML is the per-user element in GetAccountAuthorizationDetails.
+type UserDetailXML struct {
+	Path                    string                 `xml:"Path"`
+	UserName                string                 `xml:"UserName"`
+	UserID                  string                 `xml:"UserId"`
+	Arn                     string                 `xml:"Arn"`
+	CreateDate              string                 `xml:"CreateDate"`
+	UserPolicyList          []InlinePolicyEntryXML `xml:"UserPolicyList>member"`
+	AttachedManagedPolicies []AttachedPolicyXML    `xml:"AttachedManagedPolicies>member"`
+	GroupList               []string               `xml:"GroupList>member"`
+}
+
+// GroupDetailXML is the per-group element in GetAccountAuthorizationDetails.
+type GroupDetailXML struct {
+	Path                    string                 `xml:"Path"`
+	GroupName               string                 `xml:"GroupName"`
+	GroupID                 string                 `xml:"GroupId"`
+	Arn                     string                 `xml:"Arn"`
+	CreateDate              string                 `xml:"CreateDate"`
+	GroupPolicyList         []InlinePolicyEntryXML `xml:"GroupPolicyList>member"`
+	AttachedManagedPolicies []AttachedPolicyXML    `xml:"AttachedManagedPolicies>member"`
+}
+
+// RoleDetailXML is the per-role element in GetAccountAuthorizationDetails.
+type RoleDetailXML struct {
+	Path                     string                 `xml:"Path"`
+	RoleName                 string                 `xml:"RoleName"`
+	RoleID                   string                 `xml:"RoleId"`
+	Arn                      string                 `xml:"Arn"`
+	CreateDate               string                 `xml:"CreateDate"`
+	AssumeRolePolicyDocument string                 `xml:"AssumeRolePolicyDocument"`
+	RolePolicyList           []InlinePolicyEntryXML `xml:"RolePolicyList>member"`
+	AttachedManagedPolicies  []AttachedPolicyXML    `xml:"AttachedManagedPolicies>member"`
+}
+
+// ManagedPolicyDetailXML is the per-policy element in GetAccountAuthorizationDetails.
+type ManagedPolicyDetailXML struct {
+	PolicyName        string             `xml:"PolicyName"`
+	PolicyID          string             `xml:"PolicyId"`
+	Arn               string             `xml:"Arn"`
+	Path              string             `xml:"Path"`
+	CreateDate        string             `xml:"CreateDate"`
+	PolicyVersionList []PolicyVersionXML `xml:"PolicyVersionList>member"`
+}
+
+// GetAccountAuthorizationDetailsResponse is the XML response for GetAccountAuthorizationDetails.
+type GetAccountAuthorizationDetailsResponse struct {
+	XMLName                              xml.Name                             `xml:"GetAccountAuthorizationDetailsResponse"` //nolint:lll // long XML element name
+	Xmlns                                string                               `xml:"xmlns,attr"`
+	ResponseMetadata                     ResponseMetadata                     `xml:"ResponseMetadata"`
+	GetAccountAuthorizationDetailsResult GetAccountAuthorizationDetailsResult `xml:"GetAccountAuthorizationDetailsResult"`
+}
+
+// GetAccountAuthorizationDetailsResult contains all IAM entity details.
+type GetAccountAuthorizationDetailsResult struct {
+	UserDetailList  []UserDetailXML          `xml:"UserDetailList>member"`
+	GroupDetailList []GroupDetailXML         `xml:"GroupDetailList>member"`
+	RoleDetailList  []RoleDetailXML          `xml:"RoleDetailList>member"`
+	Policies        []ManagedPolicyDetailXML `xml:"Policies>member"`
+	IsTruncated     bool                     `xml:"IsTruncated"`
+}
+
+// ---- SimulatePrincipalPolicy XML types ----
+
+// SimulationEvalResultXML is a single evaluation result in SimulatePrincipalPolicy.
+type SimulationEvalResultXML struct {
+	EvalActionName   string `xml:"EvalActionName"`
+	EvalResourceName string `xml:"EvalResourceName"`
+	EvalDecision     string `xml:"EvalDecision"`
+}
+
+// SimulatePrincipalPolicyResponse is the XML response for SimulatePrincipalPolicy.
+type SimulatePrincipalPolicyResponse struct {
+	XMLName                       xml.Name                      `xml:"SimulatePrincipalPolicyResponse"`
+	Xmlns                         string                        `xml:"xmlns,attr"`
+	ResponseMetadata              ResponseMetadata              `xml:"ResponseMetadata"`
+	SimulatePrincipalPolicyResult SimulatePrincipalPolicyResult `xml:"SimulatePrincipalPolicyResult"`
+}
+
+// SimulatePrincipalPolicyResult contains all evaluation results.
+type SimulatePrincipalPolicyResult struct {
+	EvaluationResults []SimulationEvalResultXML `xml:"EvaluationResults>member"`
+	IsTruncated       bool                      `xml:"IsTruncated"`
+}
+
+// ---- GenerateCredentialReport / GetCredentialReport XML types ----
+
+// GenerateCredentialReportResponse is the XML response for GenerateCredentialReport.
+type GenerateCredentialReportResponse struct {
+	XMLName                        xml.Name                       `xml:"GenerateCredentialReportResponse"`
+	Xmlns                          string                         `xml:"xmlns,attr"`
+	GenerateCredentialReportResult GenerateCredentialReportResult `xml:"GenerateCredentialReportResult"`
+	ResponseMetadata               ResponseMetadata               `xml:"ResponseMetadata"`
+}
+
+// GenerateCredentialReportResult contains the credential report generation state.
+type GenerateCredentialReportResult struct {
+	State       string `xml:"State"`
+	Description string `xml:"Description,omitempty"`
+}
+
+// GetCredentialReportResponse is the XML response for GetCredentialReport.
+type GetCredentialReportResponse struct {
+	XMLName                   xml.Name                  `xml:"GetCredentialReportResponse"`
+	Xmlns                     string                    `xml:"xmlns,attr"`
+	GetCredentialReportResult GetCredentialReportResult `xml:"GetCredentialReportResult"`
+	ResponseMetadata          ResponseMetadata          `xml:"ResponseMetadata"`
+}
+
+// GetCredentialReportResult contains the credential report content.
+type GetCredentialReportResult struct {
+	Content       string `xml:"Content"`
+	ReportFormat  string `xml:"ReportFormat"`
+	GeneratedTime string `xml:"GeneratedTime"`
+}

@@ -112,6 +112,11 @@ type StorageBackend interface {
 	// Assume Role Policy
 	UpdateAssumeRolePolicy(roleName, policyDocument string) error
 
+	// Reporting and simulation
+	GetAccountAuthorizationDetails() AccountAuthorizationDetails
+	SimulatePrincipalPolicy(principalArn string, actionNames, resourceArns []string) ([]SimulationResult, error)
+	GetCredentialReport() string
+
 	// Access Keys
 	CreateAccessKey(userName string) (*AccessKey, error)
 	DeleteAccessKey(userName, accessKeyID string) error
@@ -1320,4 +1325,286 @@ func (b *InMemoryBackend) UpdateAssumeRolePolicy(roleName, policyDocument string
 	b.roles[roleName] = r
 
 	return nil
+}
+
+// ---- AccountAuthorizationDetails and Simulation ----
+
+// InlinePolicyEntry is an inline policy name/document pair used in AccountAuthorizationDetails.
+type InlinePolicyEntry struct {
+	PolicyName     string
+	PolicyDocument string
+}
+
+// UserDetail holds user data and all associated policies for GetAccountAuthorizationDetails.
+type UserDetail struct {
+	User
+
+	AttachedPolicies []AttachedPolicy
+	InlinePolicies   []InlinePolicyEntry
+}
+
+// GroupDetail holds group data and all associated policies for GetAccountAuthorizationDetails.
+type GroupDetail struct {
+	Group
+
+	AttachedPolicies []AttachedPolicy
+	InlinePolicies   []InlinePolicyEntry
+}
+
+// RoleDetail holds role data and all associated policies for GetAccountAuthorizationDetails.
+type RoleDetail struct {
+	Role
+
+	AttachedPolicies []AttachedPolicy
+	InlinePolicies   []InlinePolicyEntry
+}
+
+// AccountAuthorizationDetails is the full IAM entity dump returned by GetAccountAuthorizationDetails.
+type AccountAuthorizationDetails struct {
+	Users    []UserDetail
+	Groups   []GroupDetail
+	Roles    []RoleDetail
+	Policies []Policy
+}
+
+// SimulationResult is the outcome of evaluating a single action/resource pair.
+type SimulationResult struct {
+	ActionName   string
+	ResourceName string
+	Decision     string // "allowed", "implicitDeny", or "explicitDeny"
+}
+
+// GetAccountAuthorizationDetails returns a full dump of all IAM entities and their policies.
+func (b *InMemoryBackend) GetAccountAuthorizationDetails() AccountAuthorizationDetails {
+	b.mu.RLock("GetAccountAuthorizationDetails")
+	defer b.mu.RUnlock()
+
+	// Build user details.
+	users := make([]UserDetail, 0, len(b.users))
+	for _, u := range b.users {
+		user := u
+		attached := attachedFromARNs(b.userPolicies[u.UserName])
+		inline := inlineEntries(b.userInlinePolicies[u.UserName])
+		users = append(users, UserDetail{User: user, AttachedPolicies: attached, InlinePolicies: inline})
+	}
+
+	sort.Slice(users, func(i, j int) bool { return users[i].UserName < users[j].UserName })
+
+	// Build group details.
+	groups := make([]GroupDetail, 0, len(b.groups))
+	for _, g := range b.groups {
+		group := g
+		attached := attachedFromARNs(b.groupPolicies[g.GroupName])
+		inline := inlineEntries(b.groupInlinePolicies[g.GroupName])
+		groups = append(groups, GroupDetail{Group: group, AttachedPolicies: attached, InlinePolicies: inline})
+	}
+
+	sort.Slice(groups, func(i, j int) bool { return groups[i].GroupName < groups[j].GroupName })
+
+	// Build role details.
+	roles := make([]RoleDetail, 0, len(b.roles))
+	for _, r := range b.roles {
+		role := r
+		attached := attachedFromARNs(b.rolePolicies[r.RoleName])
+		inline := inlineEntries(b.roleInlinePolicies[r.RoleName])
+		roles = append(roles, RoleDetail{Role: role, AttachedPolicies: attached, InlinePolicies: inline})
+	}
+
+	sort.Slice(roles, func(i, j int) bool { return roles[i].RoleName < roles[j].RoleName })
+
+	// Build managed policy list.
+	policies := make([]Policy, 0, len(b.policies))
+	for _, p := range b.policies {
+		policies = append(policies, p)
+	}
+
+	sort.Slice(policies, func(i, j int) bool { return policies[i].PolicyName < policies[j].PolicyName })
+
+	return AccountAuthorizationDetails{
+		Users:    users,
+		Groups:   groups,
+		Roles:    roles,
+		Policies: policies,
+	}
+}
+
+// attachedFromARNs converts a slice of policy ARNs to AttachedPolicy entries.
+func attachedFromARNs(arns []string) []AttachedPolicy {
+	result := make([]AttachedPolicy, 0, len(arns))
+
+	for _, a := range arns {
+		result = append(result, AttachedPolicy{PolicyName: policyNameFromARN(a), PolicyArn: a})
+	}
+
+	return result
+}
+
+// inlineEntries converts a policyName→document map to sorted InlinePolicyEntry slices.
+func inlineEntries(m map[string]string) []InlinePolicyEntry {
+	result := make([]InlinePolicyEntry, 0, len(m))
+
+	for name, doc := range m {
+		result = append(result, InlinePolicyEntry{PolicyName: name, PolicyDocument: doc})
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].PolicyName < result[j].PolicyName })
+
+	return result
+}
+
+// SimulatePrincipalPolicy evaluates a set of actions against a set of resources
+// for the given principal ARN, returning a result per action×resource pair.
+//
+// Supported principal ARN formats:
+//   - arn:aws:iam::<account>:user/<name>
+//   - arn:aws:iam::<account>:role/<name>
+func (b *InMemoryBackend) SimulatePrincipalPolicy(
+	principalArn string, actionNames, resourceArns []string,
+) ([]SimulationResult, error) {
+	b.mu.RLock("SimulatePrincipalPolicy")
+	defer b.mu.RUnlock()
+
+	policyDocs, err := b.collectPrincipalPolicies(principalArn)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resourceArns) == 0 {
+		resourceArns = []string{"*"}
+	}
+
+	results := make([]SimulationResult, 0, len(actionNames)*len(resourceArns))
+	for _, action := range actionNames {
+		for _, resource := range resourceArns {
+			evalResult := EvaluatePolicies(policyDocs, action, resource, ConditionContext{})
+
+			var decision string
+
+			switch evalResult {
+			case EvalAllow:
+				decision = "allowed"
+			case EvalExplicitDeny:
+				decision = "explicitDeny"
+			default:
+				decision = "implicitDeny"
+			}
+
+			results = append(results, SimulationResult{
+				ActionName:   action,
+				ResourceName: resource,
+				Decision:     decision,
+			})
+		}
+	}
+
+	return results, nil
+}
+
+// collectPrincipalPolicies returns all policy documents for the given principal ARN.
+// It looks at both inline policies and attached managed policies.
+func (b *InMemoryBackend) collectPrincipalPolicies(principalArn string) ([]string, error) {
+	const (
+		userPrefix = ":user/"
+		rolePrefix = ":role/"
+	)
+
+	switch {
+	case strings.Contains(principalArn, userPrefix):
+		idx := strings.LastIndex(principalArn, userPrefix)
+		userName := principalArn[idx+len(userPrefix):]
+
+		if _, exists := b.users[userName]; !exists {
+			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+		}
+
+		return b.collectEntityPolicies(b.userPolicies[userName], b.userInlinePolicies[userName]), nil
+
+	case strings.Contains(principalArn, rolePrefix):
+		idx := strings.LastIndex(principalArn, rolePrefix)
+		roleName := principalArn[idx+len(rolePrefix):]
+
+		if _, exists := b.roles[roleName]; !exists {
+			return nil, fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+		}
+
+		return b.collectEntityPolicies(b.rolePolicies[roleName], b.roleInlinePolicies[roleName]), nil
+
+	default:
+		return nil, fmt.Errorf("%w: unsupported principal ARN format %q", ErrUserNotFound, principalArn)
+	}
+}
+
+// collectEntityPolicies collects policy documents from attached ARNs and inline policies.
+func (b *InMemoryBackend) collectEntityPolicies(
+	attachedARNs []string, inlinePols map[string]string,
+) []string {
+	var docs []string
+
+	for _, policyArn := range attachedARNs {
+		for _, p := range b.policies {
+			if p.Arn == policyArn && p.PolicyDocument != "" {
+				docs = append(docs, p.PolicyDocument)
+
+				break
+			}
+		}
+	}
+
+	for _, doc := range inlinePols {
+		if doc != "" {
+			docs = append(docs, doc)
+		}
+	}
+
+	return docs
+}
+
+// credentialReportHeader is the CSV header for the credential report.
+const credentialReportHeader = "user,arn,user_creation_time,password_enabled,password_last_used," +
+	"password_last_changed,password_next_rotation,mfa_active," +
+	"access_key_1_active,access_key_1_last_rotated,access_key_1_last_used_date," +
+	"access_key_1_last_used_region,access_key_1_last_used_service," +
+	"access_key_2_active,access_key_2_last_rotated,access_key_2_last_used_date," +
+	"access_key_2_last_used_region,access_key_2_last_used_service," +
+	"cert_1_active,cert_1_last_rotated,cert_2_active,cert_2_last_rotated"
+
+// GetCredentialReport generates and returns a base64-encoded CSV credential report.
+// The report always includes the root account row followed by all IAM users.
+func (b *InMemoryBackend) GetCredentialReport() string {
+	b.mu.RLock("GetCredentialReport")
+	defer b.mu.RUnlock()
+
+	notApplicable := "N/A"
+	falseStr := "false"
+	noInfo := "no_information"
+
+	users := sortedUsers(b.users)
+	// 2 = header line + root account line
+	const extraRows = 2
+	lines := make([]string, 0, extraRows+len(users))
+	lines = append(lines, credentialReportHeader)
+
+	// Root account row.
+	rootArn := "arn:aws:iam::" + b.accountID + ":root"
+	lines = append(lines, strings.Join([]string{
+		"<root_account>", rootArn, time.Now().UTC().Format(time.RFC3339),
+		notApplicable, noInfo, notApplicable, notApplicable, falseStr,
+		falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
+		falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
+		falseStr, notApplicable, falseStr, notApplicable,
+	}, ","))
+
+	// One row per user, sorted by name.
+	for _, u := range users {
+		createdAt := u.CreateDate.UTC().Format(time.RFC3339)
+		lines = append(lines, strings.Join([]string{
+			u.UserName, u.Arn, createdAt,
+			falseStr, noInfo, notApplicable, notApplicable, falseStr,
+			falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
+			falseStr, notApplicable, notApplicable, notApplicable, notApplicable,
+			falseStr, notApplicable, falseStr, notApplicable,
+		}, ","))
+	}
+
+	return strings.Join(lines, "\n")
 }

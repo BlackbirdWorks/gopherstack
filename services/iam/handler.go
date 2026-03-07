@@ -2,6 +2,7 @@ package iam
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -96,6 +98,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutUserPermissionsBoundary", "DeleteUserPermissionsBoundary",
 		"PutRolePermissionsBoundary", "DeleteRolePermissionsBoundary",
 		"UpdateAssumeRolePolicy",
+		"GetAccountAuthorizationDetails",
+		"SimulatePrincipalPolicy",
+		"GenerateCredentialReport", "GetCredentialReport",
 		"CreateGroup", "DeleteGroup", "AddUserToGroup", "ListGroups",
 		"AttachGroupPolicy", "DetachGroupPolicy", "ListAttachedGroupPolicies",
 		"CreateAccessKey", "DeleteAccessKey", "ListAccessKeys",
@@ -269,6 +274,7 @@ func (h *Handler) buildDispatchTable() map[string]iamActionFn {
 		h.iamInlinePolicyDispatchTable(),
 		h.iamPermissionBoundaryDispatchTable(),
 		h.iamOtherOperationsDispatchTable(),
+		h.iamReportingDispatchTable(),
 		h.iamGroupDispatchTable(),
 		h.iamAccessKeyDispatchTable(),
 		h.iamInstanceProfileDispatchTable(),
@@ -851,6 +857,96 @@ func (h *Handler) iamOtherOperationsDispatchTable() map[string]iamActionFn {
 	}
 }
 
+func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
+	return map[string]iamActionFn{
+		"GetAccountAuthorizationDetails": func(_ url.Values, reqID string) (any, error) {
+			details := h.Backend.GetAccountAuthorizationDetails()
+
+			users := make([]UserDetailXML, 0, len(details.Users))
+			for _, u := range details.Users {
+				users = append(users, toUserDetailXML(u))
+			}
+
+			groups := make([]GroupDetailXML, 0, len(details.Groups))
+			for _, g := range details.Groups {
+				groups = append(groups, toGroupDetailXML(g))
+			}
+
+			roles := make([]RoleDetailXML, 0, len(details.Roles))
+			for _, r := range details.Roles {
+				roles = append(roles, toRoleDetailXML(r))
+			}
+
+			policies := make([]ManagedPolicyDetailXML, 0, len(details.Policies))
+			for i := range details.Policies {
+				policies = append(policies, toManagedPolicyDetailXML(&details.Policies[i]))
+			}
+
+			return &GetAccountAuthorizationDetailsResponse{
+				Xmlns: iamXMLNS,
+				GetAccountAuthorizationDetailsResult: GetAccountAuthorizationDetailsResult{
+					UserDetailList:  users,
+					GroupDetailList: groups,
+					RoleDetailList:  roles,
+					Policies:        policies,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"SimulatePrincipalPolicy": func(vals url.Values, reqID string) (any, error) {
+			actionNames := parseIndexedValues(vals, "ActionNames.member.")
+			resourceArns := parseIndexedValues(vals, "ResourceArns.member.")
+
+			results, err := h.Backend.SimulatePrincipalPolicy(
+				vals.Get("PolicySourceArn"), actionNames, resourceArns,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			xmlResults := make([]SimulationEvalResultXML, 0, len(results))
+			for _, r := range results {
+				xmlResults = append(xmlResults, SimulationEvalResultXML{
+					EvalActionName:   r.ActionName,
+					EvalResourceName: r.ResourceName,
+					EvalDecision:     r.Decision,
+				})
+			}
+
+			return &SimulatePrincipalPolicyResponse{
+				Xmlns: iamXMLNS,
+				SimulatePrincipalPolicyResult: SimulatePrincipalPolicyResult{
+					EvaluationResults: xmlResults,
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"GenerateCredentialReport": func(_ url.Values, reqID string) (any, error) {
+			return &GenerateCredentialReportResponse{
+				Xmlns: iamXMLNS,
+				GenerateCredentialReportResult: GenerateCredentialReportResult{
+					State: "COMPLETE",
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"GetCredentialReport": func(_ url.Values, reqID string) (any, error) {
+			csv := h.Backend.GetCredentialReport()
+			encoded := base64.StdEncoding.EncodeToString([]byte(csv))
+
+			return &GetCredentialReportResponse{
+				Xmlns: iamXMLNS,
+				GetCredentialReportResult: GetCredentialReportResult{
+					Content:       encoded,
+					ReportFormat:  "text/csv",
+					GeneratedTime: time.Now().UTC().Format("2006-01-02T15:04:05Z"),
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+	}
+}
+
 func (h *Handler) iamGroupDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"CreateGroup": func(vals url.Values, reqID string) (any, error) {
@@ -1337,4 +1433,97 @@ func parseMaxItems(s string) int {
 	}
 
 	return n
+}
+
+// parseIndexedValues parses form values with a given prefix followed by an integer index.
+// Example: prefix "ActionNames.member." extracts "ActionNames.member.1", "ActionNames.member.2", etc.
+func parseIndexedValues(vals url.Values, prefix string) []string {
+	var result []string
+
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("%s%d", prefix, i))
+		if v == "" {
+			return result
+		}
+
+		result = append(result, v)
+	}
+}
+
+// ---- GetAccountAuthorizationDetails XML conversion helpers ----
+
+func toInlinePolicyEntriesXML(entries []InlinePolicyEntry) []InlinePolicyEntryXML {
+	result := make([]InlinePolicyEntryXML, 0, len(entries))
+
+	for _, e := range entries {
+		result = append(result, InlinePolicyEntryXML(e))
+	}
+
+	return result
+}
+
+func toAttachedPoliciesXML(policies []AttachedPolicy) []AttachedPolicyXML {
+	result := make([]AttachedPolicyXML, 0, len(policies))
+
+	for _, p := range policies {
+		result = append(result, AttachedPolicyXML(p))
+	}
+
+	return result
+}
+
+func toUserDetailXML(u UserDetail) UserDetailXML {
+	return UserDetailXML{
+		Path:                    u.Path,
+		UserName:                u.UserName,
+		UserID:                  u.UserID,
+		Arn:                     u.Arn,
+		CreateDate:              isoTime(u.CreateDate),
+		UserPolicyList:          toInlinePolicyEntriesXML(u.InlinePolicies),
+		AttachedManagedPolicies: toAttachedPoliciesXML(u.AttachedPolicies),
+		GroupList:               []string{},
+	}
+}
+
+func toGroupDetailXML(g GroupDetail) GroupDetailXML {
+	return GroupDetailXML{
+		Path:                    g.Path,
+		GroupName:               g.GroupName,
+		GroupID:                 g.GroupID,
+		Arn:                     g.Arn,
+		CreateDate:              isoTime(g.CreateDate),
+		GroupPolicyList:         toInlinePolicyEntriesXML(g.InlinePolicies),
+		AttachedManagedPolicies: toAttachedPoliciesXML(g.AttachedPolicies),
+	}
+}
+
+func toRoleDetailXML(r RoleDetail) RoleDetailXML {
+	return RoleDetailXML{
+		Path:                     r.Path,
+		RoleName:                 r.RoleName,
+		RoleID:                   r.RoleID,
+		Arn:                      r.Arn,
+		CreateDate:               isoTime(r.CreateDate),
+		AssumeRolePolicyDocument: r.AssumeRolePolicyDocument,
+		RolePolicyList:           toInlinePolicyEntriesXML(r.InlinePolicies),
+		AttachedManagedPolicies:  toAttachedPoliciesXML(r.AttachedPolicies),
+	}
+}
+
+func toManagedPolicyDetailXML(p *Policy) ManagedPolicyDetailXML {
+	return ManagedPolicyDetailXML{
+		PolicyName: p.PolicyName,
+		PolicyID:   p.PolicyID,
+		Arn:        p.Arn,
+		Path:       p.Path,
+		CreateDate: isoTime(p.CreateDate),
+		PolicyVersionList: []PolicyVersionXML{
+			{
+				Document:         p.PolicyDocument,
+				VersionID:        "v1",
+				IsDefaultVersion: true,
+				CreateDate:       isoTime(p.CreateDate),
+			},
+		},
+	}
 }
