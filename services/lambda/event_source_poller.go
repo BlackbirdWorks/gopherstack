@@ -40,12 +40,36 @@ type KinesisRecord struct {
 	Data           []byte
 }
 
-// EventSourcePoller polls Kinesis streams for new records and invokes Lambda functions.
+// SQSMessage is a single SQS message delivered to a Lambda function via ESM.
+type SQSMessage struct {
+	Attributes    map[string]string
+	MessageID     string
+	ReceiptHandle string
+	Body          string
+	MD5OfBody     string
+}
+
+// SQSReader is the interface for consuming SQS messages in the ESM poller.
+// It is implemented by the SQS backend adapter in the CLI wiring layer.
+type SQSReader interface {
+	// ReceiveMessagesLocal pulls up to maxMessages from the queue identified by queueARN.
+	ReceiveMessagesLocal(queueARN string, maxMessages int) ([]*SQSMessage, error)
+	// DeleteMessagesLocal removes the messages identified by receiptHandles from the queue.
+	DeleteMessagesLocal(queueARN string, receiptHandles []string) error
+}
+
+// EventSourcePoller polls Kinesis streams and SQS queues for new records and
+// invokes Lambda functions for enabled event source mappings.
 type EventSourcePoller struct {
 	kinesisReader  KinesisReader
+	sqsReader      SQSReader
 	lambdaBackend  *InMemoryBackend
 	shardIterators map[string]string
 	mu             *lockmetrics.RWMutex
+	// sqsInvoker is an optional override for the Lambda invocation step used
+	// when processing SQS messages. When nil the real InMemoryBackend is used.
+	// Intended for use in unit tests only.
+	sqsInvoker func(ctx context.Context, fnName string) error
 }
 
 // NewEventSourcePoller creates a new EventSourcePoller.
@@ -59,6 +83,14 @@ func NewEventSourcePoller(
 		shardIterators: make(map[string]string),
 		mu:             lockmetrics.New("lambda.esm"),
 	}
+}
+
+// SetSQSReader sets the SQS reader used to poll SQS queues for ESM delivery.
+func (p *EventSourcePoller) SetSQSReader(r SQSReader) {
+	p.mu.Lock("SetSQSReader")
+	defer p.mu.Unlock()
+
+	p.sqsReader = r
 }
 
 const (
@@ -91,6 +123,18 @@ func (p *EventSourcePoller) poll(ctx context.Context) {
 	mappings := p.lambdaBackend.ListEventSourceMappings("", "", 0).Data
 	for _, m := range mappings {
 		if m.State != ESMStateEnabled {
+			continue
+		}
+
+		if isSQSARN(m.EventSourceARN) {
+			p.mu.RLock("poll")
+			sqsR := p.sqsReader
+			p.mu.RUnlock()
+
+			if sqsR != nil {
+				p.processSQSMapping(ctx, m, sqsR)
+			}
+
 			continue
 		}
 
@@ -262,4 +306,103 @@ func functionNameFromARN(arn string) string {
 	}
 
 	return parts[arnLambdaPartCount-1]
+}
+
+// isSQSARN reports whether the given ARN identifies an SQS queue.
+func isSQSARN(resourceARN string) bool {
+	return strings.HasPrefix(resourceARN, "arn:aws:sqs:")
+}
+
+// processSQSMapping polls an SQS queue, invokes Lambda with the messages, and
+// deletes the messages on successful invocation.
+func (p *EventSourcePoller) processSQSMapping(ctx context.Context, m *EventSourceMapping, reader SQSReader) {
+	msgs, err := reader.ReceiveMessagesLocal(m.EventSourceARN, m.BatchSize)
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "esm sqs: failed to receive messages",
+			"queue", m.EventSourceARN, "error", err)
+
+		return
+	}
+
+	if len(msgs) == 0 {
+		return
+	}
+
+	receiptHandles, invErr := p.invokeLambdaForSQS(ctx, m, msgs)
+	if invErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "esm sqs: Lambda invocation failed",
+			"function", m.FunctionARN, "error", invErr)
+
+		return
+	}
+
+	if delErr := reader.DeleteMessagesLocal(m.EventSourceARN, receiptHandles); delErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "esm sqs: failed to delete messages",
+			"queue", m.EventSourceARN, "error", delErr)
+	}
+}
+
+// invokeLambdaForSQS formats SQS messages as a Lambda SQS event and invokes the function.
+// On success it returns the receipt handles of the delivered messages.
+func (p *EventSourcePoller) invokeLambdaForSQS(
+	ctx context.Context,
+	m *EventSourceMapping,
+	msgs []*SQSMessage,
+) ([]string, error) {
+	type sqsEventRecord struct {
+		Attributes     map[string]string `json:"attributes,omitempty"`
+		MessageID      string            `json:"messageId"`
+		ReceiptHandle  string            `json:"receiptHandle"`
+		Body           string            `json:"body"`
+		MD5OfBody      string            `json:"md5OfBody"`
+		EventSource    string            `json:"eventSource"`
+		EventSourceARN string            `json:"eventSourceARN"`
+		AWSRegion      string            `json:"awsRegion"`
+	}
+	type sqsEvent struct {
+		Records []sqsEventRecord `json:"Records"`
+	}
+
+	records := make([]sqsEventRecord, len(msgs))
+	receiptHandles := make([]string, len(msgs))
+
+	for i, msg := range msgs {
+		records[i] = sqsEventRecord{
+			MessageID:      msg.MessageID,
+			ReceiptHandle:  msg.ReceiptHandle,
+			Body:           msg.Body,
+			Attributes:     msg.Attributes,
+			MD5OfBody:      msg.MD5OfBody,
+			EventSource:    "aws:sqs",
+			EventSourceARN: m.EventSourceARN,
+			AWSRegion:      p.lambdaBackend.region,
+		}
+		receiptHandles[i] = msg.ReceiptHandle
+	}
+
+	payload, err := json.Marshal(sqsEvent{Records: records})
+	if err != nil {
+		return nil, fmt.Errorf("marshal sqs event: %w", err)
+	}
+
+	fnName := functionNameFromARN(m.FunctionARN)
+	if fnName == "" {
+		fnName = m.FunctionARN
+	}
+
+	var invokeErr error
+	if p.sqsInvoker != nil {
+		invokeErr = p.sqsInvoker(ctx, fnName)
+	} else {
+		_, _, invokeErr = p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
+	}
+
+	if invokeErr != nil {
+		return nil, invokeErr
+	}
+
+	logger.Load(ctx).DebugContext(ctx, "esm sqs: invoked Lambda",
+		"function", fnName, "messages", len(msgs))
+
+	return receiptHandles, nil
 }

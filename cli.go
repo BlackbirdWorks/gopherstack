@@ -53,6 +53,7 @@ import (
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -140,6 +141,7 @@ type CLI struct {
 	supportHandler               service.Registerable
 	appSyncHandler               service.Registerable
 	ecrHandler                   service.Registerable
+	ecsHandler                   service.Registerable
 	snsClient                    *sns.Client
 	kmsClient                    *kms.Client
 	iamClient                    *iam.Client
@@ -435,6 +437,11 @@ func (c *CLI) GetSupportHandler() service.Registerable { return c.supportHandler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
+
+// GetECSHandler returns the ECS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetECSHandler() service.Registerable { return c.ecsHandler }
 
 // rootCLI is the top-level kong grammar. The server flags live in Serve
 // (the default command); "health" is an explicit subcommand used as a
@@ -764,6 +771,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.supportHandler = byName["Support"]
 	cli.appSyncHandler = byName["AppSync"]
 	cli.ecrHandler = byName["ECR"]
+	cli.ecsHandler = byName["ECS"]
 }
 
 // initializeServices initializes all service providers.
@@ -807,6 +815,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire Kinesis → Lambda event source mapping poller.
 	wireKinesisLambda(byName["Kinesis"], byName["Lambda"])
+
+	// Wire SQS → Lambda event source mapping poller.
+	wireSQSLambda(byName["SQS"], byName["Lambda"])
 
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
@@ -900,6 +911,7 @@ func getServiceProviders() []service.Provider {
 		&transcribebackend.Provider{},
 		&supportbackend.Provider{},
 		&ecrbackend.Provider{},
+		&ecsbackend.Provider{},
 		&cognitoidpbackend.Provider{},
 		&iotbackend.Provider{},
 		&iotdataplanebackend.Provider{},
@@ -1200,6 +1212,60 @@ func arnToSQSQueueURL(arn string) string {
 	queueName := parts[5]
 
 	return "http://local/" + accountID + "/" + queueName
+}
+
+// wireSQSLambda connects the SQS backend to the Lambda event source poller so
+// that messages enqueued in SQS queues trigger Lambda functions with active
+// SQS event source mappings.
+func wireSQSLambda(sqsReg, lambdaReg service.Registerable) {
+	sqsH, ok := sqsReg.(*sqsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			lambdaBk.SetSQSReader(&sqsReaderAdapter{backend: sqsBk})
+		}
+	}
+}
+
+// sqsReaderAdapter adapts the SQS InMemoryBackend to the lambda.SQSReader interface.
+type sqsReaderAdapter struct {
+	backend *sqsbackend.InMemoryBackend
+}
+
+func (a *sqsReaderAdapter) ReceiveMessagesLocal(queueARN string, maxMessages int) ([]*lambdabackend.SQSMessage, error) {
+	url := arnToSQSQueueURL(queueARN)
+
+	msgs, err := a.backend.ReceiveMessagesLocal(url, maxMessages)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*lambdabackend.SQSMessage, len(msgs))
+	for i, m := range msgs {
+		result[i] = &lambdabackend.SQSMessage{
+			MessageID:     m.MessageID,
+			ReceiptHandle: m.ReceiptHandle,
+			Body:          m.Body,
+			Attributes:    m.Attributes,
+			MD5OfBody:     m.MD5OfBody,
+		}
+	}
+
+	return result, nil
+}
+
+func (a *sqsReaderAdapter) DeleteMessagesLocal(queueARN string, receiptHandles []string) error {
+	url := arnToSQSQueueURL(queueARN)
+
+	return a.backend.DeleteMessagesLocal(url, receiptHandles)
 }
 
 // wireLambdaCWLogs connects the Lambda backend to CloudWatch Logs so that

@@ -941,3 +941,36 @@ func (b *InMemoryBackend) UntagQueueByARN(queueARN string, tagKeys []string) err
 
 	return ErrQueueNotFound
 }
+
+// ReceiveMessagesLocal is an internal method used by the ESM poller to pull
+// messages from a queue without long-polling. It returns up to maxMessages
+// visible messages, moving them to in-flight state using the queue's default
+// visibility timeout.
+func (b *InMemoryBackend) ReceiveMessagesLocal(queueURL string, maxMessages int) ([]*Message, error) {
+	out, err := b.ReceiveMessage(&ReceiveMessageInput{
+		QueueURL:            queueURL,
+		MaxNumberOfMessages: maxMessages,
+		WaitTimeSeconds:     0,
+		VisibilityTimeout:   noVisibilitySet,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return out.Messages, nil
+}
+
+// DeleteMessagesLocal is an internal method used by the ESM poller to delete
+// successfully processed messages by their receipt handles.
+func (b *InMemoryBackend) DeleteMessagesLocal(queueURL string, receiptHandles []string) error {
+	for _, rh := range receiptHandles {
+		if err := b.DeleteMessage(&DeleteMessageInput{
+			QueueURL:      queueURL,
+			ReceiptHandle: rh,
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}

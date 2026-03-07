@@ -29,6 +29,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ecrsdk "github.com/aws/aws-sdk-go-v2/service/ecr"
+	ecssdk "github.com/aws/aws-sdk-go-v2/service/ecs"
 	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -693,6 +694,26 @@ func createRoute53ResolverClient(t *testing.T) *route53resolversdk.Client {
 	}
 
 	return route53resolversdk.NewFromConfig(cfg, func(o *route53resolversdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createECSClient returns an ECS client pointed at the shared test container.
+func createECSClient(t *testing.T) *ecssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return ecssdk.NewFromConfig(cfg, func(o *ecssdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
