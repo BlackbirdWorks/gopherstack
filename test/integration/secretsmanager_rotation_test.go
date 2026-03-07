@@ -1,8 +1,6 @@
 package integration_test
 
 import (
-	"archive/tar"
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -330,7 +328,7 @@ func newSDKConfig(t *testing.T) aws.Config {
 func buildRotationLambdaImage(ctx context.Context, t *testing.T) {
 	t.Helper()
 
-	buildCtx, err := createRotationTar(map[string]string{
+	buildCtx, err := createInMemoryTar(map[string]string{
 		"handler.go": rotationHandlerGo,
 		"Dockerfile": rotationHandlerDockerfile,
 	})
@@ -356,33 +354,4 @@ func buildRotationLambdaImage(ctx context.Context, t *testing.T) {
 	t.Logf("Docker build output: %s", truncateOutput(string(buildOutput), buildOutputMaxBytes))
 
 	t.Cleanup(func() { removeLambdaTestArtifacts(rotationLambdaImage) })
-}
-
-// createRotationTar creates an in-memory tar archive from the provided filename → content map.
-func createRotationTar(files map[string]string) (io.Reader, error) {
-	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-
-	for name, content := range files {
-		data := []byte(content)
-		hdr := &tar.Header{
-			Name: name,
-			Mode: 0600,
-			Size: int64(len(data)),
-		}
-
-		if err := tw.WriteHeader(hdr); err != nil {
-			return nil, fmt.Errorf("tar header %q: %w", name, err)
-		}
-
-		if _, err := tw.Write(data); err != nil {
-			return nil, fmt.Errorf("tar write %q: %w", name, err)
-		}
-	}
-
-	if err := tw.Close(); err != nil {
-		return nil, fmt.Errorf("tar close: %w", err)
-	}
-
-	return &buf, nil
 }
