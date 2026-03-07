@@ -5,10 +5,12 @@ import (
 )
 
 type apiDataSnapshot struct {
-	Resources   map[string]*Resource   `json:"resources"`
-	Deployments map[string]*Deployment `json:"deployments"`
-	Stages      map[string]*Stage      `json:"stages"`
-	API         RestAPI                `json:"api"`
+	Resources         map[string]*Resource         `json:"resources"`
+	Deployments       map[string]*Deployment       `json:"deployments"`
+	Stages            map[string]*Stage            `json:"stages"`
+	Authorizers       map[string]*Authorizer       `json:"authorizers"`
+	RequestValidators map[string]*RequestValidator `json:"requestValidators"`
+	API               RestAPI                      `json:"api"`
 }
 
 type backendSnapshot struct {
@@ -27,10 +29,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	for id, d := range b.apis {
 		snap.APIs[id] = &apiDataSnapshot{
-			API:         d.api,
-			Resources:   d.resources,
-			Deployments: d.deployments,
-			Stages:      d.stages,
+			API:               d.api,
+			Resources:         d.resources,
+			Deployments:       d.deployments,
+			Stages:            d.stages,
+			Authorizers:       d.authorizers,
+			RequestValidators: d.requestValidators,
 		}
 	}
 
@@ -69,11 +73,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			d.Stages = make(map[string]*Stage)
 		}
 
+		if d.Authorizers == nil {
+			d.Authorizers = make(map[string]*Authorizer)
+		}
+
+		if d.RequestValidators == nil {
+			d.RequestValidators = make(map[string]*RequestValidator)
+		}
+
 		b.apis[id] = &apiData{
-			api:         d.API,
-			resources:   d.Resources,
-			deployments: d.Deployments,
-			stages:      d.Stages,
+			api:               d.API,
+			resources:         d.Resources,
+			deployments:       d.Deployments,
+			stages:            d.Stages,
+			authorizers:       d.Authorizers,
+			requestValidators: d.RequestValidators,
 		}
 	}
 
