@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	acmsdk "github.com/aws/aws-sdk-go-v2/service/acm"
+	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -792,6 +793,26 @@ func createCognitoIDPClient(t *testing.T) *cognitoidpsdk.Client {
 	}
 
 	return cognitoidpsdk.NewFromConfig(cfg, func(o *cognitoidpsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAppSyncClient returns an AppSync management client pointed at the shared test container.
+func createAppSyncClient(t *testing.T) *appsyncsdkv2.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return appsyncsdkv2.NewFromConfig(cfg, func(o *appsyncsdkv2.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
