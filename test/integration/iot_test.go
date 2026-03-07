@@ -257,7 +257,7 @@ func TestIntegration_IoT_MQTTPublishAndSubscribe(t *testing.T) {
 	received := make(chan []byte, 1)
 
 	subscriber := connectMQTT(t, "test-sub-"+uuid.NewString())
-	defer subscriber.Disconnect(250)
+	t.Cleanup(func() { subscriber.Disconnect(250) })
 
 	subToken := subscriber.Subscribe(topic, 0, func(_ pahomqtt.Client, msg pahomqtt.Message) {
 		select {
@@ -269,7 +269,7 @@ func TestIntegration_IoT_MQTTPublishAndSubscribe(t *testing.T) {
 	require.NoError(t, subToken.Error())
 
 	publisher := connectMQTT(t, "test-pub-"+uuid.NewString())
-	defer publisher.Disconnect(250)
+	t.Cleanup(func() { publisher.Disconnect(250) })
 
 	payload := `{"temperature": 42}`
 	pubToken := publisher.Publish(topic, 0, false, payload)
@@ -286,6 +286,8 @@ func TestIntegration_IoT_MQTTPublishAndSubscribe(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			select {
 			case msg := <-received:
 				assert.Equal(t, tt.want, string(msg))
@@ -308,7 +310,7 @@ func TestIntegration_IoT_DataPlane_Publish(t *testing.T) {
 	received := make(chan []byte, 1)
 
 	subscriber := connectMQTT(t, "test-dp-sub-"+uuid.NewString())
-	defer subscriber.Disconnect(250)
+	t.Cleanup(func() { subscriber.Disconnect(250) })
 
 	subToken := subscriber.Subscribe(topic, 0, func(_ pahomqtt.Client, msg pahomqtt.Message) {
 		select {
@@ -328,6 +330,8 @@ func TestIntegration_IoT_DataPlane_Publish(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			resp := iotRequest(t, http.MethodPost, "/topics/"+topic, map[string]any{
 				"payload": tt.payload,
 			})
@@ -385,7 +389,7 @@ func TestIntegration_IoT_Rule_ForwardsToSQS(t *testing.T) {
 
 	// Publish a matching message via MQTT.
 	publisher := connectMQTT(t, "test-rule-pub-"+uuid.NewString())
-	defer publisher.Disconnect(250)
+	t.Cleanup(func() { publisher.Disconnect(250) })
 
 	matchingPayload := `{"temperature": 75}`
 	pubToken := publisher.Publish(topic, 0, false, matchingPayload)
@@ -400,6 +404,8 @@ func TestIntegration_IoT_Rule_ForwardsToSQS(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			// Poll SQS for the forwarded message.
 			var receivedBody string
 
