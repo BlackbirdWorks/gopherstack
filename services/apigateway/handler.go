@@ -1393,6 +1393,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	case errors.Is(reqErr, ErrRestAPINotFound),
 		errors.Is(reqErr, ErrResourceNotFound),
 		errors.Is(reqErr, ErrMethodNotFound),
+		errors.Is(reqErr, ErrMethodResponseNotFound),
+		errors.Is(reqErr, ErrIntegrationResponseNotFound),
+		errors.Is(reqErr, ErrDeploymentNotFound),
 		errors.Is(reqErr, ErrAuthorizerNotFound),
 		errors.Is(reqErr, ErrValidatorNotFound):
 		errType = "NotFoundException"
