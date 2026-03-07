@@ -75,7 +75,7 @@ func (r *Reconciler) reconcile(ctx context.Context, log *slog.Logger) {
 func (r *Reconciler) reconcileService(ctx context.Context, log *slog.Logger, snap serviceSnapshot) error {
 	svc := snap.service
 
-	if svc.Status != "ACTIVE" {
+	if svc.Status != statusActive {
 		return nil
 	}
 

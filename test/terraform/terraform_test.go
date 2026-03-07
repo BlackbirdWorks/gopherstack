@@ -35,6 +35,7 @@ import (
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
+	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -136,6 +137,7 @@ provider "aws" {
     dynamodb       = %[1]q
     ec2            = %[1]q
     ecr            = %[1]q
+    ecs            = %[1]q
     elasticache    = %[1]q
     events         = %[1]q
     firehose       = %[1]q
@@ -1942,6 +1944,64 @@ func TestTerraform_AppSync(t *testing.T) {
 				require.NoError(t, err, "GetDataSource should succeed")
 				assert.Equal(t, "NoneDS", aws.ToString(dsOut.DataSource.Name))
 				assert.Equal(t, appsyncsdktypes.DataSourceTypeNone, dsOut.DataSource.Type)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ECS provisions an ECS cluster, task definition, and service via Terraform
+// and verifies they exist via the ECS SDK.
+func TestTerraform_ECS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ecs/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ClusterName": "tf-ecs-cluster-" + id,
+					"Family":      "tf-ecs-family-" + id,
+					"ServiceName": "tf-ecs-service-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createECSClient(t)
+
+				// Verify cluster exists.
+				clusterOut, err := client.DescribeClusters(ctx, &ecssvc.DescribeClustersInput{
+					Clusters: []string{vars["ClusterName"].(string)},
+				})
+				require.NoError(t, err, "DescribeClusters should succeed after terraform apply")
+				require.Len(t, clusterOut.Clusters, 1)
+				assert.Equal(t, vars["ClusterName"].(string), *clusterOut.Clusters[0].ClusterName)
+
+				// Verify task definition exists.
+				tdOut, err := client.DescribeTaskDefinition(ctx, &ecssvc.DescribeTaskDefinitionInput{
+					TaskDefinition: aws.String(vars["Family"].(string)),
+				})
+				require.NoError(t, err, "DescribeTaskDefinition should succeed after terraform apply")
+				assert.Equal(t, vars["Family"].(string), *tdOut.TaskDefinition.Family)
+
+				// Verify service exists.
+				svcOut, err := client.DescribeServices(ctx, &ecssvc.DescribeServicesInput{
+					Cluster:  aws.String(vars["ClusterName"].(string)),
+					Services: []string{vars["ServiceName"].(string)},
+				})
+				require.NoError(t, err, "DescribeServices should succeed after terraform apply")
+				require.Len(t, svcOut.Services, 1)
+				assert.Equal(t, vars["ServiceName"].(string), *svcOut.Services[0].ServiceName)
 			},
 		},
 	}

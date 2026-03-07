@@ -27,6 +27,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
+	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -960,6 +961,26 @@ func createECRClient(t *testing.T) *ecrsvc.Client {
 	}
 
 	return ecrsvc.NewFromConfig(cfg, func(o *ecrsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createECSClient returns an ECS client pointed at the shared test container.
+func createECSClient(t *testing.T) *ecssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return ecssvc.NewFromConfig(cfg, func(o *ecssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
