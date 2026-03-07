@@ -825,6 +825,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire CloudWatch Logs subscription filter delivery to Lambda, Kinesis, and Firehose.
 	wireCWLogsSubscriptionFilters(byName["CloudWatchLogs"], byName["Lambda"], byName["Kinesis"], byName["Firehose"])
 
+	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
+	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
+
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
 
@@ -2242,6 +2245,28 @@ func wireElastiCacheDNS(ecReg service.Registerable, dns elasticachebackend.DNSRe
 
 	if ecBk, bkOk := ecH.Backend.(*elasticachebackend.InMemoryBackend); bkOk {
 		ecBk.SetDNSRegistrar(dns)
+	}
+}
+
+// wireFirehoseDelivery connects the Firehose backend to S3 and Lambda so that
+// buffered records are delivered to the configured S3 bucket, and optionally
+// transformed by a Lambda function before delivery.
+func wireFirehoseDelivery(firehoseReg, s3Reg, lambdaReg service.Registerable) {
+	firehoseH, ok := firehoseReg.(*firehosebackend.Handler)
+	if !ok {
+		return
+	}
+
+	if s3H, s3Ok := s3Reg.(*s3backend.S3Handler); s3Ok {
+		if s3Bk, bkOk := s3H.Backend.(*s3backend.InMemoryBackend); bkOk {
+			firehoseH.Backend.SetS3Backend(s3Bk)
+		}
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
+			firehoseH.Backend.SetLambdaBackend(lambdaBk)
+		}
 	}
 }
 

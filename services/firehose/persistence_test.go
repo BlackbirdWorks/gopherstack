@@ -19,7 +19,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *firehose.InMemoryBackend) string {
-				stream, err := b.CreateDeliveryStream("test-stream")
+				stream, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "test-stream"})
 				if err != nil {
 					return ""
 				}
