@@ -801,8 +801,8 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire EventBridge target fan-out: deliver events to Lambda, SQS, SNS targets.
 	wireEventBridgeDelivery(byName["EventBridge"], byName["Lambda"], byName["SQS"], byName["SNS"])
 
-	// Wire S3 bucket notification delivery to SQS/SNS targets.
-	wireS3Notifications(byName["S3"], byName["SQS"], byName["SNS"])
+	// Wire S3 bucket notification delivery to SQS/SNS/Lambda targets.
+	wireS3Notifications(byName["S3"], byName["SQS"], byName["SNS"], byName["Lambda"])
 
 	// Wire Step Functions → Lambda Task integration.
 	wireStepFunctionsLambda(byName["StepFunctions"], byName["Lambda"])
@@ -1020,9 +1020,9 @@ func (a *snsPublisherAdapter) PublishToTopic(_ context.Context, topicARN, messag
 	return err
 }
 
-// wireS3Notifications connects the S3 handler to SQS and SNS backends so that
-// bucket notification configurations are honoured on PutObject and DeleteObject.
-func wireS3Notifications(s3Reg, sqsReg, snsReg service.Registerable) {
+// wireS3Notifications connects the S3 handler to SQS, SNS, and Lambda backends so that
+// bucket notification configurations are honoured on PutObject, CopyObject, DeleteObject, and CompleteMultipartUpload.
+func wireS3Notifications(s3Reg, sqsReg, snsReg, lambdaReg service.Registerable) {
 	s3H, ok := s3Reg.(*s3backend.S3Handler)
 	if !ok {
 		return
@@ -1039,6 +1039,12 @@ func wireS3Notifications(s3Reg, sqsReg, snsReg service.Registerable) {
 	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
 		if snsBk, bkOk := snsH.Backend.(*snsbackend.InMemoryBackend); bkOk {
 			targets.SNSPublisher = &s3SNSPublisherAdapter{backend: snsBk}
+		}
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bkOk {
+			targets.LambdaInvoker = lambdaBk
 		}
 	}
 

@@ -152,6 +152,17 @@ func (h *S3Handler) completeMultipartUpload(
 		ETag:     *out.ETag,
 	}
 
+	// Dispatch S3 notification if configured.
+	if h.notifier != nil {
+		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
+			ctx,
+			bucketName,
+		); ncErr == nil && notifXML != "" {
+			etag := aws.ToString(out.ETag)
+			go h.notifier.DispatchObjectCreated(ctx, bucketName, key, etag, 0, notifXML)
+		}
+	}
+
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 

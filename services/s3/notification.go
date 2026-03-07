@@ -87,8 +87,9 @@ type NotificationDispatcher interface {
 
 // NotificationTargets holds concrete delivery clients for each supported target type.
 type NotificationTargets struct {
-	SQSSender    SQSSender
-	SNSPublisher SNSPublisher
+	SQSSender     SQSSender
+	SNSPublisher  SNSPublisher
+	LambdaInvoker LambdaInvoker
 }
 
 // SQSSender sends a message body to an SQS queue identified by ARN.
@@ -99,6 +100,11 @@ type SQSSender interface {
 // SNSPublisher publishes a message to an SNS topic identified by ARN.
 type SNSPublisher interface {
 	PublishToTopic(ctx context.Context, topicARN, message, subject string) error
+}
+
+// LambdaInvoker invokes a Lambda function by name or ARN with a JSON payload.
+type LambdaInvoker interface {
+	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
 }
 
 // s3EventRecord is the standard AWS S3 event notification record structure.
@@ -227,6 +233,10 @@ func (d *inMemoryNotificationDispatcher) dispatch(
 	for _, tc := range cfg.TopicConfigurations {
 		d.dispatchToTopic(ctx, tc, eventName, bucket, key, etag, size)
 	}
+
+	for _, lc := range cfg.LambdaConfigurations {
+		d.dispatchToLambda(ctx, lc, eventName, bucket, key, etag, size)
+	}
 }
 
 func (d *inMemoryNotificationDispatcher) dispatchToQueue(
@@ -266,6 +276,26 @@ func (d *inMemoryNotificationDispatcher) dispatchToTopic(
 
 	if d.targets != nil && d.targets.SNSPublisher != nil {
 		_ = d.targets.SNSPublisher.PublishToTopic(ctx, tc.Topic, payload, "S3Notification")
+	}
+}
+
+func (d *inMemoryNotificationDispatcher) dispatchToLambda(
+	ctx context.Context,
+	lc lambdaConfiguration,
+	eventName, bucket, key, etag string,
+	size int64,
+) {
+	if !matchesAnyEvent(lc.Events, eventName) {
+		return
+	}
+
+	payload, err := buildS3EventPayload(eventName, lc.LambdaID, d.region, bucket, key, etag, size)
+	if err != nil {
+		return
+	}
+
+	if d.targets != nil && d.targets.LambdaInvoker != nil {
+		_, _, _ = d.targets.LambdaInvoker.InvokeFunction(ctx, lc.CloudFunc, "Event", []byte(payload))
 	}
 }
 
