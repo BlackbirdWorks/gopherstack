@@ -19,13 +19,13 @@ func TestHandler_Operations(t *testing.T) {
 
 	tests := []struct {
 		body           any
+		validateOutput func(t *testing.T, body []byte)
 		name           string
 		method         string
 		path           string
-		wantStatus     int
 		wantOp         string
 		wantResource   string
-		validateOutput func(t *testing.T, body []byte)
+		wantStatus     int
 	}{
 		{
 			name:   "CreateThing",
@@ -38,6 +38,7 @@ func TestHandler_Operations(t *testing.T) {
 			wantOp:       "CreateThing",
 			wantResource: "my-thing",
 			validateOutput: func(t *testing.T, body []byte) {
+				t.Helper()
 				var out map[string]string
 				require.NoError(t, json.Unmarshal(body, &out))
 				assert.Equal(t, "my-thing", out["thingName"])
@@ -49,6 +50,7 @@ func TestHandler_Operations(t *testing.T) {
 			path:   "/things/my-thing",
 			body:   nil,
 			validateOutput: func(t *testing.T, _ []byte) {
+				t.Helper()
 				// We need to create it first for a real test,
 				// but here we just test routing/dispatch.
 			},
@@ -110,7 +112,7 @@ func TestHandler_Operations(t *testing.T) {
 			// Test Metadata methods
 			assert.Equal(t, tt.wantOp, handler.ExtractOperation(c))
 			assert.Equal(t, tt.wantResource, handler.ExtractResource(c))
-			assert.True(t, handler.MatchPriority() > 0)
+			assert.Positive(t, handler.MatchPriority())
 			assert.Equal(t, "IoT", handler.Name())
 			assert.Contains(t, handler.GetSupportedOperations(), "CreateThing")
 
