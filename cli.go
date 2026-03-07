@@ -43,12 +43,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
+	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
@@ -134,6 +136,7 @@ type CLI struct {
 	route53resolverHandler       service.Registerable
 	transcribeHandler            service.Registerable
 	supportHandler               service.Registerable
+	appSyncHandler               service.Registerable
 	ecrHandler                   service.Registerable
 	snsClient                    *sns.Client
 	kmsClient                    *kms.Client
@@ -757,6 +760,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.rdsHandler = byName["RDS"]
 	cli.transcribeHandler = byName["Transcribe"]
 	cli.supportHandler = byName["Support"]
+	cli.appSyncHandler = byName["AppSync"]
 	cli.ecrHandler = byName["ECR"]
 }
 
@@ -810,6 +814,12 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
+
+	// Wire AppSync → Lambda for LAMBDA resolver execution.
+	wireAppSyncLambda(byName["AppSync"], byName["Lambda"])
+
+	// Wire AppSync → DynamoDB for AMAZON_DYNAMODB resolver execution.
+	wireAppSyncDynamoDB(byName["AppSync"], byName["DynamoDB"])
 
 	// Wire Resource Groups Tagging API → service backends so GetResources, TagResources, etc.
 	// aggregate and mutate tags across all services.
@@ -886,6 +896,7 @@ func getServiceProviders() []service.Provider {
 		&supportbackend.Provider{},
 		&ecrbackend.Provider{},
 		&cognitoidpbackend.Provider{},
+		&appsyncbackend.Provider{},
 	}
 }
 
@@ -1343,6 +1354,95 @@ func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
 			smH.SetLambdaInvoker(lambdaBk)
 		}
 	}
+}
+
+// wireAppSyncLambda connects the AppSync backend to the Lambda backend so that
+// LAMBDA data source resolvers can invoke Lambda functions.
+func wireAppSyncLambda(appSyncReg, lambdaReg service.Registerable) {
+	appSyncH, ok := appSyncReg.(*appsyncbackend.Handler)
+	if !ok {
+		return
+	}
+
+	appSyncBk, bkOk := appSyncH.Backend.(*appsyncbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			appSyncBk.SetLambdaInvoker(lambdaBk)
+		}
+	}
+}
+
+// wireAppSyncDynamoDB connects the AppSync backend to the DynamoDB backend so that
+// AMAZON_DYNAMODB data source resolvers can perform GetItem/PutItem operations.
+func wireAppSyncDynamoDB(appSyncReg, ddbReg service.Registerable) {
+	appSyncH, ok := appSyncReg.(*appsyncbackend.Handler)
+	if !ok {
+		return
+	}
+
+	appSyncBk, bkOk := appSyncH.Backend.(*appsyncbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if ddbH, ddbOk := ddbReg.(*ddbbackend.DynamoDBHandler); ddbOk {
+		if ddbBk, dbOk := ddbH.Backend.(*ddbbackend.InMemoryDB); dbOk {
+			appSyncBk.SetDynamoDBBackend(&dynamoDBAdapter{db: ddbBk})
+		}
+	}
+}
+
+// dynamoDBAdapter adapts ddbbackend.InMemoryDB to the appsync.DynamoDBBackend interface
+// by converting between the wire (map[string]any) format and the SDK AttributeValue format.
+type dynamoDBAdapter struct {
+	db *ddbbackend.InMemoryDB
+}
+
+func (a *dynamoDBAdapter) GetItemRaw(
+	ctx context.Context,
+	tableName string,
+	key map[string]any,
+) (map[string]any, error) {
+	sdkKey, err := ddbmodels.ToSDKItem(key)
+	if err != nil {
+		return nil, fmt.Errorf("appsync ddb adapter: marshal key: %w", err)
+	}
+
+	out, err := a.db.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: &tableName,
+		Key:       sdkKey,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(out.Item) == 0 {
+		return map[string]any{}, nil
+	}
+
+	return ddbmodels.FromSDKItem(out.Item), nil
+}
+
+func (a *dynamoDBAdapter) PutItemRaw(
+	ctx context.Context,
+	tableName string,
+	item map[string]any,
+) error {
+	sdkItem, err := ddbmodels.ToSDKItem(item)
+	if err != nil {
+		return fmt.Errorf("appsync ddb adapter: marshal item: %w", err)
+	}
+
+	_, err = a.db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: &tableName,
+		Item:      sdkItem,
+	})
+
+	return err
 }
 
 // arnServiceIs returns true if the ARN's service segment (the third colon-delimited field)
