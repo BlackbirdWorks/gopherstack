@@ -112,3 +112,46 @@ func TestDDBJanitor_RemovesTable(t *testing.T) {
 		})
 	}
 }
+
+func TestJanitor_RunOnce_CleansPendingDeletions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		deleteTable  string
+		createTables []string
+	}{
+		{
+			name:         "runOnce removes table from deleting queue",
+			createTables: []string{"cleanup-table"},
+			deleteTable:  "cleanup-table",
+		},
+		{
+			name:         "runOnce with empty deleting queue is a no-op",
+			createTables: []string{"keep-table"},
+			deleteTable:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			for _, tbl := range tt.createTables {
+				createTable(t, db, tbl)
+			}
+
+			if tt.deleteTable != "" {
+				_, err := db.DeleteTable(t.Context(), &dynamodb_sdk.DeleteTableInput{
+					TableName: aws.String(tt.deleteTable),
+				})
+				require.NoError(t, err)
+			}
+
+			j := dynamodb.NewJanitor(db, dynamodb.Settings{JanitorInterval: time.Hour})
+			j.RunOnce(t.Context())
+			// Should not panic and should complete without error
+		})
+	}
+}

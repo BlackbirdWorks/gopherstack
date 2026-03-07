@@ -45,6 +45,15 @@ func TestErrorHelpers(t *testing.T) {
 				Message: "item limit exceeded",
 			},
 		},
+		{
+			name:    "TransactionInProgressException",
+			errFunc: dynamodb.NewTransactionInProgressException,
+			msg:     "tx in progress",
+			want: &dynamodb.Error{
+				Type:    "com.amazonaws.dynamodb.v20120810#TransactionInProgressException",
+				Message: "tx in progress",
+			},
+		},
 	}
 
 	for _, tt := range tests {

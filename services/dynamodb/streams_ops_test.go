@@ -4,8 +4,11 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	streamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	ddb "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -240,4 +243,63 @@ func TestUnit_Streams_UnparamFix(t *testing.T) {
 	// Use a different table name to satisfy unparam lint for makePutItem
 	_, _ = db.CreateTable(ctx, makeCreateTableInput("OtherTableForLint", "id"))
 	_ = makePutItem("OtherTableForLint", "id", "val")
+}
+
+func TestUnit_Streams_ComplexAttributeTypes(t *testing.T) {
+	t.Parallel()
+
+	db := ddb.NewInMemoryDB()
+	ctx := t.Context()
+
+	_, err := db.CreateTable(ctx, makeCreateTableInput("ComplexAttrTable", "pk"))
+	require.NoError(t, err)
+	require.NoError(t, db.EnableStream(ctx, "ComplexAttrTable", "NEW_AND_OLD_IMAGES"))
+
+	// Insert an item with map, list, and set attributes so that buildSDKRecord
+	// exercises handleMapAttribute, handleListAttribute, and toStringSliceFrom.
+	_, err = db.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName: aws.String("ComplexAttrTable"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "complex-pk"},
+			"nested_map": &types.AttributeValueMemberM{Value: map[string]types.AttributeValue{
+				"inner": &types.AttributeValueMemberS{Value: "value"},
+			}},
+			"list_attr": &types.AttributeValueMemberL{Value: []types.AttributeValue{
+				&types.AttributeValueMemberS{Value: "elem1"},
+				&types.AttributeValueMemberN{Value: "42"},
+			}},
+			"string_set": &types.AttributeValueMemberSS{Value: []string{"a", "b", "c"}},
+			"number_set": &types.AttributeValueMemberNS{Value: []string{"1", "2"}},
+		},
+	})
+	require.NoError(t, err)
+
+	// Read back via GetRecords to trigger buildSDKRecord -> handleMapAttribute/handleListAttribute.
+	listOut, err := db.ListStreams(ctx, &dynamodbstreams.ListStreamsInput{
+		TableName: aws.String("ComplexAttrTable"),
+	})
+	require.NoError(t, err)
+	require.Len(t, listOut.Streams, 1)
+
+	descOut, err := db.DescribeStream(ctx, &dynamodbstreams.DescribeStreamInput{
+		StreamArn: listOut.Streams[0].StreamArn,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, descOut.StreamDescription.Shards)
+
+	iterOut, err := db.GetShardIterator(ctx, &dynamodbstreams.GetShardIteratorInput{
+		StreamArn:         listOut.Streams[0].StreamArn,
+		ShardId:           descOut.StreamDescription.Shards[0].ShardId,
+		ShardIteratorType: streamstypes.ShardIteratorTypeTrimHorizon,
+	})
+	require.NoError(t, err)
+
+	recordsOut, err := db.GetRecords(ctx, &dynamodbstreams.GetRecordsInput{
+		ShardIterator: iterOut.ShardIterator,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, recordsOut.Records)
+	// The NewImage should contain the complex attributes.
+	rec := recordsOut.Records[0]
+	assert.NotNil(t, rec.Dynamodb.NewImage)
 }

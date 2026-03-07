@@ -108,6 +108,9 @@ func (j *Janitor) sweepTTL(ctx context.Context) {
 			}
 
 			if expired {
+				// Emit a REMOVE stream record before discarding the item so that
+				// stream consumers can react to TTL-driven deletions.
+				table.appendStreamRecord(streamEventRemove, deepCopyItem(item), nil)
 				evictedCount++
 			} else {
 				newItems = append(newItems, item)
