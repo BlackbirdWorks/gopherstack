@@ -428,3 +428,331 @@ func TestIntegration_APIGateway_DataPlane_PathVariable(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, userResp3.StatusCode)
 }
+
+// TestIntegration_APIGateway_Authorizer_Lifecycle verifies full authorizer CRUD.
+func TestIntegration_APIGateway_Authorizer_Lifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	apiID, _ := apigwSetupAPI(t, "authorizer-lifecycle-test")
+
+	// CreateAuthorizer
+	resp := apigwPost(t, "CreateAuthorizer", map[string]any{
+		"restApiId":      apiID,
+		"name":           "my-token-auth",
+		"type":           "TOKEN",
+		"identitySource": "method.request.header.Authorization",
+	})
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	authResp := apigwReadJSON(t, resp)
+	authID, ok := authResp["id"].(string)
+	require.True(t, ok, "id should be a string")
+	assert.NotEmpty(t, authID)
+	assert.Equal(t, "my-token-auth", authResp["name"])
+	assert.Equal(t, "TOKEN", authResp["type"])
+
+	// GetAuthorizer
+	resp2 := apigwPost(t, "GetAuthorizer", map[string]any{
+		"restApiId":    apiID,
+		"authorizerId": authID,
+	})
+	assert.Equal(t, http.StatusOK, resp2.StatusCode)
+	got := apigwReadJSON(t, resp2)
+	assert.Equal(t, authID, got["id"])
+
+	// GetAuthorizers (list)
+	resp3 := apigwPost(t, "GetAuthorizers", map[string]any{"restApiId": apiID})
+	assert.Equal(t, http.StatusOK, resp3.StatusCode)
+	list := apigwReadJSON(t, resp3)
+	items, ok := list["item"].([]any)
+	require.True(t, ok)
+	assert.Len(t, items, 1)
+
+	// UpdateAuthorizer
+	resp4 := apigwPost(t, "UpdateAuthorizer", map[string]any{
+		"restApiId":    apiID,
+		"authorizerId": authID,
+		"name":         "updated-auth",
+	})
+	assert.Equal(t, http.StatusOK, resp4.StatusCode)
+	updated := apigwReadJSON(t, resp4)
+	assert.Equal(t, "updated-auth", updated["name"])
+
+	// DeleteAuthorizer
+	resp5 := apigwPost(t, "DeleteAuthorizer", map[string]any{
+		"restApiId":    apiID,
+		"authorizerId": authID,
+	})
+	assert.Equal(t, http.StatusNoContent, resp5.StatusCode)
+	resp5.Body.Close()
+
+	// Verify deletion
+	resp6 := apigwPost(t, "GetAuthorizer", map[string]any{
+		"restApiId":    apiID,
+		"authorizerId": authID,
+	})
+	assert.Equal(t, http.StatusNotFound, resp6.StatusCode)
+	resp6.Body.Close()
+}
+
+// TestIntegration_APIGateway_RequestValidator_Lifecycle verifies full request validator CRUD.
+func TestIntegration_APIGateway_RequestValidator_Lifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	apiID, _ := apigwSetupAPI(t, "validator-lifecycle-test")
+
+	// CreateRequestValidator
+	resp := apigwPost(t, "CreateRequestValidator", map[string]any{
+		"restApiId":                 apiID,
+		"name":                      "my-validator",
+		"validateRequestBody":       true,
+		"validateRequestParameters": false,
+	})
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	rvResp := apigwReadJSON(t, resp)
+	rvID, ok := rvResp["id"].(string)
+	require.True(t, ok, "id should be a string")
+	assert.NotEmpty(t, rvID)
+	assert.Equal(t, "my-validator", rvResp["name"])
+	assert.Equal(t, true, rvResp["validateRequestBody"])
+
+	// GetRequestValidator
+	resp2 := apigwPost(t, "GetRequestValidator", map[string]any{
+		"restApiId":          apiID,
+		"requestValidatorId": rvID,
+	})
+	assert.Equal(t, http.StatusOK, resp2.StatusCode)
+	got := apigwReadJSON(t, resp2)
+	assert.Equal(t, rvID, got["id"])
+
+	// GetRequestValidators (list)
+	resp3 := apigwPost(t, "GetRequestValidators", map[string]any{"restApiId": apiID})
+	assert.Equal(t, http.StatusOK, resp3.StatusCode)
+	list := apigwReadJSON(t, resp3)
+	items, ok := list["item"].([]any)
+	require.True(t, ok)
+	assert.Len(t, items, 1)
+
+	// UpdateRequestValidator
+	resp4 := apigwPost(t, "UpdateRequestValidator", map[string]any{
+		"restApiId":          apiID,
+		"requestValidatorId": rvID,
+		"name":               "updated-validator",
+	})
+	assert.Equal(t, http.StatusOK, resp4.StatusCode)
+	updated := apigwReadJSON(t, resp4)
+	assert.Equal(t, "updated-validator", updated["name"])
+
+	// DeleteRequestValidator
+	resp5 := apigwPost(t, "DeleteRequestValidator", map[string]any{
+		"restApiId":          apiID,
+		"requestValidatorId": rvID,
+	})
+	assert.Equal(t, http.StatusNoContent, resp5.StatusCode)
+	resp5.Body.Close()
+
+	// Verify deletion
+	resp6 := apigwPost(t, "GetRequestValidator", map[string]any{
+		"restApiId":          apiID,
+		"requestValidatorId": rvID,
+	})
+	assert.Equal(t, http.StatusNotFound, resp6.StatusCode)
+	resp6.Body.Close()
+}
+
+// TestIntegration_APIGateway_MethodResponse_Lifecycle verifies method response CRUD.
+func TestIntegration_APIGateway_MethodResponse_Lifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	apiID, rootID := apigwSetupAPI(t, "method-response-lifecycle-test")
+
+	// Create resource and method.
+	resp := apigwPost(t, "CreateResource", map[string]any{
+		"restApiId": apiID,
+		"parentId":  rootID,
+		"pathPart":  "items",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	res := apigwReadJSON(t, resp)
+	resID := res["id"].(string)
+
+	resp = apigwPost(t, "PutMethod", map[string]any{
+		"restApiId":         apiID,
+		"resourceId":        resID,
+		"httpMethod":        "GET",
+		"authorizationType": "NONE",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// PutMethodResponse
+	resp2 := apigwPost(t, "PutMethodResponse", map[string]any{
+		"restApiId":  apiID,
+		"resourceId": resID,
+		"httpMethod": "GET",
+		"statusCode": "200",
+		"responseModels": map[string]any{
+			"application/json": "Empty",
+		},
+	})
+	assert.Equal(t, http.StatusCreated, resp2.StatusCode)
+	mr := apigwReadJSON(t, resp2)
+	assert.Equal(t, "200", mr["statusCode"])
+
+	// GetMethodResponse
+	resp3 := apigwPost(t, "GetMethodResponse", map[string]any{
+		"restApiId":  apiID,
+		"resourceId": resID,
+		"httpMethod": "GET",
+		"statusCode": "200",
+	})
+	assert.Equal(t, http.StatusOK, resp3.StatusCode)
+	got := apigwReadJSON(t, resp3)
+	assert.Equal(t, "200", got["statusCode"])
+
+	// DeleteMethodResponse
+	resp4 := apigwPost(t, "DeleteMethodResponse", map[string]any{
+		"restApiId":  apiID,
+		"resourceId": resID,
+		"httpMethod": "GET",
+		"statusCode": "200",
+	})
+	assert.Equal(t, http.StatusNoContent, resp4.StatusCode)
+	resp4.Body.Close()
+
+	// Verify deletion
+	resp5 := apigwPost(t, "GetMethodResponse", map[string]any{
+		"restApiId":  apiID,
+		"resourceId": resID,
+		"httpMethod": "GET",
+		"statusCode": "200",
+	})
+	assert.Equal(t, http.StatusNotFound, resp5.StatusCode)
+	resp5.Body.Close()
+}
+
+// TestIntegration_APIGateway_IntegrationResponse_Lifecycle verifies integration response CRUD.
+func TestIntegration_APIGateway_IntegrationResponse_Lifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	apiID, rootID := apigwSetupAPI(t, "integ-response-lifecycle-test")
+
+	// Create resource, method, and integration.
+	resp := apigwPost(t, "CreateResource", map[string]any{
+		"restApiId": apiID,
+		"parentId":  rootID,
+		"pathPart":  "data",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	res := apigwReadJSON(t, resp)
+	resID := res["id"].(string)
+
+	resp = apigwPost(t, "PutMethod", map[string]any{
+		"restApiId":         apiID,
+		"resourceId":        resID,
+		"httpMethod":        "GET",
+		"authorizationType": "NONE",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	resp = apigwPost(t, "PutIntegration", map[string]any{
+		"restApiId":  apiID,
+		"resourceId": resID,
+		"httpMethod": "GET",
+		"type":       "MOCK",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// PutIntegrationResponse
+	resp2 := apigwPost(t, "PutIntegrationResponse", map[string]any{
+		"restApiId":  apiID,
+		"resourceId": resID,
+		"httpMethod": "GET",
+		"statusCode": "200",
+		"responseTemplates": map[string]any{
+			"application/json": `{"message": "success"}`,
+		},
+	})
+	assert.Equal(t, http.StatusCreated, resp2.StatusCode)
+	ir := apigwReadJSON(t, resp2)
+	assert.Equal(t, "200", ir["statusCode"])
+
+	// GetIntegrationResponse
+	resp3 := apigwPost(t, "GetIntegrationResponse", map[string]any{
+		"restApiId":  apiID,
+		"resourceId": resID,
+		"httpMethod": "GET",
+		"statusCode": "200",
+	})
+	assert.Equal(t, http.StatusOK, resp3.StatusCode)
+	got := apigwReadJSON(t, resp3)
+	assert.Equal(t, "200", got["statusCode"])
+
+	// DeleteIntegrationResponse
+	resp4 := apigwPost(t, "DeleteIntegrationResponse", map[string]any{
+		"restApiId":  apiID,
+		"resourceId": resID,
+		"httpMethod": "GET",
+		"statusCode": "200",
+	})
+	assert.Equal(t, http.StatusNoContent, resp4.StatusCode)
+	resp4.Body.Close()
+
+	// Verify deletion
+	resp5 := apigwPost(t, "GetIntegrationResponse", map[string]any{
+		"restApiId":  apiID,
+		"resourceId": resID,
+		"httpMethod": "GET",
+		"statusCode": "200",
+	})
+	assert.Equal(t, http.StatusNotFound, resp5.StatusCode)
+	resp5.Body.Close()
+}
+
+// TestIntegration_APIGateway_Authorizer_MethodAssociation verifies that a method
+// can be created with an authorizerId pointing to an existing authorizer.
+func TestIntegration_APIGateway_Authorizer_MethodAssociation(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	apiID, rootID := apigwSetupAPI(t, "authorizer-method-assoc-test")
+
+	// Create authorizer.
+	resp := apigwPost(t, "CreateAuthorizer", map[string]any{
+		"restApiId":      apiID,
+		"name":           "token-auth",
+		"type":           "TOKEN",
+		"identitySource": "method.request.header.Authorization",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	authResp := apigwReadJSON(t, resp)
+	authID := authResp["id"].(string)
+
+	// Create resource.
+	resp = apigwPost(t, "CreateResource", map[string]any{
+		"restApiId": apiID,
+		"parentId":  rootID,
+		"pathPart":  "secured",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	res := apigwReadJSON(t, resp)
+	resID := res["id"].(string)
+
+	// PutMethod with authorizerId.
+	resp = apigwPost(t, "PutMethod", map[string]any{
+		"restApiId":         apiID,
+		"resourceId":        resID,
+		"httpMethod":        "GET",
+		"authorizationType": "CUSTOM",
+		"authorizerId":      authID,
+	})
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+	method := apigwReadJSON(t, resp)
+	assert.Equal(t, authID, method["authorizerId"])
+	assert.Equal(t, "CUSTOM", method["authorizationType"])
+}

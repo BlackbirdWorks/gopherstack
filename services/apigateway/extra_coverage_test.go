@@ -54,7 +54,7 @@ func (n *noopBackend) CreateResource(_ string, _ string, _ string) (*apigateway.
 func (n *noopBackend) DeleteResource(_ string, _ string) error { return nil }
 
 func (n *noopBackend) PutMethod(
-	_ string, _ string, _ string, _ string, _ bool,
+	_ string, _ string, _ string, _ string, _ string, _ string, _ bool,
 ) (*apigateway.Method, error) {
 	return nil, errNoopNotImplemented
 }
@@ -64,6 +64,18 @@ func (n *noopBackend) GetMethod(_ string, _ string, _ string) (*apigateway.Metho
 }
 
 func (n *noopBackend) DeleteMethod(_ string, _ string, _ string) error { return nil }
+
+func (n *noopBackend) PutMethodResponse(
+	_ string, _ string, _ string, _ string, _ apigateway.PutMethodResponseInput,
+) (*apigateway.MethodResponse, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetMethodResponse(_ string, _ string, _ string, _ string) (*apigateway.MethodResponse, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) DeleteMethodResponse(_ string, _ string, _ string, _ string) error { return nil }
 
 func (n *noopBackend) PutIntegration(
 	_ string, _ string, _ string, _ apigateway.PutIntegrationInput,
@@ -76,6 +88,25 @@ func (n *noopBackend) GetIntegration(_ string, _ string, _ string) (*apigateway.
 }
 
 func (n *noopBackend) DeleteIntegration(_ string, _ string, _ string) error { return nil }
+
+func (n *noopBackend) PutIntegrationResponse(
+	_ string, _ string, _ string, _ string, _ apigateway.PutIntegrationResponseInput,
+) (*apigateway.IntegrationResponse, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetIntegrationResponse(
+	_ string,
+	_ string,
+	_ string,
+	_ string,
+) (*apigateway.IntegrationResponse, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) DeleteIntegrationResponse(_ string, _ string, _ string, _ string) error {
+	return nil
+}
 
 func (n *noopBackend) CreateDeployment(_ string, _ string, _ string) (*apigateway.Deployment, error) {
 	return nil, errNoopNotImplemented
@@ -98,6 +129,51 @@ func (n *noopBackend) GetStage(_ string, _ string) (*apigateway.Stage, error) {
 }
 
 func (n *noopBackend) DeleteStage(_ string, _ string) error { return nil }
+
+func (n *noopBackend) CreateAuthorizer(_ string, _ apigateway.CreateAuthorizerInput) (*apigateway.Authorizer, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetAuthorizer(_ string, _ string) (*apigateway.Authorizer, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetAuthorizers(_ string) ([]apigateway.Authorizer, error) { return nil, nil }
+
+func (n *noopBackend) UpdateAuthorizer(
+	_ string,
+	_ string,
+	_ apigateway.UpdateAuthorizerInput,
+) (*apigateway.Authorizer, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) DeleteAuthorizer(_ string, _ string) error { return nil }
+
+func (n *noopBackend) CreateRequestValidator(
+	_ string,
+	_ apigateway.CreateRequestValidatorInput,
+) (*apigateway.RequestValidator, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetRequestValidator(_ string, _ string) (*apigateway.RequestValidator, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) GetRequestValidators(_ string) ([]apigateway.RequestValidator, error) {
+	return nil, nil
+}
+
+func (n *noopBackend) UpdateRequestValidator(
+	_ string,
+	_ string,
+	_ apigateway.UpdateRequestValidatorInput,
+) (*apigateway.RequestValidator, error) {
+	return nil, errNoopNotImplemented
+}
+
+func (n *noopBackend) DeleteRequestValidator(_ string, _ string) error { return nil }
 
 // restRequest sends a REST-style request (no X-Amz-Target header) to the handler.
 func restRequest(t *testing.T, handler *apigateway.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -259,7 +335,7 @@ func TestHandleRESTAPI_Branches(t *testing.T) {
 				api, _ := b.CreateRestAPI("api", "", nil)
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
-				_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", false)
+				_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
 
 				return fmt.Sprintf("/restapis/%s/resources/%s/methods/GET", api.ID, rootID)
 			},
@@ -723,7 +799,7 @@ func TestMethodActions_RESTPathCoverage(t *testing.T) {
 			setup: func(b *apigateway.InMemoryBackend) string {
 				api, _ := b.CreateRestAPI("api", "", nil)
 				resources, _, _ := b.GetResources(api.ID, "", 0)
-				_, _ = b.PutMethod(api.ID, resources[0].ID, "POST", "NONE", false)
+				_, _ = b.PutMethod(api.ID, resources[0].ID, "POST", "NONE", "", "", false)
 
 				return fmt.Sprintf("/restapis/%s/resources/%s/methods/POST", api.ID, resources[0].ID)
 			},
@@ -1073,7 +1149,7 @@ func TestHandler_RESTPath_Integration(t *testing.T) {
 			require.NoError(t, err)
 			rootID := resources[0].ID
 
-			_, err = backend.PutMethod(api.ID, rootID, "GET", "NONE", false)
+			_, err = backend.PutMethod(api.ID, rootID, "GET", "NONE", "", "", false)
 			require.NoError(t, err)
 
 			// Ensure integration exists for GET and DELETE operations.

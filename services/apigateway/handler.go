@@ -21,12 +21,15 @@ var errUnknownOperation = errors.New("UnknownOperationException")
 
 // path segment constants used in REST route matching.
 const (
-	apiGWUnknownOp     = "Unknown"
-	apiGWSegResources  = "resources"
-	apiGWSegDeployment = "deployments"
-	apiGWSegStages     = "stages"
-	apiGWSegMethods    = "methods"
-	apiGWSegInteg      = "integration"
+	apiGWUnknownOp      = "Unknown"
+	apiGWSegResources   = "resources"
+	apiGWSegDeployment  = "deployments"
+	apiGWSegStages      = "stages"
+	apiGWSegMethods     = "methods"
+	apiGWSegInteg       = "integration"
+	apiGWSegResponses   = "responses"
+	apiGWSegAuthorizers = "authorizers"
+	apiGWSegValidators  = "requestvalidators"
 )
 
 type createRestAPIInput struct {
@@ -71,11 +74,13 @@ type deleteResourceInput struct {
 }
 
 type putMethodInput struct {
-	RestAPIID         string `json:"restApiId"`
-	ResourceID        string `json:"resourceId"`
-	HTTPMethod        string `json:"httpMethod"`
-	AuthorizationType string `json:"authorizationType"`
-	APIKeyRequired    bool   `json:"apiKeyRequired"`
+	RestAPIID          string `json:"restApiId"`
+	ResourceID         string `json:"resourceId"`
+	HTTPMethod         string `json:"httpMethod"`
+	AuthorizationType  string `json:"authorizationType"`
+	AuthorizerID       string `json:"authorizerId"`
+	RequestValidatorID string `json:"requestValidatorId"`
+	APIKeyRequired     bool   `json:"apiKeyRequired"`
 }
 
 type getMethodInput struct {
@@ -144,16 +149,133 @@ type deleteStageInput struct {
 	StageName string `json:"stageName"`
 }
 
+type putMethodResponseInput struct {
+	PutMethodResponseInput
+
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+	HTTPMethod string `json:"httpMethod"`
+	StatusCode string `json:"statusCode"`
+}
+
+type getMethodResponseInput struct {
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+	HTTPMethod string `json:"httpMethod"`
+	StatusCode string `json:"statusCode"`
+}
+
+type deleteMethodResponseInput struct {
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+	HTTPMethod string `json:"httpMethod"`
+	StatusCode string `json:"statusCode"`
+}
+
+type putIntegrationResponseInput struct {
+	PutIntegrationResponseInput
+
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+	HTTPMethod string `json:"httpMethod"`
+	StatusCode string `json:"statusCode"`
+}
+
+type getIntegrationResponseInput struct {
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+	HTTPMethod string `json:"httpMethod"`
+	StatusCode string `json:"statusCode"`
+}
+
+type deleteIntegrationResponseInput struct {
+	RestAPIID  string `json:"restApiId"`
+	ResourceID string `json:"resourceId"`
+	HTTPMethod string `json:"httpMethod"`
+	StatusCode string `json:"statusCode"`
+}
+
+type createAuthorizerInput struct {
+	RestAPIID                    string   `json:"restApiId"`
+	Name                         string   `json:"name"`
+	Type                         string   `json:"type"`
+	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
+	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
+	IdentitySource               string   `json:"identitySource,omitempty"`
+	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	ProviderARNs                 []string `json:"providerARNs,omitempty"`
+	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
+}
+
+type getAuthorizerInput struct {
+	RestAPIID    string `json:"restApiId"`
+	AuthorizerID string `json:"authorizerId"`
+}
+
+type getAuthorizersInput struct {
+	RestAPIID string `json:"restApiId"`
+}
+
+type updateAuthorizerInput struct {
+	RestAPIID                    string   `json:"restApiId"`
+	AuthorizerID                 string   `json:"authorizerId"`
+	Name                         string   `json:"name,omitempty"`
+	Type                         string   `json:"type,omitempty"`
+	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
+	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
+	IdentitySource               string   `json:"identitySource,omitempty"`
+	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	ProviderARNs                 []string `json:"providerARNs,omitempty"`
+	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
+}
+
+type deleteAuthorizerInput struct {
+	RestAPIID    string `json:"restApiId"`
+	AuthorizerID string `json:"authorizerId"`
+}
+
+type createRequestValidatorInput struct {
+	RestAPIID                 string `json:"restApiId"`
+	Name                      string `json:"name"`
+	ValidateRequestBody       bool   `json:"validateRequestBody"`
+	ValidateRequestParameters bool   `json:"validateRequestParameters"`
+}
+
+type getRequestValidatorInput struct {
+	RestAPIID   string `json:"restApiId"`
+	ValidatorID string `json:"requestValidatorId"`
+}
+
+type getRequestValidatorsInput struct {
+	RestAPIID string `json:"restApiId"`
+}
+
+type updateRequestValidatorInput struct {
+	UpdateRequestValidatorInput
+
+	RestAPIID   string `json:"restApiId"`
+	ValidatorID string `json:"requestValidatorId"`
+}
+
+type deleteRequestValidatorInput struct {
+	RestAPIID   string `json:"restApiId"`
+	ValidatorID string `json:"requestValidatorId"`
+}
+
 // Handler is the Echo HTTP service handler for API Gateway operations.
 type Handler struct {
 	Backend    StorageBackend
+	authCache  *authorizerCache
 	lambda     LambdaInvoker
 	httpClient *http.Client
 }
 
 // NewHandler creates a new API Gateway handler.
 func NewHandler(backend StorageBackend) *Handler {
-	return &Handler{Backend: backend}
+	return &Handler{
+		Backend:   backend,
+		authCache: newAuthorizerCache(),
+	}
 }
 
 // SetLambdaInvoker configures the Lambda invoker for AWS_PROXY integrations.
@@ -193,9 +315,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutMethod",
 		"GetMethod",
 		"DeleteMethod",
+		"PutMethodResponse",
+		"GetMethodResponse",
+		"DeleteMethodResponse",
 		"PutIntegration",
 		"GetIntegration",
 		"DeleteIntegration",
+		"PutIntegrationResponse",
+		"GetIntegrationResponse",
+		"DeleteIntegrationResponse",
 		"CreateDeployment",
 		"GetDeployment",
 		"GetDeployments",
@@ -203,6 +331,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetStages",
 		"GetStage",
 		"DeleteStage",
+		"CreateAuthorizer",
+		"GetAuthorizer",
+		"GetAuthorizers",
+		"UpdateAuthorizer",
+		"DeleteAuthorizer",
+		"CreateRequestValidator",
+		"GetRequestValidator",
+		"GetRequestValidators",
+		"UpdateRequestValidator",
+		"DeleteRequestValidator",
 	}
 }
 
@@ -393,7 +531,7 @@ func injectJSONFieldAPIGW(body []byte, key, value string) []byte {
 // parseAPIGWRESTPath maps an HTTP method + URL path to an API Gateway operation name
 // and extracts path parameters. Returns ("Unknown", nil, false) when no pattern matches.
 //
-//nolint:cyclop,gocyclo // path routing table is inherently a multi-branch switch
+//nolint:cyclop,gocyclo,gocognit,funlen // path routing table is inherently a multi-branch switch
 func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
 	// Strip leading "/" and split into path segments.
 	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
@@ -453,12 +591,44 @@ func parseAPIGWRESTPath(method, path string) (string, map[string]string, bool) {
 	// DELETE /restapis/{id}/stages/{stageName} → DeleteStage
 	case n == 4 && segs[2] == apiGWSegStages && method == http.MethodDelete:
 		return "DeleteStage", map[string]string{"restApiId": segs[1], "stageName": segs[3]}, true
+	// POST /restapis/{id}/authorizers → CreateAuthorizer
+	case n == 3 && segs[2] == apiGWSegAuthorizers && method == http.MethodPost:
+		return "CreateAuthorizer", map[string]string{"restApiId": segs[1]}, true
+	// GET /restapis/{id}/authorizers → GetAuthorizers
+	case n == 3 && segs[2] == apiGWSegAuthorizers && method == http.MethodGet:
+		return "GetAuthorizers", map[string]string{"restApiId": segs[1]}, true
+	// GET /restapis/{id}/authorizers/{authId} → GetAuthorizer
+	case n == 4 && segs[2] == apiGWSegAuthorizers && method == http.MethodGet:
+		return "GetAuthorizer", map[string]string{"restApiId": segs[1], "authorizerId": segs[3]}, true
+	// PATCH /restapis/{id}/authorizers/{authId} → UpdateAuthorizer
+	case n == 4 && segs[2] == apiGWSegAuthorizers && method == http.MethodPatch:
+		return "UpdateAuthorizer", map[string]string{"restApiId": segs[1], "authorizerId": segs[3]}, true
+	// DELETE /restapis/{id}/authorizers/{authId} → DeleteAuthorizer
+	case n == 4 && segs[2] == apiGWSegAuthorizers && method == http.MethodDelete:
+		return "DeleteAuthorizer", map[string]string{"restApiId": segs[1], "authorizerId": segs[3]}, true
+	// POST /restapis/{id}/requestvalidators → CreateRequestValidator
+	case n == 3 && segs[2] == apiGWSegValidators && method == http.MethodPost:
+		return "CreateRequestValidator", map[string]string{"restApiId": segs[1]}, true
+	// GET /restapis/{id}/requestvalidators → GetRequestValidators
+	case n == 3 && segs[2] == apiGWSegValidators && method == http.MethodGet:
+		return "GetRequestValidators", map[string]string{"restApiId": segs[1]}, true
+	// GET /restapis/{id}/requestvalidators/{id} → GetRequestValidator
+	case n == 4 && segs[2] == apiGWSegValidators && method == http.MethodGet:
+		return "GetRequestValidator", map[string]string{"restApiId": segs[1], "requestValidatorId": segs[3]}, true
+	// PATCH /restapis/{id}/requestvalidators/{id} → UpdateRequestValidator
+	case n == 4 && segs[2] == apiGWSegValidators && method == http.MethodPatch:
+		return "UpdateRequestValidator", map[string]string{"restApiId": segs[1], "requestValidatorId": segs[3]}, true
+	// DELETE /restapis/{id}/requestvalidators/{id} → DeleteRequestValidator
+	case n == 4 && segs[2] == apiGWSegValidators && method == http.MethodDelete:
+		return "DeleteRequestValidator", map[string]string{"restApiId": segs[1], "requestValidatorId": segs[3]}, true
 	}
 
 	return apiGWUnknownOp, nil, false
 }
 
 // parseAPIGWMethodPath handles paths under /restapis/{id}/resources/{resId}/methods/{httpMethod}.
+//
+//nolint:gocognit,cyclop // method path routing table is inherently a multi-branch switch
 func parseAPIGWMethodPath(method string, segs []string) (string, map[string]string, bool) {
 	// segs: [restapis, {id}, resources, {resId}, methods, {httpMethod}, ...]
 	const (
@@ -466,6 +636,7 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 		idxResourceID = 3
 		idxHTTPMethod = 5
 		idxIntegSeg   = 6
+		idxRespSeg    = 7
 	)
 
 	if len(segs) <= idxHTTPMethod {
@@ -481,8 +652,31 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 		"httpMethod": httpMethod,
 	}
 
-	// /restapis/{id}/resources/{resId}/methods/{httpMethod}/integration
+	// /restapis/{id}/resources/{resId}/methods/{httpMethod}/integration[/responses/{statusCode}]
 	if len(segs) > idxIntegSeg && segs[idxIntegSeg] == apiGWSegInteg {
+		// /restapis/{id}/resources/{resId}/methods/{httpMethod}/integration/responses/{statusCode}
+		if len(segs) > idxRespSeg && segs[idxRespSeg] == apiGWSegResponses {
+			if len(segs) <= idxRespSeg+1 {
+				return apiGWUnknownOp, nil, false
+			}
+			params := map[string]string{
+				"restApiId":  apiID,
+				"resourceId": resID,
+				"httpMethod": httpMethod,
+				"statusCode": segs[idxRespSeg+1],
+			}
+			switch method {
+			case http.MethodPut:
+				return "PutIntegrationResponse", params, true
+			case http.MethodGet:
+				return "GetIntegrationResponse", params, true
+			case http.MethodDelete:
+				return "DeleteIntegrationResponse", params, true
+			}
+
+			return apiGWUnknownOp, nil, false
+		}
+
 		switch method {
 		case http.MethodPut:
 			return "PutIntegration", baseParams, true
@@ -490,6 +684,29 @@ func parseAPIGWMethodPath(method string, segs []string) (string, map[string]stri
 			return "GetIntegration", baseParams, true
 		case http.MethodDelete:
 			return "DeleteIntegration", baseParams, true
+		}
+
+		return apiGWUnknownOp, nil, false
+	}
+
+	// /restapis/{id}/resources/{resId}/methods/{httpMethod}/responses/{statusCode}
+	if len(segs) > idxIntegSeg && segs[idxIntegSeg] == apiGWSegResponses {
+		if len(segs) <= idxIntegSeg+1 {
+			return apiGWUnknownOp, nil, false
+		}
+		params := map[string]string{
+			"restApiId":  apiID,
+			"resourceId": resID,
+			"httpMethod": httpMethod,
+			"statusCode": segs[idxIntegSeg+1],
+		}
+		switch method {
+		case http.MethodPut:
+			return "PutMethodResponse", params, true
+		case http.MethodGet:
+			return "GetMethodResponse", params, true
+		case http.MethodDelete:
+			return "DeleteMethodResponse", params, true
 		}
 
 		return apiGWUnknownOp, nil, false
@@ -692,6 +909,8 @@ func (h *Handler) methodActions() map[string]actionFn {
 				input.ResourceID,
 				input.HTTPMethod,
 				input.AuthorizationType,
+				input.AuthorizerID,
+				input.RequestValidatorID,
 				input.APIKeyRequired,
 			)
 			if err != nil {
@@ -718,6 +937,274 @@ func (h *Handler) methodActions() map[string]actionFn {
 				return 0, nil, err
 			}
 			if err := h.Backend.DeleteMethod(input.RestAPIID, input.ResourceID, input.HTTPMethod); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusNoContent, map[string]any{}, nil
+		},
+	}
+}
+
+//nolint:dupl // methodResponseActions and integrationResponseActions have similar structure by design
+func (h *Handler) methodResponseActions() map[string]actionFn {
+	return map[string]actionFn{
+		"PutMethodResponse": func(b []byte) (int, any, error) {
+			var input putMethodResponseInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			mr, err := h.Backend.PutMethodResponse(
+				input.RestAPIID,
+				input.ResourceID,
+				input.HTTPMethod,
+				input.StatusCode,
+				input.PutMethodResponseInput,
+			)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, mr, nil
+		},
+		"GetMethodResponse": func(b []byte) (int, any, error) {
+			var input getMethodResponseInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			mr, err := h.Backend.GetMethodResponse(
+				input.RestAPIID,
+				input.ResourceID,
+				input.HTTPMethod,
+				input.StatusCode,
+			)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, mr, nil
+		},
+		"DeleteMethodResponse": func(b []byte) (int, any, error) {
+			var input deleteMethodResponseInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteMethodResponse(
+				input.RestAPIID,
+				input.ResourceID,
+				input.HTTPMethod,
+				input.StatusCode,
+			); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusNoContent, map[string]any{}, nil
+		},
+	}
+}
+
+//nolint:dupl // integrationResponseActions and methodResponseActions have similar structure by design
+func (h *Handler) integrationResponseActions() map[string]actionFn {
+	return map[string]actionFn{
+		"PutIntegrationResponse": func(b []byte) (int, any, error) {
+			var input putIntegrationResponseInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			ir, err := h.Backend.PutIntegrationResponse(
+				input.RestAPIID,
+				input.ResourceID,
+				input.HTTPMethod,
+				input.StatusCode,
+				input.PutIntegrationResponseInput,
+			)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, ir, nil
+		},
+		"GetIntegrationResponse": func(b []byte) (int, any, error) {
+			var input getIntegrationResponseInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			ir, err := h.Backend.GetIntegrationResponse(
+				input.RestAPIID,
+				input.ResourceID,
+				input.HTTPMethod,
+				input.StatusCode,
+			)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, ir, nil
+		},
+		"DeleteIntegrationResponse": func(b []byte) (int, any, error) {
+			var input deleteIntegrationResponseInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteIntegrationResponse(
+				input.RestAPIID,
+				input.ResourceID,
+				input.HTTPMethod,
+				input.StatusCode,
+			); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusNoContent, map[string]any{}, nil
+		},
+	}
+}
+
+func (h *Handler) authorizerActions() map[string]actionFn {
+	return map[string]actionFn{
+		"CreateAuthorizer": func(b []byte) (int, any, error) {
+			var input createAuthorizerInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			auth, err := h.Backend.CreateAuthorizer(input.RestAPIID, CreateAuthorizerInput{
+				Name:                         input.Name,
+				Type:                         input.Type,
+				AuthorizerURI:                input.AuthorizerURI,
+				AuthorizerCredentials:        input.AuthorizerCredentials,
+				IdentitySource:               input.IdentitySource,
+				IdentityValidationExpression: input.IdentityValidationExpression,
+				AuthorizerResultTTLInSeconds: input.AuthorizerResultTTLInSeconds,
+				ProviderARNs:                 input.ProviderARNs,
+			})
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, auth, nil
+		},
+		"GetAuthorizer": func(b []byte) (int, any, error) {
+			var input getAuthorizerInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			auth, err := h.Backend.GetAuthorizer(input.RestAPIID, input.AuthorizerID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, auth, nil
+		},
+		"GetAuthorizers": func(b []byte) (int, any, error) {
+			var input getAuthorizersInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			auths, err := h.Backend.GetAuthorizers(input.RestAPIID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": auths}, nil
+		},
+		"UpdateAuthorizer": func(b []byte) (int, any, error) {
+			var input updateAuthorizerInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			auth, err := h.Backend.UpdateAuthorizer(input.RestAPIID, input.AuthorizerID, UpdateAuthorizerInput{
+				Name:                         input.Name,
+				Type:                         input.Type,
+				AuthorizerURI:                input.AuthorizerURI,
+				AuthorizerCredentials:        input.AuthorizerCredentials,
+				IdentitySource:               input.IdentitySource,
+				IdentityValidationExpression: input.IdentityValidationExpression,
+				AuthorizerResultTTLInSeconds: input.AuthorizerResultTTLInSeconds,
+				ProviderARNs:                 input.ProviderARNs,
+			})
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, auth, nil
+		},
+		"DeleteAuthorizer": func(b []byte) (int, any, error) {
+			var input deleteAuthorizerInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteAuthorizer(input.RestAPIID, input.AuthorizerID); err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusNoContent, map[string]any{}, nil
+		},
+	}
+}
+
+func (h *Handler) requestValidatorActions() map[string]actionFn {
+	return map[string]actionFn{
+		"CreateRequestValidator": func(b []byte) (int, any, error) {
+			var input createRequestValidatorInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			rv, err := h.Backend.CreateRequestValidator(input.RestAPIID, CreateRequestValidatorInput{
+				Name:                      input.Name,
+				ValidateRequestBody:       input.ValidateRequestBody,
+				ValidateRequestParameters: input.ValidateRequestParameters,
+			})
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusCreated, rv, nil
+		},
+		"GetRequestValidator": func(b []byte) (int, any, error) {
+			var input getRequestValidatorInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			rv, err := h.Backend.GetRequestValidator(input.RestAPIID, input.ValidatorID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, rv, nil
+		},
+		"GetRequestValidators": func(b []byte) (int, any, error) {
+			var input getRequestValidatorsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			rvs, err := h.Backend.GetRequestValidators(input.RestAPIID)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, map[string]any{"item": rvs}, nil
+		},
+		"UpdateRequestValidator": func(b []byte) (int, any, error) {
+			var input updateRequestValidatorInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			rv, err := h.Backend.UpdateRequestValidator(
+				input.RestAPIID,
+				input.ValidatorID,
+				input.UpdateRequestValidatorInput,
+			)
+			if err != nil {
+				return 0, nil, err
+			}
+
+			return http.StatusOK, rv, nil
+		},
+		"DeleteRequestValidator": func(b []byte) (int, any, error) {
+			var input deleteRequestValidatorInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
+			if err := h.Backend.DeleteRequestValidator(input.RestAPIID, input.ValidatorID); err != nil {
 				return 0, nil, err
 			}
 
@@ -864,8 +1351,12 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	maps.Copy(table, h.restAPIActions())
 	maps.Copy(table, h.resourceActions())
 	maps.Copy(table, h.methodActions())
+	maps.Copy(table, h.methodResponseActions())
 	maps.Copy(table, h.integrationActions())
+	maps.Copy(table, h.integrationResponseActions())
 	maps.Copy(table, h.deploymentActions())
+	maps.Copy(table, h.authorizerActions())
+	maps.Copy(table, h.requestValidatorActions())
 
 	return table
 }
@@ -901,7 +1392,12 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	switch {
 	case errors.Is(reqErr, ErrRestAPINotFound),
 		errors.Is(reqErr, ErrResourceNotFound),
-		errors.Is(reqErr, ErrMethodNotFound):
+		errors.Is(reqErr, ErrMethodNotFound),
+		errors.Is(reqErr, ErrMethodResponseNotFound),
+		errors.Is(reqErr, ErrIntegrationResponseNotFound),
+		errors.Is(reqErr, ErrDeploymentNotFound),
+		errors.Is(reqErr, ErrAuthorizerNotFound),
+		errors.Is(reqErr, ErrValidatorNotFound):
 		errType = "NotFoundException"
 		statusCode = http.StatusNotFound
 	case errors.Is(reqErr, ErrAlreadyExists):

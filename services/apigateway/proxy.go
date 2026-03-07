@@ -7,12 +7,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
+
+// defaultAuthorizerTTL is the default authorizer result cache TTL (AWS default: 300 s).
+const defaultAuthorizerTTL = 300 * time.Second
 
 // LambdaInvoker can invoke a Lambda function by name/ARN.
 type LambdaInvoker interface {
@@ -117,6 +123,49 @@ func BuildProxyEvent(
 	}, nil
 }
 
+// authorizerCacheEntry holds a cached authorizer result.
+type authorizerCacheEntry struct {
+	expiresAt time.Time
+	allowed   bool
+}
+
+// authorizerCache caches Lambda authorizer results keyed by authorizerID + cacheKey.
+type authorizerCache struct {
+	entries map[string]authorizerCacheEntry
+	mu      sync.Mutex
+}
+
+func newAuthorizerCache() *authorizerCache {
+	return &authorizerCache{entries: make(map[string]authorizerCacheEntry)}
+}
+
+// get returns (allowed, found) for the given cache key.
+func (c *authorizerCache) get(key string) (bool, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	e, ok := c.entries[key]
+	if !ok || time.Now().After(e.expiresAt) {
+		delete(c.entries, key)
+
+		return false, false
+	}
+
+	return e.allowed, true
+}
+
+// set stores the result for the given cache key with a TTL.
+func (c *authorizerCache) set(key string, allowed bool, ttl time.Duration) {
+	if ttl <= 0 {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.entries[key] = authorizerCacheEntry{allowed: allowed, expiresAt: time.Now().Add(ttl)}
+}
+
 // handleProxyRequest handles a single HTTP request for a Lambda proxy integration.
 func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -139,6 +188,11 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 			return
 		}
 
+		// Apply method-level access controls (authorizer + request validator).
+		if denied := h.applyMethodControls(ctx, w, r, apiID, stageName, resource.ID); denied {
+			return
+		}
+
 		// Get the integration.
 		integration, err := h.Backend.GetIntegration(apiID, resource.ID, r.Method)
 		if err != nil {
@@ -151,19 +205,313 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 			}
 		}
 
-		switch integration.Type {
-		case "AWS_PROXY":
-			h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration, pathParams)
-		case "AWS":
-			h.handleAWSIntegration(ctx, w, r, integration)
-		case "HTTP", "HTTP_PROXY":
-			h.handleHTTPProxy(ctx, w, r, integration)
-		case "MOCK":
-			h.handleMockIntegration(w, integration)
-		default:
-			http.Error(w, "Unsupported or unknown integration type for stage URL", http.StatusNotImplemented)
+		h.dispatchIntegration(ctx, w, r, apiID, stageName, resource, integration, pathParams)
+	}
+}
+
+// applyMethodControls runs the authorizer and request validator for the matched method.
+// Returns true if the request was denied and the response has already been written.
+func (h *Handler) applyMethodControls(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	apiID, stageName, resourceID string,
+) bool {
+	method, methodErr := h.Backend.GetMethod(apiID, resourceID, r.Method)
+	if methodErr != nil {
+		method, methodErr = h.Backend.GetMethod(apiID, resourceID, "ANY")
+	}
+
+	if methodErr != nil || method == nil {
+		return false
+	}
+
+	if method.AuthorizerID != "" {
+		if h.runAuthorizer(ctx, w, r, apiID, stageName, method.AuthorizerID) {
+			return true
 		}
 	}
+
+	if method.RequestValidatorID != "" {
+		if h.runRequestValidator(ctx, w, r, apiID, method.RequestValidatorID) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// dispatchIntegration routes the request to the appropriate integration handler.
+func (h *Handler) dispatchIntegration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	apiID, stageName string,
+	resource *Resource,
+	integration *Integration,
+	pathParams map[string]string,
+) {
+	switch integration.Type {
+	case "AWS_PROXY":
+		h.handleAWSProxy(ctx, w, r, apiID, stageName, resource, integration, pathParams)
+	case "AWS":
+		h.handleAWSIntegration(ctx, w, r, integration)
+	case "HTTP", "HTTP_PROXY":
+		h.handleHTTPProxy(ctx, w, r, integration)
+	case "MOCK":
+		h.handleMockIntegration(w, integration)
+	default:
+		http.Error(w, "Unsupported or unknown integration type for stage URL", http.StatusNotImplemented)
+	}
+}
+
+// AuthorizerEvent is the event payload sent to a Lambda authorizer function.
+type AuthorizerEvent struct {
+	Headers               map[string]string  `json:"headers,omitempty"`
+	QueryStringParameters map[string]string  `json:"queryStringParameters,omitempty"`
+	StageVariables        map[string]string  `json:"stageVariables,omitempty"`
+	RequestContext        LambdaProxyContext `json:"requestContext"`
+	Type                  string             `json:"type"`
+	AuthorizationToken    string             `json:"authorizationToken,omitempty"`
+	MethodArn             string             `json:"methodArn"`
+	Resource              string             `json:"resource,omitempty"`
+	Path                  string             `json:"path,omitempty"`
+	HTTPMethod            string             `json:"httpMethod,omitempty"`
+}
+
+// runAuthorizer invokes the Lambda authorizer and returns true if the request
+// should be denied (i.e., the response was written with a 4xx status).
+func (h *Handler) runAuthorizer(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	apiID, stageName, authorizerID string,
+) bool {
+	if h.lambda == nil {
+		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
+
+		return true
+	}
+
+	auth, err := h.Backend.GetAuthorizer(apiID, authorizerID)
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: authorizer not found", "authorizerId", authorizerID)
+		http.Error(w, "Authorizer configuration error", http.StatusInternalServerError)
+
+		return true
+	}
+
+	// Determine TTL for cache (authorizer-level setting, default 300 s).
+	ttl := defaultAuthorizerTTL
+	if auth.AuthorizerResultTTLInSeconds > 0 {
+		ttl = time.Duration(auth.AuthorizerResultTTLInSeconds) * time.Second
+	} else if auth.AuthorizerResultTTLInSeconds < 0 {
+		ttl = 0 // caching disabled
+	}
+
+	// Build cache key: for TOKEN type use the token, for REQUEST type use the full path.
+	cacheKey := h.authorizerCacheKey(r, auth, authorizerID)
+	if ttl > 0 {
+		if allowed, found := h.authCache.get(cacheKey); found {
+			if !allowed {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+
+				return true
+			}
+
+			return false
+		}
+	}
+
+	// Build the authorizer event based on type.
+	event := h.buildAuthorizerEvent(r, auth, apiID, stageName)
+
+	payload, _ := json.Marshal(event)
+
+	funcName := ExtractLambdaFunctionName(auth.AuthorizerURI)
+	respBytes, _, invokeErr := h.lambda.InvokeFunction(ctx, funcName, "RequestResponse", payload)
+	if invokeErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: authorizer invocation failed",
+			"authorizerId", authorizerID, "error", invokeErr)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+		return true
+	}
+
+	// Parse the authorizer response (IAM policy document).
+	var authResp AuthorizerResponse
+	if parseErr := json.Unmarshal(respBytes, &authResp); parseErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: failed to parse authorizer response", "error", parseErr)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+		return true
+	}
+
+	// Evaluate the policy document to determine allow/deny.
+	allowed := isAuthorizerAllowed(&authResp)
+	h.authCache.set(cacheKey, allowed, ttl)
+
+	if !allowed {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+
+		return true
+	}
+
+	return false
+}
+
+// authorizerCacheKey builds the cache key for an authorizer invocation.
+// TOKEN: authorizerID + ":" + token value (per-token granularity)
+// REQUEST: authorizerID + ":" + method + " " + path (per-request granularity).
+func (h *Handler) authorizerCacheKey(r *http.Request, auth *Authorizer, authorizerID string) string {
+	if auth.Type == "TOKEN" {
+		token := extractTokenFromIdentitySource(r, auth.IdentitySource)
+
+		return authorizerID + ":" + token
+	}
+
+	return authorizerID + ":" + r.Method + " " + r.URL.Path
+}
+
+// runRequestValidator enforces request validation rules when a requestValidatorId
+// is configured on the method. Returns true if validation failed and the response
+// has been written.
+func (h *Handler) runRequestValidator(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	apiID, validatorID string,
+) bool {
+	rv, err := h.Backend.GetRequestValidator(apiID, validatorID)
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: request validator not found",
+			"validatorId", validatorID)
+
+		return false // fail open when validator config is missing
+	}
+
+	if rv.ValidateRequestBody && r.Body != nil {
+		bodyBytes, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			http.Error(w, "Bad Request: failed to read body", http.StatusBadRequest)
+
+			return true
+		}
+
+		// Replace body so downstream handlers can still read it.
+		r.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
+
+		if len(bodyBytes) > 0 && !json.Valid(bodyBytes) {
+			http.Error(w, "Bad Request: request body must be valid JSON", http.StatusBadRequest)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+// buildAuthorizerEvent constructs the event payload for the Lambda authorizer.
+func (h *Handler) buildAuthorizerEvent(r *http.Request, auth *Authorizer, apiID, stageName string) AuthorizerEvent {
+	headers := make(map[string]string)
+	for k, vs := range r.Header {
+		if len(vs) > 0 {
+			headers[strings.ToLower(k)] = vs[0]
+		}
+	}
+
+	qsp := make(map[string]string)
+	for k, vs := range r.URL.Query() {
+		if len(vs) > 0 {
+			qsp[k] = vs[0]
+		}
+	}
+
+	// Strip internal proxy prefixes so the resource path matches the API definition path.
+	resourcePath := r.URL.Path
+	prefixes := []string{
+		fmt.Sprintf("/restapis/%s/%s/_user_request_", apiID, stageName),
+		fmt.Sprintf("/restapis/%s/%s", apiID, stageName),
+		fmt.Sprintf("/proxy/%s/%s", apiID, stageName),
+		"/" + stageName,
+	}
+
+	for _, prefix := range prefixes {
+		if after, ok := strings.CutPrefix(resourcePath, prefix); ok {
+			resourcePath = after
+			if resourcePath == "" {
+				resourcePath = "/"
+			} else if !strings.HasPrefix(resourcePath, "/") {
+				resourcePath = "/" + resourcePath
+			}
+
+			break
+		}
+	}
+
+	methodArn := fmt.Sprintf("arn:aws:execute-api:us-east-1:000000000000:%s/%s/%s%s",
+		apiID, stageName, r.Method, resourcePath)
+
+	event := AuthorizerEvent{
+		Type:                  auth.Type,
+		MethodArn:             methodArn,
+		Path:                  resourcePath,
+		HTTPMethod:            r.Method,
+		Resource:              resourcePath,
+		Headers:               headers,
+		QueryStringParameters: qsp,
+		RequestContext: LambdaProxyContext{
+			Stage: stageName,
+			APIId: apiID,
+		},
+	}
+
+	// For TOKEN type: extract token from identity source header.
+	if auth.Type == "TOKEN" {
+		token := extractTokenFromIdentitySource(r, auth.IdentitySource)
+		event.AuthorizationToken = token
+		// TOKEN authorizers only need type, token, and methodArn.
+		event.Headers = nil
+		event.QueryStringParameters = nil
+	}
+
+	return event
+}
+
+// extractTokenFromIdentitySource extracts the token value from the request
+// based on the authorizer's identitySource (e.g. "method.request.header.Authorization").
+func extractTokenFromIdentitySource(r *http.Request, identitySource string) string {
+	const headerPrefix = "method.request.header."
+	if strings.HasPrefix(identitySource, headerPrefix) {
+		headerName := identitySource[len(headerPrefix):]
+
+		return r.Header.Get(headerName)
+	}
+
+	// Default: try Authorization header.
+	return r.Header.Get("Authorization")
+}
+
+// isAuthorizerAllowed evaluates the IAM policy document returned by a Lambda authorizer.
+// Returns true if at least one Allow statement exists and no explicit Deny overrides it.
+func isAuthorizerAllowed(authResp *AuthorizerResponse) bool {
+	if authResp.PolicyDocument == nil {
+		return false
+	}
+
+	allow := false
+
+	for _, stmt := range authResp.PolicyDocument.Statement {
+		effect := strings.ToUpper(stmt.Effect)
+		if effect == "DENY" {
+			return false
+		}
+		if effect == "ALLOW" {
+			allow = true
+		}
+	}
+
+	return allow
 }
 
 // handleAWSProxy handles an AWS_PROXY Lambda integration — the full event is forwarded as-is.
@@ -288,28 +636,37 @@ func (h *Handler) handleAWSIntegration(
 		return
 	}
 
-	// Apply response mapping template for status code "200" if present.
-	responseBody := applyResponseTemplate(respBytes, integration, vtlCtx.RequestID)
+	// Apply response mapping template using status-code pattern matching.
+	responseBody, statusCode := applyResponseTemplate(respBytes, integration, vtlCtx.RequestID)
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(statusCode)
 	_, _ = w.Write(responseBody) //nolint:gosec // G705: Lambda response bytes
 }
 
-// applyResponseTemplate applies the response VTL template (status "200") if configured.
-func applyResponseTemplate(respBytes []byte, integration *Integration, requestID string) []byte {
+// applyResponseTemplate selects the best-matching integration response by status code pattern
+// (using regex selectionPattern), applies VTL response template, and returns the rendered
+// body and HTTP status code. Falls back to the raw response bytes and 200 if no match.
+func applyResponseTemplate(respBytes []byte, integration *Integration, requestID string) ([]byte, int) {
 	if integration.IntegrationResponses == nil {
-		return respBytes
+		return respBytes, http.StatusOK
 	}
 
-	ir, ok := integration.IntegrationResponses["200"]
-	if !ok || ir == nil {
-		return respBytes
+	// Try to find a matching integration response by selectionPattern (regex) against respBytes.
+	// If no pattern matches, fall back to the "default" or "200" entry.
+	ir := matchIntegrationResponse(integration.IntegrationResponses, string(respBytes))
+	if ir == nil {
+		return respBytes, http.StatusOK
+	}
+
+	statusCode := http.StatusOK
+	if sc := parseStatusCode(ir.StatusCode); sc > 0 {
+		statusCode = sc
 	}
 
 	tpl, ok := ir.ResponseTemplates["application/json"]
 	if !ok || tpl == "" {
-		return respBytes
+		return respBytes, statusCode
 	}
 
 	respVTLCtx := VTLContext{
@@ -317,7 +674,49 @@ func applyResponseTemplate(respBytes []byte, integration *Integration, requestID
 		RequestID: requestID,
 	}
 
-	return []byte(RenderTemplate(tpl, respVTLCtx))
+	return []byte(RenderTemplate(tpl, respVTLCtx)), statusCode
+}
+
+// matchIntegrationResponse finds the best-matching IntegrationResponse entry for the given body.
+// Priority:
+//  1. An entry whose selectionPattern regex matches the body (first match wins).
+//  2. The "default" entry (empty selectionPattern treated as catch-all).
+//  3. The "200" entry if it has no selectionPattern.
+func matchIntegrationResponse(
+	responses map[string]*IntegrationResponse,
+	body string,
+) *IntegrationResponse {
+	var defaultEntry *IntegrationResponse
+
+	for _, ir := range responses {
+		if ir == nil {
+			continue
+		}
+
+		pat := ir.SelectionPattern
+		if pat == "" {
+			// Treat entries without a selection pattern as the default/catch-all.
+			defaultEntry = ir
+
+			continue
+		}
+
+		re, err := regexp.Compile(pat)
+		if err != nil {
+			continue
+		}
+
+		if re.MatchString(body) {
+			return ir
+		}
+	}
+
+	if defaultEntry != nil {
+		return defaultEntry
+	}
+
+	// No pattern and no default: return nil.
+	return nil
 }
 
 // handleHTTPProxy forwards the request to the target URI specified in the integration.
