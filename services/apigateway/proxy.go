@@ -254,14 +254,14 @@ func (h *Handler) buildAuthorizerEvent(r *http.Request, auth *Authorizer, apiID,
 	headers := make(map[string]string)
 	for k, vs := range r.Header {
 		if len(vs) > 0 {
-			headers[strings.ToLower(k)] = vs[len(vs)-1]
+			headers[strings.ToLower(k)] = vs[0]
 		}
 	}
 
 	qsp := make(map[string]string)
 	for k, vs := range r.URL.Query() {
 		if len(vs) > 0 {
-			qsp[k] = vs[len(vs)-1]
+			qsp[k] = vs[0]
 		}
 	}
 

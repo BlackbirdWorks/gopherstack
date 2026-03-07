@@ -195,8 +195,15 @@ type deleteIntegrationResponseInput struct {
 }
 
 type createAuthorizerInput struct {
-	RestAPIID             string `json:"restApiId"`
-	CreateAuthorizerInput        //nolint:embeddedstructfieldcheck // fieldalignment prefers regular fields first
+	RestAPIID                    string   `json:"restApiId"`
+	Name                         string   `json:"name"`
+	Type                         string   `json:"type"`
+	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
+	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
+	IdentitySource               string   `json:"identitySource,omitempty"`
+	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	ProviderARNs                 []string `json:"providerARNs,omitempty"`
+	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
 
 type getAuthorizerInput struct {
@@ -209,9 +216,16 @@ type getAuthorizersInput struct {
 }
 
 type updateAuthorizerInput struct {
-	RestAPIID             string `json:"restApiId"`
-	AuthorizerID          string `json:"authorizerId"`
-	UpdateAuthorizerInput        //nolint:embeddedstructfieldcheck // fieldalignment prefers regular fields first
+	RestAPIID                    string   `json:"restApiId"`
+	AuthorizerID                 string   `json:"authorizerId"`
+	Name                         string   `json:"name,omitempty"`
+	Type                         string   `json:"type,omitempty"`
+	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
+	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
+	IdentitySource               string   `json:"identitySource,omitempty"`
+	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	ProviderARNs                 []string `json:"providerARNs,omitempty"`
+	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
 }
 
 type deleteAuthorizerInput struct {
@@ -220,8 +234,10 @@ type deleteAuthorizerInput struct {
 }
 
 type createRequestValidatorInput struct {
-	RestAPIID                   string `json:"restApiId"`
-	CreateRequestValidatorInput        //nolint:embeddedstructfieldcheck // fieldalignment prefers regular fields first
+	RestAPIID                 string `json:"restApiId"`
+	Name                      string `json:"name"`
+	ValidateRequestBody       bool   `json:"validateRequestBody"`
+	ValidateRequestParameters bool   `json:"validateRequestParameters"`
 }
 
 type getRequestValidatorInput struct {
@@ -1037,7 +1053,6 @@ func (h *Handler) integrationResponseActions() map[string]actionFn {
 	}
 }
 
-//nolint:dupl // authorizerActions and requestValidatorActions have similar structure by design
 func (h *Handler) authorizerActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateAuthorizer": func(b []byte) (int, any, error) {
@@ -1045,7 +1060,16 @@ func (h *Handler) authorizerActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			auth, err := h.Backend.CreateAuthorizer(input.RestAPIID, input.CreateAuthorizerInput)
+			auth, err := h.Backend.CreateAuthorizer(input.RestAPIID, CreateAuthorizerInput{
+				Name:                         input.Name,
+				Type:                         input.Type,
+				AuthorizerURI:                input.AuthorizerURI,
+				AuthorizerCredentials:        input.AuthorizerCredentials,
+				IdentitySource:               input.IdentitySource,
+				IdentityValidationExpression: input.IdentityValidationExpression,
+				AuthorizerResultTTLInSeconds: input.AuthorizerResultTTLInSeconds,
+				ProviderARNs:                 input.ProviderARNs,
+			})
 			if err != nil {
 				return 0, nil, err
 			}
@@ -1081,7 +1105,16 @@ func (h *Handler) authorizerActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			auth, err := h.Backend.UpdateAuthorizer(input.RestAPIID, input.AuthorizerID, input.UpdateAuthorizerInput)
+			auth, err := h.Backend.UpdateAuthorizer(input.RestAPIID, input.AuthorizerID, UpdateAuthorizerInput{
+				Name:                         input.Name,
+				Type:                         input.Type,
+				AuthorizerURI:                input.AuthorizerURI,
+				AuthorizerCredentials:        input.AuthorizerCredentials,
+				IdentitySource:               input.IdentitySource,
+				IdentityValidationExpression: input.IdentityValidationExpression,
+				AuthorizerResultTTLInSeconds: input.AuthorizerResultTTLInSeconds,
+				ProviderARNs:                 input.ProviderARNs,
+			})
 			if err != nil {
 				return 0, nil, err
 			}
@@ -1102,7 +1135,6 @@ func (h *Handler) authorizerActions() map[string]actionFn {
 	}
 }
 
-//nolint:dupl // requestValidatorActions and authorizerActions have similar structure by design
 func (h *Handler) requestValidatorActions() map[string]actionFn {
 	return map[string]actionFn{
 		"CreateRequestValidator": func(b []byte) (int, any, error) {
@@ -1110,7 +1142,11 @@ func (h *Handler) requestValidatorActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
 			}
-			rv, err := h.Backend.CreateRequestValidator(input.RestAPIID, input.CreateRequestValidatorInput)
+			rv, err := h.Backend.CreateRequestValidator(input.RestAPIID, CreateRequestValidatorInput{
+				Name:                      input.Name,
+				ValidateRequestBody:       input.ValidateRequestBody,
+				ValidateRequestParameters: input.ValidateRequestParameters,
+			})
 			if err != nil {
 				return 0, nil, err
 			}
