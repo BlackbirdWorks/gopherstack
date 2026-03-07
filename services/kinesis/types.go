@@ -35,14 +35,18 @@ const (
 	// defaultGetRecordsLimit is the default limit for GetRecords.
 	defaultGetRecordsLimit = 1000
 
-	// millisToSeconds divides Unix milliseconds to get a float64 second timestamp.
-	millisToSeconds = 1000.0
+	// millisPerSecond is the number of milliseconds in one second.
+	// Used to convert between Unix second timestamps (float64) and millisecond timestamps.
+	millisPerSecond = 1000.0
 
 	// maxHashKeyBits is the bit-width of the Kinesis hash key space.
 	maxHashKeyBits = 128
 
 	// consumerStatusActive is the status when a consumer is ready for use.
 	consumerStatusActive = "ACTIVE"
+
+	// scalingTypeUniformScaling is the only supported scaling type for UpdateShardCount.
+	scalingTypeUniformScaling = "UNIFORM_SCALING"
 )
 
 // Stream represents an in-memory Kinesis stream.

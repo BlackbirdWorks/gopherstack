@@ -604,7 +604,7 @@ func (h *Handler) handleGetShardIterator(
 		ShardID:                req.ShardID,
 		ShardIteratorType:      req.ShardIteratorType,
 		StartingSequenceNumber: req.StartingSequenceNumber,
-		Timestamp:              time.UnixMilli(int64(req.Timestamp * millisToSeconds)),
+		Timestamp:              time.UnixMilli(int64(req.Timestamp * millisPerSecond)),
 	})
 	if err != nil {
 		return nil, err
@@ -639,7 +639,7 @@ func (h *Handler) handleGetRecords(
 			Data:                        r.Data,
 			PartitionKey:                r.PartitionKey,
 			SequenceNumber:              r.SequenceNumber,
-			ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisToSeconds,
+			ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisPerSecond,
 		}
 	}
 
@@ -910,7 +910,7 @@ func toJSONConsumer(c Consumer) jsonConsumer {
 		ConsumerName:              c.ConsumerName,
 		ConsumerARN:               c.ConsumerARN,
 		ConsumerStatus:            c.ConsumerStatus,
-		ConsumerCreationTimestamp: float64(c.ConsumerCreationTimestamp.UnixMilli()) / millisToSeconds,
+		ConsumerCreationTimestamp: float64(c.ConsumerCreationTimestamp.UnixMilli()) / millisPerSecond,
 		StreamARN:                 c.StreamARN,
 	}
 }
@@ -1094,9 +1094,8 @@ const eventStreamHeaderValueLenBytes = 2
 // eventStreamMsgCRCLen is the number of bytes used for the message CRC field.
 const eventStreamMsgCRCLen = 4
 
-// buildEventStreamHeaders encodes the given map as AWS event stream binary headers.
-// Headers are encoded in the order provided; map iteration is non-deterministic so
-// callers should pass a slice of pairs if order matters.
+// buildEventStreamHeaders encodes the given slice of header name/value pairs as AWS
+// event stream binary headers. Headers are encoded in the order provided in the slice.
 func buildEventStreamHeaders(hdrs [][2]string) []byte {
 	var buf bytes.Buffer
 
@@ -1167,7 +1166,7 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 	}
 
 	if req.StartingPosition.Timestamp != 0 {
-		ts := time.UnixMilli(int64(req.StartingPosition.Timestamp * millisToSeconds))
+		ts := time.UnixMilli(int64(req.StartingPosition.Timestamp * millisPerSecond))
 		sp.Timestamp = &ts
 	}
 
@@ -1186,7 +1185,7 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 			Data:                        r.Data,
 			PartitionKey:                r.PartitionKey,
 			SequenceNumber:              r.SequenceNumber,
-			ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisToSeconds,
+			ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisPerSecond,
 		}
 	}
 

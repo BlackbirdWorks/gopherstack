@@ -1250,6 +1250,11 @@ func TestUpdateShardCountErrors(t *testing.T) {
 			body:     map[string]any{"StreamName": "x", "TargetShardCount": 0},
 			wantCode: http.StatusBadRequest,
 		},
+		{
+			name:     "unsupported_scaling_type",
+			body:     map[string]any{"StreamName": "x", "TargetShardCount": 2, "ScalingType": "RANDOM_SCALING"},
+			wantCode: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {

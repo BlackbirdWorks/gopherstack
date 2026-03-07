@@ -838,6 +838,10 @@ func (b *InMemoryBackend) UpdateShardCount(input *UpdateShardCountInput) (*Updat
 		return nil, ErrInvalidArgument
 	}
 
+	if input.ScalingType != "" && input.ScalingType != scalingTypeUniformScaling {
+		return nil, ErrInvalidArgument
+	}
+
 	currentCount := len(stream.Shards)
 	targetCount := input.TargetShardCount
 
