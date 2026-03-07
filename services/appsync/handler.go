@@ -125,11 +125,14 @@ func parseOperation(method, path string) string {
 }
 
 func parseOperationAPIs(method string) string {
-	if method == http.MethodPost {
+	switch method {
+	case http.MethodPost:
 		return "CreateGraphqlApi"
+	case http.MethodGet:
+		return "ListGraphqlApis"
+	default:
+		return opUnknown
 	}
-
-	return "ListGraphqlApis"
 }
 
 func parseOperationAPIID(method string) string {
@@ -164,15 +167,12 @@ func parseOperationSub(method, seg string) string {
 }
 
 func parseOperationNamed(method, seg3 string) string {
-	switch seg3 {
-	case pathSegDatasources:
+	if seg3 == pathSegDatasources {
 		if method == http.MethodDelete {
 			return "DeleteDataSource"
 		}
 
 		return "GetDataSource"
-	case pathSegTypes:
-		return "GetType"
 	}
 
 	return opUnknown

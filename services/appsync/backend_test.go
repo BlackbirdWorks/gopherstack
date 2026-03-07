@@ -248,7 +248,9 @@ func TestInMemoryBackend_GetSchemaCreationStatus(t *testing.T) {
 	tests := []struct {
 		name       string
 		setup      func(*appsync.InMemoryBackend, string)
+		apiID      string
 		wantStatus appsync.SchemaStatus
+		wantErr    bool
 	}{
 		{
 			name:       "returns_not_applicable_when_no_schema",
@@ -262,6 +264,12 @@ func TestInMemoryBackend_GetSchemaCreationStatus(t *testing.T) {
 			},
 			wantStatus: appsync.SchemaStatusActive,
 		},
+		{
+			name:    "returns_not_found_for_nonexistent_api",
+			setup:   func(_ *appsync.InMemoryBackend, _ string) {},
+			apiID:   "nonexistent",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -270,8 +278,22 @@ func TestInMemoryBackend_GetSchemaCreationStatus(t *testing.T) {
 
 			b := newTestBackend()
 			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+
+			apiID := tt.apiID
+			if apiID == "" {
+				apiID = api.APIID
+			}
+
 			tt.setup(b, api.APIID)
-			schema, err := b.GetSchemaCreationStatus(api.APIID)
+			schema, err := b.GetSchemaCreationStatus(apiID)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, awserr.ErrNotFound)
+
+				return
+			}
+
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, schema.Status)
 		})
@@ -413,8 +435,10 @@ func TestInMemoryBackend_ListResolvers(t *testing.T) {
 	tests := []struct {
 		name      string
 		setup     func(*appsync.InMemoryBackend, string)
+		apiID     string
 		typeName  string
 		wantCount int
+		wantErr   bool
 	}{
 		{
 			name:      "empty_list",
@@ -432,6 +456,13 @@ func TestInMemoryBackend_ListResolvers(t *testing.T) {
 			typeName:  "Query",
 			wantCount: 2,
 		},
+		{
+			name:     "returns_not_found_for_nonexistent_api",
+			setup:    func(_ *appsync.InMemoryBackend, _ string) {},
+			apiID:    "nonexistent",
+			typeName: "Query",
+			wantErr:  true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -440,8 +471,22 @@ func TestInMemoryBackend_ListResolvers(t *testing.T) {
 
 			b := newTestBackend()
 			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+
+			apiID := tt.apiID
+			if apiID == "" {
+				apiID = api.APIID
+			}
+
 			tt.setup(b, api.APIID)
-			resolvers, err := b.ListResolvers(api.APIID, tt.typeName)
+			resolvers, err := b.ListResolvers(apiID, tt.typeName)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, awserr.ErrNotFound)
+
+				return
+			}
+
 			require.NoError(t, err)
 			assert.Len(t, resolvers, tt.wantCount)
 		})
@@ -727,7 +772,9 @@ func TestInMemoryBackend_ListDataSources(t *testing.T) {
 	tests := []struct {
 		setup     func(*appsync.InMemoryBackend, string)
 		name      string
+		apiID     string
 		wantCount int
+		wantErr   bool
 	}{
 		{
 			name:      "empty_for_new_api",
@@ -748,6 +795,12 @@ func TestInMemoryBackend_ListDataSources(t *testing.T) {
 			},
 			wantCount: 2,
 		},
+		{
+			name:    "returns_not_found_for_nonexistent_api",
+			setup:   func(_ *appsync.InMemoryBackend, _ string) {},
+			apiID:   "nonexistent",
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -756,8 +809,22 @@ func TestInMemoryBackend_ListDataSources(t *testing.T) {
 
 			b := newTestBackend()
 			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
+
+			apiID := tt.apiID
+			if apiID == "" {
+				apiID = api.APIID
+			}
+
 			tt.setup(b, api.APIID)
-			dss, err := b.ListDataSources(api.APIID)
+			dss, err := b.ListDataSources(apiID)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, awserr.ErrNotFound)
+
+				return
+			}
+
 			require.NoError(t, err)
 			assert.Len(t, dss, tt.wantCount)
 		})

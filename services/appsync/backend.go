@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -226,6 +227,10 @@ func (b *InMemoryBackend) GetSchemaCreationStatus(apiID string) (*Schema, error)
 	b.mu.RLock("GetSchemaCreationStatus")
 	defer b.mu.RUnlock()
 
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
 	schema, ok := b.schemas[apiID]
 	if !ok {
 		return &Schema{
@@ -276,7 +281,10 @@ func (b *InMemoryBackend) CreateDataSource(apiID string, ds *DataSource) (*DataS
 		b.accountID,
 		fmt.Sprintf("apis/%s/datasources/%s", apiID, ds.Name),
 	)
-	ds.Tags = tags.New("appsync.ds." + apiID + "." + ds.Name + ".tags")
+
+	if ds.Tags == nil {
+		ds.Tags = tags.New("appsync.ds." + apiID + "." + ds.Name + ".tags")
+	}
 
 	b.datasources[apiID][ds.Name] = ds
 
@@ -309,6 +317,10 @@ func (b *InMemoryBackend) GetDataSource(apiID, name string) (*DataSource, error)
 func (b *InMemoryBackend) ListDataSources(apiID string) ([]*DataSource, error) {
 	b.mu.RLock("ListDataSources")
 	defer b.mu.RUnlock()
+
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
 
 	dss := b.datasources[apiID]
 	out := make([]*DataSource, 0, len(dss))
@@ -400,6 +412,10 @@ func (b *InMemoryBackend) ListResolvers(apiID, typeName string) ([]*Resolver, er
 	b.mu.RLock("ListResolvers")
 	defer b.mu.RUnlock()
 
+	if _, ok := b.apis[apiID]; !ok {
+		return nil, fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
+	}
+
 	res := b.resolvers[apiID]
 	out := make([]*Resolver, 0)
 
@@ -444,8 +460,14 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 
 	api, apiOK := b.apis[apiID]
 	schema := b.schemas[apiID]
-	resolvers := b.resolvers[apiID]
-	datasources := b.datasources[apiID]
+
+	// Copy resolver and datasource maps under the lock to avoid data races with
+	// concurrent Create/Delete operations.
+	resolversCopy := make(map[string]*Resolver, len(b.resolvers[apiID]))
+	maps.Copy(resolversCopy, b.resolvers[apiID])
+
+	datasourcesCopy := make(map[string]*DataSource, len(b.datasources[apiID]))
+	maps.Copy(datasourcesCopy, b.datasources[apiID])
 
 	b.mu.RUnlock()
 
@@ -455,5 +477,5 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 
 	_ = api
 
-	return executeGraphQL(ctx, b, schema, resolvers, datasources, query, operationName, variables)
+	return executeGraphQL(ctx, b, schema, resolversCopy, datasourcesCopy, query, operationName, variables)
 }

@@ -11,9 +11,8 @@ import (
 // Supported patterns:
 //   - $context.arguments.key / $ctx.args.key → argument values
 //   - $context.result / $ctx.result / $context.result.key → resolver result
-//   - $context.identity / $ctx.identity → identity placeholder
 //   - $util.toJson(expr) → JSON-encode the expression
-//   - #return(expr) / #return → shorthand return with expression
+//   - #return(expr) → shorthand return with expression
 //   - $util.dynamodb.toDynamoDBJson($ctx.args.key) → wrap in DynamoDB format
 //   - Literal strings inside quotes are preserved
 //

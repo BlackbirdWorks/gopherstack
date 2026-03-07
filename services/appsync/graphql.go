@@ -377,7 +377,12 @@ func invokeDynamoDBResolver(
 		key, _ := request["key"].(map[string]any)
 		result, err = backend.ddbBackend.GetItemRaw(ctx, ds.DynamoDBConfig.TableName, key)
 	case "PutItem":
-		item, _ := request["key"].(map[string]any)
+		item, _ := request["item"].(map[string]any)
+		if item == nil {
+			// Fall back to "key" for templates that use the key as the item.
+			item, _ = request["key"].(map[string]any)
+		}
+
 		err = backend.ddbBackend.PutItemRaw(ctx, ds.DynamoDBConfig.TableName, item)
 
 		if err == nil {

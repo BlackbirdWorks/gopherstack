@@ -24,6 +24,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	acmsvc "github.com/aws/aws-sdk-go-v2/service/acm"
 	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
+	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
+	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
@@ -124,6 +126,7 @@ provider "aws" {
   # Endpoints are listed alphabetically — keep them sorted when adding new ones.
   endpoints {
     acm            = %[1]q
+    appsync        = %[1]q
     apigateway     = %[1]q
     cloudformation = %[1]q
     cloudwatch     = %[1]q
@@ -1802,6 +1805,62 @@ func TestTerraform_Scheduler(t *testing.T) {
 				})
 				require.NoError(t, err, "GetSchedule should succeed after terraform apply")
 				assert.Equal(t, vars["ScheduleName"].(string), aws.ToString(out.Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_AppSync provisions an AppSync GraphQL API and a NONE data source, then verifies
+// both exist via the AppSync SDK.
+func TestTerraform_AppSync(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "api_and_datasource",
+			fixture: "appsync/api_and_datasource",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{"APIName": "tf-appsync-" + id}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createAppSyncClient(t)
+
+				// List APIs and find ours by name.
+				listOut, err := client.ListGraphqlApis(ctx, &appsyncsdkv2.ListGraphqlApisInput{})
+				require.NoError(t, err, "ListGraphqlApis should succeed")
+
+				var apiID string
+				for _, a := range listOut.GraphqlApis {
+					if aws.ToString(a.Name) == vars["APIName"].(string) {
+						apiID = aws.ToString(a.ApiId)
+
+						break
+					}
+				}
+
+				require.NotEmpty(t, apiID, "API %q should appear in list", vars["APIName"])
+				assert.Equal(t, appsyncsdktypes.AuthenticationTypeApiKey, listOut.GraphqlApis[0].AuthenticationType)
+
+				// Verify data source exists.
+				dsOut, err := client.GetDataSource(ctx, &appsyncsdkv2.GetDataSourceInput{
+					ApiId: aws.String(apiID),
+					Name:  aws.String("NoneDS"),
+				})
+				require.NoError(t, err, "GetDataSource should succeed")
+				assert.Equal(t, "NoneDS", aws.ToString(dsOut.DataSource.Name))
+				assert.Equal(t, appsyncsdktypes.DataSourceTypeNone, dsOut.DataSource.Type)
 			},
 		},
 	}

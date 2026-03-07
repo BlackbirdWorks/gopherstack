@@ -19,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	acmsvc "github.com/aws/aws-sdk-go-v2/service/acm"
 	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
+	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -918,6 +919,26 @@ func createSWFClient(t *testing.T) *swfsvc.Client {
 	}
 
 	return swfsvc.NewFromConfig(cfg, func(o *swfsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAppSyncClient returns an AppSync client pointed at the shared test container.
+func createAppSyncClient(t *testing.T) *appsyncsdkv2.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return appsyncsdkv2.NewFromConfig(cfg, func(o *appsyncsdkv2.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
