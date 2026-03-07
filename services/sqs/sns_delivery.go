@@ -33,30 +33,114 @@ type snsEnvelope struct {
 func (b *InMemoryBackend) SubscribeToSNS(emitter events.EventEmitter[*events.SNSPublishedEvent]) {
 	emitter.Subscribe(func(_ context.Context, ev *events.SNSPublishedEvent) error {
 		for _, sub := range ev.Subscriptions {
-			if sub.Protocol != "sqs" {
-				continue
-			}
-
-			if !matchesFilterPolicy(sub.FilterPolicy, ev.Attributes) {
-				continue
-			}
-
-			queueName := queueNameFromARN(sub.Endpoint)
-			if queueName == "" {
-				continue
-			}
-
-			body := buildSNSEnvelope(ev, queueName)
-
-			// Best-effort: ignore delivery errors (queue may not exist yet).
-			_, _ = b.SendMessage(&SendMessageInput{
-				QueueURL:    "internal/" + queueName,
-				MessageBody: body,
-			})
+			b.deliverSNSSubscription(ev, sub)
 		}
 
 		return nil
 	})
+}
+
+// deliverSNSSubscription delivers a single SNS published event to an SQS subscription.
+func (b *InMemoryBackend) deliverSNSSubscription(
+	ev *events.SNSPublishedEvent,
+	sub events.SNSSubscriptionSnapshot,
+) {
+	if sub.Protocol != "sqs" {
+		return
+	}
+
+	if !matchesFilterPolicy(sub.FilterPolicy, ev.Attributes) {
+		return
+	}
+
+	queueName := queueNameFromARN(sub.Endpoint)
+	if queueName == "" {
+		return
+	}
+
+	body, msgAttrs := buildDeliveryBody(ev, sub, queueName)
+
+	input := &SendMessageInput{
+		QueueURL:    "internal/" + queueName,
+		MessageBody: body,
+	}
+
+	if len(msgAttrs) > 0 {
+		input.MessageAttributes = msgAttrs
+	}
+
+	// Best-effort delivery: on failure, route to the dead-letter queue if configured.
+	_, err := b.SendMessage(input)
+	if err != nil && sub.RedrivePolicy != "" {
+		b.deliverToDLQ(sub.RedrivePolicy, body, msgAttrs)
+	}
+}
+
+// buildDeliveryBody returns the SQS message body and optional message attributes for the given subscription.
+func buildDeliveryBody(
+	ev *events.SNSPublishedEvent,
+	sub events.SNSSubscriptionSnapshot,
+	queueName string,
+) (string, map[string]MessageAttributeValue) {
+	if sub.RawMessageDelivery {
+		return ev.Message, snsAttrsToSQSAttrs(ev.Attributes)
+	}
+
+	return buildSNSEnvelope(ev, queueName), nil
+}
+
+// deliverToDLQ sends the message body and attributes (exactly as attempted during the failed
+// delivery) to the dead-letter queue specified in the redrive policy.
+// The redrivePolicy JSON must have the form {"deadLetterTargetArn":"arn:aws:sqs:..."}.
+func (b *InMemoryBackend) deliverToDLQ(
+	redrivePolicy, body string,
+	msgAttrs map[string]MessageAttributeValue,
+) {
+	var policy struct {
+		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
+	}
+
+	if err := json.Unmarshal([]byte(redrivePolicy), &policy); err != nil {
+		return
+	}
+
+	if policy.DeadLetterTargetArn == "" {
+		return
+	}
+
+	dlqName := queueNameFromARN(policy.DeadLetterTargetArn)
+	if dlqName == "" {
+		return
+	}
+
+	input := &SendMessageInput{
+		QueueURL:    "internal/" + dlqName,
+		MessageBody: body,
+	}
+
+	if len(msgAttrs) > 0 {
+		input.MessageAttributes = msgAttrs
+	}
+
+	_, _ = b.SendMessage(input)
+}
+
+// snsAttrsToSQSAttrs converts SNS message attribute snapshots to SQS MessageAttributeValues.
+func snsAttrsToSQSAttrs(attrs map[string]events.SNSMessageAttributeSnapshot) map[string]MessageAttributeValue {
+	if len(attrs) == 0 {
+		return nil
+	}
+
+	result := make(map[string]MessageAttributeValue, len(attrs))
+
+	for k, v := range attrs {
+		result[k] = MessageAttributeValue{
+			DataType:    v.DataType,
+			StringValue: v.StringValue,
+		}
+	}
+
+	return result
 }
 
 // queueNameFromARN extracts the queue name from an SQS ARN or URL.

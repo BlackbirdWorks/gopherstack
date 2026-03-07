@@ -100,14 +100,12 @@ type SNSPublishedEvent struct {
 
 // SNSSubscriptionSnapshot holds subscription metadata at publish time.
 type SNSSubscriptionSnapshot struct {
-	// SubscriptionARN is the subscription ARN.
-	SubscriptionARN string
-	// Protocol is the delivery protocol (sqs, http, https, email, …).
-	Protocol string
-	// Endpoint is the delivery endpoint (queue ARN, URL, email address, …).
-	Endpoint string
-	// FilterPolicy is the JSON filter policy, or empty string if none.
-	FilterPolicy string
+	SubscriptionARN    string
+	Protocol           string
+	Endpoint           string
+	FilterPolicy       string
+	RedrivePolicy      string
+	RawMessageDelivery bool
 }
 
 // SNSMessageAttributeSnapshot holds a single message attribute value.
