@@ -57,6 +57,8 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -815,6 +817,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
 
+	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
+	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
+
 	// Wire AppSync → Lambda for LAMBDA resolver execution.
 	wireAppSyncLambda(byName["AppSync"], byName["Lambda"])
 
@@ -896,6 +901,8 @@ func getServiceProviders() []service.Provider {
 		&supportbackend.Provider{},
 		&ecrbackend.Provider{},
 		&cognitoidpbackend.Provider{},
+		&iotbackend.Provider{},
+		&iotdataplanebackend.Provider{},
 		&appsyncbackend.Provider{},
 	}
 }
@@ -1356,6 +1363,42 @@ func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
 	}
 }
 
+// wireIoTRules connects the IoT rule dispatcher to SQS and Lambda backends, and
+// wires the IoT MQTT broker into the IoT Data Plane backend.
+func wireIoTRules(iotReg, iotDPReg, sqsReg, lambdaReg service.Registerable) {
+	iotH, ok := iotReg.(*iotbackend.Handler)
+	if !ok {
+		return
+	}
+
+	iotBk, bkOk := iotH.Backend.(*iotbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	var sqsBk *sqsbackend.InMemoryBackend
+	var lambdaBk *lambdabackend.InMemoryBackend
+
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		sqsBk, _ = sqsH.Backend.(*sqsbackend.InMemoryBackend)
+	}
+
+	if lambdaH, lamOk := lambdaReg.(*lambdabackend.Handler); lamOk {
+		lambdaBk, _ = lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	}
+
+	iotBk.SetRuleDispatcher(&iotRuleDispatcher{sqs: sqsBk, lambda: lambdaBk})
+
+	// Wire the MQTT broker into the IoT Data Plane backend.
+	if iotDPReg != nil {
+		if dpH, dpOk := iotDPReg.(*iotdataplanebackend.Handler); dpOk {
+			if dpBk, dpBkOk := dpH.Backend.(*iotdataplanebackend.InMemoryBackend); dpBkOk {
+				dpBk.SetBroker(iotH.Broker())
+			}
+		}
+	}
+}
+
 // wireAppSyncLambda connects the AppSync backend to the Lambda backend so that
 // LAMBDA data source resolvers can invoke Lambda functions.
 func wireAppSyncLambda(appSyncReg, lambdaReg service.Registerable) {
@@ -1376,6 +1419,25 @@ func wireAppSyncLambda(appSyncReg, lambdaReg service.Registerable) {
 	}
 }
 
+// iotRuleDispatcher adapts the SQS and Lambda backends to the IoT RuleDispatcher interface.
+type iotRuleDispatcher struct {
+	sqs    *sqsbackend.InMemoryBackend
+	lambda *lambdabackend.InMemoryBackend
+}
+
+func (d *iotRuleDispatcher) SendToSQS(queueURL, body string) error {
+	if d.sqs == nil {
+		return nil
+	}
+
+	_, err := d.sqs.SendMessage(&sqsbackend.SendMessageInput{
+		QueueURL:    queueURL,
+		MessageBody: body,
+	})
+
+	return err
+}
+
 // wireAppSyncDynamoDB connects the AppSync backend to the DynamoDB backend so that
 // AMAZON_DYNAMODB data source resolvers can perform GetItem/PutItem operations.
 func wireAppSyncDynamoDB(appSyncReg, ddbReg service.Registerable) {
@@ -1390,7 +1452,7 @@ func wireAppSyncDynamoDB(appSyncReg, ddbReg service.Registerable) {
 	}
 
 	if ddbH, ddbOk := ddbReg.(*ddbbackend.DynamoDBHandler); ddbOk {
-		if ddbBk, dbOk := ddbH.Backend.(*ddbbackend.InMemoryDB); dbOk {
+		if ddbBk, bk3Ok := ddbH.Backend.(*ddbbackend.InMemoryDB); bk3Ok {
 			appSyncBk.SetDynamoDBBackend(&dynamoDBAdapter{db: ddbBk})
 		}
 	}
@@ -1441,6 +1503,16 @@ func (a *dynamoDBAdapter) PutItemRaw(
 		TableName: &tableName,
 		Item:      sdkItem,
 	})
+
+	return err
+}
+
+func (d *iotRuleDispatcher) InvokeLambda(ctx context.Context, functionARN string, payload []byte) error {
+	if d.lambda == nil {
+		return nil
+	}
+
+	_, _, err := d.lambda.InvokeFunction(ctx, functionARN, lambdabackend.InvocationTypeEvent, payload)
 
 	return err
 }
