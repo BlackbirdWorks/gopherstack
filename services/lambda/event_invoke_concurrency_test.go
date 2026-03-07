@@ -19,7 +19,7 @@ func TestPutFunctionEventInvokeConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup       func(*lambda.InMemoryBackend)
+		setup       func(*testing.T, *lambda.InMemoryBackend)
 		wantRetries *int
 		wantAge     *int
 		body        string
@@ -32,7 +32,8 @@ func TestPutFunctionEventInvokeConfig(t *testing.T) {
 			name:     "success_basic",
 			funcName: "put-eic-fn",
 			body:     `{}`,
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "put-eic-fn",
 					FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:put-eic-fn",
@@ -46,7 +47,8 @@ func TestPutFunctionEventInvokeConfig(t *testing.T) {
 			name:     "success_with_retry_and_age",
 			funcName: "put-eic-fn2",
 			body:     `{"MaximumRetryAttempts":1,"MaximumEventAgeInSeconds":300}`,
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "put-eic-fn2",
 					FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:put-eic-fn2",
@@ -62,7 +64,8 @@ func TestPutFunctionEventInvokeConfig(t *testing.T) {
 			name:     "success_with_destination",
 			funcName: "put-eic-fn3",
 			body:     `{"DestinationConfig":{"OnFailure":{"Destination":"arn:aws:sqs:us-east-1:000000000000:dlq"}}}`,
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "put-eic-fn3",
 					FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:put-eic-fn3",
@@ -83,7 +86,8 @@ func TestPutFunctionEventInvokeConfig(t *testing.T) {
 			name:     "invalid_retry_attempts",
 			funcName: "put-eic-fn4",
 			body:     `{"MaximumRetryAttempts":5}`,
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "put-eic-fn4",
 					FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:put-eic-fn4",
@@ -98,7 +102,8 @@ func TestPutFunctionEventInvokeConfig(t *testing.T) {
 			name:     "invalid_event_age",
 			funcName: "put-eic-fn5",
 			body:     `{"MaximumEventAgeInSeconds":10}`,
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "put-eic-fn5",
 					FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:put-eic-fn5",
@@ -128,7 +133,7 @@ func TestPutFunctionEventInvokeConfig(t *testing.T) {
 			h.AccountID = "000000000000"
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			path := "/2015-03-31/functions/" + tt.funcName + "/event-invoke-config"
@@ -165,7 +170,7 @@ func TestGetFunctionEventInvokeConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup       func(*lambda.InMemoryBackend)
+		setup       func(*testing.T, *lambda.InMemoryBackend)
 		funcName    string
 		name        string
 		wantErrType string
@@ -174,7 +179,8 @@ func TestGetFunctionEventInvokeConfig(t *testing.T) {
 		{
 			name:     "success",
 			funcName: "get-eic-fn",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "get-eic-fn",
 					FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:get-eic-fn",
@@ -197,7 +203,8 @@ func TestGetFunctionEventInvokeConfig(t *testing.T) {
 		{
 			name:     "config_not_found",
 			funcName: "fn-no-config",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "fn-no-config",
 					PackageType:  lambda.PackageTypeImage,
@@ -219,7 +226,7 @@ func TestGetFunctionEventInvokeConfig(t *testing.T) {
 			h.AccountID = "000000000000"
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			path := "/2015-03-31/functions/" + tt.funcName + "/event-invoke-config"
@@ -239,7 +246,7 @@ func TestUpdateFunctionEventInvokeConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup       func(*lambda.InMemoryBackend)
+		setup       func(*testing.T, *lambda.InMemoryBackend)
 		wantRetries *int
 		body        string
 		funcName    string
@@ -251,7 +258,8 @@ func TestUpdateFunctionEventInvokeConfig(t *testing.T) {
 			name:     "success_updates_retries",
 			funcName: "upd-eic-fn",
 			body:     `{"MaximumRetryAttempts":0}`,
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "upd-eic-fn",
 					FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:upd-eic-fn",
@@ -272,7 +280,8 @@ func TestUpdateFunctionEventInvokeConfig(t *testing.T) {
 			body:        `{"MaximumRetryAttempts":1}`,
 			wantCode:    http.StatusNotFound,
 			wantErrType: "ResourceNotFoundException",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "upd-eic-no-config",
 					PackageType:  lambda.PackageTypeImage,
@@ -299,7 +308,7 @@ func TestUpdateFunctionEventInvokeConfig(t *testing.T) {
 			h.AccountID = "000000000000"
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			path := "/2015-03-31/functions/" + tt.funcName + "/event-invoke-config"
@@ -328,7 +337,7 @@ func TestDeleteFunctionEventInvokeConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup       func(*lambda.InMemoryBackend)
+		setup       func(*testing.T, *lambda.InMemoryBackend)
 		funcName    string
 		name        string
 		wantErrType string
@@ -337,7 +346,8 @@ func TestDeleteFunctionEventInvokeConfig(t *testing.T) {
 		{
 			name:     "success",
 			funcName: "del-eic-fn",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "del-eic-fn",
 					PackageType:  lambda.PackageTypeImage,
@@ -357,7 +367,8 @@ func TestDeleteFunctionEventInvokeConfig(t *testing.T) {
 		{
 			name:     "config_not_found",
 			funcName: "del-eic-no-config",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "del-eic-no-config",
 					PackageType:  lambda.PackageTypeImage,
@@ -379,7 +390,7 @@ func TestDeleteFunctionEventInvokeConfig(t *testing.T) {
 			h.AccountID = "000000000000"
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			path := "/2015-03-31/functions/" + tt.funcName + "/event-invoke-config"
@@ -399,7 +410,7 @@ func TestListFunctionEventInvokeConfigs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup       func(*lambda.InMemoryBackend)
+		setup       func(*testing.T, *lambda.InMemoryBackend)
 		funcName    string
 		name        string
 		wantErrType string
@@ -409,7 +420,8 @@ func TestListFunctionEventInvokeConfigs(t *testing.T) {
 		{
 			name:     "no_configs",
 			funcName: "list-eic-fn-empty",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "list-eic-fn-empty",
 					PackageType:  lambda.PackageTypeImage,
@@ -422,7 +434,8 @@ func TestListFunctionEventInvokeConfigs(t *testing.T) {
 		{
 			name:     "with_one_config",
 			funcName: "list-eic-fn-one",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "list-eic-fn-one",
 					PackageType:  lambda.PackageTypeImage,
@@ -454,7 +467,7 @@ func TestListFunctionEventInvokeConfigs(t *testing.T) {
 			h.AccountID = "000000000000"
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			path := "/2015-03-31/functions/" + tt.funcName + "/event-invoke-configs"
@@ -480,7 +493,7 @@ func TestPutFunctionConcurrency(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup        func(*lambda.InMemoryBackend)
+		setup        func(*testing.T, *lambda.InMemoryBackend)
 		body         string
 		funcName     string
 		name         string
@@ -492,7 +505,8 @@ func TestPutFunctionConcurrency(t *testing.T) {
 			name:     "success_set_concurrency",
 			funcName: "put-conc-fn",
 			body:     `{"ReservedConcurrentExecutions":5}`,
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "put-conc-fn",
 					PackageType:  lambda.PackageTypeImage,
@@ -506,7 +520,8 @@ func TestPutFunctionConcurrency(t *testing.T) {
 			name:     "success_set_zero_disables",
 			funcName: "put-conc-fn-zero",
 			body:     `{"ReservedConcurrentExecutions":0}`,
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "put-conc-fn-zero",
 					PackageType:  lambda.PackageTypeImage,
@@ -530,6 +545,20 @@ func TestPutFunctionConcurrency(t *testing.T) {
 			wantCode:    http.StatusBadRequest,
 			wantErrType: "InvalidParameterValueException",
 		},
+		{
+			name:        "empty_body",
+			funcName:    "irrelevant",
+			body:        ``,
+			wantCode:    http.StatusBadRequest,
+			wantErrType: "InvalidParameterValueException",
+		},
+		{
+			name:        "missing_reserved_field",
+			funcName:    "irrelevant",
+			body:        `{}`,
+			wantCode:    http.StatusBadRequest,
+			wantErrType: "InvalidParameterValueException",
+		},
 	}
 
 	for _, tt := range tests {
@@ -542,7 +571,7 @@ func TestPutFunctionConcurrency(t *testing.T) {
 			h.AccountID = "000000000000"
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			path := "/2015-03-31/functions/" + tt.funcName + "/concurrency"
@@ -568,7 +597,7 @@ func TestGetFunctionConcurrency(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup        func(*lambda.InMemoryBackend)
+		setup        func(*testing.T, *lambda.InMemoryBackend)
 		funcName     string
 		name         string
 		wantErrType  string
@@ -578,7 +607,8 @@ func TestGetFunctionConcurrency(t *testing.T) {
 		{
 			name:     "success",
 			funcName: "get-conc-fn",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "get-conc-fn",
 					PackageType:  lambda.PackageTypeImage,
@@ -599,7 +629,8 @@ func TestGetFunctionConcurrency(t *testing.T) {
 		{
 			name:     "no_concurrency_set",
 			funcName: "get-conc-no-limit",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "get-conc-no-limit",
 					PackageType:  lambda.PackageTypeImage,
@@ -621,7 +652,7 @@ func TestGetFunctionConcurrency(t *testing.T) {
 			h.AccountID = "000000000000"
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			path := "/2015-03-31/functions/" + tt.funcName + "/concurrency"
@@ -647,7 +678,7 @@ func TestDeleteFunctionConcurrency(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup       func(*lambda.InMemoryBackend)
+		setup       func(*testing.T, *lambda.InMemoryBackend)
 		funcName    string
 		name        string
 		wantErrType string
@@ -656,7 +687,8 @@ func TestDeleteFunctionConcurrency(t *testing.T) {
 		{
 			name:     "success",
 			funcName: "del-conc-fn",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "del-conc-fn",
 					PackageType:  lambda.PackageTypeImage,
@@ -685,7 +717,7 @@ func TestDeleteFunctionConcurrency(t *testing.T) {
 			h.AccountID = "000000000000"
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			path := "/2015-03-31/functions/" + tt.funcName + "/concurrency"
@@ -705,7 +737,7 @@ func TestConcurrencyEnforcement(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup          func(*lambda.InMemoryBackend)
+		setup          func(*testing.T, *lambda.InMemoryBackend)
 		funcName       string
 		name           string
 		invocationType string
@@ -716,7 +748,8 @@ func TestConcurrencyEnforcement(t *testing.T) {
 			name:           "reserved_zero_blocks_request_response",
 			funcName:       "conc-zero-fn",
 			invocationType: lambda.InvocationTypeRequestResponse,
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "conc-zero-fn",
 					PackageType:  lambda.PackageTypeImage,
@@ -732,7 +765,8 @@ func TestConcurrencyEnforcement(t *testing.T) {
 			name:           "reserved_zero_blocks_event_invocation",
 			funcName:       "conc-zero-event-fn",
 			invocationType: lambda.InvocationTypeEvent,
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "conc-zero-event-fn",
 					PackageType:  lambda.PackageTypeImage,
@@ -748,7 +782,8 @@ func TestConcurrencyEnforcement(t *testing.T) {
 			name:           "no_concurrency_limit_allows_invocation",
 			funcName:       "conc-unlimited-fn",
 			invocationType: lambda.InvocationTypeRequestResponse,
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "conc-unlimited-fn",
 					PackageType:  lambda.PackageTypeImage,
@@ -771,7 +806,7 @@ func TestConcurrencyEnforcement(t *testing.T) {
 			h.AccountID = "000000000000"
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			path := "/2015-03-31/functions/" + tt.funcName + "/invocations"
@@ -792,7 +827,7 @@ func TestGetFunction_ReservedConcurrentExecutions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup        func(*lambda.InMemoryBackend)
+		setup        func(*testing.T, *lambda.InMemoryBackend)
 		wantReserved *int
 		funcName     string
 		name         string
@@ -801,7 +836,8 @@ func TestGetFunction_ReservedConcurrentExecutions(t *testing.T) {
 		{
 			name:     "no_concurrency_set",
 			funcName: "gf-no-conc",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "gf-no-conc",
 					PackageType:  lambda.PackageTypeImage,
@@ -814,7 +850,8 @@ func TestGetFunction_ReservedConcurrentExecutions(t *testing.T) {
 		{
 			name:     "with_concurrency_set",
 			funcName: "gf-with-conc",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "gf-with-conc",
 					PackageType:  lambda.PackageTypeImage,
@@ -838,7 +875,7 @@ func TestGetFunction_ReservedConcurrentExecutions(t *testing.T) {
 			h.AccountID = "000000000000"
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			path := "/2015-03-31/functions/" + tt.funcName
@@ -867,7 +904,7 @@ func TestBackend_PutFunctionEventInvokeConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup       func(*lambda.InMemoryBackend)
+		setup       func(*testing.T, *lambda.InMemoryBackend)
 		input       *lambda.PutFunctionEventInvokeConfigInput
 		wantRetries *int
 		wantAge     *int
@@ -882,7 +919,8 @@ func TestBackend_PutFunctionEventInvokeConfig(t *testing.T) {
 				MaximumRetryAttempts:     new(1),
 				MaximumEventAgeInSeconds: new(120),
 			},
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "be-put-eic",
 					FunctionArn:  "arn:aws:lambda:us-east-1:000000000000:function:be-put-eic",
@@ -907,7 +945,8 @@ func TestBackend_PutFunctionEventInvokeConfig(t *testing.T) {
 			name:     "invalid_max_retries",
 			funcName: "be-put-eic-bad",
 			input:    &lambda.PutFunctionEventInvokeConfigInput{MaximumRetryAttempts: new(3)},
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "be-put-eic-bad",
 					PackageType:  lambda.PackageTypeImage,
@@ -920,7 +959,8 @@ func TestBackend_PutFunctionEventInvokeConfig(t *testing.T) {
 			name:     "invalid_event_age_too_low",
 			funcName: "be-put-eic-age-low",
 			input:    &lambda.PutFunctionEventInvokeConfigInput{MaximumEventAgeInSeconds: new(30)},
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "be-put-eic-age-low",
 					PackageType:  lambda.PackageTypeImage,
@@ -933,7 +973,8 @@ func TestBackend_PutFunctionEventInvokeConfig(t *testing.T) {
 			name:     "invalid_event_age_too_high",
 			funcName: "be-put-eic-age-high",
 			input:    &lambda.PutFunctionEventInvokeConfigInput{MaximumEventAgeInSeconds: new(30000)},
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "be-put-eic-age-high",
 					PackageType:  lambda.PackageTypeImage,
@@ -951,7 +992,7 @@ func TestBackend_PutFunctionEventInvokeConfig(t *testing.T) {
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			cfg, err := bk.PutFunctionEventInvokeConfig(tt.funcName, tt.input)
@@ -985,7 +1026,7 @@ func TestBackend_PutGetDeleteFunctionConcurrency(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup        func(*lambda.InMemoryBackend)
+		setup        func(*testing.T, *lambda.InMemoryBackend)
 		funcName     string
 		name         string
 		putReserved  int
@@ -995,7 +1036,8 @@ func TestBackend_PutGetDeleteFunctionConcurrency(t *testing.T) {
 		{
 			name:     "put_and_get",
 			funcName: "be-conc-fn",
-			setup: func(b *lambda.InMemoryBackend) {
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
 				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
 					FunctionName: "be-conc-fn",
 					PackageType:  lambda.PackageTypeImage,
@@ -1020,7 +1062,7 @@ func TestBackend_PutGetDeleteFunctionConcurrency(t *testing.T) {
 			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
 
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			concurrency, err := bk.PutFunctionConcurrency(tt.funcName, tt.putReserved)

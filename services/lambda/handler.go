@@ -1998,11 +1998,24 @@ func (h *Handler) handlePutFunctionConcurrency(c *echo.Context, name string) err
 		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
 	}
 
+	if len(body) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"ReservedConcurrentExecutions is required")
+	}
+
+	var raw map[string]json.RawMessage
+	if unmarshalErr := json.Unmarshal(body, &raw); unmarshalErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+	}
+
+	if _, present := raw["ReservedConcurrentExecutions"]; !present {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"ReservedConcurrentExecutions is required")
+	}
+
 	var input PutFunctionConcurrencyInput
-	if len(body) > 0 {
-		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
-			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
-		}
+	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
 	}
 
 	concurrency, putErr := lambdaBk.PutFunctionConcurrency(name, input.ReservedConcurrentExecutions)
@@ -2034,6 +2047,11 @@ func (h *Handler) handleGetFunctionConcurrency(c *echo.Context, name string) err
 		if errors.Is(err, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(err, ErrFunctionConcurrencyNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function %s has no reserved concurrency configured", name))
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())

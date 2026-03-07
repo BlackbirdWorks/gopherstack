@@ -58,6 +58,8 @@ var (
 	ErrEventInvokeConfigNotFound = errors.New("ResourceNotFoundException")
 	// ErrTooManyRequests is returned when a function's reserved concurrency limit is exhausted.
 	ErrTooManyRequests = errors.New("TooManyRequestsException")
+	// ErrFunctionConcurrencyNotFound is returned when a function has no reserved concurrency configured.
+	ErrFunctionConcurrencyNotFound = errors.New("ResourceNotFoundException")
 )
 
 // versionLatest is the sentinel qualifier for the live function configuration.
@@ -137,7 +139,7 @@ type InMemoryBackend struct {
 	// eventInvokeConfigs stores async invocation config keyed by function name.
 	eventInvokeConfigs map[string]*FunctionEventInvokeConfig
 	// functionConcurrencies stores reserved concurrent executions per function name.
-	// A value of -1 means no limit is set (use account default).
+	// If a function name is not present in the map, no limit is set (use account default).
 	functionConcurrencies map[string]int
 	// activeConcurrencies tracks the number of active synchronous invocations per function name.
 	activeConcurrencies map[string]int
@@ -2156,7 +2158,7 @@ func (b *InMemoryBackend) GetFunctionConcurrency(name string) (*FunctionConcurre
 
 	reserved, ok := b.functionConcurrencies[name]
 	if !ok {
-		return nil, ErrFunctionNotFound
+		return nil, ErrFunctionConcurrencyNotFound
 	}
 
 	return &FunctionConcurrency{ReservedConcurrentExecutions: reserved}, nil
