@@ -936,3 +936,543 @@ func TestHandleInvalidJSONRequests(t *testing.T) {
 		assert.GreaterOrEqual(t, rec.Code, 400, "op=%s should return error", op)
 	}
 }
+
+// createStreamAndGetARN is a helper that creates a stream with one shard and returns its ARN.
+func createStreamAndGetARN(t *testing.T, h *kinesis.Handler, streamName string) string {
+	t.Helper()
+
+	rec := doRequest(t, h, "CreateStream", map[string]any{
+		"StreamName": streamName,
+		"ShardCount": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": streamName})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp struct {
+		StreamDescription struct {
+			StreamARN string `json:"StreamARN"`
+		} `json:"StreamDescription"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.NotEmpty(t, descResp.StreamDescription.StreamARN)
+
+	return descResp.StreamDescription.StreamARN
+}
+
+func TestConsumerLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		consumerName   string
+		expectedStatus string
+	}{
+		{
+			name:           "single_consumer",
+			consumerName:   "my-consumer",
+			expectedStatus: "ACTIVE",
+		},
+		{
+			name:           "consumer_with_dashes",
+			consumerName:   "consumer-with-dashes",
+			expectedStatus: "ACTIVE",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			streamARN := createStreamAndGetARN(t, h, "consumer-stream-"+tt.name)
+
+			// RegisterStreamConsumer
+			rec := doRequest(t, h, "RegisterStreamConsumer", map[string]any{
+				"StreamARN":    streamARN,
+				"ConsumerName": tt.consumerName,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var regResp struct {
+				Consumer struct {
+					ConsumerName   string `json:"ConsumerName"`
+					ConsumerARN    string `json:"ConsumerARN"`
+					ConsumerStatus string `json:"ConsumerStatus"`
+					StreamARN      string `json:"StreamARN"`
+				} `json:"Consumer"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
+			assert.Equal(t, tt.consumerName, regResp.Consumer.ConsumerName)
+			assert.Equal(t, tt.expectedStatus, regResp.Consumer.ConsumerStatus)
+			assert.Equal(t, streamARN, regResp.Consumer.StreamARN)
+			assert.NotEmpty(t, regResp.Consumer.ConsumerARN)
+			assert.Contains(t, regResp.Consumer.ConsumerARN, tt.consumerName)
+
+			consumerARN := regResp.Consumer.ConsumerARN
+
+			// DescribeStreamConsumer by ConsumerARN
+			rec = doRequest(t, h, "DescribeStreamConsumer", map[string]any{
+				"ConsumerARN": consumerARN,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var descResp struct {
+				ConsumerDescription struct {
+					ConsumerName string `json:"ConsumerName"`
+					ConsumerARN  string `json:"ConsumerARN"`
+				} `json:"ConsumerDescription"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+			assert.Equal(t, tt.consumerName, descResp.ConsumerDescription.ConsumerName)
+			assert.Equal(t, consumerARN, descResp.ConsumerDescription.ConsumerARN)
+
+			// DescribeStreamConsumer by StreamARN + ConsumerName
+			rec = doRequest(t, h, "DescribeStreamConsumer", map[string]any{
+				"StreamARN":    streamARN,
+				"ConsumerName": tt.consumerName,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			// ListStreamConsumers
+			rec = doRequest(t, h, "ListStreamConsumers", map[string]any{
+				"StreamARN": streamARN,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var listResp struct {
+				Consumers []struct {
+					ConsumerName string `json:"ConsumerName"`
+				} `json:"Consumers"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+			require.Len(t, listResp.Consumers, 1)
+			assert.Equal(t, tt.consumerName, listResp.Consumers[0].ConsumerName)
+
+			// DeregisterStreamConsumer by ConsumerARN
+			rec = doRequest(t, h, "DeregisterStreamConsumer", map[string]any{
+				"ConsumerARN": consumerARN,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			// Verify gone
+			rec = doRequest(t, h, "ListStreamConsumers", map[string]any{
+				"StreamARN": streamARN,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var listResp2 struct {
+				Consumers []any `json:"Consumers"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp2))
+			assert.Empty(t, listResp2.Consumers)
+		})
+	}
+}
+
+func TestConsumerErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body        any
+		name        string
+		action      string
+		wantErrType string
+		wantCode    int
+	}{
+		{
+			name:   "RegisterConsumer_StreamNotFound",
+			action: "RegisterStreamConsumer",
+			body: map[string]any{
+				"StreamARN":    "arn:aws:kinesis:us-east-1:123:stream/no-such-stream",
+				"ConsumerName": "c1",
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErrType: "ResourceNotFoundException",
+		},
+		{
+			name:        "DescribeConsumer_NotFound",
+			action:      "DescribeStreamConsumer",
+			body:        map[string]any{"ConsumerARN": "arn:aws:kinesis:us-east-1:123:stream/x/consumer/y:0"},
+			wantCode:    http.StatusBadRequest,
+			wantErrType: "ResourceNotFoundException",
+		},
+		{
+			name:        "ListStreamConsumers_StreamNotFound",
+			action:      "ListStreamConsumers",
+			body:        map[string]any{"StreamARN": "arn:aws:kinesis:us-east-1:123:stream/no-such"},
+			wantCode:    http.StatusBadRequest,
+			wantErrType: "ResourceNotFoundException",
+		},
+		{
+			name:        "DeregisterConsumer_NotFound",
+			action:      "DeregisterStreamConsumer",
+			body:        map[string]any{"ConsumerARN": "arn:aws:kinesis:us-east-1:123:stream/x/consumer/y:0"},
+			wantCode:    http.StatusBadRequest,
+			wantErrType: "ResourceNotFoundException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantErrType != "" {
+				var errResp struct {
+					Type string `json:"__type"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.Equal(t, tt.wantErrType, errResp.Type)
+			}
+		})
+	}
+}
+
+func TestRegisterConsumerDuplicate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	streamARN := createStreamAndGetARN(t, h, "dup-stream")
+
+	// First register should succeed.
+	rec := doRequest(t, h, "RegisterStreamConsumer", map[string]any{
+		"StreamARN":    streamARN,
+		"ConsumerName": "c1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Second register of the same name should fail.
+	rec = doRequest(t, h, "RegisterStreamConsumer", map[string]any{
+		"StreamARN":    streamARN,
+		"ConsumerName": "c1",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp struct {
+		Type string `json:"__type"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "ResourceInUseException", errResp.Type)
+}
+
+func TestUpdateShardCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		initialShards    int
+		targetShards     int
+		wantCode         int
+		wantCurrentCount int
+		wantTargetCount  int
+	}{
+		{
+			name:             "scale_up",
+			initialShards:    1,
+			targetShards:     4,
+			wantCode:         http.StatusOK,
+			wantCurrentCount: 1,
+			wantTargetCount:  4,
+		},
+		{
+			name:             "scale_down",
+			initialShards:    4,
+			targetShards:     2,
+			wantCode:         http.StatusOK,
+			wantCurrentCount: 4,
+			wantTargetCount:  2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			streamName := "reshard-stream-" + tt.name
+
+			rec := doRequest(t, h, "CreateStream", map[string]any{
+				"StreamName": streamName,
+				"ShardCount": tt.initialShards,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			rec = doRequest(t, h, "UpdateShardCount", map[string]any{
+				"StreamName":       streamName,
+				"TargetShardCount": tt.targetShards,
+				"ScalingType":      "UNIFORM_SCALING",
+			})
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			var resp struct {
+				StreamName        string `json:"StreamName"`
+				CurrentShardCount int    `json:"CurrentShardCount"`
+				TargetShardCount  int    `json:"TargetShardCount"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, streamName, resp.StreamName)
+			assert.Equal(t, tt.wantCurrentCount, resp.CurrentShardCount)
+			assert.Equal(t, tt.wantTargetCount, resp.TargetShardCount)
+
+			// Verify new shard count via ListShards.
+			rec = doRequest(t, h, "ListShards", map[string]any{"StreamName": streamName})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var shardsResp struct {
+				Shards []any `json:"Shards"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &shardsResp))
+			assert.Len(t, shardsResp.Shards, tt.targetShards)
+		})
+	}
+}
+
+func TestUpdateShardCountErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "stream_not_found",
+			body:     map[string]any{"StreamName": "no-such-stream", "TargetShardCount": 2},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "invalid_target",
+			body:     map[string]any{"StreamName": "x", "TargetShardCount": 0},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "unsupported_scaling_type",
+			body:     map[string]any{"StreamName": "x", "TargetShardCount": 2, "ScalingType": "RANDOM_SCALING"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "UpdateShardCount", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestEnhancedMonitoring(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	streamName := "monitor-stream"
+
+	rec := doRequest(t, h, "CreateStream", map[string]any{
+		"StreamName": streamName,
+		"ShardCount": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Enable monitoring.
+	rec = doRequest(t, h, "EnableEnhancedMonitoring", map[string]any{
+		"StreamName":        streamName,
+		"ShardLevelMetrics": []string{"IncomingBytes", "OutgoingRecords"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var enableResp struct {
+		StreamName               string   `json:"StreamName"`
+		CurrentShardLevelMetrics []string `json:"CurrentShardLevelMetrics"`
+		DesiredShardLevelMetrics []string `json:"DesiredShardLevelMetrics"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &enableResp))
+	assert.Equal(t, streamName, enableResp.StreamName)
+	assert.Empty(t, enableResp.CurrentShardLevelMetrics)
+	assert.ElementsMatch(t, []string{"IncomingBytes", "OutgoingRecords"}, enableResp.DesiredShardLevelMetrics)
+
+	// Disable one metric.
+	rec = doRequest(t, h, "DisableEnhancedMonitoring", map[string]any{
+		"StreamName":        streamName,
+		"ShardLevelMetrics": []string{"IncomingBytes"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var disableResp struct {
+		StreamName               string   `json:"StreamName"`
+		CurrentShardLevelMetrics []string `json:"CurrentShardLevelMetrics"`
+		DesiredShardLevelMetrics []string `json:"DesiredShardLevelMetrics"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &disableResp))
+	assert.ElementsMatch(t, []string{"IncomingBytes", "OutgoingRecords"}, disableResp.CurrentShardLevelMetrics)
+	assert.Equal(t, []string{"OutgoingRecords"}, disableResp.DesiredShardLevelMetrics)
+}
+
+func TestGetShardIteratorAtTimestamp(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateStream", map[string]any{
+		"StreamName": "ts-stream",
+		"ShardCount": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Get shard ID
+	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "ts-stream"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp struct {
+		StreamDescription struct {
+			Shards []struct {
+				ShardID string `json:"ShardId"`
+			} `json:"Shards"`
+		} `json:"StreamDescription"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.Len(t, descResp.StreamDescription.Shards, 1)
+	shardID := descResp.StreamDescription.Shards[0].ShardID
+
+	// Put a record.
+	doRequest(t, h, "PutRecord", map[string]any{
+		"StreamName":   "ts-stream",
+		"PartitionKey": "pk",
+		"Data":         []byte("hello"),
+	})
+
+	// Get shard iterator at current time (should include the record).
+	tsBefore := float64(0) // epoch = all records
+	rec = doRequest(t, h, "GetShardIterator", map[string]any{
+		"StreamName":        "ts-stream",
+		"ShardId":           shardID,
+		"ShardIteratorType": "AT_TIMESTAMP",
+		"Timestamp":         tsBefore,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var iterResp struct {
+		ShardIterator string `json:"ShardIterator"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &iterResp))
+	assert.NotEmpty(t, iterResp.ShardIterator)
+
+	// GetRecords should return the record.
+	rec = doRequest(t, h, "GetRecords", map[string]any{
+		"ShardIterator": iterResp.ShardIterator,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp struct {
+		Records []struct {
+			Data []byte `json:"Data"`
+		} `json:"Records"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	assert.Len(t, getResp.Records, 1)
+	assert.Equal(t, []byte("hello"), getResp.Records[0].Data)
+}
+
+func TestSubscribeToShard(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	streamName := "sub-stream"
+	consumerName := "sub-consumer"
+
+	streamARN := createStreamAndGetARN(t, h, streamName)
+
+	// Get shard ID.
+	rec := doRequest(t, h, "DescribeStream", map[string]any{"StreamName": streamName})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp struct {
+		StreamDescription struct {
+			Shards []struct {
+				ShardID string `json:"ShardId"`
+			} `json:"Shards"`
+		} `json:"StreamDescription"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	require.Len(t, descResp.StreamDescription.Shards, 1)
+	shardID := descResp.StreamDescription.Shards[0].ShardID
+
+	// Put a record.
+	doRequest(t, h, "PutRecord", map[string]any{
+		"StreamName":   streamName,
+		"PartitionKey": "pk",
+		"Data":         []byte("event-data"),
+	})
+
+	// Register consumer.
+	rec = doRequest(t, h, "RegisterStreamConsumer", map[string]any{
+		"StreamARN":    streamARN,
+		"ConsumerName": consumerName,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var regResp struct {
+		Consumer struct {
+			ConsumerARN string `json:"ConsumerARN"`
+		} `json:"Consumer"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &regResp))
+	consumerARN := regResp.Consumer.ConsumerARN
+
+	// SubscribeToShard.
+	e := echo.New()
+	bodyBytes, err := json.Marshal(map[string]any{
+		"ConsumerARN": consumerARN,
+		"ShardId":     shardID,
+		"StartingPosition": map[string]any{
+			"Type": "TRIM_HORIZON",
+		},
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "Kinesis_20131202.SubscribeToShard")
+
+	rec2 := httptest.NewRecorder()
+	c := e.NewContext(req, rec2)
+	err = h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Equal(t, "application/vnd.amazon.eventstream", rec2.Header().Get("Content-Type"))
+	assert.NotEmpty(t, rec2.Body.Bytes())
+}
+
+func TestDeregisterConsumerByStreamARNAndName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	streamARN := createStreamAndGetARN(t, h, "dereg-stream")
+
+	// Register consumer.
+	rec := doRequest(t, h, "RegisterStreamConsumer", map[string]any{
+		"StreamARN":    streamARN,
+		"ConsumerName": "to-remove",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Deregister by StreamARN + ConsumerName (not ARN).
+	rec = doRequest(t, h, "DeregisterStreamConsumer", map[string]any{
+		"StreamARN":    streamARN,
+		"ConsumerName": "to-remove",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify gone.
+	rec = doRequest(t, h, "DescribeStreamConsumer", map[string]any{
+		"StreamARN":    streamARN,
+		"ConsumerName": "to-remove",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
