@@ -139,6 +139,19 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 			return
 		}
 
+		// Get the method to check for authorizer configuration.
+		method, methodErr := h.Backend.GetMethod(apiID, resource.ID, r.Method)
+		if methodErr != nil {
+			method, methodErr = h.Backend.GetMethod(apiID, resource.ID, "ANY")
+		}
+
+		// Run authorizer if method has one configured.
+		if methodErr == nil && method != nil && method.AuthorizerID != "" {
+			if authDenied := h.runAuthorizer(ctx, w, r, apiID, stageName, method.AuthorizerID); authDenied {
+				return
+			}
+		}
+
 		// Get the integration.
 		integration, err := h.Backend.GetIntegration(apiID, resource.ID, r.Method)
 		if err != nil {
@@ -164,6 +177,157 @@ func (h *Handler) handleProxyRequest(apiID, stageName string) http.HandlerFunc {
 			http.Error(w, "Unsupported or unknown integration type for stage URL", http.StatusNotImplemented)
 		}
 	}
+}
+
+// AuthorizerEvent is the event payload sent to a Lambda authorizer function.
+type AuthorizerEvent struct {
+	Headers               map[string]string  `json:"headers,omitempty"`
+	QueryStringParameters map[string]string  `json:"queryStringParameters,omitempty"`
+	StageVariables        map[string]string  `json:"stageVariables,omitempty"`
+	RequestContext        LambdaProxyContext `json:"requestContext"`
+	Type                  string             `json:"type"`
+	AuthorizationToken    string             `json:"authorizationToken,omitempty"`
+	MethodArn             string             `json:"methodArn"`
+	Resource              string             `json:"resource,omitempty"`
+	Path                  string             `json:"path,omitempty"`
+	HTTPMethod            string             `json:"httpMethod,omitempty"`
+}
+
+// runAuthorizer invokes the Lambda authorizer and returns true if the request
+// should be denied (i.e., the response was written with a 4xx status).
+func (h *Handler) runAuthorizer(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	apiID, stageName, authorizerID string,
+) bool {
+	if h.lambda == nil {
+		http.Error(w, "Lambda integration not configured", http.StatusServiceUnavailable)
+
+		return true
+	}
+
+	auth, err := h.Backend.GetAuthorizer(apiID, authorizerID)
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: authorizer not found", "authorizerId", authorizerID)
+		http.Error(w, "Authorizer configuration error", http.StatusInternalServerError)
+
+		return true
+	}
+
+	// Build the authorizer event based on type.
+	event := h.buildAuthorizerEvent(r, auth, apiID, stageName)
+
+	payload, _ := json.Marshal(event)
+
+	funcName := ExtractLambdaFunctionName(auth.AuthorizerURI)
+	respBytes, _, invokeErr := h.lambda.InvokeFunction(ctx, funcName, "RequestResponse", payload)
+	if invokeErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: authorizer invocation failed",
+			"authorizerId", authorizerID, "error", invokeErr)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+		return true
+	}
+
+	// Parse the authorizer response (IAM policy document).
+	var authResp AuthorizerResponse
+	if parseErr := json.Unmarshal(respBytes, &authResp); parseErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "APIGateway proxy: failed to parse authorizer response", "error", parseErr)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+
+		return true
+	}
+
+	// Evaluate the policy document to determine allow/deny.
+	if !isAuthorizerAllowed(&authResp) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+
+		return true
+	}
+
+	return false
+}
+
+// buildAuthorizerEvent constructs the event payload for the Lambda authorizer.
+func (h *Handler) buildAuthorizerEvent(r *http.Request, auth *Authorizer, apiID, stageName string) AuthorizerEvent {
+	headers := make(map[string]string)
+	for k, vs := range r.Header {
+		if len(vs) > 0 {
+			headers[strings.ToLower(k)] = vs[len(vs)-1]
+		}
+	}
+
+	qsp := make(map[string]string)
+	for k, vs := range r.URL.Query() {
+		if len(vs) > 0 {
+			qsp[k] = vs[len(vs)-1]
+		}
+	}
+
+	methodArn := fmt.Sprintf("arn:aws:execute-api:us-east-1:000000000000:%s/%s/%s%s",
+		apiID, stageName, r.Method, r.URL.Path)
+
+	event := AuthorizerEvent{
+		Type:                  auth.Type,
+		MethodArn:             methodArn,
+		Path:                  r.URL.Path,
+		HTTPMethod:            r.Method,
+		Resource:              r.URL.Path,
+		Headers:               headers,
+		QueryStringParameters: qsp,
+		RequestContext: LambdaProxyContext{
+			Stage: stageName,
+			APIId: apiID,
+		},
+	}
+
+	// For TOKEN type: extract token from identity source header.
+	if auth.Type == "TOKEN" {
+		token := extractTokenFromIdentitySource(r, auth.IdentitySource)
+		event.AuthorizationToken = token
+		// TOKEN authorizers only need type, token, and methodArn.
+		event.Headers = nil
+		event.QueryStringParameters = nil
+	}
+
+	return event
+}
+
+// extractTokenFromIdentitySource extracts the token value from the request
+// based on the authorizer's identitySource (e.g. "method.request.header.Authorization").
+func extractTokenFromIdentitySource(r *http.Request, identitySource string) string {
+	const headerPrefix = "method.request.header."
+	if strings.HasPrefix(identitySource, headerPrefix) {
+		headerName := identitySource[len(headerPrefix):]
+
+		return r.Header.Get(headerName)
+	}
+
+	// Default: try Authorization header.
+	return r.Header.Get("Authorization")
+}
+
+// isAuthorizerAllowed evaluates the IAM policy document returned by a Lambda authorizer.
+// Returns true if at least one Allow statement exists and no explicit Deny overrides it.
+func isAuthorizerAllowed(authResp *AuthorizerResponse) bool {
+	if authResp.PolicyDocument == nil {
+		return false
+	}
+
+	allow := false
+
+	for _, stmt := range authResp.PolicyDocument.Statement {
+		effect := strings.ToUpper(stmt.Effect)
+		if effect == "DENY" {
+			return false
+		}
+		if effect == "ALLOW" {
+			allow = true
+		}
+	}
+
+	return allow
 }
 
 // handleAWSProxy handles an AWS_PROXY Lambda integration — the full event is forwarded as-is.

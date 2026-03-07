@@ -210,7 +210,7 @@ func TestBackend_Method(t *testing.T) {
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
 
-				m, err := b.PutMethod(api.ID, rootID, "GET", "NONE", false)
+				m, err := b.PutMethod(api.ID, rootID, "GET", "NONE", "", false)
 				require.NoError(t, err)
 				assert.Equal(t, "GET", m.HTTPMethod)
 
@@ -252,7 +252,7 @@ func TestBackend_Integration(t *testing.T) {
 				resources, _, _ := b.GetResources(api.ID, "", 0)
 				rootID := resources[0].ID
 
-				_, _ = b.PutMethod(api.ID, rootID, "POST", "NONE", false)
+				_, _ = b.PutMethod(api.ID, rootID, "POST", "NONE", "", false)
 
 				input := apigateway.PutIntegrationInput{Type: "MOCK"}
 				integ, err := b.PutIntegration(api.ID, rootID, "POST", input)
@@ -335,6 +335,243 @@ func TestBackend_DeploymentAndStage(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			tt.run(t)
+		})
+	}
+}
+
+func TestBackend_Authorizer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want apigateway.Authorizer
+	}{
+		{
+			name: "create_get_update_delete",
+			want: apigateway.Authorizer{
+				Name:           "my-auth",
+				Type:           "TOKEN",
+				IdentitySource: "method.request.header.Authorization",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigateway.NewInMemoryBackend()
+			api, err := b.CreateRestAPI("api", "", nil)
+			require.NoError(t, err)
+
+			auth, err := b.CreateAuthorizer(api.ID, apigateway.CreateAuthorizerInput{
+				Name:           tt.want.Name,
+				Type:           tt.want.Type,
+				IdentitySource: tt.want.IdentitySource,
+			})
+			require.NoError(t, err)
+			assert.NotEmpty(t, auth.ID)
+			assert.Equal(t, tt.want.Name, auth.Name)
+			assert.Equal(t, tt.want.Type, auth.Type)
+
+			got, err := b.GetAuthorizer(api.ID, auth.ID)
+			require.NoError(t, err)
+			assert.Equal(t, auth.ID, got.ID)
+
+			auths, err := b.GetAuthorizers(api.ID)
+			require.NoError(t, err)
+			assert.Len(t, auths, 1)
+
+			updated, err := b.UpdateAuthorizer(api.ID, auth.ID, apigateway.UpdateAuthorizerInput{
+				Name: "updated-auth",
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "updated-auth", updated.Name)
+
+			err = b.DeleteAuthorizer(api.ID, auth.ID)
+			require.NoError(t, err)
+
+			_, err = b.GetAuthorizer(api.ID, auth.ID)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestBackend_Authorizer_Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   apigateway.CreateAuthorizerInput
+		wantErr bool
+	}{
+		{
+			name:    "create_missing_name_returns_error",
+			input:   apigateway.CreateAuthorizerInput{Type: "TOKEN"},
+			wantErr: true,
+		},
+		{
+			name:    "create_missing_type_returns_error",
+			input:   apigateway.CreateAuthorizerInput{Name: "auth"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigateway.NewInMemoryBackend()
+			api, _ := b.CreateRestAPI("api", "", nil)
+
+			_, err := b.CreateAuthorizer(api.ID, tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestBackend_RequestValidator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want apigateway.RequestValidator
+	}{
+		{
+			name: "create_get_update_delete",
+			want: apigateway.RequestValidator{
+				Name:                      "my-validator",
+				ValidateRequestBody:       true,
+				ValidateRequestParameters: false,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigateway.NewInMemoryBackend()
+			api, err := b.CreateRestAPI("api", "", nil)
+			require.NoError(t, err)
+
+			rv, err := b.CreateRequestValidator(api.ID, apigateway.CreateRequestValidatorInput{
+				Name:                tt.want.Name,
+				ValidateRequestBody: tt.want.ValidateRequestBody,
+			})
+			require.NoError(t, err)
+			assert.NotEmpty(t, rv.ID)
+			assert.Equal(t, tt.want.Name, rv.Name)
+			assert.Equal(t, tt.want.ValidateRequestBody, rv.ValidateRequestBody)
+
+			got, err := b.GetRequestValidator(api.ID, rv.ID)
+			require.NoError(t, err)
+			assert.Equal(t, rv.ID, got.ID)
+
+			rvs, err := b.GetRequestValidators(api.ID)
+			require.NoError(t, err)
+			assert.Len(t, rvs, 1)
+
+			validateBody := false
+			validateParams := true
+			updated, err := b.UpdateRequestValidator(api.ID, rv.ID, apigateway.UpdateRequestValidatorInput{
+				Name:                      "updated-validator",
+				ValidateRequestBody:       &validateBody,
+				ValidateRequestParameters: &validateParams,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "updated-validator", updated.Name)
+			assert.True(t, updated.ValidateRequestParameters)
+			assert.False(t, updated.ValidateRequestBody)
+
+			err = b.DeleteRequestValidator(api.ID, rv.ID)
+			require.NoError(t, err)
+
+			_, err = b.GetRequestValidator(api.ID, rv.ID)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestBackend_MethodResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "put_get_delete"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigateway.NewInMemoryBackend()
+			api, _ := b.CreateRestAPI("api", "", nil)
+			resources, _, _ := b.GetResources(api.ID, "", 0)
+			rootID := resources[0].ID
+
+			_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", false)
+
+			mr, err := b.PutMethodResponse(api.ID, rootID, "GET", "200", apigateway.PutMethodResponseInput{
+				ResponseModels: map[string]string{"application/json": "Empty"},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "200", mr.StatusCode)
+
+			got, err := b.GetMethodResponse(api.ID, rootID, "GET", "200")
+			require.NoError(t, err)
+			assert.Equal(t, "200", got.StatusCode)
+
+			err = b.DeleteMethodResponse(api.ID, rootID, "GET", "200")
+			require.NoError(t, err)
+
+			_, err = b.GetMethodResponse(api.ID, rootID, "GET", "200")
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestBackend_IntegrationResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "put_get_delete"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigateway.NewInMemoryBackend()
+			api, _ := b.CreateRestAPI("api", "", nil)
+			resources, _, _ := b.GetResources(api.ID, "", 0)
+			rootID := resources[0].ID
+
+			_, _ = b.PutMethod(api.ID, rootID, "GET", "NONE", "", false)
+			_, _ = b.PutIntegration(api.ID, rootID, "GET", apigateway.PutIntegrationInput{Type: "MOCK"})
+
+			ir, err := b.PutIntegrationResponse(api.ID, rootID, "GET", "200", apigateway.PutIntegrationResponseInput{
+				ResponseTemplates: map[string]string{"application/json": `{"status": "ok"}`},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "200", ir.StatusCode)
+
+			got, err := b.GetIntegrationResponse(api.ID, rootID, "GET", "200")
+			require.NoError(t, err)
+			assert.Equal(t, "200", got.StatusCode)
+
+			err = b.DeleteIntegrationResponse(api.ID, rootID, "GET", "200")
+			require.NoError(t, err)
+
+			_, err = b.GetIntegrationResponse(api.ID, rootID, "GET", "200")
+			require.Error(t, err)
 		})
 	}
 }

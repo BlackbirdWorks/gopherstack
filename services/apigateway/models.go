@@ -55,6 +55,7 @@ type Method struct {
 	MethodResponses   map[string]*MethodResponse `json:"methodResponses,omitempty"`
 	HTTPMethod        string                     `json:"httpMethod"`
 	AuthorizationType string                     `json:"authorizationType"`
+	AuthorizerID      string                     `json:"authorizerId,omitempty"`
 	APIKeyRequired    bool                       `json:"apiKeyRequired"`
 }
 
@@ -108,6 +109,98 @@ type PutIntegrationInput struct {
 	HTTPMethod          string            `json:"httpMethod,omitempty"`
 	URI                 string            `json:"uri,omitempty"`
 	PassthroughBehavior string            `json:"passthroughBehavior,omitempty"`
+}
+
+// PutMethodResponseInput is the input for PutMethodResponse.
+type PutMethodResponseInput struct {
+	ResponseModels     map[string]string `json:"responseModels,omitempty"`
+	ResponseParameters map[string]bool   `json:"responseParameters,omitempty"`
+}
+
+// PutIntegrationResponseInput is the input for PutIntegrationResponse.
+type PutIntegrationResponseInput struct {
+	ResponseTemplates  map[string]string `json:"responseTemplates,omitempty"`
+	ResponseParameters map[string]string `json:"responseParameters,omitempty"`
+	SelectionPattern   string            `json:"selectionPattern,omitempty"`
+}
+
+// Authorizer represents an API Gateway authorizer.
+type Authorizer struct {
+	ID                           string   `json:"id"`
+	Name                         string   `json:"name"`
+	Type                         string   `json:"type"`
+	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
+	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
+	IdentitySource               string   `json:"identitySource,omitempty"`
+	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	ProviderARNs                 []string `json:"providerARNs,omitempty"`
+	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
+}
+
+// CreateAuthorizerInput is the input for CreateAuthorizer.
+type CreateAuthorizerInput struct {
+	Name                         string   `json:"name"`
+	Type                         string   `json:"type"`
+	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
+	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
+	IdentitySource               string   `json:"identitySource,omitempty"`
+	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	ProviderARNs                 []string `json:"providerARNs,omitempty"`
+	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
+}
+
+// UpdateAuthorizerInput is the input for UpdateAuthorizer (patch operations).
+type UpdateAuthorizerInput struct {
+	Name                         string   `json:"name,omitempty"`
+	Type                         string   `json:"type,omitempty"`
+	AuthorizerURI                string   `json:"authorizerUri,omitempty"`
+	AuthorizerCredentials        string   `json:"authorizerCredentials,omitempty"`
+	IdentitySource               string   `json:"identitySource,omitempty"`
+	IdentityValidationExpression string   `json:"identityValidationExpression,omitempty"`
+	ProviderARNs                 []string `json:"providerARNs,omitempty"`
+	AuthorizerResultTTLInSeconds int      `json:"authorizerResultTtlInSeconds,omitempty"`
+}
+
+// RequestValidator represents an API Gateway request validator.
+type RequestValidator struct {
+	ID                        string `json:"id"`
+	Name                      string `json:"name"`
+	ValidateRequestBody       bool   `json:"validateRequestBody"`
+	ValidateRequestParameters bool   `json:"validateRequestParameters"`
+}
+
+// CreateRequestValidatorInput is the input for CreateRequestValidator.
+type CreateRequestValidatorInput struct {
+	Name                      string `json:"name"`
+	ValidateRequestBody       bool   `json:"validateRequestBody"`
+	ValidateRequestParameters bool   `json:"validateRequestParameters"`
+}
+
+// UpdateRequestValidatorInput is the input for UpdateRequestValidator.
+type UpdateRequestValidatorInput struct {
+	ValidateRequestBody       *bool  `json:"validateRequestBody,omitempty"`
+	ValidateRequestParameters *bool  `json:"validateRequestParameters,omitempty"`
+	Name                      string `json:"name,omitempty"`
+}
+
+// AuthorizerResponse is the response returned by a Lambda authorizer function.
+type AuthorizerResponse struct {
+	Context        map[string]any  `json:"context,omitempty"`
+	PolicyDocument *PolicyDocument `json:"policyDocument,omitempty"`
+	PrincipalID    string          `json:"principalId"`
+}
+
+// PolicyDocument is an IAM policy document as returned by Lambda authorizers.
+type PolicyDocument struct {
+	Version   string            `json:"Version,omitempty"`
+	Statement []PolicyStatement `json:"Statement"`
+}
+
+// PolicyStatement is a single statement within an IAM policy document.
+type PolicyStatement struct {
+	Action   any    `json:"Action"`
+	Resource any    `json:"Resource"`
+	Effect   string `json:"Effect"`
 }
 
 // ErrorResponse is the JSON error format for API Gateway clients.
