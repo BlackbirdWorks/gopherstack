@@ -27,7 +27,7 @@ type errBackend struct {
 	*iam.InMemoryBackend
 }
 
-func (e *errBackend) CreateUser(_, _ string) (*iam.User, error) {
+func (e *errBackend) CreateUser(_, _, _ string) (*iam.User, error) {
 	return nil, errSimulated
 }
 
@@ -39,7 +39,7 @@ func TestInMemoryBackend_Users(t *testing.T) {
 	t.Run("CreateAndGetUser", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		u, err := b.CreateUser("alice", "/")
+		u, err := b.CreateUser("alice", "/", "")
 		require.NoError(t, err)
 		assert.Equal(t, "alice", u.UserName)
 		assert.Equal(t, "/", u.Path)
@@ -54,7 +54,7 @@ func TestInMemoryBackend_Users(t *testing.T) {
 	t.Run("CreateUserDefaultPath", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		u, err := b.CreateUser("bob", "")
+		u, err := b.CreateUser("bob", "", "")
 		require.NoError(t, err)
 		assert.Equal(t, "/", u.Path)
 	})
@@ -62,9 +62,9 @@ func TestInMemoryBackend_Users(t *testing.T) {
 	t.Run("CreateUserAlreadyExists", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, err := b.CreateUser("alice", "/")
+		_, err := b.CreateUser("alice", "/", "")
 		require.NoError(t, err)
-		_, err = b.CreateUser("alice", "/")
+		_, err = b.CreateUser("alice", "/", "")
 		require.ErrorIs(t, err, iam.ErrUserAlreadyExists)
 	})
 
@@ -78,7 +78,7 @@ func TestInMemoryBackend_Users(t *testing.T) {
 	t.Run("DeleteUser", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		err := b.DeleteUser("alice")
 		require.NoError(t, err)
 		_, err = b.GetUser("alice")
@@ -95,8 +95,8 @@ func TestInMemoryBackend_Users(t *testing.T) {
 	t.Run("ListUsers", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("bob", "/")
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("bob", "/", "")
+		_, _ = b.CreateUser("alice", "/", "")
 		users, err := b.ListUsers("", 0)
 		require.NoError(t, err)
 		require.Len(t, users.Data, 2)
@@ -107,8 +107,8 @@ func TestInMemoryBackend_Users(t *testing.T) {
 	t.Run("ListAllUsers", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("charlie", "/")
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("charlie", "/", "")
+		_, _ = b.CreateUser("alice", "/", "")
 		users := b.ListAllUsers()
 		require.Len(t, users, 2)
 		assert.Equal(t, "alice", users[0].UserName)
@@ -122,7 +122,7 @@ func TestInMemoryBackend_Roles(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
 		doc := `{"Version":"2012-10-17","Statement":[]}`
-		r, err := b.CreateRole("MyRole", "/", doc)
+		r, err := b.CreateRole("MyRole", "/", doc, "")
 		require.NoError(t, err)
 		assert.Equal(t, "MyRole", r.RoleName)
 		assert.Equal(t, doc, r.AssumeRolePolicyDocument)
@@ -135,9 +135,9 @@ func TestInMemoryBackend_Roles(t *testing.T) {
 	t.Run("CreateRoleAlreadyExists", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, err := b.CreateRole("MyRole", "/", "")
+		_, err := b.CreateRole("MyRole", "/", "", "")
 		require.NoError(t, err)
-		_, err = b.CreateRole("MyRole", "/", "")
+		_, err = b.CreateRole("MyRole", "/", "", "")
 		require.ErrorIs(t, err, iam.ErrRoleAlreadyExists)
 	})
 
@@ -151,7 +151,7 @@ func TestInMemoryBackend_Roles(t *testing.T) {
 	t.Run("DeleteRole", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("MyRole", "/", "")
+		_, _ = b.CreateRole("MyRole", "/", "", "")
 		err := b.DeleteRole("MyRole")
 		require.NoError(t, err)
 	})
@@ -166,8 +166,8 @@ func TestInMemoryBackend_Roles(t *testing.T) {
 	t.Run("ListRoles", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("ZRole", "/", "")
-		_, _ = b.CreateRole("ARole", "/", "")
+		_, _ = b.CreateRole("ZRole", "/", "", "")
+		_, _ = b.CreateRole("ARole", "/", "", "")
 		roles, err := b.ListRoles("", 0)
 		require.NoError(t, err)
 		require.Len(t, roles.Data, 2)
@@ -177,8 +177,8 @@ func TestInMemoryBackend_Roles(t *testing.T) {
 	t.Run("ListAllRoles", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("RoleB", "/", "")
-		_, _ = b.CreateRole("RoleA", "/", "")
+		_, _ = b.CreateRole("RoleB", "/", "", "")
+		_, _ = b.CreateRole("RoleA", "/", "", "")
 		roles := b.ListAllRoles()
 		require.Len(t, roles, 2)
 		assert.Equal(t, "RoleA", roles[0].RoleName)
@@ -231,7 +231,7 @@ func TestInMemoryBackend_Policies(t *testing.T) {
 	t.Run("AttachUserPolicy", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		err := b.AttachUserPolicy("alice", "arn:aws:iam::000000000000:policy/SomePolicy")
 		require.NoError(t, err)
 	})
@@ -246,7 +246,7 @@ func TestInMemoryBackend_Policies(t *testing.T) {
 	t.Run("AttachRolePolicy", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("MyRole", "/", "")
+		_, _ = b.CreateRole("MyRole", "/", "", "")
 		err := b.AttachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/SomePolicy")
 		require.NoError(t, err)
 	})
@@ -303,7 +303,7 @@ func TestInMemoryBackend_Groups(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
 		_, _ = b.CreateGroup("Admins", "/")
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		err := b.AddUserToGroup("Admins", "alice")
 		require.NoError(t, err)
 	})
@@ -311,7 +311,7 @@ func TestInMemoryBackend_Groups(t *testing.T) {
 	t.Run("AddUserToGroupGroupNotFound", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		err := b.AddUserToGroup("nonexistent", "alice")
 		require.ErrorIs(t, err, iam.ErrGroupNotFound)
 	})
@@ -341,7 +341,7 @@ func TestInMemoryBackend_AccessKeys(t *testing.T) {
 	t.Run("CreateAndListAccessKeys", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		ak, err := b.CreateAccessKey("alice")
 		require.NoError(t, err)
 		assert.Equal(t, "alice", ak.UserName)
@@ -365,7 +365,7 @@ func TestInMemoryBackend_AccessKeys(t *testing.T) {
 	t.Run("DeleteAccessKey", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		ak, _ := b.CreateAccessKey("alice")
 		err := b.DeleteAccessKey("alice", ak.AccessKeyID)
 		require.NoError(t, err)
@@ -376,7 +376,7 @@ func TestInMemoryBackend_AccessKeys(t *testing.T) {
 	t.Run("DeleteAccessKeyNotFound", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		err := b.DeleteAccessKey("alice", "AKIANONEXISTENT")
 		require.ErrorIs(t, err, iam.ErrAccessKeyNotFound)
 	})
@@ -391,7 +391,7 @@ func TestInMemoryBackend_AccessKeys(t *testing.T) {
 	t.Run("ListAllAccessKeys", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		_, _ = b.CreateAccessKey("alice")
 		keys := b.ListAllAccessKeys()
 		require.Len(t, keys, 1)
@@ -502,7 +502,7 @@ func TestIAMHandler_Users(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 
 		req := iamRequest("GetUser", map[string]string{"UserName": "alice"})
 		rec := httptest.NewRecorder()
@@ -535,7 +535,7 @@ func TestIAMHandler_Users(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 
 		req := iamRequest("DeleteUser", map[string]string{"UserName": "alice"})
 		rec := httptest.NewRecorder()
@@ -550,8 +550,8 @@ func TestIAMHandler_Users(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/")
-		_, _ = b.CreateUser("bob", "/")
+		_, _ = b.CreateUser("alice", "/", "")
+		_, _ = b.CreateUser("bob", "/", "")
 
 		req := iamRequest("ListUsers", nil)
 		rec := httptest.NewRecorder()
@@ -595,7 +595,7 @@ func TestIAMHandler_Roles(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateRole("MyRole", "/", "")
+		_, _ = b.CreateRole("MyRole", "/", "", "")
 
 		req := iamRequest("GetRole", map[string]string{"RoleName": "MyRole"})
 		rec := httptest.NewRecorder()
@@ -610,7 +610,7 @@ func TestIAMHandler_Roles(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateRole("MyRole", "/", "")
+		_, _ = b.CreateRole("MyRole", "/", "", "")
 
 		req := iamRequest("DeleteRole", map[string]string{"RoleName": "MyRole"})
 		rec := httptest.NewRecorder()
@@ -625,8 +625,8 @@ func TestIAMHandler_Roles(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateRole("RoleA", "/", "")
-		_, _ = b.CreateRole("RoleB", "/", "")
+		_, _ = b.CreateRole("RoleA", "/", "", "")
+		_, _ = b.CreateRole("RoleB", "/", "", "")
 
 		req := iamRequest("ListRoles", nil)
 		rec := httptest.NewRecorder()
@@ -704,7 +704,7 @@ func TestIAMHandler_Policies(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 
 		req := iamRequest("AttachUserPolicy", map[string]string{
 			"UserName":  "alice",
@@ -722,7 +722,7 @@ func TestIAMHandler_Policies(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateRole("MyRole", "/", "")
+		_, _ = b.CreateRole("MyRole", "/", "", "")
 
 		req := iamRequest("AttachRolePolicy", map[string]string{
 			"RoleName":  "MyRole",
@@ -778,7 +778,7 @@ func TestIAMHandler_Groups(t *testing.T) {
 		e := echo.New()
 		h, b := newTestHandler(t)
 		_, _ = b.CreateGroup("Admins", "/")
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 
 		req := iamRequest("AddUserToGroup", map[string]string{
 			"GroupName": "Admins",
@@ -800,7 +800,7 @@ func TestIAMHandler_AccessKeys(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 
 		req := iamRequest("CreateAccessKey", map[string]string{"UserName": "alice"})
 		rec := httptest.NewRecorder()
@@ -820,7 +820,7 @@ func TestIAMHandler_AccessKeys(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		ak, _ := b.CreateAccessKey("alice")
 
 		req := iamRequest("DeleteAccessKey", map[string]string{
@@ -839,7 +839,7 @@ func TestIAMHandler_AccessKeys(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		_, _ = b.CreateAccessKey("alice")
 
 		req := iamRequest("ListAccessKeys", map[string]string{"UserName": "alice"})
@@ -982,7 +982,7 @@ func TestIAMHandler_Routing(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 
 		req := iamRequest("CreateUser", map[string]string{"UserName": "alice"})
 		rec := httptest.NewRecorder()
@@ -1194,7 +1194,7 @@ func TestIAMHandler_SortCoverage(t *testing.T) {
 	t.Run("ListAccessKeys_TwoKeys", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		_, _ = b.CreateAccessKey("alice")
 		_, _ = b.CreateAccessKey("alice")
 		keys, err := b.ListAccessKeys("alice", "", 0)
@@ -1205,7 +1205,7 @@ func TestIAMHandler_SortCoverage(t *testing.T) {
 	t.Run("ListAllAccessKeys_TwoKeys", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateUser("alice", "/")
+		_, _ = b.CreateUser("alice", "/", "")
 		_, _ = b.CreateAccessKey("alice")
 		_, _ = b.CreateAccessKey("alice")
 		keys := b.ListAllAccessKeys()
@@ -1230,7 +1230,7 @@ func TestInMemoryBackend_DetachRolePolicy(t *testing.T) {
 	t.Run("DetachExistingPolicy", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("MyRole", "/", "")
+		_, _ = b.CreateRole("MyRole", "/", "", "")
 		_ = b.AttachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/SomePolicy")
 		err := b.DetachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/SomePolicy")
 		require.NoError(t, err)
@@ -1243,7 +1243,7 @@ func TestInMemoryBackend_DetachRolePolicy(t *testing.T) {
 	t.Run("DetachNonExistentPolicy", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
-		_, _ = b.CreateRole("MyRole", "/", "")
+		_, _ = b.CreateRole("MyRole", "/", "", "")
 		err := b.DetachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/NoSuchPolicy")
 		require.NoError(t, err)
 	})
@@ -1263,7 +1263,7 @@ func TestIAMHandler_DetachRolePolicy(t *testing.T) {
 		t.Parallel()
 		e := echo.New()
 		h, b := newTestHandler(t)
-		_, _ = b.CreateRole("MyRole", "/", "")
+		_, _ = b.CreateRole("MyRole", "/", "", "")
 		_ = b.AttachRolePolicy("MyRole", "arn:aws:iam::000000000000:policy/SomePolicy")
 
 		req := iamRequest("DetachRolePolicy", map[string]string{
@@ -1565,7 +1565,7 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			action: "CreateRole",
 			params: map[string]string{"RoleName": "MyRole"},
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateRole("MyRole", "/", "")
+				_, _ = b.CreateRole("MyRole", "/", "", "")
 			},
 			wantCode:   "EntityAlreadyExists",
 			wantStatus: http.StatusBadRequest,
@@ -1652,7 +1652,7 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			action: "DeleteAccessKey",
 			params: map[string]string{"UserName": "alice", "AccessKeyId": "AKIANONEXISTENT"},
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateUser("alice", "/")
+				_, _ = b.CreateUser("alice", "/", "")
 			},
 			wantCode:   "NoSuchEntity",
 			wantStatus: http.StatusBadRequest,
@@ -1686,7 +1686,7 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			action: "DeleteUser",
 			params: map[string]string{"UserName": "alice"},
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateUser("alice", "/")
+				_, _ = b.CreateUser("alice", "/", "")
 				pol, _ := b.CreatePolicy("StuckPolicy", "/", "")
 				_ = b.AttachUserPolicy("alice", pol.Arn)
 			},
@@ -1698,7 +1698,7 @@ func TestIAMHandler_DispatchErrors(t *testing.T) {
 			action: "DeleteRole",
 			params: map[string]string{"RoleName": "MyRole"},
 			setup: func(b *iam.InMemoryBackend) {
-				_, _ = b.CreateRole("MyRole", "/", "")
+				_, _ = b.CreateRole("MyRole", "/", "", "")
 				pol, _ := b.CreatePolicy("RolePolicy", "/", "")
 				_ = b.AttachRolePolicy("MyRole", pol.Arn)
 			},
@@ -1780,9 +1780,9 @@ func TestIAMBackend_ListUsers_Pagination(t *testing.T) {
 			t.Parallel()
 
 			b := iam.NewInMemoryBackend()
-			_, _ = b.CreateUser("alice", "/")
-			_, _ = b.CreateUser("bob", "/")
-			_, _ = b.CreateUser("charlie", "/")
+			_, _ = b.CreateUser("alice", "/", "")
+			_, _ = b.CreateUser("bob", "/", "")
+			_, _ = b.CreateUser("charlie", "/", "")
 
 			p, err := b.ListUsers(tt.marker, tt.maxItems)
 			require.NoError(t, err)
@@ -1798,7 +1798,7 @@ func TestIAMBackend_ListUsers_MarkerRoundTrip(t *testing.T) {
 	b := iam.NewInMemoryBackend()
 
 	for _, name := range []string{"alice", "bob", "charlie", "dave"} {
-		_, _ = b.CreateUser(name, "/")
+		_, _ = b.CreateUser(name, "/", "")
 	}
 
 	first, err := b.ListUsers("", 2)
@@ -1851,9 +1851,9 @@ func TestIAMHandler_ListUsers_Pagination(t *testing.T) {
 			t.Parallel()
 
 			h, b := newTestHandler(t)
-			_, _ = b.CreateUser("alice", "/")
-			_, _ = b.CreateUser("bob", "/")
-			_, _ = b.CreateUser("charlie", "/")
+			_, _ = b.CreateUser("alice", "/", "")
+			_, _ = b.CreateUser("bob", "/", "")
+			_, _ = b.CreateUser("charlie", "/", "")
 
 			e := echo.New()
 			req := iamRequest("ListUsers", tt.params)

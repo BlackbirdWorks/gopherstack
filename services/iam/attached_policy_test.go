@@ -51,7 +51,7 @@ func TestListAttachedUserPolicies(t *testing.T) {
 
 			var polArn string
 			if tt.setupUser != "" {
-				_, err := b.CreateUser(tt.setupUser, "/")
+				_, err := b.CreateUser(tt.setupUser, "/", "")
 				require.NoError(t, err)
 			}
 			if tt.setupPolicy != "" {
@@ -113,7 +113,7 @@ func TestListAttachedRolePolicies(t *testing.T) {
 
 			var polArn string
 			if tt.setupRole != "" {
-				_, err := b.CreateRole(tt.setupRole, "/", `{}`)
+				_, err := b.CreateRole(tt.setupRole, "/", `{}`, "")
 				require.NoError(t, err)
 			}
 			if tt.setupPolicy != "" {
@@ -144,7 +144,7 @@ func TestAttachUserPolicyIdempotent(t *testing.T) {
 
 	b := newIAMBackend(t)
 
-	_, err := b.CreateUser("bob", "/")
+	_, err := b.CreateUser("bob", "/", "")
 	require.NoError(t, err)
 
 	pol, err := b.CreatePolicy("Pol", "/", `{}`)
@@ -250,7 +250,7 @@ func TestDeleteConflict_UserWithAttachedPolicy(t *testing.T) {
 
 			b := newIAMBackend(t)
 
-			_, err := b.CreateUser("alice", "/")
+			_, err := b.CreateUser("alice", "/", "")
 			require.NoError(t, err)
 
 			if tt.attachPolicy {
@@ -295,7 +295,7 @@ func TestDeleteConflict_RoleWithAttachedPolicy(t *testing.T) {
 
 			b := newIAMBackend(t)
 
-			_, err := b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`)
+			_, err := b.CreateRole("MyRole", "/", `{"Version":"2012-10-17","Statement":[]}`, "")
 			require.NoError(t, err)
 
 			if tt.attachPolicy {
@@ -344,7 +344,7 @@ func TestDeleteConflict_PolicyAttachedToEntity(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.attachToUser {
-				_, uErr := b.CreateUser("bob", "/")
+				_, uErr := b.CreateUser("bob", "/", "")
 				require.NoError(t, uErr)
 				require.NoError(t, b.AttachUserPolicy("bob", pol.Arn))
 			}
@@ -429,7 +429,7 @@ func TestMalformedPolicyDocument_CreateRole(t *testing.T) {
 
 			b := newIAMBackend(t)
 
-			_, err := b.CreateRole("TestRole", "/", tt.trustDoc)
+			_, err := b.CreateRole("TestRole", "/", tt.trustDoc, "")
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)

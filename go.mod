@@ -9,43 +9,43 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.11
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.11
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.20.34
-	github.com/aws/aws-sdk-go-v2/service/acm v1.37.20
-	github.com/aws/aws-sdk-go-v2/service/apigateway v1.38.5
+	github.com/aws/aws-sdk-go-v2/service/acm v1.37.21
+	github.com/aws/aws-sdk-go-v2/service/apigateway v1.38.6
 	github.com/aws/aws-sdk-go-v2/service/appsync v1.53.3
-	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.6
-	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.55.0
-	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.63.2
+	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7
+	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.55.1
+	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.64.0
 	github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.59.1
-	github.com/aws/aws-sdk-go-v2/service/configservice v1.61.1
+	github.com/aws/aws-sdk-go-v2/service/configservice v1.61.2
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.56.1
 	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.32.12
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.293.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.294.0
 	github.com/aws/aws-sdk-go-v2/service/ecr v1.55.4
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.73.1
-	github.com/aws/aws-sdk-go-v2/service/elasticache v1.51.10
-	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.45.19
-	github.com/aws/aws-sdk-go-v2/service/firehose v1.42.10
+	github.com/aws/aws-sdk-go-v2/service/elasticache v1.51.11
+	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.45.21
+	github.com/aws/aws-sdk-go-v2/service/firehose v1.42.11
 	github.com/aws/aws-sdk-go-v2/service/iam v1.53.4
-	github.com/aws/aws-sdk-go-v2/service/kinesis v1.43.1
+	github.com/aws/aws-sdk-go-v2/service/kinesis v1.43.2
 	github.com/aws/aws-sdk-go-v2/service/kms v1.50.2
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.88.1
-	github.com/aws/aws-sdk-go-v2/service/opensearch v1.58.0
-	github.com/aws/aws-sdk-go-v2/service/rds v1.116.1
-	github.com/aws/aws-sdk-go-v2/service/redshift v1.62.2
-	github.com/aws/aws-sdk-go-v2/service/resourcegroups v1.33.21
-	github.com/aws/aws-sdk-go-v2/service/route53 v1.62.2
-	github.com/aws/aws-sdk-go-v2/service/route53resolver v1.42.2
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.88.2
+	github.com/aws/aws-sdk-go-v2/service/opensearch v1.59.0
+	github.com/aws/aws-sdk-go-v2/service/rds v1.116.2
+	github.com/aws/aws-sdk-go-v2/service/redshift v1.62.3
+	github.com/aws/aws-sdk-go-v2/service/resourcegroups v1.33.22
+	github.com/aws/aws-sdk-go-v2/service/route53 v1.62.3
+	github.com/aws/aws-sdk-go-v2/service/route53resolver v1.42.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.4
-	github.com/aws/aws-sdk-go-v2/service/s3control v1.68.1
-	github.com/aws/aws-sdk-go-v2/service/scheduler v1.17.19
+	github.com/aws/aws-sdk-go-v2/service/s3control v1.68.2
+	github.com/aws/aws-sdk-go-v2/service/scheduler v1.17.20
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.3
-	github.com/aws/aws-sdk-go-v2/service/ses v1.34.19
-	github.com/aws/aws-sdk-go-v2/service/sfn v1.40.7
+	github.com/aws/aws-sdk-go-v2/service/ses v1.34.20
+	github.com/aws/aws-sdk-go-v2/service/sfn v1.40.8
 	github.com/aws/aws-sdk-go-v2/service/sns v1.39.13
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.42.23
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.2
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.8
-	github.com/aws/aws-sdk-go-v2/service/swf v1.33.13
+	github.com/aws/aws-sdk-go-v2/service/swf v1.33.14
 	github.com/aws/smithy-go v1.24.2
 	github.com/distribution/distribution/v3 v3.0.0
 	github.com/docker/docker v28.5.2+incompatible
