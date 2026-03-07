@@ -45,6 +45,15 @@ func TestErrorHelpers(t *testing.T) {
 				Message: "item limit exceeded",
 			},
 		},
+		{
+			name:    "TransactionInProgressException",
+			errFunc: dynamodb.NewTransactionInProgressException,
+			msg:     "tx in progress",
+			want: &dynamodb.Error{
+				Type:    "com.amazonaws.dynamodb.v20120810#TransactionInProgressException",
+				Message: "tx in progress",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -54,12 +63,4 @@ func TestErrorHelpers(t *testing.T) {
 			assert.Empty(t, cmp.Diff(tt.want, got), "Error mismatch")
 		})
 	}
-}
-
-func TestNewTransactionInProgressException(t *testing.T) {
-	t.Parallel()
-
-	err := dynamodb.NewTransactionInProgressException("tx in progress")
-	assert.Contains(t, err.Type, "TransactionInProgressException")
-	assert.Equal(t, "tx in progress", err.Message)
 }

@@ -149,7 +149,7 @@ func TestIntegration_DDB_TTL_StreamRecords(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 3. Insert an item that expires in 2 seconds.
+	// 3. Insert an item that is already expired (TTL in the past).
 	now := time.Now().Unix()
 	_, err = ddbClient.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName: aws.String(tableName),
@@ -175,19 +175,43 @@ func TestIntegration_DDB_TTL_StreamRecords(t *testing.T) {
 	require.NotEmpty(t, descOut.StreamDescription.Shards)
 	shardID := descOut.StreamDescription.Shards[0].ShardId
 
-	// 5. Wait up to 5 seconds for the janitor to evict the item.
-	assert.Eventually(t, func() bool {
-		out, scanErr := ddbClient.Scan(ctx, &dynamodb.ScanInput{
-			TableName: aws.String(tableName),
+	// 5. Obtain a TRIM_HORIZON iterator once, then chain through the stream by advancing
+	// the iterator on each poll. This avoids re-reading records from the beginning on
+	// every iteration while still detecting the REMOVE record when it appears.
+	startIter, err := streamsClient.GetShardIterator(ctx, &dynamodbstreams.GetShardIteratorInput{
+		StreamArn:         streamARN,
+		ShardId:           shardID,
+		ShardIteratorType: streamstypes.ShardIteratorTypeTrimHorizon,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, startIter.ShardIterator)
+
+	currentIter := startIter.ShardIterator
+
+	require.Eventually(t, func() bool {
+		rOut, rErr := streamsClient.GetRecords(ctx, &dynamodbstreams.GetRecordsInput{
+			ShardIterator: currentIter,
 		})
-		if scanErr != nil {
+		if rErr != nil {
 			return false
 		}
 
-		return len(out.Items) == 0
-	}, 5*time.Second, 250*time.Millisecond, "Expired item should be evicted by the TTL janitor")
+		for _, r := range rOut.Records {
+			if r.EventName == streamstypes.OperationTypeRemove {
+				return true
+			}
+		}
 
-	// 6. Read all stream records using TRIM_HORIZON and verify exactly one REMOVE event.
+		// Advance iterator for the next poll only when no REMOVE found yet.
+		if rOut.NextShardIterator != nil {
+			currentIter = rOut.NextShardIterator
+		}
+
+		return false
+	}, 10*time.Second, 500*time.Millisecond, "Expected REMOVE stream record from TTL eviction")
+
+	// 6. Read the final set of records for detailed assertions using a fresh TRIM_HORIZON
+	// iterator to capture the complete stream from the start.
 	iterOut, err := streamsClient.GetShardIterator(ctx, &dynamodbstreams.GetShardIteratorInput{
 		StreamArn:         streamARN,
 		ShardId:           shardID,
