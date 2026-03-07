@@ -258,3 +258,252 @@ func integExtractZoneID(t *testing.T, body string) string {
 
 	return parts[len(parts)-1]
 }
+
+func TestIntegration_Route53_CreateHealthCheck(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	body := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>integ-hc-ref-1</CallerReference>
+  <HealthCheckConfig>
+    <Type>HTTP</Type>
+    <IPAddress>192.0.2.100</IPAddress>
+    <Port>80</Port>
+    <ResourcePath>/health</ResourcePath>
+    <RequestInterval>30</RequestInterval>
+    <FailureThreshold>3</FailureThreshold>
+  </HealthCheckConfig>
+</CreateHealthCheckRequest>`
+
+	resp := route53Send(t, http.MethodPost, "/2013-04-01/healthcheck", body)
+	respBody := readBody(t, resp)
+
+	assert.Equal(t, http.StatusCreated, resp.StatusCode, "body: %s", respBody)
+	assert.Contains(t, respBody, "CreateHealthCheckResponse")
+	assert.Contains(t, respBody, "192.0.2.100")
+}
+
+func TestIntegration_Route53_HealthCheck_Lifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	// Create health check.
+	createBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>integ-hc-lifecycle</CallerReference>
+  <HealthCheckConfig>
+    <Type>HTTPS</Type>
+    <FullyQualifiedDomainName>example.com</FullyQualifiedDomainName>
+    <Port>443</Port>
+    <ResourcePath>/healthz</ResourcePath>
+    <FailureThreshold>2</FailureThreshold>
+  </HealthCheckConfig>
+</CreateHealthCheckRequest>`
+
+	createResp := route53Send(t, http.MethodPost, "/2013-04-01/healthcheck", createBody)
+	createRespBody := readBody(t, createResp)
+	require.Equal(t, http.StatusCreated, createResp.StatusCode, "body: %s", createRespBody)
+
+	hcID := integExtractHealthCheckID(t, createRespBody)
+
+	// Get.
+	getResp := route53Send(t, http.MethodGet, "/2013-04-01/healthcheck/"+hcID, "")
+	getBody := readBody(t, getResp)
+	assert.Equal(t, http.StatusOK, getResp.StatusCode)
+	assert.Contains(t, getBody, "example.com")
+
+	// List.
+	listResp := route53Send(t, http.MethodGet, "/2013-04-01/healthcheck", "")
+	listBody := readBody(t, listResp)
+	assert.Equal(t, http.StatusOK, listResp.StatusCode)
+	assert.Contains(t, listBody, "ListHealthChecksResponse")
+
+	// Status.
+	statusResp := route53Send(t, http.MethodGet, "/2013-04-01/healthcheck/"+hcID+"/status", "")
+	statusBody := readBody(t, statusResp)
+	assert.Equal(t, http.StatusOK, statusResp.StatusCode)
+	assert.Contains(t, statusBody, "Healthy")
+
+	// Update.
+	updateBody := `<?xml version="1.0" encoding="UTF-8"?>
+<UpdateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <ResourcePath>/updated-healthz</ResourcePath>
+  <FailureThreshold>5</FailureThreshold>
+</UpdateHealthCheckRequest>`
+	updateResp := route53Send(t, http.MethodPost, "/2013-04-01/healthcheck/"+hcID, updateBody)
+	updateRespBody := readBody(t, updateResp)
+	assert.Equal(t, http.StatusOK, updateResp.StatusCode, "body: %s", updateRespBody)
+
+	// Delete.
+	delResp := route53Send(t, http.MethodDelete, "/2013-04-01/healthcheck/"+hcID, "")
+	_ = readBody(t, delResp)
+	assert.Equal(t, http.StatusOK, delResp.StatusCode)
+
+	// Verify gone.
+	getGoneResp := route53Send(t, http.MethodGet, "/2013-04-01/healthcheck/"+hcID, "")
+	_ = readBody(t, getGoneResp)
+	assert.Equal(t, http.StatusNotFound, getGoneResp.StatusCode)
+}
+
+func TestIntegration_Route53_WeightedRouting(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	createBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>weighted-test.example.com</Name>
+  <CallerReference>weighted-ref-1</CallerReference>
+  <HostedZoneConfig><PrivateZone>false</PrivateZone></HostedZoneConfig>
+</CreateHostedZoneRequest>`
+
+	createResp := route53Send(t, http.MethodPost, "/2013-04-01/hostedzone", createBody)
+	createRespBody := readBody(t, createResp)
+	require.Equal(t, http.StatusCreated, createResp.StatusCode)
+
+	zoneID := integExtractZoneID(t, createRespBody)
+
+	changeXML := `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <ChangeBatch>
+    <Changes>
+      <Change>
+        <Action>CREATE</Action>
+        <ResourceRecordSet>
+          <Name>app.weighted-test.example.com</Name>
+          <Type>A</Type>
+          <SetIdentifier>us-east</SetIdentifier>
+          <Weight>80</Weight>
+          <TTL>60</TTL>
+          <ResourceRecords>
+            <ResourceRecord><Value>1.2.3.4</Value></ResourceRecord>
+          </ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+      <Change>
+        <Action>CREATE</Action>
+        <ResourceRecordSet>
+          <Name>app.weighted-test.example.com</Name>
+          <Type>A</Type>
+          <SetIdentifier>us-west</SetIdentifier>
+          <Weight>20</Weight>
+          <TTL>60</TTL>
+          <ResourceRecords>
+            <ResourceRecord><Value>5.6.7.8</Value></ResourceRecord>
+          </ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+    </Changes>
+  </ChangeBatch>
+</ChangeResourceRecordSetsRequest>`
+
+	changeResp := route53Send(t, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", changeXML)
+	changeBody := readBody(t, changeResp)
+	require.Equal(t, http.StatusOK, changeResp.StatusCode, "body: %s", changeBody)
+
+	listResp := route53Send(t, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID+"/rrset", "")
+	listBody := readBody(t, listResp)
+	assert.Equal(t, http.StatusOK, listResp.StatusCode)
+	assert.Contains(t, listBody, "us-east")
+	assert.Contains(t, listBody, "us-west")
+	assert.Contains(t, listBody, "1.2.3.4")
+	assert.Contains(t, listBody, "5.6.7.8")
+}
+
+func TestIntegration_Route53_FailoverRouting(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	// Create health check.
+	hcBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHealthCheckRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <CallerReference>failover-hc-ref</CallerReference>
+  <HealthCheckConfig>
+    <Type>TCP</Type>
+    <IPAddress>10.0.1.1</IPAddress>
+    <Port>443</Port>
+    <FailureThreshold>3</FailureThreshold>
+  </HealthCheckConfig>
+</CreateHealthCheckRequest>`
+
+	hcResp := route53Send(t, http.MethodPost, "/2013-04-01/healthcheck", hcBody)
+	hcRespBody := readBody(t, hcResp)
+	require.Equal(t, http.StatusCreated, hcResp.StatusCode)
+	hcID := integExtractHealthCheckID(t, hcRespBody)
+
+	// Create hosted zone.
+	zoneBody := `<?xml version="1.0" encoding="UTF-8"?>
+<CreateHostedZoneRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <Name>failover-test.example.com</Name>
+  <CallerReference>failover-zone-ref</CallerReference>
+  <HostedZoneConfig><PrivateZone>false</PrivateZone></HostedZoneConfig>
+</CreateHostedZoneRequest>`
+
+	zoneResp := route53Send(t, http.MethodPost, "/2013-04-01/hostedzone", zoneBody)
+	zoneRespBody := readBody(t, zoneResp)
+	require.Equal(t, http.StatusCreated, zoneResp.StatusCode)
+	zoneID := integExtractZoneID(t, zoneRespBody)
+
+	changeXML := `<?xml version="1.0" encoding="UTF-8"?>
+<ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">
+  <ChangeBatch>
+    <Changes>
+      <Change>
+        <Action>CREATE</Action>
+        <ResourceRecordSet>
+          <Name>api.failover-test.example.com</Name>
+          <Type>A</Type>
+          <SetIdentifier>primary</SetIdentifier>
+          <Failover>PRIMARY</Failover>
+          <HealthCheckId>` + hcID + `</HealthCheckId>
+          <TTL>60</TTL>
+          <ResourceRecords>
+            <ResourceRecord><Value>10.0.1.1</Value></ResourceRecord>
+          </ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+      <Change>
+        <Action>CREATE</Action>
+        <ResourceRecordSet>
+          <Name>api.failover-test.example.com</Name>
+          <Type>A</Type>
+          <SetIdentifier>secondary</SetIdentifier>
+          <Failover>SECONDARY</Failover>
+          <TTL>60</TTL>
+          <ResourceRecords>
+            <ResourceRecord><Value>10.0.2.1</Value></ResourceRecord>
+          </ResourceRecords>
+        </ResourceRecordSet>
+      </Change>
+    </Changes>
+  </ChangeBatch>
+</ChangeResourceRecordSetsRequest>`
+
+	changeResp := route53Send(t, http.MethodPost, "/2013-04-01/hostedzone/"+zoneID+"/rrset", changeXML)
+	changeBody := readBody(t, changeResp)
+	require.Equal(t, http.StatusOK, changeResp.StatusCode, "body: %s", changeBody)
+
+	listResp := route53Send(t, http.MethodGet, "/2013-04-01/hostedzone/"+zoneID+"/rrset", "")
+	listBody := readBody(t, listResp)
+	assert.Equal(t, http.StatusOK, listResp.StatusCode)
+	assert.Contains(t, listBody, "PRIMARY")
+	assert.Contains(t, listBody, "SECONDARY")
+	assert.Contains(t, listBody, hcID)
+}
+
+// integExtractHealthCheckID parses the health check ID from a CreateHealthCheckResponse XML body.
+func integExtractHealthCheckID(t *testing.T, body string) string {
+	t.Helper()
+
+	type createHCResp struct {
+		HealthCheck struct {
+			ID string `xml:"Id"`
+		} `xml:"HealthCheck"`
+	}
+
+	var resp createHCResp
+	require.NoError(t, xml.Unmarshal([]byte(body), &resp))
+	require.NotEmpty(t, resp.HealthCheck.ID)
+
+	return resp.HealthCheck.ID
+}

@@ -73,3 +73,58 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	err := b.Restore([]byte("not-valid-json"))
 	require.Error(t, err)
 }
+
+func TestInMemoryBackend_SnapshotRestore_HealthChecks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(b *route53.InMemoryBackend) string
+		verify func(t *testing.T, b *route53.InMemoryBackend, id string)
+		name   string
+	}{
+		{
+			name: "health_check_round_trip",
+			setup: func(b *route53.InMemoryBackend) string {
+				hc, err := b.CreateHealthCheck("ref-hc-001", route53.HealthCheckConfig{
+					Type:             route53.HealthCheckTypeHTTP,
+					IPAddress:        "192.0.2.1",
+					Port:             80,
+					ResourcePath:     "/health",
+					FailureThreshold: 3,
+				})
+				if err != nil {
+					return ""
+				}
+
+				return hc.ID
+			},
+			verify: func(t *testing.T, b *route53.InMemoryBackend, id string) {
+				t.Helper()
+
+				hc, err := b.GetHealthCheck(id)
+				require.NoError(t, err)
+				assert.Equal(t, id, hc.ID)
+				assert.Equal(t, route53.HealthCheckTypeHTTP, hc.Config.Type)
+				assert.Equal(t, "192.0.2.1", hc.Config.IPAddress)
+				assert.Equal(t, "Healthy", hc.Status)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := route53.NewInMemoryBackend()
+			id := tt.setup(original)
+
+			snap := original.Snapshot()
+			require.NotNil(t, snap)
+
+			fresh := route53.NewInMemoryBackend()
+			require.NoError(t, fresh.Restore(snap))
+
+			tt.verify(t, fresh, id)
+		})
+	}
+}
