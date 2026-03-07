@@ -114,6 +114,7 @@ func TestMain(m *testing.M) {
 		ExposedPorts: []string{"8000/tcp", "1883/tcp"},
 		WaitingFor: wait.ForAll(
 			wait.ForHTTP("/").
+				WithPort("8000/tcp").
 				WithStatusCodeMatcher(func(_ int) bool { return true }).
 				WithStartupTimeout(60*time.Second),
 			wait.ForListeningPort("1883/tcp").
