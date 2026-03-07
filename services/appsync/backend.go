@@ -2,6 +2,8 @@ package appsync
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"maps"
@@ -11,7 +13,6 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
-	"github.com/google/uuid"
 	"github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
 )
@@ -62,6 +63,27 @@ type StorageBackend interface {
 	) (map[string]any, error)
 }
 
+// apiIDChars is the character set used to generate AppSync API IDs.
+// Real AWS AppSync API IDs are lowercase alphanumeric strings without hyphens.
+const apiIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+// randomAPIID generates a cryptographically random 26-character alphanumeric ID,
+// matching the format of real AWS AppSync API IDs (no hyphens).
+func randomAPIID() string {
+	const length = 26
+
+	b := make([]byte, length)
+	charCount := uint64(len(apiIDChars))
+
+	for i := range b {
+		var v [8]byte
+		_, _ = rand.Read(v[:])
+		b[i] = apiIDChars[binary.BigEndian.Uint64(v[:])%charCount]
+	}
+
+	return string(b)
+}
+
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	apis        map[string]*GraphqlAPI            // apiID → api
@@ -109,7 +131,7 @@ func (b *InMemoryBackend) CreateGraphqlAPI(
 	b.mu.Lock("CreateGraphqlApi")
 	defer b.mu.Unlock()
 
-	apiID := uuid.NewString()
+	apiID := randomAPIID()
 	apiARN := arn.Build("appsync", b.region, b.accountID, "apis/"+apiID)
 
 	graphqlEndpoint := fmt.Sprintf("%s/v1/apis/%s/graphql", b.endpoint, apiID)

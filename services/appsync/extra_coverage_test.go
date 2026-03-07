@@ -341,7 +341,7 @@ func TestHandler_StartSchemaCreation_Base64Encoded(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString([]byte(sdl))
 
 	body := map[string]any{"definition": encoded}
-	rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/schemacreations", body)
+	rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/schemacreation", body)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 

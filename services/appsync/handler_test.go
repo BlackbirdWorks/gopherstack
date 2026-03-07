@@ -200,7 +200,7 @@ func TestHandler_StartSchemaCreation(t *testing.T) {
 			api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
 
 			body := map[string]any{"definition": tt.sdl}
-			rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/schemacreations", body)
+			rec := doRequest(t, h, http.MethodPost, "/v1/apis/"+api.APIID+"/schemacreation", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus2 != "" {
@@ -380,13 +380,13 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{
 			name:   "POST schemacreations",
 			method: http.MethodPost,
-			path:   "/v1/apis/abc/schemacreations",
+			path:   "/v1/apis/abc/schemacreation",
 			wantOp: "StartSchemaCreation",
 		},
 		{
 			name:   "GET schemacreations",
 			method: http.MethodGet,
-			path:   "/v1/apis/abc/schemacreations",
+			path:   "/v1/apis/abc/schemacreation",
 			wantOp: "GetSchemaCreationStatus",
 		},
 		{name: "GET schema", method: http.MethodGet, path: "/v1/apis/abc/schema", wantOp: "GetIntrospectionSchema"},
@@ -536,7 +536,7 @@ func TestHandler_GetSchemaCreationStatus(t *testing.T) {
 	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
 	_, _ = b.StartSchemaCreation(api.APIID, `type Query { hello: String }`)
 
-	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/schemacreations", nil)
+	rec := doRequest(t, h, http.MethodGet, "/v1/apis/"+api.APIID+"/schemacreation", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -673,7 +673,7 @@ func TestHandler_SchemaCreations_MethodNotAllowed(t *testing.T) {
 	h, b := newTestHandler()
 	api, _ := b.CreateGraphqlAPI("TestAPI", appsync.AuthTypeAPIKey, nil)
 
-	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/schemacreations", nil)
+	rec := doRequest(t, h, http.MethodPut, "/v1/apis/"+api.APIID+"/schemacreation", nil)
 	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
 }
 

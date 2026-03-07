@@ -145,7 +145,7 @@ func parseOperationAPIID(method string) string {
 
 func parseOperationSub(method, seg string) string {
 	switch seg {
-	case "schemacreations":
+	case "schemacreation":
 		if method == http.MethodPost {
 			return "StartSchemaCreation"
 		}
@@ -272,8 +272,8 @@ func (h *Handler) handleAPIResource(ctx context.Context, c *echo.Context, segs [
 	}
 
 	switch segs[3] {
-	case "schemacreations":
-		return h.handleSchemaCreations(ctx, c, apiID)
+	case "schemacreation":
+		return h.handleSchemaCreation(ctx, c, apiID)
 	case "schema":
 		return h.getIntrospectionSchema(ctx, c, apiID)
 	case pathSegDatasources:
@@ -350,8 +350,8 @@ func (h *Handler) deleteGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 	return c.NoContent(http.StatusNoContent)
 }
 
-// handleSchemaCreations handles /v1/apis/{apiId}/schemacreations.
-func (h *Handler) handleSchemaCreations(ctx context.Context, c *echo.Context, apiID string) error {
+// handleSchemaCreation handles /v1/apis/{apiId}/schemacreation.
+func (h *Handler) handleSchemaCreation(ctx context.Context, c *echo.Context, apiID string) error {
 	switch c.Request().Method {
 	case http.MethodPost:
 		return h.startSchemaCreation(ctx, c, apiID)
@@ -362,7 +362,7 @@ func (h *Handler) handleSchemaCreations(ctx context.Context, c *echo.Context, ap
 	}
 }
 
-// startSchemaCreation handles POST /v1/apis/{apiId}/schemacreations.
+// startSchemaCreation handles POST /v1/apis/{apiId}/schemacreation.
 func (h *Handler) startSchemaCreation(ctx context.Context, c *echo.Context, apiID string) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -394,7 +394,7 @@ func (h *Handler) startSchemaCreation(ctx context.Context, c *echo.Context, apiI
 	})
 }
 
-// getSchemaCreationStatus handles GET /v1/apis/{apiId}/schemacreations.
+// getSchemaCreationStatus handles GET /v1/apis/{apiId}/schemacreation.
 func (h *Handler) getSchemaCreationStatus(ctx context.Context, c *echo.Context, apiID string) error {
 	schema, err := h.Backend.GetSchemaCreationStatus(apiID)
 	if err != nil {

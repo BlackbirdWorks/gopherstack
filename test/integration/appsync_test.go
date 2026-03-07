@@ -201,9 +201,9 @@ func TestIntegration_AppSync_GraphQL_NoneResolver(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Get the GraphQL endpoint URL from the API's URIs.
-	graphqlEndpoint, ok := api.Uris["GRAPHQL"]
-	require.True(t, ok, "API should have a GRAPHQL URI")
+	// Construct the GraphQL endpoint using the accessible test endpoint.
+	// api.Uris["GRAPHQL"] contains the container-internal URL; rewrite with the accessible endpoint.
+	graphqlEndpoint := endpoint + "/v1/apis/" + apiID + "/graphql"
 
 	// Execute GraphQL query via raw HTTP POST.
 	query := `query { getGreeting(name: "World") }`
