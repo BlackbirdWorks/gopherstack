@@ -39,7 +39,7 @@ func TestGetUserByAccessKeyID(t *testing.T) {
 
 			b := newIAMBackend(t)
 
-			_, err := b.CreateUser(tt.setupUser, "/")
+			_, err := b.CreateUser(tt.setupUser, "/", "")
 			require.NoError(t, err)
 
 			lookupID := tt.lookupKeyID
@@ -110,7 +110,7 @@ func TestGetPoliciesForUser(t *testing.T) {
 
 			b := newIAMBackend(t)
 
-			_, err := b.CreateUser(tt.setupUser, "/")
+			_, err := b.CreateUser(tt.setupUser, "/", "")
 			require.NoError(t, err)
 
 			var polArn string

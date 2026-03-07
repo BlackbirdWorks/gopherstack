@@ -45,8 +45,8 @@ func TestIAMDashboard_Index(t *testing.T) {
 	t.Run("WithData", func(t *testing.T) {
 		t.Parallel()
 		stack, iamBk := newIAMStack(t)
-		_, _ = iamBk.CreateUser("alice", "/")
-		_, _ = iamBk.CreateRole("ECSTaskRole", "/", "")
+		_, _ = iamBk.CreateUser("alice", "/", "")
+		_, _ = iamBk.CreateRole("ECSTaskRole", "/", "", "")
 		_, _ = iamBk.CreatePolicy("ReadOnlyPolicy", "/", "")
 		_, _ = iamBk.CreateGroup("Admins", "/")
 
@@ -100,7 +100,7 @@ func TestIAMDashboard_CreateUser(t *testing.T) {
 	t.Run("Duplicate_Returns500", func(t *testing.T) {
 		t.Parallel()
 		stack, iamBk := newIAMStack(t)
-		_, _ = iamBk.CreateUser("alice", "/")
+		_, _ = iamBk.CreateUser("alice", "/", "")
 
 		form := url.Values{"userName": {"alice"}}.Encode()
 		req := httptest.NewRequest(http.MethodPost, "/dashboard/iam/user",
@@ -134,7 +134,7 @@ func TestIAMDashboard_DeleteUser(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
 		stack, iamBk := newIAMStack(t)
-		_, _ = iamBk.CreateUser("alice", "/")
+		_, _ = iamBk.CreateUser("alice", "/", "")
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/user?name=alice", nil)
 		w := httptest.NewRecorder()
@@ -194,7 +194,7 @@ func TestIAMDashboard_CreateRole(t *testing.T) {
 	t.Run("Duplicate_Returns500", func(t *testing.T) {
 		t.Parallel()
 		stack, iamBk := newIAMStack(t)
-		_, _ = iamBk.CreateRole("MyRole", "/", "")
+		_, _ = iamBk.CreateRole("MyRole", "/", "", "")
 
 		form := url.Values{"roleName": {"MyRole"}}.Encode()
 		req := httptest.NewRequest(http.MethodPost, "/dashboard/iam/role",
@@ -213,7 +213,7 @@ func TestIAMDashboard_DeleteRole(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
 		stack, iamBk := newIAMStack(t)
-		_, _ = iamBk.CreateRole("MyRole", "/", "")
+		_, _ = iamBk.CreateRole("MyRole", "/", "", "")
 
 		req := httptest.NewRequest(http.MethodDelete, "/dashboard/iam/role?name=MyRole", nil)
 		w := httptest.NewRecorder()

@@ -5,15 +5,19 @@ import (
 )
 
 type backendSnapshot struct {
-	Users            map[string]User            `json:"users"`
-	Roles            map[string]Role            `json:"roles"`
-	Policies         map[string]Policy          `json:"policies"`
-	Groups           map[string]Group           `json:"groups"`
-	AccessKeys       map[string]AccessKey       `json:"accessKeys"`
-	InstanceProfiles map[string]InstanceProfile `json:"instanceProfiles"`
-	UserPolicies     map[string][]string        `json:"userPolicies"`
-	RolePolicies     map[string][]string        `json:"rolePolicies"`
-	AccountID        string                     `json:"accountID"`
+	Users               map[string]User              `json:"users"`
+	Roles               map[string]Role              `json:"roles"`
+	Policies            map[string]Policy            `json:"policies"`
+	Groups              map[string]Group             `json:"groups"`
+	AccessKeys          map[string]AccessKey         `json:"accessKeys"`
+	InstanceProfiles    map[string]InstanceProfile   `json:"instanceProfiles"`
+	UserPolicies        map[string][]string          `json:"userPolicies"`
+	RolePolicies        map[string][]string          `json:"rolePolicies"`
+	GroupPolicies       map[string][]string          `json:"groupPolicies"`
+	UserInlinePolicies  map[string]map[string]string `json:"userInlinePolicies"`
+	RoleInlinePolicies  map[string]map[string]string `json:"roleInlinePolicies"`
+	GroupInlinePolicies map[string]map[string]string `json:"groupInlinePolicies"`
+	AccountID           string                       `json:"accountID"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -23,15 +27,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Users:            b.users,
-		Roles:            b.roles,
-		Policies:         b.policies,
-		Groups:           b.groups,
-		AccessKeys:       b.accessKeys,
-		InstanceProfiles: b.instanceProfiles,
-		UserPolicies:     b.userPolicies,
-		RolePolicies:     b.rolePolicies,
-		AccountID:        b.accountID,
+		Users:               b.users,
+		Roles:               b.roles,
+		Policies:            b.policies,
+		Groups:              b.groups,
+		AccessKeys:          b.accessKeys,
+		InstanceProfiles:    b.instanceProfiles,
+		UserPolicies:        b.userPolicies,
+		RolePolicies:        b.rolePolicies,
+		GroupPolicies:       b.groupPolicies,
+		UserInlinePolicies:  b.userInlinePolicies,
+		RoleInlinePolicies:  b.roleInlinePolicies,
+		GroupInlinePolicies: b.groupInlinePolicies,
+		AccountID:           b.accountID,
 	}
 
 	data, err := json.Marshal(snap)
@@ -86,6 +94,22 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.RolePolicies = make(map[string][]string)
 	}
 
+	if snap.GroupPolicies == nil {
+		snap.GroupPolicies = make(map[string][]string)
+	}
+
+	if snap.UserInlinePolicies == nil {
+		snap.UserInlinePolicies = make(map[string]map[string]string)
+	}
+
+	if snap.RoleInlinePolicies == nil {
+		snap.RoleInlinePolicies = make(map[string]map[string]string)
+	}
+
+	if snap.GroupInlinePolicies == nil {
+		snap.GroupInlinePolicies = make(map[string]map[string]string)
+	}
+
 	b.users = snap.Users
 	b.roles = snap.Roles
 	b.policies = snap.Policies
@@ -94,6 +118,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.instanceProfiles = snap.InstanceProfiles
 	b.userPolicies = snap.UserPolicies
 	b.rolePolicies = snap.RolePolicies
+	b.groupPolicies = snap.GroupPolicies
+	b.userInlinePolicies = snap.UserInlinePolicies
+	b.roleInlinePolicies = snap.RoleInlinePolicies
+	b.groupInlinePolicies = snap.GroupInlinePolicies
 	b.accountID = snap.AccountID
 
 	return nil
