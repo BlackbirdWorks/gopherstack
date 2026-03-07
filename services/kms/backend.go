@@ -41,9 +41,24 @@ var (
 	ErrInvalidDataKeySize = errors.New("ValidationException: invalid data key size")
 	// ErrInvalidSignature is returned when a signature verification fails.
 	ErrInvalidSignature = errors.New("KMSInvalidSignatureException")
+	// ErrKeyMaterialUnavailable is returned when key material is missing (e.g. restored from
+	// an older snapshot that predates key material persistence).
+	ErrKeyMaterialUnavailable = errors.New("key material unavailable for this key")
 )
 
 const (
+	// keySpecRSA3072 is the key spec for RSA-3072 asymmetric keys.
+	keySpecRSA3072 = "RSA_3072"
+	// keySpecRSA4096 is the key spec for RSA-4096 asymmetric keys.
+	keySpecRSA4096 = "RSA_4096"
+	// keySpecECCP256 is the key spec for ECC NIST P-256 asymmetric keys.
+	keySpecECCP256 = "ECC_NIST_P256"
+	// keySpecECCP384 is the key spec for ECC NIST P-384 asymmetric keys.
+	keySpecECCP384 = "ECC_NIST_P384"
+	// keySpecECCP521 is the key spec for ECC NIST P-521 asymmetric keys.
+	keySpecECCP521 = "ECC_NIST_P521"
+	// messageTypeRaw is the message type for raw (un-hashed) messages.
+	messageTypeRaw = "RAW"
 	// maxDataKeyBytes limits the maximum size of a generated data key when NumberOfBytes is specified.
 	maxDataKeyBytes = 4096
 )
@@ -157,6 +172,42 @@ func decryptData(blob []byte, km *keyMaterial) ([]byte, string, error) {
 	return decryptSymmetric(blob, km)
 }
 
+// requireKeyMaterial returns the key material for keyID or an error if absent.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) requireKeyMaterial(keyID string) (*keyMaterial, error) {
+	km, ok := b.keyMaterials[keyID]
+	if !ok || km == nil {
+		return nil, fmt.Errorf("%w: keyID %q", ErrKeyMaterialUnavailable, keyID)
+	}
+
+	return km, nil
+}
+
+// validateKeySpecUsage returns an error when keySpec and keyUsage are incompatible.
+// Symmetric specs (SYMMETRIC_DEFAULT) are only valid for ENCRYPT_DECRYPT;
+// asymmetric specs (RSA_*, ECC_*) are only valid for SIGN_VERIFY.
+func validateKeySpecUsage(keySpec, keyUsage string) error {
+	switch keySpec {
+	case keySpecSymmetric:
+		if keyUsage != "" && keyUsage != KeyUsageEncryptDecrypt {
+			return fmt.Errorf(
+				"%w: key spec %q is not compatible with key usage %q; symmetric keys require ENCRYPT_DECRYPT",
+				ErrInvalidKeyUsage, keySpec, keyUsage,
+			)
+		}
+	case keySpecRSA2048, keySpecRSA3072, keySpecRSA4096,
+		keySpecECCP256, keySpecECCP384, keySpecECCP521:
+		if keyUsage != "" && keyUsage != KeyUsageSignVerify {
+			return fmt.Errorf(
+				"%w: key spec %q is not compatible with key usage %q; asymmetric keys require SIGN_VERIFY",
+				ErrInvalidKeyUsage, keySpec, keyUsage,
+			)
+		}
+	}
+
+	return nil
+}
+
 // CreateKey creates a new KMS key and stores it in the backend.
 func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, error) {
 	b.mu.Lock("CreateKey")
@@ -165,6 +216,11 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 	keyID := uuid.New().String()
 	keyUsage := input.KeyUsage
 	keySpec := input.KeySpec
+
+	// Validate that KeySpec and KeyUsage are compatible when both are specified.
+	if err := validateKeySpecUsage(keySpec, keyUsage); err != nil {
+		return nil, err
+	}
 
 	// Derive keyUsage from keySpec when not explicitly specified.
 	if keyUsage == "" {
@@ -294,7 +350,10 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 		return nil, fmt.Errorf("%w: key %q is not usable for encryption", ErrInvalidKeyUsage, key.KeyID)
 	}
 
-	km := b.keyMaterials[key.KeyID]
+	km, err := b.requireKeyMaterial(key.KeyID)
+	if err != nil {
+		return nil, err
+	}
 
 	blob, encErr := encryptData(input.Plaintext, key.KeyID, km)
 	if encErr != nil {
@@ -303,7 +362,7 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 
 	return &EncryptOutput{
 		CiphertextBlob: blob,
-		KeyID:          key.KeyID,
+		KeyID:          key.Arn,
 	}, nil
 }
 
@@ -332,7 +391,10 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 		return nil, fmt.Errorf("%w: key %q is not usable for decryption", ErrInvalidKeyUsage, key.KeyID)
 	}
 
-	km := b.keyMaterials[key.KeyID]
+	km, err := b.requireKeyMaterial(key.KeyID)
+	if err != nil {
+		return nil, err
+	}
 
 	plaintext, _, err := decryptData(input.CiphertextBlob, km)
 	if err != nil {
@@ -341,7 +403,7 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 
 	return &DecryptOutput{
 		Plaintext: plaintext,
-		KeyID:     key.KeyID,
+		KeyID:     key.Arn,
 	}, nil
 }
 
@@ -377,7 +439,10 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 		return nil, randErr
 	}
 
-	km := b.keyMaterials[key.KeyID]
+	km, err := b.requireKeyMaterial(key.KeyID)
+	if err != nil {
+		return nil, err
+	}
 
 	blob, encErr := encryptData(plaintextKey, key.KeyID, km)
 	if encErr != nil {
@@ -387,7 +452,7 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 	return &GenerateDataKeyOutput{
 		CiphertextBlob: blob,
 		Plaintext:      plaintextKey,
-		KeyID:          key.KeyID,
+		KeyID:          key.Arn,
 	}, nil
 }
 
@@ -396,16 +461,30 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 	b.mu.RLock("ReEncrypt")
 	defer b.mu.RUnlock()
 
-	// Extract source key ID from blob to look up its material.
+	// Extract source key ID from blob to look up key metadata and material.
 	if len(input.CiphertextBlob) < keyIDPrefixLen {
 		return nil, ErrCiphertextTooShort
 	}
 
 	sourceKeyID := strings.TrimRight(string(input.CiphertextBlob[:keyIDPrefixLen]), "\x00")
 
-	sourceKM, ok := b.keyMaterials[sourceKeyID]
-	if !ok {
-		return nil, ErrKeyNotFound
+	// Validate source key state and usage before decrypting.
+	sourceKey, sourceErr := b.lookupKey(sourceKeyID)
+	if sourceErr != nil {
+		return nil, sourceErr
+	}
+
+	if sourceKey.KeyState != KeyStateEnabled {
+		return nil, keyStateError(sourceKey)
+	}
+
+	if sourceKey.KeyUsage != KeyUsageEncryptDecrypt {
+		return nil, fmt.Errorf("%w: source key %q is not usable for decryption", ErrInvalidKeyUsage, sourceKey.KeyID)
+	}
+
+	sourceKM, err := b.requireKeyMaterial(sourceKeyID)
+	if err != nil {
+		return nil, err
 	}
 
 	plaintext, _, err := decryptData(input.CiphertextBlob, sourceKM)
@@ -426,7 +505,10 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 		return nil, fmt.Errorf("%w: destination key %q is not usable for encryption", ErrInvalidKeyUsage, destKey.KeyID)
 	}
 
-	destKM := b.keyMaterials[destKey.KeyID]
+	destKM, err := b.requireKeyMaterial(destKey.KeyID)
+	if err != nil {
+		return nil, err
+	}
 
 	blob, encErr := encryptData(plaintext, destKey.KeyID, destKM)
 	if encErr != nil {
@@ -435,8 +517,8 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 
 	return &ReEncryptOutput{
 		CiphertextBlob: blob,
-		KeyID:          destKey.KeyID,
-		SourceKeyID:    sourceKeyID,
+		KeyID:          destKey.Arn,
+		SourceKeyID:    sourceKey.Arn,
 	}, nil
 }
 
@@ -458,11 +540,18 @@ func (b *InMemoryBackend) Sign(input *SignInput) (*SignOutput, error) {
 		return nil, fmt.Errorf("%w: key %q is not usable for signing", ErrInvalidKeyUsage, key.KeyID)
 	}
 
-	km := b.keyMaterials[key.KeyID]
+	if algErr := validateSigningAlgorithm(input.SigningAlgorithm, key.KeySpec); algErr != nil {
+		return nil, algErr
+	}
+
+	km, err := b.requireKeyMaterial(key.KeyID)
+	if err != nil {
+		return nil, err
+	}
 
 	messageType := input.MessageType
 	if messageType == "" {
-		messageType = "RAW"
+		messageType = messageTypeRaw
 	}
 
 	sig, signErr := signWithKeyMaterial(input.Message, messageType, input.SigningAlgorithm, km)
@@ -495,11 +584,18 @@ func (b *InMemoryBackend) Verify(input *VerifyInput) (*VerifyOutput, error) {
 		return nil, fmt.Errorf("%w: key %q is not usable for verification", ErrInvalidKeyUsage, key.KeyID)
 	}
 
-	km := b.keyMaterials[key.KeyID]
+	if algErr := validateSigningAlgorithm(input.SigningAlgorithm, key.KeySpec); algErr != nil {
+		return nil, algErr
+	}
+
+	km, err := b.requireKeyMaterial(key.KeyID)
+	if err != nil {
+		return nil, err
+	}
 
 	messageType := input.MessageType
 	if messageType == "" {
-		messageType = "RAW"
+		messageType = messageTypeRaw
 	}
 
 	valid, verifyErr := verifyWithKeyMaterial(input.Message, input.Signature, messageType, input.SigningAlgorithm, km)
@@ -532,7 +628,10 @@ func (b *InMemoryBackend) GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyO
 		return nil, fmt.Errorf("%w: key %q does not have an asymmetric public key", ErrInvalidKeyUsage, key.KeyID)
 	}
 
-	km := b.keyMaterials[key.KeyID]
+	km, err := b.requireKeyMaterial(key.KeyID)
+	if err != nil {
+		return nil, err
+	}
 
 	der, pubErr := publicKeyDER(km)
 	if pubErr != nil {

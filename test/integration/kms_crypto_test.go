@@ -309,8 +309,10 @@ func TestIntegration_KMS_Crypto_GetPublicKey(t *testing.T) {
 	}
 }
 
-// TestIntegration_KMS_Crypto_PerKeyIsolation verifies that keys encrypted with one KMS key
-// cannot be decrypted with a different key (per-key material isolation).
+// TestIntegration_KMS_Crypto_PerKeyIsolation verifies that ciphertext produced by one KMS key
+// cannot be decrypted by a different key's material. The backend embeds the source key ID in the
+// ciphertext prefix; attempting to decrypt the blob after ReEncrypt-ing it under key2 demonstrates
+// that different keys produce materially distinct ciphertexts.
 func TestIntegration_KMS_Crypto_PerKeyIsolation(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
@@ -329,23 +331,42 @@ func TestIntegration_KMS_Crypto_PerKeyIsolation(t *testing.T) {
 
 	plaintext := []byte("isolated-secret")
 
-	// Encrypt with key1
+	// Encrypt with key1.
 	encOut, err := client.Encrypt(ctx, &kms.EncryptInput{
 		KeyId:     key1Out.KeyMetadata.KeyId,
 		Plaintext: plaintext,
 	})
 	require.NoError(t, err)
 
-	// Attempt to decrypt with key2 — must fail since different key material is used
-	// The ciphertext blob contains key1's ID prefix, so the backend will use key1's material
-	// but the output should identify key1, not key2
+	// Decrypt identifies the key from the ciphertext prefix; the response
+	// must reference key1, not key2, confirming per-key material isolation.
 	decOut, err := client.Decrypt(ctx, &kms.DecryptInput{
 		CiphertextBlob: encOut.CiphertextBlob,
 	})
 	require.NoError(t, err)
-	// KeyId in decrypt response must be key1, not key2
-	assert.Equal(t, *key1Out.KeyMetadata.KeyId, *decOut.KeyId,
-		"decrypt must identify the original encryption key, not key2")
-	assert.NotEqual(t, *key2Out.KeyMetadata.KeyId, *decOut.KeyId)
 	assert.Equal(t, plaintext, decOut.Plaintext)
+	assert.Equal(t, *key1Out.KeyMetadata.Arn, *decOut.KeyId,
+		"decrypt must identify key1 (the encryption key), not key2")
+	assert.NotEqual(t, *key2Out.KeyMetadata.KeyId, *decOut.KeyId)
+
+	// Re-encrypt under key2 and confirm that the re-encrypted ciphertext differs
+	// from the original — proving that different keys produce different material.
+	reEncOut, err := client.ReEncrypt(ctx, &kms.ReEncryptInput{
+		CiphertextBlob:   encOut.CiphertextBlob,
+		DestinationKeyId: key2Out.KeyMetadata.KeyId,
+	})
+	require.NoError(t, err)
+	assert.False(t, bytes.Equal(encOut.CiphertextBlob, reEncOut.CiphertextBlob),
+		"re-encrypted blob must differ from original (different key material)")
+	assert.Equal(t, *key2Out.KeyMetadata.Arn, *reEncOut.KeyId,
+		"re-encrypt response must identify key2 as the destination")
+
+	// Decrypt the re-encrypted blob and confirm it recovers the original plaintext.
+	decReEncOut, err := client.Decrypt(ctx, &kms.DecryptInput{
+		CiphertextBlob: reEncOut.CiphertextBlob,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, decReEncOut.Plaintext)
+	assert.Equal(t, *key2Out.KeyMetadata.Arn, *decReEncOut.KeyId,
+		"decrypting re-encrypted blob must identify key2")
 }

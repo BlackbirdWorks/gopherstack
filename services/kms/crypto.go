@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"slices"
 	"strings"
 )
 
@@ -51,6 +52,8 @@ var (
 	errNoKeyMaterialData = errors.New("no key material to deserialize")
 	// errUnsupportedKeyType is returned for unknown private key types.
 	errUnsupportedKeyType = errors.New("unsupported private key type")
+	// errInvalidMessageType is returned when an unsupported message type is specified.
+	errInvalidMessageType = errors.New("invalid message type: must be RAW or DIGEST")
 )
 
 // keyMaterial holds the actual cryptographic key bytes or keypairs for a KMS key.
@@ -80,15 +83,15 @@ func generateKeyMaterial(keySpec string) (*keyMaterial, error) {
 		return &keyMaterial{symmetricKey: key}, nil
 	case keySpecRSA2048:
 		return generateRSAKeyMaterial(rsaBits2048)
-	case "RSA_3072":
+	case keySpecRSA3072:
 		return generateRSAKeyMaterial(rsaBits3072)
-	case "RSA_4096":
+	case keySpecRSA4096:
 		return generateRSAKeyMaterial(rsaBits4096)
-	case "ECC_NIST_P256":
+	case keySpecECCP256:
 		return generateECKeyMaterial(elliptic.P256())
-	case "ECC_NIST_P384":
+	case keySpecECCP384:
 		return generateECKeyMaterial(elliptic.P384())
-	case "ECC_NIST_P521":
+	case keySpecECCP521:
 		return generateECKeyMaterial(elliptic.P521())
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedKeySpec, keySpec)
@@ -194,7 +197,7 @@ func decryptSymmetric(blob []byte, km *keyMaterial) ([]byte, string, error) {
 }
 
 // hashAndAlgorithm returns the hash value for the message and the [crypto.Hash] to use
-// based on the signing algorithm. If messageType is "DIGEST", message is used as-is.
+// based on the signing algorithm. messageType must be "RAW" or "DIGEST".
 func hashAndAlgorithm(
 	message []byte,
 	messageType, signingAlgorithm string,
@@ -204,16 +207,19 @@ func hashAndAlgorithm(
 		return nil, 0, err
 	}
 
-	if messageType == "DIGEST" {
+	switch messageType {
+	case "DIGEST":
 		return message, hashAlg, nil
-	}
+	case "", "RAW":
+		digest, hashErr := computeHash(message, hashAlg)
+		if hashErr != nil {
+			return nil, 0, hashErr
+		}
 
-	digest, err := computeHash(message, hashAlg)
-	if err != nil {
-		return nil, 0, err
+		return digest, hashAlg, nil
+	default:
+		return nil, 0, fmt.Errorf("%w: %q", errInvalidMessageType, messageType)
 	}
-
-	return digest, hashAlg, nil
 }
 
 // signingAlgorithmHash returns the [crypto.Hash] for a signing algorithm string.
@@ -445,7 +451,7 @@ func unmarshalKeyMaterial(s serializedKeyMaterial) (*keyMaterial, error) {
 // defaultSigningAlgorithms returns the supported signing algorithms for a key spec.
 func defaultSigningAlgorithms(keySpec string) []string {
 	switch keySpec {
-	case keySpecRSA2048, "RSA_3072", "RSA_4096":
+	case keySpecRSA2048, keySpecRSA3072, keySpecRSA4096:
 		return []string{
 			"RSASSA_PSS_SHA_256",
 			"RSASSA_PSS_SHA_384",
@@ -454,13 +460,27 @@ func defaultSigningAlgorithms(keySpec string) []string {
 			"RSASSA_PKCS1_V1_5_SHA_384",
 			"RSASSA_PKCS1_V1_5_SHA_512",
 		}
-	case "ECC_NIST_P256":
+	case keySpecECCP256:
 		return []string{"ECDSA_SHA_256"}
-	case "ECC_NIST_P384":
+	case keySpecECCP384:
 		return []string{"ECDSA_SHA_384"}
-	case "ECC_NIST_P521":
+	case keySpecECCP521:
 		return []string{"ECDSA_SHA_512"}
 	default:
 		return nil
 	}
+}
+
+// validateSigningAlgorithm returns an error if signingAlgorithm is not in the set of
+// algorithms supported by keySpec, preventing key-spec/algorithm mismatches.
+func validateSigningAlgorithm(signingAlgorithm, keySpec string) error {
+	supported := defaultSigningAlgorithms(keySpec)
+	if slices.Contains(supported, signingAlgorithm) {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: signing algorithm %q is not supported for key spec %q; supported: %v",
+		errUnsupportedAlgorithm, signingAlgorithm, keySpec, supported,
+	)
 }

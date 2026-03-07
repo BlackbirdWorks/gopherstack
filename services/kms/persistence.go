@@ -3,6 +3,7 @@ package kms
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 )
 
 type backendSnapshot struct {
@@ -17,6 +18,7 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
+// Key materials that cannot be serialized are omitted from the snapshot with a warning log.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
@@ -26,7 +28,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	for keyID, km := range b.keyMaterials {
 		s, err := marshalKeyMaterial(km)
 		if err != nil {
-			return nil
+			slog.Default().Warn("KMS snapshot: skipping key material that could not be serialized",
+				"keyID", keyID, "error", err)
+
+			continue
 		}
 
 		serialized[keyID] = s
@@ -52,6 +57,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 // Restore loads backend state from a JSON snapshot.
 // It implements persistence.Persistable.
+// If a key in the snapshot does not have corresponding key material (e.g. from an older snapshot
+// format), a warning is logged. Callers of Encrypt/Sign/etc. will receive ErrKeyMaterialUnavailable.
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
@@ -88,6 +95,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		}
 
 		restored[keyID] = km
+	}
+
+	// Warn about keys that lack material in the snapshot (older snapshots may omit key_materials).
+	for keyID := range snap.Keys {
+		if _, hasMaterial := restored[keyID]; !hasMaterial {
+			slog.Default().Warn("KMS restore: key has no material in snapshot; crypto operations will fail",
+				"keyID", keyID)
+		}
 	}
 
 	b.keys = snap.Keys

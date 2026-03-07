@@ -116,14 +116,14 @@ func TestKMSBackendEncryptDecrypt(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, encOut.CiphertextBlob)
-	assert.Equal(t, key.KeyMetadata.KeyID, encOut.KeyID)
+	assert.Equal(t, key.KeyMetadata.Arn, encOut.KeyID)
 
 	decOut, err := backend.Decrypt(&kms.DecryptInput{
 		CiphertextBlob: encOut.CiphertextBlob,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, plaintext, decOut.Plaintext)
-	assert.Equal(t, key.KeyMetadata.KeyID, decOut.KeyID)
+	assert.Equal(t, key.KeyMetadata.Arn, decOut.KeyID)
 }
 
 // TestKMSBackendEncryptDisabledKey verifies encryption fails for disabled keys.
@@ -171,7 +171,7 @@ func TestKMSBackendGenerateDataKey(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, out.Plaintext, 32)
 		assert.NotEmpty(t, out.CiphertextBlob)
-		assert.Equal(t, key.KeyMetadata.KeyID, out.KeyID)
+		assert.Equal(t, key.KeyMetadata.Arn, out.KeyID)
 	})
 
 	t.Run("AES128", func(t *testing.T) {
@@ -222,8 +222,8 @@ func TestKMSBackendReEncrypt(t *testing.T) {
 		DestinationKeyID: key2.KeyMetadata.KeyID,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, key2.KeyMetadata.KeyID, reEncOut.KeyID)
-	assert.Equal(t, key1.KeyMetadata.KeyID, reEncOut.SourceKeyID)
+	assert.Equal(t, key2.KeyMetadata.Arn, reEncOut.KeyID)
+	assert.Equal(t, key1.KeyMetadata.Arn, reEncOut.SourceKeyID)
 
 	// Decrypt re-encrypted blob
 	decOut, err := backend.Decrypt(&kms.DecryptInput{
@@ -657,7 +657,7 @@ func TestKMSHandlerReEncrypt(t *testing.T) {
 
 	var reEncOut kms.ReEncryptOutput
 	require.NoError(t, json.Unmarshal(reEncRec.Body.Bytes(), &reEncOut))
-	assert.Equal(t, out2.KeyMetadata.KeyID, reEncOut.KeyID)
+	assert.Equal(t, out2.KeyMetadata.Arn, reEncOut.KeyID)
 }
 
 // TestKMSHandlerMethodNotAllowed verifies non-POST requests are rejected.
@@ -914,7 +914,7 @@ func TestKMSResolveKeyIDAlias(t *testing.T) {
 		Plaintext: []byte("hello"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, key.KeyMetadata.KeyID, out.KeyID)
+	assert.Equal(t, key.KeyMetadata.Arn, out.KeyID)
 }
 
 // TestKMSParseMarkerBadToken verifies parseMarker handles invalid tokens gracefully.
@@ -938,16 +938,15 @@ func TestKMSResolveKeyIDARN(t *testing.T) {
 
 	backend := kms.NewInMemoryBackend()
 	key, _ := backend.CreateKey(&kms.CreateKeyInput{})
-	keyID := key.KeyMetadata.KeyID
 
 	// Use ARN format to encrypt
-	arn := key.KeyMetadata.Arn
+	keyArn := key.KeyMetadata.Arn
 	out, err := backend.Encrypt(&kms.EncryptInput{
-		KeyID:     arn,
+		KeyID:     keyArn,
 		Plaintext: []byte("arn-test"),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, keyID, out.KeyID)
+	assert.Equal(t, keyArn, out.KeyID)
 }
 
 // TestKMSHandlerInternalError verifies the InternalServiceError path.
@@ -1288,7 +1287,7 @@ func TestKMSGenerateDataKeyWithoutPlaintext(t *testing.T) {
 	var out kms.GenerateDataKeyWithoutPlaintextOutput
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.NotEmpty(t, out.CiphertextBlob)
-	assert.Equal(t, keyID, out.KeyID)
+	assert.Equal(t, keyOut.KeyMetadata.Arn, out.KeyID)
 }
 
 // TestKMSRetireGrant verifies RetireGrant and ListRetirableGrants operations.
@@ -2400,8 +2399,8 @@ func TestKMSBackendGetKeyPolicyDefaultAndCustom(t *testing.T) {
 	assert.Equal(t, "custom", out2.PolicyName)
 }
 
-// TestKMSBackendDecryptKeyMaterialMissing verifies Decrypt fails when key is found but ciphertext was
-// encrypted with a different key's material (simulates data corruption).
+// TestKMSBackendDecryptNonExistentKey verifies Decrypt returns ErrKeyNotFound when the ciphertext
+// prefix references a key that does not exist.
 func TestKMSBackendDecryptNonExistentKey(t *testing.T) {
 	t.Parallel()
 
@@ -2409,24 +2408,21 @@ func TestKMSBackendDecryptNonExistentKey(t *testing.T) {
 	key, err := b.CreateKey(&kms.CreateKeyInput{})
 	require.NoError(t, err)
 
-	// Encrypt with a key that exists
+	// Encrypt with a valid key to confirm the normal path works.
 	encOut, err := b.Encrypt(&kms.EncryptInput{
 		KeyID:     key.KeyMetadata.KeyID,
 		Plaintext: []byte("data"),
 	})
 	require.NoError(t, err)
 
-	// Delete the key (not possible via API, but modify the ciphertext keyID prefix
-	// to reference a non-existent key by using a different key's ID in the blob header).
-	// The simplest test: create a new key, encrypt with key1, try to decrypt
-	// — Decrypt will look up key1 by ID from blob prefix and succeed.
-	// For non-existent key, fabricate a blob with a bad key ID prefix.
+	// Fabricate a ciphertext blob whose key ID prefix references a non-existent key.
+	// Decrypt should fail with ErrKeyNotFound (not a data-corruption error).
 	badBlob := make([]byte, 36+28) // keyIDPrefixLen + minimum nonce/ct size
 	copy(badBlob[:36], "nonexistent-key-id-000000000000000")
 	_, err = b.Decrypt(&kms.DecryptInput{CiphertextBlob: badBlob})
 	require.ErrorIs(t, err, kms.ErrKeyNotFound)
 
-	// Also test successful decrypt verifies the expected plaintext
+	// Confirm successful decrypt recovers the expected plaintext.
 	decOut, err := b.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
 	require.NoError(t, err)
 	assert.Equal(t, []byte("data"), decOut.Plaintext)
@@ -2482,4 +2478,251 @@ func TestKMSProviderWithConfig(t *testing.T) {
 	svc, err := p.Init(ctx)
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
+}
+
+// TestKMSCreateKeyIncompatibleSpecUsage verifies that CreateKey fails when KeySpec
+// and KeyUsage are incompatible (e.g. RSA key with ENCRYPT_DECRYPT usage).
+func TestKMSCreateKeyIncompatibleSpecUsage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		keySpec  string
+		keyUsage string
+	}{
+		{
+			name:     "RSA_2048_with_ENCRYPT_DECRYPT",
+			keySpec:  "RSA_2048",
+			keyUsage: kms.KeyUsageEncryptDecrypt,
+		},
+		{
+			name:     "ECC_NIST_P256_with_ENCRYPT_DECRYPT",
+			keySpec:  "ECC_NIST_P256",
+			keyUsage: kms.KeyUsageEncryptDecrypt,
+		},
+		{
+			name:     "SYMMETRIC_DEFAULT_with_SIGN_VERIFY",
+			keySpec:  "SYMMETRIC_DEFAULT",
+			keyUsage: kms.KeyUsageSignVerify,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			_, err := b.CreateKey(&kms.CreateKeyInput{
+				KeySpec:  tt.keySpec,
+				KeyUsage: tt.keyUsage,
+			})
+			require.ErrorIs(t, err, kms.ErrInvalidKeyUsage)
+		})
+	}
+}
+
+// TestKMSSignVerifyAlgorithmKeySpecMismatch verifies that Sign/Verify reject algorithms
+// that are incompatible with the key spec (e.g. ECDSA_SHA_256 on ECC_NIST_P384).
+func TestKMSSignVerifyAlgorithmKeySpecMismatch(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P384",
+	})
+	require.NoError(t, err)
+
+	msg := []byte("test")
+
+	// ECDSA_SHA_256 is only valid for ECC_NIST_P256, not ECC_NIST_P384
+	_, signErr := b.Sign(&kms.SignInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          msg,
+		MessageType:      "RAW",
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.Error(t, signErr)
+
+	_, verifyErr := b.Verify(&kms.VerifyInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          msg,
+		MessageType:      "RAW",
+		Signature:        []byte("sig"),
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.Error(t, verifyErr)
+}
+
+// TestKMSHashAndAlgorithmInvalidMessageType verifies that an invalid message type is rejected.
+func TestKMSHashAndAlgorithmInvalidMessageType(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	keyOut, err := b.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "RSA_2048",
+	})
+	require.NoError(t, err)
+
+	_, err = b.Sign(&kms.SignInput{
+		KeyID:            keyOut.KeyMetadata.KeyID,
+		Message:          []byte("test"),
+		MessageType:      "INVALID_TYPE",
+		SigningAlgorithm: "RSASSA_PSS_SHA_256",
+	})
+	require.Error(t, err)
+}
+
+// TestKMSKeyMaterialUnavailableAfterManualRestore verifies that Encrypt/Sign/Verify
+// return ErrKeyMaterialUnavailable when key material is missing after a snapshot restore
+// from an old format that did not persist key materials.
+func TestKMSKeyMaterialUnavailableAfterManualRestore(t *testing.T) {
+	t.Parallel()
+
+	orig := kms.NewInMemoryBackend()
+	symKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+	asymKey, err := orig.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P256",
+	})
+	require.NoError(t, err)
+
+	// Build a snapshot without key_materials to simulate an old-format snapshot.
+	snap := orig.Snapshot()
+	require.NotEmpty(t, snap)
+
+	// Strip key_materials from the JSON.
+	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
+
+	restored := kms.NewInMemoryBackend()
+	require.NoError(t, restored.Restore([]byte(stripped)))
+
+	// Encrypt should fail with ErrKeyMaterialUnavailable.
+	_, encErr := restored.Encrypt(&kms.EncryptInput{
+		KeyID:     symKey.KeyMetadata.KeyID,
+		Plaintext: []byte("test"),
+	})
+	require.ErrorIs(t, encErr, kms.ErrKeyMaterialUnavailable)
+
+	// Sign should fail with ErrKeyMaterialUnavailable.
+	_, signErr := restored.Sign(&kms.SignInput{
+		KeyID:            asymKey.KeyMetadata.KeyID,
+		Message:          []byte("test"),
+		MessageType:      "RAW",
+		SigningAlgorithm: "ECDSA_SHA_256",
+	})
+	require.ErrorIs(t, signErr, kms.ErrKeyMaterialUnavailable)
+}
+
+// TestKMSReEncryptSourceKeyValidation verifies that ReEncrypt validates source key state and usage.
+func TestKMSReEncryptSourceKeyValidation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("disabled_source_key", func(t *testing.T) {
+		t.Parallel()
+
+		b := kms.NewInMemoryBackend()
+		srcKey, err := b.CreateKey(&kms.CreateKeyInput{})
+		require.NoError(t, err)
+		dstKey, err := b.CreateKey(&kms.CreateKeyInput{})
+		require.NoError(t, err)
+
+		encOut, err := b.Encrypt(&kms.EncryptInput{
+			KeyID:     srcKey.KeyMetadata.KeyID,
+			Plaintext: []byte("test"),
+		})
+		require.NoError(t, err)
+
+		// Disable source key
+		require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: srcKey.KeyMetadata.KeyID}))
+
+		_, err = b.ReEncrypt(&kms.ReEncryptInput{
+			CiphertextBlob:   encOut.CiphertextBlob,
+			DestinationKeyID: dstKey.KeyMetadata.KeyID,
+		})
+		require.ErrorIs(t, err, kms.ErrKeyDisabled)
+	})
+}
+
+// TestKMSBackendReEncryptKeyMaterialUnavailable verifies that ReEncrypt returns ErrKeyMaterialUnavailable
+// when the source key's material is missing after an old-format snapshot restore.
+func TestKMSBackendReEncryptKeyMaterialUnavailable(t *testing.T) {
+	t.Parallel()
+
+	orig := kms.NewInMemoryBackend()
+	srcKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+	dstKey, err := orig.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+
+	encOut, err := orig.Encrypt(&kms.EncryptInput{
+		KeyID:     srcKey.KeyMetadata.KeyID,
+		Plaintext: []byte("test"),
+	})
+	require.NoError(t, err)
+
+	// Simulate old-format snapshot without key materials.
+	snap := orig.Snapshot()
+	require.NotEmpty(t, snap)
+	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
+
+	restored := kms.NewInMemoryBackend()
+	require.NoError(t, restored.Restore([]byte(stripped)))
+
+	_, err = restored.ReEncrypt(&kms.ReEncryptInput{
+		CiphertextBlob:   encOut.CiphertextBlob,
+		DestinationKeyID: dstKey.KeyMetadata.KeyID,
+	})
+	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
+}
+
+// TestKMSBackendDecryptKeyMaterialUnavailable verifies that Decrypt returns ErrKeyMaterialUnavailable
+// when key material is missing after an old-format snapshot restore.
+func TestKMSBackendDecryptKeyMaterialUnavailable(t *testing.T) {
+	t.Parallel()
+
+	orig := kms.NewInMemoryBackend()
+	key, err := orig.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+
+	encOut, err := orig.Encrypt(&kms.EncryptInput{
+		KeyID:     key.KeyMetadata.KeyID,
+		Plaintext: []byte("test"),
+	})
+	require.NoError(t, err)
+
+	snap := orig.Snapshot()
+	require.NotEmpty(t, snap)
+	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
+
+	restored := kms.NewInMemoryBackend()
+	require.NoError(t, restored.Restore([]byte(stripped)))
+
+	_, err = restored.Decrypt(&kms.DecryptInput{CiphertextBlob: encOut.CiphertextBlob})
+	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
+}
+
+// TestKMSBackendGetPublicKeyMaterialUnavailable verifies GetPublicKey returns ErrKeyMaterialUnavailable
+// when key material is missing.
+func TestKMSBackendGetPublicKeyMaterialUnavailable(t *testing.T) {
+	t.Parallel()
+
+	orig := kms.NewInMemoryBackend()
+	key, err := orig.CreateKey(&kms.CreateKeyInput{
+		KeyUsage: kms.KeyUsageSignVerify,
+		KeySpec:  "ECC_NIST_P256",
+	})
+	require.NoError(t, err)
+
+	snap := orig.Snapshot()
+	require.NotEmpty(t, snap)
+	stripped := strings.ReplaceAll(string(snap), `"key_materials":`, `"_key_materials":`)
+
+	restored := kms.NewInMemoryBackend()
+	require.NoError(t, restored.Restore([]byte(stripped)))
+
+	_, err = restored.GetPublicKey(&kms.GetPublicKeyInput{KeyID: key.KeyMetadata.KeyID})
+	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
 }
