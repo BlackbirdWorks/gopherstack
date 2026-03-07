@@ -239,7 +239,16 @@ func TestIntegration_SecretsManager_RotateSecret_WithLambda(t *testing.T) {
 	require.NoError(t, registry.Register(smHandler))
 	e.Use(service.NewServiceRouter(registry).RouteHandler())
 
-	server := httptest.NewServer(e)
+	// Bind to 0.0.0.0 so that Docker containers can reach the server via the bridge gateway
+	// (e.g. 172.17.0.1 on Linux). httptest.NewServer binds only to 127.0.0.1 which is
+	// unreachable from inside a container.
+	ln, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+
+	server := httptest.NewUnstartedServer(e)
+	_ = server.Listener.Close()
+	server.Listener = ln
+	server.Start()
 	t.Cleanup(server.Close)
 
 	// Derive the server port so Lambda containers can reach it via the Docker bridge.
