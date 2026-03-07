@@ -1,0 +1,170 @@
+package ecs
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+
+	dockertypes "github.com/docker/docker/api/types/container"
+	dockerimage "github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
+)
+
+// NewDockerRunner creates a TaskRunner backed by the local Docker daemon.
+// It uses the standard DOCKER_HOST / DOCKER_TLS_VERIFY environment variables
+// via client.FromEnv, so it works both locally and inside docker-in-docker.
+func NewDockerRunner() (TaskRunner, error) {
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		return nil, fmt.Errorf("create docker client: %w", err)
+	}
+
+	return &realDockerRunner{cli: cli, containers: make(map[string]string)}, nil
+}
+
+// realDockerRunner is a TaskRunner that launches Docker containers.
+type realDockerRunner struct {
+	containers map[string]string // taskArn -> containerID
+	cli        *client.Client
+}
+
+func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
+	ctx := context.Background()
+
+	for _, cd := range td.ContainerDefinitions {
+		if err := r.pullImage(ctx, cd.Image); err != nil {
+			return err
+		}
+
+		containerID, err := r.createContainer(ctx, task, cd)
+		if err != nil {
+			return err
+		}
+
+		if startErr := r.cli.ContainerStart(ctx, containerID, dockertypes.StartOptions{}); startErr != nil {
+			return fmt.Errorf("start container %s: %w", containerID, startErr)
+		}
+
+		r.containers[task.TaskArn] = containerID
+	}
+
+	return nil
+}
+
+// pullImage pulls a Docker image and drains the response body.
+func (r *realDockerRunner) pullImage(ctx context.Context, image string) error {
+	reader, err := r.cli.ImagePull(ctx, image, dockerimage.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("pull image %s: %w", image, err)
+	}
+
+	if _, copyErr := io.Copy(io.Discard, reader); copyErr != nil {
+		_ = reader.Close()
+
+		return fmt.Errorf("drain image pull response for %s: %w", image, copyErr)
+	}
+
+	if closeErr := reader.Close(); closeErr != nil {
+		return fmt.Errorf("close image pull reader for %s: %w", image, closeErr)
+	}
+
+	return nil
+}
+
+// createContainer creates a Docker container for the given container definition.
+func (r *realDockerRunner) createContainer(ctx context.Context, task *Task, cd ContainerDefinition) (string, error) {
+	portBindings, exposedPorts := buildPortMappings(cd.PortMappings)
+	env := buildEnv(cd.Environment)
+
+	resp, err := r.cli.ContainerCreate(
+		ctx,
+		&dockertypes.Config{
+			Image:        cd.Image,
+			Env:          env,
+			ExposedPorts: exposedPorts,
+			Labels: map[string]string{
+				"gopherstack.ecs.task":    task.TaskArn,
+				"gopherstack.ecs.cluster": task.ClusterArn,
+			},
+		},
+		&dockertypes.HostConfig{
+			PortBindings: portBindings,
+		},
+		nil,
+		nil,
+		"",
+	)
+	if err != nil {
+		return "", fmt.Errorf("create container for %s: %w", cd.Image, err)
+	}
+
+	return resp.ID, nil
+}
+
+// buildPortMappings converts PortMappings to Docker nat.PortMap and nat.PortSet.
+func buildPortMappings(mappings []PortMapping) (nat.PortMap, nat.PortSet) {
+	portBindings := nat.PortMap{}
+	exposedPorts := nat.PortSet{}
+
+	for _, pm := range mappings {
+		proto := pm.Protocol
+		if proto == "" {
+			proto = "tcp"
+		}
+
+		containerPort := nat.Port(fmt.Sprintf("%d/%s", pm.ContainerPort, proto))
+		exposedPorts[containerPort] = struct{}{}
+
+		if pm.HostPort > 0 {
+			portBindings[containerPort] = []nat.PortBinding{
+				{HostIP: "0.0.0.0", HostPort: strconv.Itoa(pm.HostPort)},
+			}
+		}
+	}
+
+	return portBindings, exposedPorts
+}
+
+// buildEnv converts KeyValuePairs to Docker-compatible "KEY=VALUE" strings.
+func buildEnv(kvs []KeyValuePair) []string {
+	env := make([]string, 0, len(kvs))
+	for _, kv := range kvs {
+		env = append(env, fmt.Sprintf("%s=%s", kv.Name, kv.Value))
+	}
+
+	return env
+}
+
+func (r *realDockerRunner) StopTask(task *Task) error {
+	containerID, ok := r.containers[task.TaskArn]
+	if !ok {
+		return nil
+	}
+
+	ctx := context.Background()
+	timeout := 10
+
+	if err := r.cli.ContainerStop(ctx, containerID, dockertypes.StopOptions{Timeout: &timeout}); err != nil {
+		return fmt.Errorf("stop container %s: %w", containerID, err)
+	}
+
+	delete(r.containers, task.TaskArn)
+
+	return nil
+}
+
+// newTaskRunner creates the appropriate TaskRunner based on the
+// GOPHERSTACK_ECS_RUNTIME environment variable.
+// Returns a no-op runner when the environment variable is absent or "none".
+func newTaskRunner() (TaskRunner, error) {
+	switch os.Getenv("GOPHERSTACK_ECS_RUNTIME") {
+	case "docker":
+		return NewDockerRunner()
+	default:
+		// "none" or unset – no-op
+		return NewNoopRunner(), nil
+	}
+}
