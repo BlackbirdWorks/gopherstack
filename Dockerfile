@@ -30,6 +30,9 @@ COPY --from=builder /app/gopherstack .
 # Expose port 8000 to the outside world
 EXPOSE 8000
 
+# Expose MQTT broker port
+EXPOSE 1883
+
 # OCI label pointing to the source repository
 LABEL org.opencontainers.image.source="https://github.com/blackbirdworks/gopherstack"
 
