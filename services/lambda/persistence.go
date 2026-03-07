@@ -6,17 +6,19 @@ import (
 )
 
 type backendSnapshot struct {
-	Functions            map[string]*FunctionConfiguration                      `json:"functions"`
-	EventSourceMappings  map[string]*EventSourceMapping                         `json:"eventSourceMappings"`
-	Aliases              map[string]map[string]*FunctionAlias                   `json:"aliases"`
-	Versions             map[string][]*FunctionVersion                          `json:"versions"`
-	FunctionURLConfigs   map[string]*FunctionURLConfig                          `json:"functionURLConfigs"`
-	VersionCounters      map[string]int                                         `json:"versionCounters"`
-	Layers               map[string][]*LayerVersion                             `json:"layers"`
-	LayerVersionCounters map[string]int64                                       `json:"layerVersionCounters"`
-	LayerPolicies        map[string]map[int64]map[string]*LayerVersionStatement `json:"layerPolicies"`
-	AccountID            string                                                 `json:"accountID"`
-	Region               string                                                 `json:"region"`
+	Functions             map[string]*FunctionConfiguration                      `json:"functions"`
+	EventSourceMappings   map[string]*EventSourceMapping                         `json:"eventSourceMappings"`
+	Aliases               map[string]map[string]*FunctionAlias                   `json:"aliases"`
+	Versions              map[string][]*FunctionVersion                          `json:"versions"`
+	FunctionURLConfigs    map[string]*FunctionURLConfig                          `json:"functionURLConfigs"`
+	VersionCounters       map[string]int                                         `json:"versionCounters"`
+	Layers                map[string][]*LayerVersion                             `json:"layers"`
+	LayerVersionCounters  map[string]int64                                       `json:"layerVersionCounters"`
+	LayerPolicies         map[string]map[int64]map[string]*LayerVersionStatement `json:"layerPolicies"`
+	EventInvokeConfigs    map[string]*FunctionEventInvokeConfig                  `json:"eventInvokeConfigs"`
+	FunctionConcurrencies map[string]int                                         `json:"functionConcurrencies"`
+	AccountID             string                                                 `json:"accountID"`
+	Region                string                                                 `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -27,17 +29,19 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Functions:            b.functions,
-		EventSourceMappings:  b.eventSourceMappings,
-		Aliases:              b.aliases,
-		Versions:             b.versions,
-		FunctionURLConfigs:   b.functionURLConfigs,
-		VersionCounters:      b.versionCounters,
-		Layers:               b.layers,
-		LayerVersionCounters: b.layerVersionCounters,
-		LayerPolicies:        b.layerPolicies,
-		AccountID:            b.accountID,
-		Region:               b.region,
+		Functions:             b.functions,
+		EventSourceMappings:   b.eventSourceMappings,
+		Aliases:               b.aliases,
+		Versions:              b.versions,
+		FunctionURLConfigs:    b.functionURLConfigs,
+		VersionCounters:       b.versionCounters,
+		Layers:                b.layers,
+		LayerVersionCounters:  b.layerVersionCounters,
+		LayerPolicies:         b.layerPolicies,
+		EventInvokeConfigs:    b.eventInvokeConfigs,
+		FunctionConcurrencies: b.functionConcurrencies,
+		AccountID:             b.accountID,
+		Region:                b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -60,9 +64,34 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	normalizeSnapshot(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	restoreSnapshotFunctions(snap.Functions, snap.FunctionConcurrencies)
+	restoreSnapshotLayers(snap.Layers)
+
+	b.functions = snap.Functions
+	b.eventSourceMappings = snap.EventSourceMappings
+	b.aliases = snap.Aliases
+	b.versions = snap.Versions
+	b.functionURLConfigs = snap.FunctionURLConfigs
+	b.versionCounters = snap.VersionCounters
+	b.layers = snap.Layers
+	b.layerVersionCounters = snap.LayerVersionCounters
+	b.layerPolicies = snap.LayerPolicies
+	b.eventInvokeConfigs = snap.EventInvokeConfigs
+	b.functionConcurrencies = snap.FunctionConcurrencies
+	b.accountID = snap.AccountID
+	b.region = snap.Region
+
+	return nil
+}
+
+// normalizeSnapshot initialises nil maps in a snapshot to empty maps so callers
+// never need to nil-check after a Restore.
+func normalizeSnapshot(snap *backendSnapshot) {
 	if snap.Functions == nil {
 		snap.Functions = make(map[string]*FunctionConfiguration)
 	}
@@ -99,37 +128,41 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.LayerPolicies = make(map[string]map[int64]map[string]*LayerVersionStatement)
 	}
 
-	// Clear code bytes on restore — code must be re-deployed.
-	// Also normalize LastUpdateStatus so persisted functions are waiter-compatible
-	// after upgrade from a pre-change snapshot.
-	for _, fn := range snap.Functions {
+	if snap.EventInvokeConfigs == nil {
+		snap.EventInvokeConfigs = make(map[string]*FunctionEventInvokeConfig)
+	}
+
+	if snap.FunctionConcurrencies == nil {
+		snap.FunctionConcurrencies = make(map[string]int)
+	}
+}
+
+// restoreSnapshotFunctions clears transient fields on restored function configurations
+// and re-links ReservedConcurrentExecutions from the concurrency map.
+func restoreSnapshotFunctions(fns map[string]*FunctionConfiguration, concurrencies map[string]int) {
+	for name, fn := range fns {
 		fn.ZipData = nil
 
 		if fn.LastUpdateStatus == "" {
 			fn.LastUpdateStatus = LastUpdateStatusSuccessful
 		}
-	}
 
-	// Clear layer zip data on restore — layers must be re-published.
-	for _, versions := range snap.Layers {
+		if reserved, ok := concurrencies[name]; ok {
+			v := reserved
+			fn.ReservedConcurrentExecutions = &v
+		} else {
+			fn.ReservedConcurrentExecutions = nil
+		}
+	}
+}
+
+// restoreSnapshotLayers clears zip data from restored layer versions.
+func restoreSnapshotLayers(layers map[string][]*LayerVersion) {
+	for _, versions := range layers {
 		for _, lv := range versions {
 			lv.ZipData = nil
 		}
 	}
-
-	b.functions = snap.Functions
-	b.eventSourceMappings = snap.EventSourceMappings
-	b.aliases = snap.Aliases
-	b.versions = snap.Versions
-	b.functionURLConfigs = snap.FunctionURLConfigs
-	b.versionCounters = snap.VersionCounters
-	b.layers = snap.Layers
-	b.layerVersionCounters = snap.LayerVersionCounters
-	b.layerPolicies = snap.LayerPolicies
-	b.accountID = snap.AccountID
-	b.region = snap.Region
-
-	return nil
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

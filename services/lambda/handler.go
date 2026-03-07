@@ -72,6 +72,14 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodPost, hasSuffixURL, "CreateFunctionURLConfig"},
 	{http.MethodGet, hasSuffixURL, "GetFunctionURLConfig"},
 	{http.MethodDelete, hasSuffixURL, "DeleteFunctionURLConfig"},
+	{http.MethodPut, hasSuffixEventInvokeConfig, "PutFunctionEventInvokeConfig"},
+	{http.MethodGet, hasSuffixEventInvokeConfig, "GetFunctionEventInvokeConfig"},
+	{http.MethodPost, hasSuffixEventInvokeConfig, "UpdateFunctionEventInvokeConfig"},
+	{http.MethodDelete, hasSuffixEventInvokeConfig, "DeleteFunctionEventInvokeConfig"},
+	{http.MethodGet, hasSuffixEventInvokeConfigs, "ListFunctionEventInvokeConfigs"},
+	{http.MethodPut, hasSuffixConcurrency, "PutFunctionConcurrency"},
+	{http.MethodGet, hasSuffixConcurrency, "GetFunctionConcurrency"},
+	{http.MethodDelete, hasSuffixConcurrency, "DeleteFunctionConcurrency"},
 }
 
 func isEmptyRest(rest string) bool            { return rest == "" }
@@ -79,6 +87,13 @@ func hasSuffixCode(rest string) bool          { return strings.HasSuffix(rest, "
 func hasSuffixConfiguration(rest string) bool { return strings.HasSuffix(rest, "/configuration") }
 func hasSuffixInvocations(rest string) bool   { return strings.HasSuffix(rest, "/invocations") }
 func hasSuffixURL(rest string) bool           { return strings.HasSuffix(rest, "/url") }
+func hasSuffixConcurrency(rest string) bool   { return strings.HasSuffix(rest, "/concurrency") }
+func hasSuffixEventInvokeConfig(rest string) bool {
+	return strings.HasSuffix(rest, "/event-invoke-config")
+}
+func hasSuffixEventInvokeConfigs(rest string) bool {
+	return strings.HasSuffix(rest, "/event-invoke-configs")
+}
 func hasSuffixCodeSigningConfig(rest string) bool {
 	return strings.HasSuffix(rest, "/code-signing-config")
 }
@@ -185,6 +200,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetLayerVersionPolicy",
 		"AddLayerVersionPermission",
 		"RemoveLayerVersionPermission",
+		"PutFunctionEventInvokeConfig",
+		"GetFunctionEventInvokeConfig",
+		"UpdateFunctionEventInvokeConfig",
+		"DeleteFunctionEventInvokeConfig",
+		"ListFunctionEventInvokeConfigs",
+		"PutFunctionConcurrency",
+		"GetFunctionConcurrency",
+		"DeleteFunctionConcurrency",
 	}
 }
 
@@ -385,7 +408,10 @@ type handlerEntry struct {
 }
 
 func (h *Handler) buildRouteHandlers() []handlerEntry {
-	return append(h.buildCoreRoutes(), h.buildVersionAliasRoutes()...)
+	return append(
+		append(h.buildCoreRoutes(), h.buildEventInvokeRoutes()...),
+		append(h.buildConcurrencyRoutes(), h.buildVersionAliasRoutes()...)...,
+	)
 }
 
 // buildCoreRoutes returns the core function CRUD + invoke + URL routes.
@@ -471,6 +497,90 @@ func (h *Handler) buildCoreRoutes() []handlerEntry {
 			execute: func(c *echo.Context, _ string) error {
 				// Stub: no code signing config → empty 200 response.
 				return c.JSON(http.StatusOK, &lambdaEmptyOutput{})
+			},
+		},
+	}
+}
+
+// buildEventInvokeRoutes returns the event invoke config routes.
+func (h *Handler) buildEventInvokeRoutes() []handlerEntry {
+	return []handlerEntry{
+		{
+			method: http.MethodPut,
+			match:  hasSuffixEventInvokeConfig,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/event-invoke-config")
+
+				return h.handlePutFunctionEventInvokeConfig(c, name)
+			},
+		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixEventInvokeConfig,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/event-invoke-config")
+
+				return h.handleGetFunctionEventInvokeConfig(c, name)
+			},
+		},
+		{
+			method: http.MethodPost,
+			match:  hasSuffixEventInvokeConfig,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/event-invoke-config")
+
+				return h.handleUpdateFunctionEventInvokeConfig(c, name)
+			},
+		},
+		{
+			method: http.MethodDelete,
+			match:  hasSuffixEventInvokeConfig,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/event-invoke-config")
+
+				return h.handleDeleteFunctionEventInvokeConfig(c, name)
+			},
+		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixEventInvokeConfigs,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/event-invoke-configs")
+
+				return h.handleListFunctionEventInvokeConfigs(c, name)
+			},
+		},
+	}
+}
+
+// buildConcurrencyRoutes returns the function concurrency management routes.
+func (h *Handler) buildConcurrencyRoutes() []handlerEntry {
+	return []handlerEntry{
+		{
+			method: http.MethodPut,
+			match:  hasSuffixConcurrency,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/concurrency")
+
+				return h.handlePutFunctionConcurrency(c, name)
+			},
+		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixConcurrency,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/concurrency")
+
+				return h.handleGetFunctionConcurrency(c, name)
+			},
+		},
+		{
+			method: http.MethodDelete,
+			match:  hasSuffixConcurrency,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/concurrency")
+
+				return h.handleDeleteFunctionConcurrency(c, name)
 			},
 		},
 	}
@@ -1053,6 +1163,10 @@ func (h *Handler) handleInvoke(c *echo.Context, name string) error {
 		if errors.Is(invokeErr, ErrFunctionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(invokeErr, ErrTooManyRequests) {
+			return h.writeError(c, http.StatusTooManyRequests, "TooManyRequestsException", invokeErr.Error())
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", invokeErr.Error())
@@ -1740,6 +1854,223 @@ func (h *Handler) handleRemoveLayerVersionPermission(
 		if errors.Is(err, ErrLayerNotFound) || errors.Is(err, ErrLayerVersionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				fmt.Sprintf("Layer version not found: %s:%d", layerName, version))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// handlePutFunctionEventInvokeConfig handles PUT /2015-03-31/functions/{name}/event-invoke-config.
+func (h *Handler) handlePutFunctionEventInvokeConfig(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input PutFunctionEventInvokeConfigInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	cfg, putErr := lambdaBk.PutFunctionEventInvokeConfig(name, &input)
+	if putErr != nil {
+		return h.eventInvokeConfigError(c, putErr, name)
+	}
+
+	return c.JSON(http.StatusOK, cfg)
+}
+
+// handleGetFunctionEventInvokeConfig handles GET /2015-03-31/functions/{name}/event-invoke-config.
+func (h *Handler) handleGetFunctionEventInvokeConfig(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	cfg, err := lambdaBk.GetFunctionEventInvokeConfig(name)
+	if err != nil {
+		return h.eventInvokeConfigError(c, err, name)
+	}
+
+	return c.JSON(http.StatusOK, cfg)
+}
+
+// handleUpdateFunctionEventInvokeConfig handles POST /2015-03-31/functions/{name}/event-invoke-config.
+func (h *Handler) handleUpdateFunctionEventInvokeConfig(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input PutFunctionEventInvokeConfigInput
+	if len(body) > 0 {
+		if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+		}
+	}
+
+	cfg, updateErr := lambdaBk.UpdateFunctionEventInvokeConfig(name, &input)
+	if updateErr != nil {
+		return h.eventInvokeConfigError(c, updateErr, name)
+	}
+
+	return c.JSON(http.StatusOK, cfg)
+}
+
+// handleDeleteFunctionEventInvokeConfig handles DELETE /2015-03-31/functions/{name}/event-invoke-config.
+func (h *Handler) handleDeleteFunctionEventInvokeConfig(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	if err := lambdaBk.DeleteFunctionEventInvokeConfig(name); err != nil {
+		return h.eventInvokeConfigError(c, err, name)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// handleListFunctionEventInvokeConfigs handles GET /2015-03-31/functions/{name}/event-invoke-configs.
+func (h *Handler) handleListFunctionEventInvokeConfigs(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	marker, maxItems := parsePaginationParams(c.Request())
+
+	configs, next, err := lambdaBk.ListFunctionEventInvokeConfigs(name, marker, maxItems)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, &ListFunctionEventInvokeConfigsOutput{
+		FunctionEventInvokeConfigs: configs,
+		NextMarker:                 next,
+	})
+}
+
+// eventInvokeConfigError maps event invoke config errors to HTTP responses.
+func (h *Handler) eventInvokeConfigError(c *echo.Context, err error, name string) error {
+	switch {
+	case errors.Is(err, ErrFunctionNotFound):
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			fmt.Sprintf("Function not found: %s", name))
+	case errors.Is(err, ErrEventInvokeConfigNotFound):
+		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+			fmt.Sprintf("The function %s doesn't have an event invoke config", name))
+	case errors.Is(err, ErrInvalidParameterValue):
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
+	default:
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+}
+
+// handlePutFunctionConcurrency handles PUT /2015-03-31/functions/{name}/concurrency.
+func (h *Handler) handlePutFunctionConcurrency(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	if len(body) == 0 {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"ReservedConcurrentExecutions is required")
+	}
+
+	var raw map[string]json.RawMessage
+	if unmarshalErr := json.Unmarshal(body, &raw); unmarshalErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+	}
+
+	if _, present := raw["ReservedConcurrentExecutions"]; !present {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"ReservedConcurrentExecutions is required")
+	}
+
+	var input PutFunctionConcurrencyInput
+	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+	}
+
+	concurrency, putErr := lambdaBk.PutFunctionConcurrency(name, input.ReservedConcurrentExecutions)
+	if putErr != nil {
+		if errors.Is(putErr, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(putErr, ErrInvalidParameterValue) {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", putErr.Error())
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", putErr.Error())
+	}
+
+	return c.JSON(http.StatusOK, concurrency)
+}
+
+// handleGetFunctionConcurrency handles GET /2015-03-31/functions/{name}/concurrency.
+func (h *Handler) handleGetFunctionConcurrency(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	concurrency, err := lambdaBk.GetFunctionConcurrency(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(err, ErrFunctionConcurrencyNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function %s has no reserved concurrency configured", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, concurrency)
+}
+
+// handleDeleteFunctionConcurrency handles DELETE /2015-03-31/functions/{name}/concurrency.
+func (h *Handler) handleDeleteFunctionConcurrency(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	if err := lambdaBk.DeleteFunctionConcurrency(name); err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())

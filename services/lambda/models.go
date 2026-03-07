@@ -65,28 +65,29 @@ type FunctionLayer struct {
 
 // FunctionConfiguration represents a Lambda function's configuration.
 type FunctionConfiguration struct {
-	CreatedAt        time.Time          `json:"-"`
-	Environment      *EnvironmentConfig `json:"Environment,omitempty"`
-	Handler          string             `json:"Handler,omitempty"`
-	RevisionID       string             `json:"RevisionId"`
-	ImageURI         string             `json:"ImageUri,omitempty"`
-	PackageType      string             `json:"PackageType"`
-	StateReason      string             `json:"StateReason,omitempty"`
-	Role             string             `json:"Role"`
-	LastModified     string             `json:"LastModified"`
-	Runtime          string             `json:"Runtime,omitempty"`
-	FunctionArn      string             `json:"FunctionArn"`
-	Description      string             `json:"Description"`
-	FunctionName     string             `json:"FunctionName"`
-	State            FunctionState      `json:"State"`
-	LastUpdateStatus LastUpdateStatus   `json:"LastUpdateStatus"`
-	S3BucketCode     string             `json:"-"`
-	S3KeyCode        string             `json:"-"`
-	ZipData          []byte             `json:"-"`
-	Layers           []*FunctionLayer   `json:"Layers,omitempty"`
-	MemorySize       int                `json:"MemorySize"`
-	Timeout          int                `json:"Timeout"`
-	CodeSize         int64              `json:"CodeSize"`
+	CreatedAt                    time.Time          `json:"-"`
+	Environment                  *EnvironmentConfig `json:"Environment,omitempty"`
+	ReservedConcurrentExecutions *int               `json:"ReservedConcurrentExecutions,omitempty"`
+	FunctionArn                  string             `json:"FunctionArn"`
+	FunctionName                 string             `json:"FunctionName"`
+	PackageType                  string             `json:"PackageType"`
+	StateReason                  string             `json:"StateReason,omitempty"`
+	Role                         string             `json:"Role"`
+	LastModified                 string             `json:"LastModified"`
+	Runtime                      string             `json:"Runtime,omitempty"`
+	RevisionID                   string             `json:"RevisionId"`
+	Description                  string             `json:"Description"`
+	ImageURI                     string             `json:"ImageUri,omitempty"`
+	State                        FunctionState      `json:"State"`
+	LastUpdateStatus             LastUpdateStatus   `json:"LastUpdateStatus"`
+	S3BucketCode                 string             `json:"-"`
+	S3KeyCode                    string             `json:"-"`
+	Handler                      string             `json:"Handler,omitempty"`
+	Layers                       []*FunctionLayer   `json:"Layers,omitempty"`
+	ZipData                      []byte             `json:"-"`
+	MemorySize                   int                `json:"MemorySize"`
+	Timeout                      int                `json:"Timeout"`
+	CodeSize                     int64              `json:"CodeSize"`
 }
 
 // EnvironmentConfig holds Lambda function environment variables.
@@ -340,4 +341,47 @@ type AddLayerVersionPermissionInput struct {
 type AddLayerVersionPermissionOutput struct {
 	Statement  string `json:"Statement"`
 	RevisionID string `json:"RevisionId"`
+}
+
+// Destination holds the ARN for an async invocation destination (SQS, SNS, Lambda, or EventBridge).
+type Destination struct {
+	Destination string `json:"Destination"`
+}
+
+// DestinationConfig holds optional success and failure destinations for async invocations.
+type DestinationConfig struct {
+	OnFailure *Destination `json:"OnFailure,omitempty"`
+	OnSuccess *Destination `json:"OnSuccess,omitempty"`
+}
+
+// FunctionEventInvokeConfig holds the async invocation configuration for a Lambda function.
+type FunctionEventInvokeConfig struct {
+	LastModified             time.Time          `json:"LastModified"`
+	DestinationConfig        *DestinationConfig `json:"DestinationConfig,omitempty"`
+	MaximumEventAgeInSeconds *int               `json:"MaximumEventAgeInSeconds,omitempty"`
+	MaximumRetryAttempts     *int               `json:"MaximumRetryAttempts,omitempty"`
+	FunctionArn              string             `json:"FunctionArn"`
+}
+
+// PutFunctionEventInvokeConfigInput is the shared request body for Put/Update FunctionEventInvokeConfig.
+type PutFunctionEventInvokeConfigInput struct {
+	DestinationConfig        *DestinationConfig `json:"DestinationConfig,omitempty"`
+	MaximumEventAgeInSeconds *int               `json:"MaximumEventAgeInSeconds,omitempty"`
+	MaximumRetryAttempts     *int               `json:"MaximumRetryAttempts,omitempty"`
+}
+
+// ListFunctionEventInvokeConfigsOutput is the response for ListFunctionEventInvokeConfigs.
+type ListFunctionEventInvokeConfigsOutput struct {
+	NextMarker                 string                       `json:"NextMarker,omitempty"`
+	FunctionEventInvokeConfigs []*FunctionEventInvokeConfig `json:"FunctionEventInvokeConfigs"`
+}
+
+// FunctionConcurrency holds the reserved concurrency configuration for a Lambda function.
+type FunctionConcurrency struct {
+	ReservedConcurrentExecutions int `json:"ReservedConcurrentExecutions"`
+}
+
+// PutFunctionConcurrencyInput is the request body for PutFunctionConcurrency.
+type PutFunctionConcurrencyInput struct {
+	ReservedConcurrentExecutions int `json:"ReservedConcurrentExecutions"`
 }
