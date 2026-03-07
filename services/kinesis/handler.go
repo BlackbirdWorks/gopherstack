@@ -1,11 +1,15 @@
 package kinesis
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"hash/crc32"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -84,6 +88,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AddTagsToStream",
 		"RemoveTagsFromStream",
 		"ListTagsForStream",
+		"RegisterStreamConsumer",
+		"DescribeStreamConsumer",
+		"ListStreamConsumers",
+		"DeregisterStreamConsumer",
+		"SubscribeToShard",
+		"UpdateShardCount",
+		"EnableEnhancedMonitoring",
+		"DisableEnhancedMonitoring",
 	}
 }
 
@@ -146,6 +158,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function for Kinesis operations.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		// SubscribeToShard uses the AWS event-stream binary protocol and must be
+		// dispatched before the normal JSON target handler.
+		if c.Request().Header.Get("X-Amz-Target") == kinesisTargetPrefix+"SubscribeToShard" {
+			return h.handleSubscribeToShardHTTP(c)
+		}
+
 		return service.HandleTarget(
 			c, logger.Load(c.Request().Context()),
 			"Kinesis", "application/x-amz-json-1.1",
@@ -178,6 +196,13 @@ func (h *Handler) kinesisDispatchTable() map[string]kinesisDispatchFn {
 		"IncreaseStreamRetentionPeriod": h.handleIncreaseStreamRetentionPeriod,
 		"DecreaseStreamRetentionPeriod": h.handleDecreaseStreamRetentionPeriod,
 		"DescribeLimits":                h.handleDescribeLimits,
+		"RegisterStreamConsumer":        h.handleRegisterStreamConsumer,
+		"DescribeStreamConsumer":        h.handleDescribeStreamConsumer,
+		"ListStreamConsumers":           h.handleListStreamConsumers,
+		"DeregisterStreamConsumer":      h.handleDeregisterStreamConsumer,
+		"UpdateShardCount":              h.handleUpdateShardCount,
+		"EnableEnhancedMonitoring":      h.handleEnableEnhancedMonitoring,
+		"DisableEnhancedMonitoring":     h.handleDisableEnhancedMonitoring,
 	}
 }
 
@@ -240,10 +265,11 @@ type jsonPutRecordsReq struct {
 }
 
 type jsonGetShardIteratorReq struct {
-	StreamName             string `json:"StreamName"`
-	ShardID                string `json:"ShardId"`
-	ShardIteratorType      string `json:"ShardIteratorType"`
-	StartingSequenceNumber string `json:"StartingSequenceNumber"`
+	StreamName             string  `json:"StreamName"`
+	ShardID                string  `json:"ShardId"`
+	ShardIteratorType      string  `json:"ShardIteratorType"`
+	StartingSequenceNumber string  `json:"StartingSequenceNumber"`
+	Timestamp              float64 `json:"Timestamp"`
 }
 
 type jsonGetRecordsReq struct {
@@ -578,6 +604,7 @@ func (h *Handler) handleGetShardIterator(
 		ShardID:                req.ShardID,
 		ShardIteratorType:      req.ShardIteratorType,
 		StartingSequenceNumber: req.StartingSequenceNumber,
+		Timestamp:              time.UnixMilli(int64(req.Timestamp * millisToSeconds)),
 	})
 	if err != nil {
 		return nil, err
@@ -670,6 +697,14 @@ func errorDetails(err error) (string, string, int) {
 	case errors.Is(err, ErrStreamAlreadyExists):
 		return "ResourceInUseException",
 			"A stream with this name already exists.",
+			http.StatusBadRequest
+	case errors.Is(err, ErrConsumerNotFound):
+		return "ResourceNotFoundException",
+			"Consumer not found.",
+			http.StatusBadRequest
+	case errors.Is(err, ErrConsumerAlreadyExists):
+		return "ResourceInUseException",
+			"A consumer with this name already exists.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrInvalidArgument):
 		return "InvalidArgumentException",
@@ -780,4 +815,412 @@ func (h *Handler) handleDescribeLimits(
 		OpenShardCount: 0,
 		ShardLimit:     kinesisDefaultShardLimit,
 	}, nil
+}
+
+// --- Consumer JSON types ---
+
+type jsonRegisterStreamConsumerReq struct {
+	StreamARN    string `json:"StreamARN"`
+	ConsumerName string `json:"ConsumerName"`
+}
+
+type jsonConsumer struct {
+	ConsumerName              string  `json:"ConsumerName"`
+	ConsumerARN               string  `json:"ConsumerARN"`
+	ConsumerStatus            string  `json:"ConsumerStatus"`
+	StreamARN                 string  `json:"StreamARN"`
+	ConsumerCreationTimestamp float64 `json:"ConsumerCreationTimestamp"`
+}
+
+type jsonRegisterStreamConsumerResp struct {
+	Consumer jsonConsumer `json:"Consumer"`
+}
+
+type jsonDescribeStreamConsumerReq struct {
+	StreamARN    string `json:"StreamARN"`
+	ConsumerARN  string `json:"ConsumerARN"`
+	ConsumerName string `json:"ConsumerName"`
+}
+
+type jsonDescribeStreamConsumerResp struct {
+	ConsumerDescription jsonConsumer `json:"ConsumerDescription"`
+}
+
+type jsonListStreamConsumersReq struct {
+	StreamARN  string `json:"StreamARN"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type jsonListStreamConsumersResp struct {
+	NextToken string         `json:"NextToken,omitempty"`
+	Consumers []jsonConsumer `json:"Consumers"`
+}
+
+type jsonDeregisterStreamConsumerReq struct {
+	StreamARN    string `json:"StreamARN"`
+	ConsumerARN  string `json:"ConsumerARN"`
+	ConsumerName string `json:"ConsumerName"`
+}
+
+type jsonStartingPosition struct {
+	Type           string  `json:"Type"`
+	SequenceNumber string  `json:"SequenceNumber,omitempty"`
+	Timestamp      float64 `json:"Timestamp,omitempty"`
+}
+
+type jsonSubscribeToShardReq struct {
+	ConsumerARN      string               `json:"ConsumerARN"`
+	ShardID          string               `json:"ShardId"`
+	StartingPosition jsonStartingPosition `json:"StartingPosition"`
+}
+
+type jsonSubscribeToShardEvent struct {
+	ContinuationSequenceNumber string       `json:"ContinuationSequenceNumber"`
+	Records                    []jsonRecord `json:"Records"`
+	MillisBehindLatest         int64        `json:"MillisBehindLatest"`
+}
+
+type jsonUpdateShardCountReq struct {
+	StreamName       string `json:"StreamName"`
+	ScalingType      string `json:"ScalingType"`
+	TargetShardCount int    `json:"TargetShardCount"`
+}
+
+type jsonUpdateShardCountResp struct {
+	StreamName        string `json:"StreamName"`
+	CurrentShardCount int    `json:"CurrentShardCount"`
+	TargetShardCount  int    `json:"TargetShardCount"`
+}
+
+type jsonEnhancedMonitoringReq struct {
+	StreamName        string   `json:"StreamName"`
+	ShardLevelMetrics []string `json:"ShardLevelMetrics"`
+}
+
+type jsonEnhancedMonitoringResp struct {
+	StreamName               string   `json:"StreamName"`
+	CurrentShardLevelMetrics []string `json:"CurrentShardLevelMetrics"`
+	DesiredShardLevelMetrics []string `json:"DesiredShardLevelMetrics"`
+}
+
+// toJSONConsumer converts a Consumer to its JSON representation.
+func toJSONConsumer(c Consumer) jsonConsumer {
+	return jsonConsumer{
+		ConsumerName:              c.ConsumerName,
+		ConsumerARN:               c.ConsumerARN,
+		ConsumerStatus:            c.ConsumerStatus,
+		ConsumerCreationTimestamp: float64(c.ConsumerCreationTimestamp.UnixMilli()) / millisToSeconds,
+		StreamARN:                 c.StreamARN,
+	}
+}
+
+func (h *Handler) handleRegisterStreamConsumer(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonRegisterStreamConsumerReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	out, err := h.Backend.RegisterStreamConsumer(&RegisterStreamConsumerInput{
+		StreamARN:    req.StreamARN,
+		ConsumerName: req.ConsumerName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonRegisterStreamConsumerResp{Consumer: toJSONConsumer(out.Consumer)}, nil
+}
+
+func (h *Handler) handleDescribeStreamConsumer(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonDescribeStreamConsumerReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	out, err := h.Backend.DescribeStreamConsumer(&DescribeStreamConsumerInput{
+		StreamARN:    req.StreamARN,
+		ConsumerARN:  req.ConsumerARN,
+		ConsumerName: req.ConsumerName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonDescribeStreamConsumerResp{ConsumerDescription: toJSONConsumer(out.ConsumerDescription)}, nil
+}
+
+func (h *Handler) handleListStreamConsumers(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonListStreamConsumersReq
+	_ = json.Unmarshal(body, &req)
+
+	out, err := h.Backend.ListStreamConsumers(&ListStreamConsumersInput{
+		StreamARN:  req.StreamARN,
+		NextToken:  req.NextToken,
+		MaxResults: req.MaxResults,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	consumers := make([]jsonConsumer, len(out.Consumers))
+	for i, c := range out.Consumers {
+		consumers[i] = toJSONConsumer(c)
+	}
+
+	return jsonListStreamConsumersResp{Consumers: consumers, NextToken: out.NextToken}, nil
+}
+
+func (h *Handler) handleDeregisterStreamConsumer(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonDeregisterStreamConsumerReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.DeregisterStreamConsumer(&DeregisterStreamConsumerInput{
+		StreamARN:    req.StreamARN,
+		ConsumerARN:  req.ConsumerARN,
+		ConsumerName: req.ConsumerName,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleUpdateShardCount(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonUpdateShardCountReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	out, err := h.Backend.UpdateShardCount(&UpdateShardCountInput{
+		StreamName:       req.StreamName,
+		TargetShardCount: req.TargetShardCount,
+		ScalingType:      req.ScalingType,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonUpdateShardCountResp{
+		StreamName:        out.StreamName,
+		CurrentShardCount: out.CurrentShardCount,
+		TargetShardCount:  out.TargetShardCount,
+	}, nil
+}
+
+func (h *Handler) handleEnableEnhancedMonitoring(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonEnhancedMonitoringReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	out, err := h.Backend.EnableEnhancedMonitoring(&EnableEnhancedMonitoringInput{
+		StreamName:        req.StreamName,
+		ShardLevelMetrics: req.ShardLevelMetrics,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonEnhancedMonitoringResp{
+		StreamName:               out.StreamName,
+		CurrentShardLevelMetrics: out.CurrentShardLevelMetrics,
+		DesiredShardLevelMetrics: out.DesiredShardLevelMetrics,
+	}, nil
+}
+
+func (h *Handler) handleDisableEnhancedMonitoring(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonEnhancedMonitoringReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	out, err := h.Backend.DisableEnhancedMonitoring(&DisableEnhancedMonitoringInput{
+		StreamName:        req.StreamName,
+		ShardLevelMetrics: req.ShardLevelMetrics,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonEnhancedMonitoringResp{
+		StreamName:               out.StreamName,
+		CurrentShardLevelMetrics: out.CurrentShardLevelMetrics,
+		DesiredShardLevelMetrics: out.DesiredShardLevelMetrics,
+	}, nil
+}
+
+// --- AWS Event Stream encoding for SubscribeToShard ---
+
+// eventStreamHeaderValueTypeString is the AWS event stream type byte for string values.
+const eventStreamHeaderValueTypeString = 7
+
+// eventStreamPreludeLen is the number of bytes in an event stream prelude.
+const eventStreamPreludeLen = 12
+
+// eventStreamHeaderValueLenBytes is the number of bytes used to encode a header value length.
+const eventStreamHeaderValueLenBytes = 2
+
+// eventStreamMsgCRCLen is the number of bytes used for the message CRC field.
+const eventStreamMsgCRCLen = 4
+
+// buildEventStreamHeaders encodes the given map as AWS event stream binary headers.
+// Headers are encoded in the order provided; map iteration is non-deterministic so
+// callers should pass a slice of pairs if order matters.
+func buildEventStreamHeaders(hdrs [][2]string) []byte {
+	var buf bytes.Buffer
+
+	for _, kv := range hdrs {
+		name, value := kv[0], kv[1]
+		buf.WriteByte(byte(len(name))) //nolint:gosec // header name bounded by AWS event stream protocol
+		buf.WriteString(name)
+		buf.WriteByte(eventStreamHeaderValueTypeString)
+		vlen := make([]byte, eventStreamHeaderValueLenBytes)
+		//nolint:gosec // header value length fits in uint16 by AWS event stream protocol definition
+		binary.BigEndian.PutUint16(vlen, uint16(len(value)))
+		buf.Write(vlen)
+		buf.WriteString(value)
+	}
+
+	return buf.Bytes()
+}
+
+// encodeEventStreamMsg encodes a single AWS event stream binary message.
+// Format: totalLen(4) | headersLen(4) | preludeCRC(4) | headers | payload | msgCRC(4).
+func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
+	hdrBytes := buildEventStreamHeaders(hdrs)
+	headerLen := len(hdrBytes)
+	payloadLen := len(payload)
+	// prelude (12 bytes) + headers + payload + message CRC (4 bytes)
+	totalLen := eventStreamPreludeLen + headerLen + payloadLen + eventStreamMsgCRCLen
+
+	buf := make([]byte, totalLen)
+	//nolint:gosec // totalLen is bounded by AWS event stream protocol constraints
+	binary.BigEndian.PutUint32(buf[0:4], uint32(totalLen))
+	//nolint:gosec // headerLen is bounded by AWS event stream protocol constraints
+	binary.BigEndian.PutUint32(buf[4:8], uint32(headerLen))
+
+	preludeCRC := crc32.ChecksumIEEE(buf[0:8])
+	binary.BigEndian.PutUint32(buf[8:eventStreamPreludeLen], preludeCRC)
+
+	copy(buf[eventStreamPreludeLen:eventStreamPreludeLen+headerLen], hdrBytes)
+	copy(buf[eventStreamPreludeLen+headerLen:eventStreamPreludeLen+headerLen+payloadLen], payload)
+
+	msgCRC := crc32.ChecksumIEEE(buf[0 : eventStreamPreludeLen+headerLen+payloadLen])
+	binary.BigEndian.PutUint32(buf[eventStreamPreludeLen+headerLen+payloadLen:], msgCRC)
+
+	return buf
+}
+
+// handleSubscribeToShardHTTP handles the SubscribeToShard operation using the AWS event stream
+// binary protocol. It delivers all currently available records as a single SubscribeToShardEvent
+// and then ends the stream. This is a simplified, polling-based mock.
+func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
+	ctx := c.Request().Context()
+	log := logger.Load(ctx)
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		log.ErrorContext(ctx, "SubscribeToShard: failed to read body", "error", err)
+
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	var req jsonSubscribeToShardReq
+	if err = json.Unmarshal(body, &req); err != nil {
+		return h.handleError(ctx, c, "SubscribeToShard", ErrInvalidArgument)
+	}
+
+	sp := StartingPosition{
+		Type:           req.StartingPosition.Type,
+		SequenceNumber: req.StartingPosition.SequenceNumber,
+	}
+
+	if req.StartingPosition.Timestamp != 0 {
+		ts := time.UnixMilli(int64(req.StartingPosition.Timestamp * millisToSeconds))
+		sp.Timestamp = &ts
+	}
+
+	out, err := h.Backend.SubscribeToShard(&SubscribeToShardInput{
+		ConsumerARN:      req.ConsumerARN,
+		ShardID:          req.ShardID,
+		StartingPosition: sp,
+	})
+	if err != nil {
+		return h.handleError(ctx, c, "SubscribeToShard", err)
+	}
+
+	records := make([]jsonRecord, len(out.Event.Records))
+	for i, r := range out.Event.Records {
+		records[i] = jsonRecord{
+			Data:                        r.Data,
+			PartitionKey:                r.PartitionKey,
+			SequenceNumber:              r.SequenceNumber,
+			ApproximateArrivalTimestamp: float64(r.ApproximateArrivalTimestamp.UnixMilli()) / millisToSeconds,
+		}
+	}
+
+	eventPayload, err := json.Marshal(jsonSubscribeToShardEvent{
+		Records:                    records,
+		ContinuationSequenceNumber: out.Event.ContinuationSequenceNumber,
+		MillisBehindLatest:         out.Event.MillisBehindLatest,
+	})
+	if err != nil {
+		log.ErrorContext(ctx, "SubscribeToShard: failed to marshal event payload", "error", err)
+
+		return c.String(http.StatusInternalServerError, "internal server error")
+	}
+
+	eventMsg := encodeEventStreamMsg([][2]string{
+		{":event-type", "SubscribeToShardEvent"},
+		{":message-type", "event"},
+		{":content-type", "application/json"},
+	}, eventPayload)
+
+	// End-of-stream message: empty payload.
+	endMsg := encodeEventStreamMsg([][2]string{
+		{":message-type", "event"},
+		{":event-type", ""},
+	}, nil)
+
+	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+	c.Response().WriteHeader(http.StatusOK)
+
+	if _, err = c.Response().Write(eventMsg); err != nil {
+		return err
+	}
+
+	_, err = c.Response().Write(endMsg)
+
+	return err
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,6 +28,14 @@ type StorageBackend interface {
 	GetShardIterator(input *GetShardIteratorInput) (*GetShardIteratorOutput, error)
 	GetRecords(input *GetRecordsInput) (*GetRecordsOutput, error)
 	ListShards(input *ListShardsInput) (*ListShardsOutput, error)
+	RegisterStreamConsumer(input *RegisterStreamConsumerInput) (*RegisterStreamConsumerOutput, error)
+	DescribeStreamConsumer(input *DescribeStreamConsumerInput) (*DescribeStreamConsumerOutput, error)
+	ListStreamConsumers(input *ListStreamConsumersInput) (*ListStreamConsumersOutput, error)
+	DeregisterStreamConsumer(input *DeregisterStreamConsumerInput) error
+	SubscribeToShard(input *SubscribeToShardInput) (*SubscribeToShardOutput, error)
+	UpdateShardCount(input *UpdateShardCountInput) (*UpdateShardCountOutput, error)
+	EnableEnhancedMonitoring(input *EnableEnhancedMonitoringInput) (*EnableEnhancedMonitoringOutput, error)
+	DisableEnhancedMonitoring(input *DisableEnhancedMonitoringInput) (*DisableEnhancedMonitoringOutput, error)
 	ListAll() []StreamInfo
 }
 
@@ -145,6 +154,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		Tags:            tags.New("kinesis.stream." + input.StreamName + ".tags"),
 		CreatedAt:       time.Now(),
 		RetentionPeriod: defaultRetentionHours,
+		Consumers:       make(map[string]*Consumer),
 	}
 
 	return nil
@@ -351,6 +361,8 @@ func (b *InMemoryBackend) GetShardIterator(input *GetShardIteratorInput) (*GetSh
 		position = findSequencePosition(shard.Records, input.StartingSequenceNumber, false)
 	case iteratorTypeAfterSequenceNumber:
 		position = findSequencePosition(shard.Records, input.StartingSequenceNumber, true)
+	case iteratorTypeAtTimestamp:
+		position = findTimestampPosition(shard.Records, input.Timestamp)
 	default:
 		return nil, ErrInvalidArgument
 	}
@@ -520,4 +532,404 @@ func (b *InMemoryBackend) ListAll() []StreamInfo {
 	}
 
 	return result
+}
+
+// findTimestampPosition returns the index of the first record whose arrival
+// timestamp is not before ts. Returns len(records) if all records are before ts.
+func findTimestampPosition(records []*Record, ts time.Time) int {
+	for i, r := range records {
+		if !r.ApproximateArrivalTimestamp.Before(ts) {
+			return i
+		}
+	}
+
+	return len(records)
+}
+
+// streamNameFromARN extracts the stream name from a Kinesis stream ARN.
+// Stream ARN format: arn:aws:kinesis:{region}:{account}:stream/{name}.
+func streamNameFromARN(streamARN string) string {
+	parts := strings.Split(streamARN, ":")
+	const arnResourceIdx = 5
+	if len(parts) <= arnResourceIdx {
+		return ""
+	}
+
+	return strings.TrimPrefix(parts[arnResourceIdx], "stream/")
+}
+
+// consumerInfoFromARN extracts the stream name and consumer name from a consumer ARN.
+// Consumer ARN format: arn:aws:kinesis:{region}:{account}:stream/{stream}/consumer/{name}:{timestamp}.
+func consumerInfoFromARN(consumerARN string) (string, string) {
+	parts := strings.Split(consumerARN, ":")
+	const arnConsumerResourceIdx = 5
+	if len(parts) <= arnConsumerResourceIdx {
+		return "", ""
+	}
+
+	resourcePath := parts[arnConsumerResourceIdx]
+	segments := strings.Split(resourcePath, "/")
+	// segments: ["stream", "{streamName}", "consumer", "{consumerName}"]
+	const expectedSegments = 4
+	if len(segments) < expectedSegments {
+		return "", ""
+	}
+
+	return segments[1], segments[3]
+}
+
+// buildConsumerARN builds a Kinesis consumer ARN from stream ARN, consumer name, and creation timestamp.
+func buildConsumerARN(streamARN, consumerName string, createdAt time.Time) string {
+	return fmt.Sprintf("%s/consumer/%s:%d", streamARN, consumerName, createdAt.Unix())
+}
+
+// uniqueStrings returns a deduplicated copy of ss, preserving order.
+func uniqueStrings(ss []string) []string {
+	seen := make(map[string]struct{}, len(ss))
+	out := make([]string, 0, len(ss))
+
+	for _, s := range ss {
+		if _, ok := seen[s]; !ok {
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+// removeStrings returns a copy of ss with all elements in remove deleted.
+func removeStrings(ss, remove []string) []string {
+	removeSet := make(map[string]struct{}, len(remove))
+	for _, s := range remove {
+		removeSet[s] = struct{}{}
+	}
+
+	out := make([]string, 0, len(ss))
+
+	for _, s := range ss {
+		if _, ok := removeSet[s]; !ok {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+// RegisterStreamConsumer registers a new enhanced fan-out consumer on a stream.
+func (b *InMemoryBackend) RegisterStreamConsumer(
+	input *RegisterStreamConsumerInput,
+) (*RegisterStreamConsumerOutput, error) {
+	b.mu.Lock("RegisterStreamConsumer")
+	defer b.mu.Unlock()
+
+	streamName := streamNameFromARN(input.StreamARN)
+	stream, ok := b.streams[streamName]
+
+	if !ok {
+		return nil, ErrStreamNotFound
+	}
+
+	if stream.Consumers == nil {
+		stream.Consumers = make(map[string]*Consumer)
+	}
+
+	if _, exists := stream.Consumers[input.ConsumerName]; exists {
+		return nil, ErrConsumerAlreadyExists
+	}
+
+	now := time.Now()
+	consumerARN := buildConsumerARN(input.StreamARN, input.ConsumerName, now)
+
+	consumer := &Consumer{
+		ConsumerName:              input.ConsumerName,
+		ConsumerARN:               consumerARN,
+		ConsumerStatus:            consumerStatusActive,
+		ConsumerCreationTimestamp: now,
+		StreamARN:                 input.StreamARN,
+	}
+	stream.Consumers[input.ConsumerName] = consumer
+
+	return &RegisterStreamConsumerOutput{Consumer: *consumer}, nil
+}
+
+// DescribeStreamConsumer returns details about a registered consumer.
+// Lookup is by ConsumerARN, or by StreamARN + ConsumerName.
+func (b *InMemoryBackend) DescribeStreamConsumer(
+	input *DescribeStreamConsumerInput,
+) (*DescribeStreamConsumerOutput, error) {
+	b.mu.RLock("DescribeStreamConsumer")
+	defer b.mu.RUnlock()
+
+	consumer, err := b.findConsumer(input.StreamARN, input.ConsumerARN, input.ConsumerName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DescribeStreamConsumerOutput{ConsumerDescription: *consumer}, nil
+}
+
+// findConsumer locates a consumer by ARN or by (streamARN + consumerName).
+// The caller must hold a read lock.
+func (b *InMemoryBackend) findConsumer(streamARN, consumerARN, consumerName string) (*Consumer, error) {
+	if consumerARN != "" {
+		sName, cName := consumerInfoFromARN(consumerARN)
+		stream, ok := b.streams[sName]
+
+		if !ok {
+			return nil, ErrConsumerNotFound
+		}
+
+		c, ok := stream.Consumers[cName]
+		if !ok {
+			return nil, ErrConsumerNotFound
+		}
+
+		return c, nil
+	}
+
+	sName := streamNameFromARN(streamARN)
+	stream, ok := b.streams[sName]
+
+	if !ok {
+		return nil, ErrStreamNotFound
+	}
+
+	c, ok := stream.Consumers[consumerName]
+	if !ok {
+		return nil, ErrConsumerNotFound
+	}
+
+	return c, nil
+}
+
+// ListStreamConsumers lists all registered consumers for a stream.
+func (b *InMemoryBackend) ListStreamConsumers(input *ListStreamConsumersInput) (*ListStreamConsumersOutput, error) {
+	b.mu.RLock("ListStreamConsumers")
+	defer b.mu.RUnlock()
+
+	streamName := streamNameFromARN(input.StreamARN)
+	stream, ok := b.streams[streamName]
+
+	if !ok {
+		return nil, ErrStreamNotFound
+	}
+
+	consumers := make([]Consumer, 0, len(stream.Consumers))
+	for _, c := range stream.Consumers {
+		consumers = append(consumers, *c)
+	}
+
+	// Sort for deterministic ordering.
+	sort.Slice(consumers, func(i, j int) bool {
+		return consumers[i].ConsumerName < consumers[j].ConsumerName
+	})
+
+	return &ListStreamConsumersOutput{Consumers: consumers}, nil
+}
+
+// DeregisterStreamConsumer removes a registered consumer from a stream.
+func (b *InMemoryBackend) DeregisterStreamConsumer(input *DeregisterStreamConsumerInput) error {
+	b.mu.Lock("DeregisterStreamConsumer")
+	defer b.mu.Unlock()
+
+	if _, err := b.findConsumer(input.StreamARN, input.ConsumerARN, input.ConsumerName); err != nil {
+		return err
+	}
+
+	sName, cName := func() (string, string) {
+		if input.ConsumerARN != "" {
+			return consumerInfoFromARN(input.ConsumerARN)
+		}
+
+		return streamNameFromARN(input.StreamARN), input.ConsumerName
+	}()
+
+	delete(b.streams[sName].Consumers, cName)
+
+	return nil
+}
+
+// SubscribeToShard delivers records from a shard to an enhanced fan-out consumer.
+// For mock purposes this is a single-shot delivery of all available records.
+func (b *InMemoryBackend) SubscribeToShard(input *SubscribeToShardInput) (*SubscribeToShardOutput, error) {
+	sName, cName := consumerInfoFromARN(input.ConsumerARN)
+
+	b.mu.RLock("SubscribeToShard")
+	defer b.mu.RUnlock()
+
+	stream, ok := b.streams[sName]
+	if !ok {
+		return nil, ErrStreamNotFound
+	}
+
+	if _, exists := stream.Consumers[cName]; !exists {
+		return nil, ErrConsumerNotFound
+	}
+
+	shard := findShard(stream.Shards, input.ShardID)
+	if shard == nil {
+		return nil, ErrInvalidArgument
+	}
+
+	var startPos int
+
+	switch input.StartingPosition.Type {
+	case iteratorTypeTrimHorizon:
+		startPos = 0
+	case iteratorTypeLatest:
+		startPos = len(shard.Records)
+	case iteratorTypeAtSequenceNumber:
+		startPos = findSequencePosition(shard.Records, input.StartingPosition.SequenceNumber, false)
+	case iteratorTypeAfterSequenceNumber:
+		startPos = findSequencePosition(shard.Records, input.StartingPosition.SequenceNumber, true)
+	case iteratorTypeAtTimestamp:
+		ts := time.Time{}
+		if input.StartingPosition.Timestamp != nil {
+			ts = *input.StartingPosition.Timestamp
+		}
+
+		startPos = findTimestampPosition(shard.Records, ts)
+	default:
+		return nil, ErrInvalidArgument
+	}
+
+	records := make([]GetRecordResult, 0, len(shard.Records)-startPos)
+	for _, r := range shard.Records[startPos:] {
+		records = append(records, GetRecordResult{
+			Data:                        r.Data,
+			PartitionKey:                r.PartitionKey,
+			SequenceNumber:              r.SequenceNumber,
+			ApproximateArrivalTimestamp: r.ApproximateArrivalTimestamp,
+		})
+	}
+
+	var continuationSeq string
+	if len(records) > 0 {
+		continuationSeq = records[len(records)-1].SequenceNumber
+	}
+
+	millisBehind := int64(0)
+	if len(shard.Records) > 0 && startPos < len(shard.Records) {
+		millisBehind = time.Since(shard.Records[len(shard.Records)-1].ApproximateArrivalTimestamp).Milliseconds()
+	}
+
+	return &SubscribeToShardOutput{
+		Event: SubscribeToShardEvent{
+			Records:                    records,
+			ContinuationSequenceNumber: continuationSeq,
+			MillisBehindLatest:         millisBehind,
+		},
+	}, nil
+}
+
+// UpdateShardCount resizes a stream to the given number of shards.
+// Existing records in the stream are not migrated; new shards start empty.
+func (b *InMemoryBackend) UpdateShardCount(input *UpdateShardCountInput) (*UpdateShardCountOutput, error) {
+	b.mu.Lock("UpdateShardCount")
+	defer b.mu.Unlock()
+
+	stream, ok := b.streams[input.StreamName]
+	if !ok {
+		return nil, ErrStreamNotFound
+	}
+
+	if input.TargetShardCount <= 0 {
+		return nil, ErrInvalidArgument
+	}
+
+	currentCount := len(stream.Shards)
+	targetCount := input.TargetShardCount
+
+	maxHashKey := new(big.Int).Sub(
+		new(big.Int).Lsh(big.NewInt(1), maxHashKeyBits),
+		big.NewInt(1),
+	)
+	shardRange := new(big.Int).Div(
+		new(big.Int).Add(maxHashKey, big.NewInt(1)),
+		big.NewInt(int64(targetCount)),
+	)
+
+	newShards := make([]*Shard, targetCount)
+	for i := range targetCount {
+		start := new(big.Int).Mul(shardRange, big.NewInt(int64(i)))
+
+		var end *big.Int
+		if i == targetCount-1 {
+			end = maxHashKey
+		} else {
+			end = new(big.Int).Sub(
+				new(big.Int).Mul(shardRange, big.NewInt(int64(i+1))),
+				big.NewInt(1),
+			)
+		}
+
+		newShards[i] = &Shard{
+			ID:                fmt.Sprintf("shardId-%012d", i),
+			HashKeyRangeStart: start.String(),
+			HashKeyRangeEnd:   end.String(),
+			Records:           make([]*Record, 0),
+		}
+	}
+
+	stream.Shards = newShards
+
+	return &UpdateShardCountOutput{
+		StreamName:        input.StreamName,
+		CurrentShardCount: currentCount,
+		TargetShardCount:  targetCount,
+	}, nil
+}
+
+// EnableEnhancedMonitoring adds shard-level metrics to a stream.
+func (b *InMemoryBackend) EnableEnhancedMonitoring(
+	input *EnableEnhancedMonitoringInput,
+) (*EnableEnhancedMonitoringOutput, error) {
+	b.mu.Lock("EnableEnhancedMonitoring")
+	defer b.mu.Unlock()
+
+	stream, ok := b.streams[input.StreamName]
+	if !ok {
+		return nil, ErrStreamNotFound
+	}
+
+	current := make([]string, len(stream.EnhancedMonitoring))
+	copy(current, stream.EnhancedMonitoring)
+
+	combined := make([]string, 0, len(current)+len(input.ShardLevelMetrics))
+	combined = append(combined, current...)
+	combined = append(combined, input.ShardLevelMetrics...)
+	desired := uniqueStrings(combined)
+	stream.EnhancedMonitoring = desired
+
+	return &EnableEnhancedMonitoringOutput{
+		StreamName:               stream.Name,
+		CurrentShardLevelMetrics: current,
+		DesiredShardLevelMetrics: desired,
+	}, nil
+}
+
+// DisableEnhancedMonitoring removes shard-level metrics from a stream.
+func (b *InMemoryBackend) DisableEnhancedMonitoring(
+	input *DisableEnhancedMonitoringInput,
+) (*DisableEnhancedMonitoringOutput, error) {
+	b.mu.Lock("DisableEnhancedMonitoring")
+	defer b.mu.Unlock()
+
+	stream, ok := b.streams[input.StreamName]
+	if !ok {
+		return nil, ErrStreamNotFound
+	}
+
+	current := make([]string, len(stream.EnhancedMonitoring))
+	copy(current, stream.EnhancedMonitoring)
+
+	desired := removeStrings(current, input.ShardLevelMetrics)
+	stream.EnhancedMonitoring = desired
+
+	return &DisableEnhancedMonitoringOutput{
+		StreamName:               stream.Name,
+		CurrentShardLevelMetrics: current,
+		DesiredShardLevelMetrics: desired,
+	}, nil
 }
