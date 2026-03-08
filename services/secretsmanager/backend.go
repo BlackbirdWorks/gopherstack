@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 	"sort"
 	"strconv"
@@ -718,24 +719,19 @@ func injectRequiredTypes(pw []rune, required []string, excludeChars string) erro
 	return nil
 }
 
-// cryptoRandInt returns a cryptographically random non-negative integer in [0, n).
+// cryptoRandInt returns a cryptographically random non-negative integer in [0, n)
+// with uniform distribution using [crypto/rand.Int].
 func cryptoRandInt(n int) (int, error) {
 	if n <= 0 {
 		return 0, ErrCryptoRandInvalidRange
 	}
 
-	b := make([]byte, 4) //nolint:mnd // 4 bytes for uint32
-	if _, err := rand.Read(b); err != nil {
+	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
 		return 0, err
 	}
 
-	v := int(b[0])<<24 | int(b[1])<<16 | int(b[2])<<8 | int(b[3])
-
-	if v < 0 {
-		v = -v
-	}
-
-	return v % n, nil
+	return int(v.Int64()), nil
 }
 
 // filterRunes returns the runes from s that are not in excludeChars.
