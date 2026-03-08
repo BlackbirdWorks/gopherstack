@@ -1,10 +1,10 @@
 # Gopherstack Feature Parity & Status Matrix
 
-This document tracks the implementation status of AWS services in Gopherstack, specifically focusing on feature parity with Localstack.
+This document tracks the implementation status of AWS services in Gopherstack, specifically focusing on feature parity with LocalStack.
 
-> **Note:** Gopherstack implements 42 services, covering 34 Localstack Community (Free) Tier services and 8 Localstack Pro (Paid) Tier services, offering significant competitive advantages.
+> **Note:** Gopherstack implements 42 services, covering 34 LocalStack Community (Free) Tier services and 8 LocalStack Pro (Paid) Tier services, offering significant competitive advantages.
 
-## Localstack Community (Free) Tier Parity
+## LocalStack Community (Free) Tier Parity
 
 | Service | API Implemented | Has Dashboard UI | Has Terraform Tests |
 | --- | --- | --- | --- |
@@ -43,9 +43,9 @@ This document tracks the implementation status of AWS services in Gopherstack, s
 | **SWF** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Transcribe** | ✅ Yes | ✅ Yes | ❌ No |
 
-## Localstack Pro (Paid) Tier Services implemented in Gopherstack Free
+## LocalStack Pro (Paid) Tier Services implemented in Gopherstack Free
 
-Localstack locks these services behind a paid tier. Gopherstack offers them natively for free.
+LocalStack locks these services behind a paid tier. Gopherstack offers them natively for free.
 
 | Service | API Implemented | Has Dashboard UI | Has Terraform Tests |
 | --- | --- | --- | --- |
@@ -96,9 +96,9 @@ The Chaos API supports:
 - Support API (Free)
 - Transcribe (Free)
 
-## Not Implemented Features (Localstack Parity Gap)
+## Not Implemented Features (LocalStack Parity Gap)
 
-The following services are supported by Localstack (either Free or Pro tier) but are not currently implemented in Gopherstack.
+The following services are supported by LocalStack (either Free or Pro tier) but are not currently implemented in Gopherstack.
 
 | Service | API Implemented | Has Dashboard UI | Has Terraform Tests |
 | --- | --- | --- | --- |
