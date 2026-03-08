@@ -1369,16 +1369,17 @@ func TestModifyCacheSubnetGroup(t *testing.T) {
 	}
 }
 
-func TestSnapshots(t *testing.T) {
+func TestCreateSnapshot(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup        func(t *testing.T, client *elasticachesdk.Client)
-		name         string
-		snapshotName string
-		clusterID    string
-		wantStatus   string
-		wantErr      bool
+		setup              func(t *testing.T, client *elasticachesdk.Client)
+		name               string
+		snapshotName       string
+		clusterID          string
+		replicationGroupID string
+		wantStatus         string
+		wantErr            bool
 	}{
 		{
 			name:         "create_from_cluster",
@@ -1389,6 +1390,20 @@ func TestSnapshots(t *testing.T) {
 				_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
 					CacheClusterId: aws.String("snap-cluster"),
 					Engine:         aws.String("redis"),
+				})
+				require.NoError(t, err)
+			},
+			wantStatus: "available",
+		},
+		{
+			name:               "create_from_replication_group",
+			snapshotName:       "rg-snap",
+			replicationGroupID: "rg-for-snap",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+					ReplicationGroupId:          aws.String("rg-for-snap"),
+					ReplicationGroupDescription: aws.String("test"),
 				})
 				require.NoError(t, err)
 			},
@@ -1419,6 +1434,18 @@ func TestSnapshots(t *testing.T) {
 			clusterID:    "does-not-exist",
 			wantErr:      true,
 		},
+		{
+			name:               "invalid_both_sources",
+			snapshotName:       "both-snap",
+			clusterID:          "some-cluster",
+			replicationGroupID: "some-rg",
+			wantErr:            true,
+		},
+		{
+			name:         "invalid_no_source",
+			snapshotName: "no-source-snap",
+			wantErr:      true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1431,10 +1458,17 @@ func TestSnapshots(t *testing.T) {
 				tt.setup(t, client)
 			}
 
-			out, err := client.CreateSnapshot(t.Context(), &elasticachesdk.CreateSnapshotInput{
-				SnapshotName:   aws.String(tt.snapshotName),
-				CacheClusterId: aws.String(tt.clusterID),
-			})
+			input := &elasticachesdk.CreateSnapshotInput{
+				SnapshotName: aws.String(tt.snapshotName),
+			}
+			if tt.clusterID != "" {
+				input.CacheClusterId = aws.String(tt.clusterID)
+			}
+			if tt.replicationGroupID != "" {
+				input.ReplicationGroupId = aws.String(tt.replicationGroupID)
+			}
+
+			out, err := client.CreateSnapshot(t.Context(), input)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1450,18 +1484,30 @@ func TestSnapshots(t *testing.T) {
 	}
 }
 
-func TestDescribeAndDeleteSnapshots(t *testing.T) {
+func TestDescribeSnapshots(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		snapshotName string
-		wantCount    int
-		wantErr      bool
+		name            string
+		snapshotName    string
+		filterClusterID string
+		filterRGID      string
+		wantCount       int
+		wantErr         bool
 	}{
 		{
 			name:      "describe_all",
-			wantCount: 2,
+			wantCount: 3,
+		},
+		{
+			name:            "describe_by_cluster",
+			filterClusterID: "desc-snap-cluster",
+			wantCount:       2,
+		},
+		{
+			name:       "describe_by_replication_group",
+			filterRGID: "desc-snap-rg",
+			wantCount:  1,
 		},
 		{
 			name:         "describe_specific",
@@ -1496,14 +1542,30 @@ func TestDescribeAndDeleteSnapshots(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			var snapName *string
+			// Create a replication group and one snapshot for RG-filter tests.
+			_, err = client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+				ReplicationGroupId:          aws.String("desc-snap-rg"),
+				ReplicationGroupDescription: aws.String("test"),
+			})
+			require.NoError(t, err)
+			_, err = client.CreateSnapshot(t.Context(), &elasticachesdk.CreateSnapshotInput{
+				SnapshotName:       aws.String("rg-snap-x"),
+				ReplicationGroupId: aws.String("desc-snap-rg"),
+			})
+			require.NoError(t, err)
+
+			input := &elasticachesdk.DescribeSnapshotsInput{}
 			if tt.snapshotName != "" {
-				snapName = aws.String(tt.snapshotName)
+				input.SnapshotName = aws.String(tt.snapshotName)
+			}
+			if tt.filterClusterID != "" {
+				input.CacheClusterId = aws.String(tt.filterClusterID)
+			}
+			if tt.filterRGID != "" {
+				input.ReplicationGroupId = aws.String(tt.filterRGID)
 			}
 
-			out, err := client.DescribeSnapshots(t.Context(), &elasticachesdk.DescribeSnapshotsInput{
-				SnapshotName: snapName,
-			})
+			out, err := client.DescribeSnapshots(t.Context(), input)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1513,6 +1575,72 @@ func TestDescribeAndDeleteSnapshots(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Len(t, out.Snapshots, tt.wantCount)
+		})
+	}
+}
+
+func TestDeleteSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, client *elasticachesdk.Client)
+		name         string
+		snapshotName string
+		wantErr      bool
+	}{
+		{
+			name:         "success",
+			snapshotName: "del-snap",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+					CacheClusterId: aws.String("del-cluster"),
+					Engine:         aws.String("redis"),
+				})
+				require.NoError(t, err)
+				_, err = client.CreateSnapshot(t.Context(), &elasticachesdk.CreateSnapshotInput{
+					SnapshotName:   aws.String("del-snap"),
+					CacheClusterId: aws.String("del-cluster"),
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:         "not_found",
+			snapshotName: "ghost-snap",
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if tt.setup != nil {
+				tt.setup(t, client)
+			}
+
+			out, err := client.DeleteSnapshot(t.Context(), &elasticachesdk.DeleteSnapshotInput{
+				SnapshotName: aws.String(tt.snapshotName),
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out.Snapshot)
+			assert.Equal(t, tt.snapshotName, aws.ToString(out.Snapshot.SnapshotName))
+
+			// Verify it is actually gone.
+			_, descErr := client.DescribeSnapshots(t.Context(), &elasticachesdk.DescribeSnapshotsInput{
+				SnapshotName: aws.String(tt.snapshotName),
+			})
+			require.Error(t, descErr)
 		})
 	}
 }

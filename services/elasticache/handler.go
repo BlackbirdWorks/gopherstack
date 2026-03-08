@@ -423,13 +423,8 @@ func (h *Handler) createReplicationGroup(c *echo.Context, form url.Values) error
 	}
 
 	return xmlResp(c, http.StatusOK, result{
-		Xmlns: elasticacheNS,
-		ReplicationGroup: replicationGroupXML{
-			ReplicationGroupID: rg.ReplicationGroupID,
-			Description:        rg.Description,
-			Status:             rg.Status,
-			ARN:                rg.ARN,
-		},
+		Xmlns:            elasticacheNS,
+		ReplicationGroup: rgToXML(*rg),
 	})
 }
 
@@ -477,10 +472,22 @@ func (h *Handler) deleteReplicationGroup(c *echo.Context, form url.Values) error
 
 // replicationGroupXML is the XML representation of a single replication group.
 type replicationGroupXML struct {
-	ReplicationGroupID string `xml:"ReplicationGroupId"`
-	Description        string `xml:"Description"`
-	Status             string `xml:"Status"`
-	ARN                string `xml:"ARN"`
+	ReplicationGroupID      string `xml:"ReplicationGroupId"`
+	Description             string `xml:"Description"`
+	Status                  string `xml:"Status"`
+	ARN                     string `xml:"ARN"`
+	CacheParameterGroupName string `xml:"CacheParameterGroupName,omitempty"`
+}
+
+// rgToXML converts a ReplicationGroup to its XML representation.
+func rgToXML(rg ReplicationGroup) replicationGroupXML {
+	return replicationGroupXML{
+		ReplicationGroupID:      rg.ReplicationGroupID,
+		Description:             rg.Description,
+		Status:                  rg.Status,
+		ARN:                     rg.ARN,
+		CacheParameterGroupName: rg.CacheParameterGroupName,
+	}
 }
 
 // describeReplicationGroupsResultXML is the XML result for DescribeReplicationGroups.
@@ -511,12 +518,7 @@ func (h *Handler) describeReplicationGroups(c *echo.Context, form url.Values) er
 
 	items := make([]replicationGroupXML, 0, len(p.Data))
 	for _, rg := range p.Data {
-		items = append(items, replicationGroupXML{
-			ReplicationGroupID: rg.ReplicationGroupID,
-			Description:        rg.Description,
-			Status:             rg.Status,
-			ARN:                rg.ARN,
-		})
+		items = append(items, rgToXML(rg))
 	}
 
 	return xmlResp(c, http.StatusOK, describeReplicationGroupsResultXML{
@@ -605,13 +607,8 @@ func (h *Handler) modifyReplicationGroup(c *echo.Context, form url.Values) error
 	}
 
 	return xmlResp(c, http.StatusOK, result{
-		Xmlns: elasticacheNS,
-		ReplicationGroup: replicationGroupXML{
-			ReplicationGroupID: rg.ReplicationGroupID,
-			Description:        rg.Description,
-			Status:             rg.Status,
-			ARN:                rg.ARN,
-		},
+		Xmlns:            elasticacheNS,
+		ReplicationGroup: rgToXML(*rg),
 	})
 }
 
@@ -1055,6 +1052,14 @@ func (h *Handler) createSnapshot(c *echo.Context, form url.Values) error {
 
 	snap, err := h.Backend.CreateSnapshot(snapshotName, clusterID, replicationGroupID)
 	if err != nil {
+		if errors.Is(err, ErrInvalidSnapshotSource) {
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"InvalidParameterCombination",
+				ErrInvalidSnapshotSource.Error(),
+			)
+		}
 		if errors.Is(err, ErrSnapshotAlreadyExists) {
 			return xmlError(c, http.StatusBadRequest, "SnapshotAlreadyExistsFault", "Snapshot already exists")
 		}
@@ -1107,9 +1112,10 @@ func (h *Handler) deleteSnapshot(c *echo.Context, form url.Values) error {
 func (h *Handler) describeSnapshots(c *echo.Context, form url.Values) error {
 	snapshotName := form.Get("SnapshotName")
 	clusterID := form.Get("CacheClusterId")
+	replicationGroupID := form.Get("ReplicationGroupId")
 	marker, maxRecords := parsePagination(form)
 
-	p, err := h.Backend.DescribeSnapshots(snapshotName, clusterID, marker, maxRecords)
+	p, err := h.Backend.DescribeSnapshots(snapshotName, clusterID, replicationGroupID, marker, maxRecords)
 	if err != nil {
 		if errors.Is(err, ErrSnapshotNotFound) {
 			return xmlError(c, http.StatusBadRequest, "SnapshotNotFoundFault", "Snapshot not found")

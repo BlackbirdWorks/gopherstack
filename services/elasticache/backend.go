@@ -42,6 +42,9 @@ var (
 	ErrSubnetGroupAlreadyExists           = errors.New("CacheSubnetGroupAlreadyExists")
 	ErrSnapshotNotFound                   = errors.New("SnapshotNotFound")
 	ErrSnapshotAlreadyExists              = errors.New("SnapshotAlreadyExistsFault")
+	ErrInvalidSnapshotSource              = errors.New(
+		"exactly one of CacheClusterId or ReplicationGroupId must be specified",
+	)
 )
 
 // Cluster represents an ElastiCache cluster.
@@ -133,7 +136,10 @@ type StorageBackend interface {
 	ModifySubnetGroup(name, description string, subnetIDs []string) (*CacheSubnetGroup, error)
 	CreateSnapshot(snapshotName, clusterID, replicationGroupID string) (*CacheSnapshot, error)
 	DeleteSnapshot(snapshotName string) (*CacheSnapshot, error)
-	DescribeSnapshots(snapshotName, clusterID, marker string, maxRecords int) (page.Page[CacheSnapshot], error)
+	DescribeSnapshots(
+		snapshotName, clusterID, replicationGroupID, marker string,
+		maxRecords int,
+	) (page.Page[CacheSnapshot], error)
 	CopySnapshot(sourceSnapshotName, targetSnapshotName string) (*CacheSnapshot, error)
 }
 
@@ -403,6 +409,11 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 	for _, sg := range b.subnetGroups {
 		if sg.ARN == arn {
 			return sg.Tags.Clone(), nil
+		}
+	}
+	for _, snap := range b.snapshots {
+		if snap.ARN == arn {
+			return snap.Tags.Clone(), nil
 		}
 	}
 
@@ -808,6 +819,11 @@ func (b *InMemoryBackend) CreateSnapshot(snapshotName, clusterID, replicationGro
 	b.mu.Lock("CreateSnapshot")
 	defer b.mu.Unlock()
 
+	// Exactly one source identifier must be provided.
+	if (clusterID == "") == (replicationGroupID == "") {
+		return nil, ErrInvalidSnapshotSource
+	}
+
 	if _, exists := b.snapshots[snapshotName]; exists {
 		return nil, ErrSnapshotAlreadyExists
 	}
@@ -866,7 +882,7 @@ func (b *InMemoryBackend) DeleteSnapshot(snapshotName string) (*CacheSnapshot, e
 
 // DescribeSnapshots returns one snapshot by name, or a paginated list filtered by cluster/rg.
 func (b *InMemoryBackend) DescribeSnapshots(
-	snapshotName, clusterID, marker string,
+	snapshotName, clusterID, replicationGroupID, marker string,
 	maxRecords int,
 ) (page.Page[CacheSnapshot], error) {
 	b.mu.RLock("DescribeSnapshots")
@@ -884,6 +900,9 @@ func (b *InMemoryBackend) DescribeSnapshots(
 	out := make([]CacheSnapshot, 0, len(b.snapshots))
 	for _, snap := range b.snapshots {
 		if clusterID != "" && snap.CacheClusterID != clusterID {
+			continue
+		}
+		if replicationGroupID != "" && snap.ReplicationGroupID != replicationGroupID {
 			continue
 		}
 		out = append(out, *snap)
