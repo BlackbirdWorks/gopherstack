@@ -230,3 +230,99 @@ func TestIntegration_SecretsManager_RestoreAfterSoftDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, descOut2.DeletedDate, "restored secret should not have DeletedDate")
 }
+
+func TestIntegration_SecretsManager_GetRandomPassword(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSecretsManagerClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		setup        func(*secretsmanager.GetRandomPasswordInput)
+		checkCharsFn func(t *testing.T, pw string)
+		name         string
+		wantLength   int
+	}{
+		{
+			name:       "default_length",
+			wantLength: 32,
+		},
+		{
+			name: "custom_length_16",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				in.PasswordLength = aws.Int64(16)
+			},
+			wantLength: 16,
+		},
+		{
+			name: "exclude_numbers",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				in.PasswordLength = aws.Int64(50)
+				in.ExcludeNumbers = aws.Bool(true)
+			},
+			wantLength: 50,
+			checkCharsFn: func(t *testing.T, pw string) {
+				t.Helper()
+				for _, ch := range pw {
+					assert.NotContains(t, "0123456789", string(ch))
+				}
+			},
+		},
+		{
+			name: "exclude_uppercase",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				in.PasswordLength = aws.Int64(50)
+				in.ExcludeUppercase = aws.Bool(true)
+			},
+			wantLength: 50,
+			checkCharsFn: func(t *testing.T, pw string) {
+				t.Helper()
+				for _, ch := range pw {
+					assert.NotContains(t, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", string(ch))
+				}
+			},
+		},
+		{
+			name: "exclude_specific_chars",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				in.PasswordLength = aws.Int64(50)
+				in.ExcludeCharacters = aws.String("abc")
+			},
+			wantLength: 50,
+			checkCharsFn: func(t *testing.T, pw string) {
+				t.Helper()
+				for _, ch := range pw {
+					assert.NotContains(t, "abc", string(ch))
+				}
+			},
+		},
+		{
+			name: "require_each_included_type",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				in.PasswordLength = aws.Int64(32)
+				in.RequireEachIncludedType = aws.Bool(true)
+			},
+			wantLength: 32,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			input := &secretsmanager.GetRandomPasswordInput{}
+			if tt.setup != nil {
+				tt.setup(input)
+			}
+
+			out, err := client.GetRandomPassword(ctx, input)
+			require.NoError(t, err)
+			require.NotNil(t, out.RandomPassword)
+			assert.Len(t, []rune(*out.RandomPassword), tt.wantLength)
+
+			if tt.checkCharsFn != nil {
+				tt.checkCharsFn(t, *out.RandomPassword)
+			}
+		})
+	}
+}
