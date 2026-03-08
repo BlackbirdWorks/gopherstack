@@ -60,3 +60,15 @@ func decode(token string) int {
 
 	return idx
 }
+
+// EncodeToken encodes a page index as an opaque continuation token.
+func EncodeToken(idx int) string {
+	return encode(idx)
+}
+
+// DecodeToken decodes an opaque continuation token back into a page index.
+// An empty string, malformed base64, or non-integer content all return 0 (start of list),
+// which is safe to use directly as a slice offset.
+func DecodeToken(token string) int {
+	return decode(token)
+}

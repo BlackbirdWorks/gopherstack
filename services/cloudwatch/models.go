@@ -39,21 +39,49 @@ type Datapoint struct {
 	Unit        string    `json:"Unit,omitempty"`
 }
 
-// MetricAlarm represents a CloudWatch alarm.
+// MetricAlarm represents a CloudWatch metric alarm.
 type MetricAlarm struct {
-	CreatedAt          time.Time `json:"AlarmCreatedAt"`
-	StateValue         string    `json:"StateValue"`
-	Namespace          string    `json:"Namespace"`
-	MetricName         string    `json:"MetricName"`
-	ComparisonOperator string    `json:"ComparisonOperator"`
-	Statistic          string    `json:"Statistic"`
-	AlarmName          string    `json:"AlarmName"`
-	StateReason        string    `json:"StateReason,omitempty"`
-	AlarmDescription   string    `json:"AlarmDescription,omitempty"`
-	AlarmArn           string    `json:"AlarmArn"`
-	Threshold          float64   `json:"Threshold"`
-	EvaluationPeriods  int32     `json:"EvaluationPeriods"`
-	Period             int32     `json:"Period"`
+	CreatedAt               time.Time `json:"AlarmCreatedAt"`
+	StateValue              string    `json:"StateValue"`
+	Namespace               string    `json:"Namespace"`
+	MetricName              string    `json:"MetricName"`
+	ComparisonOperator      string    `json:"ComparisonOperator"`
+	Statistic               string    `json:"Statistic"`
+	AlarmName               string    `json:"AlarmName"`
+	StateReason             string    `json:"StateReason,omitempty"`
+	AlarmDescription        string    `json:"AlarmDescription,omitempty"`
+	AlarmArn                string    `json:"AlarmArn"`
+	AlarmActions            []string  `json:"AlarmActions,omitempty"`
+	OKActions               []string  `json:"OKActions,omitempty"`
+	InsufficientDataActions []string  `json:"InsufficientDataActions,omitempty"`
+	Threshold               float64   `json:"Threshold"`
+	EvaluationPeriods       int32     `json:"EvaluationPeriods"`
+	Period                  int32     `json:"Period"`
+	ActionsEnabled          bool      `json:"ActionsEnabled"`
+}
+
+// CompositeAlarm represents a CloudWatch composite alarm that combines child alarms.
+type CompositeAlarm struct {
+	CreatedAt               time.Time `json:"AlarmCreatedAt"`
+	StateValue              string    `json:"StateValue"`
+	AlarmName               string    `json:"AlarmName"`
+	AlarmRule               string    `json:"AlarmRule"`
+	AlarmDescription        string    `json:"AlarmDescription,omitempty"`
+	AlarmArn                string    `json:"AlarmArn"`
+	StateReason             string    `json:"StateReason,omitempty"`
+	AlarmActions            []string  `json:"AlarmActions,omitempty"`
+	OKActions               []string  `json:"OKActions,omitempty"`
+	InsufficientDataActions []string  `json:"InsufficientDataActions,omitempty"`
+	ActionsEnabled          bool      `json:"ActionsEnabled"`
+}
+
+// AlarmHistoryItem represents a single history entry for an alarm.
+type AlarmHistoryItem struct {
+	Timestamp       time.Time `json:"Timestamp"`
+	AlarmName       string    `json:"AlarmName"`
+	HistoryItemType string    `json:"HistoryItemType"`
+	HistorySummary  string    `json:"HistorySummary"`
+	HistoryData     string    `json:"HistoryData,omitempty"`
 }
 
 // MetricStat specifies a metric and statistic for a MetricDataQuery.
