@@ -1,6 +1,7 @@
 package chaos_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -427,6 +428,77 @@ func TestNetworkEffects_TotalDelayMs(t *testing.T) {
 					"expected delay >= %d, got %d", tt.wantMinDelayMs, got)
 				require.LessOrEqual(t, got, tt.wantMaxDelayMs,
 					"expected delay <= %d, got %d", tt.wantMaxDelayMs, got)
+			}
+		})
+	}
+}
+
+func TestFaultStore_RecordActivity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(*chaos.FaultStore)
+		name      string
+		wantFirst string // Service of the newest (index 0) entry returned by GetActivity
+		wantLast  string // Service of the oldest (last-index) entry returned by GetActivity
+		wantLen   int
+	}{
+		{
+			name:    "empty store returns empty activity",
+			wantLen: 0,
+		},
+		{
+			name: "single event is returned",
+			setup: func(s *chaos.FaultStore) {
+				s.RecordActivity(chaos.ActivityEvent{Service: "s3", Triggered: true})
+			},
+			wantLen:   1,
+			wantFirst: "s3",
+		},
+		{
+			name: "multiple events are returned newest-first",
+			setup: func(s *chaos.FaultStore) {
+				s.RecordActivity(chaos.ActivityEvent{Service: "s3"})
+				s.RecordActivity(chaos.ActivityEvent{Service: "dynamodb"})
+				s.RecordActivity(chaos.ActivityEvent{Service: "sqs"})
+			},
+			wantLen:   3,
+			wantFirst: "sqs",
+			wantLast:  "s3",
+		},
+		{
+			name: "ring buffer trims to 100 entries and releases old backing array",
+			setup: func(s *chaos.FaultStore) {
+				// Record 105 events; only the last 100 should survive.
+				for i := range 105 {
+					s.RecordActivity(chaos.ActivityEvent{
+						Service: fmt.Sprintf("svc-%03d", i),
+					})
+				}
+			},
+			wantLen:   100,
+			wantFirst: "svc-104", // newest
+			wantLast:  "svc-005", // oldest retained
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := chaos.NewFaultStore()
+			if tt.setup != nil {
+				tt.setup(store)
+			}
+
+			got := store.GetActivity()
+
+			require.Len(t, got, tt.wantLen)
+			if tt.wantFirst != "" {
+				assert.Equal(t, tt.wantFirst, got[0].Service)
+			}
+			if tt.wantLast != "" {
+				assert.Equal(t, tt.wantLast, got[len(got)-1].Service)
 			}
 		})
 	}

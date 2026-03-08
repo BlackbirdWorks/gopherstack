@@ -144,6 +144,7 @@ type CLI struct {
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
 	fisHandler                   service.Registerable
+	faultStore                   *chaos.FaultStore
 	snsClient                    *sns.Client
 	kmsClient                    *kms.Client
 	iamClient                    *iam.Client
@@ -445,6 +446,9 @@ func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECSHandler() service.Registerable { return c.ecsHandler }
 
+// GetFaultStore returns the chaos fault store (dashboard.AWSSDKProvider).
+func (c *CLI) GetFaultStore() *chaos.FaultStore { return c.faultStore }
+
 // rootCLI is the top-level kong grammar. The server flags live in Serve
 // (the default command); "health" is an explicit subcommand used as a
 // Docker healthcheck from scratch containers.
@@ -586,6 +590,10 @@ func run(ctx context.Context, cli CLI) error {
 		PortAlloc:  portAlloc,
 	}
 
+	// Create the fault store before initialising services so the dashboard can
+	// receive it via cli.GetFaultStore() during its Init() call.
+	cli.faultStore = chaos.NewFaultStore()
+
 	services, err := initializeServices(appCtx)
 	if err != nil {
 		return err
@@ -599,7 +607,7 @@ func run(ctx context.Context, cli CLI) error {
 
 	e := buildEchoServer(ctx, log, persistManager, services, cli)
 
-	faultStore := chaos.NewFaultStore()
+	faultStore := cli.faultStore
 	chaosGroup := e.Group("/_gopherstack/chaos")
 	wireFISFaultStore(cli.fisHandler, faultStore) // wire FIS inject-api-* actions to the chaos FaultStore
 	registry, setupErr := setupRegistry(

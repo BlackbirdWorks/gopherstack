@@ -14,6 +14,7 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -130,6 +131,7 @@ type DashboardHandler struct {
 	SubRouter          *echo.Echo
 	ddbProvider        *ddbbackend.DashboardProvider
 	s3Provider         *s3backend.DashboardProvider
+	FaultStore         *chaos.FaultStore
 	Logger             *slog.Logger
 	layout             *template.Template
 	GlobalConfig       config.GlobalConfig
@@ -201,6 +203,8 @@ type Config struct {
 	TranscribeOps *transcribebackend.Handler
 	// SupportOps provides access to the Support backend.
 	SupportOps *supportbackend.Handler
+	// FaultStore provides access to the Chaos fault store for the dashboard UI.
+	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
 	Logger *slog.Logger
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
@@ -263,6 +267,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/route53resolver/*.html",
 		"templates/transcribe/*.html",
 		"templates/support/*.html",
+		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
@@ -317,6 +322,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		SupportOps:         cfg.SupportOps,
 		GlobalConfig:       cfg.GlobalConfig,
 		Logger:             cfg.Logger,
+		FaultStore:         cfg.FaultStore,
 		layout:             tmpl,
 		ddbProvider:        ddbProvider,
 		s3Provider:         s3Provider,
@@ -609,6 +615,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupRoute53ResolverRoutes()
 	h.setupTranscribeRoutes()
 	h.setupSupportRoutes()
+	h.setupChaosRoutes()
 	h.setupMetaRoutes()
 }
 
@@ -689,6 +696,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/route53resolver", "Route53Resolver"},
 	{"/transcribe", "Transcribe"},
 	{"/support", "Support"},
+	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
 }

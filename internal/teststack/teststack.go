@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -103,6 +104,7 @@ type Stack struct {
 	SupportHandler               *supportbackend.Handler
 	S3Client                     *s3.Client
 	DDBClient                    *dynamodb.Client
+	FaultStore                   *chaos.FaultStore
 	Dashboard                    *dashboard.DashboardHandler
 }
 
@@ -371,7 +373,9 @@ func newCFNHandler(
 }
 
 // newDashboardConfig builds the dashboard.Config for the test stack.
-func newDashboardConfig(h handlers, clients sdkClients) dashboard.Config {
+func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chaos.FaultStore) {
+	fs := chaos.NewFaultStore()
+
 	return dashboard.Config{
 		DDBClient:          clients.DDB,
 		S3Client:           clients.S3,
@@ -411,8 +415,9 @@ func newDashboardConfig(h handlers, clients sdkClients) dashboard.Config {
 		TranscribeOps:      h.transcribe,
 		SupportOps:         h.support,
 		GlobalConfig:       config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion},
+		FaultStore:         fs,
 		Logger:             slog.Default(),
-	}
+	}, fs
 }
 
 // New creates a fully wired integration stack for testing.
@@ -440,7 +445,8 @@ func New(t *testing.T) *Stack {
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
-	dashHndlr := dashboard.NewHandler(newDashboardConfig(h, clients))
+	dashCfg, faultStore := newDashboardConfig(h, clients)
+	dashHndlr := dashboard.NewHandler(dashCfg)
 	_ = registry.Register(dashHndlr)
 
 	// Mount the service router — this is the step that was previously easy to forget.
@@ -487,6 +493,7 @@ func New(t *testing.T) *Stack {
 		SupportHandler:               h.support,
 		S3Client:                     clients.S3,
 		DDBClient:                    clients.DDB,
+		FaultStore:                   faultStore,
 		Dashboard:                    dashHndlr,
 	}
 }

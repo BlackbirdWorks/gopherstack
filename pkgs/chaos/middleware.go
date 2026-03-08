@@ -147,17 +147,36 @@ func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 
 			// Check fault rules.
 			rule, matched := store.Match(svc, op, region)
-			if matched && rule.ShouldTrigger() {
-				fe := rule.EffectiveError()
-				log.InfoContext(ctx, "chaos: injecting fault",
-					"service", svc,
-					"operation", op,
-					"region", region,
-					"status_code", fe.StatusCode,
-					"error_code", fe.Code,
-				)
+			if matched {
+				triggered := rule.ShouldTrigger()
 
-				return respondWithFault(c, fe)
+				event := ActivityEvent{
+					Timestamp:   time.Now(),
+					Service:     svc,
+					Operation:   op,
+					Region:      region,
+					Probability: rule.Probability,
+					Triggered:   triggered,
+				}
+
+				if triggered {
+					fe := rule.EffectiveError()
+					event.FaultApplied = fe.Code
+
+					log.InfoContext(ctx, "chaos: injecting fault",
+						"service", svc,
+						"operation", op,
+						"region", region,
+						"status_code", fe.StatusCode,
+						"error_code", fe.Code,
+					)
+
+					store.RecordActivity(event)
+
+					return respondWithFault(c, fe)
+				}
+
+				store.RecordActivity(event)
 			}
 
 			return next(c)
