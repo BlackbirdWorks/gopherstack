@@ -519,7 +519,7 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			body: "Action=ResetDBParameterGroup&Version=2014-10-31" +
 				"&DBParameterGroupName=reset-pg&ResetAllParameters=true",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"ModifyDBParameterGroupResponse", "reset-pg"},
+			wantContains: []string{"ResetDBParameterGroupResponse", "reset-pg"},
 		},
 		// Option Group tests
 		{

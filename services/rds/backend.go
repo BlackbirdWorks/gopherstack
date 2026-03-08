@@ -568,6 +568,17 @@ func (b *InMemoryBackend) CreateDBParameterGroup(name, family, description strin
 	return &cp, nil
 }
 
+// copyDBParameterGroup returns a deep copy of the given parameter group.
+func copyDBParameterGroup(pg *DBParameterGroup) DBParameterGroup {
+	cp := *pg
+	cp.Parameters = make(map[string]DBParameter, len(pg.Parameters))
+	for k, v := range pg.Parameters {
+		cp.Parameters[k] = v
+	}
+
+	return cp
+}
+
 // DescribeDBParameterGroups returns parameter groups. If name is non-empty, returns only that group.
 func (b *InMemoryBackend) DescribeDBParameterGroups(name string) ([]DBParameterGroup, error) {
 	b.mu.RLock("DescribeDBParameterGroups")
@@ -577,13 +588,12 @@ func (b *InMemoryBackend) DescribeDBParameterGroups(name string) ([]DBParameterG
 		if !exists {
 			return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 		}
-		cp := *pg
 
-		return []DBParameterGroup{cp}, nil
+		return []DBParameterGroup{copyDBParameterGroup(pg)}, nil
 	}
 	result := make([]DBParameterGroup, 0, len(b.parameterGroups))
 	for _, pg := range b.parameterGroups {
-		result = append(result, *pg)
+		result = append(result, copyDBParameterGroup(pg))
 	}
 
 	return result, nil
@@ -612,7 +622,7 @@ func (b *InMemoryBackend) ModifyDBParameterGroup(name string, params []DBParamet
 	for _, p := range params {
 		pg.Parameters[p.ParameterName] = p
 	}
-	cp := *pg
+	cp := copyDBParameterGroup(pg)
 
 	return &cp, nil
 }
@@ -658,7 +668,7 @@ func (b *InMemoryBackend) ResetDBParameterGroup(
 			}
 		}
 	}
-	cp := *pg
+	cp := copyDBParameterGroup(pg)
 
 	return &cp, nil
 }
@@ -879,13 +889,12 @@ func (b *InMemoryBackend) DescribeDBClusterParameterGroups(name string) ([]DBPar
 		if !exists {
 			return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrParameterGroupNotFound, name)
 		}
-		cp := *pg
 
-		return []DBParameterGroup{cp}, nil
+		return []DBParameterGroup{copyDBParameterGroup(pg)}, nil
 	}
 	result := make([]DBParameterGroup, 0, len(b.clusterParameterGroups))
 	for _, pg := range b.clusterParameterGroups {
-		result = append(result, *pg)
+		result = append(result, copyDBParameterGroup(pg))
 	}
 
 	return result, nil

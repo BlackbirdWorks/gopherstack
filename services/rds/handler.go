@@ -915,7 +915,7 @@ func (h *Handler) handleResetDBParameterGroup(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	return &modifyDBParameterGroupResponse{
+	return &resetDBParameterGroupResponse{
 		Xmlns:                rdsXMLNS,
 		DBParameterGroupName: pg.DBParameterGroupName,
 	}, nil
@@ -1342,6 +1342,12 @@ type modifyDBParameterGroupResponse struct {
 	XMLName              xml.Name `xml:"ModifyDBParameterGroupResponse"`
 	Xmlns                string   `xml:"xmlns,attr"`
 	DBParameterGroupName string   `xml:"ModifyDBParameterGroupResult>DBParameterGroupName"`
+}
+
+type resetDBParameterGroupResponse struct {
+	XMLName              xml.Name `xml:"ResetDBParameterGroupResponse"`
+	Xmlns                string   `xml:"xmlns,attr"`
+	DBParameterGroupName string   `xml:"ResetDBParameterGroupResult>DBParameterGroupName"`
 }
 
 type describeDBParametersResponse struct {
