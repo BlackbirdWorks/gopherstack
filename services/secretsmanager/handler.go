@@ -319,7 +319,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "ResourceExistsException"
 	case errors.Is(reqErr, ErrSecretDeleted):
 		errorType = "InvalidRequestException"
-	case errors.Is(reqErr, ErrInvalidPasswordLength):
+	case errors.Is(reqErr, ErrInvalidPasswordParameters):
 		errorType = "InvalidParameterException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"

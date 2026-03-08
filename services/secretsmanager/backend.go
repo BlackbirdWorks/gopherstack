@@ -28,10 +28,12 @@ var (
 	ErrSecretDeleted = errors.New("InvalidRequestException")
 	// ErrVersionNotFound is returned when the specified version does not exist.
 	ErrVersionNotFound = errors.New("ResourceNotFoundException")
-	// ErrInvalidPasswordLength is returned when PasswordLength is out of the allowed range or the charset is empty.
-	ErrInvalidPasswordLength = errors.New("InvalidParameterException")
+	// ErrInvalidPasswordParameters is returned when password generation parameters are invalid
+	// (e.g. PasswordLength out of range, or empty charset after exclusions, or too few positions
+	// to satisfy RequireEachIncludedType).
+	ErrInvalidPasswordParameters = errors.New("InvalidParameterException")
 	// ErrCryptoRandInvalidRange is returned when cryptoRandInt is called with a non-positive bound.
-	ErrCryptoRandInvalidRange = errors.New("cryptoRandInt: n must be positive")
+	ErrCryptoRandInvalidRange = errors.New("random integer bound must be positive")
 )
 
 const (
@@ -604,7 +606,7 @@ func (b *InMemoryBackend) GetRandomPassword(input *GetRandomPasswordInput) (*Get
 	if length < minPasswordLength || length > maxPasswordLength {
 		return nil, fmt.Errorf(
 			"%w: PasswordLength must be between %d and %d",
-			ErrInvalidPasswordLength,
+			ErrInvalidPasswordParameters,
 			minPasswordLength,
 			maxPasswordLength,
 		)
@@ -620,7 +622,15 @@ func (b *InMemoryBackend) GetRandomPassword(input *GetRandomPasswordInput) (*Get
 		return nil, fmt.Errorf("random password generation: %w", err)
 	}
 
-	if input.RequireEachIncludedType && int64(len(required)) <= length {
+	if input.RequireEachIncludedType {
+		if int64(len(required)) > length {
+			return nil, fmt.Errorf(
+				"%w: PasswordLength %d is too short to include all required character types",
+				ErrInvalidPasswordParameters,
+				length,
+			)
+		}
+
 		if injectErr := injectRequiredTypes(pw, required, input.ExcludeCharacters); injectErr != nil {
 			return nil, fmt.Errorf("random password generation: %w", injectErr)
 		}
@@ -672,7 +682,7 @@ func buildPasswordCharset(input *GetRandomPasswordInput) ([]rune, []string, erro
 	if len(filtered) == 0 {
 		return nil, nil, fmt.Errorf(
 			"%w: no characters remain after applying exclusion constraints",
-			ErrInvalidPasswordLength,
+			ErrInvalidPasswordParameters,
 		)
 	}
 
@@ -695,25 +705,47 @@ func randomRunes(pool []rune, length int) ([]rune, error) {
 	return pw, nil
 }
 
-// injectRequiredTypes places at least one character from each required type group into pw.
+// injectRequiredTypes places exactly one character from each required type group into pw,
+// using distinct positions (sampling without replacement via a Fisher-Yates shuffle).
 func injectRequiredTypes(pw []rune, required []string, excludeChars string) error {
+	// Collect the rune groups that remain non-empty after applying excludeChars.
+	nonEmptyGroups := make([][]rune, 0, len(required))
+
 	for _, group := range required {
 		groupRunes := filterRunes([]rune(group), excludeChars)
 		if len(groupRunes) == 0 {
 			continue
 		}
 
+		nonEmptyGroups = append(nonEmptyGroups, groupRunes)
+	}
+
+	if len(nonEmptyGroups) == 0 {
+		return nil
+	}
+
+	// Shuffle positions so each group gets a unique slot.
+	positions := make([]int, len(pw))
+	for i := range positions {
+		positions[i] = i
+	}
+
+	for i := len(positions) - 1; i > 0; i-- {
+		j, err := cryptoRandInt(i + 1)
+		if err != nil {
+			return err
+		}
+
+		positions[i], positions[j] = positions[j], positions[i]
+	}
+
+	for i, groupRunes := range nonEmptyGroups {
 		idx, err := cryptoRandInt(len(groupRunes))
 		if err != nil {
 			return err
 		}
 
-		pos, err := cryptoRandInt(len(pw))
-		if err != nil {
-			return err
-		}
-
-		pw[pos] = groupRunes[idx]
+		pw[positions[i]] = groupRunes[idx]
 	}
 
 	return nil

@@ -1175,6 +1175,36 @@ func TestGetRandomPassword(t *testing.T) {
 				in.RequireEachIncludedType = true
 			},
 			wantLength: 32,
+			checkCharsFn: func(t *testing.T, pw string) {
+				t.Helper()
+				hasLower := strings.ContainsAny(pw, "abcdefghijklmnopqrstuvwxyz")
+				hasUpper := strings.ContainsAny(pw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+				hasDigit := strings.ContainsAny(pw, "0123456789")
+				hasPunct := strings.ContainsAny(pw, "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
+				assert.True(t, hasLower, "password should contain a lowercase letter")
+				assert.True(t, hasUpper, "password should contain an uppercase letter")
+				assert.True(t, hasDigit, "password should contain a digit")
+				assert.True(t, hasPunct, "password should contain a punctuation character")
+			},
+		},
+		{
+			name: "require_each_included_type_length_too_short",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				l := int64(3)
+				in.PasswordLength = &l
+				in.RequireEachIncludedType = true
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty_charset",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				in.ExcludeLowercase = true
+				in.ExcludeUppercase = true
+				in.ExcludeNumbers = true
+				in.ExcludePunctuation = true
+			},
+			wantErr: true,
 		},
 		{
 			name: "length_too_small",

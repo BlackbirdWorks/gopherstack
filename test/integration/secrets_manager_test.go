@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -303,6 +304,22 @@ func TestIntegration_SecretsManager_GetRandomPassword(t *testing.T) {
 				in.RequireEachIncludedType = aws.Bool(true)
 			},
 			wantLength: 32,
+			checkCharsFn: func(t *testing.T, pw string) {
+				t.Helper()
+				assert.True(
+					t,
+					strings.ContainsAny(pw, "abcdefghijklmnopqrstuvwxyz"),
+					"password should contain a lowercase letter",
+				)
+				assert.True(
+					t,
+					strings.ContainsAny(pw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+					"password should contain an uppercase letter",
+				)
+				assert.True(t, strings.ContainsAny(pw, "0123456789"), "password should contain a digit")
+				const punct = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+				assert.True(t, strings.ContainsAny(pw, punct), "password should contain a punctuation character")
+			},
 		},
 	}
 
