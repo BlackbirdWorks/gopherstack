@@ -169,6 +169,59 @@ func TestAssumeRole_ExternalID_ArrayOfValues(t *testing.T) {
 	}
 }
 
+func TestAssumeRole_ExternalID_MultipleStatements_ORSemantics(t *testing.T) {
+	t.Parallel()
+
+	// Two statements with different ExternalId conditions: the caller must match any one.
+	trustDoc := `{
+		"Version":"2012-10-17",
+		"Statement":[
+			{
+				"Effect":"Allow",
+				"Action":"sts:AssumeRole",
+				"Condition":{"StringEquals":{"sts:ExternalId":"id-alpha"}}
+			},
+			{
+				"Effect":"Allow",
+				"Action":"sts:AssumeRole",
+				"Condition":{"StringEquals":{"sts:ExternalId":"id-beta"}}
+			}
+		]
+	}`
+
+	tests := []struct {
+		name       string
+		externalID string
+		wantErr    bool
+	}{
+		{name: "matches_first_statement", externalID: "id-alpha", wantErr: false},
+		{name: "matches_second_statement", externalID: "id-beta", wantErr: false},
+		{name: "matches_neither", externalID: "id-gamma", wantErr: true},
+		{name: "empty_matches_neither", externalID: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := sts.NewInMemoryBackend()
+			backend.SetRoleLookup(&stubRoleLookup{meta: &sts.RoleMeta{TrustPolicy: trustDoc}})
+
+			_, err := backend.AssumeRole(&sts.AssumeRoleInput{
+				RoleArn:         "arn:aws:iam::123456789012:role/MyRole",
+				RoleSessionName: "session",
+				ExternalID:      tt.externalID,
+			})
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, sts.ErrAccessDenied)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestAssumeRole_ExternalID_RoleLookupError(t *testing.T) {
 	t.Parallel()
 
@@ -348,6 +401,8 @@ func TestGetCallerIdentity_AssumedRole_ReturnsAssumedRoleArn(t *testing.T) {
 	assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "assumed-role")
 	assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "TestRole")
 	assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "my-session")
+	assert.Truef(t, strings.HasPrefix(ciResp.GetCallerIdentityResult.UserID, "AROA"),
+		"expected UserID to start with AROA, got %s", ciResp.GetCallerIdentityResult.UserID)
 	assert.Contains(t, ciResp.GetCallerIdentityResult.UserID, "my-session")
 }
 

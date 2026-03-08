@@ -298,6 +298,27 @@ func createSNSClient(t *testing.T) *snssdk.Client {
 	})
 }
 
+// createSTSClientWithCreds returns an STS client pointed at the shared test container
+// using the provided assumed-role credentials.
+func createSTSClientWithCreds(t *testing.T, accessKeyID, secretKey, sessionToken string) *stssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(accessKeyID, secretKey, sessionToken),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return stssdk.NewFromConfig(cfg, func(o *stssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
 // createSTSClient returns an STS client pointed at the shared test container.
 func createSTSClient(t *testing.T) *stssdk.Client {
 	t.Helper()

@@ -24,8 +24,8 @@ var (
 	// ErrMissingSessionName is returned when AssumeRole is called without a RoleSessionName.
 	ErrMissingSessionName = errors.New("RoleSessionName is required")
 
-	// ErrInvalidDuration is returned when DurationSeconds is out of range.
-	ErrInvalidDuration = errors.New("DurationSeconds must be between 900 and 43200")
+	// ErrInvalidDuration is returned when DurationSeconds is out of the allowed range.
+	ErrInvalidDuration = errors.New("DurationSeconds is out of the allowed range")
 
 	// ErrAccessDenied is returned when ExternalId validation fails.
 	ErrAccessDenied = errors.New("AccessDenied")
@@ -118,7 +118,10 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 	}
 
 	if duration < MinDurationSeconds {
-		return nil, ErrInvalidDuration
+		return nil, fmt.Errorf(
+			"%w: DurationSeconds must be at least %d",
+			ErrInvalidDuration, MinDurationSeconds,
+		)
 	}
 
 	effectiveMax, err := b.validateAndGetMaxDuration(input)
@@ -127,7 +130,10 @@ func (b *InMemoryBackend) AssumeRole(input *AssumeRoleInput) (*AssumeRoleRespons
 	}
 
 	if duration > effectiveMax {
-		return nil, ErrInvalidDuration
+		return nil, fmt.Errorf(
+			"%w: DurationSeconds must not exceed %d for this role",
+			ErrInvalidDuration, effectiveMax,
+		)
 	}
 
 	return b.issueCredentials(input, duration)
@@ -195,6 +201,7 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 		AccountID:         account,
 		SessionName:       input.RoleSessionName,
 		AccessKeyID:       accessKeyID,
+		AssumedRoleID:     assumedRoleID,
 		SourceIdentity:    input.SourceIdentity,
 		Tags:              input.Tags,
 		TransitiveTagKeys: input.TransitiveTagKeys,
@@ -239,7 +246,7 @@ func (b *InMemoryBackend) GetCallerIdentity(accessKeyID string) (*GetCallerIdent
 				GetCallerIdentityResult: GetCallerIdentityResult{
 					Account: session.AccountID,
 					Arn:     session.AssumedRoleArn,
-					UserID:  session.AccessKeyID + ":" + session.SessionName,
+					UserID:  session.AssumedRoleID,
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 			}, nil
@@ -303,6 +310,9 @@ func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSess
 
 // validateExternalID parses a trust policy JSON document and validates that the
 // provided externalID satisfies any sts:ExternalId conditions found therein.
+// Trust policy statements use OR semantics: if any statement with an ExternalId
+// condition matches, access is granted. Only if all statements with ExternalId
+// conditions fail is ErrAccessDenied returned.
 // If the trust policy requires an ExternalId but none (or the wrong value) is
 // supplied, ErrAccessDenied is returned.
 func validateExternalID(trustPolicyJSON, externalID string) error {
@@ -318,16 +328,22 @@ func validateExternalID(trustPolicyJSON, externalID string) error {
 	// permissive behaviour is intentional for a mock implementation.
 	_ = json.Unmarshal([]byte(trustPolicyJSON), &tp)
 
+	var hasExternalIDCondition bool
+
 	for _, stmt := range tp.Statement {
 		required := requiredExternalIDs(stmt.Condition)
 		if len(required) == 0 {
 			continue
 		}
 
+		hasExternalIDCondition = true
+
 		if slices.Contains(required, externalID) {
 			return nil
 		}
+	}
 
+	if hasExternalIDCondition {
 		return fmt.Errorf("%w: ExternalId does not match the trust policy condition", ErrAccessDenied)
 	}
 

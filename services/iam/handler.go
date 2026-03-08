@@ -361,7 +361,10 @@ func (h *Handler) iamRoleDispatchTable() map[string]iamActionFn {
 
 			if msd := vals.Get("MaxSessionDuration"); msd != "" {
 				if d, parseErr := strconv.ParseInt(msd, 10, 32); parseErr == nil {
-					_ = h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, int32(d))
+					if updateErr := h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, int32(d)); updateErr != nil {
+						return nil, fmt.Errorf("updating max session duration for role %s: %w", r.RoleName, updateErr)
+					}
+
 					r.MaxSessionDuration = int32(d)
 				}
 			}

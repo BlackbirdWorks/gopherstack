@@ -171,10 +171,13 @@ type DecodeAuthorizationMessageResponse struct {
 
 // SessionInfo stores metadata about an issued assumed-role session for GetCallerIdentity lookups.
 type SessionInfo struct {
-	AssumedRoleArn    string
-	AccountID         string
-	SessionName       string
-	AccessKeyID       string
+	AssumedRoleArn string
+	AccountID      string
+	SessionName    string
+	AccessKeyID    string
+	// AssumedRoleID is the AROA-prefixed role ID + session name (e.g. "AROATESTROLEID:session").
+	// It is the value returned by GetCallerIdentity as the UserId for assumed-role credentials.
+	AssumedRoleID     string
 	SourceIdentity    string
 	Tags              []Tag
 	TransitiveTagKeys []string
