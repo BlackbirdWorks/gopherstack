@@ -230,14 +230,18 @@ func (s *FaultStore) SetEffects(effects NetworkEffects) {
 }
 
 // RecordActivity appends an activity event to the ring buffer.
-// When the buffer exceeds activityLogMaxSize, the oldest entry is dropped.
+// When the buffer exceeds activityLogMaxSize, the oldest entries are discarded.
+// A fresh backing slice is allocated to allow the GC to reclaim old entries.
 func (s *FaultStore) RecordActivity(event ActivityEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.activity = append(s.activity, event)
 	if len(s.activity) > activityLogMaxSize {
-		s.activity = s.activity[len(s.activity)-activityLogMaxSize:]
+		start := len(s.activity) - activityLogMaxSize
+		trimmed := make([]ActivityEvent, activityLogMaxSize)
+		copy(trimmed, s.activity[start:])
+		s.activity = trimmed
 	}
 }
 

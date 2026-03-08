@@ -211,7 +211,7 @@
                             <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
                                 Latency: <span id="latency-label" class="font-bold text-amber-600 dark:text-amber-400">{{.LatencyMs}}ms</span>
                             </label>
-                            <input type="range" name="latency" id="latency-slider"
+                            <input type="range" id="latency-slider"
                                 min="0" max="5000" step="50" value="{{.LatencyMs}}"
                                 oninput="document.getElementById('latency-label').textContent = this.value + 'ms'; document.getElementById('latency-input').value = this.value"
                                 class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 accent-amber-500">
