@@ -240,3 +240,284 @@ func TestIntegration_SSM_SecureString_GetMultipleParameters(t *testing.T) {
 		}
 	}
 }
+
+func TestIntegration_SSM_Document_CreateAndGet(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	docName := "test-doc-" + uuid.NewString()
+	content := `{"schemaVersion":"2.2","description":"Test","mainSteps":[]}`
+
+	createResp, err := client.CreateDocument(ctx, &ssm.CreateDocumentInput{
+		Name:         aws.String(docName),
+		Content:      aws.String(content),
+		DocumentType: types.DocumentTypeCommand,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createResp.DocumentDescription)
+	assert.Equal(t, docName, *createResp.DocumentDescription.Name)
+	assert.Equal(t, types.DocumentStatusActive, createResp.DocumentDescription.Status)
+
+	getResp, err := client.GetDocument(ctx, &ssm.GetDocumentInput{
+		Name: aws.String(docName),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, docName, *getResp.Name)
+	assert.Equal(t, content, *getResp.Content)
+}
+
+func TestIntegration_SSM_Document_DescribeDocument(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	docName := "test-desc-doc-" + uuid.NewString()
+
+	_, err := client.CreateDocument(ctx, &ssm.CreateDocumentInput{
+		Name:         aws.String(docName),
+		Content:      aws.String(`{"schemaVersion":"2.2","mainSteps":[]}`),
+		DocumentType: types.DocumentTypeCommand,
+	})
+	require.NoError(t, err)
+
+	descResp, err := client.DescribeDocument(ctx, &ssm.DescribeDocumentInput{
+		Name: aws.String(docName),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, descResp.Document)
+	assert.Equal(t, docName, *descResp.Document.Name)
+	assert.Equal(t, types.DocumentTypeCommand, descResp.Document.DocumentType)
+}
+
+func TestIntegration_SSM_Document_ListDocuments(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	prefix := "list-test-doc-" + uuid.NewString()
+
+	for i := range 3 {
+		_, err := client.CreateDocument(ctx, &ssm.CreateDocumentInput{
+			Name:         aws.String(prefix + "-" + strconv.Itoa(i)),
+			Content:      aws.String(`{"schemaVersion":"2.2","mainSteps":[]}`),
+			DocumentType: types.DocumentTypeCommand,
+		})
+		require.NoError(t, err)
+	}
+
+	listResp, err := client.ListDocuments(ctx, &ssm.ListDocumentsInput{})
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(listResp.DocumentIdentifiers), 3)
+}
+
+func TestIntegration_SSM_Document_UpdateDocument(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	docName := "test-update-doc-" + uuid.NewString()
+
+	_, err := client.CreateDocument(ctx, &ssm.CreateDocumentInput{
+		Name:         aws.String(docName),
+		Content:      aws.String(`{"schemaVersion":"2.2","mainSteps":[]}`),
+		DocumentType: types.DocumentTypeCommand,
+	})
+	require.NoError(t, err)
+
+	updateResp, err := client.UpdateDocument(ctx, &ssm.UpdateDocumentInput{
+		Name:            aws.String(docName),
+		Content:         aws.String(`{"schemaVersion":"2.2","description":"updated","mainSteps":[]}`),
+		DocumentVersion: aws.String("1"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updateResp.DocumentDescription)
+	assert.Equal(t, "2", *updateResp.DocumentDescription.LatestVersion)
+}
+
+func TestIntegration_SSM_Document_DeleteDocument(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	docName := "test-del-doc-" + uuid.NewString()
+
+	_, err := client.CreateDocument(ctx, &ssm.CreateDocumentInput{
+		Name:         aws.String(docName),
+		Content:      aws.String(`{"schemaVersion":"2.2","mainSteps":[]}`),
+		DocumentType: types.DocumentTypeCommand,
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteDocument(ctx, &ssm.DeleteDocumentInput{
+		Name: aws.String(docName),
+	})
+	require.NoError(t, err)
+
+	_, err = client.GetDocument(ctx, &ssm.GetDocumentInput{Name: aws.String(docName)})
+	require.Error(t, err)
+}
+
+func TestIntegration_SSM_Document_Permissions(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	docName := "test-perm-doc-" + uuid.NewString()
+
+	_, err := client.CreateDocument(ctx, &ssm.CreateDocumentInput{
+		Name:         aws.String(docName),
+		Content:      aws.String(`{"schemaVersion":"2.2","mainSteps":[]}`),
+		DocumentType: types.DocumentTypeCommand,
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyDocumentPermission(ctx, &ssm.ModifyDocumentPermissionInput{
+		Name:            aws.String(docName),
+		PermissionType:  types.DocumentPermissionTypeShare,
+		AccountIdsToAdd: []string{"111111111111"},
+	})
+	require.NoError(t, err)
+
+	descPermResp, err := client.DescribeDocumentPermission(ctx, &ssm.DescribeDocumentPermissionInput{
+		Name:           aws.String(docName),
+		PermissionType: types.DocumentPermissionTypeShare,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, descPermResp.AccountIds, "111111111111")
+}
+
+func TestIntegration_SSM_Document_ListDocumentVersions(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	docName := "test-ver-doc-" + uuid.NewString()
+
+	_, err := client.CreateDocument(ctx, &ssm.CreateDocumentInput{
+		Name:         aws.String(docName),
+		Content:      aws.String(`{"schemaVersion":"2.2","mainSteps":[]}`),
+		DocumentType: types.DocumentTypeCommand,
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateDocument(ctx, &ssm.UpdateDocumentInput{
+		Name:            aws.String(docName),
+		Content:         aws.String(`{"schemaVersion":"2.2","description":"v2","mainSteps":[]}`),
+		DocumentVersion: aws.String("1"),
+	})
+	require.NoError(t, err)
+
+	versResp, err := client.ListDocumentVersions(ctx, &ssm.ListDocumentVersionsInput{
+		Name: aws.String(docName),
+	})
+	require.NoError(t, err)
+	require.Len(t, versResp.DocumentVersions, 2)
+	assert.Equal(t, "1", *versResp.DocumentVersions[0].DocumentVersion)
+	assert.Equal(t, "2", *versResp.DocumentVersions[1].DocumentVersion)
+}
+
+func TestIntegration_SSM_Document_DefaultDocuments(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "AWS-RunShellScript"},
+		{name: "AWS-RunPowerShellScript"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			getResp, err := client.GetDocument(ctx, &ssm.GetDocumentInput{
+				Name: aws.String(tt.name),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.name, *getResp.Name)
+			assert.NotEmpty(t, *getResp.Content)
+		})
+	}
+}
+
+func TestIntegration_SSM_Command_SendAndList(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	sendResp, err := client.SendCommand(ctx, &ssm.SendCommandInput{
+		DocumentName: aws.String("AWS-RunShellScript"),
+		InstanceIds:  []string{"i-test01"},
+		Comment:      aws.String("integration test"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, sendResp.Command)
+	assert.NotEmpty(t, *sendResp.Command.CommandId)
+	assert.Equal(t, "AWS-RunShellScript", *sendResp.Command.DocumentName)
+
+	listResp, err := client.ListCommands(ctx, &ssm.ListCommandsInput{
+		CommandId: sendResp.Command.CommandId,
+	})
+	require.NoError(t, err)
+	require.Len(t, listResp.Commands, 1)
+	assert.Equal(t, *sendResp.Command.CommandId, *listResp.Commands[0].CommandId)
+}
+
+func TestIntegration_SSM_Command_GetCommandInvocation(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	sendResp, err := client.SendCommand(ctx, &ssm.SendCommandInput{
+		DocumentName: aws.String("AWS-RunShellScript"),
+		InstanceIds:  []string{"i-invtest"},
+	})
+	require.NoError(t, err)
+
+	invResp, err := client.GetCommandInvocation(ctx, &ssm.GetCommandInvocationInput{
+		CommandId:  sendResp.Command.CommandId,
+		InstanceId: aws.String("i-invtest"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, *sendResp.Command.CommandId, *invResp.CommandId)
+	assert.Equal(t, "i-invtest", *invResp.InstanceId)
+}
+
+func TestIntegration_SSM_Command_ListCommandInvocations(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	sendResp, err := client.SendCommand(ctx, &ssm.SendCommandInput{
+		DocumentName: aws.String("AWS-RunShellScript"),
+		InstanceIds:  []string{"i-inv01", "i-inv02"},
+	})
+	require.NoError(t, err)
+
+	listInvResp, err := client.ListCommandInvocations(ctx, &ssm.ListCommandInvocationsInput{
+		CommandId: sendResp.Command.CommandId,
+	})
+	require.NoError(t, err)
+	require.Len(t, listInvResp.CommandInvocations, 2)
+
+	instanceIDs := []string{
+		*listInvResp.CommandInvocations[0].InstanceId,
+		*listInvResp.CommandInvocations[1].InstanceId,
+	}
+	assert.Contains(t, instanceIDs, "i-inv01")
+	assert.Contains(t, instanceIDs, "i-inv02")
+}

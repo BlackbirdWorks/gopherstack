@@ -49,6 +49,19 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AddTagsToResource",
 		"RemoveTagsFromResource",
 		"ListTagsForResource",
+		"CreateDocument",
+		"GetDocument",
+		"DescribeDocument",
+		"ListDocuments",
+		"UpdateDocument",
+		"DeleteDocument",
+		"DescribeDocumentPermission",
+		"ModifyDocumentPermission",
+		"ListDocumentVersions",
+		"SendCommand",
+		"ListCommands",
+		"GetCommandInvocation",
+		"ListCommandInvocations",
 	}
 }
 
@@ -117,6 +130,8 @@ type ssmActionFn func([]byte) (any, error)
 func (h *Handler) ssmDispatchTable() map[string]ssmActionFn {
 	ops := h.ssmParameterOps()
 	maps.Copy(ops, h.ssmTagOps())
+	maps.Copy(ops, h.ssmDocumentOps())
+	maps.Copy(ops, h.ssmCommandOps())
 
 	return ops
 }
@@ -219,6 +234,120 @@ func (h *Handler) ssmTagOps() map[string]ssmActionFn {
 	}
 }
 
+func (h *Handler) ssmDocumentOps() map[string]ssmActionFn {
+	return map[string]ssmActionFn{
+		"CreateDocument": func(b []byte) (any, error) {
+			var input CreateDocumentInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.CreateDocument(&input)
+		},
+		"GetDocument": func(b []byte) (any, error) {
+			var input GetDocumentInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetDocument(&input)
+		},
+		"DescribeDocument": func(b []byte) (any, error) {
+			var input DescribeDocumentInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeDocument(&input)
+		},
+		"ListDocuments": func(b []byte) (any, error) {
+			var input ListDocumentsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListDocuments(&input)
+		},
+		"UpdateDocument": func(b []byte) (any, error) {
+			var input UpdateDocumentInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.UpdateDocument(&input)
+		},
+		"DeleteDocument": func(b []byte) (any, error) {
+			var input DeleteDocumentInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DeleteDocument(&input)
+		},
+		"DescribeDocumentPermission": func(b []byte) (any, error) {
+			var input DescribeDocumentPermissionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.DescribeDocumentPermission(&input)
+		},
+		"ModifyDocumentPermission": func(b []byte) (any, error) {
+			var input ModifyDocumentPermissionInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ModifyDocumentPermission(&input)
+		},
+		"ListDocumentVersions": func(b []byte) (any, error) {
+			var input ListDocumentVersionsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListDocumentVersions(&input)
+		},
+	}
+}
+
+func (h *Handler) ssmCommandOps() map[string]ssmActionFn {
+	return map[string]ssmActionFn{
+		"SendCommand": func(b []byte) (any, error) {
+			var input SendCommandInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.SendCommand(&input)
+		},
+		"ListCommands": func(b []byte) (any, error) {
+			var input ListCommandsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListCommands(&input)
+		},
+		"GetCommandInvocation": func(b []byte) (any, error) {
+			var input GetCommandInvocationInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetCommandInvocation(&input)
+		},
+		"ListCommandInvocations": func(b []byte) (any, error) {
+			var input ListCommandInvocationsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListCommandInvocations(&input)
+		},
+	}
+}
+
 // dispatch routes the operation to the appropriate handler.
 func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
 	fn, ok := h.ssmDispatchTable()[action]
@@ -247,6 +376,12 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "ParameterNotFound"
 	case errors.Is(reqErr, ErrParameterAlreadyExists):
 		errorType = "ParameterAlreadyExists"
+	case errors.Is(reqErr, ErrDocumentNotFound):
+		errorType = "InvalidDocument"
+	case errors.Is(reqErr, ErrDocumentAlreadyExists):
+		errorType = "DocumentAlreadyExists"
+	case errors.Is(reqErr, ErrCommandNotFound):
+		errorType = "InvalidCommandId"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"
 	default:

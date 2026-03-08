@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -25,6 +27,9 @@ var (
 	ErrInvalidKeyID           = errors.New("InvalidKeyId")
 	ErrCiphertextTooShort     = errors.New("ciphertext too short")
 	ErrValidationException    = errors.New("ValidationException")
+	ErrDocumentNotFound       = errors.New("InvalidDocument")
+	ErrDocumentAlreadyExists  = errors.New("DocumentAlreadyExists")
+	ErrCommandNotFound        = errors.New("InvalidCommandId")
 )
 
 const (
@@ -134,24 +139,52 @@ type StorageBackend interface {
 	RemoveTagsFromResource(input *RemoveTagsFromResourceInput) error
 	ListTagsForResource(input *ListTagsForResourceInput) (*ListTagsForResourceOutput, error)
 	ListAll() []Parameter
+	// Document operations
+	CreateDocument(input *CreateDocumentInput) (*CreateDocumentOutput, error)
+	GetDocument(input *GetDocumentInput) (*GetDocumentOutput, error)
+	DescribeDocument(input *DescribeDocumentInput) (*DescribeDocumentOutput, error)
+	ListDocuments(input *ListDocumentsInput) (*ListDocumentsOutput, error)
+	UpdateDocument(input *UpdateDocumentInput) (*UpdateDocumentOutput, error)
+	DeleteDocument(input *DeleteDocumentInput) (*DeleteDocumentOutput, error)
+	DescribeDocumentPermission(input *DescribeDocumentPermissionInput) (*DescribeDocumentPermissionOutput, error)
+	ModifyDocumentPermission(input *ModifyDocumentPermissionInput) (*ModifyDocumentPermissionOutput, error)
+	ListDocumentVersions(input *ListDocumentVersionsInput) (*ListDocumentVersionsOutput, error)
+	// Command stubs
+	SendCommand(input *SendCommandInput) (*SendCommandOutput, error)
+	ListCommands(input *ListCommandsInput) (*ListCommandsOutput, error)
+	GetCommandInvocation(input *GetCommandInvocationInput) (*GetCommandInvocationOutput, error)
+	ListCommandInvocations(input *ListCommandInvocationsInput) (*ListCommandInvocationsOutput, error)
 }
 
 // InMemoryBackend implements StorageBackend using a concurrency-safe map.
 type InMemoryBackend struct {
 	parameters map[string]Parameter
-	history    map[string][]ParameterHistory // Stores all versions of each parameter
-	tags       map[string]*tags.Tags         // paramName -> tags
+	history    map[string][]ParameterHistory
+	tags       map[string]*tags.Tags
+	documents  map[string]*documentStore
 	mu         *lockmetrics.RWMutex
+	commands   []*Command
+}
+
+// documentStore holds a document and its version history.
+type documentStore struct {
+	versions []Document
+	current  Document
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		parameters: make(map[string]Parameter),
 		history:    make(map[string][]ParameterHistory),
 		tags:       make(map[string]*tags.Tags),
+		documents:  make(map[string]*documentStore),
+		commands:   make([]*Command, 0),
 		mu:         lockmetrics.New("ssm"),
 	}
+	b.seedDefaultDocuments()
+
+	return b
 }
 
 // PutParameter creates or updates a parameter.
@@ -606,4 +639,556 @@ func (b *InMemoryBackend) ListTagsForResource(input *ListTagsForResourceInput) (
 	sort.Slice(tagList, func(i, j int) bool { return tagList[i].Key < tagList[j].Key })
 
 	return &ListTagsForResourceOutput{TagList: tagList}, nil
+}
+
+const (
+	runShellScriptContent = `{"schemaVersion":"2.2","description":"Run shell scripts",` +
+		`"parameters":{"commands":{"type":"StringList","description":"Commands to run"}},` +
+		`"mainSteps":[{"action":"aws:runShellScript","name":"runShellScript",` +
+		`"inputs":{"runCommand":["{{ commands }}"]}}]}`
+
+	runPowerShellScriptContent = `{"schemaVersion":"2.2","description":"Run PowerShell scripts",` +
+		`"parameters":{"commands":{"type":"StringList","description":"Commands to run"}},` +
+		`"mainSteps":[{"action":"aws:runPowerShellScript","name":"runPowerShellScript",` +
+		`"inputs":{"runCommand":["{{ commands }}"]}}]}`
+)
+
+// seedDefaultDocuments registers the built-in AWS documents that tools expect to exist.
+func (b *InMemoryBackend) seedDefaultDocuments() {
+	defaults := []struct {
+		name    string
+		docType string
+		content string
+	}{
+		{
+			name:    "AWS-RunShellScript",
+			docType: "Command",
+			content: runShellScriptContent,
+		},
+		{
+			name:    "AWS-RunPowerShellScript",
+			docType: "Command",
+			content: runPowerShellScriptContent,
+		},
+	}
+
+	now := UnixTimeFloat(time.Now())
+	for _, d := range defaults {
+		doc := Document{
+			Name:            d.name,
+			DocumentType:    d.docType,
+			DocumentFormat:  "JSON",
+			Content:         d.content,
+			Owner:           "Amazon",
+			Status:          "Active",
+			DocumentVersion: "1",
+			LatestVersion:   "1",
+			DefaultVersion:  "1",
+			SchemaVersion:   "2.2",
+			Permissions:     make(map[string]string),
+			CreatedDate:     now,
+		}
+		b.documents[d.name] = &documentStore{
+			current:  doc,
+			versions: []Document{doc},
+		}
+	}
+}
+
+// documentToDescription converts a Document to a DocumentDescription.
+func documentToDescription(doc Document) DocumentDescription {
+	return DocumentDescription{
+		Name:            doc.Name,
+		DocumentType:    doc.DocumentType,
+		DocumentFormat:  doc.DocumentFormat,
+		Description:     doc.Description,
+		Owner:           doc.Owner,
+		Status:          doc.Status,
+		DocumentVersion: doc.DocumentVersion,
+		LatestVersion:   doc.LatestVersion,
+		DefaultVersion:  doc.DefaultVersion,
+		SchemaVersion:   doc.SchemaVersion,
+		Tags:            doc.Tags,
+		Parameters:      doc.Parameters,
+		CreatedDate:     doc.CreatedDate,
+	}
+}
+
+// CreateDocument stores a new SSM document.
+func (b *InMemoryBackend) CreateDocument(input *CreateDocumentInput) (*CreateDocumentOutput, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: document name is required", ErrValidationException)
+	}
+
+	b.mu.Lock("CreateDocument")
+	defer b.mu.Unlock()
+
+	if _, exists := b.documents[input.Name]; exists {
+		return nil, ErrDocumentAlreadyExists
+	}
+
+	docFormat := input.DocumentFormat
+	if docFormat == "" {
+		docFormat = "JSON"
+	}
+
+	docType := input.DocumentType
+	if docType == "" {
+		docType = "Command"
+	}
+
+	now := UnixTimeFloat(time.Now())
+	doc := Document{
+		Name:            input.Name,
+		DocumentType:    docType,
+		DocumentFormat:  docFormat,
+		Content:         input.Content,
+		Description:     input.Description,
+		Owner:           "123456789012",
+		Status:          "Active",
+		DocumentVersion: "1",
+		LatestVersion:   "1",
+		DefaultVersion:  "1",
+		Tags:            input.Tags,
+		Permissions:     make(map[string]string),
+		CreatedDate:     now,
+	}
+
+	b.documents[input.Name] = &documentStore{
+		current:  doc,
+		versions: []Document{doc},
+	}
+
+	return &CreateDocumentOutput{DocumentDescription: documentToDescription(doc)}, nil
+}
+
+// GetDocument retrieves an SSM document's content.
+func (b *InMemoryBackend) GetDocument(input *GetDocumentInput) (*GetDocumentOutput, error) {
+	b.mu.RLock("GetDocument")
+	defer b.mu.RUnlock()
+
+	store, exists := b.documents[input.Name]
+	if !exists {
+		return nil, ErrDocumentNotFound
+	}
+
+	doc := store.current
+	if input.DocumentVersion != "" && input.DocumentVersion != "$LATEST" && input.DocumentVersion != "$DEFAULT" {
+		found := false
+		for _, v := range store.versions {
+			if v.DocumentVersion == input.DocumentVersion {
+				doc = v
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return nil, ErrDocumentNotFound
+		}
+	}
+
+	return &GetDocumentOutput{
+		Name:            doc.Name,
+		Content:         doc.Content,
+		DocumentType:    doc.DocumentType,
+		DocumentFormat:  doc.DocumentFormat,
+		DocumentVersion: doc.DocumentVersion,
+		Status:          doc.Status,
+	}, nil
+}
+
+// DescribeDocument returns metadata for an SSM document.
+func (b *InMemoryBackend) DescribeDocument(input *DescribeDocumentInput) (*DescribeDocumentOutput, error) {
+	b.mu.RLock("DescribeDocument")
+	defer b.mu.RUnlock()
+
+	store, exists := b.documents[input.Name]
+	if !exists {
+		return nil, ErrDocumentNotFound
+	}
+
+	doc := store.current
+	if input.DocumentVersion != "" && input.DocumentVersion != "$LATEST" && input.DocumentVersion != "$DEFAULT" {
+		found := false
+		for _, v := range store.versions {
+			if v.DocumentVersion == input.DocumentVersion {
+				doc = v
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return nil, ErrDocumentNotFound
+		}
+	}
+
+	return &DescribeDocumentOutput{Document: documentToDescription(doc)}, nil
+}
+
+const defaultListDocumentsMaxResults = 50
+
+// ListDocuments returns a list of SSM document identifiers.
+func (b *InMemoryBackend) ListDocuments(input *ListDocumentsInput) (*ListDocumentsOutput, error) {
+	b.mu.RLock("ListDocuments")
+	defer b.mu.RUnlock()
+
+	all := make([]DocumentIdentifier, 0, len(b.documents))
+	for _, store := range b.documents {
+		doc := store.current
+		all = append(all, DocumentIdentifier{
+			Name:            doc.Name,
+			DocumentType:    doc.DocumentType,
+			DocumentFormat:  doc.DocumentFormat,
+			Owner:           doc.Owner,
+			DocumentVersion: doc.DocumentVersion,
+			SchemaVersion:   doc.SchemaVersion,
+		})
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+
+	startIdx := parseNextToken(input.NextToken)
+
+	maxResults := int64(defaultListDocumentsMaxResults)
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = *input.MaxResults
+	}
+
+	if startIdx >= len(all) {
+		return &ListDocumentsOutput{DocumentIdentifiers: []DocumentIdentifier{}}, nil
+	}
+
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+	if end < len(all) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return &ListDocumentsOutput{
+		DocumentIdentifiers: all[startIdx:end],
+		NextToken:           nextToken,
+	}, nil
+}
+
+// UpdateDocument updates the content of an SSM document and increments the version.
+func (b *InMemoryBackend) UpdateDocument(input *UpdateDocumentInput) (*UpdateDocumentOutput, error) {
+	if input.Name == "" {
+		return nil, fmt.Errorf("%w: document name is required", ErrValidationException)
+	}
+
+	b.mu.Lock("UpdateDocument")
+	defer b.mu.Unlock()
+
+	store, exists := b.documents[input.Name]
+	if !exists {
+		return nil, ErrDocumentNotFound
+	}
+
+	newVersionNum := len(store.versions) + 1
+	newVersion := strconv.Itoa(newVersionNum)
+
+	docFormat := input.DocumentFormat
+	if docFormat == "" {
+		docFormat = store.current.DocumentFormat
+	}
+
+	updated := store.current
+	updated.Content = input.Content
+	updated.DocumentFormat = docFormat
+	updated.DocumentVersion = newVersion
+	updated.LatestVersion = newVersion
+	updated.DefaultVersion = store.versions[0].DocumentVersion
+
+	store.current = updated
+	store.versions = append(store.versions, updated)
+
+	return &UpdateDocumentOutput{DocumentDescription: documentToDescription(store.current)}, nil
+}
+
+// DeleteDocument removes an SSM document.
+func (b *InMemoryBackend) DeleteDocument(input *DeleteDocumentInput) (*DeleteDocumentOutput, error) {
+	b.mu.Lock("DeleteDocument")
+	defer b.mu.Unlock()
+
+	if _, exists := b.documents[input.Name]; !exists {
+		return nil, ErrDocumentNotFound
+	}
+
+	delete(b.documents, input.Name)
+
+	return &DeleteDocumentOutput{}, nil
+}
+
+// DescribeDocumentPermission returns sharing permissions for a document.
+func (b *InMemoryBackend) DescribeDocumentPermission(
+	input *DescribeDocumentPermissionInput,
+) (*DescribeDocumentPermissionOutput, error) {
+	b.mu.RLock("DescribeDocumentPermission")
+	defer b.mu.RUnlock()
+
+	store, exists := b.documents[input.Name]
+	if !exists {
+		return nil, ErrDocumentNotFound
+	}
+
+	accountIDs := make([]string, 0, len(store.current.Permissions))
+	sharingInfo := make([]AccountSharingInfo, 0, len(store.current.Permissions))
+
+	for accountID := range store.current.Permissions {
+		accountIDs = append(accountIDs, accountID)
+		sharingInfo = append(sharingInfo, AccountSharingInfo{
+			AccountID:             accountID,
+			SharedDocumentVersion: "$Default",
+		})
+	}
+
+	sort.Strings(accountIDs)
+	sort.Slice(sharingInfo, func(i, j int) bool { return sharingInfo[i].AccountID < sharingInfo[j].AccountID })
+
+	return &DescribeDocumentPermissionOutput{
+		AccountIDs:         accountIDs,
+		AccountSharingInfo: sharingInfo,
+	}, nil
+}
+
+// ModifyDocumentPermission adds or removes sharing permissions for a document.
+func (b *InMemoryBackend) ModifyDocumentPermission(
+	input *ModifyDocumentPermissionInput,
+) (*ModifyDocumentPermissionOutput, error) {
+	b.mu.Lock("ModifyDocumentPermission")
+	defer b.mu.Unlock()
+
+	store, exists := b.documents[input.Name]
+	if !exists {
+		return nil, ErrDocumentNotFound
+	}
+
+	for _, accountID := range input.AccountIDsToAdd {
+		store.current.Permissions[accountID] = "Read"
+	}
+
+	for _, accountID := range input.AccountIDsToRemove {
+		delete(store.current.Permissions, accountID)
+	}
+
+	return &ModifyDocumentPermissionOutput{}, nil
+}
+
+const defaultListDocumentVersionsMaxResults = 50
+
+// ListDocumentVersions returns version history for a document.
+func (b *InMemoryBackend) ListDocumentVersions(input *ListDocumentVersionsInput) (*ListDocumentVersionsOutput, error) {
+	b.mu.RLock("ListDocumentVersions")
+	defer b.mu.RUnlock()
+
+	store, exists := b.documents[input.Name]
+	if !exists {
+		return nil, ErrDocumentNotFound
+	}
+
+	allVersions := make([]DocumentVersion, 0, len(store.versions))
+	defaultVer := store.versions[0].DocumentVersion
+
+	for _, v := range store.versions {
+		allVersions = append(allVersions, DocumentVersion{
+			Name:             v.Name,
+			DocumentVersion:  v.DocumentVersion,
+			CreatedDate:      v.CreatedDate,
+			IsDefaultVersion: v.DocumentVersion == defaultVer,
+			DocumentFormat:   v.DocumentFormat,
+			Status:           v.Status,
+		})
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+
+	maxResults := int64(defaultListDocumentVersionsMaxResults)
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = *input.MaxResults
+	}
+
+	if startIdx >= len(allVersions) {
+		return &ListDocumentVersionsOutput{DocumentVersions: []DocumentVersion{}}, nil
+	}
+
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+	if end < len(allVersions) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(allVersions)
+	}
+
+	return &ListDocumentVersionsOutput{
+		DocumentVersions: allVersions[startIdx:end],
+		NextToken:        nextToken,
+	}, nil
+}
+
+// generateCommandID creates a unique command ID using a UUID.
+func generateCommandID() string {
+	return uuid.NewString()
+}
+
+// SendCommand records a command and returns a synthetic command ID.
+func (b *InMemoryBackend) SendCommand(input *SendCommandInput) (*SendCommandOutput, error) {
+	if input.DocumentName == "" {
+		return nil, fmt.Errorf("%w: DocumentName is required", ErrValidationException)
+	}
+
+	b.mu.Lock("SendCommand")
+	defer b.mu.Unlock()
+
+	commandID := generateCommandID()
+	cmd := &Command{
+		CommandID:         commandID,
+		DocumentName:      input.DocumentName,
+		InstanceIDs:       input.InstanceIDs,
+		Status:            "Success",
+		RequestedDateTime: UnixTimeFloat(time.Now()),
+		Comment:           input.Comment,
+	}
+	b.commands = append(b.commands, cmd)
+
+	cp := *cmd
+
+	return &SendCommandOutput{Command: cp}, nil
+}
+
+// ListCommands returns recorded commands, optionally filtered by CommandID.
+func (b *InMemoryBackend) ListCommands(input *ListCommandsInput) (*ListCommandsOutput, error) {
+	b.mu.RLock("ListCommands")
+	defer b.mu.RUnlock()
+
+	var filtered []*Command
+	for _, cmd := range b.commands {
+		if input.CommandID != "" && cmd.CommandID != input.CommandID {
+			continue
+		}
+
+		filtered = append(filtered, cmd)
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+
+	maxResults := int64(defaultListDocumentsMaxResults)
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = *input.MaxResults
+	}
+
+	if startIdx >= len(filtered) {
+		return &ListCommandsOutput{Commands: []Command{}}, nil
+	}
+
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+	if end < len(filtered) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(filtered)
+	}
+
+	cmds := make([]Command, 0, end-startIdx)
+	for _, cmd := range filtered[startIdx:end] {
+		cmds = append(cmds, *cmd)
+	}
+
+	return &ListCommandsOutput{Commands: cmds, NextToken: nextToken}, nil
+}
+
+// GetCommandInvocation returns a synthetic success invocation for a command/instance pair.
+func (b *InMemoryBackend) GetCommandInvocation(input *GetCommandInvocationInput) (*GetCommandInvocationOutput, error) {
+	b.mu.RLock("GetCommandInvocation")
+	defer b.mu.RUnlock()
+
+	var foundCmd *Command
+	for _, cmd := range b.commands {
+		if cmd.CommandID == input.CommandID {
+			foundCmd = cmd
+
+			break
+		}
+	}
+
+	if foundCmd == nil {
+		return nil, ErrCommandNotFound
+	}
+
+	return &GetCommandInvocationOutput{
+		CommandID:             input.CommandID,
+		InstanceID:            input.InstanceID,
+		DocumentName:          foundCmd.DocumentName,
+		Status:                "Success",
+		StatusDetails:         "Success",
+		StandardOutputContent: "",
+		StandardErrorContent:  "",
+	}, nil
+}
+
+// ListCommandInvocations returns synthetic invocations for recorded commands.
+func (b *InMemoryBackend) ListCommandInvocations(
+	input *ListCommandInvocationsInput,
+) (*ListCommandInvocationsOutput, error) {
+	b.mu.RLock("ListCommandInvocations")
+	defer b.mu.RUnlock()
+
+	var all []CommandInvocation
+	for _, cmd := range b.commands {
+		if input.CommandID != "" && cmd.CommandID != input.CommandID {
+			continue
+		}
+
+		instanceIDs := cmd.InstanceIDs
+		if len(instanceIDs) == 0 {
+			instanceIDs = []string{"i-synthetic"}
+		}
+
+		for _, iid := range instanceIDs {
+			if input.InstanceID != "" && iid != input.InstanceID {
+				continue
+			}
+
+			all = append(all, CommandInvocation{
+				CommandID:         cmd.CommandID,
+				InstanceID:        iid,
+				DocumentName:      cmd.DocumentName,
+				Status:            "Success",
+				RequestedDateTime: cmd.RequestedDateTime,
+			})
+		}
+	}
+
+	startIdx := parseNextToken(input.NextToken)
+
+	maxResults := int64(defaultListDocumentsMaxResults)
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = *input.MaxResults
+	}
+
+	if startIdx >= len(all) {
+		return &ListCommandInvocationsOutput{CommandInvocations: []CommandInvocation{}}, nil
+	}
+
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+	if end < len(all) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return &ListCommandInvocationsOutput{
+		CommandInvocations: all[startIdx:end],
+		NextToken:          nextToken,
+	}, nil
 }

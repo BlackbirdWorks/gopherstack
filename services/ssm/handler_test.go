@@ -1246,3 +1246,518 @@ func TestTagOperations(t *testing.T) {
 	require.Len(t, listOut2.TagList, 1)
 	assert.Equal(t, "team", listOut2.TagList[0].Key)
 }
+
+// --- Document tests ---
+
+func TestDocument_CreateAndGet(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantType   string
+		wantFormat string
+		input      ssm.CreateDocumentInput
+	}{
+		{
+			name: "command document",
+			input: ssm.CreateDocumentInput{
+				Name:         "my-command-doc",
+				Content:      `{"schemaVersion":"2.2","mainSteps":[]}`,
+				DocumentType: "Command",
+			},
+			wantType:   "Command",
+			wantFormat: "JSON",
+		},
+		{
+			name: "automation document with yaml format",
+			input: ssm.CreateDocumentInput{
+				Name:           "my-automation-doc",
+				Content:        "schemaVersion: '0.3'\nmainSteps: []",
+				DocumentType:   "Automation",
+				DocumentFormat: "YAML",
+			},
+			wantType:   "Automation",
+			wantFormat: "YAML",
+		},
+		{
+			name: "default type and format",
+			input: ssm.CreateDocumentInput{
+				Name:    "my-default-doc",
+				Content: `{}`,
+			},
+			wantType:   "Command",
+			wantFormat: "JSON",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := ssm.NewInMemoryBackend()
+
+			createOut, err := backend.CreateDocument(&tt.input)
+			require.NoError(t, err)
+			assert.Equal(t, tt.input.Name, createOut.DocumentDescription.Name)
+			assert.Equal(t, tt.wantType, createOut.DocumentDescription.DocumentType)
+			assert.Equal(t, tt.wantFormat, createOut.DocumentDescription.DocumentFormat)
+			assert.Equal(t, "1", createOut.DocumentDescription.DocumentVersion)
+			assert.Equal(t, "Active", createOut.DocumentDescription.Status)
+
+			getOut, err := backend.GetDocument(&ssm.GetDocumentInput{Name: tt.input.Name})
+			require.NoError(t, err)
+			assert.Equal(t, tt.input.Name, getOut.Name)
+			assert.Equal(t, tt.input.Content, getOut.Content)
+			assert.Equal(t, "1", getOut.DocumentVersion)
+		})
+	}
+}
+
+func TestDocument_CreateDuplicate(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	_, err := backend.CreateDocument(&ssm.CreateDocumentInput{
+		Name:    "dup-doc",
+		Content: `{}`,
+	})
+	require.NoError(t, err)
+
+	_, err = backend.CreateDocument(&ssm.CreateDocumentInput{
+		Name:    "dup-doc",
+		Content: `{"new":true}`,
+	})
+	require.ErrorIs(t, err, ssm.ErrDocumentAlreadyExists)
+}
+
+func TestDocument_GetNotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	_, err := backend.GetDocument(&ssm.GetDocumentInput{Name: "nonexistent"})
+	require.ErrorIs(t, err, ssm.ErrDocumentNotFound)
+}
+
+func TestDocument_DescribeDocument(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	_, err := backend.CreateDocument(&ssm.CreateDocumentInput{
+		Name:        "desc-test",
+		Content:     `{}`,
+		Description: "A test document",
+	})
+	require.NoError(t, err)
+
+	descOut, err := backend.DescribeDocument(&ssm.DescribeDocumentInput{Name: "desc-test"})
+	require.NoError(t, err)
+	assert.Equal(t, "desc-test", descOut.Document.Name)
+	assert.Equal(t, "A test document", descOut.Document.Description)
+	assert.Equal(t, "Active", descOut.Document.Status)
+}
+
+func TestDocument_ListDocuments(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+	names := []string{"list-doc-1", "list-doc-2", "list-doc-3"}
+
+	for _, name := range names {
+		_, err := backend.CreateDocument(&ssm.CreateDocumentInput{
+			Name:    name,
+			Content: `{}`,
+		})
+		require.NoError(t, err)
+	}
+
+	listOut, err := backend.ListDocuments(&ssm.ListDocumentsInput{})
+	require.NoError(t, err)
+	// 3 user-created + 2 defaults
+	assert.GreaterOrEqual(t, len(listOut.DocumentIdentifiers), 3)
+
+	// Verify sorted order for user-created docs
+	var userDocs []string
+	for _, d := range listOut.DocumentIdentifiers {
+		if len(d.Name) > 9 && d.Name[:9] == "list-doc-" {
+			userDocs = append(userDocs, d.Name)
+		}
+	}
+	assert.Equal(t, names, userDocs)
+}
+
+func TestDocument_UpdateDocument(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	_, err := backend.CreateDocument(&ssm.CreateDocumentInput{
+		Name:    "update-doc",
+		Content: `{"version":1}`,
+	})
+	require.NoError(t, err)
+
+	updateOut, err := backend.UpdateDocument(&ssm.UpdateDocumentInput{
+		Name:    "update-doc",
+		Content: `{"version":2}`,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "2", updateOut.DocumentDescription.DocumentVersion)
+	assert.Equal(t, "2", updateOut.DocumentDescription.LatestVersion)
+
+	// Get latest version
+	getOut, err := backend.GetDocument(&ssm.GetDocumentInput{Name: "update-doc"})
+	require.NoError(t, err)
+	assert.Equal(t, `{"version":2}`, getOut.Content)
+	assert.Equal(t, "2", getOut.DocumentVersion)
+
+	// Get old version
+	getOldOut, err := backend.GetDocument(&ssm.GetDocumentInput{Name: "update-doc", DocumentVersion: "1"})
+	require.NoError(t, err)
+	assert.Equal(t, `{"version":1}`, getOldOut.Content)
+}
+
+func TestDocument_DeleteDocument(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	_, err := backend.CreateDocument(&ssm.CreateDocumentInput{Name: "del-doc", Content: `{}`})
+	require.NoError(t, err)
+
+	_, err = backend.DeleteDocument(&ssm.DeleteDocumentInput{Name: "del-doc"})
+	require.NoError(t, err)
+
+	_, err = backend.GetDocument(&ssm.GetDocumentInput{Name: "del-doc"})
+	require.ErrorIs(t, err, ssm.ErrDocumentNotFound)
+}
+
+func TestDocument_Permissions(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	_, err := backend.CreateDocument(&ssm.CreateDocumentInput{Name: "perm-doc", Content: `{}`})
+	require.NoError(t, err)
+
+	// Initially no permissions
+	descPerm, err := backend.DescribeDocumentPermission(&ssm.DescribeDocumentPermissionInput{
+		Name:           "perm-doc",
+		PermissionType: "Share",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, descPerm.AccountIDs)
+
+	// Add permissions
+	_, err = backend.ModifyDocumentPermission(&ssm.ModifyDocumentPermissionInput{
+		Name:            "perm-doc",
+		PermissionType:  "Share",
+		AccountIDsToAdd: []string{"111111111111", "222222222222"},
+	})
+	require.NoError(t, err)
+
+	descPerm2, err := backend.DescribeDocumentPermission(&ssm.DescribeDocumentPermissionInput{
+		Name:           "perm-doc",
+		PermissionType: "Share",
+	})
+	require.NoError(t, err)
+	assert.Len(t, descPerm2.AccountIDs, 2)
+
+	// Remove one
+	_, err = backend.ModifyDocumentPermission(&ssm.ModifyDocumentPermissionInput{
+		Name:               "perm-doc",
+		PermissionType:     "Share",
+		AccountIDsToRemove: []string{"111111111111"},
+	})
+	require.NoError(t, err)
+
+	descPerm3, err := backend.DescribeDocumentPermission(&ssm.DescribeDocumentPermissionInput{
+		Name:           "perm-doc",
+		PermissionType: "Share",
+	})
+	require.NoError(t, err)
+	require.Len(t, descPerm3.AccountIDs, 1)
+	assert.Equal(t, "222222222222", descPerm3.AccountIDs[0])
+}
+
+func TestDocument_ListDocumentVersions(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	_, err := backend.CreateDocument(&ssm.CreateDocumentInput{Name: "ver-doc", Content: `{"v":1}`})
+	require.NoError(t, err)
+
+	_, err = backend.UpdateDocument(&ssm.UpdateDocumentInput{Name: "ver-doc", Content: `{"v":2}`})
+	require.NoError(t, err)
+
+	_, err = backend.UpdateDocument(&ssm.UpdateDocumentInput{Name: "ver-doc", Content: `{"v":3}`})
+	require.NoError(t, err)
+
+	versOut, err := backend.ListDocumentVersions(&ssm.ListDocumentVersionsInput{Name: "ver-doc"})
+	require.NoError(t, err)
+	require.Len(t, versOut.DocumentVersions, 3)
+	assert.Equal(t, "1", versOut.DocumentVersions[0].DocumentVersion)
+	assert.True(t, versOut.DocumentVersions[0].IsDefaultVersion)
+	assert.Equal(t, "3", versOut.DocumentVersions[2].DocumentVersion)
+	assert.False(t, versOut.DocumentVersions[2].IsDefaultVersion)
+}
+
+func TestDocument_DefaultDocuments(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "AWS-RunShellScript"},
+		{name: "AWS-RunPowerShellScript"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			getOut, err := backend.GetDocument(&ssm.GetDocumentInput{Name: tt.name})
+			require.NoError(t, err)
+			assert.Equal(t, tt.name, getOut.Name)
+			assert.NotEmpty(t, getOut.Content)
+			assert.Equal(t, "Command", getOut.DocumentType)
+		})
+	}
+}
+
+// --- Command tests ---
+
+func TestCommand_SendAndList(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	sendOut, err := backend.SendCommand(&ssm.SendCommandInput{
+		DocumentName: "AWS-RunShellScript",
+		InstanceIDs:  []string{"i-abc123"},
+		Comment:      "test run",
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, sendOut.Command.CommandID)
+	assert.Equal(t, "AWS-RunShellScript", sendOut.Command.DocumentName)
+	assert.Equal(t, "Success", sendOut.Command.Status)
+
+	listOut, err := backend.ListCommands(&ssm.ListCommandsInput{})
+	require.NoError(t, err)
+	require.Len(t, listOut.Commands, 1)
+	assert.Equal(t, sendOut.Command.CommandID, listOut.Commands[0].CommandID)
+}
+
+func TestCommand_ListCommandsFilterByID(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	out1, err := backend.SendCommand(&ssm.SendCommandInput{
+		DocumentName: "AWS-RunShellScript",
+		InstanceIDs:  []string{"i-aaa"},
+	})
+	require.NoError(t, err)
+
+	_, err = backend.SendCommand(&ssm.SendCommandInput{
+		DocumentName: "AWS-RunPowerShellScript",
+		InstanceIDs:  []string{"i-bbb"},
+	})
+	require.NoError(t, err)
+
+	listOut, err := backend.ListCommands(&ssm.ListCommandsInput{CommandID: out1.Command.CommandID})
+	require.NoError(t, err)
+	require.Len(t, listOut.Commands, 1)
+	assert.Equal(t, out1.Command.CommandID, listOut.Commands[0].CommandID)
+}
+
+func TestCommand_GetCommandInvocation(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	sendOut, err := backend.SendCommand(&ssm.SendCommandInput{
+		DocumentName: "AWS-RunShellScript",
+		InstanceIDs:  []string{"i-xyz"},
+	})
+	require.NoError(t, err)
+
+	invOut, err := backend.GetCommandInvocation(&ssm.GetCommandInvocationInput{
+		CommandID:  sendOut.Command.CommandID,
+		InstanceID: "i-xyz",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, sendOut.Command.CommandID, invOut.CommandID)
+	assert.Equal(t, "i-xyz", invOut.InstanceID)
+	assert.Equal(t, "Success", invOut.Status)
+	assert.Equal(t, "AWS-RunShellScript", invOut.DocumentName)
+}
+
+func TestCommand_GetCommandInvocationNotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	_, err := backend.GetCommandInvocation(&ssm.GetCommandInvocationInput{
+		CommandID:  "nonexistent-id",
+		InstanceID: "i-xyz",
+	})
+	require.ErrorIs(t, err, ssm.ErrCommandNotFound)
+}
+
+func TestCommand_ListCommandInvocations(t *testing.T) {
+	t.Parallel()
+
+	backend := ssm.NewInMemoryBackend()
+
+	sendOut, err := backend.SendCommand(&ssm.SendCommandInput{
+		DocumentName: "AWS-RunShellScript",
+		InstanceIDs:  []string{"i-aaa", "i-bbb"},
+	})
+	require.NoError(t, err)
+
+	invListOut, err := backend.ListCommandInvocations(&ssm.ListCommandInvocationsInput{
+		CommandID: sendOut.Command.CommandID,
+	})
+	require.NoError(t, err)
+	require.Len(t, invListOut.CommandInvocations, 2)
+
+	instanceIDs := []string{
+		invListOut.CommandInvocations[0].InstanceID,
+		invListOut.CommandInvocations[1].InstanceID,
+	}
+	assert.Contains(t, instanceIDs, "i-aaa")
+	assert.Contains(t, instanceIDs, "i-bbb")
+}
+
+// --- Handler routing tests for documents and commands ---
+
+func TestHandler_DocumentOps(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler(t)
+	e := echo.New()
+
+	tests := []struct {
+		check  func(t *testing.T, rec *httptest.ResponseRecorder)
+		name   string
+		action string
+		body   string
+	}{
+		{
+			name:   "create document",
+			action: "CreateDocument",
+			body:   `{"Name":"test-handler-doc","Content":"{\"schemaVersion\":\"2.2\"}","DocumentType":"Command"}`,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, rec.Code)
+				var out ssm.CreateDocumentOutput
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				assert.Equal(t, "test-handler-doc", out.DocumentDescription.Name)
+			},
+		},
+		{
+			name:   "list documents includes defaults",
+			action: "ListDocuments",
+			body:   `{}`,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, rec.Code)
+				var out ssm.ListDocumentsOutput
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				assert.GreaterOrEqual(t, len(out.DocumentIdentifiers), 2)
+			},
+		},
+		{
+			name:   "describe document",
+			action: "DescribeDocument",
+			body:   `{"Name":"AWS-RunShellScript"}`,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, rec.Code)
+				var out ssm.DescribeDocumentOutput
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				assert.Equal(t, "AWS-RunShellScript", out.Document.Name)
+			},
+		},
+		{
+			name:   "get document",
+			action: "GetDocument",
+			body:   `{"Name":"AWS-RunShellScript"}`,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Equal(t, http.StatusOK, rec.Code)
+				var out ssm.GetDocumentOutput
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+				assert.Equal(t, "AWS-RunShellScript", out.Name)
+				assert.NotEmpty(t, out.Content)
+			},
+		},
+		{
+			name:   "delete document not found",
+			action: "DeleteDocument",
+			body:   `{"Name":"nonexistent"}`,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			req.Header.Set("X-Amz-Target", "AmazonSSM."+tt.action)
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			tt.check(t, rec)
+		})
+	}
+}
+
+func TestHandler_CommandOps(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler(t)
+
+	sendRec := doRequest(t, h, "SendCommand",
+		`{"DocumentName":"AWS-RunShellScript","InstanceIds":["i-test01"]}`)
+	require.Equal(t, http.StatusOK, sendRec.Code)
+
+	var sendOut ssm.SendCommandOutput
+	require.NoError(t, json.NewDecoder(sendRec.Body).Decode(&sendOut))
+	assert.NotEmpty(t, sendOut.Command.CommandID)
+
+	listRec := doRequest(t, h, "ListCommands", `{}`)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listOut ssm.ListCommandsOutput
+	require.NoError(t, json.NewDecoder(listRec.Body).Decode(&listOut))
+	require.Len(t, listOut.Commands, 1)
+	assert.Equal(t, sendOut.Command.CommandID, listOut.Commands[0].CommandID)
+
+	invBody := `{"CommandId":"` + sendOut.Command.CommandID + `","InstanceId":"i-test01"}`
+	invRec := doRequest(t, h, "GetCommandInvocation", invBody)
+	require.Equal(t, http.StatusOK, invRec.Code)
+
+	var invOut ssm.GetCommandInvocationOutput
+	require.NoError(t, json.NewDecoder(invRec.Body).Decode(&invOut))
+	assert.Equal(t, "Success", invOut.Status)
+	assert.Equal(t, "i-test01", invOut.InstanceID)
+
+	listInvRec := doRequest(t, h, "ListCommandInvocations",
+		`{"CommandId":"`+sendOut.Command.CommandID+`"}`)
+	require.Equal(t, http.StatusOK, listInvRec.Code)
+
+	var listInvOut ssm.ListCommandInvocationsOutput
+	require.NoError(t, json.NewDecoder(listInvRec.Body).Decode(&listInvOut))
+	require.Len(t, listInvOut.CommandInvocations, 1)
+	assert.Equal(t, "i-test01", listInvOut.CommandInvocations[0].InstanceID)
+}
