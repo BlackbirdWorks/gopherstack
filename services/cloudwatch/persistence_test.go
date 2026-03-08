@@ -35,7 +35,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *cloudwatch.InMemoryBackend, id string) {
 				t.Helper()
 
-				alarms, err := b.DescribeAlarms([]string{id}, "", "", 0)
+				alarms, _, err := b.DescribeAlarms([]string{id}, nil, "", "", 0)
 				require.NoError(t, err)
 				require.Len(t, alarms.Data, 1)
 				assert.Equal(t, id, alarms.Data[0].AlarmName)
@@ -48,7 +48,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *cloudwatch.InMemoryBackend, _ string) {
 				t.Helper()
 
-				alarms, _ := b.DescribeAlarms(nil, "", "", 0)
+				alarms, _, _ := b.DescribeAlarms(nil, nil, "", "", 0)
 				assert.Empty(t, alarms.Data)
 			},
 		},
