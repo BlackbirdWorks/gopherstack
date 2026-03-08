@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [ 'go', 'javascript-typescript' ]
+        language: [ 'go' ]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
