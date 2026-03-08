@@ -1072,3 +1072,265 @@ func TestSecretsManagerRotateSecret_NoLambdaInvoker(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.NotEmpty(t, out.VersionID)
 }
+
+// TestGetRandomPassword verifies the GetRandomPassword backend method.
+func TestGetRandomPassword(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*secretsmanager.GetRandomPasswordInput)
+		checkCharsFn func(t *testing.T, pw string)
+		name         string
+		wantLength   int64
+		wantErr      bool
+	}{
+		{
+			name:       "default_length",
+			wantLength: 32,
+		},
+		{
+			name: "custom_length",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				l := int64(16)
+				in.PasswordLength = &l
+			},
+			wantLength: 16,
+		},
+		{
+			name: "exclude_numbers",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				in.ExcludeNumbers = true
+			},
+			wantLength: 32,
+			checkCharsFn: func(t *testing.T, pw string) {
+				t.Helper()
+				for _, ch := range pw {
+					assert.NotContains(t, "0123456789", string(ch), "password should not contain digits")
+				}
+			},
+		},
+		{
+			name: "exclude_uppercase",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				in.ExcludeUppercase = true
+			},
+			wantLength: 32,
+			checkCharsFn: func(t *testing.T, pw string) {
+				t.Helper()
+				for _, ch := range pw {
+					assert.NotContains(
+						t,
+						"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+						string(ch),
+						"password should not contain uppercase",
+					)
+				}
+			},
+		},
+		{
+			name: "exclude_lowercase",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				in.ExcludeLowercase = true
+			},
+			wantLength: 32,
+			checkCharsFn: func(t *testing.T, pw string) {
+				t.Helper()
+				for _, ch := range pw {
+					assert.NotContains(
+						t,
+						"abcdefghijklmnopqrstuvwxyz",
+						string(ch),
+						"password should not contain lowercase",
+					)
+				}
+			},
+		},
+		{
+			name: "include_space",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				l := int64(200)
+				in.PasswordLength = &l
+				in.IncludeSpace = true
+			},
+			wantLength: 200,
+		},
+		{
+			name: "exclude_specific_chars",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				in.ExcludeCharacters = "abc"
+			},
+			wantLength: 32,
+			checkCharsFn: func(t *testing.T, pw string) {
+				t.Helper()
+				for _, ch := range pw {
+					assert.NotContains(t, "abc", string(ch), "password should not contain excluded chars")
+				}
+			},
+		},
+		{
+			name: "require_each_included_type",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				l := int64(32)
+				in.PasswordLength = &l
+				in.RequireEachIncludedType = true
+			},
+			wantLength: 32,
+			checkCharsFn: func(t *testing.T, pw string) {
+				t.Helper()
+				hasLower := strings.ContainsAny(pw, "abcdefghijklmnopqrstuvwxyz")
+				hasUpper := strings.ContainsAny(pw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+				hasDigit := strings.ContainsAny(pw, "0123456789")
+				hasPunct := strings.ContainsAny(pw, "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
+				assert.True(t, hasLower, "password should contain a lowercase letter")
+				assert.True(t, hasUpper, "password should contain an uppercase letter")
+				assert.True(t, hasDigit, "password should contain a digit")
+				assert.True(t, hasPunct, "password should contain a punctuation character")
+			},
+		},
+		{
+			name: "require_each_included_type_length_too_short",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				l := int64(3)
+				in.PasswordLength = &l
+				in.RequireEachIncludedType = true
+			},
+			wantErr: true,
+		},
+		{
+			name: "empty_charset",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				in.ExcludeLowercase = true
+				in.ExcludeUppercase = true
+				in.ExcludeNumbers = true
+				in.ExcludePunctuation = true
+			},
+			wantErr: true,
+		},
+		{
+			name: "length_too_small",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				l := int64(0)
+				in.PasswordLength = &l
+			},
+			wantErr: true,
+		},
+		{
+			name: "length_too_large",
+			setup: func(in *secretsmanager.GetRandomPasswordInput) {
+				l := int64(5000)
+				in.PasswordLength = &l
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := secretsmanager.NewInMemoryBackend()
+
+			input := &secretsmanager.GetRandomPasswordInput{}
+			if tt.setup != nil {
+				tt.setup(input)
+			}
+
+			out, err := backend.GetRandomPassword(input)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out)
+			assert.Len(t, []rune(out.RandomPassword), int(tt.wantLength))
+
+			if tt.checkCharsFn != nil {
+				tt.checkCharsFn(t, out.RandomPassword)
+			}
+		})
+	}
+}
+
+// TestGetRandomPasswordHandler verifies GetRandomPassword via HTTP dispatch.
+func TestGetRandomPasswordHandler(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		checkFn        func(*testing.T, *httptest.ResponseRecorder)
+		name           string
+		body           string
+		expectedStatus int
+	}{
+		{
+			name:           "default",
+			body:           `{}`,
+			expectedStatus: http.StatusOK,
+			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var out secretsmanager.GetRandomPasswordOutput
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Len(t, []rune(out.RandomPassword), 32)
+			},
+		},
+		{
+			name:           "custom_length",
+			body:           `{"PasswordLength":20}`,
+			expectedStatus: http.StatusOK,
+			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var out secretsmanager.GetRandomPasswordOutput
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Len(t, []rune(out.RandomPassword), 20)
+			},
+		},
+		{
+			name:           "invalid_length_zero",
+			body:           `{"PasswordLength":0}`,
+			expectedStatus: http.StatusBadRequest,
+			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var errResp secretsmanager.ErrorResponse
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.Equal(t, "InvalidParameterException", errResp.Type)
+			},
+		},
+		{
+			name:           "exclude_numbers",
+			body:           `{"PasswordLength":50,"ExcludeNumbers":true}`,
+			expectedStatus: http.StatusOK,
+			checkFn: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				var out secretsmanager.GetRandomPasswordOutput
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				assert.Len(t, []rune(out.RandomPassword), 50)
+				for _, ch := range out.RandomPassword {
+					assert.NotContains(t, "0123456789", string(ch))
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			backend := secretsmanager.NewInMemoryBackend()
+			h := secretsmanager.NewHandler(backend)
+
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			req.Header.Set("X-Amz-Target", "secretsmanager.GetRandomPassword")
+			rec := httptest.NewRecorder()
+
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			assert.Equal(t, tt.expectedStatus, rec.Code)
+
+			if tt.checkFn != nil {
+				tt.checkFn(t, rec)
+			}
+		})
+	}
+}
