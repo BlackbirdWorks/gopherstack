@@ -312,6 +312,10 @@ func validateExternalID(trustPolicyJSON, externalID string) error {
 
 	var tp trustPolicy
 
+	// Unmarshal errors indicate a malformed policy document. A malformed trust
+	// policy leaves tp with a zero value (empty Statements), so no ExternalId
+	// condition will be found and the call proceeds without validation — the
+	// permissive behaviour is intentional for a mock implementation.
 	_ = json.Unmarshal([]byte(trustPolicyJSON), &tp)
 
 	for _, stmt := range tp.Statement {

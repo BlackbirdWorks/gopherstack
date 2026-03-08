@@ -1426,8 +1426,6 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 	return nil
 }
 
-// wireSecretsManagerLambda wires the Lambda invoker into the SecretsManager handler
-// so that RotateSecret with a RotationLambdaARN invokes the Lambda function.
 // wireIAMToSTS connects the IAM backend to STS so that AssumeRole can validate
 // ExternalId conditions and enforce per-role MaxSessionDuration limits.
 func wireIAMToSTS(iamReg, stsReg service.Registerable) {
@@ -1466,6 +1464,8 @@ func (a *iamRoleLookupAdapter) GetRoleByArn(roleArn string) (*stsbackend.RoleMet
 	}, nil
 }
 
+// wireSecretsManagerLambda wires the Lambda invoker into the SecretsManager handler
+// so that RotateSecret with a RotationLambdaARN invokes the Lambda function.
 func wireSecretsManagerLambda(smReg, lambdaReg service.Registerable) {
 	smH, ok := smReg.(*secretsmanagerbackend.Handler)
 	if !ok {
