@@ -57,6 +57,7 @@ import (
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
+	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
@@ -142,6 +143,7 @@ type CLI struct {
 	appSyncHandler               service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
+	fisHandler                   service.Registerable
 	snsClient                    *sns.Client
 	kmsClient                    *kms.Client
 	iamClient                    *iam.Client
@@ -599,7 +601,7 @@ func run(ctx context.Context, cli CLI) error {
 
 	faultStore := chaos.NewFaultStore()
 	chaosGroup := e.Group("/_gopherstack/chaos")
-
+	wireFISFaultStore(cli.fisHandler, faultStore) // wire FIS inject-api-* actions to the chaos FaultStore
 	registry, setupErr := setupRegistry(
 		e,
 		log,
@@ -772,6 +774,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.appSyncHandler = byName["AppSync"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
+	cli.fisHandler = byName["FIS"]
 }
 
 // initializeServices initializes all service providers.
@@ -855,6 +858,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire IAM → STS for ExternalId validation and MaxSessionDuration enforcement.
 	wireIAMToSTS(byName["IAM"], byName["STS"])
 
+	// Collect all services implementing FISActionProvider and register them with the FIS backend.
+	wireFISActionProviders(byName["FIS"], services)
+
 	// Init CloudFormation after core handlers are stored so it can access their backends.
 	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
 	if err != nil {
@@ -918,6 +924,7 @@ func getServiceProviders() []service.Provider {
 		&supportbackend.Provider{},
 		&ecrbackend.Provider{},
 		&ecsbackend.Provider{},
+		&fisbackend.Provider{},
 		&cognitoidpbackend.Provider{},
 		&iotbackend.Provider{},
 		&iotdataplanebackend.Provider{},
@@ -2403,4 +2410,46 @@ func persistenceMiddleware(m *persistence.Manager, services []service.Registerab
 func isMutatingMethod(method string) bool {
 	return method == http.MethodPost || method == http.MethodPut ||
 		method == http.MethodPatch || method == http.MethodDelete
+}
+
+// wireFISFaultStore injects the chaos FaultStore into the FIS backend so that
+// aws:fis:inject-api-* actions can create and remove fault rules during experiments.
+func wireFISFaultStore(fisReg service.Registerable, store *chaos.FaultStore) {
+	if fisReg == nil || store == nil {
+		return
+	}
+
+	// Use type assertion to reach the FIS handler's SetFaultStore method.
+	if h, ok := fisReg.(interface {
+		SetFaultStore(*chaos.FaultStore)
+	}); ok {
+		h.SetFaultStore(store)
+	}
+}
+
+// wireFISActionProviders collects all services implementing service.FISActionProvider
+// and registers them with the FIS backend for auto-discovered action execution.
+func wireFISActionProviders(fisReg service.Registerable, services []service.Registerable) {
+	if fisReg == nil {
+		return
+	}
+
+	type actionProviderSetter interface {
+		SetActionProviders([]service.FISActionProvider)
+	}
+
+	setter, ok := fisReg.(actionProviderSetter)
+	if !ok {
+		return
+	}
+
+	var providers []service.FISActionProvider
+
+	for _, svc := range services {
+		if p, pOK := svc.(service.FISActionProvider); pOK {
+			providers = append(providers, p)
+		}
+	}
+
+	setter.SetActionProviders(providers)
 }

@@ -150,12 +150,15 @@ type InMemoryBackend struct {
 	// layerPolicies stores per-version resource policy statements keyed by
 	// layerName → versionNumber → statementID → LayerVersionStatement.
 	layerPolicies map[string]map[int64]map[string]*LayerVersionStatement
-	portAlloc     *portalloc.Allocator
-	runtimes      map[string]*functionRuntime
-	mu            *lockmetrics.RWMutex
-	region        string
-	accountID     string
-	settings      Settings
+	// fisFaults maps function names to FIS invocation fault configuration.
+	// When a function is in this map, invocations return an error with the given probability.
+	fisFaults map[string]*FISInvocationFault
+	portAlloc *portalloc.Allocator
+	runtimes  map[string]*functionRuntime
+	mu        *lockmetrics.RWMutex
+	region    string
+	accountID string
+	settings  Settings
 }
 
 // NewInMemoryBackend creates a new Lambda in-memory backend.
@@ -180,6 +183,7 @@ func NewInMemoryBackend(
 		eventInvokeConfigs:    make(map[string]*FunctionEventInvokeConfig),
 		functionConcurrencies: make(map[string]int),
 		activeConcurrencies:   make(map[string]int),
+		fisFaults:             make(map[string]*FISInvocationFault),
 		docker:                dockerClient,
 		portAlloc:             portAlloc,
 		settings:              settings,
@@ -1068,6 +1072,17 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 
 	if invocationType == InvocationTypeDryRun {
 		return nil, http.StatusNoContent, nil
+	}
+
+	// Check FIS fault injection state for this function.
+	if delay, faultErr := b.applyFISFault(fn.FunctionName); faultErr != nil {
+		return nil, http.StatusInternalServerError, faultErr
+	} else if delay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, http.StatusInternalServerError, ctx.Err()
+		case <-time.After(delay):
+		}
 	}
 
 	// Enforce reserved concurrency limits.

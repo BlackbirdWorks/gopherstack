@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -111,6 +112,44 @@ type ChaosProvider interface {
 // to start background tasks (e.g. async deletion janitors).
 type BackgroundWorker interface {
 	StartWorker(ctx context.Context) error
+}
+
+// FISParamDef describes a single parameter accepted by a FIS action.
+type FISParamDef struct {
+	Name        string
+	Description string
+	Default     string
+	Required    bool
+}
+
+// FISActionDefinition describes a FIS action supported by a service.
+type FISActionDefinition struct {
+	ActionID    string // e.g., "aws:ec2:stop-instances"
+	Description string
+	TargetType  string // e.g., "aws:ec2:instance"; empty if action has no targets
+	Parameters  []FISParamDef
+}
+
+// FISActionExecution carries the runtime context for executing a single FIS action.
+type FISActionExecution struct {
+	ActionID   string
+	Parameters map[string]string
+	Targets    []string      // resolved resource ARNs
+	Duration   time.Duration // 0 means run indefinitely until stopped
+}
+
+// FISActionProvider is an optional interface services implement to declare
+// FIS actions they support and to execute them.
+// Services that implement this interface are automatically discovered by the
+// FIS backend via the service registry, enabling zero-config action registration.
+type FISActionProvider interface {
+	// FISActions returns the FIS action definitions this service supports.
+	FISActions() []FISActionDefinition
+
+	// ExecuteFISAction executes a FIS action against resolved targets.
+	// It is called by the FIS backend when an experiment's action begins.
+	// The implementation must be non-blocking or respect ctx cancellation.
+	ExecuteFISAction(ctx context.Context, action FISActionExecution) error
 }
 
 // AppContext contains shared resources needed by services during initialization.
