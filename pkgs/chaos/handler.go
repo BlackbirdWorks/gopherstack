@@ -23,13 +23,14 @@ type targetsResponse struct {
 
 // RegisterRoutes mounts the chaos REST API under the /_gopherstack/chaos prefix.
 //
-//   - GET    /_gopherstack/chaos/faults  — return current fault rules
-//   - POST   /_gopherstack/chaos/faults  — replace entire fault configuration
-//   - PATCH  /_gopherstack/chaos/faults  — append rules to existing configuration
-//   - DELETE /_gopherstack/chaos/faults  — remove matching rules
-//   - GET    /_gopherstack/chaos/effects — return current network effect settings
-//   - POST   /_gopherstack/chaos/effects — update network effect configuration
-//   - GET    /_gopherstack/chaos/targets — return auto-discovered injectable targets
+//   - GET    /_gopherstack/chaos/faults    — return current fault rules
+//   - POST   /_gopherstack/chaos/faults    — replace entire fault configuration
+//   - PATCH  /_gopherstack/chaos/faults    — append rules to existing configuration
+//   - DELETE /_gopherstack/chaos/faults    — remove matching rules
+//   - GET    /_gopherstack/chaos/effects   — return current network effect settings
+//   - POST   /_gopherstack/chaos/effects   — update network effect configuration
+//   - GET    /_gopherstack/chaos/targets   — return auto-discovered injectable targets
+//   - GET    /_gopherstack/chaos/activity  — return recent fault injection events
 func RegisterRoutes(group *echo.Group, store *FaultStore, registry *service.Registry) {
 	h := &apiHandler{store: store, registry: registry}
 
@@ -40,6 +41,7 @@ func RegisterRoutes(group *echo.Group, store *FaultStore, registry *service.Regi
 	group.GET("/effects", h.getEffects)
 	group.POST("/effects", h.postEffects)
 	group.GET("/targets", h.getTargets)
+	group.GET("/activity", h.getActivity)
 }
 
 // apiHandler handles all chaos API endpoints.
@@ -133,4 +135,14 @@ func (h *apiHandler) getTargets(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, targetsResponse{Services: targets})
+}
+
+// getActivity returns the recent fault injection activity log.
+func (h *apiHandler) getActivity(c *echo.Context) error {
+	events := h.store.GetActivity()
+	if events == nil {
+		events = []ActivityEvent{}
+	}
+
+	return c.JSON(http.StatusOK, events)
 }

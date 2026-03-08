@@ -3,7 +3,22 @@ package chaos
 import (
 	"math/rand/v2"
 	"sync"
+	"time"
 )
+
+// activityLogMaxSize is the maximum number of activity events retained.
+const activityLogMaxSize = 100
+
+// ActivityEvent records a single fault injection event emitted by the middleware.
+type ActivityEvent struct {
+	Timestamp    time.Time `json:"timestamp"`
+	Service      string    `json:"service"`
+	Operation    string    `json:"operation"`
+	Region       string    `json:"region"`
+	FaultApplied string    `json:"faultApplied"`
+	Probability  float64   `json:"probability"`
+	Triggered    bool      `json:"triggered"`
+}
 
 // FaultError defines a custom HTTP error response returned when a fault is triggered.
 type FaultError struct {
@@ -111,9 +126,10 @@ func ruleMatches(r FaultRule, svc, op, region string) bool {
 
 // FaultStore is a thread-safe store for fault rules and network effects.
 type FaultStore struct {
-	effects NetworkEffects
-	rules   []FaultRule
-	mu      sync.RWMutex
+	activity []ActivityEvent
+	effects  NetworkEffects
+	rules    []FaultRule
+	mu       sync.RWMutex
 }
 
 // NewFaultStore creates a new empty FaultStore.
@@ -211,4 +227,30 @@ func (s *FaultStore) SetEffects(effects NetworkEffects) {
 	defer s.mu.Unlock()
 
 	s.effects = effects
+}
+
+// RecordActivity appends an activity event to the ring buffer.
+// When the buffer exceeds activityLogMaxSize, the oldest entry is dropped.
+func (s *FaultStore) RecordActivity(event ActivityEvent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.activity = append(s.activity, event)
+	if len(s.activity) > activityLogMaxSize {
+		s.activity = s.activity[len(s.activity)-activityLogMaxSize:]
+	}
+}
+
+// GetActivity returns a copy of the activity log in reverse-chronological order
+// (newest first).
+func (s *FaultStore) GetActivity() []ActivityEvent {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]ActivityEvent, len(s.activity))
+	for i, e := range s.activity {
+		result[len(s.activity)-1-i] = e
+	}
+
+	return result
 }
