@@ -41,10 +41,11 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	streams   map[string]*Stream
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	streams             map[string]*Stream
+	fisThroughputFaults map[string]time.Time // keyed by stream name; value is expiry (zero = no expiry)
+	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -55,10 +56,11 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		streams:   make(map[string]*Stream),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("kinesis"),
+		streams:             make(map[string]*Stream),
+		fisThroughputFaults: make(map[string]time.Time),
+		accountID:           accountID,
+		region:              region,
+		mu:                  lockmetrics.New("kinesis"),
 	}
 }
 
@@ -252,6 +254,10 @@ func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, er
 		return nil, ErrStreamNotFound
 	}
 
+	if b.isThroughputFaultActiveLocked(input.StreamName) {
+		return nil, ErrProvisionedThroughputExceeded
+	}
+
 	if len(stream.Shards) == 0 {
 		return nil, ErrInvalidArgument
 	}
@@ -432,6 +438,10 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		return nil, ErrStreamNotFound
 	}
 
+	if b.isThroughputFaultActiveLocked(it.StreamName) {
+		return nil, ErrProvisionedThroughputExceeded
+	}
+
 	shard := findShard(stream.Shards, it.ShardID)
 
 	if shard == nil {
@@ -535,6 +545,22 @@ func (b *InMemoryBackend) ListAll() []StreamInfo {
 	}
 
 	return result
+}
+
+// isThroughputFaultActiveLocked reports whether a FIS throughput exception fault
+// is currently active for the given stream name.
+// Caller MUST hold at least a read lock on b.mu.
+func (b *InMemoryBackend) isThroughputFaultActiveLocked(streamName string) bool {
+	exp, ok := b.fisThroughputFaults[streamName]
+	if !ok {
+		return false
+	}
+
+	if !exp.IsZero() && time.Now().After(exp) {
+		return false
+	}
+
+	return true
 }
 
 // findTimestampPosition returns the index of the first record whose arrival
