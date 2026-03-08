@@ -140,6 +140,47 @@ func (b *InMemoryBackend) DescribeUserPool(userPoolID string) (*UserPool, error)
 	return &cp, nil
 }
 
+// DeleteUserPool removes the user pool with the given ID and all of its associated clients.
+func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
+	b.mu.Lock("DeleteUserPool")
+	defer b.mu.Unlock()
+
+	pool, ok := b.pools[userPoolID]
+	if !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	delete(b.poolsByName, pool.Name)
+	delete(b.pools, userPoolID)
+	delete(b.users, userPoolID)
+
+	maps.DeleteFunc(b.clients, func(_ string, client *UserPoolClient) bool {
+		return client.UserPoolID == userPoolID
+	})
+
+	return nil
+}
+
+// DeleteUserPoolClient removes the app client with the given client ID from the given pool.
+// If userPoolID is empty the pool ownership check is skipped.
+func (b *InMemoryBackend) DeleteUserPoolClient(userPoolID, clientID string) error {
+	b.mu.Lock("DeleteUserPoolClient")
+	defer b.mu.Unlock()
+
+	client, ok := b.clients[clientID]
+	if !ok {
+		return fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
+	}
+
+	if userPoolID != "" && client.UserPoolID != userPoolID {
+		return fmt.Errorf("%w: client %q not found in pool %q", ErrClientNotFound, clientID, userPoolID)
+	}
+
+	delete(b.clients, clientID)
+
+	return nil
+}
+
 // ListUserPools returns all user pools.
 func (b *InMemoryBackend) ListUserPools() []*UserPool {
 	b.mu.RLock("ListUserPools")

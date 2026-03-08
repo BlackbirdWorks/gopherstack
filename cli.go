@@ -143,6 +143,7 @@ type CLI struct {
 	appSyncHandler               service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
+	cognitoIDPHandler            service.Registerable
 	fisHandler                   service.Registerable
 	faultStore                   *chaos.FaultStore
 	snsClient                    *sns.Client
@@ -445,6 +446,16 @@ func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECSHandler() service.Registerable { return c.ecsHandler }
+
+// GetAppSyncHandler returns the AppSync handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAppSyncHandler() service.Registerable { return c.appSyncHandler }
+
+// GetCognitoIDPHandler returns the Cognito IDP handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCognitoIDPHandler() service.Registerable { return c.cognitoIDPHandler }
 
 // GetFaultStore returns the chaos fault store (dashboard.AWSSDKProvider).
 func (c *CLI) GetFaultStore() *chaos.FaultStore { return c.faultStore }
@@ -782,6 +793,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.appSyncHandler = byName["AppSync"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
+	cli.cognitoIDPHandler = byName["CognitoIDP"]
 	cli.fisHandler = byName["FIS"]
 }
 

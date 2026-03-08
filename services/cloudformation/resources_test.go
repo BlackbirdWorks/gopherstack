@@ -7,26 +7,38 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	"github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
+	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
+	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
+	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -760,6 +772,34 @@ func newExtendedServiceBackends() *cloudformation.ServiceBackends {
 		elasticachebackend.NewInMemoryBackend("", "000000000000", "us-east-1"))
 	b.Scheduler = schedulerbackend.NewHandler(
 		schedulerbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+
+	return b
+}
+
+// newPhase2ServiceBackends creates a ServiceBackends with all phase 2 backends (RDS, ECS, etc.).
+func newPhase2ServiceBackends() *cloudformation.ServiceBackends {
+	b := newExtendedServiceBackends()
+	b.RDS = rdsbackend.NewHandler(rdsbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b.ECS = ecsbackend.NewHandler(
+		ecsbackend.NewInMemoryBackend("000000000000", "us-east-1", nil))
+	b.ECR = ecrbackend.NewHandler(
+		ecrbackend.NewInMemoryBackend("000000000000", "us-east-1", ""), nil)
+	b.Redshift = redshiftbackend.NewHandler(
+		redshiftbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b.OpenSearch = opensearchbackend.NewHandler(
+		opensearchbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b.Firehose = firehosebackend.NewHandler(
+		firehosebackend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b.Route53Resolver = route53resolverbackend.NewHandler(
+		route53resolverbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b.SWF = swfbackend.NewHandler(swfbackend.NewInMemoryBackend())
+	b.AppSync = appsyncbackend.NewHandler(
+		appsyncbackend.NewInMemoryBackend("000000000000", "us-east-1", ""))
+	b.SES = sesbackend.NewHandler(sesbackend.NewInMemoryBackend())
+	b.ACM = acmbackend.NewHandler(
+		acmbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+	b.CognitoIDP = cognitoidpbackend.NewHandler(
+		cognitoidpbackend.NewInMemoryBackend("000000000000", "us-east-1", ""), "us-east-1")
 
 	return b
 }
@@ -2159,4 +2199,412 @@ func TestEC2_DeleteSubnet_NotFound(t *testing.T) {
 	bk := ec2backend.NewInMemoryBackend("000000000000", "us-east-1")
 	err := bk.DeleteSubnet("subnet-notexist")
 	require.ErrorIs(t, err, ec2backend.ErrSubnetNotFound)
+}
+
+// ---- Phase 2 resource types: RDS, ECS, ECR, ElastiCache, Redshift, etc. ----
+
+func TestResourceCreator_Phase2Types_NilBackends(t *testing.T) {
+	t.Parallel()
+
+	// When all Phase 2 backends are nil (only core backends), create should return stub IDs.
+	tests := []struct {
+		props        map[string]any
+		name         string
+		logicalID    string
+		resourceType string
+	}{
+		{name: "rds_db_instance", logicalID: "MyDB", resourceType: "AWS::RDS::DBInstance",
+			props: map[string]any{"DBInstanceIdentifier": "stub-db", "Engine": "postgres"}},
+		{
+			name:         "rds_subnet_group",
+			logicalID:    "MySG",
+			resourceType: "AWS::RDS::DBSubnetGroup",
+			props: map[string]any{
+				"DBSubnetGroupName":        "stub-sg",
+				"DBSubnetGroupDescription": "desc",
+				"SubnetIds":                []any{"s-1"},
+			},
+		},
+		{name: "rds_parameter_group", logicalID: "MyPG", resourceType: "AWS::RDS::DBParameterGroup",
+			props: map[string]any{"DBParameterGroupName": "stub-pg", "Family": "postgres14", "Description": "desc"}},
+		{name: "elasticache_replication_group", logicalID: "MyRG", resourceType: "AWS::ElastiCache::ReplicationGroup",
+			props: map[string]any{"ReplicationGroupId": "stub-rg", "ReplicationGroupDescription": "desc"}},
+		{
+			name:         "elasticache_subnet_group",
+			logicalID:    "MyECSubnet",
+			resourceType: "AWS::ElastiCache::SubnetGroup",
+			props: map[string]any{
+				"CacheSubnetGroupName":        "stub-ecsg",
+				"CacheSubnetGroupDescription": "desc",
+				"SubnetIds":                   []any{"s-1"},
+			},
+		},
+		{name: "ecs_cluster", logicalID: "MyCluster", resourceType: "AWS::ECS::Cluster",
+			props: map[string]any{"ClusterName": "stub-cluster"}},
+		{name: "ecs_task_definition", logicalID: "MyTD", resourceType: "AWS::ECS::TaskDefinition",
+			props: map[string]any{"Family": "stub-family"}},
+		{
+			name:         "ecs_service",
+			logicalID:    "MySvc",
+			resourceType: "AWS::ECS::Service",
+			props: map[string]any{
+				"ServiceName":    "stub-service",
+				"Cluster":        "stub-cluster",
+				"TaskDefinition": "stub-td",
+			},
+		},
+		{name: "ecr_repository", logicalID: "MyRepo", resourceType: "AWS::ECR::Repository",
+			props: map[string]any{"RepositoryName": "stub-repo"}},
+		{
+			name:         "redshift_cluster",
+			logicalID:    "MyRS",
+			resourceType: "AWS::Redshift::Cluster",
+			props: map[string]any{
+				"ClusterIdentifier": "stub-rs",
+				"NodeType":          "dc2.large",
+				"DBName":            "mydb",
+				"MasterUsername":    "admin",
+			},
+		},
+		{name: "opensearch_domain", logicalID: "MyDomain", resourceType: "AWS::OpenSearch::Domain",
+			props: map[string]any{"DomainName": "stub-os"}},
+		{name: "firehose_delivery_stream", logicalID: "MyStream", resourceType: "AWS::Firehose::DeliveryStream",
+			props: map[string]any{"DeliveryStreamName": "stub-fh"}},
+		{name: "route53_healthcheck", logicalID: "MyHC", resourceType: "AWS::Route53::HealthCheck",
+			props: map[string]any{"HealthCheckConfig": map[string]any{"Type": "HTTPS"}}},
+		{name: "route53resolver_endpoint", logicalID: "MyEP", resourceType: "AWS::Route53Resolver::ResolverEndpoint",
+			props: map[string]any{"Name": "stub-ep", "Direction": "INBOUND"}},
+		{name: "route53resolver_rule", logicalID: "MyRule", resourceType: "AWS::Route53Resolver::ResolverRule",
+			props: map[string]any{"Name": "stub-rule", "DomainName": "example.internal", "RuleType": "FORWARD"}},
+		{name: "swf_domain", logicalID: "MyDomain", resourceType: "AWS::SWF::Domain",
+			props: map[string]any{"Name": "stub-domain"}},
+		{name: "appsync_graphql_api", logicalID: "MyAPI", resourceType: "AWS::AppSync::GraphQLApi",
+			props: map[string]any{"Name": "stub-api", "AuthenticationType": "API_KEY"}},
+		{name: "ses_email_identity", logicalID: "MyId", resourceType: "AWS::SES::EmailIdentity",
+			props: map[string]any{"EmailIdentity": "stub@example.com"}},
+		{name: "acm_certificate", logicalID: "MyCert", resourceType: "AWS::ACM::Certificate",
+			props: map[string]any{"DomainName": "stub.example.com"}},
+		{name: "cognito_user_pool", logicalID: "MyPool", resourceType: "AWS::Cognito::UserPool",
+			props: map[string]any{"PoolName": "stub-pool"}},
+		{name: "cognito_user_pool_client", logicalID: "MyClient", resourceType: "AWS::Cognito::UserPoolClient",
+			props: map[string]any{"ClientName": "stub-client", "UserPoolId": "us-east-1_stubpool"}},
+		{name: "ec2_eip", logicalID: "MyEIP", resourceType: "AWS::EC2::EIP", props: map[string]any{}},
+		{name: "ec2_nat_gateway", logicalID: "MyNGW", resourceType: "AWS::EC2::NatGateway",
+			props: map[string]any{"SubnetId": "subnet-1", "AllocationId": "eipalloc-abc123"}},
+		{name: "cloudwatch_composite_alarm", logicalID: "MyCA", resourceType: "AWS::CloudWatch::CompositeAlarm",
+			props: map[string]any{"AlarmName": "stub-composite", "AlarmRule": "ALARM(foo)"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// newServiceBackends() leaves all Phase 2 backends nil → stub path.
+			backends := newServiceBackends()
+			rc := cloudformation.NewResourceCreator(backends)
+
+			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
+			require.NoError(t, err)
+			assert.NotEmpty(t, physID)
+
+			// Delete should also be a no-op without a backend.
+			err = rc.Delete(t.Context(), tt.resourceType, physID, nil)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestResourceCreator_Phase2Types_RealBackends(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		props        map[string]any
+		name         string
+		logicalID    string
+		resourceType string
+		wantContains string
+		wantPhysID   string
+		wantNotEmpty bool
+	}{
+		{
+			name:         "rds_db_instance",
+			logicalID:    "MyDB",
+			resourceType: "AWS::RDS::DBInstance",
+			props: map[string]any{
+				"DBInstanceIdentifier": "unit-test-db",
+				"Engine":               "postgres",
+				"DBInstanceClass":      "db.t3.micro",
+			},
+			wantPhysID: "unit-test-db",
+		},
+		{
+			name:         "rds_subnet_group",
+			logicalID:    "MySG",
+			resourceType: "AWS::RDS::DBSubnetGroup",
+			props: map[string]any{
+				"DBSubnetGroupName":        "unit-test-sg",
+				"DBSubnetGroupDescription": "desc",
+				"SubnetIds":                []any{"subnet-1"},
+			},
+			wantPhysID: "unit-test-sg",
+		},
+		{
+			name:         "rds_parameter_group",
+			logicalID:    "MyPG",
+			resourceType: "AWS::RDS::DBParameterGroup",
+			props: map[string]any{
+				"DBParameterGroupName": "unit-test-pg",
+				"Family":               "postgres14",
+				"Description":          "desc",
+			},
+			wantPhysID: "unit-test-pg",
+		},
+		{
+			name:         "elasticache_replication_group",
+			logicalID:    "MyRG",
+			resourceType: "AWS::ElastiCache::ReplicationGroup",
+			props: map[string]any{
+				"ReplicationGroupId":          "unit-test-rg",
+				"ReplicationGroupDescription": "desc",
+			},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "elasticache_subnet_group",
+			logicalID:    "MyECSubnet",
+			resourceType: "AWS::ElastiCache::SubnetGroup",
+			props: map[string]any{
+				"CacheSubnetGroupName":        "unit-test-ecsg",
+				"CacheSubnetGroupDescription": "desc",
+				"SubnetIds":                   []any{"subnet-1"},
+			},
+			wantPhysID: "unit-test-ecsg",
+		},
+		{
+			name:         "ecs_cluster",
+			logicalID:    "MyCluster",
+			resourceType: "AWS::ECS::Cluster",
+			props:        map[string]any{"ClusterName": "unit-test-cluster"},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "ecs_task_definition",
+			logicalID:    "MyTD",
+			resourceType: "AWS::ECS::TaskDefinition",
+			props: map[string]any{
+				"Family":      "unit-test-family",
+				"NetworkMode": "awsvpc",
+			},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "ecr_repository",
+			logicalID:    "MyRepo",
+			resourceType: "AWS::ECR::Repository",
+			props:        map[string]any{"RepositoryName": "unit-test-repo"},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "redshift_cluster",
+			logicalID:    "MyRS",
+			resourceType: "AWS::Redshift::Cluster",
+			props: map[string]any{
+				"ClusterIdentifier": "unit-test-rs",
+				"NodeType":          "dc2.large",
+				"DBName":            "mydb",
+				"MasterUsername":    "admin",
+			},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "opensearch_domain",
+			logicalID:    "MyDomain",
+			resourceType: "AWS::OpenSearch::Domain",
+			props:        map[string]any{"DomainName": "unit-test-os"},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "firehose_delivery_stream",
+			logicalID:    "MyStream",
+			resourceType: "AWS::Firehose::DeliveryStream",
+			props:        map[string]any{"DeliveryStreamName": "unit-test-fh"},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "route53_healthcheck",
+			logicalID:    "MyHC",
+			resourceType: "AWS::Route53::HealthCheck",
+			props: map[string]any{
+				"HealthCheckConfig": map[string]any{
+					"Type":                     "HTTPS",
+					"FullyQualifiedDomainName": "example.com",
+				},
+			},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "route53resolver_endpoint",
+			logicalID:    "MyEP",
+			resourceType: "AWS::Route53Resolver::ResolverEndpoint",
+			props:        map[string]any{"Name": "unit-test-ep", "Direction": "INBOUND"},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "route53resolver_rule",
+			logicalID:    "MyRule",
+			resourceType: "AWS::Route53Resolver::ResolverRule",
+			props: map[string]any{
+				"Name":       "unit-test-rule",
+				"DomainName": "example.internal",
+				"RuleType":   "FORWARD",
+			},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "swf_domain",
+			logicalID:    "MyDomain",
+			resourceType: "AWS::SWF::Domain",
+			props:        map[string]any{"Name": "unit-test-domain"},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "appsync_graphql_api",
+			logicalID:    "MyAPI",
+			resourceType: "AWS::AppSync::GraphQLApi",
+			props:        map[string]any{"Name": "unit-test-api", "AuthenticationType": "API_KEY"},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "ses_email_identity",
+			logicalID:    "MyId",
+			resourceType: "AWS::SES::EmailIdentity",
+			props:        map[string]any{"EmailIdentity": "unit@example.com"},
+			wantPhysID:   "unit@example.com",
+		},
+		{
+			name:         "acm_certificate",
+			logicalID:    "MyCert",
+			resourceType: "AWS::ACM::Certificate",
+			props:        map[string]any{"DomainName": "unit.example.com"},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "cognito_user_pool",
+			logicalID:    "MyPool",
+			resourceType: "AWS::Cognito::UserPool",
+			props:        map[string]any{"PoolName": "unit-test-pool"},
+			wantNotEmpty: true,
+		},
+		{
+			name:         "ec2_eip",
+			logicalID:    "MyEIP",
+			resourceType: "AWS::EC2::EIP",
+			props:        map[string]any{},
+			wantContains: "eipalloc-",
+		},
+		{
+			name:         "cloudwatch_composite_alarm",
+			logicalID:    "MyCA",
+			resourceType: "AWS::CloudWatch::CompositeAlarm",
+			props:        map[string]any{"AlarmName": "unit-composite", "AlarmRule": "ALARM(foo)"},
+			wantPhysID:   "unit-composite",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backends := newPhase2ServiceBackends()
+			rc := cloudformation.NewResourceCreator(backends)
+
+			physID, err := rc.Create(t.Context(), tt.logicalID, tt.resourceType, tt.props, nil, nil)
+			require.NoError(t, err)
+
+			if tt.wantPhysID != "" {
+				assert.Equal(t, tt.wantPhysID, physID)
+			}
+
+			if tt.wantContains != "" {
+				assert.Contains(t, physID, tt.wantContains)
+			}
+
+			if tt.wantNotEmpty {
+				assert.NotEmpty(t, physID)
+			}
+
+			err = rc.Delete(t.Context(), tt.resourceType, physID, tt.props)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestResourceCreator_Phase2_CognitoUserPoolWithClient(t *testing.T) {
+	t.Parallel()
+
+	backends := newPhase2ServiceBackends()
+	rc := cloudformation.NewResourceCreator(backends)
+	ctx := t.Context()
+
+	// Create pool first.
+	poolID, err := rc.Create(ctx, "MyPool", "AWS::Cognito::UserPool",
+		map[string]any{"PoolName": "test-pool"}, nil, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, poolID)
+
+	// Create client referencing the pool.
+	clientPhysID, err := rc.Create(ctx, "MyClient", "AWS::Cognito::UserPoolClient",
+		map[string]any{"ClientName": "test-client", "UserPoolId": poolID}, nil, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, clientPhysID)
+
+	// Delete pool — should also clean up the client.
+	err = rc.Delete(ctx, "AWS::Cognito::UserPool", poolID, nil)
+	require.NoError(t, err)
+
+	// Attempting to delete the client again should either succeed (already gone) or fail gracefully.
+	_ = rc.Delete(ctx, "AWS::Cognito::UserPoolClient", clientPhysID, nil)
+}
+
+func TestResourceCreator_Phase2_ECSServiceCreateDelete(t *testing.T) {
+	t.Parallel()
+
+	backends := newPhase2ServiceBackends()
+	rc := cloudformation.NewResourceCreator(backends)
+	ctx := t.Context()
+
+	// Create cluster.
+	clusterARN, err := rc.Create(ctx, "MyCluster", "AWS::ECS::Cluster",
+		map[string]any{"ClusterName": "unit-ecs-cluster"}, nil, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, clusterARN)
+
+	// Create task definition.
+	tdARN, err := rc.Create(ctx, "MyTD", "AWS::ECS::TaskDefinition",
+		map[string]any{
+			"Family":      "unit-ecs-family",
+			"NetworkMode": "bridge",
+		}, nil, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, tdARN)
+
+	physIDs := map[string]string{
+		"MyCluster": clusterARN,
+		"MyTD":      tdARN,
+	}
+
+	// Create service.
+	svcARN, err := rc.Create(ctx, "MySvc", "AWS::ECS::Service",
+		map[string]any{
+			"ServiceName":    "unit-ecs-service",
+			"Cluster":        clusterARN,
+			"TaskDefinition": tdARN,
+			"DesiredCount":   float64(0),
+		}, nil, physIDs)
+	require.NoError(t, err)
+	require.NotEmpty(t, svcARN)
+
+	// Delete service.
+	err = rc.Delete(ctx, "AWS::ECS::Service", svcARN, nil)
+	require.NoError(t, err)
 }

@@ -11,50 +11,74 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 
+	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
+	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
+	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
+	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 )
 
 // ServiceBackends holds references to all service backends.
 type ServiceBackends struct {
-	DynamoDB       *ddbbackend.DynamoDBHandler
-	S3             *s3backend.S3Handler
-	SQS            *sqsbackend.Handler
-	SNS            *snsbackend.Handler
-	SSM            *ssmbackend.Handler
-	KMS            *kmsbackend.Handler
-	SecretsManager *secretsmanagerbackend.Handler
-	Lambda         *lambdabackend.Handler
-	EventBridge    *ebbackend.Handler
-	StepFunctions  *sfnbackend.Handler
-	CloudWatchLogs *cwlogsbackend.Handler
-	APIGateway     *apigwbackend.Handler
-	IAM            *iambackend.Handler
-	EC2            *ec2backend.Handler
-	Kinesis        *kinesisbackend.Handler
-	CloudWatch     *cloudwatchbackend.Handler
-	Route53        *route53backend.Handler
-	ElastiCache    *elasticachebackend.Handler
-	Scheduler      *schedulerbackend.Handler
-	AccountID      string
-	Region         string
+	DynamoDB        *ddbbackend.DynamoDBHandler
+	S3              *s3backend.S3Handler
+	SQS             *sqsbackend.Handler
+	SNS             *snsbackend.Handler
+	SSM             *ssmbackend.Handler
+	KMS             *kmsbackend.Handler
+	SecretsManager  *secretsmanagerbackend.Handler
+	Lambda          *lambdabackend.Handler
+	EventBridge     *ebbackend.Handler
+	StepFunctions   *sfnbackend.Handler
+	CloudWatchLogs  *cwlogsbackend.Handler
+	APIGateway      *apigwbackend.Handler
+	IAM             *iambackend.Handler
+	EC2             *ec2backend.Handler
+	Kinesis         *kinesisbackend.Handler
+	CloudWatch      *cloudwatchbackend.Handler
+	Route53         *route53backend.Handler
+	ElastiCache     *elasticachebackend.Handler
+	Scheduler       *schedulerbackend.Handler
+	RDS             *rdsbackend.Handler
+	ECS             *ecsbackend.Handler
+	ECR             *ecrbackend.Handler
+	Redshift        *redshiftbackend.Handler
+	OpenSearch      *opensearchbackend.Handler
+	Firehose        *firehosebackend.Handler
+	Route53Resolver *route53resolverbackend.Handler
+	SWF             *swfbackend.Handler
+	AppSync         *appsyncbackend.Handler
+	SES             *sesbackend.Handler
+	ACM             *acmbackend.Handler
+	CognitoIDP      *cognitoidpbackend.Handler
+	AccountID       string
+	Region          string
 }
 
 // ResourceCreator creates and deletes cloud resources.
@@ -333,12 +357,20 @@ func (rc *ResourceCreator) createDataPlatformResource(
 		return rc.createKinesisStream(logicalID, props, params, physicalIDs)
 	case "AWS::CloudWatch::Alarm":
 		return rc.createCloudWatchAlarm(logicalID, props, params, physicalIDs)
+	case "AWS::CloudWatch::CompositeAlarm":
+		return rc.createCloudWatchCompositeAlarm(logicalID, props, params, physicalIDs)
 	case "AWS::Route53::HostedZone":
 		return rc.createRoute53HostedZone(logicalID, props, params, physicalIDs)
 	case "AWS::Route53::RecordSet":
 		return rc.createRoute53RecordSet(logicalID, props, params, physicalIDs)
+	case "AWS::Route53::HealthCheck":
+		return rc.createRoute53HealthCheck(logicalID, props, params, physicalIDs)
 	case "AWS::ElastiCache::CacheCluster":
 		return rc.createElastiCacheCacheCluster(logicalID, props, params, physicalIDs)
+	case "AWS::ElastiCache::ReplicationGroup":
+		return rc.createElastiCacheReplicationGroup(logicalID, props, params, physicalIDs)
+	case "AWS::ElastiCache::SubnetGroup":
+		return rc.createElastiCacheSubnetGroup(logicalID, props, params, physicalIDs)
 	case "AWS::SNS::Subscription":
 		return rc.createSNSSubscription(logicalID, props, params, physicalIDs)
 	case "AWS::SQS::QueuePolicy":
@@ -347,6 +379,127 @@ func (rc *ResourceCreator) createDataPlatformResource(
 		return rc.createS3BucketPolicy(ctx, logicalID, props, params, physicalIDs)
 	case "AWS::Scheduler::Schedule":
 		return rc.createSchedulerSchedule(logicalID, props, params, physicalIDs)
+	default:
+		return rc.createNewServiceResource(ctx, logicalID, resourceType, props, params, physicalIDs)
+	}
+}
+
+// createNewServiceResource handles RDS, ECS, ECR, Redshift, OpenSearch, Firehose,
+// Route53Resolver, SWF, AppSync, SES, ACM, Cognito, and EC2 extended resources.
+func (rc *ResourceCreator) createNewServiceResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if physID, handled, err := rc.createRDSResource(logicalID, resourceType, props, params, physicalIDs); handled {
+		return physID, err
+	}
+
+	if physID, handled, err := rc.createContainerResource(
+		ctx, logicalID, resourceType, props, params, physicalIDs,
+	); handled {
+		return physID, err
+	}
+
+	return rc.createMiscServiceResource(logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createRDSResource handles AWS::RDS::* resource creation.
+func (rc *ResourceCreator) createRDSResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::RDS::DBInstance":
+		physID, err := rc.createRDSDBInstance(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::RDS::DBSubnetGroup":
+		physID, err := rc.createRDSDBSubnetGroup(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::RDS::DBParameterGroup":
+		physID, err := rc.createRDSDBParameterGroup(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+// createContainerResource handles AWS::ECS::*, AWS::ECR::*, and AWS::Lambda::Layer* resource creation.
+func (rc *ResourceCreator) createContainerResource(
+	ctx context.Context,
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::ECS::Cluster":
+		physID, err := rc.createECSCluster(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ECS::TaskDefinition":
+		physID, err := rc.createECSTaskDefinition(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ECS::Service":
+		physID, err := rc.createECSService(ctx, logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ECR::Repository":
+		physID, err := rc.createECRRepository(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Lambda::LayerVersion":
+		physID, err := rc.createLambdaLayerVersion(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Lambda::LayerVersionPermission":
+		physID, err := rc.createLambdaLayerVersionPermission(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+// createMiscServiceResource handles Redshift, OpenSearch, Firehose, Route53Resolver, SWF, AppSync,
+// SES, ACM, Cognito, and extended EC2 resource creation.
+func (rc *ResourceCreator) createMiscServiceResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
+	case "AWS::Redshift::Cluster":
+		return rc.createRedshiftCluster(logicalID, props, params, physicalIDs)
+	case "AWS::OpenSearch::Domain":
+		return rc.createOpenSearchDomain(logicalID, props, params, physicalIDs)
+	case "AWS::Firehose::DeliveryStream":
+		return rc.createFirehoseDeliveryStream(logicalID, props, params, physicalIDs)
+	case "AWS::Route53Resolver::ResolverEndpoint":
+		return rc.createRoute53ResolverEndpoint(logicalID, props, params, physicalIDs)
+	case "AWS::Route53Resolver::ResolverRule":
+		return rc.createRoute53ResolverRule(logicalID, props, params, physicalIDs)
+	case "AWS::SWF::Domain":
+		return rc.createSWFDomain(logicalID, props, params, physicalIDs)
+	case "AWS::AppSync::GraphQLApi":
+		return rc.createAppSyncGraphQLAPI(logicalID, props, params, physicalIDs)
+	case "AWS::SES::EmailIdentity":
+		return rc.createSESEmailIdentity(logicalID, props, params, physicalIDs)
+	case "AWS::ACM::Certificate":
+		return rc.createACMCertificate(logicalID, props, params, physicalIDs)
+	case "AWS::Cognito::UserPool":
+		return rc.createCognitoUserPool(logicalID, props, params, physicalIDs)
+	case "AWS::Cognito::UserPoolClient":
+		return rc.createCognitoUserPoolClient(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::NatGateway":
+		return rc.createEC2NatGateway(logicalID, props, params, physicalIDs)
+	case "AWS::EC2::EIP":
+		return rc.createEC2EIP(logicalID)
 	default:
 		return logicalID + "-stub", nil
 	}
@@ -495,14 +648,20 @@ func (rc *ResourceCreator) deleteDataPlatformResource(ctx context.Context, resou
 	switch resourceType {
 	case "AWS::Kinesis::Stream":
 		return rc.deleteKinesisStream(physicalID)
-	case "AWS::CloudWatch::Alarm":
+	case "AWS::CloudWatch::Alarm", "AWS::CloudWatch::CompositeAlarm":
 		return rc.deleteCloudWatchAlarm(physicalID)
 	case "AWS::Route53::HostedZone":
 		return rc.deleteRoute53HostedZone(physicalID)
 	case "AWS::Route53::RecordSet":
 		return nil // record sets are deleted with the hosted zone
+	case "AWS::Route53::HealthCheck":
+		return rc.deleteRoute53HealthCheck(physicalID)
 	case "AWS::ElastiCache::CacheCluster":
 		return rc.deleteElastiCacheCacheCluster(ctx, physicalID)
+	case "AWS::ElastiCache::ReplicationGroup":
+		return rc.deleteElastiCacheReplicationGroup(ctx, physicalID)
+	case "AWS::ElastiCache::SubnetGroup":
+		return rc.deleteElastiCacheSubnetGroup(physicalID)
 	case "AWS::SNS::Subscription":
 		return rc.deleteSNSSubscription(physicalID)
 	case "AWS::SQS::QueuePolicy":
@@ -511,6 +670,77 @@ func (rc *ResourceCreator) deleteDataPlatformResource(ctx context.Context, resou
 		return rc.deleteS3BucketPolicy(ctx, physicalID)
 	case "AWS::Scheduler::Schedule":
 		return rc.deleteSchedulerSchedule(physicalID)
+	default:
+		return rc.deleteNewServiceResource(physicalID, resourceType)
+	}
+}
+
+// deleteNewServiceResource handles RDS, ECS, ECR, Redshift, OpenSearch, Firehose,
+// Route53Resolver, SWF, AppSync, SES, ACM, Cognito, and extended EC2 resource deletions.
+func (rc *ResourceCreator) deleteNewServiceResource(physicalID, resourceType string) error {
+	if handled, err := rc.deleteComputeStorageResource(physicalID, resourceType); handled {
+		return err
+	}
+
+	return rc.deleteAppNetworkResource(physicalID, resourceType)
+}
+
+// deleteComputeStorageResource handles RDS, ECS, ECR, Lambda layer, Redshift, and OpenSearch deletions.
+func (rc *ResourceCreator) deleteComputeStorageResource(physicalID, resourceType string) (bool, error) {
+	switch resourceType {
+	case "AWS::RDS::DBInstance":
+		return true, rc.deleteRDSDBInstance(physicalID)
+	case "AWS::RDS::DBSubnetGroup":
+		return true, rc.deleteRDSDBSubnetGroup(physicalID)
+	case "AWS::RDS::DBParameterGroup":
+		return true, rc.deleteRDSDBParameterGroup(physicalID)
+	case "AWS::ECS::Cluster":
+		return true, rc.deleteECSCluster(physicalID)
+	case "AWS::ECS::TaskDefinition":
+		return true, rc.deleteECSTaskDefinition(physicalID)
+	case "AWS::ECS::Service":
+		return true, rc.deleteECSService(physicalID)
+	case "AWS::ECR::Repository":
+		return true, rc.deleteECRRepository(physicalID)
+	case "AWS::Lambda::LayerVersion":
+		return true, rc.deleteLambdaLayerVersion(physicalID)
+	case "AWS::Lambda::LayerVersionPermission":
+		return true, rc.deleteLambdaLayerVersionPermission(physicalID)
+	case "AWS::Redshift::Cluster":
+		return true, rc.deleteRedshiftCluster(physicalID)
+	case "AWS::OpenSearch::Domain":
+		return true, rc.deleteOpenSearchDomain(physicalID)
+	default:
+		return false, nil
+	}
+}
+
+// deleteAppNetworkResource handles Firehose, Route53Resolver, SWF, AppSync, SES, ACM,
+// Cognito, and extended EC2 resource deletions.
+func (rc *ResourceCreator) deleteAppNetworkResource(physicalID, resourceType string) error {
+	switch resourceType {
+	case "AWS::Firehose::DeliveryStream":
+		return rc.deleteFirehoseDeliveryStream(physicalID)
+	case "AWS::Route53Resolver::ResolverEndpoint":
+		return rc.deleteRoute53ResolverEndpoint(physicalID)
+	case "AWS::Route53Resolver::ResolverRule":
+		return rc.deleteRoute53ResolverRule(physicalID)
+	case "AWS::SWF::Domain":
+		return rc.deleteSWFDomain(physicalID)
+	case "AWS::AppSync::GraphQLApi":
+		return rc.deleteAppSyncGraphQLAPI(physicalID)
+	case "AWS::SES::EmailIdentity":
+		return rc.deleteSESEmailIdentity(physicalID)
+	case "AWS::ACM::Certificate":
+		return rc.deleteACMCertificate(physicalID)
+	case "AWS::Cognito::UserPool":
+		return rc.deleteCognitoUserPool(physicalID)
+	case "AWS::Cognito::UserPoolClient":
+		return rc.deleteCognitoUserPoolClient(physicalID)
+	case "AWS::EC2::NatGateway":
+		return rc.deleteEC2NatGateway(physicalID)
+	case "AWS::EC2::EIP":
+		return rc.deleteEC2EIP(physicalID)
 	default:
 		return nil
 	}
