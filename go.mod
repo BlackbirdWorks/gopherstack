@@ -1,6 +1,6 @@
 module github.com/blackbirdworks/gopherstack
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/alecthomas/kong v1.14.0
