@@ -62,6 +62,8 @@ type StorageBackend interface {
 	DeleteRole(roleName string) error
 	ListRoles(marker string, maxItems int) (page.Page[Role], error)
 	GetRole(roleName string) (*Role, error)
+	GetRoleByArn(roleArn string) (*Role, error)
+	UpdateRoleMaxSessionDuration(roleName string, maxSessionDuration int32) error
 
 	// Policies
 	CreatePolicy(policyName, path, policyDocument string) (*Policy, error)
@@ -350,6 +352,36 @@ func (b *InMemoryBackend) GetRole(roleName string) (*Role, error) {
 	}
 
 	return &r, nil
+}
+
+// GetRoleByArn retrieves a single IAM role by its full ARN.
+func (b *InMemoryBackend) GetRoleByArn(roleArn string) (*Role, error) {
+	b.mu.RLock("GetRoleByArn")
+	defer b.mu.RUnlock()
+
+	for _, r := range b.roles {
+		if r.Arn == roleArn {
+			return &r, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: role with ARN %q not found", ErrRoleNotFound, roleArn)
+}
+
+// UpdateRoleMaxSessionDuration sets the maximum session duration for a role.
+func (b *InMemoryBackend) UpdateRoleMaxSessionDuration(roleName string, maxSessionDuration int32) error {
+	b.mu.Lock("UpdateRoleMaxSessionDuration")
+	defer b.mu.Unlock()
+
+	r, exists := b.roles[roleName]
+	if !exists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	r.MaxSessionDuration = maxSessionDuration
+	b.roles[roleName] = r
+
+	return nil
 }
 
 // ---- Policies ----

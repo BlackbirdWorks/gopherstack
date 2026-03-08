@@ -852,6 +852,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["SecretsManager"],
 	)
 
+	// Wire IAM → STS for ExternalId validation and MaxSessionDuration enforcement.
+	wireIAMToSTS(byName["IAM"], byName["STS"])
+
 	// Init CloudFormation after core handlers are stored so it can access their backends.
 	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
 	if err != nil {
@@ -1421,6 +1424,44 @@ func (d *cwlogsSubscriptionDeliverer) DeliverLogEvents(
 	}
 
 	return nil
+}
+
+// wireIAMToSTS connects the IAM backend to STS so that AssumeRole can validate
+// ExternalId conditions and enforce per-role MaxSessionDuration limits.
+func wireIAMToSTS(iamReg, stsReg service.Registerable) {
+	iamH, iamOk := iamReg.(*iambackend.Handler)
+	stsH, stsOk := stsReg.(*stsbackend.Handler)
+
+	if !iamOk || !stsOk {
+		return
+	}
+
+	iamBk, iamBkOk := iamH.Backend.(*iambackend.InMemoryBackend)
+	stsBk, stsBkOk := stsH.Backend.(*stsbackend.InMemoryBackend)
+
+	if !iamBkOk || !stsBkOk {
+		return
+	}
+
+	stsBk.SetRoleLookup(&iamRoleLookupAdapter{backend: iamBk})
+}
+
+// iamRoleLookupAdapter adapts the IAM backend to the STS RoleLookup interface.
+type iamRoleLookupAdapter struct {
+	backend *iambackend.InMemoryBackend
+}
+
+// GetRoleByArn looks up the IAM role by ARN and returns STS-relevant metadata.
+func (a *iamRoleLookupAdapter) GetRoleByArn(roleArn string) (*stsbackend.RoleMeta, error) {
+	role, err := a.backend.GetRoleByArn(roleArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &stsbackend.RoleMeta{
+		TrustPolicy:        role.AssumeRolePolicyDocument,
+		MaxSessionDuration: role.MaxSessionDuration,
+	}, nil
 }
 
 // wireSecretsManagerLambda wires the Lambda invoker into the SecretsManager handler

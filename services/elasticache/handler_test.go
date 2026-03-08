@@ -11,6 +11,7 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	elasticachetypes "github.com/aws/aws-sdk-go-v2/service/elasticache/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -641,10 +642,26 @@ func TestHandlerMetadata(t *testing.T) {
 				"CreateCacheCluster",
 				"DeleteCacheCluster",
 				"DescribeCacheClusters",
+				"ModifyCacheCluster",
 				"ListTagsForResource",
 				"CreateReplicationGroup",
 				"DeleteReplicationGroup",
 				"DescribeReplicationGroups",
+				"ModifyReplicationGroup",
+				"CreateCacheParameterGroup",
+				"DeleteCacheParameterGroup",
+				"DescribeCacheParameterGroups",
+				"ModifyCacheParameterGroup",
+				"ResetCacheParameterGroup",
+				"DescribeCacheParameters",
+				"CreateCacheSubnetGroup",
+				"DeleteCacheSubnetGroup",
+				"DescribeCacheSubnetGroups",
+				"ModifyCacheSubnetGroup",
+				"CreateSnapshot",
+				"DeleteSnapshot",
+				"DescribeSnapshots",
+				"CopySnapshot",
 			},
 		},
 		{
@@ -853,6 +870,1017 @@ func TestHandlerUnknownAction(t *testing.T) {
 			t.Parallel()
 
 			_ = newTestStack(t)
+		})
+	}
+}
+
+func TestCacheParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(t *testing.T, client *elasticachesdk.Client)
+		name        string
+		pgName      string
+		family      string
+		description string
+		wantErr     bool
+		wantCount   int
+	}{
+		{
+			name:        "create_success",
+			pgName:      "my-pg",
+			family:      "redis7",
+			description: "test param group",
+		},
+		{
+			name:   "create_already_exists",
+			pgName: "dup-pg",
+			family: "redis7",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheParameterGroup(t.Context(), &elasticachesdk.CreateCacheParameterGroupInput{
+					CacheParameterGroupName:   aws.String("dup-pg"),
+					CacheParameterGroupFamily: aws.String("redis7"),
+					Description:               aws.String("first"),
+				})
+				require.NoError(t, err)
+			},
+			wantErr: true,
+		},
+		{
+			name:      "describe_all_includes_defaults",
+			wantCount: 8, // 8 default parameter groups seeded
+		},
+		{
+			name:   "describe_specific",
+			pgName: "my-specific-pg",
+			family: "redis7",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheParameterGroup(t.Context(), &elasticachesdk.CreateCacheParameterGroupInput{
+					CacheParameterGroupName:   aws.String("my-specific-pg"),
+					CacheParameterGroupFamily: aws.String("redis7"),
+					Description:               aws.String("specific"),
+				})
+				require.NoError(t, err)
+			},
+			wantCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if tt.setup != nil {
+				tt.setup(t, client)
+			}
+
+			if tt.pgName != "" && tt.setup == nil {
+				out, err := client.CreateCacheParameterGroup(
+					t.Context(),
+					&elasticachesdk.CreateCacheParameterGroupInput{
+						CacheParameterGroupName:   aws.String(tt.pgName),
+						CacheParameterGroupFamily: aws.String(tt.family),
+						Description:               aws.String(tt.description),
+					},
+				)
+
+				if tt.wantErr {
+					require.Error(t, err)
+
+					return
+				}
+
+				require.NoError(t, err)
+				require.NotNil(t, out.CacheParameterGroup)
+				assert.Equal(t, tt.pgName, aws.ToString(out.CacheParameterGroup.CacheParameterGroupName))
+				assert.Equal(t, tt.family, aws.ToString(out.CacheParameterGroup.CacheParameterGroupFamily))
+
+				return
+			}
+
+			if tt.wantErr {
+				_, err := client.CreateCacheParameterGroup(t.Context(), &elasticachesdk.CreateCacheParameterGroupInput{
+					CacheParameterGroupName:   aws.String(tt.pgName),
+					CacheParameterGroupFamily: aws.String(tt.family),
+					Description:               aws.String(tt.description),
+				})
+				require.Error(t, err)
+
+				return
+			}
+
+			if tt.wantCount > 0 {
+				var pgName *string
+				if tt.pgName != "" {
+					pgName = aws.String(tt.pgName)
+				}
+				out, err := client.DescribeCacheParameterGroups(
+					t.Context(),
+					&elasticachesdk.DescribeCacheParameterGroupsInput{
+						CacheParameterGroupName: pgName,
+					},
+				)
+				require.NoError(t, err)
+				assert.GreaterOrEqual(t, len(out.CacheParameterGroups), tt.wantCount)
+			}
+		})
+	}
+}
+
+func TestDeleteCacheParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(t *testing.T, client *elasticachesdk.Client)
+		name    string
+		pgName  string
+		wantErr bool
+	}{
+		{
+			name:   "success",
+			pgName: "my-pg",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheParameterGroup(t.Context(), &elasticachesdk.CreateCacheParameterGroupInput{
+					CacheParameterGroupName:   aws.String("my-pg"),
+					CacheParameterGroupFamily: aws.String("redis7"),
+					Description:               aws.String("test"),
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:    "not_found",
+			pgName:  "does-not-exist",
+			wantErr: true,
+		},
+		{
+			name:    "default_not_deletable",
+			pgName:  "default.redis7",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if tt.setup != nil {
+				tt.setup(t, client)
+			}
+
+			_, err := client.DeleteCacheParameterGroup(t.Context(), &elasticachesdk.DeleteCacheParameterGroupInput{
+				CacheParameterGroupName: aws.String(tt.pgName),
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestModifyAndResetCacheParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		pgName  string
+		wantErr bool
+	}{
+		{
+			name:   "modify_and_reset_success",
+			pgName: "my-pg",
+		},
+		{
+			name:    "modify_default_fails",
+			pgName:  "default.redis7",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if !tt.wantErr {
+				_, err := client.CreateCacheParameterGroup(t.Context(), &elasticachesdk.CreateCacheParameterGroupInput{
+					CacheParameterGroupName:   aws.String(tt.pgName),
+					CacheParameterGroupFamily: aws.String("redis7"),
+					Description:               aws.String("test"),
+				})
+				require.NoError(t, err)
+			}
+
+			_, modErr := client.ModifyCacheParameterGroup(t.Context(), &elasticachesdk.ModifyCacheParameterGroupInput{
+				CacheParameterGroupName: aws.String(tt.pgName),
+				ParameterNameValues: []elasticachetypes.ParameterNameValue{
+					{ParameterName: aws.String("maxmemory-policy"), ParameterValue: aws.String("allkeys-lru")},
+				},
+			})
+
+			if tt.wantErr {
+				require.Error(t, modErr)
+
+				return
+			}
+
+			require.NoError(t, modErr)
+
+			// Verify via DescribeCacheParameters
+			paramsOut, err := client.DescribeCacheParameters(t.Context(), &elasticachesdk.DescribeCacheParametersInput{
+				CacheParameterGroupName: aws.String(tt.pgName),
+			})
+			require.NoError(t, err)
+			require.Len(t, paramsOut.Parameters, 1)
+			assert.Equal(t, "maxmemory-policy", aws.ToString(paramsOut.Parameters[0].ParameterName))
+			assert.Equal(t, "allkeys-lru", aws.ToString(paramsOut.Parameters[0].ParameterValue))
+
+			// Reset all parameters
+			_, resetErr := client.ResetCacheParameterGroup(t.Context(), &elasticachesdk.ResetCacheParameterGroupInput{
+				CacheParameterGroupName: aws.String(tt.pgName),
+				ResetAllParameters:      aws.Bool(true),
+			})
+			require.NoError(t, resetErr)
+
+			// Should be empty again
+			paramsOut2, err := client.DescribeCacheParameters(t.Context(), &elasticachesdk.DescribeCacheParametersInput{
+				CacheParameterGroupName: aws.String(tt.pgName),
+			})
+			require.NoError(t, err)
+			assert.Empty(t, paramsOut2.Parameters)
+		})
+	}
+}
+
+func TestDefaultParameterGroups(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		paramGroupName string
+		wantFound      bool
+	}{
+		{
+			name:           "default_redis7",
+			paramGroupName: "default.redis7",
+			wantFound:      true,
+		},
+		{
+			name:           "default_redis6x",
+			paramGroupName: "default.redis6.x",
+			wantFound:      true,
+		},
+		{
+			name:           "default_memcached16",
+			paramGroupName: "default.memcached1.6",
+			wantFound:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			out, err := client.DescribeCacheParameterGroups(
+				t.Context(),
+				&elasticachesdk.DescribeCacheParameterGroupsInput{
+					CacheParameterGroupName: aws.String(tt.paramGroupName),
+				},
+			)
+			require.NoError(t, err)
+			require.Len(t, out.CacheParameterGroups, 1)
+			assert.Equal(t, tt.paramGroupName, aws.ToString(out.CacheParameterGroups[0].CacheParameterGroupName))
+		})
+	}
+}
+
+func TestCacheSubnetGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(t *testing.T, client *elasticachesdk.Client)
+		name      string
+		sgName    string
+		desc      string
+		subnetIDs []string
+		wantErr   bool
+		wantCount int
+	}{
+		{
+			name:      "create_success",
+			sgName:    "my-sg",
+			desc:      "test subnet group",
+			subnetIDs: []string{"subnet-1", "subnet-2"},
+		},
+		{
+			name:      "create_already_exists",
+			sgName:    "dup-sg",
+			desc:      "duplicate",
+			subnetIDs: []string{"subnet-1"},
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheSubnetGroup(t.Context(), &elasticachesdk.CreateCacheSubnetGroupInput{
+					CacheSubnetGroupName:        aws.String("dup-sg"),
+					CacheSubnetGroupDescription: aws.String("first"),
+					SubnetIds:                   []string{"subnet-1"},
+				})
+				require.NoError(t, err)
+			},
+			wantErr: true,
+		},
+		{
+			name: "describe_all",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				for _, nm := range []string{"sg-one", "sg-two"} {
+					_, err := client.CreateCacheSubnetGroup(t.Context(), &elasticachesdk.CreateCacheSubnetGroupInput{
+						CacheSubnetGroupName:        aws.String(nm),
+						CacheSubnetGroupDescription: aws.String("desc"),
+						SubnetIds:                   []string{"subnet-1"},
+					})
+					require.NoError(t, err)
+				}
+			},
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if tt.setup != nil {
+				tt.setup(t, client)
+			}
+
+			if tt.sgName != "" {
+				out, err := client.CreateCacheSubnetGroup(t.Context(), &elasticachesdk.CreateCacheSubnetGroupInput{
+					CacheSubnetGroupName:        aws.String(tt.sgName),
+					CacheSubnetGroupDescription: aws.String(tt.desc),
+					SubnetIds:                   tt.subnetIDs,
+				})
+
+				if tt.wantErr {
+					require.Error(t, err)
+
+					return
+				}
+
+				require.NoError(t, err)
+				require.NotNil(t, out.CacheSubnetGroup)
+				assert.Equal(t, tt.sgName, aws.ToString(out.CacheSubnetGroup.CacheSubnetGroupName))
+
+				return
+			}
+
+			if tt.wantCount > 0 {
+				out, err := client.DescribeCacheSubnetGroups(
+					t.Context(),
+					&elasticachesdk.DescribeCacheSubnetGroupsInput{},
+				)
+				require.NoError(t, err)
+				assert.Len(t, out.CacheSubnetGroups, tt.wantCount)
+			}
+		})
+	}
+}
+
+func TestDeleteCacheSubnetGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(t *testing.T, client *elasticachesdk.Client)
+		name    string
+		sgName  string
+		wantErr bool
+	}{
+		{
+			name:   "success",
+			sgName: "my-sg",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheSubnetGroup(t.Context(), &elasticachesdk.CreateCacheSubnetGroupInput{
+					CacheSubnetGroupName:        aws.String("my-sg"),
+					CacheSubnetGroupDescription: aws.String("test"),
+					SubnetIds:                   []string{"subnet-1"},
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:    "not_found",
+			sgName:  "does-not-exist",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if tt.setup != nil {
+				tt.setup(t, client)
+			}
+
+			_, err := client.DeleteCacheSubnetGroup(t.Context(), &elasticachesdk.DeleteCacheSubnetGroupInput{
+				CacheSubnetGroupName: aws.String(tt.sgName),
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestModifyCacheSubnetGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		sgName  string
+		wantErr bool
+	}{
+		{
+			name:   "success",
+			sgName: "my-sg",
+		},
+		{
+			name:    "not_found",
+			sgName:  "does-not-exist",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if !tt.wantErr {
+				_, err := client.CreateCacheSubnetGroup(t.Context(), &elasticachesdk.CreateCacheSubnetGroupInput{
+					CacheSubnetGroupName:        aws.String(tt.sgName),
+					CacheSubnetGroupDescription: aws.String("original"),
+					SubnetIds:                   []string{"subnet-1"},
+				})
+				require.NoError(t, err)
+			}
+
+			out, err := client.ModifyCacheSubnetGroup(t.Context(), &elasticachesdk.ModifyCacheSubnetGroupInput{
+				CacheSubnetGroupName:        aws.String(tt.sgName),
+				CacheSubnetGroupDescription: aws.String("updated"),
+				SubnetIds:                   []string{"subnet-1", "subnet-2"},
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out.CacheSubnetGroup)
+			assert.Equal(t, "updated", aws.ToString(out.CacheSubnetGroup.CacheSubnetGroupDescription))
+		})
+	}
+}
+
+func TestCreateSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup              func(t *testing.T, client *elasticachesdk.Client)
+		name               string
+		snapshotName       string
+		clusterID          string
+		replicationGroupID string
+		wantStatus         string
+		wantErr            bool
+	}{
+		{
+			name:         "create_from_cluster",
+			snapshotName: "my-snap",
+			clusterID:    "snap-cluster",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+					CacheClusterId: aws.String("snap-cluster"),
+					Engine:         aws.String("redis"),
+				})
+				require.NoError(t, err)
+			},
+			wantStatus: "available",
+		},
+		{
+			name:               "create_from_replication_group",
+			snapshotName:       "rg-snap",
+			replicationGroupID: "rg-for-snap",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+					ReplicationGroupId:          aws.String("rg-for-snap"),
+					ReplicationGroupDescription: aws.String("test"),
+				})
+				require.NoError(t, err)
+			},
+			wantStatus: "available",
+		},
+		{
+			name:         "create_snapshot_already_exists",
+			snapshotName: "dup-snap",
+			clusterID:    "snap-cluster2",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+					CacheClusterId: aws.String("snap-cluster2"),
+					Engine:         aws.String("redis"),
+				})
+				require.NoError(t, err)
+				_, err = client.CreateSnapshot(t.Context(), &elasticachesdk.CreateSnapshotInput{
+					SnapshotName:   aws.String("dup-snap"),
+					CacheClusterId: aws.String("snap-cluster2"),
+				})
+				require.NoError(t, err)
+			},
+			wantErr: true,
+		},
+		{
+			name:         "create_cluster_not_found",
+			snapshotName: "no-snap",
+			clusterID:    "does-not-exist",
+			wantErr:      true,
+		},
+		{
+			name:               "invalid_both_sources",
+			snapshotName:       "both-snap",
+			clusterID:          "some-cluster",
+			replicationGroupID: "some-rg",
+			wantErr:            true,
+		},
+		{
+			name:         "invalid_no_source",
+			snapshotName: "no-source-snap",
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if tt.setup != nil {
+				tt.setup(t, client)
+			}
+
+			input := &elasticachesdk.CreateSnapshotInput{
+				SnapshotName: aws.String(tt.snapshotName),
+			}
+			if tt.clusterID != "" {
+				input.CacheClusterId = aws.String(tt.clusterID)
+			}
+			if tt.replicationGroupID != "" {
+				input.ReplicationGroupId = aws.String(tt.replicationGroupID)
+			}
+
+			out, err := client.CreateSnapshot(t.Context(), input)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out.Snapshot)
+			assert.Equal(t, tt.snapshotName, aws.ToString(out.Snapshot.SnapshotName))
+			assert.Equal(t, tt.wantStatus, aws.ToString(out.Snapshot.SnapshotStatus))
+		})
+	}
+}
+
+func TestDescribeSnapshots(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		snapshotName    string
+		filterClusterID string
+		filterRGID      string
+		wantCount       int
+		wantErr         bool
+	}{
+		{
+			name:      "describe_all",
+			wantCount: 3,
+		},
+		{
+			name:            "describe_by_cluster",
+			filterClusterID: "desc-snap-cluster",
+			wantCount:       2,
+		},
+		{
+			name:       "describe_by_replication_group",
+			filterRGID: "desc-snap-rg",
+			wantCount:  1,
+		},
+		{
+			name:         "describe_specific",
+			snapshotName: "snap-a",
+			wantCount:    1,
+		},
+		{
+			name:         "describe_not_found",
+			snapshotName: "does-not-exist",
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			// Create a cluster and two snapshots for describe tests.
+			_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+				CacheClusterId: aws.String("desc-snap-cluster"),
+				Engine:         aws.String("redis"),
+			})
+			require.NoError(t, err)
+
+			for _, sname := range []string{"snap-a", "snap-b"} {
+				_, err = client.CreateSnapshot(t.Context(), &elasticachesdk.CreateSnapshotInput{
+					SnapshotName:   aws.String(sname),
+					CacheClusterId: aws.String("desc-snap-cluster"),
+				})
+				require.NoError(t, err)
+			}
+
+			// Create a replication group and one snapshot for RG-filter tests.
+			_, err = client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+				ReplicationGroupId:          aws.String("desc-snap-rg"),
+				ReplicationGroupDescription: aws.String("test"),
+			})
+			require.NoError(t, err)
+			_, err = client.CreateSnapshot(t.Context(), &elasticachesdk.CreateSnapshotInput{
+				SnapshotName:       aws.String("rg-snap-x"),
+				ReplicationGroupId: aws.String("desc-snap-rg"),
+			})
+			require.NoError(t, err)
+
+			input := &elasticachesdk.DescribeSnapshotsInput{}
+			if tt.snapshotName != "" {
+				input.SnapshotName = aws.String(tt.snapshotName)
+			}
+			if tt.filterClusterID != "" {
+				input.CacheClusterId = aws.String(tt.filterClusterID)
+			}
+			if tt.filterRGID != "" {
+				input.ReplicationGroupId = aws.String(tt.filterRGID)
+			}
+
+			out, err := client.DescribeSnapshots(t.Context(), input)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, out.Snapshots, tt.wantCount)
+		})
+	}
+}
+
+func TestDeleteSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, client *elasticachesdk.Client)
+		name         string
+		snapshotName string
+		wantErr      bool
+	}{
+		{
+			name:         "success",
+			snapshotName: "del-snap",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+					CacheClusterId: aws.String("del-cluster"),
+					Engine:         aws.String("redis"),
+				})
+				require.NoError(t, err)
+				_, err = client.CreateSnapshot(t.Context(), &elasticachesdk.CreateSnapshotInput{
+					SnapshotName:   aws.String("del-snap"),
+					CacheClusterId: aws.String("del-cluster"),
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:         "not_found",
+			snapshotName: "ghost-snap",
+			wantErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if tt.setup != nil {
+				tt.setup(t, client)
+			}
+
+			out, err := client.DeleteSnapshot(t.Context(), &elasticachesdk.DeleteSnapshotInput{
+				SnapshotName: aws.String(tt.snapshotName),
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out.Snapshot)
+			assert.Equal(t, tt.snapshotName, aws.ToString(out.Snapshot.SnapshotName))
+
+			// Verify it is actually gone.
+			_, descErr := client.DescribeSnapshots(t.Context(), &elasticachesdk.DescribeSnapshotsInput{
+				SnapshotName: aws.String(tt.snapshotName),
+			})
+			require.Error(t, descErr)
+		})
+	}
+}
+
+func TestCopySnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup              func(t *testing.T, client *elasticachesdk.Client)
+		name               string
+		sourceSnapshotName string
+		targetSnapshotName string
+		wantErr            bool
+	}{
+		{
+			name:               "success",
+			sourceSnapshotName: "source-snap",
+			targetSnapshotName: "target-snap",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+					CacheClusterId: aws.String("copy-cluster"),
+					Engine:         aws.String("redis"),
+				})
+				require.NoError(t, err)
+				_, err = client.CreateSnapshot(t.Context(), &elasticachesdk.CreateSnapshotInput{
+					SnapshotName:   aws.String("source-snap"),
+					CacheClusterId: aws.String("copy-cluster"),
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:               "source_not_found",
+			sourceSnapshotName: "does-not-exist",
+			targetSnapshotName: "target",
+			wantErr:            true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if tt.setup != nil {
+				tt.setup(t, client)
+			}
+
+			out, err := client.CopySnapshot(t.Context(), &elasticachesdk.CopySnapshotInput{
+				SourceSnapshotName: aws.String(tt.sourceSnapshotName),
+				TargetSnapshotName: aws.String(tt.targetSnapshotName),
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out.Snapshot)
+			assert.Equal(t, tt.targetSnapshotName, aws.ToString(out.Snapshot.SnapshotName))
+		})
+	}
+}
+
+func TestModifyCacheCluster(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, client *elasticachesdk.Client)
+		name     string
+		id       string
+		nodeType string
+		wantErr  bool
+	}{
+		{
+			name:     "success",
+			id:       "my-cluster",
+			nodeType: "cache.r6g.large",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+					CacheClusterId: aws.String("my-cluster"),
+					Engine:         aws.String("redis"),
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:    "not_found",
+			id:      "does-not-exist",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if tt.setup != nil {
+				tt.setup(t, client)
+			}
+
+			out, err := client.ModifyCacheCluster(t.Context(), &elasticachesdk.ModifyCacheClusterInput{
+				CacheClusterId: aws.String(tt.id),
+				CacheNodeType:  aws.String(tt.nodeType),
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out.CacheCluster)
+			assert.Equal(t, tt.nodeType, aws.ToString(out.CacheCluster.CacheNodeType))
+		})
+	}
+}
+
+func TestModifyReplicationGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(t *testing.T, client *elasticachesdk.Client)
+		name        string
+		id          string
+		description string
+		wantErr     bool
+	}{
+		{
+			name:        "success",
+			id:          "my-rg",
+			description: "updated description",
+			setup: func(t *testing.T, client *elasticachesdk.Client) {
+				t.Helper()
+				_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+					ReplicationGroupId:          aws.String("my-rg"),
+					ReplicationGroupDescription: aws.String("original"),
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:    "not_found",
+			id:      "does-not-exist",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if tt.setup != nil {
+				tt.setup(t, client)
+			}
+
+			out, err := client.ModifyReplicationGroup(t.Context(), &elasticachesdk.ModifyReplicationGroupInput{
+				ReplicationGroupId:          aws.String(tt.id),
+				ReplicationGroupDescription: aws.String(tt.description),
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out.ReplicationGroup)
+			assert.Equal(t, tt.description, aws.ToString(out.ReplicationGroup.Description))
+		})
+	}
+}
+
+func TestCreateClusterWithParameterGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		clusterID      string
+		paramGroupName string
+		wantErr        bool
+	}{
+		{
+			name:           "with_default_param_group",
+			clusterID:      "my-cluster",
+			paramGroupName: "default.redis7",
+		},
+		{
+			name:           "with_custom_param_group",
+			clusterID:      "my-cluster2",
+			paramGroupName: "custom-pg",
+		},
+		{
+			name:           "param_group_not_found",
+			clusterID:      "my-cluster3",
+			paramGroupName: "nonexistent-pg",
+			wantErr:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newTestStack(t)
+
+			if tt.paramGroupName == "custom-pg" {
+				_, err := client.CreateCacheParameterGroup(t.Context(), &elasticachesdk.CreateCacheParameterGroupInput{
+					CacheParameterGroupName:   aws.String("custom-pg"),
+					CacheParameterGroupFamily: aws.String("redis7"),
+					Description:               aws.String("custom"),
+				})
+				require.NoError(t, err)
+			}
+
+			out, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+				CacheClusterId:          aws.String(tt.clusterID),
+				Engine:                  aws.String("redis"),
+				CacheParameterGroupName: aws.String(tt.paramGroupName),
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out.CacheCluster)
 		})
 	}
 }

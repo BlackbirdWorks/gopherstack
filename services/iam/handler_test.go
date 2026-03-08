@@ -183,6 +183,48 @@ func TestInMemoryBackend_Roles(t *testing.T) {
 		require.Len(t, roles, 2)
 		assert.Equal(t, "RoleA", roles[0].RoleName)
 	})
+
+	t.Run("GetRoleByArn_Found", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+		r, err := b.CreateRole("MyRole", "/", "", "")
+		require.NoError(t, err)
+
+		got, err := b.GetRoleByArn(r.Arn)
+		require.NoError(t, err)
+		assert.Equal(t, "MyRole", got.RoleName)
+		assert.Equal(t, r.Arn, got.Arn)
+	})
+
+	t.Run("GetRoleByArn_NotFound", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+
+		_, err := b.GetRoleByArn("arn:aws:iam::000000000000:role/nonexistent")
+		require.ErrorIs(t, err, iam.ErrRoleNotFound)
+	})
+
+	t.Run("UpdateRoleMaxSessionDuration_Success", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+		_, err := b.CreateRole("MyRole", "/", "", "")
+		require.NoError(t, err)
+
+		err = b.UpdateRoleMaxSessionDuration("MyRole", 7200)
+		require.NoError(t, err)
+
+		got, err := b.GetRole("MyRole")
+		require.NoError(t, err)
+		assert.Equal(t, int32(7200), got.MaxSessionDuration)
+	})
+
+	t.Run("UpdateRoleMaxSessionDuration_NotFound", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+
+		err := b.UpdateRoleMaxSessionDuration("nonexistent", 3600)
+		require.ErrorIs(t, err, iam.ErrRoleNotFound)
+	})
 }
 
 func TestInMemoryBackend_Policies(t *testing.T) {
@@ -639,6 +681,29 @@ func TestIAMHandler_Roles(t *testing.T) {
 		var resp iam.ListRolesResponse
 		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 		assert.Len(t, resp.ListRolesResult.Roles, 2)
+	})
+
+	t.Run("CreateRole_WithMaxSessionDuration", func(t *testing.T) {
+		t.Parallel()
+		e := echo.New()
+		h, _ := newTestHandler(t)
+
+		req := iamRequest("CreateRole", map[string]string{
+			"RoleName":                 "MyRoleWithDuration",
+			"AssumeRolePolicyDocument": `{"Version":"2012-10-17"}`,
+			"MaxSessionDuration":       "7200",
+		})
+		rec := httptest.NewRecorder()
+		c := e.NewContext(req, rec)
+
+		err := h.Handler()(c)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var resp iam.CreateRoleResponse
+		require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Equal(t, "MyRoleWithDuration", resp.CreateRoleResult.Role.RoleName)
+		assert.Equal(t, int32(7200), resp.CreateRoleResult.Role.MaxSessionDuration)
 	})
 }
 

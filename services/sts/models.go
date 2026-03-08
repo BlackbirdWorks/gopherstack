@@ -33,15 +33,27 @@ const (
 
 	// MinSessionTokenDurationSeconds is the minimum allowed lifetime (15 minutes).
 	MinSessionTokenDurationSeconds = 900
+
+	// MaxTagCount is the maximum number of session tags allowed per AssumeRole call.
+	MaxTagCount = 50
 )
+
+// Tag represents a session tag key-value pair passed to AssumeRole.
+type Tag struct {
+	Key   string
+	Value string
+}
 
 // AssumeRoleInput holds the parameters for an AssumeRole call.
 type AssumeRoleInput struct {
-	RoleArn         string
-	RoleSessionName string
-	ExternalID      string
-	Policy          string
-	DurationSeconds int32
+	RoleArn           string
+	RoleSessionName   string
+	ExternalID        string
+	Policy            string
+	SourceIdentity    string
+	Tags              []Tag
+	TransitiveTagKeys []string
+	DurationSeconds   int32
 }
 
 // AssumedRoleUser contains the ARN and ID of the resulting assumed-role principal.
@@ -62,6 +74,10 @@ type Credentials struct {
 type AssumeRoleResult struct {
 	AssumedRoleUser AssumedRoleUser `xml:"AssumedRoleUser"`
 	Credentials     Credentials     `xml:"Credentials"`
+	// SourceIdentity is the source identity set when the role was assumed.
+	SourceIdentity string `xml:"SourceIdentity,omitempty"`
+	// PackedPolicySize is the percentage of session policy size used (informational).
+	PackedPolicySize int32 `xml:"PackedPolicySize,omitempty"`
 }
 
 // ResponseMetadata carries the per-request identifier.
@@ -73,8 +89,8 @@ type ResponseMetadata struct {
 type AssumeRoleResponse struct {
 	XMLName          xml.Name         `xml:"AssumeRoleResponse"`
 	Xmlns            string           `xml:"xmlns,attr"`
-	AssumeRoleResult AssumeRoleResult `xml:"AssumeRoleResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	AssumeRoleResult AssumeRoleResult `xml:"AssumeRoleResult"`
 }
 
 // GetCallerIdentityResult carries the caller's account, ARN, and user-ID.
@@ -151,4 +167,18 @@ type DecodeAuthorizationMessageResponse struct {
 	Xmlns                            string                           `xml:"xmlns,attr"`
 	DecodeAuthorizationMessageResult DecodeAuthorizationMessageResult `xml:"DecodeAuthorizationMessageResult"`
 	ResponseMetadata                 ResponseMetadata                 `xml:"ResponseMetadata"`
+}
+
+// SessionInfo stores metadata about an issued assumed-role session for GetCallerIdentity lookups.
+type SessionInfo struct {
+	AssumedRoleArn string
+	AccountID      string
+	SessionName    string
+	AccessKeyID    string
+	// AssumedRoleID is the AROA-prefixed role ID + session name (e.g. "AROATESTROLEID:session").
+	// It is the value returned by GetCallerIdentity as the UserId for assumed-role credentials.
+	AssumedRoleID     string
+	SourceIdentity    string
+	Tags              []Tag
+	TransitiveTagKeys []string
 }
