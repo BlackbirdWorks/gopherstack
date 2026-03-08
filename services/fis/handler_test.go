@@ -1107,3 +1107,226 @@ func TestFISHandler_ExperimentCompletes_NoTimedActions(t *testing.T) {
 		return resp.Experiment.Status.Status == "completed"
 	}, 5*time.Second, 50*time.Millisecond)
 }
+
+// ----------------------------------------
+// Phase 3 — Safety Lever tests
+// ----------------------------------------
+
+func TestFISHandler_GetSafetyLever(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// The safety lever ID is the account ID.
+	rec := doRequest(t, h, http.MethodGet, "/safetyLevers/000000000000", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		SafetyLever struct {
+			ID    string `json:"id"`
+			State struct {
+				Status string `json:"status"`
+			} `json:"state"`
+		} `json:"safetyLever"`
+	}
+
+	mustJSON(t, rec, &resp)
+	assert.Equal(t, "000000000000", resp.SafetyLever.ID)
+	assert.Equal(t, "disengaged", resp.SafetyLever.State.Status)
+}
+
+func TestFISHandler_GetSafetyLever_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodGet, "/safetyLevers/999999999999", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFISHandler_UpdateSafetyLeverState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		input        map[string]any
+		wantStatus   string
+		wantHTTPCode int
+	}{
+		{
+			name: "engage_lever",
+			input: map[string]any{
+				"updateSafetyLeverStateInput": map[string]any{
+					"status": "engaged",
+					"reason": "testing safety lever",
+				},
+			},
+			wantStatus:   "engaged",
+			wantHTTPCode: http.StatusOK,
+		},
+		{
+			name: "disengage_lever",
+			input: map[string]any{
+				"updateSafetyLeverStateInput": map[string]any{
+					"status": "disengaged",
+					"reason": "resuming operations",
+				},
+			},
+			wantStatus:   "disengaged",
+			wantHTTPCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doRequest(t, h, http.MethodPatch, "/safetyLevers/000000000000", tt.input)
+			require.Equal(t, tt.wantHTTPCode, rec.Code)
+
+			var resp struct {
+				SafetyLever struct {
+					State struct {
+						Status string `json:"status"`
+					} `json:"state"`
+				} `json:"safetyLever"`
+			}
+
+			mustJSON(t, rec, &resp)
+			assert.Equal(t, tt.wantStatus, resp.SafetyLever.State.Status)
+		})
+	}
+}
+
+func TestFISHandler_UpdateSafetyLeverState_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPatch, "/safetyLevers/000000000000",
+		bytes.NewBufferString("not-json"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestFISHandler_StartExperiment_SafetyLeverEngaged(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a template first.
+	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", map[string]any{
+		"description":    "test",
+		"stopConditions": []map[string]any{{"source": "none"}},
+		"targets":        map[string]any{},
+		"actions":        map[string]any{},
+		"roleArn":        "arn:aws:iam::000000000000:role/fis-role",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var tplResp struct {
+		ExperimentTemplate struct {
+			ID string `json:"id"`
+		} `json:"experimentTemplate"`
+	}
+
+	mustJSON(t, rec, &tplResp)
+
+	// Engage the safety lever.
+	rec2 := doRequest(t, h, http.MethodPatch, "/safetyLevers/000000000000", map[string]any{
+		"updateSafetyLeverStateInput": map[string]any{
+			"status": "engaged",
+			"reason": "blocking all experiments",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	// Starting an experiment should now fail.
+	rec3 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+	})
+	assert.Equal(t, http.StatusConflict, rec3.Code)
+}
+
+// ----------------------------------------
+// Phase 3 — Resolved Targets tests
+// ----------------------------------------
+
+func TestFISHandler_ListExperimentResolvedTargets(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a template with targets.
+	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", map[string]any{
+		"description":    "test",
+		"stopConditions": []map[string]any{{"source": "none"}},
+		"targets": map[string]any{
+			"MyInstances": map[string]any{
+				"resourceType":  "aws:ec2:instance",
+				"selectionMode": "ALL",
+				"resourceArns":  []string{"arn:aws:ec2:us-east-1:000000000000:instance/i-1234"},
+			},
+		},
+		"actions": map[string]any{},
+		"roleArn": "arn:aws:iam::000000000000:role/fis-role",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var tplResp struct {
+		ExperimentTemplate struct {
+			ID string `json:"id"`
+		} `json:"experimentTemplate"`
+	}
+
+	mustJSON(t, rec, &tplResp)
+
+	// Start an experiment.
+	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+	})
+	require.Equal(t, http.StatusCreated, rec2.Code)
+
+	var expResp struct {
+		Experiment struct {
+			ID string `json:"id"`
+		} `json:"experiment"`
+	}
+
+	mustJSON(t, rec2, &expResp)
+
+	// List resolved targets.
+	rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expResp.Experiment.ID+"/resolvedTargets", nil)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var resolvedResp struct {
+		ResolvedTargets []struct {
+			ResourceType         string `json:"resourceType"`
+			TargetName           string `json:"targetName"`
+			TargetResourcesCount int    `json:"targetResourcesCount"`
+		} `json:"resolvedTargets"`
+	}
+
+	mustJSON(t, rec3, &resolvedResp)
+	require.Len(t, resolvedResp.ResolvedTargets, 1)
+	assert.Equal(t, "aws:ec2:instance", resolvedResp.ResolvedTargets[0].ResourceType)
+	assert.Equal(t, "MyInstances", resolvedResp.ResolvedTargets[0].TargetName)
+	assert.Equal(t, 1, resolvedResp.ResolvedTargets[0].TargetResourcesCount)
+}
+
+func TestFISHandler_ListExperimentResolvedTargets_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodGet, "/experiments/EXPNOTEXIST/resolvedTargets", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}

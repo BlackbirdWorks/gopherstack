@@ -42,6 +42,23 @@ func TestKinesis_FISActions_TargetType(t *testing.T) {
 	assert.Equal(t, "aws:kinesis:stream", actions[0].TargetType)
 }
 
+func TestKinesis_FISActions_Parameters(t *testing.T) {
+	t.Parallel()
+
+	h := newFISKinesisHandler()
+
+	actions := h.FISActions()
+	require.Len(t, actions, 1)
+
+	paramNames := make([]string, len(actions[0].Parameters))
+	for i, p := range actions[0].Parameters {
+		paramNames[i] = p.Name
+	}
+
+	assert.Contains(t, paramNames, "duration")
+	assert.Contains(t, paramNames, "percentage")
+}
+
 func TestKinesis_ExecuteFISAction_ThroughputException(t *testing.T) {
 	t.Parallel()
 
@@ -116,6 +133,66 @@ func TestKinesis_ExecuteFISAction_ThroughputException(t *testing.T) {
 					assert.NoError(t, putAfter, "PutRecord should succeed after fault expires")
 				}
 			}
+		})
+	}
+}
+
+func TestKinesis_ExecuteFISAction_ThroughputException_ZeroPercentage(t *testing.T) {
+	t.Parallel()
+
+	h := newFISKinesisHandler()
+
+	const streamName = "zero-pct-stream"
+	const sampleSize = 50
+
+	err := h.Backend.CreateStream(&kinesis.CreateStreamInput{
+		StreamName: streamName,
+		ShardCount: 1,
+	})
+	require.NoError(t, err)
+
+	// Activate fault with 0% — no requests should ever be throttled.
+	err = h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+		ActionID:   "aws:kinesis:stream-provisioned-throughput-exception",
+		Targets:    []string{streamName},
+		Parameters: map[string]string{"percentage": "0"},
+	})
+	require.NoError(t, err)
+
+	// With 0% probability, all PutRecord calls should succeed.
+	for range sampleSize {
+		_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+			StreamName:   streamName,
+			PartitionKey: "key",
+			Data:         []byte("data"),
+		})
+		require.NoError(t, putErr, "PutRecord should not be throttled at 0%%")
+	}
+}
+
+func TestKinesis_ParseThrottlePercentage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  float64
+	}{
+		{name: "empty_defaults_to_100pct", input: "", want: 1.0},
+		{name: "invalid_string_defaults_to_100pct", input: "abc", want: 1.0},
+		{name: "negative_defaults_to_100pct", input: "-5", want: 1.0},
+		{name: "zero_means_no_fault", input: "0", want: 0.0},
+		{name: "50_pct", input: "50", want: 0.5},
+		{name: "100_means_always_fault", input: "100", want: 1.0},
+		{name: "above_100_means_always_fault", input: "150", want: 1.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := kinesis.ParseThrottlePercentageForTest(tt.input)
+			assert.InDelta(t, tt.want, got, 1e-9)
 		})
 	}
 }

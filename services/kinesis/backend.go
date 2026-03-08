@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"math/rand/v2"
 	"sort"
 	"strings"
 	"time"
@@ -39,10 +40,16 @@ type StorageBackend interface {
 	ListAll() []StreamInfo
 }
 
+// kinesisThrottleFault holds the state of an active FIS throughput-exception fault on a stream.
+type kinesisThrottleFault struct {
+	expiry      time.Time
+	probability float64 // fraction of calls to throttle (0.0–1.0); 1.0 = always throttle
+}
+
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	streams             map[string]*Stream
-	fisThroughputFaults map[string]time.Time // keyed by stream name; value is expiry (zero = no expiry)
+	fisThroughputFaults map[string]*kinesisThrottleFault // keyed by stream name
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
@@ -57,7 +64,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		streams:             make(map[string]*Stream),
-		fisThroughputFaults: make(map[string]time.Time),
+		fisThroughputFaults: make(map[string]*kinesisThrottleFault),
 		accountID:           accountID,
 		region:              region,
 		mu:                  lockmetrics.New("kinesis"),
@@ -547,20 +554,30 @@ func (b *InMemoryBackend) ListAll() []StreamInfo {
 	return result
 }
 
-// isThroughputFaultActiveLocked reports whether a FIS throughput exception fault
-// is currently active for the given stream name.
+// isThroughputFaultActiveLocked reports whether a FIS throughput exception should be
+// applied to the current request for the given stream name, using probability-based
+// sampling when percentage < 100.
 // Caller MUST hold at least a read lock on b.mu.
 func (b *InMemoryBackend) isThroughputFaultActiveLocked(streamName string) bool {
-	exp, ok := b.fisThroughputFaults[streamName]
-	if !ok {
+	fault, ok := b.fisThroughputFaults[streamName]
+	if !ok || fault == nil {
 		return false
 	}
 
-	if !exp.IsZero() && time.Now().After(exp) {
+	if !fault.expiry.IsZero() && time.Now().After(fault.expiry) {
 		return false
 	}
 
-	return true
+	if fault.probability <= 0 {
+		return false
+	}
+
+	if fault.probability >= 1.0 {
+		return true
+	}
+
+	//nolint:gosec // weak random is intentional for fault injection
+	return rand.Float64() < fault.probability
 }
 
 // findTimestampPosition returns the index of the first record whose arrival

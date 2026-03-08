@@ -473,3 +473,75 @@ type errorResponseDTO struct {
 	Message    string `json:"message"`
 	ResourceID string `json:"resourceId,omitempty"`
 }
+
+// ----------------------------------------
+// Phase 3 — Resolved Targets models
+// ----------------------------------------
+
+// ExperimentResolvedTarget holds the resolved resources for a single target group.
+type ExperimentResolvedTarget struct {
+	ResourceType         string
+	TargetName           string
+	TargetResourcesCount int
+}
+
+// resolvedTargetDTO is the JSON representation of a resolved target.
+type resolvedTargetDTO struct {
+	ResourceType         string `json:"resourceType"`
+	TargetName           string `json:"targetName"`
+	TargetResourcesCount int    `json:"targetResourcesCount"`
+}
+
+// listExperimentResolvedTargetsResponseDTO is the outer envelope for ListExperimentResolvedTargets.
+type listExperimentResolvedTargetsResponseDTO struct {
+	NextToken       string              `json:"nextToken,omitempty"`
+	ResolvedTargets []resolvedTargetDTO `json:"resolvedTargets"`
+}
+
+// ----------------------------------------
+// Phase 3 — Safety Lever models
+// ----------------------------------------
+
+// SafetyLever is the model for the FIS account-level safety lever.
+type SafetyLever struct {
+	Tags  map[string]string
+	State SafetyLeverState
+	ID    string
+	Arn   string
+}
+
+// SafetyLeverState holds the status and optional human-readable reason.
+type SafetyLeverState struct {
+	Reason string
+	Status string // "disengaged" | "engaged"
+}
+
+// safetyLeverResponseDTO is the outer envelope for safety lever responses.
+type safetyLeverResponseDTO struct {
+	SafetyLever safetyLeverDTO `json:"safetyLever"`
+}
+
+// safetyLeverDTO is the JSON representation of a safety lever.
+type safetyLeverDTO struct {
+	Tags  map[string]string   `json:"tags,omitempty"`
+	State safetyLeverStateDTO `json:"state"`
+	ID    string              `json:"id"`
+	Arn   string              `json:"arn"`
+}
+
+// safetyLeverStateDTO is the JSON representation of a safety lever state.
+type safetyLeverStateDTO struct {
+	Reason string `json:"reason,omitempty"`
+	Status string `json:"status"`
+}
+
+// updateSafetyLeverStateRequest is the JSON body for PATCH /safetyLevers/{id}.
+type updateSafetyLeverStateRequest struct {
+	UpdateSafetyLeverStateInput updateSafetyLeverStateInputDTO `json:"updateSafetyLeverStateInput"`
+}
+
+// updateSafetyLeverStateInputDTO is the nested input for UpdateSafetyLeverState.
+type updateSafetyLeverStateInputDTO struct {
+	Reason string `json:"reason,omitempty"`
+	Status string `json:"status"`
+}
