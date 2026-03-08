@@ -17,7 +17,7 @@ func TestRDSDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.RDSHandler.Backend.CreateDBInstance(
-		"test-db", "postgres", "db.t3.micro", "mydb", "admin", 20,
+		"test-db", "postgres", "db.t3.micro", "mydb", "admin", "", 20,
 	)
 	require.NoError(t, err)
 
