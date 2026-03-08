@@ -197,7 +197,8 @@ func TestIntegration_FIS_ExperimentLifecycle(t *testing.T) {
 			"wait": map[string]any{
 				"actionId": "aws:fis:wait",
 				"parameters": map[string]string{
-					"duration": "PT5S",
+					// PT60S gives enough headroom for slow CI environments.
+					"duration": "PT60S",
 				},
 			},
 		},
@@ -415,7 +416,8 @@ func TestIntegration_FIS_InjectAPIErrorViaExperiment(t *testing.T) {
 					"service":    "dynamodb",
 					"operations": "ListTables",
 					"percentage": "100",
-					"duration":   "PT10S",
+					// PT60S gives enough headroom for slow CI environments.
+					"duration": "PT60S",
 				},
 				"targets": map[string]string{"Roles": "FISRole"},
 			},

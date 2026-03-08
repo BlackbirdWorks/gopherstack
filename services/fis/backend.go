@@ -324,7 +324,7 @@ func (b *InMemoryBackend) ListExperimentTemplates() ([]*ExperimentTemplate, erro
 
 // StartExperiment creates and starts a new experiment from a template.
 func (b *InMemoryBackend) StartExperiment(
-	ctx context.Context,
+	_ context.Context,
 	input *startExperimentRequest,
 	accountID, region string,
 ) (*Experiment, error) {
@@ -396,10 +396,11 @@ func (b *InMemoryBackend) StartExperiment(
 		}
 	}
 
-	// expCtx is cancelled either by StopExperiment (via exp.cancel) or when the parent ctx ends.
-	// The cancel function is intentionally stored in exp.cancel for deferred use by StopExperiment.
+	// expCtx uses context.Background() as parent — NOT the HTTP request context — so the
+	// experiment goroutine is NOT cancelled when the HTTP response is sent.
+	// The cancel function is stored on exp and called by StopExperiment or on graceful shutdown.
 	//nolint:gosec // cancel stored in exp.cancel and called by StopExperiment
-	expCtx, cancel := context.WithCancel(ctx)
+	expCtx, cancel := context.WithCancel(context.Background())
 
 	exp := &Experiment{
 		ID:                   id,
@@ -417,14 +418,20 @@ func (b *InMemoryBackend) StartExperiment(
 		cancel:               cancel,
 	}
 
+	// Clone the template BEFORE passing to the goroutine so template updates don't race.
+	tplForRun := cloneTemplate(tpl)
+
 	b.mu.Lock()
 	b.experiments[id] = exp
+	// Take the snapshot while holding the lock, before launching the goroutine,
+	// so the background goroutine cannot mutate exp while we're reading it.
+	snapshot := cloneExperiment(exp)
 	b.mu.Unlock()
 
 	// Run the experiment lifecycle in the background.
-	go b.runExperiment(expCtx, id, tpl)
+	go b.runExperiment(expCtx, id, tplForRun)
 
-	return cloneExperiment(exp), nil
+	return snapshot, nil
 }
 
 // GetExperiment retrieves an experiment by ID.
