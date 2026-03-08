@@ -25,13 +25,13 @@ var errUnknownAction = errors.New("UnknownOperationException")
 
 // Handler is the Echo HTTP handler for Cognito IDP operations.
 type Handler struct {
-	backend *InMemoryBackend
+	Backend *InMemoryBackend
 	region  string
 }
 
 // NewHandler creates a new Cognito IDP handler.
 func NewHandler(backend *InMemoryBackend, region string) *Handler {
-	return &Handler{backend: backend, region: region}
+	return &Handler{Backend: backend, region: region}
 }
 
 // Name returns the service name.
@@ -232,7 +232,7 @@ func (h *Handler) handleJWKS(c *echo.Context) error {
 
 	userPoolID := parts[0]
 
-	jwks, err := h.backend.GetUserPoolJWKS(userPoolID)
+	jwks, err := h.Backend.GetUserPoolJWKS(userPoolID)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, service.JSONErrorResponse{
 			Type:    ErrUserPoolNotFound.Error(),
@@ -271,7 +271,7 @@ type createUserPoolOutput struct {
 }
 
 func (h *Handler) handleCreateUserPool(_ context.Context, in *createUserPoolInput) (*createUserPoolOutput, error) {
-	pool, err := h.backend.CreateUserPool(in.PoolName)
+	pool, err := h.Backend.CreateUserPool(in.PoolName)
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +298,7 @@ func (h *Handler) handleDescribeUserPool(
 	_ context.Context,
 	in *describeUserPoolInput,
 ) (*describeUserPoolOutput, error) {
-	pool, err := h.backend.DescribeUserPool(in.UserPoolID)
+	pool, err := h.Backend.DescribeUserPool(in.UserPoolID)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +322,7 @@ type listUserPoolsOutput struct {
 }
 
 func (h *Handler) handleListUserPools(_ context.Context, _ *listUserPoolsInput) (*listUserPoolsOutput, error) {
-	pools := h.backend.ListUserPools()
+	pools := h.Backend.ListUserPools()
 
 	items := make([]userPoolData, 0, len(pools))
 	for _, p := range pools {
@@ -357,7 +357,7 @@ func (h *Handler) handleCreateUserPoolClient(
 	_ context.Context,
 	in *createUserPoolClientInput,
 ) (*createUserPoolClientOutput, error) {
-	client, err := h.backend.CreateUserPoolClient(in.UserPoolID, in.ClientName)
+	client, err := h.Backend.CreateUserPoolClient(in.UserPoolID, in.ClientName)
 	if err != nil {
 		return nil, err
 	}
@@ -385,7 +385,7 @@ func (h *Handler) handleDescribeUserPoolClient(
 	_ context.Context,
 	in *describeUserPoolClientInput,
 ) (*describeUserPoolClientOutput, error) {
-	client, err := h.backend.DescribeUserPoolClient(in.UserPoolID, in.ClientID)
+	client, err := h.Backend.DescribeUserPoolClient(in.UserPoolID, in.ClientID)
 	if err != nil {
 		return nil, err
 	}
@@ -420,7 +420,7 @@ type signUpOutput struct {
 func (h *Handler) handleSignUp(_ context.Context, in *signUpInput) (*signUpOutput, error) {
 	attrs := attributeListToMap(in.UserAttributes)
 
-	user, err := h.backend.SignUp(in.ClientID, in.Username, in.Password, attrs)
+	user, err := h.Backend.SignUp(in.ClientID, in.Username, in.Password, attrs)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +440,7 @@ type confirmSignUpInput struct {
 type confirmSignUpOutput struct{}
 
 func (h *Handler) handleConfirmSignUp(_ context.Context, in *confirmSignUpInput) (*confirmSignUpOutput, error) {
-	if err := h.backend.ConfirmSignUp(in.ClientID, in.Username, in.ConfirmationCode); err != nil {
+	if err := h.Backend.ConfirmSignUp(in.ClientID, in.Username, in.ConfirmationCode); err != nil {
 		return nil, err
 	}
 
@@ -471,7 +471,7 @@ func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOut
 	username := in.AuthParameters["USERNAME"]
 	password := in.AuthParameters["PASSWORD"]
 
-	tokens, err := h.backend.InitiateAuth(in.ClientID, in.AuthFlow, username, password)
+	tokens, err := h.Backend.InitiateAuth(in.ClientID, in.AuthFlow, username, password)
 	if err != nil {
 		return nil, err
 	}
@@ -491,7 +491,7 @@ func (h *Handler) handleAdminInitiateAuth(_ context.Context, in *authInput) (*au
 	username := in.AuthParameters["USERNAME"]
 	password := in.AuthParameters["PASSWORD"]
 
-	tokens, err := h.backend.AdminInitiateAuth(in.UserPoolID, in.ClientID, in.AuthFlow, username, password)
+	tokens, err := h.Backend.AdminInitiateAuth(in.UserPoolID, in.ClientID, in.AuthFlow, username, password)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +528,7 @@ type adminCreateUserOutput struct {
 func (h *Handler) handleAdminCreateUser(_ context.Context, in *adminCreateUserInput) (*adminCreateUserOutput, error) {
 	attrs := attributeListToMap(in.UserAttributes)
 
-	user, err := h.backend.AdminCreateUser(in.UserPoolID, in.Username, in.TemporaryPassword, attrs)
+	user, err := h.Backend.AdminCreateUser(in.UserPoolID, in.Username, in.TemporaryPassword, attrs)
 	if err != nil {
 		return nil, err
 	}
@@ -556,7 +556,7 @@ func (h *Handler) handleAdminSetUserPassword(
 	_ context.Context,
 	in *adminSetUserPasswordInput,
 ) (*adminSetUserPasswordOutput, error) {
-	if err := h.backend.AdminSetUserPassword(in.UserPoolID, in.Username, in.Password, in.Permanent); err != nil {
+	if err := h.Backend.AdminSetUserPassword(in.UserPoolID, in.Username, in.Password, in.Permanent); err != nil {
 		return nil, err
 	}
 
@@ -576,7 +576,7 @@ type adminGetUserOutput struct {
 }
 
 func (h *Handler) handleAdminGetUser(_ context.Context, in *adminGetUserInput) (*adminGetUserOutput, error) {
-	user, err := h.backend.AdminGetUser(in.UserPoolID, in.Username)
+	user, err := h.Backend.AdminGetUser(in.UserPoolID, in.Username)
 	if err != nil {
 		return nil, err
 	}

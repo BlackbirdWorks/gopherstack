@@ -142,6 +142,7 @@ type CLI struct {
 	appSyncHandler               service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
+	cognitoIDPHandler            service.Registerable
 	snsClient                    *sns.Client
 	kmsClient                    *kms.Client
 	iamClient                    *iam.Client
@@ -442,6 +443,16 @@ func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECSHandler() service.Registerable { return c.ecsHandler }
+
+// GetAppSyncHandler returns the AppSync handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAppSyncHandler() service.Registerable { return c.appSyncHandler }
+
+// GetCognitoIDPHandler returns the Cognito IDP handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCognitoIDPHandler() service.Registerable { return c.cognitoIDPHandler }
 
 // rootCLI is the top-level kong grammar. The server flags live in Serve
 // (the default command); "health" is an explicit subcommand used as a
@@ -772,6 +783,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.appSyncHandler = byName["AppSync"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
+	cli.cognitoIDPHandler = byName["CognitoIDP"]
 }
 
 // initializeServices initializes all service providers.
