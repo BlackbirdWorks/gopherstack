@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -17,9 +18,16 @@ import (
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 )
 
-// eipAllocIDSuffixLen is the number of UUID hex characters used to generate
-// a stub allocation ID when no EC2 backend is configured.
+// ecsServiceARNMinParts is the minimum number of slash-delimited path parts
+// in a valid ECS service ARN: prefix, cluster name, service name.
+const ecsServiceARNMinParts = 3
+
+// eipAllocIDSuffixLen is the number of hex characters used to generate
+// a stub allocation ID when no EC2 backend is configured (17 chars ≈ 68 bits of randomness).
 const eipAllocIDSuffixLen = 17
+
+// ErrInvalidLayerVersionARN is returned when a LayerVersionArn property is missing or malformed.
+var ErrInvalidLayerVersionARN = errors.New("invalid or missing LayerVersionArn")
 
 // parseLayerVersionARN parses a Lambda layer version ARN and returns the layer name and version.
 // Expected format: arn:aws:lambda:{region}:{account}:layer:{name}:{version}.
@@ -501,7 +509,7 @@ func (rc *ResourceCreator) deleteECSService(arn string) error {
 	// ARN format: arn:aws:ecs:{region}:{account}:service/{cluster}/{service}
 	// After splitting on "/" we need at least 3 parts: prefix, cluster name, service name.
 	parts := strings.Split(arn, "/")
-	if len(parts) < 3 { //nolint:mnd // ARN must have prefix/cluster/service sections
+	if len(parts) < ecsServiceARNMinParts {
 		return nil
 	}
 
@@ -646,7 +654,7 @@ func (rc *ResourceCreator) createLambdaLayerVersionPermission(
 
 	layerName, version := parseLayerVersionARN(layerVersionARN)
 	if layerName == "" {
-		return logicalID + "-stub", nil
+		return "", fmt.Errorf("%w: %q (resource %s)", ErrInvalidLayerVersionARN, layerVersionARN, logicalID)
 	}
 
 	_, err := imb.AddLayerVersionPermission(layerName, version, &lambdabackend.AddLayerVersionPermissionInput{
@@ -1139,7 +1147,9 @@ func (rc *ResourceCreator) deleteEC2NatGateway(id string) error {
 
 func (rc *ResourceCreator) createEC2EIP(_ string) (string, error) {
 	if rc.backends.EC2 == nil {
-		return "eipalloc-" + uuid.New().String()[:eipAllocIDSuffixLen], nil
+		uuidHex := strings.ReplaceAll(uuid.New().String(), "-", "")
+
+		return "eipalloc-" + uuidHex[:eipAllocIDSuffixLen], nil
 	}
 
 	addr, err := rc.backends.EC2.Backend.AllocateAddress()

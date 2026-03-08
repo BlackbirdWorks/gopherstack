@@ -239,6 +239,52 @@ func TestIntegration_CFN_Phase2_ECS(t *testing.T) {
 }`
 			},
 		},
+		{
+			name: "Service",
+			template: func() string {
+				clusterName := "cfn-cluster-" + cfnStackID()
+				family := "cfn-ecs-family-" + cfnStackID()
+				serviceName := "cfn-ecs-service-" + cfnStackID()
+
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyCluster": {
+"Type": "AWS::ECS::Cluster",
+"Properties": {
+"ClusterName": "` + clusterName + `"
+}
+},
+"MyTD": {
+"Type": "AWS::ECS::TaskDefinition",
+"Properties": {
+"Family": "` + family + `",
+"NetworkMode": "bridge",
+"ContainerDefinitions": [
+{
+"Name": "app",
+"Image": "nginx:latest",
+"Cpu": 256,
+"Memory": 512
+}
+]
+}
+},
+"MySvc": {
+"Type": "AWS::ECS::Service",
+"DependsOn": ["MyCluster", "MyTD"],
+"Properties": {
+"ServiceName": "` + serviceName + `",
+"Cluster": {"Ref": "MyCluster"},
+"TaskDefinition": {"Ref": "MyTD"},
+"DesiredCount": 0,
+"LaunchType": "EC2"
+}
+}
+}
+}`
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -658,6 +704,41 @@ func TestIntegration_CFN_Phase2_CloudWatchCompositeAlarm(t *testing.T) {
 "Properties": {
 "AlarmName": "` + compositeAlarmName + `",
 "AlarmRule": "ALARM(` + alarmName + `)"
+}
+}
+}
+}`
+
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
+
+	deleteStackPhase2(t, client, stackName)
+}
+
+func TestIntegration_CFN_Phase2_CognitoUserPoolClient(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createCloudFormationClient(t)
+	id := cfnStackID()
+	stackName := "test-cognito-client-" + id
+	poolName := "cfn-pool-" + id
+	clientName := "cfn-client-" + id
+	template := `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyPool": {
+"Type": "AWS::Cognito::UserPool",
+"Properties": {
+"PoolName": "` + poolName + `"
+}
+},
+"MyClient": {
+"Type": "AWS::Cognito::UserPoolClient",
+"DependsOn": ["MyPool"],
+"Properties": {
+"ClientName": "` + clientName + `",
+"UserPoolId": {"Ref": "MyPool"}
 }
 }
 }

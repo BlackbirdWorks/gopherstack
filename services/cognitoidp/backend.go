@@ -140,7 +140,7 @@ func (b *InMemoryBackend) DescribeUserPool(userPoolID string) (*UserPool, error)
 	return &cp, nil
 }
 
-// DeleteUserPool removes the user pool with the given ID.
+// DeleteUserPool removes the user pool with the given ID and all of its associated clients.
 func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 	b.mu.Lock("DeleteUserPool")
 	defer b.mu.Unlock()
@@ -153,6 +153,10 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 	delete(b.poolsByName, pool.Name)
 	delete(b.pools, userPoolID)
 	delete(b.users, userPoolID)
+
+	maps.DeleteFunc(b.clients, func(_ string, client *UserPoolClient) bool {
+		return client.UserPoolID == userPoolID
+	})
 
 	return nil
 }
