@@ -86,8 +86,12 @@ func keyMatchesFilter(key string, filter notificationFilter) bool {
 
 // NotificationDispatcher delivers S3 event notifications to configured targets.
 type NotificationDispatcher interface {
-	// DispatchObjectCreated sends an s3:ObjectCreated notification for the given object.
+	// DispatchObjectCreated sends an s3:ObjectCreated:Put notification for a PutObject operation.
 	DispatchObjectCreated(ctx context.Context, bucket, key, etag string, size int64, notifXML string)
+	// DispatchObjectCopied sends an s3:ObjectCreated:Copy notification for a CopyObject operation.
+	DispatchObjectCopied(ctx context.Context, bucket, key, etag string, size int64, notifXML string)
+	// DispatchObjectCompleted sends an s3:ObjectCreated:CompleteMultipartUpload notification.
+	DispatchObjectCompleted(ctx context.Context, bucket, key, etag string, size int64, notifXML string)
 	// DispatchObjectDeleted sends an s3:ObjectRemoved notification for the given object.
 	DispatchObjectDeleted(ctx context.Context, bucket, key, notifXML string)
 }
@@ -187,8 +191,8 @@ type ebDetail struct {
 	Bucket          ebDetailBucket `json:"bucket"`
 	Version         string         `json:"version"`
 	RequestID       string         `json:"request-id"`
-	Requester       string         `json:"requester"`
-	SourceIPAddress string         `json:"source-ip-address"`
+	Requester       string         `json:"requester,omitempty"`
+	SourceIPAddress string         `json:"source-ip-address,omitempty"`
 	Reason          string         `json:"reason"`
 	Object          ebDetailObject `json:"object"`
 }
@@ -215,10 +219,8 @@ func buildEventBridgeDetail(bucket, key, etag, reason string, size int64) (strin
 			Size:      size,
 			Sequencer: fmt.Sprintf("%016X", time.Now().UnixNano()),
 		},
-		RequestID:       uuid.New().String(),
-		Requester:       "",
-		SourceIPAddress: "127.0.0.1",
-		Reason:          reason,
+		RequestID: uuid.New().String(),
+		Reason:    reason,
 	}
 
 	b, err := json.Marshal(detail)
@@ -246,8 +248,10 @@ func detailTypeFromEventName(eventName string) string {
 // reasonFromEventName derives the AWS-style operation reason from an S3 event name
 // (e.g. "s3:ObjectCreated:Put" → "PutObject").
 func reasonFromEventName(eventName string) string {
+	const minEventParts = 3 // S3 event names have format "s3:Category:Operation"
+
 	parts := strings.Split(eventName, ":")
-	if len(parts) < 3 { //nolint:mnd // S3 event names have format "s3:Category:Operation" (3 parts)
+	if len(parts) < minEventParts {
 		return eventName
 	}
 
@@ -298,6 +302,24 @@ func (d *inMemoryNotificationDispatcher) DispatchObjectCreated(
 	notifXML string,
 ) {
 	d.dispatch(ctx, "s3:ObjectCreated:Put", bucket, key, etag, size, notifXML)
+}
+
+func (d *inMemoryNotificationDispatcher) DispatchObjectCopied(
+	ctx context.Context,
+	bucket, key, etag string,
+	size int64,
+	notifXML string,
+) {
+	d.dispatch(ctx, "s3:ObjectCreated:Copy", bucket, key, etag, size, notifXML)
+}
+
+func (d *inMemoryNotificationDispatcher) DispatchObjectCompleted(
+	ctx context.Context,
+	bucket, key, etag string,
+	size int64,
+	notifXML string,
+) {
+	d.dispatch(ctx, "s3:ObjectCreated:CompleteMultipartUpload", bucket, key, etag, size, notifXML)
 }
 
 func (d *inMemoryNotificationDispatcher) DispatchObjectDeleted(

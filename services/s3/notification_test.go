@@ -460,10 +460,13 @@ func TestNotificationDispatcher_DispatchToEventBridge(t *testing.T) {
 		etag               string
 		wantDetailType     string
 		wantDetailContains []string
+		wantDetailAbsent   []string
 		size               int64
 		wantEventCount     int
 		wantQueueCount     int
 		dispatchDelete     bool
+		dispatchCopy       bool
+		dispatchComplete   bool
 	}{
 		{
 			name:               "EventBridge_enabled_object_created",
@@ -474,6 +477,29 @@ func TestNotificationDispatcher_DispatchToEventBridge(t *testing.T) {
 			wantEventCount:     1,
 			wantDetailType:     "Object Created",
 			wantDetailContains: []string{`"my-bucket"`, `"my-key"`, `"PutObject"`},
+			wantDetailAbsent:   []string{`"source-ip-address"`, `"requester"`},
+		},
+		{
+			name:               "EventBridge_enabled_object_copied",
+			notifXML:           ebEnabledXML,
+			key:                "my-key",
+			etag:               "abc123",
+			size:               42,
+			dispatchCopy:       true,
+			wantEventCount:     1,
+			wantDetailType:     "Object Created",
+			wantDetailContains: []string{`"my-bucket"`, `"my-key"`, `"CopyObject"`},
+		},
+		{
+			name:               "EventBridge_enabled_object_completed",
+			notifXML:           ebEnabledXML,
+			key:                "my-key",
+			etag:               "abc123",
+			size:               42,
+			dispatchComplete:   true,
+			wantEventCount:     1,
+			wantDetailType:     "Object Created",
+			wantDetailContains: []string{`"my-bucket"`, `"my-key"`, `"CompleteMultipartUpload"`},
 		},
 		{
 			name:               "EventBridge_enabled_object_deleted",
@@ -520,9 +546,14 @@ func TestNotificationDispatcher_DispatchToEventBridge(t *testing.T) {
 			}
 			d := s3.NewNotificationDispatcher(targets, "us-east-1")
 
-			if tt.dispatchDelete {
+			switch {
+			case tt.dispatchDelete:
 				d.DispatchObjectDeleted(t.Context(), "my-bucket", tt.key, tt.notifXML)
-			} else {
+			case tt.dispatchCopy:
+				d.DispatchObjectCopied(t.Context(), "my-bucket", tt.key, tt.etag, tt.size, tt.notifXML)
+			case tt.dispatchComplete:
+				d.DispatchObjectCompleted(t.Context(), "my-bucket", tt.key, tt.etag, tt.size, tt.notifXML)
+			default:
 				d.DispatchObjectCreated(t.Context(), "my-bucket", tt.key, tt.etag, tt.size, tt.notifXML)
 			}
 
@@ -536,6 +567,10 @@ func TestNotificationDispatcher_DispatchToEventBridge(t *testing.T) {
 
 				for _, c := range tt.wantDetailContains {
 					assert.Contains(t, eb.events[0].detail, c)
+				}
+
+				for _, a := range tt.wantDetailAbsent {
+					assert.NotContains(t, eb.events[0].detail, a)
 				}
 			}
 
