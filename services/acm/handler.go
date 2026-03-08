@@ -22,8 +22,10 @@ const (
 )
 
 type requestCertificateInput struct {
-	DomainName              string `json:"DomainName"`
-	CertificateAuthorityArn string `json:"CertificateAuthorityArn"`
+	DomainName              string   `json:"DomainName"`
+	ValidationMethod        string   `json:"ValidationMethod"`
+	CertificateAuthorityArn string   `json:"CertificateAuthorityArn"`
+	SubjectAlternativeNames []string `json:"SubjectAlternativeNames"`
 }
 
 type requestCertificateOutput struct {
@@ -31,10 +33,17 @@ type requestCertificateOutput struct {
 }
 
 type domainValidationOption struct {
-	DomainName       string `json:"DomainName"`
-	ValidationDomain string `json:"ValidationDomain"`
-	ValidationStatus string `json:"ValidationStatus"`
-	ValidationMethod string `json:"ValidationMethod"`
+	ResourceRecord   *resourceRecord `json:"ResourceRecord,omitempty"`
+	DomainName       string          `json:"DomainName"`
+	ValidationDomain string          `json:"ValidationDomain"`
+	ValidationStatus string          `json:"ValidationStatus"`
+	ValidationMethod string          `json:"ValidationMethod"`
+}
+
+type resourceRecord struct {
+	Name  string `json:"Name"`
+	Type  string `json:"Type"`
+	Value string `json:"Value"`
 }
 
 type certificateDetail struct {
@@ -42,6 +51,7 @@ type certificateDetail struct {
 	DomainName              string                   `json:"DomainName"`
 	Status                  string                   `json:"Status"`
 	Type                    string                   `json:"Type"`
+	SubjectAlternativeNames []string                 `json:"SubjectAlternativeNames,omitempty"`
 	DomainValidationOptions []domainValidationOption `json:"DomainValidationOptions"`
 	CreatedAt               int64                    `json:"CreatedAt"`
 }
@@ -99,6 +109,43 @@ type acmTagKey struct {
 type removeTagsFromCertificateInput struct {
 	CertificateArn string      `json:"CertificateArn"`
 	Tags           []acmTagKey `json:"Tags"`
+}
+
+type importCertificateInput struct {
+	CertificateArn   string `json:"CertificateArn"`
+	Certificate      string `json:"Certificate"`
+	PrivateKey       string `json:"PrivateKey"`
+	CertificateChain string `json:"CertificateChain"`
+}
+
+type importCertificateOutput struct {
+	CertificateArn string `json:"CertificateArn"`
+}
+
+type renewCertificateInput struct {
+	CertificateArn string `json:"CertificateArn"`
+}
+
+type renewCertificateOutput struct{}
+
+type exportCertificateInput struct {
+	CertificateArn string `json:"CertificateArn"`
+	Passphrase     string `json:"Passphrase"`
+}
+
+type exportCertificateOutput struct {
+	Certificate      string `json:"Certificate"`
+	CertificateChain string `json:"CertificateChain,omitempty"`
+	PrivateKey       string `json:"PrivateKey"`
+}
+
+type getCertificateInput struct {
+	CertificateArn string `json:"CertificateArn"`
+}
+
+type getCertificateOutput struct {
+	Certificate      string `json:"Certificate"`
+	CertificateChain string `json:"CertificateChain,omitempty"`
 }
 
 // Handler is the Echo HTTP handler for ACM operations.
@@ -164,6 +211,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForCertificate",
 		"AddTagsToCertificate",
 		"RemoveTagsFromCertificate",
+		"ImportCertificate",
+		"RenewCertificate",
+		"ExportCertificate",
+		"GetCertificate",
 	}
 }
 
@@ -264,6 +315,14 @@ func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
 		return h.jsonAddTagsToCertificate(body)
 	case "RemoveTagsFromCertificate":
 		return h.jsonRemoveTagsFromCertificate(body)
+	case "ImportCertificate":
+		return h.jsonImportCertificate(body)
+	case "RenewCertificate":
+		return h.jsonRenewCertificate(body)
+	case "ExportCertificate":
+		return h.jsonExportCertificate(body)
+	case "GetCertificate":
+		return h.jsonGetCertificate(body)
 	default:
 		return nil, errUnknownACMAction
 	}
@@ -278,7 +337,12 @@ func (h *Handler) jsonRequestCertificate(body []byte) (any, error) {
 	if input.CertificateAuthorityArn != "" {
 		certType = "PRIVATE"
 	}
-	cert, err := h.Backend.RequestCertificate(input.DomainName, certType)
+	cert, err := h.Backend.RequestCertificate(
+		input.DomainName,
+		certType,
+		input.ValidationMethod,
+		input.SubjectAlternativeNames,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -296,21 +360,33 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 		return nil, err
 	}
 
+	dvoList := make([]domainValidationOption, 0, len(cert.DomainValidationOptions))
+	for _, dvo := range cert.DomainValidationOptions {
+		opt := domainValidationOption{
+			DomainName:       dvo.DomainName,
+			ValidationDomain: dvo.ValidationDomain,
+			ValidationStatus: dvo.ValidationStatus,
+			ValidationMethod: dvo.ValidationMethod,
+		}
+		if dvo.ResourceRecord != nil {
+			opt.ResourceRecord = &resourceRecord{
+				Name:  dvo.ResourceRecord.Name,
+				Type:  dvo.ResourceRecord.Type,
+				Value: dvo.ResourceRecord.Value,
+			}
+		}
+		dvoList = append(dvoList, opt)
+	}
+
 	return &describeCertificateOutput{
 		Certificate: certificateDetail{
-			CertificateArn: cert.ARN,
-			DomainName:     cert.DomainName,
-			Status:         cert.Status,
-			Type:           cert.Type,
-			CreatedAt:      cert.CreatedAt.Unix(),
-			DomainValidationOptions: []domainValidationOption{
-				{
-					DomainName:       cert.DomainName,
-					ValidationDomain: cert.DomainName,
-					ValidationStatus: "SUCCESS",
-					ValidationMethod: "DNS",
-				},
-			},
+			CertificateArn:          cert.ARN,
+			DomainName:              cert.DomainName,
+			Status:                  cert.Status,
+			Type:                    cert.Type,
+			CreatedAt:               cert.CreatedAt.Unix(),
+			SubjectAlternativeNames: cert.SubjectAlternativeNames,
+			DomainValidationOptions: dvoList,
 		},
 	}, nil
 }
@@ -380,6 +456,64 @@ func (h *Handler) jsonRemoveTagsFromCertificate(body []byte) (any, error) {
 	return &removeTagsFromCertificateOutput{}, nil
 }
 
+func (h *Handler) jsonImportCertificate(body []byte) (any, error) {
+	var input importCertificateInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+	cert, err := h.Backend.ImportCertificate(input.Certificate, input.PrivateKey, input.CertificateChain)
+	if err != nil {
+		return nil, err
+	}
+
+	return &importCertificateOutput{CertificateArn: cert.ARN}, nil
+}
+
+func (h *Handler) jsonRenewCertificate(body []byte) (any, error) {
+	var input renewCertificateInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+	if err := h.Backend.RenewCertificate(input.CertificateArn); err != nil {
+		return nil, err
+	}
+
+	return &renewCertificateOutput{}, nil
+}
+
+func (h *Handler) jsonExportCertificate(body []byte) (any, error) {
+	var input exportCertificateInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+	cert, err := h.Backend.ExportCertificate(input.CertificateArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &exportCertificateOutput{
+		Certificate:      cert.CertificateBody,
+		CertificateChain: cert.CertificateChain,
+		PrivateKey:       cert.PrivateKey,
+	}, nil
+}
+
+func (h *Handler) jsonGetCertificate(body []byte) (any, error) {
+	var input getCertificateInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, ErrInvalidParameter
+	}
+	certBody, certChain, err := h.Backend.GetCertificate(input.CertificateArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getCertificateOutput{
+		Certificate:      certBody,
+		CertificateChain: certChain,
+	}, nil
+}
+
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
 	statusCode := http.StatusBadRequest
 	var code string
@@ -388,6 +522,8 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		code = "ResourceNotFoundException"
 	case errors.Is(opErr, ErrInvalidParameter):
 		code = "ValidationException"
+	case errors.Is(opErr, ErrNotEligible):
+		code = "RequestError"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError

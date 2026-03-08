@@ -12,7 +12,7 @@ import (
 )
 
 // TestIntegration_ACM_CertificateValidatedWaiter verifies that CertificateValidatedWaiter
-// succeeds immediately after RequestCertificate because the status is ISSUED.
+// succeeds after the certificate auto-validates from PENDING_VALIDATION to ISSUED.
 func TestIntegration_ACM_CertificateValidatedWaiter(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
@@ -32,21 +32,27 @@ func TestIntegration_ACM_CertificateValidatedWaiter(t *testing.T) {
 		_, _ = client.DeleteCertificate(ctx, &acmsdk.DeleteCertificateInput{CertificateArn: aws.String(certARN)})
 	})
 
-	// Verify the certificate status is ISSUED immediately
+	// Certificate starts in PENDING_VALIDATION with DNS validation
 	descOut, err := client.DescribeCertificate(ctx, &acmsdk.DescribeCertificateInput{
 		CertificateArn: aws.String(certARN),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, descOut.Certificate)
-	assert.Equal(t, acmtypes.CertificateStatusIssued, descOut.Certificate.Status)
 
+	// Status is either PENDING_VALIDATION (immediately after request) or ISSUED (after auto-validate)
+	status := descOut.Certificate.Status
+	assert.True(t,
+		status == acmtypes.CertificateStatusPendingValidation || status == acmtypes.CertificateStatusIssued,
+		"expected PENDING_VALIDATION or ISSUED, got %s", status)
+
+	// Waiter polls until ISSUED; the mock auto-validates within ~100ms
 	waiter := acmsdk.NewCertificateValidatedWaiter(client)
 	start := time.Now()
 	err = waiter.Wait(ctx, &acmsdk.DescribeCertificateInput{
 		CertificateArn: aws.String(certARN),
-	}, 5*time.Second)
+	}, 10*time.Second)
 	elapsed := time.Since(start)
 
-	require.NoError(t, err, "CertificateValidatedWaiter should succeed because certificate is already ISSUED")
-	assert.Less(t, elapsed, 2*time.Second, "CertificateValidatedWaiter should complete quickly, took %v", elapsed)
+	require.NoError(t, err, "CertificateValidatedWaiter should succeed after auto-validation")
+	assert.Less(t, elapsed, 5*time.Second, "CertificateValidatedWaiter should complete quickly, took %v", elapsed)
 }

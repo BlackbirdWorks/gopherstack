@@ -1,8 +1,16 @@
 package acm
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	cryptorand "crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
 	"time"
 
@@ -14,15 +22,49 @@ import (
 var (
 	ErrCertNotFound     = errors.New("ResourceNotFoundException")
 	ErrInvalidParameter = errors.New("ValidationException")
+	ErrNotEligible      = errors.New("RequestError")
+	errInvalidPEM       = errors.New("failed to decode PEM block")
 )
+
+const (
+	validationMethodDNS     = "DNS"
+	validationMethodEMAIL   = "EMAIL"
+	statusPendingValidation = "PENDING_VALIDATION"
+	statusIssued            = "ISSUED"
+	validationTokenLen      = 8
+	autoValidateDelayMS     = 100
+	randByteDivisor         = 2
+)
+
+// ResourceRecord holds the CNAME record used for DNS certificate validation.
+type ResourceRecord struct {
+	Name  string `json:"name"`
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
+// DomainValidationOption holds the validation details for a single domain.
+type DomainValidationOption struct {
+	ResourceRecord   *ResourceRecord `json:"resourceRecord,omitempty"`
+	DomainName       string          `json:"domainName"`
+	ValidationDomain string          `json:"validationDomain"`
+	ValidationStatus string          `json:"validationStatus"`
+	ValidationMethod string          `json:"validationMethod"`
+}
 
 // Certificate represents an ACM certificate.
 type Certificate struct {
-	CreatedAt  time.Time `json:"createdAt"`
-	ARN        string    `json:"arn"`
-	DomainName string    `json:"domainName"`
-	Status     string    `json:"status"`
-	Type       string    `json:"type"`
+	CreatedAt               time.Time                `json:"createdAt"`
+	ARN                     string                   `json:"arn"`
+	DomainName              string                   `json:"domainName"`
+	Status                  string                   `json:"status"`
+	Type                    string                   `json:"type"`
+	ValidationMethod        string                   `json:"validationMethod,omitempty"`
+	CertificateBody         string                   `json:"certificateBody,omitempty"`
+	CertificateChain        string                   `json:"certificateChain,omitempty"`
+	PrivateKey              string                   `json:"privateKey,omitempty"`
+	SubjectAlternativeNames []string                 `json:"subjectAlternativeNames,omitempty"`
+	DomainValidationOptions []DomainValidationOption `json:"domainValidationOptions,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for ACM certificates.
@@ -44,9 +86,19 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 }
 
 // RequestCertificate creates a new certificate for the given domain.
-func (b *InMemoryBackend) RequestCertificate(domainName, certType string) (*Certificate, error) {
+// When validationMethod is "DNS" or "EMAIL" the certificate starts in
+// PENDING_VALIDATION and automatically transitions to ISSUED after a short delay.
+func (b *InMemoryBackend) RequestCertificate(
+	domainName, certType, validationMethod string,
+	sans []string,
+) (*Certificate, error) {
 	if domainName == "" {
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
+	}
+
+	certBody, privateKey, err := generateSelfSignedCert(domainName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate certificate: %w", err)
 	}
 
 	b.mu.Lock("RequestCertificate")
@@ -59,18 +111,146 @@ func (b *InMemoryBackend) RequestCertificate(domainName, certType string) (*Cert
 		certType = "AMAZON_ISSUED"
 	}
 
+	status := statusIssued
+	var dvoList []DomainValidationOption
+
+	allDomains := append([]string{domainName}, sans...)
+
+	switch validationMethod {
+	case validationMethodDNS, validationMethodEMAIL:
+		status = statusPendingValidation
+		dvoList = buildDomainValidationOptions(allDomains, validationMethod)
+	default:
+		dvoList = buildDomainValidationOptions(allDomains, validationMethodDNS)
+	}
+
 	cert := &Certificate{
-		ARN:        certARN,
-		DomainName: domainName,
-		Status:     "ISSUED",
-		Type:       certType,
-		CreatedAt:  time.Now().UTC(),
+		ARN:                     certARN,
+		DomainName:              domainName,
+		Status:                  status,
+		Type:                    certType,
+		ValidationMethod:        validationMethod,
+		SubjectAlternativeNames: sans,
+		DomainValidationOptions: dvoList,
+		CertificateBody:         certBody,
+		PrivateKey:              privateKey,
+		CreatedAt:               time.Now().UTC(),
+	}
+	b.certs[certARN] = cert
+
+	if status == statusPendingValidation {
+		go b.autoValidate(certARN)
+	}
+
+	cp := *cert
+
+	return &cp, nil
+}
+
+// autoValidate transitions a certificate from PENDING_VALIDATION to ISSUED after a
+// short delay, simulating the DNS/email validation workflow.
+func (b *InMemoryBackend) autoValidate(certARN string) {
+	time.Sleep(autoValidateDelayMS * time.Millisecond)
+
+	b.mu.Lock("autoValidate")
+	defer b.mu.Unlock()
+
+	c, ok := b.certs[certARN]
+	if !ok || c.Status != statusPendingValidation {
+		return
+	}
+
+	c.Status = statusIssued
+
+	for i := range c.DomainValidationOptions {
+		c.DomainValidationOptions[i].ValidationStatus = "SUCCESS"
+	}
+}
+
+// ImportCertificate stores a PEM-encoded certificate, private key, and optional
+// certificate chain, returning the ARN of the newly created entry.
+func (b *InMemoryBackend) ImportCertificate(certBody, privateKey, certChain string) (*Certificate, error) {
+	if certBody == "" {
+		return nil, fmt.Errorf("%w: Certificate is required", ErrInvalidParameter)
+	}
+
+	if privateKey == "" {
+		return nil, fmt.Errorf("%w: PrivateKey is required", ErrInvalidParameter)
+	}
+
+	domainName, err := extractCNFromPEM(certBody)
+	if err != nil {
+		domainName = "imported"
+	}
+
+	b.mu.Lock("ImportCertificate")
+	defer b.mu.Unlock()
+
+	id := fmt.Sprintf("%x", time.Now().UnixNano())
+	certARN := arn.Build("acm", b.region, b.accountID, "certificate/"+id)
+
+	cert := &Certificate{
+		ARN:              certARN,
+		DomainName:       domainName,
+		Status:           "ISSUED",
+		Type:             "IMPORTED",
+		CertificateBody:  certBody,
+		CertificateChain: certChain,
+		PrivateKey:       privateKey,
+		CreatedAt:        time.Now().UTC(),
 	}
 	b.certs[certARN] = cert
 
 	cp := *cert
 
 	return &cp, nil
+}
+
+// RenewCertificate triggers renewal for an eligible (AMAZON_ISSUED) certificate.
+// For the mock this is a no-op that succeeds for any existing certificate.
+func (b *InMemoryBackend) RenewCertificate(certARN string) error {
+	b.mu.RLock("RenewCertificate")
+	_, ok := b.certs[certARN]
+	b.mu.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	return nil
+}
+
+// ExportCertificate returns the PEM certificate body, chain, and private key for
+// an IMPORTED certificate. Returns ErrNotEligible for AMAZON_ISSUED certificates.
+func (b *InMemoryBackend) ExportCertificate(certARN string) (*Certificate, error) {
+	b.mu.RLock("ExportCertificate")
+	cert, ok := b.certs[certARN]
+	b.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if cert.Type != "IMPORTED" && cert.Type != "PRIVATE" {
+		return nil, fmt.Errorf("%w: only IMPORTED or PRIVATE certificates can be exported", ErrNotEligible)
+	}
+
+	cp := *cert
+
+	return &cp, nil
+}
+
+// GetCertificate returns the PEM certificate body and chain for any certificate.
+func (b *InMemoryBackend) GetCertificate(certARN string) (string, string, error) {
+	b.mu.RLock("GetCertificate")
+	cert, ok := b.certs[certARN]
+	b.mu.RUnlock()
+
+	if !ok {
+		return "", "", fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	return cert.CertificateBody, cert.CertificateChain, nil
 }
 
 // DescribeCertificate returns the certificate with the given ARN.
@@ -117,4 +297,102 @@ func (b *InMemoryBackend) DeleteCertificate(arn string) error {
 	delete(b.certs, arn)
 
 	return nil
+}
+
+// buildDomainValidationOptions creates DomainValidationOption entries with
+// synthetic CNAME records for each domain in the list.
+func buildDomainValidationOptions(domains []string, validationMethod string) []DomainValidationOption {
+	opts := make([]DomainValidationOption, 0, len(domains))
+
+	for _, d := range domains {
+		status := "SUCCESS"
+		if validationMethod == validationMethodDNS || validationMethod == validationMethodEMAIL {
+			status = statusPendingValidation
+		}
+
+		opt := DomainValidationOption{
+			DomainName:       d,
+			ValidationDomain: d,
+			ValidationStatus: status,
+			ValidationMethod: validationMethod,
+		}
+
+		if validationMethod == validationMethodDNS {
+			nameToken := randHex(validationTokenLen)
+			valueToken := randHex(validationTokenLen)
+			opt.ResourceRecord = &ResourceRecord{
+				Name:  "_" + nameToken + "." + d + ".",
+				Type:  "CNAME",
+				Value: "_" + valueToken + ".acm-validations.aws.",
+			}
+		}
+
+		opts = append(opts, opt)
+	}
+
+	return opts
+}
+
+// randHex returns a random lowercase hex string of length n characters.
+func randHex(n int) string {
+	b := make([]byte, (n+randByteDivisor-1)/randByteDivisor)
+	if _, err := cryptorand.Read(b); err != nil {
+		panic(fmt.Sprintf("acm: cryptorand.Read failed: %v", err))
+	}
+
+	return hex.EncodeToString(b)[:n]
+}
+
+// generateSelfSignedCert generates a self-signed ECDSA P-256 certificate for
+// the given domain and returns PEM-encoded certificate and private key.
+func generateSelfSignedCert(domainName string) (string, string, error) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
+	if err != nil {
+		return "", "", fmt.Errorf("generate key: %w", err)
+	}
+
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: domainName},
+		DNSNames:     []string{domainName},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+
+	certDER, err := x509.CreateCertificate(cryptorand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		return "", "", fmt.Errorf("create certificate: %w", err)
+	}
+
+	certPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}))
+
+	keyDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		return "", "", fmt.Errorf("marshal key: %w", err)
+	}
+
+	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
+
+	return certPEM, keyPEM, nil
+}
+
+// extractCNFromPEM parses a PEM-encoded certificate and returns the CommonName.
+func extractCNFromPEM(certPEM string) (string, error) {
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		return "", errInvalidPEM
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("parse certificate: %w", err)
+	}
+
+	if len(cert.DNSNames) > 0 {
+		return cert.DNSNames[0], nil
+	}
+
+	return cert.Subject.CommonName, nil
 }
