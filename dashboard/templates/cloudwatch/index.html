@@ -42,7 +42,7 @@
         </table>
     </div>
 
-    <h2 class="mt-8 text-xl font-semibold text-slate-900 dark:text-white">Alarms</h2>
+    <h2 class="mt-8 text-xl font-semibold text-slate-900 dark:text-white">Metric Alarms</h2>
     <div
         class="mt-4 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
         <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
@@ -64,7 +64,35 @@
                 </tr>
                 {{else}}
                 <tr>
-                    <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No alarms
+                    <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No metric alarms
+                        found.</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    <h2 class="mt-8 text-xl font-semibold text-slate-900 dark:text-white">Composite Alarms</h2>
+    <div
+        class="mt-4 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th class="px-6 py-3">Alarm Name</th>
+                    <th class="px-6 py-3">Rule</th>
+                    <th class="px-6 py-3">State</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .CompositeAlarms}}
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td class="px-6 py-4 font-mono text-slate-900 dark:text-white">{{.AlarmName}}</td>
+                    <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{.AlarmRule}}</td>
+                    <td class="px-6 py-4 font-mono text-slate-500 dark:text-slate-400">{{.StateValue}}</td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="3" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">No composite alarms
                         found.</td>
                 </tr>
                 {{end}}

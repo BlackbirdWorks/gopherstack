@@ -77,8 +77,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetMetricData",
 		"ListMetrics",
 		"PutMetricAlarm",
+		"PutCompositeAlarm",
 		"DescribeAlarms",
+		"DescribeAlarmsForMetric",
+		"DescribeAlarmHistory",
 		"DeleteAlarms",
+		"SetAlarmState",
+		"EnableAlarmActions",
+		"DisableAlarmActions",
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
@@ -174,27 +180,52 @@ func (h *Handler) handleFormRequest(c *echo.Context, r *http.Request) error {
 	action := r.Form.Get("Action")
 	c.Response().Header().Set("Content-Type", "text/xml")
 
+	return h.dispatchFormAction(action, r.Form, c)
+}
+
+// dispatchFormAction routes a form-encoded action to the appropriate handler.
+func (h *Handler) dispatchFormAction(action string, form url.Values, c *echo.Context) error {
 	switch action {
 	case "PutMetricData":
-		return h.handlePutMetricData(r.Form, c)
+		return h.handlePutMetricData(form, c)
 	case "GetMetricStatistics":
-		return h.handleGetMetricStatistics(r.Form, c)
+		return h.handleGetMetricStatistics(form, c)
 	case "GetMetricData":
-		return h.handleGetMetricData(r.Form, c)
+		return h.handleGetMetricData(form, c)
 	case "ListMetrics":
-		return h.handleListMetrics(r.Form, c)
-	case "PutMetricAlarm":
-		return h.handlePutMetricAlarm(r.Form, c)
-	case "DescribeAlarms":
-		return h.handleDescribeAlarms(r.Form, c)
-	case "DeleteAlarms":
-		return h.handleDeleteAlarms(r.Form, c)
+		return h.handleListMetrics(form, c)
 	case "ListTagsForResource":
-		return h.handleListTagsForResource(r.Form, c)
+		return h.handleListTagsForResource(form, c)
 	case "TagResource":
-		return h.handleTagResource(r.Form, c)
+		return h.handleTagResource(form, c)
 	case "UntagResource":
-		return h.handleUntagResource(r.Form, c)
+		return h.handleUntagResource(form, c)
+	default:
+		return h.dispatchAlarmFormAction(action, form, c)
+	}
+}
+
+// dispatchAlarmFormAction routes alarm-specific form-encoded actions.
+func (h *Handler) dispatchAlarmFormAction(action string, form url.Values, c *echo.Context) error {
+	switch action {
+	case "PutMetricAlarm":
+		return h.handlePutMetricAlarm(form, c)
+	case "PutCompositeAlarm":
+		return h.handlePutCompositeAlarm(form, c)
+	case "DescribeAlarms":
+		return h.handleDescribeAlarms(form, c)
+	case "DescribeAlarmsForMetric":
+		return h.handleDescribeAlarmsForMetric(form, c)
+	case "DescribeAlarmHistory":
+		return h.handleDescribeAlarmHistory(form, c)
+	case "DeleteAlarms":
+		return h.handleDeleteAlarms(form, c)
+	case "SetAlarmState":
+		return h.handleSetAlarmState(form, c)
+	case "EnableAlarmActions":
+		return h.handleEnableAlarmActions(form, c)
+	case "DisableAlarmActions":
+		return h.handleDisableAlarmActions(form, c)
 	default:
 		return h.xmlError(c, http.StatusBadRequest, "InvalidAction", "unknown action: "+action)
 	}
@@ -513,17 +544,22 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 	threshold, _ := strconv.ParseFloat(form.Get("Threshold"), 64)
 	evalPeriods, _ := strconv.ParseInt(form.Get("EvaluationPeriods"), 10, 32)
 	period, _ := strconv.ParseInt(form.Get("Period"), 10, 32)
+	actionsEnabled := form.Get("ActionsEnabled") != "false"
 
 	alarm := &MetricAlarm{
-		AlarmName:          alarmName,
-		Namespace:          form.Get("Namespace"),
-		MetricName:         form.Get("MetricName"),
-		ComparisonOperator: form.Get("ComparisonOperator"),
-		Statistic:          form.Get("Statistic"),
-		AlarmDescription:   form.Get("AlarmDescription"),
-		Threshold:          threshold,
-		EvaluationPeriods:  int32(evalPeriods),
-		Period:             int32(period),
+		AlarmName:               alarmName,
+		Namespace:               form.Get("Namespace"),
+		MetricName:              form.Get("MetricName"),
+		ComparisonOperator:      form.Get("ComparisonOperator"),
+		Statistic:               form.Get("Statistic"),
+		AlarmDescription:        form.Get("AlarmDescription"),
+		Threshold:               threshold,
+		EvaluationPeriods:       int32(evalPeriods),
+		Period:                  int32(period),
+		ActionsEnabled:          actionsEnabled,
+		AlarmActions:            parseMemberList(form, "AlarmActions."),
+		OKActions:               parseMemberList(form, "OKActions."),
+		InsufficientDataActions: parseMemberList(form, "InsufficientDataActions."),
 	}
 	if err := h.Backend.PutMetricAlarm(alarm); err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -538,52 +574,115 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
 
+// metricAlarmToXML converts a MetricAlarm to its XML representation.
+func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
+	return metricAlarmXML{
+		AlarmName:               a.AlarmName,
+		AlarmArn:                a.AlarmArn,
+		Namespace:               a.Namespace,
+		MetricName:              a.MetricName,
+		ComparisonOperator:      a.ComparisonOperator,
+		EvaluationPeriods:       a.EvaluationPeriods,
+		Period:                  a.Period,
+		Statistic:               a.Statistic,
+		Threshold:               a.Threshold,
+		StateValue:              a.StateValue,
+		StateReason:             a.StateReason,
+		AlarmDescription:        a.AlarmDescription,
+		AlarmActions:            a.AlarmActions,
+		OKActions:               a.OKActions,
+		InsufficientDataActions: a.InsufficientDataActions,
+		ActionsEnabled:          a.ActionsEnabled,
+	}
+}
+
+// compositeAlarmToXML converts a CompositeAlarm to its XML representation.
+func compositeAlarmToXML(a CompositeAlarm) compositeAlarmXMLType {
+	return compositeAlarmXMLType{
+		AlarmName:               a.AlarmName,
+		AlarmArn:                a.AlarmArn,
+		AlarmRule:               a.AlarmRule,
+		StateValue:              a.StateValue,
+		StateReason:             a.StateReason,
+		AlarmDescription:        a.AlarmDescription,
+		AlarmActions:            a.AlarmActions,
+		OKActions:               a.OKActions,
+		InsufficientDataActions: a.InsufficientDataActions,
+		ActionsEnabled:          a.ActionsEnabled,
+	}
+}
+
+// metricAlarmXML is the XML representation of a MetricAlarm.
+type metricAlarmXML struct {
+	AlarmDescription        string   `xml:"AlarmDescription,omitempty"`
+	Namespace               string   `xml:"Namespace"`
+	MetricName              string   `xml:"MetricName"`
+	ComparisonOperator      string   `xml:"ComparisonOperator"`
+	Statistic               string   `xml:"Statistic"`
+	AlarmArn                string   `xml:"AlarmArn"`
+	StateValue              string   `xml:"StateValue"`
+	AlarmName               string   `xml:"AlarmName"`
+	StateReason             string   `xml:"StateReason,omitempty"`
+	AlarmActions            []string `xml:"AlarmActions>member,omitempty"`
+	InsufficientDataActions []string `xml:"InsufficientDataActions>member,omitempty"`
+	OKActions               []string `xml:"OKActions>member,omitempty"`
+	Threshold               float64  `xml:"Threshold"`
+	Period                  int32    `xml:"Period"`
+	EvaluationPeriods       int32    `xml:"EvaluationPeriods"`
+	ActionsEnabled          bool     `xml:"ActionsEnabled"`
+}
+
+// compositeAlarmXMLType is the XML representation of a CompositeAlarm.
+type compositeAlarmXMLType struct {
+	AlarmName               string   `xml:"AlarmName"`
+	AlarmArn                string   `xml:"AlarmArn"`
+	AlarmRule               string   `xml:"AlarmRule"`
+	StateValue              string   `xml:"StateValue"`
+	StateReason             string   `xml:"StateReason,omitempty"`
+	AlarmDescription        string   `xml:"AlarmDescription,omitempty"`
+	AlarmActions            []string `xml:"AlarmActions>member,omitempty"`
+	OKActions               []string `xml:"OKActions>member,omitempty"`
+	InsufficientDataActions []string `xml:"InsufficientDataActions>member,omitempty"`
+	ActionsEnabled          bool     `xml:"ActionsEnabled"`
+}
+
 func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 	alarmNames := parseMemberList(form, "AlarmNames.")
+	alarmTypes := parseMemberList(form, "AlarmTypes.")
 	stateValue := form.Get("StateValue")
 	nextToken := form.Get("NextToken")
 	maxRecords, _ := strconv.Atoi(form.Get("MaxRecords"))
 
-	p, err := h.Backend.DescribeAlarms(alarmNames, stateValue, nextToken, maxRecords)
+	metricPage, compositePage, err := h.Backend.DescribeAlarms(
+		alarmNames,
+		alarmTypes,
+		stateValue,
+		nextToken,
+		maxRecords,
+	)
 	if err != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	type alarmXML struct {
-		AlarmName          string  `xml:"AlarmName"`
-		AlarmArn           string  `xml:"AlarmArn"`
-		Namespace          string  `xml:"Namespace"`
-		MetricName         string  `xml:"MetricName"`
-		ComparisonOperator string  `xml:"ComparisonOperator"`
-		Statistic          string  `xml:"Statistic"`
-		StateValue         string  `xml:"StateValue"`
-		StateReason        string  `xml:"StateReason,omitempty"`
-		AlarmDescription   string  `xml:"AlarmDescription,omitempty"`
-		Threshold          float64 `xml:"Threshold"`
-		EvaluationPeriods  int32   `xml:"EvaluationPeriods"`
-		Period             int32   `xml:"Period"`
+	metricMembers := make([]metricAlarmXML, 0, len(metricPage.Data))
+	for _, a := range metricPage.Data {
+		metricMembers = append(metricMembers, metricAlarmToXML(a))
 	}
-	members := make([]alarmXML, 0, len(p.Data))
-	for _, a := range p.Data {
-		members = append(members, alarmXML{
-			AlarmName:          a.AlarmName,
-			AlarmArn:           a.AlarmArn,
-			Namespace:          a.Namespace,
-			MetricName:         a.MetricName,
-			ComparisonOperator: a.ComparisonOperator,
-			EvaluationPeriods:  a.EvaluationPeriods,
-			Period:             a.Period,
-			Statistic:          a.Statistic,
-			Threshold:          a.Threshold,
-			StateValue:         a.StateValue,
-			StateReason:        a.StateReason,
-			AlarmDescription:   a.AlarmDescription,
-		})
+
+	compositeMembers := make([]compositeAlarmXMLType, 0, len(compositePage.Data))
+	for _, a := range compositePage.Data {
+		compositeMembers = append(compositeMembers, compositeAlarmToXML(a))
+	}
+
+	nextTok := metricPage.Next
+	if nextTok == "" {
+		nextTok = compositePage.Next
 	}
 
 	type descResult struct {
-		NextToken    string     `xml:"NextToken,omitempty"`
-		MetricAlarms []alarmXML `xml:"MetricAlarms>member"`
+		NextToken       string                  `xml:"NextToken,omitempty"`
+		MetricAlarms    []metricAlarmXML        `xml:"MetricAlarms>member"`
+		CompositeAlarms []compositeAlarmXMLType `xml:"CompositeAlarms>member"`
 	}
 	type response struct {
 		XMLName   xml.Name   `xml:"DescribeAlarmsResponse"`
@@ -593,8 +692,12 @@ func (h *Handler) handleDescribeAlarms(form url.Values, c *echo.Context) error {
 	}
 
 	return writeXML(c, response{
-		Xmlns:     cloudwatchNS,
-		Result:    descResult{MetricAlarms: members, NextToken: p.Next},
+		Xmlns: cloudwatchNS,
+		Result: descResult{
+			MetricAlarms:    metricMembers,
+			CompositeAlarms: compositeMembers,
+			NextToken:       nextTok,
+		},
 		RequestID: uuid.New().String(),
 	})
 }
@@ -668,4 +771,179 @@ func (h *Handler) handleGetMetricData(form url.Values, c *echo.Context) error {
 	}
 
 	return writeXML(c, resp)
+}
+
+func (h *Handler) handlePutCompositeAlarm(form url.Values, c *echo.Context) error {
+	alarmName := form.Get("AlarmName")
+	if alarmName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+	}
+	alarmRule := form.Get("AlarmRule")
+	if alarmRule == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmRule is required")
+	}
+
+	actionsEnabled := form.Get("ActionsEnabled") != "false"
+
+	alarm := &CompositeAlarm{
+		AlarmName:               alarmName,
+		AlarmRule:               alarmRule,
+		AlarmDescription:        form.Get("AlarmDescription"),
+		ActionsEnabled:          actionsEnabled,
+		AlarmActions:            parseMemberList(form, "AlarmActions."),
+		OKActions:               parseMemberList(form, "OKActions."),
+		InsufficientDataActions: parseMemberList(form, "InsufficientDataActions."),
+	}
+	if err := h.Backend.PutCompositeAlarm(alarm); err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"PutCompositeAlarmResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleDescribeAlarmsForMetric(form url.Values, c *echo.Context) error {
+	namespace := form.Get("Namespace")
+	metricName := form.Get("MetricName")
+	alarmNames := parseMemberList(form, "AlarmNames.")
+	nextToken := form.Get("NextToken")
+	maxRecords, _ := strconv.Atoi(form.Get("MaxRecords"))
+
+	p, err := h.Backend.DescribeAlarmsForMetric(namespace, metricName, alarmNames, nextToken, maxRecords)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	members := make([]metricAlarmXML, 0, len(p.Data))
+	for _, a := range p.Data {
+		members = append(members, metricAlarmToXML(a))
+	}
+
+	type descResult struct {
+		NextToken    string           `xml:"NextToken,omitempty"`
+		MetricAlarms []metricAlarmXML `xml:"MetricAlarms>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"DescribeAlarmsForMetricResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    descResult `xml:"DescribeAlarmsForMetricResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		Result:    descResult{MetricAlarms: members, NextToken: p.Next},
+		RequestID: uuid.New().String(),
+	})
+}
+
+func (h *Handler) handleDescribeAlarmHistory(form url.Values, c *echo.Context) error {
+	alarmName := form.Get("AlarmName")
+	historyItemType := form.Get("HistoryItemType")
+	nextToken := form.Get("NextToken")
+	maxRecords, _ := strconv.Atoi(form.Get("MaxRecords"))
+
+	var startDate, endDate time.Time
+	if s := form.Get("StartDate"); s != "" {
+		startDate, _ = time.Parse(time.RFC3339, s)
+	}
+	if e := form.Get("EndDate"); e != "" {
+		endDate, _ = time.Parse(time.RFC3339, e)
+	}
+
+	p, err := h.Backend.DescribeAlarmHistory(alarmName, historyItemType, nextToken, startDate, endDate, maxRecords)
+	if err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type historyItemXML struct {
+		AlarmName       string `xml:"AlarmName"`
+		HistoryItemType string `xml:"HistoryItemType"`
+		HistorySummary  string `xml:"HistorySummary"`
+		HistoryData     string `xml:"HistoryData,omitempty"`
+		Timestamp       string `xml:"Timestamp"`
+	}
+	members := make([]historyItemXML, 0, len(p.Data))
+	for _, item := range p.Data {
+		members = append(members, historyItemXML{
+			AlarmName:       item.AlarmName,
+			HistoryItemType: item.HistoryItemType,
+			HistorySummary:  item.HistorySummary,
+			HistoryData:     item.HistoryData,
+			Timestamp:       item.Timestamp.UTC().Format(time.RFC3339),
+		})
+	}
+
+	type descResult struct {
+		NextToken         string           `xml:"NextToken,omitempty"`
+		AlarmHistoryItems []historyItemXML `xml:"AlarmHistoryItems>member"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"DescribeAlarmHistoryResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    descResult `xml:"DescribeAlarmHistoryResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cloudwatchNS,
+		Result:    descResult{AlarmHistoryItems: members, NextToken: p.Next},
+		RequestID: uuid.New().String(),
+	})
+}
+
+func (h *Handler) handleSetAlarmState(form url.Values, c *echo.Context) error {
+	alarmName := form.Get("AlarmName")
+	if alarmName == "" {
+		return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", "AlarmName is required")
+	}
+	stateValue := form.Get("StateValue")
+	stateReason := form.Get("StateReason")
+
+	if err := h.Backend.SetAlarmState(alarmName, stateValue, stateReason); err != nil {
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"SetAlarmStateResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleEnableAlarmActions(form url.Values, c *echo.Context) error {
+	alarmNames := parseMemberList(form, "AlarmNames.")
+	if err := h.Backend.EnableAlarmActions(alarmNames); err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"EnableAlarmActionsResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
+}
+
+func (h *Handler) handleDisableAlarmActions(form url.Values, c *echo.Context) error {
+	alarmNames := parseMemberList(form, "AlarmNames.")
+	if err := h.Backend.DisableAlarmActions(alarmNames); err != nil {
+		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type response struct {
+		XMLName   xml.Name `xml:"DisableAlarmActionsResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return writeXML(c, response{Xmlns: cloudwatchNS, RequestID: uuid.New().String()})
 }
