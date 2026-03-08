@@ -250,6 +250,24 @@ type RotateSecretOutput struct {
 	VersionID string `json:"VersionId,omitempty"`
 }
 
+// GetRandomPasswordInput is the request payload for GetRandomPassword.
+type GetRandomPasswordInput struct {
+	PasswordLength          *int64 `json:"PasswordLength,omitempty"`
+	ExcludeCharacters       string `json:"ExcludeCharacters,omitempty"`
+	ExcludeNumbers          bool   `json:"ExcludeNumbers,omitempty"`
+	ExcludePunctuation      bool   `json:"ExcludePunctuation,omitempty"`
+	ExcludeUppercase        bool   `json:"ExcludeUppercase,omitempty"`
+	ExcludeLowercase        bool   `json:"ExcludeLowercase,omitempty"`
+	IncludeSpace            bool   `json:"IncludeSpace,omitempty"`
+	RequireEachIncludedType bool   `json:"RequireEachIncludedType,omitempty"`
+}
+
+// GetRandomPasswordOutput is the response payload for GetRandomPassword.
+type GetRandomPasswordOutput struct {
+	// RandomPassword is the generated password string.
+	RandomPassword string `json:"RandomPassword"`
+}
+
 // ErrorResponse is the Secrets Manager JSON error response format.
 type ErrorResponse struct {
 	// Type is the error type string.

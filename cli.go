@@ -822,6 +822,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire SQS → Lambda event source mapping poller.
 	wireSQSLambda(byName["SQS"], byName["Lambda"])
 
+	// Wire CloudWatch alarm actions → SNS and Lambda backends.
+	wireCloudWatchAlarmActions(byName["CloudWatch"], byName["SNS"], byName["Lambda"])
+
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
 
@@ -1285,6 +1288,60 @@ func (a *sqsReaderAdapter) DeleteMessagesLocal(queueARN string, receiptHandles [
 	url := arnToSQSQueueURL(queueARN)
 
 	return a.backend.DeleteMessagesLocal(url, receiptHandles)
+}
+
+// wireCloudWatchAlarmActions connects the CloudWatch backend to SNS and Lambda so that
+// alarm state transitions trigger action notifications.
+func wireCloudWatchAlarmActions(cwReg, snsReg, lambdaReg service.Registerable) {
+	cwH, ok1 := cwReg.(*cwbackend.Handler)
+	snsH, ok2 := snsReg.(*snsbackend.Handler)
+	lambdaH, ok3 := lambdaReg.(*lambdabackend.Handler)
+
+	if !ok1 {
+		return
+	}
+
+	cwBk, ok4 := cwH.Backend.(*cwbackend.InMemoryBackend)
+	if !ok4 {
+		return
+	}
+
+	if ok2 {
+		if snsBk, isSNS := snsH.Backend.(*snsbackend.InMemoryBackend); isSNS {
+			cwBk.SetSNSPublisher(&cwSNSPublisherAdapter{backend: snsBk})
+		}
+	}
+
+	if ok3 {
+		if lambdaBk, isLambda := lambdaH.Backend.(*lambdabackend.InMemoryBackend); isLambda {
+			cwBk.SetLambdaInvoker(&cwLambdaInvokerAdapter{backend: lambdaBk})
+		}
+	}
+}
+
+// cwSNSPublisherAdapter adapts the SNS backend to the cloudwatch.SNSPublisher interface.
+type cwSNSPublisherAdapter struct {
+	backend *snsbackend.InMemoryBackend
+}
+
+func (a *cwSNSPublisherAdapter) PublishToTopic(topicARN, message string) error {
+	_, err := a.backend.Publish(topicARN, message, "CloudWatch Alarm", "", nil)
+
+	return err
+}
+
+// cwLambdaInvokerAdapter adapts the Lambda backend to the cloudwatch.LambdaInvoker interface.
+type cwLambdaInvokerAdapter struct {
+	backend *lambdabackend.InMemoryBackend
+}
+
+func (a *cwLambdaInvokerAdapter) InvokeFunction(
+	ctx context.Context,
+	name string,
+	_ string,
+	payload []byte,
+) ([]byte, int, error) {
+	return a.backend.InvokeFunction(ctx, name, lambdabackend.InvocationTypeEvent, payload)
 }
 
 // wireLambdaCWLogs connects the Lambda backend to CloudWatch Logs so that

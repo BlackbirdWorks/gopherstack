@@ -5,10 +5,12 @@ import (
 )
 
 type backendSnapshot struct {
-	Metrics   map[string]map[string][]MetricDatum `json:"metrics"`
-	Alarms    map[string]*MetricAlarm             `json:"alarms"`
-	AccountID string                              `json:"accountID"`
-	Region    string                              `json:"region"`
+	Metrics         map[string]map[string][]MetricDatum `json:"metrics"`
+	Alarms          map[string]*MetricAlarm             `json:"alarms"`
+	CompositeAlarms map[string]*CompositeAlarm          `json:"compositeAlarms"`
+	AlarmHistory    map[string][]AlarmHistoryItem       `json:"alarmHistory"`
+	AccountID       string                              `json:"accountID"`
+	Region          string                              `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -18,10 +20,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Metrics:   b.metrics,
-		Alarms:    b.alarms,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Metrics:         b.metrics,
+		Alarms:          b.alarms,
+		CompositeAlarms: b.compositeAlarms,
+		AlarmHistory:    b.alarmHistory,
+		AccountID:       b.accountID,
+		Region:          b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -52,8 +56,18 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Alarms = make(map[string]*MetricAlarm)
 	}
 
+	if snap.CompositeAlarms == nil {
+		snap.CompositeAlarms = make(map[string]*CompositeAlarm)
+	}
+
+	if snap.AlarmHistory == nil {
+		snap.AlarmHistory = make(map[string][]AlarmHistoryItem)
+	}
+
 	b.metrics = snap.Metrics
 	b.alarms = snap.Alarms
+	b.compositeAlarms = snap.CompositeAlarms
+	b.alarmHistory = snap.AlarmHistory
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

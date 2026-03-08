@@ -71,6 +71,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"RotateSecret",
+		"GetRandomPassword",
 	}
 }
 
@@ -234,6 +235,14 @@ func (h *Handler) smCRUDActions() map[string]smActionFn {
 
 			return h.rotateSecret(ctx, region, &input)
 		},
+		"GetRandomPassword": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input GetRandomPasswordInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.GetRandomPassword(&input)
+		},
 	}
 }
 
@@ -310,6 +319,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "ResourceExistsException"
 	case errors.Is(reqErr, ErrSecretDeleted):
 		errorType = "InvalidRequestException"
+	case errors.Is(reqErr, ErrInvalidPasswordParameters):
+		errorType = "InvalidParameterException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"
 	default:
