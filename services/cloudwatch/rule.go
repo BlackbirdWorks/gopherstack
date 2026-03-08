@@ -78,7 +78,11 @@ func tokenizeQuotedString(rule string, pos int) (string, int) {
 // Returns the token and the next position to continue scanning.
 func tokenizeWord(rule string, pos int) (string, int) {
 	nextPos := pos
-	for nextPos < len(rule) && !unicode.IsSpace(rune(rule[nextPos])) && rule[nextPos] != '(' && rule[nextPos] != ')' && rule[nextPos] != '"' {
+	for nextPos < len(rule) {
+		ch := rule[nextPos]
+		if unicode.IsSpace(rune(ch)) || ch == '(' || ch == ')' || ch == '"' {
+			break
+		}
 		nextPos++
 	}
 

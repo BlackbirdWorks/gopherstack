@@ -393,3 +393,190 @@ func TestCloudWatchHandler_RouteMatcher(t *testing.T) {
 		})
 	}
 }
+
+func TestCloudWatchHandler_NewOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup           func(t *testing.T, h *cloudwatch.Handler)
+		name            string
+		body            string
+		wantContains    []string
+		wantNotContains []string
+		wantCode        int
+	}{
+		// PutCompositeAlarm
+		{
+			name: "PutCompositeAlarm/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=child-alarm&Namespace=NS&MetricName=M")
+			},
+			body: `Action=PutCompositeAlarm&AlarmName=parent-alarm` +
+				`&AlarmRule=ALARM("child-alarm")` +
+				`&AlarmDescription=test+composite` +
+				`&AlarmActions.member.1=arn:aws:sns:us-east-1:123:topic-1` +
+				`&ActionsEnabled=true`,
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutCompositeAlarmResponse"},
+		},
+		{
+			name:     "PutCompositeAlarm/missing name",
+			body:     `Action=PutCompositeAlarm&AlarmRule=ALARM("x")`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "PutCompositeAlarm/missing rule",
+			body:     "Action=PutCompositeAlarm&AlarmName=x",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "PutCompositeAlarm/actions_disabled",
+			body: `Action=PutCompositeAlarm&AlarmName=comp-disabled` +
+				`&AlarmRule=ALARM("x")&ActionsEnabled=false`,
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutCompositeAlarmResponse"},
+		},
+		// DescribeAlarms with composite
+		{
+			name: "DescribeAlarms/with_composite",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=child-m&Namespace=NS&MetricName=M")
+				postForm(t, h, `Action=PutCompositeAlarm&AlarmName=parent-c&AlarmRule=ALARM("child-m")`)
+			},
+			body:         "Action=DescribeAlarms",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeAlarmsResponse", "child-m", "parent-c"},
+		},
+		{
+			name: "DescribeAlarms/filter_composite_type",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=metric-only&Namespace=NS&MetricName=M")
+				postForm(t, h, `Action=PutCompositeAlarm&AlarmName=comp-only&AlarmRule=ALARM("x")`)
+			},
+			body:            "Action=DescribeAlarms&AlarmTypes.member.1=CompositeAlarm",
+			wantCode:        http.StatusOK,
+			wantContains:    []string{"comp-only"},
+			wantNotContains: []string{"metric-only"},
+		},
+		// DescribeAlarmsForMetric
+		{
+			name: "DescribeAlarmsForMetric/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=cpu-alarm&Namespace=AWS/EC2&MetricName=CPUUtilization")
+				postForm(
+					t,
+					h,
+					"Action=PutMetricAlarm&AlarmName=mem-alarm&Namespace=AWS/EC2&MetricName=MemoryUtilization",
+				)
+			},
+			body:            "Action=DescribeAlarmsForMetric&Namespace=AWS/EC2&MetricName=CPUUtilization",
+			wantCode:        http.StatusOK,
+			wantContains:    []string{"DescribeAlarmsForMetricResponse", "cpu-alarm"},
+			wantNotContains: []string{"mem-alarm"},
+		},
+		{
+			name:         "DescribeAlarmsForMetric/empty",
+			body:         "Action=DescribeAlarmsForMetric&Namespace=AWS/EC2&MetricName=NotExist",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeAlarmsForMetricResponse"},
+		},
+		// DescribeAlarmHistory
+		{
+			name: "DescribeAlarmHistory/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=hist-alarm&Namespace=NS&MetricName=M")
+				postForm(t, h, "Action=SetAlarmState&AlarmName=hist-alarm&StateValue=ALARM&StateReason=test")
+			},
+			body:         "Action=DescribeAlarmHistory&AlarmName=hist-alarm",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeAlarmHistoryResponse", "hist-alarm"},
+		},
+		{
+			name:         "DescribeAlarmHistory/empty",
+			body:         "Action=DescribeAlarmHistory&AlarmName=nonexistent-alarm",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeAlarmHistoryResponse"},
+		},
+		{
+			name: "DescribeAlarmHistory/with_dates",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=date-alarm&Namespace=NS&MetricName=M")
+				postForm(t, h, "Action=SetAlarmState&AlarmName=date-alarm&StateValue=ALARM&StateReason=test")
+			},
+			body: "Action=DescribeAlarmHistory&AlarmName=date-alarm" +
+				"&StartDate=2020-01-01T00:00:00Z&EndDate=2099-01-01T00:00:00Z",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeAlarmHistoryResponse"},
+		},
+		// SetAlarmState
+		{
+			name: "SetAlarmState/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=state-alarm&Namespace=NS&MetricName=M")
+			},
+			body:         "Action=SetAlarmState&AlarmName=state-alarm&StateValue=ALARM&StateReason=manual",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"SetAlarmStateResponse"},
+		},
+		{
+			name:     "SetAlarmState/missing name",
+			body:     "Action=SetAlarmState&StateValue=ALARM",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "SetAlarmState/not found",
+			body:     "Action=SetAlarmState&AlarmName=does-not-exist&StateValue=ALARM&StateReason=test",
+			wantCode: http.StatusBadRequest,
+		},
+		// EnableAlarmActions
+		{
+			name: "EnableAlarmActions/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=enable-alarm&Namespace=NS&MetricName=M")
+			},
+			body:         "Action=EnableAlarmActions&AlarmNames.member.1=enable-alarm",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"EnableAlarmActionsResponse"},
+		},
+		// DisableAlarmActions
+		{
+			name: "DisableAlarmActions/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, "Action=PutMetricAlarm&AlarmName=disable-alarm&Namespace=NS&MetricName=M")
+			},
+			body:         "Action=DisableAlarmActions&AlarmNames.member.1=disable-alarm",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DisableAlarmActionsResponse"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newCWHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
