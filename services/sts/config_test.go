@@ -39,7 +39,7 @@ func TestNewInMemoryBackendWithConfig_GetCallerIdentityUsesInjectedAccountID(t *
 			t.Parallel()
 
 			b := sts.NewInMemoryBackendWithConfig(tc.accountID)
-			resp, err := b.GetCallerIdentity()
+			resp, err := b.GetCallerIdentity("")
 			require.NoError(t, err)
 			assert.Equal(t, tc.accountID, resp.GetCallerIdentityResult.Account)
 			assert.Equal(t, tc.wantARN, resp.GetCallerIdentityResult.Arn)

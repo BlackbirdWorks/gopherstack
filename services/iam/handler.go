@@ -359,6 +359,13 @@ func (h *Handler) iamRoleDispatchTable() map[string]iamActionFn {
 				return nil, err
 			}
 
+			if msd := vals.Get("MaxSessionDuration"); msd != "" {
+				if d, parseErr := strconv.ParseInt(msd, 10, 32); parseErr == nil {
+					_ = h.Backend.UpdateRoleMaxSessionDuration(r.RoleName, int32(d))
+					r.MaxSessionDuration = int32(d)
+				}
+			}
+
 			return &CreateRoleResponse{
 				Xmlns:            iamXMLNS,
 				CreateRoleResult: CreateRoleResult{Role: toRoleXML(r)},
@@ -1358,6 +1365,7 @@ func toRoleXML(r *Role) RoleXML {
 		Arn:                      r.Arn,
 		CreateDate:               isoTime(r.CreateDate),
 		AssumeRolePolicyDocument: r.AssumeRolePolicyDocument,
+		MaxSessionDuration:       r.MaxSessionDuration,
 	}
 
 	if r.PermissionsBoundary != "" {

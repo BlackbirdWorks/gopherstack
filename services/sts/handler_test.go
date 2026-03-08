@@ -31,7 +31,7 @@ func TestGetCallerIdentity(t *testing.T) {
 
 	backend := sts.NewInMemoryBackend()
 
-	resp, err := backend.GetCallerIdentity()
+	resp, err := backend.GetCallerIdentity("")
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
@@ -586,7 +586,7 @@ func (b *errorBackend) AssumeRole(_ *sts.AssumeRoleInput) (*sts.AssumeRoleRespon
 	return nil, fmt.Errorf("AssumeRole: %w", errBackendFailure)
 }
 
-func (b *errorBackend) GetCallerIdentity() (*sts.GetCallerIdentityResponse, error) {
+func (b *errorBackend) GetCallerIdentity(_ string) (*sts.GetCallerIdentityResponse, error) {
 	return nil, fmt.Errorf("GetCallerIdentity: %w", errBackendFailure)
 }
 
