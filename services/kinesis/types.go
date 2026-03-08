@@ -27,28 +27,39 @@ const (
 	iteratorTypeAtSequenceNumber = "AT_SEQUENCE_NUMBER"
 	// iteratorTypeAfterSequenceNumber reads after the given sequence number.
 	iteratorTypeAfterSequenceNumber = "AFTER_SEQUENCE_NUMBER"
+	// iteratorTypeAtTimestamp reads starting at the given timestamp.
+	iteratorTypeAtTimestamp = "AT_TIMESTAMP"
 
 	// maxGetRecordsLimit is the maximum number of records per GetRecords call.
 	maxGetRecordsLimit = 10000
 	// defaultGetRecordsLimit is the default limit for GetRecords.
 	defaultGetRecordsLimit = 1000
 
-	// millisToSeconds divides Unix milliseconds to get a float64 second timestamp.
-	millisToSeconds = 1000.0
+	// millisPerSecond is the number of milliseconds in one second.
+	// Used to convert between Unix second timestamps (float64) and millisecond timestamps.
+	millisPerSecond = 1000.0
 
 	// maxHashKeyBits is the bit-width of the Kinesis hash key space.
 	maxHashKeyBits = 128
+
+	// consumerStatusActive is the status when a consumer is ready for use.
+	consumerStatusActive = "ACTIVE"
+
+	// scalingTypeUniformScaling is the only supported scaling type for UpdateShardCount.
+	scalingTypeUniformScaling = "UNIFORM_SCALING"
 )
 
 // Stream represents an in-memory Kinesis stream.
 type Stream struct {
-	CreatedAt       time.Time  `json:"createdAt"`
-	Tags            *tags.Tags `json:"tags,omitempty"`
-	Name            string     `json:"name"`
-	ARN             string     `json:"arn"`
-	Status          string     `json:"status"`
-	Shards          []*Shard   `json:"shards"`
-	RetentionPeriod int        `json:"retentionPeriod"`
+	CreatedAt          time.Time            `json:"createdAt"`
+	Tags               *tags.Tags           `json:"tags,omitempty"`
+	Consumers          map[string]*Consumer `json:"consumers,omitempty"`
+	Name               string               `json:"name"`
+	ARN                string               `json:"arn"`
+	Status             string               `json:"status"`
+	Shards             []*Shard             `json:"shards"`
+	EnhancedMonitoring []string             `json:"enhancedMonitoring,omitempty"`
+	RetentionPeriod    int                  `json:"retentionPeriod"`
 }
 
 // Shard represents a single Kinesis shard within a stream.
@@ -178,6 +189,7 @@ type PutRecordsOutput struct {
 
 // GetShardIteratorInput is the input for GetShardIterator.
 type GetShardIteratorInput struct {
+	Timestamp              time.Time
 	StreamName             string
 	ShardID                string
 	ShardIteratorType      string
@@ -221,4 +233,122 @@ type ListShardsInput struct {
 type ListShardsOutput struct {
 	NextToken string
 	Shards    []ShardDescription
+}
+
+// Consumer represents a registered Kinesis enhanced fan-out consumer.
+type Consumer struct {
+	ConsumerCreationTimestamp time.Time `json:"consumerCreationTimestamp"`
+	ConsumerName              string    `json:"consumerName"`
+	ConsumerARN               string    `json:"consumerARN"`
+	ConsumerStatus            string    `json:"consumerStatus"`
+	StreamARN                 string    `json:"streamARN"`
+}
+
+// RegisterStreamConsumerInput is the input for RegisterStreamConsumer.
+type RegisterStreamConsumerInput struct {
+	StreamARN    string
+	ConsumerName string
+}
+
+// RegisterStreamConsumerOutput is the output for RegisterStreamConsumer.
+type RegisterStreamConsumerOutput struct {
+	Consumer Consumer
+}
+
+// DescribeStreamConsumerInput is the input for DescribeStreamConsumer.
+type DescribeStreamConsumerInput struct {
+	StreamARN    string
+	ConsumerARN  string
+	ConsumerName string
+}
+
+// DescribeStreamConsumerOutput is the output for DescribeStreamConsumer.
+type DescribeStreamConsumerOutput struct {
+	ConsumerDescription Consumer
+}
+
+// ListStreamConsumersInput is the input for ListStreamConsumers.
+type ListStreamConsumersInput struct {
+	StreamARN  string
+	NextToken  string
+	MaxResults int
+}
+
+// ListStreamConsumersOutput is the output for ListStreamConsumers.
+type ListStreamConsumersOutput struct {
+	NextToken string
+	Consumers []Consumer
+}
+
+// DeregisterStreamConsumerInput is the input for DeregisterStreamConsumer.
+type DeregisterStreamConsumerInput struct {
+	StreamARN    string
+	ConsumerARN  string
+	ConsumerName string
+}
+
+// StartingPosition describes where to start reading in SubscribeToShard.
+type StartingPosition struct {
+	Timestamp      *time.Time `json:"Timestamp,omitempty"`
+	Type           string     `json:"Type"`
+	SequenceNumber string     `json:"SequenceNumber,omitempty"`
+}
+
+// SubscribeToShardInput is the input for SubscribeToShard.
+type SubscribeToShardInput struct {
+	ConsumerARN      string
+	ShardID          string
+	StartingPosition StartingPosition
+}
+
+// SubscribeToShardEvent is a single event in the SubscribeToShard response.
+type SubscribeToShardEvent struct {
+	ContinuationSequenceNumber string
+	Records                    []GetRecordResult
+	MillisBehindLatest         int64
+}
+
+// SubscribeToShardOutput is the output for SubscribeToShard.
+type SubscribeToShardOutput struct {
+	Event SubscribeToShardEvent
+}
+
+// UpdateShardCountInput is the input for UpdateShardCount.
+type UpdateShardCountInput struct {
+	StreamName       string
+	ScalingType      string
+	TargetShardCount int
+}
+
+// UpdateShardCountOutput is the output for UpdateShardCount.
+type UpdateShardCountOutput struct {
+	StreamName        string
+	CurrentShardCount int
+	TargetShardCount  int
+}
+
+// EnableEnhancedMonitoringInput is the input for EnableEnhancedMonitoring.
+type EnableEnhancedMonitoringInput struct {
+	StreamName        string
+	ShardLevelMetrics []string
+}
+
+// EnableEnhancedMonitoringOutput is the output for EnableEnhancedMonitoring.
+type EnableEnhancedMonitoringOutput struct {
+	StreamName               string
+	CurrentShardLevelMetrics []string
+	DesiredShardLevelMetrics []string
+}
+
+// DisableEnhancedMonitoringInput is the input for DisableEnhancedMonitoring.
+type DisableEnhancedMonitoringInput struct {
+	StreamName        string
+	ShardLevelMetrics []string
+}
+
+// DisableEnhancedMonitoringOutput is the output for DisableEnhancedMonitoring.
+type DisableEnhancedMonitoringOutput struct {
+	StreamName               string
+	CurrentShardLevelMetrics []string
+	DesiredShardLevelMetrics []string
 }
