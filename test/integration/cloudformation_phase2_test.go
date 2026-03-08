@@ -12,52 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// waitForStackStatus polls DescribeStacks until the stack reaches one of the
-// terminal states or times out.
-func waitForStackStatus(
-	t *testing.T,
-	client *cloudformationsdk.Client,
-	stackName string,
-	terminal ...cftypes.StackStatus,
-) cftypes.StackStatus {
-	t.Helper()
+// cfnStackID returns an 8-char UUID suffix for unique resource naming.
+func cfnStackID() string { return uuid.NewString()[:8] }
 
-	ctx := t.Context()
-	termSet := make(map[cftypes.StackStatus]bool, len(terminal))
-
-	for _, s := range terminal {
-		termSet[s] = true
-	}
-
-	deadline := time.Now().Add(10 * time.Second)
-
-	for time.Now().Before(deadline) {
-		out, err := client.DescribeStacks(ctx, &cloudformationsdk.DescribeStacksInput{
-			StackName: aws.String(stackName),
-		})
-		require.NoError(t, err)
-		require.NotEmpty(t, out.Stacks)
-
-		status := out.Stacks[0].StackStatus
-		if termSet[status] {
-			return status
-		}
-
-		time.Sleep(150 * time.Millisecond)
-	}
-
-	t.Fatalf("stack %s did not reach terminal status within timeout", stackName)
-
-	return ""
-}
-
-// deployStack creates a CloudFormation stack from the given template body and
-// waits for it to reach CREATE_COMPLETE or CREATE_FAILED.
-func deployStack(
+// deployStackPhase2 creates a CloudFormation stack and waits for it to reach
+// a terminal state.
+func deployStackPhase2(
 	t *testing.T,
 	client *cloudformationsdk.Client,
 	stackName, templateBody string,
-) cftypes.StackStatus {
+) string {
 	t.Helper()
 
 	ctx := t.Context()
@@ -68,15 +32,11 @@ func deployStack(
 	})
 	require.NoError(t, err)
 
-	return waitForStackStatus(t, client, stackName,
-		cftypes.StackStatusCreateComplete,
-		cftypes.StackStatusCreateFailed,
-		cftypes.StackStatusRollbackComplete,
-	)
+	return waitForStackStatus(t, client, stackName, 10*time.Second)
 }
 
-// deleteStackAndWait deletes a stack and waits for DELETE_COMPLETE.
-func deleteStackAndWait(t *testing.T, client *cloudformationsdk.Client, stackName string) {
+// deleteStackPhase2 deletes a stack and waits for DELETE_COMPLETE.
+func deleteStackPhase2(t *testing.T, client *cloudformationsdk.Client, stackName string) {
 	t.Helper()
 
 	ctx := t.Context()
@@ -86,71 +46,72 @@ func deleteStackAndWait(t *testing.T, client *cloudformationsdk.Client, stackNam
 	})
 	require.NoError(t, err)
 
-	waitForStackStatus(t, client, stackName,
-		cftypes.StackStatusDeleteComplete,
-	)
+	waitForStackStatus(t, client, stackName, 10*time.Second)
 }
-
-// stackID returns the suffix of the stack name used for unique resource naming.
-func stackID() string { return uuid.NewString()[:8] }
 
 func TestIntegration_CFN_Phase2_RDS(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
+		template func() string
 		name     string
-		template string
 	}{
 		{
 			name: "DBInstance",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MyDB": {
-						"Type": "AWS::RDS::DBInstance",
-						"Properties": {
-							"DBInstanceIdentifier": "cfn-test-db-` + stackID() + `",
-							"Engine": "postgres",
-							"DBInstanceClass": "db.t3.micro",
-							"AllocatedStorage": "20",
-							"MasterUsername": "admin"
-						}
-					}
-				}
-			}`,
+			template: func() string {
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyDB": {
+"Type": "AWS::RDS::DBInstance",
+"Properties": {
+"DBInstanceIdentifier": "cfn-db-` + cfnStackID() + `",
+"Engine": "postgres",
+"DBInstanceClass": "db.t3.micro",
+"AllocatedStorage": "20",
+"MasterUsername": "admin"
+}
+}
+}
+}`
+			},
 		},
 		{
 			name: "DBSubnetGroup",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MySubnetGrp": {
-						"Type": "AWS::RDS::DBSubnetGroup",
-						"Properties": {
-							"DBSubnetGroupName": "cfn-sg-` + stackID() + `",
-							"DBSubnetGroupDescription": "test subnet group",
-							"SubnetIds": ["subnet-default"]
-						}
-					}
-				}
-			}`,
+			template: func() string {
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MySubnetGrp": {
+"Type": "AWS::RDS::DBSubnetGroup",
+"Properties": {
+"DBSubnetGroupName": "cfn-sg-` + cfnStackID() + `",
+"DBSubnetGroupDescription": "test subnet group",
+"SubnetIds": ["subnet-default"]
+}
+}
+}
+}`
+			},
 		},
 		{
 			name: "DBParameterGroup",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MyPG": {
-						"Type": "AWS::RDS::DBParameterGroup",
-						"Properties": {
-							"DBParameterGroupName": "cfn-pg-` + stackID() + `",
-							"Family": "postgres14",
-							"Description": "test parameter group"
-						}
-					}
-				}
-			}`,
+			template: func() string {
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyPG": {
+"Type": "AWS::RDS::DBParameterGroup",
+"Properties": {
+"DBParameterGroupName": "cfn-pg-` + cfnStackID() + `",
+"Family": "postgres14",
+"Description": "test parameter group"
+}
+}
+}
+}`
+			},
 		},
 	}
 
@@ -159,12 +120,12 @@ func TestIntegration_CFN_Phase2_RDS(t *testing.T) {
 			t.Parallel()
 
 			client := createCloudFormationClient(t)
-			stackName := "test-rds-" + tt.name + "-" + stackID()
+			stackName := "test-rds-" + cfnStackID()
 
-			status := deployStack(t, client, stackName, tt.template)
-			assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+			status := deployStackPhase2(t, client, stackName, tt.template())
+			assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-			deleteStackAndWait(t, client, stackName)
+			deleteStackPhase2(t, client, stackName)
 		})
 	}
 }
@@ -174,39 +135,43 @@ func TestIntegration_CFN_Phase2_ElastiCache(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
+		template func() string
 		name     string
-		template string
 	}{
 		{
 			name: "ReplicationGroup",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MyRG": {
-						"Type": "AWS::ElastiCache::ReplicationGroup",
-						"Properties": {
-							"ReplicationGroupId": "cfn-rg-` + stackID() + `",
-							"ReplicationGroupDescription": "test replication group"
-						}
-					}
-				}
-			}`,
+			template: func() string {
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyRG": {
+"Type": "AWS::ElastiCache::ReplicationGroup",
+"Properties": {
+"ReplicationGroupId": "cfn-rg-` + cfnStackID() + `",
+"ReplicationGroupDescription": "test replication group"
+}
+}
+}
+}`
+			},
 		},
 		{
 			name: "SubnetGroup",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MySG": {
-						"Type": "AWS::ElastiCache::SubnetGroup",
-						"Properties": {
-							"CacheSubnetGroupName": "cfn-ecsg-` + stackID() + `",
-							"CacheSubnetGroupDescription": "test subnet group",
-							"SubnetIds": ["subnet-default"]
-						}
-					}
-				}
-			}`,
+			template: func() string {
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MySG": {
+"Type": "AWS::ElastiCache::SubnetGroup",
+"Properties": {
+"CacheSubnetGroupName": "cfn-ecsg-` + cfnStackID() + `",
+"CacheSubnetGroupDescription": "test subnet group",
+"SubnetIds": ["subnet-default"]
+}
+}
+}
+}`
+			},
 		},
 	}
 
@@ -215,12 +180,12 @@ func TestIntegration_CFN_Phase2_ElastiCache(t *testing.T) {
 			t.Parallel()
 
 			client := createCloudFormationClient(t)
-			stackName := "test-ec-" + tt.name + "-" + stackID()
+			stackName := "test-ec-" + cfnStackID()
 
-			status := deployStack(t, client, stackName, tt.template)
-			assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+			status := deployStackPhase2(t, client, stackName, tt.template())
+			assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-			deleteStackAndWait(t, client, stackName)
+			deleteStackPhase2(t, client, stackName)
 		})
 	}
 }
@@ -230,45 +195,49 @@ func TestIntegration_CFN_Phase2_ECS(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
+		template func() string
 		name     string
-		template string
 	}{
 		{
 			name: "Cluster",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MyCluster": {
-						"Type": "AWS::ECS::Cluster",
-						"Properties": {
-							"ClusterName": "cfn-cluster-` + stackID() + `"
-						}
-					}
-				}
-			}`,
+			template: func() string {
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyCluster": {
+"Type": "AWS::ECS::Cluster",
+"Properties": {
+"ClusterName": "cfn-cluster-` + cfnStackID() + `"
+}
+}
+}
+}`
+			},
 		},
 		{
 			name: "TaskDefinition",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MyTD": {
-						"Type": "AWS::ECS::TaskDefinition",
-						"Properties": {
-							"Family": "cfn-td-` + stackID() + `",
-							"NetworkMode": "awsvpc",
-							"ContainerDefinitions": [
-								{
-									"Name": "app",
-									"Image": "nginx:latest",
-									"Cpu": 256,
-									"Memory": 512
-								}
-							]
-						}
-					}
-				}
-			}`,
+			template: func() string {
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyTD": {
+"Type": "AWS::ECS::TaskDefinition",
+"Properties": {
+"Family": "cfn-td-` + cfnStackID() + `",
+"NetworkMode": "awsvpc",
+"ContainerDefinitions": [
+{
+"Name": "app",
+"Image": "nginx:latest",
+"Cpu": 256,
+"Memory": 512
+}
+]
+}
+}
+}
+}`
+			},
 		},
 	}
 
@@ -277,12 +246,12 @@ func TestIntegration_CFN_Phase2_ECS(t *testing.T) {
 			t.Parallel()
 
 			client := createCloudFormationClient(t)
-			stackName := "test-ecs-" + tt.name + "-" + stackID()
+			stackName := "test-ecs-" + cfnStackID()
 
-			status := deployStack(t, client, stackName, tt.template)
-			assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+			status := deployStackPhase2(t, client, stackName, tt.template())
+			assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-			deleteStackAndWait(t, client, stackName)
+			deleteStackPhase2(t, client, stackName)
 		})
 	}
 }
@@ -292,23 +261,23 @@ func TestIntegration_CFN_Phase2_ECR(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudFormationClient(t)
-	stackName := "test-ecr-" + stackID()
+	stackName := "test-ecr-" + cfnStackID()
 	template := `{
-		"AWSTemplateFormatVersion": "2010-09-09",
-		"Resources": {
-			"MyRepo": {
-				"Type": "AWS::ECR::Repository",
-				"Properties": {
-					"RepositoryName": "cfn-repo-` + stackID() + `"
-				}
-			}
-		}
-	}`
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyRepo": {
+"Type": "AWS::ECR::Repository",
+"Properties": {
+"RepositoryName": "cfn-repo-` + cfnStackID() + `"
+}
+}
+}
+}`
 
-	status := deployStack(t, client, stackName, template)
-	assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-	deleteStackAndWait(t, client, stackName)
+	deleteStackPhase2(t, client, stackName)
 }
 
 func TestIntegration_CFN_Phase2_Redshift(t *testing.T) {
@@ -316,26 +285,26 @@ func TestIntegration_CFN_Phase2_Redshift(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudFormationClient(t)
-	stackName := "test-redshift-" + stackID()
+	stackName := "test-redshift-" + cfnStackID()
 	template := `{
-		"AWSTemplateFormatVersion": "2010-09-09",
-		"Resources": {
-			"MyCluster": {
-				"Type": "AWS::Redshift::Cluster",
-				"Properties": {
-					"ClusterIdentifier": "cfn-rs-` + stackID() + `",
-					"NodeType": "dc2.large",
-					"DBName": "mydb",
-					"MasterUsername": "admin"
-				}
-			}
-		}
-	}`
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyCluster": {
+"Type": "AWS::Redshift::Cluster",
+"Properties": {
+"ClusterIdentifier": "cfn-rs-` + cfnStackID() + `",
+"NodeType": "dc2.large",
+"DBName": "mydb",
+"MasterUsername": "admin"
+}
+}
+}
+}`
 
-	status := deployStack(t, client, stackName, template)
-	assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-	deleteStackAndWait(t, client, stackName)
+	deleteStackPhase2(t, client, stackName)
 }
 
 func TestIntegration_CFN_Phase2_OpenSearch(t *testing.T) {
@@ -343,24 +312,24 @@ func TestIntegration_CFN_Phase2_OpenSearch(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudFormationClient(t)
-	stackName := "test-opensearch-" + stackID()
+	stackName := "test-opensearch-" + cfnStackID()
 	template := `{
-		"AWSTemplateFormatVersion": "2010-09-09",
-		"Resources": {
-			"MyDomain": {
-				"Type": "AWS::OpenSearch::Domain",
-				"Properties": {
-					"DomainName": "cfn-os-` + stackID() + `",
-					"EngineVersion": "OpenSearch_2.11"
-				}
-			}
-		}
-	}`
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyDomain": {
+"Type": "AWS::OpenSearch::Domain",
+"Properties": {
+"DomainName": "cfn-os-` + cfnStackID() + `",
+"EngineVersion": "OpenSearch_2.11"
+}
+}
+}
+}`
 
-	status := deployStack(t, client, stackName, template)
-	assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-	deleteStackAndWait(t, client, stackName)
+	deleteStackPhase2(t, client, stackName)
 }
 
 func TestIntegration_CFN_Phase2_Firehose(t *testing.T) {
@@ -368,51 +337,51 @@ func TestIntegration_CFN_Phase2_Firehose(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudFormationClient(t)
-	stackName := "test-firehose-" + stackID()
+	stackName := "test-firehose-" + cfnStackID()
 	template := `{
-		"AWSTemplateFormatVersion": "2010-09-09",
-		"Resources": {
-			"MyStream": {
-				"Type": "AWS::Firehose::DeliveryStream",
-				"Properties": {
-					"DeliveryStreamName": "cfn-fh-` + stackID() + `"
-				}
-			}
-		}
-	}`
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyStream": {
+"Type": "AWS::Firehose::DeliveryStream",
+"Properties": {
+"DeliveryStreamName": "cfn-fh-` + cfnStackID() + `"
+}
+}
+}
+}`
 
-	status := deployStack(t, client, stackName, template)
-	assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-	deleteStackAndWait(t, client, stackName)
+	deleteStackPhase2(t, client, stackName)
 }
 
-func TestIntegration_CFN_Phase2_Route53(t *testing.T) {
+func TestIntegration_CFN_Phase2_Route53HealthCheck(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudFormationClient(t)
-	stackName := "test-r53hc-" + stackID()
+	stackName := "test-r53hc-" + cfnStackID()
 	template := `{
-		"AWSTemplateFormatVersion": "2010-09-09",
-		"Resources": {
-			"MyHC": {
-				"Type": "AWS::Route53::HealthCheck",
-				"Properties": {
-					"HealthCheckConfig": {
-						"Type": "HTTPS",
-						"FullyQualifiedDomainName": "example.com",
-						"Port": "443"
-					}
-				}
-			}
-		}
-	}`
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyHC": {
+"Type": "AWS::Route53::HealthCheck",
+"Properties": {
+"HealthCheckConfig": {
+"Type": "HTTPS",
+"FullyQualifiedDomainName": "example.com",
+"Port": "443"
+}
+}
+}
+}
+}`
 
-	status := deployStack(t, client, stackName, template)
-	assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-	deleteStackAndWait(t, client, stackName)
+	deleteStackPhase2(t, client, stackName)
 }
 
 func TestIntegration_CFN_Phase2_Route53Resolver(t *testing.T) {
@@ -420,39 +389,43 @@ func TestIntegration_CFN_Phase2_Route53Resolver(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
+		template func() string
 		name     string
-		template string
 	}{
 		{
 			name: "ResolverEndpoint",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MyEP": {
-						"Type": "AWS::Route53Resolver::ResolverEndpoint",
-						"Properties": {
-							"Name": "cfn-ep-` + stackID() + `",
-							"Direction": "INBOUND"
-						}
-					}
-				}
-			}`,
+			template: func() string {
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyEP": {
+"Type": "AWS::Route53Resolver::ResolverEndpoint",
+"Properties": {
+"Name": "cfn-ep-` + cfnStackID() + `",
+"Direction": "INBOUND"
+}
+}
+}
+}`
+			},
 		},
 		{
 			name: "ResolverRule",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MyRule": {
-						"Type": "AWS::Route53Resolver::ResolverRule",
-						"Properties": {
-							"Name": "cfn-rule-` + stackID() + `",
-							"DomainName": "example.internal",
-							"RuleType": "FORWARD"
-						}
-					}
-				}
-			}`,
+			template: func() string {
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyRule": {
+"Type": "AWS::Route53Resolver::ResolverRule",
+"Properties": {
+"Name": "cfn-rule-` + cfnStackID() + `",
+"DomainName": "example.internal",
+"RuleType": "FORWARD"
+}
+}
+}
+}`
+			},
 		},
 	}
 
@@ -461,12 +434,12 @@ func TestIntegration_CFN_Phase2_Route53Resolver(t *testing.T) {
 			t.Parallel()
 
 			client := createCloudFormationClient(t)
-			stackName := "test-r53r-" + tt.name + "-" + stackID()
+			stackName := "test-r53r-" + cfnStackID()
 
-			status := deployStack(t, client, stackName, tt.template)
-			assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+			status := deployStackPhase2(t, client, stackName, tt.template())
+			assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-			deleteStackAndWait(t, client, stackName)
+			deleteStackPhase2(t, client, stackName)
 		})
 	}
 }
@@ -476,24 +449,24 @@ func TestIntegration_CFN_Phase2_SWF(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudFormationClient(t)
-	stackName := "test-swf-" + stackID()
+	stackName := "test-swf-" + cfnStackID()
 	template := `{
-		"AWSTemplateFormatVersion": "2010-09-09",
-		"Resources": {
-			"MyDomain": {
-				"Type": "AWS::SWF::Domain",
-				"Properties": {
-					"Name": "cfn-domain-` + stackID() + `",
-					"Description": "test SWF domain"
-				}
-			}
-		}
-	}`
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyDomain": {
+"Type": "AWS::SWF::Domain",
+"Properties": {
+"Name": "cfn-domain-` + cfnStackID() + `",
+"Description": "test SWF domain"
+}
+}
+}
+}`
 
-	status := deployStack(t, client, stackName, template)
-	assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-	deleteStackAndWait(t, client, stackName)
+	deleteStackPhase2(t, client, stackName)
 }
 
 func TestIntegration_CFN_Phase2_AppSync(t *testing.T) {
@@ -501,24 +474,24 @@ func TestIntegration_CFN_Phase2_AppSync(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudFormationClient(t)
-	stackName := "test-appsync-" + stackID()
+	stackName := "test-appsync-" + cfnStackID()
 	template := `{
-		"AWSTemplateFormatVersion": "2010-09-09",
-		"Resources": {
-			"MyAPI": {
-				"Type": "AWS::AppSync::GraphQLApi",
-				"Properties": {
-					"Name": "cfn-api-` + stackID() + `",
-					"AuthenticationType": "API_KEY"
-				}
-			}
-		}
-	}`
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyAPI": {
+"Type": "AWS::AppSync::GraphQLApi",
+"Properties": {
+"Name": "cfn-api-` + cfnStackID() + `",
+"AuthenticationType": "API_KEY"
+}
+}
+}
+}`
 
-	status := deployStack(t, client, stackName, template)
-	assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-	deleteStackAndWait(t, client, stackName)
+	deleteStackPhase2(t, client, stackName)
 }
 
 func TestIntegration_CFN_Phase2_SES(t *testing.T) {
@@ -526,23 +499,23 @@ func TestIntegration_CFN_Phase2_SES(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudFormationClient(t)
-	stackName := "test-ses-" + stackID()
+	stackName := "test-ses-" + cfnStackID()
 	template := `{
-		"AWSTemplateFormatVersion": "2010-09-09",
-		"Resources": {
-			"MyIdentity": {
-				"Type": "AWS::SES::EmailIdentity",
-				"Properties": {
-					"EmailIdentity": "cfn-test-` + stackID() + `@example.com"
-				}
-			}
-		}
-	}`
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyIdentity": {
+"Type": "AWS::SES::EmailIdentity",
+"Properties": {
+"EmailIdentity": "cfn-test-` + cfnStackID() + `@example.com"
+}
+}
+}
+}`
 
-	status := deployStack(t, client, stackName, template)
-	assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-	deleteStackAndWait(t, client, stackName)
+	deleteStackPhase2(t, client, stackName)
 }
 
 func TestIntegration_CFN_Phase2_ACM(t *testing.T) {
@@ -550,62 +523,47 @@ func TestIntegration_CFN_Phase2_ACM(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudFormationClient(t)
-	stackName := "test-acm-" + stackID()
+	stackName := "test-acm-" + cfnStackID()
 	template := `{
-		"AWSTemplateFormatVersion": "2010-09-09",
-		"Resources": {
-			"MyCert": {
-				"Type": "AWS::ACM::Certificate",
-				"Properties": {
-					"DomainName": "cfn-test-` + stackID() + `.example.com"
-				}
-			}
-		}
-	}`
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyCert": {
+"Type": "AWS::ACM::Certificate",
+"Properties": {
+"DomainName": "cfn-` + cfnStackID() + `.example.com"
+}
+}
+}
+}`
 
-	status := deployStack(t, client, stackName, template)
-	assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-	deleteStackAndWait(t, client, stackName)
+	deleteStackPhase2(t, client, stackName)
 }
 
 func TestIntegration_CFN_Phase2_Cognito(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	tests := []struct {
-		name     string
-		template string
-	}{
-		{
-			name: "UserPool",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MyPool": {
-						"Type": "AWS::Cognito::UserPool",
-						"Properties": {
-							"PoolName": "cfn-pool-` + stackID() + `"
-						}
-					}
-				}
-			}`,
-		},
-	}
+	client := createCloudFormationClient(t)
+	stackName := "test-cognito-" + cfnStackID()
+	template := `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyPool": {
+"Type": "AWS::Cognito::UserPool",
+"Properties": {
+"PoolName": "cfn-pool-` + cfnStackID() + `"
+}
+}
+}
+}`
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-			client := createCloudFormationClient(t)
-			stackName := "test-cognito-" + tt.name + "-" + stackID()
-
-			status := deployStack(t, client, stackName, tt.template)
-			assert.Equal(t, cftypes.StackStatusCreateComplete, status)
-
-			deleteStackAndWait(t, client, stackName)
-		})
-	}
+	deleteStackPhase2(t, client, stackName)
 }
 
 func TestIntegration_CFN_Phase2_EC2Extended(t *testing.T) {
@@ -613,40 +571,44 @@ func TestIntegration_CFN_Phase2_EC2Extended(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
+		template func() string
 		name     string
-		template string
 	}{
 		{
 			name: "EIP",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MyEIP": {
-						"Type": "AWS::EC2::EIP",
-						"Properties": {}
-					}
-				}
-			}`,
+			template: func() string {
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyEIP": {
+"Type": "AWS::EC2::EIP",
+"Properties": {}
+}
+}
+}`
+			},
 		},
 		{
 			name: "NatGateway",
-			template: `{
-				"AWSTemplateFormatVersion": "2010-09-09",
-				"Resources": {
-					"MyEIP": {
-						"Type": "AWS::EC2::EIP",
-						"Properties": {}
-					},
-					"MyNGW": {
-						"Type": "AWS::EC2::NatGateway",
-						"DependsOn": ["MyEIP"],
-						"Properties": {
-							"SubnetId": "subnet-default",
-							"AllocationId": {"Ref": "MyEIP"}
-						}
-					}
-				}
-			}`,
+			template: func() string {
+				return `{
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"MyEIP": {
+"Type": "AWS::EC2::EIP",
+"Properties": {}
+},
+"MyNGW": {
+"Type": "AWS::EC2::NatGateway",
+"DependsOn": ["MyEIP"],
+"Properties": {
+"SubnetId": "subnet-default",
+"AllocationId": {"Ref": "MyEIP"}
+}
+}
+}
+}`
+			},
 		},
 	}
 
@@ -655,12 +617,12 @@ func TestIntegration_CFN_Phase2_EC2Extended(t *testing.T) {
 			t.Parallel()
 
 			client := createCloudFormationClient(t)
-			stackName := "test-ec2ext-" + tt.name + "-" + stackID()
+			stackName := "test-ec2ext-" + cfnStackID()
 
-			status := deployStack(t, client, stackName, tt.template)
-			assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+			status := deployStackPhase2(t, client, stackName, tt.template())
+			assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-			deleteStackAndWait(t, client, stackName)
+			deleteStackPhase2(t, client, stackName)
 		})
 	}
 }
@@ -670,38 +632,39 @@ func TestIntegration_CFN_Phase2_CloudWatchCompositeAlarm(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudFormationClient(t)
-	stackName := "test-cw-composite-" + stackID()
-	alarmName := "cfn-base-alarm-" + stackID()
-	compositeAlarmName := "cfn-composite-" + stackID()
+	id := cfnStackID()
+	stackName := "test-cw-composite-" + id
+	alarmName := "cfn-base-alarm-" + id
+	compositeAlarmName := "cfn-composite-" + id
 	template := `{
-		"AWSTemplateFormatVersion": "2010-09-09",
-		"Resources": {
-			"BaseAlarm": {
-				"Type": "AWS::CloudWatch::Alarm",
-				"Properties": {
-					"AlarmName": "` + alarmName + `",
-					"Namespace": "AWS/EC2",
-					"MetricName": "CPUUtilization",
-					"ComparisonOperator": "GreaterThanThreshold",
-					"Threshold": 90,
-					"EvaluationPeriods": 1,
-					"Period": 60,
-					"Statistic": "Average"
-				}
-			},
-			"CompositeAlarm": {
-				"Type": "AWS::CloudWatch::CompositeAlarm",
-				"DependsOn": ["BaseAlarm"],
-				"Properties": {
-					"AlarmName": "` + compositeAlarmName + `",
-					"AlarmRule": "ALARM(` + alarmName + `)"
-				}
-			}
-		}
-	}`
+"AWSTemplateFormatVersion": "2010-09-09",
+"Resources": {
+"BaseAlarm": {
+"Type": "AWS::CloudWatch::Alarm",
+"Properties": {
+"AlarmName": "` + alarmName + `",
+"Namespace": "AWS/EC2",
+"MetricName": "CPUUtilization",
+"ComparisonOperator": "GreaterThanThreshold",
+"Threshold": 90,
+"EvaluationPeriods": 1,
+"Period": 60,
+"Statistic": "Average"
+}
+},
+"CompositeAlarm": {
+"Type": "AWS::CloudWatch::CompositeAlarm",
+"DependsOn": ["BaseAlarm"],
+"Properties": {
+"AlarmName": "` + compositeAlarmName + `",
+"AlarmRule": "ALARM(` + alarmName + `)"
+}
+}
+}
+}`
 
-	status := deployStack(t, client, stackName, template)
-	assert.Equal(t, cftypes.StackStatusCreateComplete, status)
+	status := deployStackPhase2(t, client, stackName, template)
+	assert.Equal(t, string(cftypes.StackStatusCreateComplete), status)
 
-	deleteStackAndWait(t, client, stackName)
+	deleteStackPhase2(t, client, stackName)
 }

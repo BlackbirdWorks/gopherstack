@@ -17,6 +17,10 @@ import (
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 )
 
+// eipAllocIDSuffixLen is the number of UUID hex characters used to generate
+// a stub allocation ID when no EC2 backend is configured.
+const eipAllocIDSuffixLen = 17
+
 // parseLayerVersionARN parses a Lambda layer version ARN and returns the layer name and version.
 // Expected format: arn:aws:lambda:{region}:{account}:layer:{name}:{version}.
 func parseLayerVersionARN(arn string) (string, int64) {
@@ -495,8 +499,9 @@ func (rc *ResourceCreator) deleteECSService(arn string) error {
 	}
 
 	// ARN format: arn:aws:ecs:{region}:{account}:service/{cluster}/{service}
+	// After splitting on "/" we need at least 3 parts: prefix, cluster name, service name.
 	parts := strings.Split(arn, "/")
-	if len(parts) < 2 { //nolint:mnd // need at least 2 parts: cluster and service
+	if len(parts) < 3 { //nolint:mnd // ARN must have prefix/cluster/service sections
 		return nil
 	}
 
@@ -1134,7 +1139,7 @@ func (rc *ResourceCreator) deleteEC2NatGateway(id string) error {
 
 func (rc *ResourceCreator) createEC2EIP(_ string) (string, error) {
 	if rc.backends.EC2 == nil {
-		return "eipalloc-" + uuid.New().String()[:17], nil
+		return "eipalloc-" + uuid.New().String()[:eipAllocIDSuffixLen], nil
 	}
 
 	addr, err := rc.backends.EC2.Backend.AllocateAddress()
