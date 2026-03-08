@@ -56,6 +56,12 @@ func TestRDSHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "CreateDBSubnetGroup")
 	assert.Contains(t, ops, "DescribeDBSubnetGroups")
 	assert.Contains(t, ops, "DeleteDBSubnetGroup")
+	assert.Contains(t, ops, "CreateDBParameterGroup")
+	assert.Contains(t, ops, "CreateOptionGroup")
+	assert.Contains(t, ops, "CreateDBCluster")
+	assert.Contains(t, ops, "CreateDBInstanceReadReplica")
+	assert.Contains(t, ops, "RebootDBInstance")
+	assert.Contains(t, ops, "DescribeDBEngineVersions")
 }
 
 func TestRDSHandler_MatchPriority(t *testing.T) {
@@ -426,6 +432,379 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"MissingAction"},
 		},
+		// Parameter Group tests
+		{
+			name: "CreateDBParameterGroup",
+			body: "Action=CreateDBParameterGroup&Version=2014-10-31" +
+				"&DBParameterGroupName=my-pg&DBParameterGroupFamily=postgres14&Description=My+param+group",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateDBParameterGroupResponse", "my-pg", "postgres14"},
+		},
+		{
+			name:         "CreateDBParameterGroup_EmptyName",
+			body:         "Action=CreateDBParameterGroup&Version=2014-10-31&DBParameterGroupName=",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "CreateDBParameterGroup_Duplicate",
+			setupBodies: []string{
+				"Action=CreateDBParameterGroup&Version=2014-10-31" +
+					"&DBParameterGroupName=dup-pg&DBParameterGroupFamily=mysql8.0",
+			},
+			body: "Action=CreateDBParameterGroup&Version=2014-10-31" +
+				"&DBParameterGroupName=dup-pg&DBParameterGroupFamily=mysql8.0",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBParameterGroupAlreadyExists"},
+		},
+		{
+			name: "DescribeDBParameterGroups",
+			setupBodies: []string{
+				"Action=CreateDBParameterGroup&Version=2014-10-31&DBParameterGroupName=list-pg&DBParameterGroupFamily=postgres14",
+			},
+			body:         "Action=DescribeDBParameterGroups&Version=2014-10-31",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeDBParameterGroupsResponse", "list-pg"},
+		},
+		{
+			name:         "DescribeDBParameterGroups_NotFound",
+			body:         "Action=DescribeDBParameterGroups&Version=2014-10-31&DBParameterGroupName=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBParameterGroupNotFound"},
+		},
+		{
+			name: "DeleteDBParameterGroup",
+			setupBodies: []string{
+				"Action=CreateDBParameterGroup&Version=2014-10-31&DBParameterGroupName=del-pg&DBParameterGroupFamily=postgres14",
+			},
+			body:         "Action=DeleteDBParameterGroup&Version=2014-10-31&DBParameterGroupName=del-pg",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteDBParameterGroupResponse"},
+		},
+		{
+			name:         "DeleteDBParameterGroup_NotFound",
+			body:         "Action=DeleteDBParameterGroup&Version=2014-10-31&DBParameterGroupName=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBParameterGroupNotFound"},
+		},
+		{
+			name: "ModifyDBParameterGroup",
+			setupBodies: []string{
+				"Action=CreateDBParameterGroup&Version=2014-10-31&DBParameterGroupName=mod-pg&DBParameterGroupFamily=postgres14",
+			},
+			body: "Action=ModifyDBParameterGroup&Version=2014-10-31&DBParameterGroupName=mod-pg" +
+				"&Parameters.Parameter.1.ParameterName=max_connections&Parameters.Parameter.1.ParameterValue=200",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ModifyDBParameterGroupResponse", "mod-pg"},
+		},
+		{
+			name: "DescribeDBParameters",
+			setupBodies: []string{
+				"Action=CreateDBParameterGroup&Version=2014-10-31" +
+					"&DBParameterGroupName=desc-param-pg&DBParameterGroupFamily=postgres14",
+				"Action=ModifyDBParameterGroup&Version=2014-10-31&DBParameterGroupName=desc-param-pg" +
+					"&Parameters.Parameter.1.ParameterName=max_connections&Parameters.Parameter.1.ParameterValue=100",
+			},
+			body:         "Action=DescribeDBParameters&Version=2014-10-31&DBParameterGroupName=desc-param-pg",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeDBParametersResponse", "max_connections"},
+		},
+		{
+			name: "ResetDBParameterGroup",
+			setupBodies: []string{
+				"Action=CreateDBParameterGroup&Version=2014-10-31&DBParameterGroupName=reset-pg&DBParameterGroupFamily=postgres14",
+				"Action=ModifyDBParameterGroup&Version=2014-10-31&DBParameterGroupName=reset-pg" +
+					"&Parameters.Parameter.1.ParameterName=max_connections&Parameters.Parameter.1.ParameterValue=200",
+			},
+			body: "Action=ResetDBParameterGroup&Version=2014-10-31" +
+				"&DBParameterGroupName=reset-pg&ResetAllParameters=true",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ModifyDBParameterGroupResponse", "reset-pg"},
+		},
+		// Option Group tests
+		{
+			name: "CreateOptionGroup",
+			body: "Action=CreateOptionGroup&Version=2014-10-31" +
+				"&OptionGroupName=my-og&EngineName=mysql&MajorEngineVersion=8.0&OptionGroupDescription=My+option+group",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateOptionGroupResponse", "my-og", "mysql"},
+		},
+		{
+			name:         "CreateOptionGroup_EmptyName",
+			body:         "Action=CreateOptionGroup&Version=2014-10-31&OptionGroupName=",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "CreateOptionGroup_Duplicate",
+			setupBodies: []string{
+				"Action=CreateOptionGroup&Version=2014-10-31" +
+					"&OptionGroupName=dup-og&EngineName=mysql&MajorEngineVersion=8.0",
+			},
+			body: "Action=CreateOptionGroup&Version=2014-10-31" +
+				"&OptionGroupName=dup-og&EngineName=mysql&MajorEngineVersion=8.0",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"OptionGroupAlreadyExists"},
+		},
+		{
+			name: "DescribeOptionGroups",
+			setupBodies: []string{
+				"Action=CreateOptionGroup&Version=2014-10-31&OptionGroupName=list-og&EngineName=mysql&MajorEngineVersion=8.0",
+			},
+			body:         "Action=DescribeOptionGroups&Version=2014-10-31",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeOptionGroupsResponse", "list-og"},
+		},
+		{
+			name:         "DescribeOptionGroups_NotFound",
+			body:         "Action=DescribeOptionGroups&Version=2014-10-31&OptionGroupName=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"OptionGroupNotFound"},
+		},
+		{
+			name: "DeleteOptionGroup",
+			setupBodies: []string{
+				"Action=CreateOptionGroup&Version=2014-10-31&OptionGroupName=del-og&EngineName=mysql&MajorEngineVersion=8.0",
+			},
+			body:         "Action=DeleteOptionGroup&Version=2014-10-31&OptionGroupName=del-og",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteOptionGroupResponse"},
+		},
+		{
+			name:         "DeleteOptionGroup_NotFound",
+			body:         "Action=DeleteOptionGroup&Version=2014-10-31&OptionGroupName=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"OptionGroupNotFound"},
+		},
+		{
+			name: "ModifyOptionGroup_Add",
+			setupBodies: []string{
+				"Action=CreateOptionGroup&Version=2014-10-31&OptionGroupName=mod-og&EngineName=mysql&MajorEngineVersion=8.0",
+			},
+			body: "Action=ModifyOptionGroup&Version=2014-10-31&OptionGroupName=mod-og" +
+				"&OptionsToInclude.OptionConfiguration.1.OptionName=MEMCACHED",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ModifyOptionGroupResponse", "MEMCACHED"},
+		},
+		// Cluster tests
+		{
+			name: "CreateDBCluster",
+			body: "Action=CreateDBCluster&Version=2014-10-31" +
+				"&DBClusterIdentifier=my-cluster&Engine=aurora-postgresql&MasterUsername=admin&DatabaseName=mydb",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateDBClusterResponse", "my-cluster", "aurora-postgresql"},
+		},
+		{
+			name:         "CreateDBCluster_EmptyID",
+			body:         "Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "CreateDBCluster_Duplicate",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=dup-cluster&Engine=aurora-postgresql",
+			},
+			body:         "Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=dup-cluster&Engine=aurora-postgresql",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterAlreadyExists"},
+		},
+		{
+			name: "DescribeDBClusters",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=list-cluster&Engine=aurora-postgresql",
+			},
+			body:         "Action=DescribeDBClusters&Version=2014-10-31",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeDBClustersResponse", "list-cluster"},
+		},
+		{
+			name:         "DescribeDBClusters_NotFound",
+			body:         "Action=DescribeDBClusters&Version=2014-10-31&DBClusterIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterNotFound"},
+		},
+		{
+			name: "DeleteDBCluster",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=del-cluster&Engine=aurora-postgresql",
+			},
+			body:         "Action=DeleteDBCluster&Version=2014-10-31&DBClusterIdentifier=del-cluster",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteDBClusterResponse", "del-cluster"},
+		},
+		{
+			name:         "DeleteDBCluster_NotFound",
+			body:         "Action=DeleteDBCluster&Version=2014-10-31&DBClusterIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterNotFound"},
+		},
+		{
+			name: "ModifyDBCluster",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=mod-cluster&Engine=aurora-postgresql",
+			},
+			body: "Action=ModifyDBCluster&Version=2014-10-31&DBClusterIdentifier=mod-cluster" +
+				"&DBClusterParameterGroupName=my-cluster-pg",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ModifyDBClusterResponse", "my-cluster-pg"},
+		},
+		// Cluster Parameter Group tests
+		{
+			name: "CreateDBClusterParameterGroup",
+			body: "Action=CreateDBClusterParameterGroup&Version=2014-10-31" +
+				"&DBClusterParameterGroupName=my-cpg&DBParameterGroupFamily=aurora-postgresql14&Description=My+cluster+pg",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateDBClusterParameterGroupResponse", "my-cpg"},
+		},
+		{
+			name: "DescribeDBClusterParameterGroups",
+			setupBodies: []string{
+				"Action=CreateDBClusterParameterGroup&Version=2014-10-31" +
+					"&DBClusterParameterGroupName=list-cpg&DBParameterGroupFamily=aurora-postgresql14",
+			},
+			body:         "Action=DescribeDBClusterParameterGroups&Version=2014-10-31",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeDBClusterParameterGroupsResponse", "list-cpg"},
+		},
+		// Cluster Snapshot tests
+		{
+			name: "CreateDBClusterSnapshot",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=snap-cluster&Engine=aurora-postgresql",
+			},
+			body: "Action=CreateDBClusterSnapshot&Version=2014-10-31" +
+				"&DBClusterSnapshotIdentifier=cluster-snap-1&DBClusterIdentifier=snap-cluster",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateDBClusterSnapshotResponse", "cluster-snap-1"},
+		},
+		{
+			name: "CreateDBClusterSnapshot_ClusterNotFound",
+			body: "Action=CreateDBClusterSnapshot&Version=2014-10-31" +
+				"&DBClusterSnapshotIdentifier=orphan-snap&DBClusterIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterNotFound"},
+		},
+		{
+			name: "DescribeDBClusterSnapshots",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=snap-cluster2&Engine=aurora-postgresql",
+				"Action=CreateDBClusterSnapshot&Version=2014-10-31" +
+					"&DBClusterSnapshotIdentifier=list-csnap&DBClusterIdentifier=snap-cluster2",
+			},
+			body:         "Action=DescribeDBClusterSnapshots&Version=2014-10-31",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeDBClusterSnapshotsResponse", "list-csnap"},
+		},
+		// Read Replica tests
+		{
+			name: "CreateDBInstanceReadReplica",
+			setupBodies: []string{
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=source-db&Engine=postgres",
+			},
+			body: "Action=CreateDBInstanceReadReplica&Version=2014-10-31" +
+				"&DBInstanceIdentifier=replica-db&SourceDBInstanceIdentifier=source-db",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateDBInstanceReadReplicaResponse", "replica-db", "source-db"},
+		},
+		{
+			name: "CreateDBInstanceReadReplica_SourceNotFound",
+			body: "Action=CreateDBInstanceReadReplica&Version=2014-10-31" +
+				"&DBInstanceIdentifier=replica-db&SourceDBInstanceIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBInstanceNotFound"},
+		},
+		{
+			name: "PromoteReadReplica",
+			setupBodies: []string{
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=promo-source&Engine=postgres",
+				"Action=CreateDBInstanceReadReplica&Version=2014-10-31" +
+					"&DBInstanceIdentifier=promo-replica&SourceDBInstanceIdentifier=promo-source",
+			},
+			body:         "Action=PromoteReadReplica&Version=2014-10-31&DBInstanceIdentifier=promo-replica",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PromoteReadReplicaResponse", "promo-replica"},
+		},
+		// Misc tests
+		{
+			name: "RebootDBInstance",
+			setupBodies: []string{
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=reboot-db&Engine=postgres",
+			},
+			body:         "Action=RebootDBInstance&Version=2014-10-31&DBInstanceIdentifier=reboot-db",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"RebootDBInstanceResponse", "reboot-db"},
+		},
+		{
+			name:         "RebootDBInstance_NotFound",
+			body:         "Action=RebootDBInstance&Version=2014-10-31&DBInstanceIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBInstanceNotFound"},
+		},
+		{
+			name:         "DescribeDBEngineVersions",
+			body:         "Action=DescribeDBEngineVersions&Version=2014-10-31",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeDBEngineVersionsResponse", "postgres"},
+		},
+		{
+			name:            "DescribeDBEngineVersions_ByEngine",
+			body:            "Action=DescribeDBEngineVersions&Version=2014-10-31&Engine=mysql",
+			wantCode:        http.StatusOK,
+			wantContains:    []string{"mysql"},
+			wantNotContains: []string{"aurora-postgresql"},
+		},
+		{
+			name:         "DescribeOrderableDBInstanceOptions",
+			body:         "Action=DescribeOrderableDBInstanceOptions&Version=2014-10-31&Engine=postgres",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeOrderableDBInstanceOptionsResponse", "db.t3.micro"},
+		},
+		{
+			name: "DescribeDBLogFiles",
+			setupBodies: []string{
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=log-db&Engine=postgres",
+			},
+			body:         "Action=DescribeDBLogFiles&Version=2014-10-31&DBInstanceIdentifier=log-db",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeDBLogFilesResponse"},
+		},
+		{
+			name:         "DescribeDBLogFiles_NotFound",
+			body:         "Action=DescribeDBLogFiles&Version=2014-10-31&DBInstanceIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBInstanceNotFound"},
+		},
+		{
+			name: "DownloadDBLogFilePortion",
+			setupBodies: []string{
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=logportion-db&Engine=postgres",
+			},
+			body: "Action=DownloadDBLogFilePortion&Version=2014-10-31" +
+				"&DBInstanceIdentifier=logportion-db&LogFileName=error.log",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DownloadDBLogFilePortionResponse"},
+		},
+		{
+			name: "DownloadDBLogFilePortion_NotFound",
+			body: "Action=DownloadDBLogFilePortion&Version=2014-10-31" +
+				"&DBInstanceIdentifier=nonexistent&LogFileName=error.log",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBInstanceNotFound"},
+		},
+		{
+			name:         "DescribeOptionGroupOptions",
+			body:         "Action=DescribeOptionGroupOptions&Version=2014-10-31&EngineName=mysql",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeOptionGroupOptionsResponse"},
+		},
+		{
+			name: "CreateDBInstance_WithParameterGroup",
+			body: "Action=CreateDBInstance&Version=2014-10-31" +
+				"&DBInstanceIdentifier=pg-db&Engine=postgres&DBParameterGroupName=my-custom-pg",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateDBInstanceResponse", "pg-db", "my-custom-pg"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -553,7 +932,7 @@ func TestRDSBackend_DNSRegistrar(t *testing.T) {
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 			b.SetDNSRegistrar(registrar)
 
-			inst, err := b.CreateDBInstance(tt.instanceID, "postgres", "", "", "", 0)
+			inst, err := b.CreateDBInstance(tt.instanceID, "postgres", "", "", "", "", 0)
 			require.NoError(t, err)
 
 			if tt.deleteAfter {

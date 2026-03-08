@@ -248,7 +248,7 @@ func (h *DashboardHandler) rdsCreateInstance(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if _, err := h.RDSOps.Backend.CreateDBInstance(id, engine, instanceClass, dbName, masterUser, 0); err != nil {
+	if _, err := h.RDSOps.Backend.CreateDBInstance(id, engine, instanceClass, dbName, masterUser, "", 0); err != nil {
 		h.Logger.Error("failed to create RDS instance", "id", id, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)
