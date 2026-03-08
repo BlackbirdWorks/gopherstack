@@ -585,3 +585,139 @@ func TestFirehoseHandler_ProviderInit(t *testing.T) {
 	assert.NotNil(t, svc)
 	assert.Equal(t, "Firehose", svc.Name())
 }
+
+func TestFirehoseHandler_CreateDeliveryStream_WithS3Destination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body         map[string]any
+		name         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "s3_destination",
+			body: map[string]any{
+				"DeliveryStreamName": "s3-stream",
+				"S3DestinationConfiguration": map[string]any{
+					"BucketARN": "arn:aws:s3:::my-bucket",
+					"RoleARN":   "arn:aws:iam::000000000000:role/firehose",
+					"BufferingHints": map[string]any{
+						"SizeInMBs":         5,
+						"IntervalInSeconds": 300,
+					},
+					"CompressionFormat": "GZIP",
+				},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeliveryStreamARN"},
+		},
+		{
+			name: "extended_s3_destination",
+			body: map[string]any{
+				"DeliveryStreamName": "ext-s3-stream",
+				"ExtendedS3DestinationConfiguration": map[string]any{
+					"BucketARN": "arn:aws:s3:::ext-bucket",
+					"RoleARN":   "arn:aws:iam::000000000000:role/firehose",
+					"ProcessingConfiguration": map[string]any{
+						"Enabled": true,
+						"Processors": []map[string]any{
+							{
+								"Type": "Lambda",
+								"Parameters": []map[string]any{
+									{
+										"ParameterName":  "LambdaArn",
+										"ParameterValue": "my-fn",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeliveryStreamARN"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestFirehoseHandler(t)
+			rec := doFirehoseRequest(t, h, "CreateDeliveryStream", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestFirehoseHandler_DescribeDeliveryStream_WithS3Destination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestFirehoseHandler(t)
+	doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{
+		"DeliveryStreamName": "describe-s3-stream",
+		"S3DestinationConfiguration": map[string]any{
+			"BucketARN": "arn:aws:s3:::my-bucket",
+		},
+	})
+
+	rec := doFirehoseRequest(t, h, "DescribeDeliveryStream", map[string]any{
+		"DeliveryStreamName": "describe-s3-stream",
+	})
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "S3DestinationDescriptions")
+	assert.Contains(t, rec.Body.String(), "arn:aws:s3:::my-bucket")
+}
+
+func TestFirehoseHandler_UpdateDestination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *firehose.Handler)
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *firehose.Handler) {
+				t.Helper()
+				doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{
+					"DeliveryStreamName": "upd-stream",
+				})
+			},
+			body: map[string]any{
+				"DeliveryStreamName":             "upd-stream",
+				"CurrentDeliveryStreamVersionId": "1",
+				"DestinationId":                  "destinationId-000000000001",
+				"S3DestinationUpdate": map[string]any{
+					"BucketARN": "arn:aws:s3:::new-bucket",
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "not_found",
+			body: map[string]any{
+				"DeliveryStreamName": "nonexistent",
+			},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestFirehoseHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+			rec := doFirehoseRequest(t, h, "UpdateDestination", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}

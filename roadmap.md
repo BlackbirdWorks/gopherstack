@@ -119,9 +119,9 @@ CreateGroup, DeleteGroup, ListGroups, GetGroup. Dashboard UI with group list.
 
 RegisterDomain, ListDomains, DeprecateDomain, RegisterWorkflowType, ListWorkflowTypes, StartWorkflowExecution, DescribeWorkflowExecution. Minimal workflow metadata stubs. Dashboard UI with domain/workflow list.
 
-### Kinesis Firehose (6 operations) ✅
+### Kinesis Firehose (10 operations) ✅
 
-CreateDeliveryStream, DeleteDeliveryStream, DescribeDeliveryStream, ListDeliveryStreams, PutRecord, PutRecordBatch. Records stored in memory — no actual delivery (same as LocalStack). Dashboard UI with delivery stream list.
+CreateDeliveryStream, DeleteDeliveryStream, DescribeDeliveryStream, ListDeliveryStreams, PutRecord, PutRecordBatch, UpdateDestination, ListTagsForDeliveryStream, TagDeliveryStream, UntagDeliveryStream. S3 delivery with size-based and interval-based buffer flushing, GZIP compression, and Lambda transformation (Ok/Dropped/ProcessingFailed). Dashboard UI with delivery stream list.
 
 ---
 
@@ -398,7 +398,7 @@ State survives restarts. Container-backed mode uses volumes; binary-only mode us
 | Step Functions | Yes | Yes | 9 ops + full ASL interpreter ✅ |
 | EventBridge | Yes | Yes | 14 ops + fan-out + patterns + scheduler ✅ |
 | Kinesis Streams | Yes | Yes | 10 ops + Lambda ESM ✅ |
-| Kinesis Firehose | Yes | Yes | 6 ops ✅ |
+| Kinesis Firehose | Yes | Yes | 10 ops + S3 delivery + GZIP + Lambda transformation ✅ |
 | EC2 (basic) | Yes | Yes | 10 ops — stub (same as LocalStack free) ✅ |
 | Route 53 | Yes | Yes | 6 ops + real DNS resolution ✅ |
 | SES | Yes | Yes | 6 ops — captured locally ✅ |

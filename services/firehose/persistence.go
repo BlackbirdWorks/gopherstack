@@ -2,6 +2,7 @@ package firehose
 
 import (
 	"encoding/json"
+	"time"
 )
 
 type backendSnapshot struct {
@@ -44,6 +45,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	if snap.Streams == nil {
 		snap.Streams = make(map[string]*DeliveryStream)
+	}
+
+	now := time.Now()
+	for _, s := range snap.Streams {
+		s.lastFlush = now
 	}
 
 	b.streams = snap.Streams

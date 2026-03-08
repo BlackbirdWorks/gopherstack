@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
 
 // firehoseStreamView is the view model for a single Firehose delivery stream.
@@ -114,7 +116,9 @@ func (h *DashboardHandler) firehoseCreate(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if _, err := h.FirehoseOps.Backend.CreateDeliveryStream(name); err != nil {
+	if _, err := h.FirehoseOps.Backend.CreateDeliveryStream(
+		firehose.CreateDeliveryStreamInput{Name: name},
+	); err != nil {
 		h.Logger.Error("failed to create Firehose stream", "name", name, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)

@@ -37,6 +37,17 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string { return "Firehose" }
 
+// StartWorker starts the background interval flusher.
+// It implements service.BackgroundWorker.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	h.Backend.RunFlusher(ctx)
+
+	return nil
+}
+
+// Ensure Handler implements service.BackgroundWorker at compile time.
+var _ service.BackgroundWorker = (*Handler)(nil)
+
 // GetSupportedOperations returns the list of supported Firehose operations.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
@@ -49,6 +60,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForDeliveryStream",
 		"TagDeliveryStream",
 		"UntagDeliveryStream",
+		"UpdateDestination",
 	}
 }
 
@@ -114,6 +126,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"ListTagsForDeliveryStream": service.WrapOp(h.handleListTagsForDeliveryStream),
 		"TagDeliveryStream":         service.WrapOp(h.handleTagDeliveryStream),
 		"UntagDeliveryStream":       service.WrapOp(h.handleUntagDeliveryStream),
+		"UpdateDestination":         service.WrapOp(h.handleUpdateDestination),
 	}
 }
 
@@ -147,15 +160,56 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	}
 }
 
+// s3DestinationInput holds the S3 destination configuration from the API request.
+// It maps both S3DestinationConfiguration and ExtendedS3DestinationConfiguration fields.
+type s3DestinationInput struct {
+	BufferingHints          *BufferingHints          `json:"BufferingHints"`
+	ProcessingConfiguration *ProcessingConfiguration `json:"ProcessingConfiguration"`
+	BucketARN               string                   `json:"BucketARN"`
+	RoleARN                 string                   `json:"RoleARN"`
+	Prefix                  string                   `json:"Prefix"`
+	ErrorOutputPrefix       string                   `json:"ErrorOutputPrefix"`
+	CompressionFormat       string                   `json:"CompressionFormat"`
+}
+
+type createDeliveryStreamInput struct {
+	S3DestinationConfiguration         *s3DestinationInput `json:"S3DestinationConfiguration"`
+	ExtendedS3DestinationConfiguration *s3DestinationInput `json:"ExtendedS3DestinationConfiguration"`
+	DeliveryStreamName                 string              `json:"DeliveryStreamName"`
+}
+
 type createDeliveryStreamOutput struct {
 	DeliveryStreamARN string `json:"DeliveryStreamARN"`
 }
 
 func (h *Handler) handleCreateDeliveryStream(
 	_ context.Context,
-	in *deliveryStreamNameInput,
+	in *createDeliveryStreamInput,
 ) (*createDeliveryStreamOutput, error) {
-	s, err := h.Backend.CreateDeliveryStream(in.DeliveryStreamName)
+	var dest *S3DestinationDescription
+
+	// ExtendedS3 takes precedence over plain S3.
+	raw := in.ExtendedS3DestinationConfiguration
+	if raw == nil {
+		raw = in.S3DestinationConfiguration
+	}
+
+	if raw != nil {
+		dest = &S3DestinationDescription{
+			BucketARN:               raw.BucketARN,
+			RoleARN:                 raw.RoleARN,
+			Prefix:                  raw.Prefix,
+			ErrorOutputPrefix:       raw.ErrorOutputPrefix,
+			CompressionFormat:       raw.CompressionFormat,
+			BufferingHints:          raw.BufferingHints,
+			ProcessingConfiguration: raw.ProcessingConfiguration,
+		}
+	}
+
+	s, err := h.Backend.CreateDeliveryStream(CreateDeliveryStreamInput{
+		Name:          in.DeliveryStreamName,
+		S3Destination: dest,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -177,9 +231,10 @@ func (h *Handler) handleDeleteDeliveryStream(
 }
 
 type deliveryStreamDescriptionFields struct {
-	DeliveryStreamName   string `json:"DeliveryStreamName"`
-	DeliveryStreamARN    string `json:"DeliveryStreamARN"`
-	DeliveryStreamStatus string `json:"DeliveryStreamStatus"`
+	DeliveryStreamName        string                     `json:"DeliveryStreamName"`
+	DeliveryStreamARN         string                     `json:"DeliveryStreamARN"`
+	DeliveryStreamStatus      string                     `json:"DeliveryStreamStatus"`
+	S3DestinationDescriptions []S3DestinationDescription `json:"S3DestinationDescriptions,omitempty"`
 }
 
 type describeDeliveryStreamOutput struct {
@@ -195,13 +250,17 @@ func (h *Handler) handleDescribeDeliveryStream(
 		return nil, err
 	}
 
-	return &describeDeliveryStreamOutput{
-		DeliveryStreamDescription: deliveryStreamDescriptionFields{
-			DeliveryStreamName:   s.Name,
-			DeliveryStreamARN:    s.ARN,
-			DeliveryStreamStatus: s.Status,
-		},
-	}, nil
+	desc := deliveryStreamDescriptionFields{
+		DeliveryStreamName:   s.Name,
+		DeliveryStreamARN:    s.ARN,
+		DeliveryStreamStatus: s.Status,
+	}
+
+	if s.S3Destination != nil {
+		desc.S3DestinationDescriptions = []S3DestinationDescription{*s.S3Destination}
+	}
+
+	return &describeDeliveryStreamOutput{DeliveryStreamDescription: desc}, nil
 }
 
 type listDeliveryStreamsInput struct{}
@@ -349,4 +408,43 @@ func (h *Handler) handleUntagDeliveryStream(
 	}
 
 	return &untagDeliveryStreamOutput{}, nil
+}
+
+type updateDestinationInput struct {
+	S3DestinationUpdate            *s3DestinationInput `json:"S3DestinationUpdate"`
+	ExtendedS3DestinationUpdate    *s3DestinationInput `json:"ExtendedS3DestinationUpdate"`
+	DeliveryStreamName             string              `json:"DeliveryStreamName"`
+	CurrentDeliveryStreamVersionID string              `json:"CurrentDeliveryStreamVersionId"`
+	DestinationID                  string              `json:"DestinationId"`
+}
+
+type updateDestinationOutput struct{}
+
+func (h *Handler) handleUpdateDestination(
+	_ context.Context,
+	in *updateDestinationInput,
+) (*updateDestinationOutput, error) {
+	raw := in.ExtendedS3DestinationUpdate
+	if raw == nil {
+		raw = in.S3DestinationUpdate
+	}
+
+	var dest *S3DestinationDescription
+	if raw != nil {
+		dest = &S3DestinationDescription{
+			BucketARN:               raw.BucketARN,
+			RoleARN:                 raw.RoleARN,
+			Prefix:                  raw.Prefix,
+			ErrorOutputPrefix:       raw.ErrorOutputPrefix,
+			CompressionFormat:       raw.CompressionFormat,
+			BufferingHints:          raw.BufferingHints,
+			ProcessingConfiguration: raw.ProcessingConfiguration,
+		}
+	}
+
+	if err := h.Backend.UpdateDestination(in.DeliveryStreamName, dest); err != nil {
+		return nil, err
+	}
+
+	return &updateDestinationOutput{}, nil
 }
