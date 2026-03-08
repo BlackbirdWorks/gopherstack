@@ -62,6 +62,7 @@ func WriteJSON(ctx context.Context, w http.ResponseWriter, code int, payload any
 	if w.Header().Get("Content-Type") == "" {
 		w.Header().Set("Content-Type", "application/json")
 	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(code)
 	if _, wErr := w.Write(body); wErr != nil {
@@ -86,6 +87,7 @@ func WriteXML(ctx context.Context, w http.ResponseWriter, code int, payload any)
 	}
 
 	w.Header().Set("Content-Type", "application/xml")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(code)
 	if _, err := buf.WriteTo(w); err != nil {
 		log.ErrorContext(ctx, "failed to write XML response", "error", err)
@@ -110,6 +112,7 @@ func WriteDynamoDBResponse(ctx context.Context, w http.ResponseWriter, code int,
 	checksum := crc32.ChecksumIEEE(body)
 	w.Header().Set("X-Amz-Crc32", strconv.FormatUint(uint64(checksum), 10))
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(code)
 	if _, wErr := w.Write(body); wErr != nil {
@@ -163,6 +166,7 @@ func NewResponseWriter(w http.ResponseWriter) *ResponseWriter {
 // WriteHeader writes the status code and delegates to the wrapped ResponseWriter.
 func (w *ResponseWriter) WriteHeader(code int) {
 	w.statusCode = code
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.ResponseWriter.WriteHeader(code)
 }
 

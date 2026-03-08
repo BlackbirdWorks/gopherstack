@@ -21,6 +21,7 @@ func NewResponseWriter(w http.ResponseWriter) *ResponseWriter {
 // WriteHeader writes the status code and delegates to the wrapped ResponseWriter.
 func (w *ResponseWriter) WriteHeader(code int) {
 	w.statusCode = code
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.ResponseWriter.WriteHeader(code)
 }
 

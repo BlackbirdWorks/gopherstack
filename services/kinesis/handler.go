@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"hash/crc32"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -398,9 +399,14 @@ func (h *Handler) handleCreateStream(
 
 	region := httputils.ExtractRegionFromRequest(r, h.DefaultRegion)
 
+	shardCount := req.ShardCount
+	if shardCount <= 0 || shardCount > maxShardCount {
+		return nil, ErrInvalidArgument
+	}
+
 	err := h.Backend.CreateStream(&CreateStreamInput{
 		StreamName: req.StreamName,
-		ShardCount: req.ShardCount,
+		ShardCount: shardCount,
 		Region:     region,
 		AccountID:  h.AccountID,
 	})
@@ -1121,6 +1127,10 @@ func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
 	headerLen := len(hdrBytes)
 	payloadLen := len(payload)
 	// prelude (12 bytes) + headers + payload + message CRC (4 bytes)
+	// Check for overflow when calculating totalLen
+	if headerLen > math.MaxInt32-eventStreamPreludeLen-payloadLen-eventStreamMsgCRCLen {
+		return nil // Should not happen with valid AWS event stream data
+	}
 	totalLen := eventStreamPreludeLen + headerLen + payloadLen + eventStreamMsgCRCLen
 
 	buf := make([]byte, totalLen)

@@ -425,11 +425,13 @@ func TestCreateStreamAlreadyExists(t *testing.T) {
 
 	rec := doRequest(t, h, "CreateStream", map[string]any{
 		"StreamName": "dup-stream",
+		"ShardCount": 1,
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRequest(t, h, "CreateStream", map[string]any{
 		"StreamName": "dup-stream",
+		"ShardCount": 1,
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
