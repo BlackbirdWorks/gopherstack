@@ -154,9 +154,29 @@ func (b *InMemoryBackend) RequestCertificate(
 		go b.autoValidate(certARN)
 	}
 
-	cp := *cert
+	cp := copyCert(cert)
 
 	return &cp, nil
+}
+
+// copyCert returns a deep copy of a Certificate, ensuring the DomainValidationOptions
+// slice and its ResourceRecord pointers are not shared with the original.
+func copyCert(c *Certificate) Certificate {
+	cp := *c
+
+	if len(c.DomainValidationOptions) > 0 {
+		cp.DomainValidationOptions = make([]DomainValidationOption, len(c.DomainValidationOptions))
+		copy(cp.DomainValidationOptions, c.DomainValidationOptions)
+
+		for i, dvo := range c.DomainValidationOptions {
+			if dvo.ResourceRecord != nil {
+				rr := *dvo.ResourceRecord
+				cp.DomainValidationOptions[i].ResourceRecord = &rr
+			}
+		}
+	}
+
+	return cp
 }
 
 // autoValidate transitions a certificate from PENDING_VALIDATION to ISSUED after a
@@ -213,7 +233,7 @@ func (b *InMemoryBackend) ImportCertificate(certBody, privateKey, certChain stri
 	}
 	b.certs[certARN] = cert
 
-	cp := *cert
+	cp := copyCert(cert)
 
 	return &cp, nil
 }
@@ -236,9 +256,9 @@ func (b *InMemoryBackend) RenewCertificate(certARN string) error {
 // an IMPORTED certificate. Returns ErrNotEligible for AMAZON_ISSUED certificates.
 func (b *InMemoryBackend) ExportCertificate(certARN string) (*Certificate, error) {
 	b.mu.RLock("ExportCertificate")
-	cert, ok := b.certs[certARN]
-	b.mu.RUnlock()
+	defer b.mu.RUnlock()
 
+	cert, ok := b.certs[certARN]
 	if !ok {
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -247,7 +267,7 @@ func (b *InMemoryBackend) ExportCertificate(certARN string) (*Certificate, error
 		return nil, fmt.Errorf("%w: only IMPORTED or PRIVATE certificates can be exported", ErrNotEligible)
 	}
 
-	cp := *cert
+	cp := copyCert(cert)
 
 	return &cp, nil
 }
@@ -255,9 +275,9 @@ func (b *InMemoryBackend) ExportCertificate(certARN string) (*Certificate, error
 // GetCertificate returns the PEM certificate body and chain for any certificate.
 func (b *InMemoryBackend) GetCertificate(certARN string) (string, string, error) {
 	b.mu.RLock("GetCertificate")
-	cert, ok := b.certs[certARN]
-	b.mu.RUnlock()
+	defer b.mu.RUnlock()
 
+	cert, ok := b.certs[certARN]
 	if !ok {
 		return "", "", fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
@@ -275,7 +295,7 @@ func (b *InMemoryBackend) DescribeCertificate(arn string) (*Certificate, error) 
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, arn)
 	}
 
-	cp := *cert
+	cp := copyCert(cert)
 
 	return &cp, nil
 }
@@ -287,7 +307,7 @@ func (b *InMemoryBackend) ListCertificates(nextToken string, maxItems int) page.
 
 	certs := make([]Certificate, 0, len(b.certs))
 	for _, c := range b.certs {
-		certs = append(certs, *c)
+		certs = append(certs, copyCert(c))
 	}
 
 	sort.Slice(certs, func(i, j int) bool { return certs[i].ARN < certs[j].ARN })

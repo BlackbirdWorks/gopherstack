@@ -45,8 +45,13 @@ func TestIntegration_ACM_CertificateValidatedWaiter(t *testing.T) {
 		status == acmtypes.CertificateStatusPendingValidation || status == acmtypes.CertificateStatusIssued,
 		"expected PENDING_VALIDATION or ISSUED, got %s", status)
 
-	// Waiter polls until ISSUED; the mock auto-validates within ~100ms
-	waiter := acmsdk.NewCertificateValidatedWaiter(client)
+	// Waiter polls until ISSUED; the mock auto-validates within ~100ms.
+	// Use a lower MinDelay so the waiter can retry quickly if the cert is still
+	// PENDING_VALIDATION on the first poll (race between goroutine and test).
+	waiter := acmsdk.NewCertificateValidatedWaiter(client, func(o *acmsdk.CertificateValidatedWaiterOptions) {
+		o.MinDelay = 500 * time.Millisecond
+		o.MaxDelay = 2 * time.Second
+	})
 	start := time.Now()
 	err = waiter.Wait(ctx, &acmsdk.DescribeCertificateInput{
 		CertificateArn: aws.String(certARN),

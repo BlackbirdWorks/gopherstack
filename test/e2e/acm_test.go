@@ -16,7 +16,7 @@ import (
 func TestACMDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.ACMHandler.Backend.RequestCertificate("e2e-test.example.com", "AMAZON_ISSUED")
+	_, err := stack.ACMHandler.Backend.RequestCertificate("e2e-test.example.com", "AMAZON_ISSUED", "", nil)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
