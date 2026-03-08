@@ -467,3 +467,268 @@ func TestCBOR(t *testing.T) {
 		})
 	}
 }
+
+func TestCBOR_NewOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup            func(t *testing.T, h *cloudwatch.Handler)
+		body             cbor.Map
+		name             string
+		op               string
+		wantListField    string
+		wantCode         int
+		wantListLen      int
+		wantListNotEmpty bool
+		wantListEmpty    bool
+	}{
+		// PutCompositeAlarm
+		{
+			name: "PutCompositeAlarm/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutMetricAlarm", cbor.Map{
+					"AlarmName":          cbor.String("child-cbor"),
+					"Namespace":          cbor.String("NS"),
+					"MetricName":         cbor.String("M"),
+					"ComparisonOperator": cbor.String("GreaterThanThreshold"),
+					"Threshold":          cbor.Float64(1.0),
+					"EvaluationPeriods":  cbor.Uint(1),
+					"Period":             cbor.Uint(60),
+				})
+			},
+			op: "PutCompositeAlarm",
+			body: cbor.Map{
+				"AlarmName":    cbor.String("parent-cbor"),
+				"AlarmRule":    cbor.String(`ALARM("child-cbor")`),
+				"AlarmActions": cbor.List{cbor.String("arn:aws:sns:us-east-1:123:t1")},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "PutCompositeAlarm/missing name",
+			op:   "PutCompositeAlarm",
+			body: cbor.Map{
+				"AlarmRule": cbor.String(`ALARM("x")`),
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "PutCompositeAlarm/missing rule",
+			op:   "PutCompositeAlarm",
+			body: cbor.Map{
+				"AlarmName": cbor.String("x"),
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "PutCompositeAlarm/actions_disabled",
+			op:   "PutCompositeAlarm",
+			body: cbor.Map{
+				"AlarmName":      cbor.String("comp-disabled-cbor"),
+				"AlarmRule":      cbor.String(`ALARM("x")`),
+				"ActionsEnabled": cbor.Bool(false),
+			},
+			wantCode: http.StatusOK,
+		},
+		// DescribeAlarmsForMetric
+		{
+			name: "DescribeAlarmsForMetric/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutMetricAlarm", cbor.Map{
+					"AlarmName":          cbor.String("cpu-cbor"),
+					"Namespace":          cbor.String("AWS/EC2"),
+					"MetricName":         cbor.String("CPUUtilization"),
+					"ComparisonOperator": cbor.String("GreaterThanThreshold"),
+					"Threshold":          cbor.Float64(80.0),
+					"EvaluationPeriods":  cbor.Uint(1),
+					"Period":             cbor.Uint(60),
+				})
+			},
+			op: "DescribeAlarmsForMetric",
+			body: cbor.Map{
+				"Namespace":  cbor.String("AWS/EC2"),
+				"MetricName": cbor.String("CPUUtilization"),
+			},
+			wantCode:         http.StatusOK,
+			wantListField:    "MetricAlarms",
+			wantListNotEmpty: true,
+		},
+		{
+			name: "DescribeAlarmsForMetric/empty",
+			op:   "DescribeAlarmsForMetric",
+			body: cbor.Map{
+				"Namespace":  cbor.String("AWS/EC2"),
+				"MetricName": cbor.String("NotExist"),
+			},
+			wantCode:      http.StatusOK,
+			wantListField: "MetricAlarms",
+			wantListEmpty: true,
+		},
+		// DescribeAlarmHistory
+		{
+			name: "DescribeAlarmHistory/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutMetricAlarm", cbor.Map{
+					"AlarmName":          cbor.String("hist-cbor"),
+					"Namespace":          cbor.String("NS"),
+					"MetricName":         cbor.String("M"),
+					"ComparisonOperator": cbor.String("GreaterThanThreshold"),
+					"Threshold":          cbor.Float64(1.0),
+					"EvaluationPeriods":  cbor.Uint(1),
+					"Period":             cbor.Uint(60),
+				})
+				postCBOR(t, h, "SetAlarmState", cbor.Map{
+					"AlarmName":   cbor.String("hist-cbor"),
+					"StateValue":  cbor.String("ALARM"),
+					"StateReason": cbor.String("test"),
+				})
+			},
+			op: "DescribeAlarmHistory",
+			body: cbor.Map{
+				"AlarmName": cbor.String("hist-cbor"),
+			},
+			wantCode:         http.StatusOK,
+			wantListField:    "AlarmHistoryItems",
+			wantListNotEmpty: true,
+		},
+		{
+			name: "DescribeAlarmHistory/with_dates",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutMetricAlarm", cbor.Map{
+					"AlarmName":          cbor.String("date-cbor"),
+					"Namespace":          cbor.String("NS"),
+					"MetricName":         cbor.String("M"),
+					"ComparisonOperator": cbor.String("GreaterThanThreshold"),
+					"Threshold":          cbor.Float64(1.0),
+					"EvaluationPeriods":  cbor.Uint(1),
+					"Period":             cbor.Uint(60),
+				})
+			},
+			op: "DescribeAlarmHistory",
+			body: cbor.Map{
+				"AlarmName": cbor.String("date-cbor"),
+				"StartDate": cbor.Tag{ID: 1, Value: cbor.Float64(fixedTS - 3600)},
+				"EndDate":   cbor.Tag{ID: 1, Value: cbor.Float64(fixedTS + 3600)},
+			},
+			wantCode:      http.StatusOK,
+			wantListField: "AlarmHistoryItems",
+			wantListEmpty: true,
+		},
+		// SetAlarmState
+		{
+			name: "SetAlarmState/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutMetricAlarm", cbor.Map{
+					"AlarmName":          cbor.String("state-cbor"),
+					"Namespace":          cbor.String("NS"),
+					"MetricName":         cbor.String("M"),
+					"ComparisonOperator": cbor.String("GreaterThanThreshold"),
+					"Threshold":          cbor.Float64(1.0),
+					"EvaluationPeriods":  cbor.Uint(1),
+					"Period":             cbor.Uint(60),
+				})
+			},
+			op: "SetAlarmState",
+			body: cbor.Map{
+				"AlarmName":   cbor.String("state-cbor"),
+				"StateValue":  cbor.String("ALARM"),
+				"StateReason": cbor.String("manual"),
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "SetAlarmState/missing name",
+			op:   "SetAlarmState",
+			body: cbor.Map{
+				"StateValue": cbor.String("ALARM"),
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "SetAlarmState/not found",
+			op:   "SetAlarmState",
+			body: cbor.Map{
+				"AlarmName":  cbor.String("not-exist-cbor"),
+				"StateValue": cbor.String("ALARM"),
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		// EnableAlarmActions
+		{
+			name: "EnableAlarmActions/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutMetricAlarm", cbor.Map{
+					"AlarmName":          cbor.String("enable-cbor"),
+					"Namespace":          cbor.String("NS"),
+					"MetricName":         cbor.String("M"),
+					"ComparisonOperator": cbor.String("GreaterThanThreshold"),
+					"Threshold":          cbor.Float64(1.0),
+					"EvaluationPeriods":  cbor.Uint(1),
+					"Period":             cbor.Uint(60),
+				})
+			},
+			op: "EnableAlarmActions",
+			body: cbor.Map{
+				"AlarmNames": cbor.List{cbor.String("enable-cbor")},
+			},
+			wantCode: http.StatusOK,
+		},
+		// DisableAlarmActions
+		{
+			name: "DisableAlarmActions/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutMetricAlarm", cbor.Map{
+					"AlarmName":          cbor.String("disable-cbor"),
+					"Namespace":          cbor.String("NS"),
+					"MetricName":         cbor.String("M"),
+					"ComparisonOperator": cbor.String("GreaterThanThreshold"),
+					"Threshold":          cbor.Float64(1.0),
+					"EvaluationPeriods":  cbor.Uint(1),
+					"Period":             cbor.Uint(60),
+				})
+			},
+			op: "DisableAlarmActions",
+			body: cbor.Map{
+				"AlarmNames": cbor.List{cbor.String("disable-cbor")},
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newCBORHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postCBOR(t, h, tt.op, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantListField != "" {
+				m := decodeCBORResponse(t, rec)
+				list, ok := m[tt.wantListField].(cbor.List)
+				require.True(t, ok)
+
+				if tt.wantListNotEmpty {
+					assert.NotEmpty(t, list)
+				}
+				if tt.wantListEmpty {
+					assert.Empty(t, list)
+				}
+				if tt.wantListLen > 0 {
+					assert.Len(t, list, tt.wantListLen)
+				}
+			}
+		})
+	}
+}

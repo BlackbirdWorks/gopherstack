@@ -1,6 +1,7 @@
 package cloudwatch_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -205,7 +206,7 @@ func TestCloudWatchBackend_PutAndDescribeAlarms(t *testing.T) {
 	}
 	require.NoError(t, b.PutMetricAlarm(alarm))
 
-	alarms, err := b.DescribeAlarms(nil, "", "", 0)
+	alarms, _, err := b.DescribeAlarms(nil, nil, "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, alarms.Data, 1)
 	assert.Equal(t, "high-cpu", alarms.Data[0].AlarmName)
@@ -255,7 +256,7 @@ func TestCloudWatchBackend_DescribeAlarms(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			alarms, err := b.DescribeAlarms(tt.alarmNames, tt.stateValue, "", 0)
+			alarms, _, err := b.DescribeAlarms(tt.alarmNames, nil, tt.stateValue, "", 0)
 			require.NoError(t, err)
 			assert.Len(t, alarms.Data, tt.wantCount)
 		})
@@ -298,7 +299,7 @@ func TestCloudWatchBackend_DeleteAlarms(t *testing.T) {
 
 			require.NoError(t, b.DeleteAlarms(tt.names))
 
-			alarms, err := b.DescribeAlarms(nil, "", "", 0)
+			alarms, _, err := b.DescribeAlarms(nil, nil, "", "", 0)
 			require.NoError(t, err)
 			assert.Len(t, alarms.Data, tt.wantRemaining)
 		})
@@ -319,7 +320,7 @@ func TestCloudWatchBackend_PutMetricAlarm_UpdateExisting(t *testing.T) {
 	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "upd", Threshold: 10}))
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "upd", Threshold: 20}))
-	alarms, err := b.DescribeAlarms(nil, "", "", 0)
+	alarms, _, err := b.DescribeAlarms(nil, nil, "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, alarms.Data, 1)
 	assert.InDelta(t, 20.0, alarms.Data[0].Threshold, 0.01)
@@ -330,4 +331,516 @@ func TestCloudWatchBackend_NewInMemoryBackend(t *testing.T) {
 
 	b := cloudwatch.NewInMemoryBackend()
 	require.NotNil(t, b)
+}
+
+func TestCloudWatchBackend_PutCompositeAlarm(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, b *cloudwatch.InMemoryBackend)
+		alarm     *cloudwatch.CompositeAlarm
+		wantState string
+		wantErr   bool
+	}{
+		{
+			name: "alarm_in_alarm_state",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "child", StateValue: "ALARM"}))
+			},
+			alarm:     &cloudwatch.CompositeAlarm{AlarmName: "composite", AlarmRule: `ALARM("child")`},
+			wantState: "ALARM",
+		},
+		{
+			name: "alarm_in_ok_state",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "child", StateValue: "OK"}))
+			},
+			alarm:     &cloudwatch.CompositeAlarm{AlarmName: "composite", AlarmRule: `ALARM("child")`},
+			wantState: "OK",
+		},
+		{
+			name: "and_rule",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "a", StateValue: "ALARM"}))
+				require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "b", StateValue: "ALARM"}))
+			},
+			alarm:     &cloudwatch.CompositeAlarm{AlarmName: "composite", AlarmRule: `ALARM("a") AND ALARM("b")`},
+			wantState: "ALARM",
+		},
+		{
+			name: "or_rule_one_ok",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "a", StateValue: "ALARM"}))
+				require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "b", StateValue: "OK"}))
+			},
+			alarm:     &cloudwatch.CompositeAlarm{AlarmName: "composite", AlarmRule: `ALARM("a") OR ALARM("b")`},
+			wantState: "ALARM",
+		},
+		{
+			name:    "missing_name",
+			alarm:   &cloudwatch.CompositeAlarm{AlarmRule: `ALARM("x")`},
+			wantErr: true,
+		},
+		{
+			name:    "missing_rule",
+			alarm:   &cloudwatch.CompositeAlarm{AlarmName: "c"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			err := b.PutCompositeAlarm(tt.alarm)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			_, compositeAlarms, err2 := b.DescribeAlarms(
+				[]string{tt.alarm.AlarmName},
+				[]string{"CompositeAlarm"},
+				"",
+				"",
+				0,
+			)
+			require.NoError(t, err2)
+			require.Len(t, compositeAlarms.Data, 1)
+			assert.Equal(t, tt.wantState, compositeAlarms.Data[0].StateValue)
+		})
+	}
+}
+
+func TestCloudWatchBackend_SetAlarmState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		setup       func(t *testing.T, b *cloudwatch.InMemoryBackend)
+		alarmName   string
+		stateValue  string
+		stateReason string
+		wantErr     bool
+	}{
+		{
+			name: "metric_alarm_state_change",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "test-alarm"}))
+			},
+			alarmName:   "test-alarm",
+			stateValue:  "ALARM",
+			stateReason: "Test triggered",
+		},
+		{
+			name: "composite_alarm_state_change",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "child", StateValue: "OK"}))
+				require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+					AlarmName: "comp", AlarmRule: `ALARM("child")`,
+				}))
+			},
+			alarmName:   "comp",
+			stateValue:  "ALARM",
+			stateReason: "Manual override",
+		},
+		{
+			name:       "nonexistent_alarm",
+			alarmName:  "no-alarm",
+			stateValue: "ALARM",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			err := b.SetAlarmState(tt.alarmName, tt.stateValue, tt.stateReason)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestCloudWatchBackend_EnableDisableAlarmActions(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "test", ActionsEnabled: true}))
+
+	require.NoError(t, b.DisableAlarmActions([]string{"test"}))
+	alarms, _, err := b.DescribeAlarms([]string{"test"}, nil, "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, alarms.Data, 1)
+	assert.False(t, alarms.Data[0].ActionsEnabled)
+
+	require.NoError(t, b.EnableAlarmActions([]string{"test"}))
+	alarms2, _, err2 := b.DescribeAlarms([]string{"test"}, nil, "", "", 0)
+	require.NoError(t, err2)
+	require.Len(t, alarms2.Data, 1)
+	assert.True(t, alarms2.Data[0].ActionsEnabled)
+}
+
+func TestCloudWatchBackend_DescribeAlarmsForMetric(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName: "cpu-alarm", Namespace: "AWS/EC2", MetricName: "CPUUtilization",
+	}))
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName: "mem-alarm", Namespace: "AWS/EC2", MetricName: "MemoryUtilization",
+	}))
+
+	p, err := b.DescribeAlarmsForMetric("AWS/EC2", "CPUUtilization", nil, "", 0)
+	require.NoError(t, err)
+	require.Len(t, p.Data, 1)
+	assert.Equal(t, "cpu-alarm", p.Data[0].AlarmName)
+}
+
+func TestCloudWatchBackend_DescribeAlarmHistory(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "hist-alarm", ActionsEnabled: true}))
+	require.NoError(t, b.SetAlarmState("hist-alarm", "ALARM", "test trigger"))
+
+	p, err := b.DescribeAlarmHistory("hist-alarm", "", "", time.Time{}, time.Time{}, 0)
+	require.NoError(t, err)
+	assert.NotEmpty(t, p.Data)
+}
+
+func TestCloudWatchBackend_DescribeAlarms_WithComposite(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "metric1", StateValue: "ALARM"}))
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName: "comp1", AlarmRule: `ALARM("metric1")`,
+	}))
+
+	metricPage, compositePage, err := b.DescribeAlarms(nil, nil, "", "", 0)
+	require.NoError(t, err)
+	assert.Len(t, metricPage.Data, 1)
+	assert.Len(t, compositePage.Data, 1)
+	assert.Equal(t, "ALARM", compositePage.Data[0].StateValue)
+}
+
+func TestCloudWatchBackend_CompositeAlarmReevalOnChildChange(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "child", StateValue: "OK"}))
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName: "parent", AlarmRule: `ALARM("child")`,
+	}))
+
+	// Initially composite should be OK since child is OK
+	_, compositeAlarms, err := b.DescribeAlarms([]string{"parent"}, nil, "", "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, "OK", compositeAlarms.Data[0].StateValue)
+
+	// Change child to ALARM; composite should re-evaluate
+	require.NoError(t, b.SetAlarmState("child", "ALARM", "test"))
+	_, compositeAlarms2, err2 := b.DescribeAlarms([]string{"parent"}, nil, "", "", 0)
+	require.NoError(t, err2)
+	assert.Equal(t, "ALARM", compositeAlarms2.Data[0].StateValue)
+}
+
+// mockSNSPublisher captures published messages for assertions.
+type mockSNSPublisher struct {
+	messages []string
+}
+
+func (m *mockSNSPublisher) PublishToTopic(_ string, message string) error {
+	m.messages = append(m.messages, message)
+
+	return nil
+}
+
+func TestCloudWatchBackend_CompositeAlarmActionsFireOnChildChange(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	pub := &mockSNSPublisher{}
+	b.SetSNSPublisher(pub)
+
+	topicARN := "arn:aws:sns:us-east-1:123456789012:test-topic"
+
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "child2", StateValue: "OK"}))
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName:      "parent2",
+		AlarmRule:      `ALARM("child2")`,
+		ActionsEnabled: true,
+		AlarmActions:   []string{topicARN},
+	}))
+
+	// No SNS publish yet — child is OK, composite is OK.
+	assert.Empty(t, pub.messages)
+
+	// Transition child to ALARM; composite should re-evaluate and fire its AlarmActions.
+	require.NoError(t, b.SetAlarmState("child2", "ALARM", "test trigger"))
+
+	assert.Len(t, pub.messages, 1, "composite alarm action should have been fired")
+	assert.Contains(t, pub.messages[0], "parent2")
+}
+
+// mockLambdaInvoker captures lambda invocations for assertions.
+type mockLambdaInvoker struct {
+	invocations []string
+}
+
+func (m *mockLambdaInvoker) InvokeFunction(_ context.Context, name string, _ string, _ []byte) ([]byte, int, error) {
+	m.invocations = append(m.invocations, name)
+
+	return nil, 200, nil
+}
+
+func TestCloudWatchBackend_LambdaActionFires(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	inv := &mockLambdaInvoker{}
+	b.SetLambdaInvoker(inv)
+
+	lambdaARN := "arn:aws:lambda:us-east-1:123456789012:function:my-fn"
+
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:      "lambda-alarm",
+		StateValue:     "OK",
+		ActionsEnabled: true,
+		AlarmActions:   []string{lambdaARN},
+	}))
+
+	require.NoError(t, b.SetAlarmState("lambda-alarm", "ALARM", "test"))
+
+	assert.Len(t, inv.invocations, 1)
+	assert.Equal(t, lambdaARN, inv.invocations[0])
+}
+
+func TestCloudWatchBackend_ExecuteActions_NoInvoker(t *testing.T) {
+	t.Parallel()
+
+	// Ensures executeActions does not panic when publisher/invoker is nil.
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:      "no-invoker-alarm",
+		StateValue:     "OK",
+		ActionsEnabled: true,
+		AlarmActions: []string{
+			"arn:aws:sns:us-east-1:123:topic",
+			"arn:aws:lambda:us-east-1:123:function:fn",
+			"arn:aws:ec2:us-east-1:123:action/stop",
+		},
+	}))
+
+	// Should not panic even with nil publisher/invoker.
+	require.NoError(t, b.SetAlarmState("no-invoker-alarm", "ALARM", "test"))
+}
+
+func TestCloudWatchBackend_EvalCompositeRule_NestedComposite(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "leaf", StateValue: "ALARM"}))
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName: "mid",
+		AlarmRule: `ALARM("leaf")`,
+	}))
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName: "top",
+		AlarmRule: `ALARM("mid")`,
+	}))
+
+	_, composites, err := b.DescribeAlarms([]string{"top"}, nil, "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, composites.Data, 1)
+	// top should be ALARM since leaf is ALARM -> mid is ALARM -> top is ALARM
+	assert.Equal(t, "ALARM", composites.Data[0].StateValue)
+}
+
+func TestCloudWatchBackend_DescribeAlarmsForMetric_WithAlarmNames(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:  "match-name",
+		Namespace:  "NS",
+		MetricName: "M",
+	}))
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:  "other-name",
+		Namespace:  "NS",
+		MetricName: "M",
+	}))
+
+	// Filter by both namespace+metric AND alarm name.
+	p, err := b.DescribeAlarmsForMetric("NS", "M", []string{"match-name"}, "", 0)
+	require.NoError(t, err)
+	require.Len(t, p.Data, 1)
+	assert.Equal(t, "match-name", p.Data[0].AlarmName)
+}
+
+func TestCloudWatchBackend_DescribeAlarmHistory_TypeFilter(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "type-filter", StateValue: "OK"}))
+	require.NoError(t, b.SetAlarmState("type-filter", "ALARM", "transition"))
+
+	// Filter by StateUpdate type — should find the state transition.
+	p, err := b.DescribeAlarmHistory("type-filter", "StateUpdate", "", time.Time{}, time.Time{}, 0)
+	require.NoError(t, err)
+	assert.NotEmpty(t, p.Data)
+	for _, item := range p.Data {
+		assert.Equal(t, "StateUpdate", item.HistoryItemType)
+	}
+
+	// PutMetricAlarm creates ConfigurationUpdate items.
+	p2, err2 := b.DescribeAlarmHistory("type-filter", "ConfigurationUpdate", "", time.Time{}, time.Time{}, 0)
+	require.NoError(t, err2)
+	assert.NotEmpty(t, p2.Data)
+	for _, item := range p2.Data {
+		assert.Equal(t, "ConfigurationUpdate", item.HistoryItemType)
+	}
+}
+
+func TestCloudWatchBackend_PutCompositeAlarm_UpdateExisting(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "child-update", StateValue: "ALARM"}))
+
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName: "comp-update",
+		AlarmRule: `ALARM("child-update")`,
+	}))
+
+	// Update with a new description.
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName:        "comp-update",
+		AlarmRule:        `ALARM("child-update")`,
+		AlarmDescription: "updated",
+	}))
+
+	_, composites, err := b.DescribeAlarms([]string{"comp-update"}, nil, "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, composites.Data, 1)
+	assert.Equal(t, "updated", composites.Data[0].AlarmDescription)
+}
+
+func TestCloudWatchBackend_DescribeAlarms_StateFilter(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "a-ok", StateValue: "OK"}))
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "a-alarm", StateValue: "ALARM"}))
+
+	p, _, err := b.DescribeAlarms(nil, nil, "OK", "", 0)
+	require.NoError(t, err)
+	require.Len(t, p.Data, 1)
+	assert.Equal(t, "a-ok", p.Data[0].AlarmName)
+}
+
+func TestCloudWatchBackend_SetAlarmState_ChildTriggersCompositeReevaluation(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	// Child alarm starts in ALARM state, composite rule evaluates to ALARM.
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "child-direct", StateValue: "ALARM"}))
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName: "direct-composite",
+		AlarmRule: `ALARM("child-direct")`,
+	}))
+
+	// Composite should be ALARM since child is ALARM.
+	_, composites0, err0 := b.DescribeAlarms([]string{"direct-composite"}, nil, "", "", 0)
+	require.NoError(t, err0)
+	require.Len(t, composites0.Data, 1)
+	assert.Equal(t, "ALARM", composites0.Data[0].StateValue)
+
+	// SetAlarmState on child to OK; composite should re-evaluate to OK.
+	require.NoError(t, b.SetAlarmState("child-direct", "OK", "recovered"))
+
+	_, composites, err := b.DescribeAlarms([]string{"direct-composite"}, nil, "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, composites.Data, 1)
+	assert.Equal(t, "OK", composites.Data[0].StateValue)
+}
+
+func TestCloudWatchBackend_SetAlarmState_OKAndInsufficientData(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	pub := &mockSNSPublisher{}
+	b.SetSNSPublisher(pub)
+
+	topicARN := "arn:aws:sns:us-east-1:123456789012:test-topic-2"
+
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:               "state-cycle",
+		StateValue:              "ALARM",
+		ActionsEnabled:          true,
+		OKActions:               []string{topicARN},
+		InsufficientDataActions: []string{topicARN},
+	}))
+
+	// Transition to OK — should fire OKActions.
+	require.NoError(t, b.SetAlarmState("state-cycle", "OK", "recovered"))
+	assert.Len(t, pub.messages, 1)
+
+	// Transition to INSUFFICIENT_DATA — should fire InsufficientDataActions.
+	require.NoError(t, b.SetAlarmState("state-cycle", "INSUFFICIENT_DATA", "no data"))
+	assert.Len(t, pub.messages, 2)
+}
+
+func TestCloudWatchBackend_EnableDisableAlarmActions_CompositeAlarm(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName:      "comp-enable-disable",
+		AlarmRule:      `ALARM("x")`,
+		ActionsEnabled: false,
+	}))
+
+	require.NoError(t, b.EnableAlarmActions([]string{"comp-enable-disable"}))
+
+	_, composites, err := b.DescribeAlarms([]string{"comp-enable-disable"}, nil, "", "", 0)
+	require.NoError(t, err)
+	require.Len(t, composites.Data, 1)
+	assert.True(t, composites.Data[0].ActionsEnabled)
+
+	require.NoError(t, b.DisableAlarmActions([]string{"comp-enable-disable"}))
+
+	_, composites2, err2 := b.DescribeAlarms([]string{"comp-enable-disable"}, nil, "", "", 0)
+	require.NoError(t, err2)
+	require.Len(t, composites2.Data, 1)
+	assert.False(t, composites2.Data[0].ActionsEnabled)
 }
