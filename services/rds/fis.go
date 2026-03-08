@@ -29,6 +29,13 @@ func (h *Handler) FISActions() []service.FISActionDefinition {
 			ActionID:    "aws:rds:failover-db-cluster",
 			Description: "Trigger a failover for the target RDS Aurora DB cluster",
 			TargetType:  "aws:rds:cluster",
+			Parameters: []service.FISParamDef{
+				{
+					Name:        "duration",
+					Description: "ISO 8601 duration the failover simulation remains active (e.g. PT5M)",
+					Required:    false,
+				},
+			},
 		},
 	}
 }
@@ -67,23 +74,44 @@ func (h *Handler) fisRebootDBInstances(targets []string) error {
 // fisFailoverDBClusters simulates a failover for the given DB clusters.
 // In the in-memory backend there is no real replication, so this records a
 // timed failover event on the backend for observability and automatically
-// clears it after the given duration (if non-zero).
+// clears it after the given duration (if non-zero) or on ctx cancellation.
 func (h *Handler) fisFailoverDBClusters(ctx context.Context, targets []string, dur time.Duration) error {
 	var expiry time.Time
 	if dur > 0 {
 		expiry = time.Now().Add(dur)
 	}
 
+	ids := make([]string, 0, len(targets))
+
 	h.Backend.mu.Lock("FISFailoverDBClusters")
+
 	for _, t := range targets {
 		id := rdsIDFromARN(t)
+		ids = append(ids, id)
 		h.Backend.fisFailoverFaults[id] = expiry
 	}
+
 	h.Backend.mu.Unlock()
 
-	// Schedule automatic cleanup when a duration is specified.
 	if dur > 0 {
-		go h.Backend.scheduleFailoverFaultCleanup(ctx, targets, dur)
+		// Time-limited: clear after duration or on cancellation.
+		go h.Backend.scheduleFailoverFaultCleanup(ctx, ids, dur)
+	} else {
+		// Indefinite fault (dur==0): the goroutine blocks on ctx.Done().
+		// It terminates when StopExperiment cancels the experiment context,
+		// or when the server shuts down (root context is cancelled).
+		// This is not a goroutine leak — the goroutine is intentionally
+		// bound to the experiment lifetime via ctx.
+		go func() {
+			<-ctx.Done()
+
+			h.Backend.mu.Lock("FISFailoverDBClusters-ctxcancel")
+			defer h.Backend.mu.Unlock()
+
+			for _, id := range ids {
+				delete(h.Backend.fisFailoverFaults, id)
+			}
+		}()
 	}
 
 	return nil
@@ -91,9 +119,10 @@ func (h *Handler) fisFailoverDBClusters(ctx context.Context, targets []string, d
 
 // IsClusterFailoverActive reports whether a FIS failover simulation is currently
 // active for the cluster with the given identifier.
+// Expired entries are lazily evicted to prevent unbounded map growth.
 func (b *InMemoryBackend) IsClusterFailoverActive(clusterID string) bool {
-	b.mu.RLock("IsClusterFailoverActive")
-	defer b.mu.RUnlock()
+	b.mu.Lock("IsClusterFailoverActive")
+	defer b.mu.Unlock()
 
 	exp, ok := b.fisFailoverFaults[clusterID]
 	if !ok {
@@ -101,17 +130,25 @@ func (b *InMemoryBackend) IsClusterFailoverActive(clusterID string) bool {
 	}
 
 	if !exp.IsZero() && time.Now().After(exp) {
+		// Lazily evict expired entry.
+		delete(b.fisFailoverFaults, clusterID)
+
 		return false
 	}
 
 	return true
 }
 
-// scheduleFailoverFaultCleanup removes expired failover faults after the given
-// duration or when ctx is cancelled.
-func (b *InMemoryBackend) scheduleFailoverFaultCleanup(ctx context.Context, targets []string, dur time.Duration) {
+// scheduleFailoverFaultCleanup removes failover faults after the given duration
+// or when ctx is cancelled (whichever comes first).
+// On ctx cancellation, entries are removed unconditionally so that StopExperiment
+// always clears active faults regardless of remaining time.
+func (b *InMemoryBackend) scheduleFailoverFaultCleanup(ctx context.Context, ids []string, dur time.Duration) {
+	ctxCancelled := false
+
 	select {
 	case <-ctx.Done():
+		ctxCancelled = true
 	case <-time.After(dur):
 	}
 
@@ -120,13 +157,15 @@ func (b *InMemoryBackend) scheduleFailoverFaultCleanup(ctx context.Context, targ
 
 	now := time.Now()
 
-	for _, t := range targets {
-		id := rdsIDFromARN(t)
+	for _, id := range ids {
+		exp, ok := b.fisFailoverFaults[id]
+		if !ok {
+			continue
+		}
 
-		if exp, ok := b.fisFailoverFaults[id]; ok {
-			if !exp.IsZero() && now.After(exp) {
-				delete(b.fisFailoverFaults, id)
-			}
+		// On ctx cancellation always remove; on timeout only remove if expired.
+		if ctxCancelled || (!exp.IsZero() && now.After(exp)) {
+			delete(b.fisFailoverFaults, id)
 		}
 	}
 }

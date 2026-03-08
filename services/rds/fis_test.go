@@ -192,6 +192,79 @@ func TestRDS_ExecuteFISAction_Unknown(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestRDS_FISActions_FailoverHasDurationParam(t *testing.T) {
+	t.Parallel()
+
+	h := newFISRDSHandler()
+
+	actions := h.FISActions()
+
+	for _, a := range actions {
+		if a.ActionID == "aws:rds:failover-db-cluster" {
+			paramNames := make([]string, len(a.Parameters))
+			for i, p := range a.Parameters {
+				paramNames[i] = p.Name
+			}
+
+			assert.Contains(t, paramNames, "duration")
+
+			return
+		}
+	}
+
+	t.Fatal("aws:rds:failover-db-cluster action not found")
+}
+
+func TestRDS_ExecuteFISAction_FailoverDBCluster_CtxCancel(t *testing.T) {
+	t.Parallel()
+
+	h := newFISRDSHandler()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	const clusterTarget = "arn:aws:rds:us-east-1:000000000000:cluster/cancel-cluster"
+
+	// Activate indefinite fault (dur==0).
+	err := h.ExecuteFISAction(ctx, service.FISActionExecution{
+		ActionID: "aws:rds:failover-db-cluster",
+		Targets:  []string{clusterTarget},
+		Duration: 0,
+	})
+	require.NoError(t, err)
+
+	assert.True(t, h.Backend.IsClusterFailoverActive("cancel-cluster"), "fault should be active")
+
+	// Cancel ctx (simulates StopExperiment).
+	cancel()
+
+	// Fault should clear promptly.
+	require.Eventually(t, func() bool {
+		return !h.Backend.IsClusterFailoverActive("cancel-cluster")
+	}, 2*time.Second, 20*time.Millisecond, "fault should clear after ctx cancel")
+}
+
+func TestRDS_IsClusterFailoverActive_LazyEviction(t *testing.T) {
+	t.Parallel()
+
+	h := newFISRDSHandler()
+
+	const clusterTarget = "arn:aws:rds:us-east-1:000000000000:cluster/lazy-evict-cluster"
+
+	// Activate with a very short duration.
+	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+		ActionID: "aws:rds:failover-db-cluster",
+		Targets:  []string{clusterTarget},
+		Duration: 20 * time.Millisecond,
+	})
+	require.NoError(t, err)
+
+	// Wait for expiry.
+	time.Sleep(50 * time.Millisecond)
+
+	// IsClusterFailoverActive should return false and lazily remove the entry.
+	assert.False(t, h.Backend.IsClusterFailoverActive("lazy-evict-cluster"))
+}
+
 // rdsIDFromARNForTest extracts the resource ID from an RDS ARN for test helpers.
 func rdsIDFromARNForTest(arnOrID string) string {
 	for i := len(arnOrID) - 1; i >= 0; i-- {

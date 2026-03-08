@@ -117,3 +117,51 @@ func TestDynamoDB_ExecuteFISAction_Unknown(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+func TestDynamoDB_ExecuteFISAction_PauseReplication_CtxCancel(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	h := dynamodb.NewHandler(db)
+
+	const tableARN = "arn:aws:dynamodb:us-east-1:000000000000:table/CancelTable"
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Activate indefinite pause (dur==0).
+	err := h.ExecuteFISAction(ctx, service.FISActionExecution{
+		ActionID: "aws:dynamodb:global-table-pause-replication",
+		Targets:  []string{tableARN},
+		Duration: 0,
+	})
+	require.NoError(t, err)
+
+	assert.True(t, db.IsReplicationPaused(tableARN), "pause should be active")
+
+	// Cancel ctx (simulates StopExperiment).
+	cancel()
+
+	require.Eventually(t, func() bool {
+		return !db.IsReplicationPaused(tableARN)
+	}, 2*time.Second, 20*time.Millisecond, "pause should clear after ctx cancel")
+}
+
+func TestDynamoDB_IsReplicationPaused_LazyEviction(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	h := dynamodb.NewHandler(db)
+
+	const tableARN = "arn:aws:dynamodb:us-east-1:000000000000:table/LazyTable"
+
+	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+		ActionID: "aws:dynamodb:global-table-pause-replication",
+		Targets:  []string{tableARN},
+		Duration: 20 * time.Millisecond,
+	})
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	assert.False(t, db.IsReplicationPaused(tableARN), "expired pause should not be reported active")
+}

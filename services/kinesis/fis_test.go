@@ -209,3 +209,48 @@ func TestKinesis_ExecuteFISAction_Unknown(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+func TestKinesis_ExecuteFISAction_ThroughputException_CtxCancel(t *testing.T) {
+	t.Parallel()
+
+	h := newFISKinesisHandler()
+
+	const streamName = "ctx-cancel-stream"
+
+	err := h.Backend.CreateStream(&kinesis.CreateStreamInput{
+		StreamName: streamName,
+		ShardCount: 1,
+	})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Activate indefinite fault (dur==0).
+	err = h.ExecuteFISAction(ctx, service.FISActionExecution{
+		ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
+		Targets:  []string{streamName},
+		Duration: 0,
+	})
+	require.NoError(t, err)
+
+	_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+		StreamName:   streamName,
+		PartitionKey: "key",
+		Data:         []byte("data"),
+	})
+	require.ErrorIs(t, putErr, kinesis.ErrProvisionedThroughputExceeded, "fault should be active")
+
+	// Cancel ctx (simulates StopExperiment).
+	cancel()
+
+	// Fault should clear promptly.
+	require.Eventually(t, func() bool {
+		_, putAfterErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+			StreamName:   streamName,
+			PartitionKey: "key",
+			Data:         []byte("data"),
+		})
+
+		return putAfterErr == nil
+	}, 2*time.Second, 20*time.Millisecond, "fault should clear after ctx cancel")
+}

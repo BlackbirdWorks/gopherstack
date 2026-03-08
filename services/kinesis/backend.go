@@ -437,8 +437,9 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		return nil, err
 	}
 
-	b.mu.RLock("GetRecords")
-	defer b.mu.RUnlock()
+	// Use a write lock so isThroughputFaultActiveLocked can lazily evict expired entries.
+	b.mu.Lock("GetRecords")
+	defer b.mu.Unlock()
 
 	stream, exists := b.streams[it.StreamName]
 	if !exists {
@@ -557,7 +558,8 @@ func (b *InMemoryBackend) ListAll() []StreamInfo {
 // isThroughputFaultActiveLocked reports whether a FIS throughput exception should be
 // applied to the current request for the given stream name, using probability-based
 // sampling when percentage < 100.
-// Caller MUST hold at least a read lock on b.mu.
+// Caller MUST hold a write lock (b.mu.Lock) on b.mu — this function lazily removes
+// expired fault entries to prevent unbounded map growth.
 func (b *InMemoryBackend) isThroughputFaultActiveLocked(streamName string) bool {
 	fault, ok := b.fisThroughputFaults[streamName]
 	if !ok || fault == nil {
@@ -565,6 +567,9 @@ func (b *InMemoryBackend) isThroughputFaultActiveLocked(streamName string) bool 
 	}
 
 	if !fault.expiry.IsZero() && time.Now().After(fault.expiry) {
+		// Lazily evict expired entry.
+		delete(b.fisThroughputFaults, streamName)
+
 		return false
 	}
 

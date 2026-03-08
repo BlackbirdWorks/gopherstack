@@ -51,8 +51,9 @@ func (h *Handler) ExecuteFISAction(ctx context.Context, action service.FISAction
 	return b.activateThroughputFault(ctx, streamNamesFromARNs(action.Targets), action.Duration, prob)
 }
 
-// activateThroughputFault enables the throughput exception on the named streams
-// and schedules automatic cleanup after dur (if non-zero).
+// activateThroughputFault enables the throughput exception on the named streams.
+// It always registers a goroutine that clears the fault when ctx is cancelled
+// (experiment stopped), and also schedules time-based expiry when dur > 0.
 func (b *InMemoryBackend) activateThroughputFault(
 	ctx context.Context,
 	names []string,
@@ -76,17 +77,39 @@ func (b *InMemoryBackend) activateThroughputFault(
 	b.mu.Unlock()
 
 	if dur > 0 {
+		// Time-limited: clear after duration or on cancellation.
 		go b.scheduleThroughputFaultCleanup(ctx, names, dur)
+	} else {
+		// Indefinite fault (dur==0): the goroutine blocks on ctx.Done().
+		// It terminates when StopExperiment cancels the experiment context,
+		// or when the server shuts down (root context is cancelled).
+		// This is not a goroutine leak — the goroutine is intentionally
+		// bound to the experiment lifetime via ctx.
+		go func() {
+			<-ctx.Done()
+
+			b.mu.Lock("FISThroughputException-ctxcancel")
+			defer b.mu.Unlock()
+
+			for _, name := range names {
+				delete(b.fisThroughputFaults, name)
+			}
+		}()
 	}
 
 	return nil
 }
 
-// scheduleThroughputFaultCleanup removes expired throughput faults after the
-// given duration or when ctx is cancelled.
+// scheduleThroughputFaultCleanup removes throughput faults after the given
+// duration or when ctx is cancelled (whichever comes first).
+// On ctx cancellation, entries are removed unconditionally so that StopExperiment
+// always clears active faults regardless of remaining time.
 func (b *InMemoryBackend) scheduleThroughputFaultCleanup(ctx context.Context, names []string, dur time.Duration) {
+	ctxCancelled := false
+
 	select {
 	case <-ctx.Done():
+		ctxCancelled = true
 	case <-time.After(dur):
 	}
 
@@ -96,10 +119,14 @@ func (b *InMemoryBackend) scheduleThroughputFaultCleanup(ctx context.Context, na
 	now := time.Now()
 
 	for _, name := range names {
-		if fault, exists := b.fisThroughputFaults[name]; exists && fault != nil {
-			if !fault.expiry.IsZero() && now.After(fault.expiry) {
-				delete(b.fisThroughputFaults, name)
-			}
+		fault, exists := b.fisThroughputFaults[name]
+		if !exists || fault == nil {
+			continue
+		}
+
+		// On ctx cancellation always remove; on timeout only remove if expired.
+		if ctxCancelled || (!fault.expiry.IsZero() && now.After(fault.expiry)) {
+			delete(b.fisThroughputFaults, name)
 		}
 	}
 }

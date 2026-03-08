@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
+	kinesistypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -473,4 +476,177 @@ func TestIntegration_FIS_TagResource_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, tagResp.StatusCode)
 
 	_ = tagResp.Body.Close()
+}
+
+// TestIntegration_FIS_KinesisThroughputException verifies the end-to-end flow of the
+// aws:kinesis:stream-provisioned-throughput-exception FIS action via the FIS HTTP API.
+// It creates a stream, starts an experiment targeting that stream, confirms the fault is
+// active (PutRecord returns a throttle error), stops the experiment, and confirms the
+// fault is cleared.
+func TestIntegration_FIS_KinesisThroughputException(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ctx := t.Context()
+	kinesisClient := createKinesisClient(t)
+	streamName := "fis-test-stream-" + t.Name()
+
+	// Create a Kinesis stream for use as a target.
+	_, err := kinesisClient.CreateStream(ctx, &kinesissdk.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		ShardCount: aws.Int32(1),
+	})
+	require.NoError(t, err)
+
+	// Obtain the stream ARN so we can reference it in the FIS target.
+	descOut, err := kinesisClient.DescribeStream(ctx, &kinesissdk.DescribeStreamInput{
+		StreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+
+	streamARN := aws.ToString(descOut.StreamDescription.StreamARN)
+	require.NotEmpty(t, streamARN)
+
+	// Build a FIS experiment template that uses the throughput-exception action.
+	createTemplateBody := map[string]any{
+		"description": "Kinesis FIS integration test",
+		"stopConditions": []map[string]any{
+			{"source": "none"},
+		},
+		"targets": map[string]any{
+			"MyStream": map[string]any{
+				"resourceType":  "aws:kinesis:stream",
+				"selectionMode": "ALL",
+				"resourceArns":  []string{streamARN},
+			},
+		},
+		"actions": map[string]any{
+			"throttle": map[string]any{
+				"actionId": "aws:kinesis:stream-provisioned-throughput-exception",
+				"parameters": map[string]string{
+					"duration":   "PT60S",
+					"percentage": "100",
+				},
+				"targets": map[string]string{"Streams": "MyStream"},
+			},
+		},
+	}
+
+	templateResp := fisRequest(t, http.MethodPost, "/experimentTemplates", createTemplateBody)
+	require.Equal(t, http.StatusCreated, templateResp.StatusCode)
+
+	var templateResult struct {
+		ExperimentTemplate struct {
+			ID string `json:"id"`
+		} `json:"experimentTemplate"`
+	}
+
+	fisBody(t, templateResp, &templateResult)
+	templateID := templateResult.ExperimentTemplate.ID
+	require.NotEmpty(t, templateID)
+
+	// Start the experiment.
+	startResp := fisRequest(t, http.MethodPost, "/experiments", map[string]any{
+		"experimentTemplateId": templateID,
+	})
+	require.Equal(t, http.StatusCreated, startResp.StatusCode)
+
+	var startResult struct {
+		Experiment struct {
+			ID string `json:"id"`
+		} `json:"experiment"`
+	}
+
+	fisBody(t, startResp, &startResult)
+	expID := startResult.Experiment.ID
+	require.NotEmpty(t, expID)
+
+	// Wait for the experiment to reach "running" status before probing.
+	require.Eventually(t, func() bool {
+		getResp := fisRequest(t, http.MethodGet, "/experiments/"+expID, nil)
+
+		var getResult struct {
+			Experiment struct {
+				Status struct {
+					Status string `json:"status"`
+				} `json:"status"`
+			} `json:"experiment"`
+		}
+
+		defer func() { _ = getResp.Body.Close() }()
+
+		if getResp.StatusCode != http.StatusOK {
+			return false
+		}
+
+		if decodeErr := json.NewDecoder(getResp.Body).Decode(&getResult); decodeErr != nil {
+			return false
+		}
+
+		return getResult.Experiment.Status.Status == "running"
+	}, 5*time.Second, 100*time.Millisecond, "experiment should reach running state")
+
+	// With the fault active, PutRecord should return a throttle error.
+	iterOut, err := kinesisClient.GetShardIterator(ctx, &kinesissdk.GetShardIteratorInput{
+		StreamName:        aws.String(streamName),
+		ShardId:           aws.String("shardId-000000000000"),
+		ShardIteratorType: kinesistypes.ShardIteratorTypeTrimHorizon,
+	})
+	require.NoError(t, err)
+
+	_, putErr := kinesisClient.PutRecord(ctx, &kinesissdk.PutRecordInput{
+		StreamName:   aws.String(streamName),
+		PartitionKey: aws.String("test-key"),
+		Data:         []byte("test-data"),
+	})
+	require.Error(t, putErr, "PutRecord should be throttled while experiment is running")
+
+	_, getErr := kinesisClient.GetRecords(ctx, &kinesissdk.GetRecordsInput{
+		ShardIterator: iterOut.ShardIterator,
+	})
+	require.Error(t, getErr, "GetRecords should be throttled while experiment is running")
+
+	// Stop the experiment.
+	stopResp := fisRequest(t, http.MethodDelete, "/experiments/"+expID, nil)
+	assert.Equal(t, http.StatusOK, stopResp.StatusCode)
+
+	_ = stopResp.Body.Close()
+
+	// Wait for the experiment to reach a terminal state.
+	require.Eventually(t, func() bool {
+		getResp := fisRequest(t, http.MethodGet, "/experiments/"+expID, nil)
+
+		var getResult struct {
+			Experiment struct {
+				Status struct {
+					Status string `json:"status"`
+				} `json:"status"`
+			} `json:"experiment"`
+		}
+
+		defer func() { _ = getResp.Body.Close() }()
+
+		if getResp.StatusCode != http.StatusOK {
+			return false
+		}
+
+		if decodeErr := json.NewDecoder(getResp.Body).Decode(&getResult); decodeErr != nil {
+			return false
+		}
+
+		s := getResult.Experiment.Status.Status
+
+		return s == "stopped" || s == "completed"
+	}, 10*time.Second, 200*time.Millisecond, "experiment should reach terminal state")
+
+	// After StopExperiment the fault should be cleared.
+	require.Eventually(t, func() bool {
+		_, putAfterErr := kinesisClient.PutRecord(ctx, &kinesissdk.PutRecordInput{
+			StreamName:   aws.String(streamName),
+			PartitionKey: aws.String("test-key"),
+			Data:         []byte("test-data"),
+		})
+
+		return putAfterErr == nil
+	}, 3*time.Second, 100*time.Millisecond, "PutRecord should succeed after experiment is stopped")
 }
