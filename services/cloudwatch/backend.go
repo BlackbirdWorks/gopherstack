@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"sort"
 	"strings"
@@ -474,6 +475,7 @@ func (b *InMemoryBackend) evalCompositeRule(rule string) string {
 
 // DescribeAlarms lists a page of alarms, optionally filtered by name, type, and/or state.
 // alarmTypes can contain "MetricAlarm", "CompositeAlarm", or both (empty means both).
+// MaxRecords applies to the total combined result set (metric + composite).
 func (b *InMemoryBackend) DescribeAlarms(
 	alarmNames []string,
 	alarmTypes []string,
@@ -491,8 +493,39 @@ func (b *InMemoryBackend) DescribeAlarms(
 	metricResult := b.collectMetricAlarms(nameSet, stateValue, includeMetric)
 	compositeResult := b.collectCompositeAlarms(nameSet, stateValue, includeComposite)
 
-	return page.New(metricResult, nextToken, maxRecords, cwDefaultDescribeAlarmsLimit),
-		page.New(compositeResult, nextToken, maxRecords, cwDefaultDescribeAlarmsLimit),
+	// Apply a single combined page limit so MaxRecords constrains the total result set.
+	limit := maxRecords
+	if limit <= 0 {
+		limit = cwDefaultDescribeAlarmsLimit
+	}
+	combinedTotal := len(metricResult) + len(compositeResult)
+	start := min(page.DecodeToken(nextToken), combinedTotal)
+	end := start + limit
+	var next string
+	if end < combinedTotal {
+		next = page.EncodeToken(end)
+	} else {
+		end = combinedTotal
+	}
+	// Split the combined window back into metric and composite slices.
+	var metricSlice []MetricAlarm
+	var compositeSlice []CompositeAlarm
+	for i := start; i < end; i++ {
+		if i < len(metricResult) {
+			metricSlice = append(metricSlice, metricResult[i])
+		} else {
+			compositeSlice = append(compositeSlice, compositeResult[i-len(metricResult)])
+		}
+	}
+	if metricSlice == nil {
+		metricSlice = []MetricAlarm{}
+	}
+	if compositeSlice == nil {
+		compositeSlice = []CompositeAlarm{}
+	}
+
+	return page.Page[MetricAlarm]{Data: metricSlice, Next: next},
+		page.Page[CompositeAlarm]{Data: compositeSlice, Next: next},
 		nil
 }
 
@@ -697,8 +730,8 @@ func (b *InMemoryBackend) SetAlarmState(alarmName, stateValue, stateReason strin
 	histData := b.stateChangeHistoryData(alarmName, oldState, stateValue, stateReason)
 	b.appendHistory(alarmName, historyTypeStateUpdate, summary, histData)
 
-	// re-evaluate composite alarms that may reference this alarm
-	b.reevaluateCompositeAlarms()
+	// re-evaluate composite alarms that may reference this alarm, collecting any transitions
+	compositeTransitions := b.reevaluateCompositeAlarms()
 
 	snsPub := b.snsPublisher
 	lambdaInv := b.lambdaInvoker
@@ -717,6 +750,15 @@ func (b *InMemoryBackend) SetAlarmState(alarmName, stateValue, stateReason strin
 
 		payload := b.buildAlarmActionPayload(alarmName, alarmDesc, alarmArn, oldState, stateValue, stateReason)
 		b.executeActions(actions, alarmName, payload, snsPub, lambdaInv)
+	}
+
+	// fire actions for any composite alarms that changed state
+	for _, tr := range compositeTransitions {
+		payload := b.buildAlarmActionPayload(
+			tr.alarmName, tr.alarmDesc, tr.alarmArn,
+			tr.oldState, tr.newState, tr.reason,
+		)
+		b.executeActions(tr.actions, tr.alarmName, payload, snsPub, lambdaInv)
 	}
 
 	return nil
@@ -804,6 +846,7 @@ func (b *InMemoryBackend) buildAlarmActionPayload(
 }
 
 // executeActions delivers the alarm action notifications to SNS topics and Lambda functions.
+// Delivery errors are logged as warnings but do not prevent other actions from running.
 func (b *InMemoryBackend) executeActions(
 	actions []string,
 	_ string,
@@ -815,29 +858,77 @@ func (b *InMemoryBackend) executeActions(
 		switch {
 		case strings.HasPrefix(action, "arn:aws:sns:"):
 			if snsPub != nil {
-				_ = snsPub.PublishToTopic(action, string(payload))
+				if err := snsPub.PublishToTopic(action, string(payload)); err != nil {
+					slog.Default().Warn("cloudwatch: alarm SNS action delivery failed",
+						"topic_arn", action, "error", err)
+				}
 			}
 		case strings.HasPrefix(action, "arn:aws:lambda:"):
 			if lambdaInv != nil {
-				_, _, _ = lambdaInv.InvokeFunction(context.Background(), action, "Event", payload)
+				if _, _, err := lambdaInv.InvokeFunction(context.Background(), action, "Event", payload); err != nil {
+					slog.Default().Warn("cloudwatch: alarm Lambda action delivery failed",
+						"function_arn", action, "error", err)
+				}
 			}
 			// EC2 and Auto Scaling actions are stubbed (no-op).
 		}
 	}
 }
 
+// compositeAlarmTransition records a composite alarm state change and the actions to fire.
+type compositeAlarmTransition struct {
+	alarmName string
+	alarmArn  string
+	alarmDesc string
+	oldState  string
+	newState  string
+	reason    string
+	actions   []string
+}
+
 // reevaluateCompositeAlarms re-checks all composite alarms and updates their state.
+// Returns the list of state transitions so the caller can fire actions after releasing the lock.
 // Caller must hold b.mu (write lock).
-func (b *InMemoryBackend) reevaluateCompositeAlarms() {
+func (b *InMemoryBackend) reevaluateCompositeAlarms() []compositeAlarmTransition {
+	var transitions []compositeAlarmTransition
+
 	for _, ca := range b.compositeAlarms {
 		newState := b.evalCompositeRule(ca.AlarmRule)
-		if newState != ca.StateValue {
-			oldState := ca.StateValue
-			ca.StateValue = newState
-			ca.StateReason = fmt.Sprintf("Rule evaluated to %s", newState)
-			summary := fmt.Sprintf("Composite alarm %q changed from %s to %s", ca.AlarmName, oldState, newState)
-			histData := b.stateChangeHistoryData(ca.AlarmName, oldState, newState, ca.StateReason)
-			b.appendHistory(ca.AlarmName, historyTypeStateUpdate, summary, histData)
+		if newState == ca.StateValue {
+			continue
+		}
+
+		oldState := ca.StateValue
+		reason := fmt.Sprintf("Rule evaluated to %s", newState)
+		ca.StateValue = newState
+		ca.StateReason = reason
+		summary := fmt.Sprintf("Composite alarm %q changed from %s to %s", ca.AlarmName, oldState, newState)
+		histData := b.stateChangeHistoryData(ca.AlarmName, oldState, newState, reason)
+		b.appendHistory(ca.AlarmName, historyTypeStateUpdate, summary, histData)
+
+		if ca.ActionsEnabled {
+			var actions []string
+			switch newState {
+			case alarmStateAlarm:
+				actions = ca.AlarmActions
+			case alarmStateOK:
+				actions = ca.OKActions
+			case alarmStateInsufficientData:
+				actions = ca.InsufficientDataActions
+			}
+			if len(actions) > 0 {
+				transitions = append(transitions, compositeAlarmTransition{
+					alarmName: ca.AlarmName,
+					alarmArn:  ca.AlarmArn,
+					alarmDesc: ca.AlarmDescription,
+					oldState:  oldState,
+					newState:  newState,
+					reason:    reason,
+					actions:   actions,
+				})
+			}
 		}
 	}
+
+	return transitions
 }

@@ -12,24 +12,13 @@ func evaluateAlarmRule(rule string, resolveState func(name string) string) strin
 	p := &ruleParser{tokens: tokenizeRule(rule), pos: 0, resolve: resolveState}
 	result, ok := p.parseExpr()
 	if !ok {
-		return "INSUFFICIENT_DATA"
+		return alarmStateInsufficientData
 	}
 	if result {
-		return "ALARM"
+		return alarmStateAlarm
 	}
 
-	return "OK"
-}
-
-// EvaluateAlarmRuleForTest is a test-visible wrapper around evaluateAlarmRule.
-func EvaluateAlarmRuleForTest(rule string, states map[string]string) string {
-	return evaluateAlarmRule(rule, func(name string) string {
-		if s, ok := states[name]; ok {
-			return s
-		}
-
-		return alarmStateInsufficientData
-	})
+	return alarmStateOK
 }
 
 // tokenizeRule splits the AlarmRule string into tokens.
@@ -50,30 +39,50 @@ func tokenizeRule(rule string) []string {
 			continue
 		}
 		if ch == '"' {
-			// quoted string
-			j := i + 1
-			for j < len(rule) && rule[j] != '"' {
-				j++
-			}
-			tokens = append(tokens, rule[i:j+1])
-			i = j + 1
+			tok, nextPos := tokenizeQuotedString(rule, i)
+			tokens = append(tokens, tok)
+			i = nextPos
 
 			continue
 		}
-		// word token
-		j := i
-		for j < len(rule) && !unicode.IsSpace(rune(rule[j])) && rule[j] != '(' && rule[j] != ')' && rule[j] != '"' {
-			j++
-		}
-		if j > i {
-			tokens = append(tokens, rule[i:j])
-			i = j
+		tok, nextPos := tokenizeWord(rule, i)
+		if nextPos > i {
+			tokens = append(tokens, tok)
+			i = nextPos
 		} else {
 			i++
 		}
 	}
 
 	return tokens
+}
+
+// tokenizeQuotedString scans a quoted string starting at pos in rule.
+// Returns the token and the next position to continue scanning.
+// If the closing quote is missing, returns an empty-string token and advances to end-of-input.
+func tokenizeQuotedString(rule string, pos int) (string, int) {
+	j := pos + 1
+	for j < len(rule) && rule[j] != '"' {
+		j++
+	}
+	if j >= len(rule) {
+		// unterminated quote: signal a parse error by returning an empty-string token
+		return `""`, j
+	}
+	nextPos := j + 1
+
+	return rule[pos:nextPos], nextPos
+}
+
+// tokenizeWord scans a non-quoted word token starting at pos in rule.
+// Returns the token and the next position to continue scanning.
+func tokenizeWord(rule string, pos int) (string, int) {
+	nextPos := pos
+	for nextPos < len(rule) && !unicode.IsSpace(rune(rule[nextPos])) && rule[nextPos] != '(' && rule[nextPos] != ')' && rule[nextPos] != '"' {
+		nextPos++
+	}
+
+	return rule[pos:nextPos], nextPos
 }
 
 type ruleParser struct {
@@ -158,9 +167,10 @@ func (p *ruleParser) parseAtom() (bool, bool) {
 		if !ok {
 			return false, false
 		}
-		if p.peek() == ")" {
-			p.consume()
+		if p.peek() != ")" {
+			return false, false
 		}
+		p.consume()
 
 		return val, true
 	}

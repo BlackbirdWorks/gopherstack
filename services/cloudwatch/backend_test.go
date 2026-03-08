@@ -570,3 +570,41 @@ func TestCloudWatchBackend_CompositeAlarmReevalOnChildChange(t *testing.T) {
 	require.NoError(t, err2)
 	assert.Equal(t, "ALARM", compositeAlarms2.Data[0].StateValue)
 }
+
+// mockSNSPublisher captures published messages for assertions.
+type mockSNSPublisher struct {
+	messages []string
+}
+
+func (m *mockSNSPublisher) PublishToTopic(_ string, message string) error {
+	m.messages = append(m.messages, message)
+
+	return nil
+}
+
+func TestCloudWatchBackend_CompositeAlarmActionsFireOnChildChange(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	pub := &mockSNSPublisher{}
+	b.SetSNSPublisher(pub)
+
+	topicARN := "arn:aws:sns:us-east-1:123456789012:test-topic"
+
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "child2", StateValue: "OK"}))
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName:      "parent2",
+		AlarmRule:      `ALARM("child2")`,
+		ActionsEnabled: true,
+		AlarmActions:   []string{topicARN},
+	}))
+
+	// No SNS publish yet — child is OK, composite is OK.
+	assert.Empty(t, pub.messages)
+
+	// Transition child to ALARM; composite should re-evaluate and fire its AlarmActions.
+	require.NoError(t, b.SetAlarmState("child2", "ALARM", "test trigger"))
+
+	assert.Len(t, pub.messages, 1, "composite alarm action should have been fired")
+	assert.Contains(t, pub.messages[0], "parent2")
+}

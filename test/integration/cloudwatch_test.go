@@ -8,6 +8,8 @@ import (
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
+	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -304,16 +306,43 @@ func TestIntegration_CloudWatch_AlarmActions_SNS(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 	cwClient := createCloudWatchClient(t)
 	snsClient := createSNSClient(t)
+	sqsClient := createSQSClient(t)
 	ctx := t.Context()
 
 	suffix := uuid.NewString()[:8]
 	topicName := "cw-alarm-topic-" + suffix
+	queueName := "cw-alarm-queue-" + suffix
 	alarmName := "sns-action-alarm-" + suffix
 
 	// Create an SNS topic for the alarm action.
 	topicOut, err := snsClient.CreateTopic(ctx, &sns.CreateTopicInput{Name: aws.String(topicName)})
 	require.NoError(t, err)
 	topicARN := aws.ToString(topicOut.TopicArn)
+	t.Cleanup(func() {
+		_, _ = snsClient.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: aws.String(topicARN)})
+	})
+
+	// Create an SQS queue and subscribe it to the topic to capture published messages.
+	queueOut, err := sqsClient.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(queueName)})
+	require.NoError(t, err)
+	queueURL := aws.ToString(queueOut.QueueUrl)
+	t.Cleanup(func() {
+		_, _ = sqsClient.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(queueURL)})
+	})
+
+	attrOut, err := sqsClient.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl:       aws.String(queueURL),
+		AttributeNames: []sqstypes.QueueAttributeName{"QueueArn"},
+	})
+	require.NoError(t, err)
+	queueARN := attrOut.Attributes["QueueArn"]
+
+	_, err = snsClient.Subscribe(ctx, &sns.SubscribeInput{
+		TopicArn: aws.String(topicARN),
+		Protocol: aws.String("sqs"),
+		Endpoint: aws.String(queueARN),
+	})
+	require.NoError(t, err)
 
 	// Create a metric alarm with an SNS AlarmAction.
 	_, err = cwClient.PutMetricAlarm(ctx, &cloudwatchsdk.PutMetricAlarmInput{
@@ -329,6 +358,9 @@ func TestIntegration_CloudWatch_AlarmActions_SNS(t *testing.T) {
 		AlarmActions:       []string{topicARN},
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = cwClient.DeleteAlarms(ctx, &cloudwatchsdk.DeleteAlarmsInput{AlarmNames: []string{alarmName}})
+	})
 
 	// Trigger the alarm by setting state to ALARM — should invoke SNS action.
 	_, err = cwClient.SetAlarmState(ctx, &cloudwatchsdk.SetAlarmStateInput{
@@ -346,8 +378,13 @@ func TestIntegration_CloudWatch_AlarmActions_SNS(t *testing.T) {
 	require.Len(t, descOut.MetricAlarms, 1)
 	assert.Equal(t, cwtypes.StateValueAlarm, descOut.MetricAlarms[0].StateValue)
 
-	// Cleanup.
-	_, _ = cwClient.DeleteAlarms(ctx, &cloudwatchsdk.DeleteAlarmsInput{
-		AlarmNames: []string{alarmName},
+	// Verify the SNS action fired — SQS queue should have received the alarm notification.
+	recvOut, err := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+		QueueUrl:            aws.String(queueURL),
+		MaxNumberOfMessages: 1,
+		WaitTimeSeconds:     5,
 	})
+	require.NoError(t, err)
+	require.Len(t, recvOut.Messages, 1, "alarm action should have published a message to SNS/SQS")
+	assert.Contains(t, aws.ToString(recvOut.Messages[0].Body), alarmName)
 }

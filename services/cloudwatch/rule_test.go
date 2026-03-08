@@ -95,6 +95,24 @@ func TestEvaluateAlarmRule(t *testing.T) {
 			states:    map[string]string{"a": "ALARM", "b": "ALARM"},
 			wantState: "ALARM",
 		},
+		{
+			name:      "unterminated_quoted_string",
+			rule:      `ALARM("a`,
+			states:    map[string]string{"a": "ALARM"},
+			wantState: "INSUFFICIENT_DATA",
+		},
+		{
+			name:      "missing_closing_paren",
+			rule:      `(ALARM("a")`,
+			states:    map[string]string{"a": "ALARM"},
+			wantState: "INSUFFICIENT_DATA",
+		},
+		{
+			name:      "empty_rule",
+			rule:      ``,
+			states:    map[string]string{},
+			wantState: "INSUFFICIENT_DATA",
+		},
 	}
 
 	for _, tt := range tests {
