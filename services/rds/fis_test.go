@@ -248,21 +248,88 @@ func TestRDS_IsClusterFailoverActive_LazyEviction(t *testing.T) {
 
 	h := newFISRDSHandler()
 
-	const clusterTarget = "arn:aws:rds:us-east-1:000000000000:cluster/lazy-evict-cluster"
+	// Inject an already-expired entry directly (no goroutine, guaranteed expired).
+	const clusterID = "lazy-evict-cluster"
 
-	// Activate with a very short duration.
-	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
-		ActionID: "aws:rds:failover-db-cluster",
-		Targets:  []string{clusterTarget},
-		Duration: 20 * time.Millisecond,
-	})
-	require.NoError(t, err)
-
-	// Wait for expiry.
-	time.Sleep(50 * time.Millisecond)
+	h.Backend.InjectExpiredFaultForTest(clusterID)
 
 	// IsClusterFailoverActive should return false and lazily remove the entry.
-	assert.False(t, h.Backend.IsClusterFailoverActive("lazy-evict-cluster"))
+	assert.False(t, h.Backend.IsClusterFailoverActive(clusterID), "expired fault should not be reported active")
+
+	// After lazy eviction the map should no longer contain the key.
+	assert.False(
+		t,
+		h.Backend.IsClusterFailoverActive(clusterID),
+		"second call should also return false (entry evicted)",
+	)
+}
+
+func TestRDS_IsClusterFailoverActive_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newFISRDSHandler()
+
+	// Never activated — must return false.
+	assert.False(t, h.Backend.IsClusterFailoverActive("nonexistent-cluster"))
+}
+
+func TestRDS_ScheduleFailoverFaultCleanup_MissingEntry_Continue(t *testing.T) {
+	t.Parallel()
+
+	h := newFISRDSHandler()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled so cleanup fires synchronously
+
+	// Call cleanup with a cluster ID that was never added to the map.
+	// Should hit the !ok continue branch without panicking.
+	h.Backend.ScheduleFailoverFaultCleanupForTest(ctx, []string{"never-added-cluster"}, time.Millisecond)
+
+	assert.False(
+		t,
+		h.Backend.IsClusterFailoverActive("never-added-cluster"),
+		"non-existent cluster should never be active",
+	)
+}
+
+func TestRDS_RDSIDFromARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "slash_delimited_cluster_arn",
+			input: "arn:aws:rds:us-east-1:000000000000:cluster/my-cluster",
+			want:  "my-cluster",
+		},
+		{
+			name:  "slash_delimited_db_arn",
+			input: "arn:aws:rds:us-east-1:000000000000:db/my-instance",
+			want:  "my-instance",
+		},
+		{
+			name:  "colon_delimited_db_arn",
+			input: "arn:aws:rds:us-east-1:000000000000:db:my-id",
+			want:  "my-id",
+		},
+		{
+			name:  "bare_identifier",
+			input: "my-cluster",
+			want:  "my-cluster",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := rds.RDSIDFromARNForTest(tt.input)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 // rdsIDFromARNForTest extracts the resource ID from an RDS ARN for test helpers.

@@ -142,3 +142,38 @@ func TestECS_ExecuteFISAction_Unknown(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+func TestECS_ClusterFromTaskARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		taskARN string
+		want    string
+	}{
+		{
+			name:    "new_format_with_cluster",
+			taskARN: "arn:aws:ecs:us-east-1:000000000000:task/my-cluster/abc123",
+			want:    "my-cluster",
+		},
+		{
+			name:    "old_format_without_cluster",
+			taskARN: "arn:aws:ecs:us-east-1:000000000000:task/abc123",
+			want:    "",
+		},
+		{
+			name:    "no_task_prefix",
+			taskARN: "not-an-arn",
+			want:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := ecs.ClusterFromTaskARNForTest(tt.taskARN)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

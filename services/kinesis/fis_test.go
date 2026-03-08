@@ -254,3 +254,143 @@ func TestKinesis_ExecuteFISAction_ThroughputException_CtxCancel(t *testing.T) {
 		return putAfterErr == nil
 	}, 2*time.Second, 20*time.Millisecond, "fault should clear after ctx cancel")
 }
+
+func TestKinesis_ThroughputFault_ZeroPercentage_NoThrottle(t *testing.T) {
+	t.Parallel()
+
+	h := newFISKinesisHandler()
+
+	const streamName = "zero-pct-stream"
+
+	err := h.Backend.CreateStream(&kinesis.CreateStreamInput{
+		StreamName: streamName,
+		ShardCount: 1,
+	})
+	require.NoError(t, err)
+
+	// Activate with 0% percentage — no requests should be throttled.
+	err = h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+		ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
+		Targets:  []string{streamName},
+		Parameters: map[string]string{
+			"percentage": "0",
+		},
+		Duration: 0,
+	})
+	require.NoError(t, err)
+
+	// With 0% probability, PutRecord should never be throttled.
+	for range 10 {
+		_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+			StreamName:   streamName,
+			PartitionKey: "key",
+			Data:         []byte("data"),
+		})
+		require.NoError(t, putErr, "0%% probability should never throttle")
+	}
+}
+
+func TestKinesis_ThroughputFault_PartialPercentage(t *testing.T) {
+	t.Parallel()
+
+	h := newFISKinesisHandler()
+
+	const streamName = "partial-pct-stream"
+
+	err := h.Backend.CreateStream(&kinesis.CreateStreamInput{
+		StreamName: streamName,
+		ShardCount: 1,
+	})
+	require.NoError(t, err)
+
+	// Activate with 50% percentage.
+	err = h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+		ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
+		Targets:  []string{streamName},
+		Parameters: map[string]string{
+			"percentage": "50",
+		},
+		Duration: 0,
+	})
+	require.NoError(t, err)
+
+	// With 50% probability, some requests may be throttled and some not.
+	// Just verify the action activates without error and the code path runs.
+	throttledCount := 0
+	total := 50
+
+	for range total {
+		_, putErr := h.Backend.PutRecord(&kinesis.PutRecordInput{
+			StreamName:   streamName,
+			PartitionKey: "key",
+			Data:         []byte("data"),
+		})
+		if putErr != nil {
+			throttledCount++
+		}
+	}
+
+	// With 50% probability over 50 tries, it's astronomically unlikely to get 0% or 100%.
+	assert.Positive(t, throttledCount, "50%% probability should throttle some requests")
+	assert.Less(t, throttledCount, total, "50%% probability should not throttle all requests")
+}
+
+func TestKinesis_ExecuteFISAction_NonInMemoryBackend(t *testing.T) {
+	t.Parallel()
+
+	// A handler with a nil backend should gracefully skip FIS actions.
+	h := kinesis.NewHandler(nil)
+
+	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+		ActionID: "aws:kinesis:stream-provisioned-throughput-exception",
+		Targets:  []string{"some-stream"},
+	})
+
+	require.NoError(t, err)
+}
+
+func TestKinesis_ThroughputFaultActiveLocked_LazyEviction(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+
+	const streamName = "lazy-evict-kinesis-stream"
+
+	err := backend.CreateStream(&kinesis.CreateStreamInput{
+		StreamName: streamName,
+		ShardCount: 1,
+	})
+	require.NoError(t, err)
+
+	// Inject an already-expired fault directly (no goroutine, guaranteed expired).
+	backend.InjectExpiredThroughputFaultForTest(streamName)
+
+	// PutRecord should succeed because the fault is expired — lazy eviction fires inside.
+	_, putErr := backend.PutRecord(&kinesis.PutRecordInput{
+		StreamName:   streamName,
+		PartitionKey: "key",
+		Data:         []byte("data"),
+	})
+	require.NoError(t, putErr, "expired fault should not throttle requests")
+
+	// After lazy eviction, a second PutRecord should also succeed.
+	_, putErr2 := backend.PutRecord(&kinesis.PutRecordInput{
+		StreamName:   streamName,
+		PartitionKey: "key2",
+		Data:         []byte("data2"),
+	})
+	require.NoError(t, putErr2, "second PutRecord after eviction should also succeed")
+}
+
+func TestKinesis_ScheduleThroughputFaultCleanup_MissingEntry_Continue(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled so cleanup fires synchronously
+
+	// Call cleanup with a stream that was never added to the map.
+	// Should hit the !exists continue branch without panicking.
+	backend.ScheduleThroughputFaultCleanupForTest(ctx, []string{"never-added-stream"}, time.Millisecond)
+}

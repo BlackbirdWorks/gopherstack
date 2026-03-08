@@ -150,18 +150,79 @@ func TestDynamoDB_IsReplicationPaused_LazyEviction(t *testing.T) {
 	t.Parallel()
 
 	db := dynamodb.NewInMemoryDB()
-	h := dynamodb.NewHandler(db)
 
 	const tableARN = "arn:aws:dynamodb:us-east-1:000000000000:table/LazyTable"
+
+	// Inject an already-expired entry directly (no goroutine, guaranteed expired).
+	db.InjectExpiredReplicationPauseForTest(tableARN)
+
+	assert.False(t, db.IsReplicationPaused(tableARN), "expired pause should not be reported active")
+
+	// After lazy eviction the map should no longer contain the key.
+	assert.False(t, db.IsReplicationPaused(tableARN), "second call should also return false (entry evicted)")
+}
+
+func TestDynamoDB_IsReplicationPaused_ByNameSuffix(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	h := dynamodb.NewHandler(db)
+
+	const tableARN = "arn:aws:dynamodb:us-east-1:000000000000:table/SuffixTable"
+	const tableName = "SuffixTable"
 
 	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
 		ActionID: "aws:dynamodb:global-table-pause-replication",
 		Targets:  []string{tableARN},
-		Duration: 20 * time.Millisecond,
+		Duration: 0,
 	})
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
+	// Should be accessible by ARN.
+	assert.True(t, db.IsReplicationPaused(tableARN), "should be paused by ARN")
 
-	assert.False(t, db.IsReplicationPaused(tableARN), "expired pause should not be reported active")
+	// Reactivate to check by table name (suffix lookup).
+	err = h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+		ActionID: "aws:dynamodb:global-table-pause-replication",
+		Targets:  []string{tableARN},
+		Duration: 0,
+	})
+	require.NoError(t, err)
+
+	assert.True(t, db.IsReplicationPaused(tableName), "should be paused by table name suffix")
+}
+
+func TestDynamoDB_IsReplicationPaused_NotFound(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+
+	assert.False(t, db.IsReplicationPaused("nonexistent-table"), "unknown table should not be paused")
+}
+
+func TestDynamoDB_ExecuteFISAction_NonInMemoryBackend(t *testing.T) {
+	t.Parallel()
+
+	// ExecuteFISAction with a non-InMemoryDB backend should return nil gracefully.
+	h := dynamodb.NewHandler(nil)
+
+	err := h.ExecuteFISAction(context.Background(), service.FISActionExecution{
+		ActionID: "aws:dynamodb:global-table-pause-replication",
+		Targets:  []string{"some-table"},
+	})
+
+	require.NoError(t, err)
+}
+
+func TestDynamoDB_ScheduleReplicationPauseCleanup_MissingEntry_Continue(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled so cleanup fires synchronously
+
+	// Call cleanup with a table that was never added to the map.
+	// Should hit the !ok continue branch without panicking.
+	db.ScheduleReplicationPauseCleanupForTest(ctx, []string{"never-added-table"}, time.Millisecond)
 }
