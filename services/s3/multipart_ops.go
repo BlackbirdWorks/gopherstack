@@ -166,7 +166,7 @@ func (h *S3Handler) completeMultipartUpload(
 			}); headErr == nil {
 				size = aws.ToInt64(headOut.ContentLength)
 			}
-			go h.notifier.DispatchObjectCreated(context.WithoutCancel(ctx), bucketName, key, etag, size, notifXML)
+			go h.notifier.DispatchObjectCompleted(context.WithoutCancel(ctx), bucketName, key, etag, size, notifXML)
 		}
 	}
 

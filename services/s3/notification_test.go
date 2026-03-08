@@ -419,3 +419,213 @@ func TestNotificationDispatcher_DispatchToLambda(t *testing.T) {
 		})
 	}
 }
+
+// captureEventBridge is a test EventBridgePublisher that records published events.
+type captureEventBridge struct {
+	events []struct{ source, detailType, detail string }
+	mu     sync.Mutex
+}
+
+func (c *captureEventBridge) PublishS3Event(_ context.Context, source, detailType, detail string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.events = append(c.events, struct{ source, detailType, detail string }{source, detailType, detail})
+}
+
+func TestNotificationDispatcher_DispatchToEventBridge(t *testing.T) {
+	t.Parallel()
+
+	const (
+		ebEnabledXML = `<NotificationConfiguration>
+<EventBridgeConfiguration/>
+</NotificationConfiguration>`
+
+		ebDisabledXML = `<NotificationConfiguration>
+</NotificationConfiguration>`
+
+		ebWithSQSXML = `<NotificationConfiguration>
+<EventBridgeConfiguration/>
+<QueueConfiguration>
+  <Id>q1</Id>
+  <Queue>arn:aws:sqs:us-east-1:000000000000:my-queue</Queue>
+  <Event>s3:ObjectCreated:*</Event>
+</QueueConfiguration>
+</NotificationConfiguration>`
+	)
+
+	tests := []struct {
+		name               string
+		notifXML           string
+		key                string
+		etag               string
+		wantDetailType     string
+		wantDetailContains []string
+		wantDetailAbsent   []string
+		size               int64
+		wantEventCount     int
+		wantQueueCount     int
+		dispatchDelete     bool
+		dispatchCopy       bool
+		dispatchComplete   bool
+	}{
+		{
+			name:               "EventBridge_enabled_object_created",
+			notifXML:           ebEnabledXML,
+			key:                "my-key",
+			etag:               "abc123",
+			size:               42,
+			wantEventCount:     1,
+			wantDetailType:     "Object Created",
+			wantDetailContains: []string{`"my-bucket"`, `"my-key"`, `"PutObject"`},
+			wantDetailAbsent:   []string{`"source-ip-address"`, `"requester"`},
+		},
+		{
+			name:               "EventBridge_enabled_object_copied",
+			notifXML:           ebEnabledXML,
+			key:                "my-key",
+			etag:               "abc123",
+			size:               42,
+			dispatchCopy:       true,
+			wantEventCount:     1,
+			wantDetailType:     "Object Created",
+			wantDetailContains: []string{`"my-bucket"`, `"my-key"`, `"CopyObject"`},
+		},
+		{
+			name:               "EventBridge_enabled_object_completed",
+			notifXML:           ebEnabledXML,
+			key:                "my-key",
+			etag:               "abc123",
+			size:               42,
+			dispatchComplete:   true,
+			wantEventCount:     1,
+			wantDetailType:     "Object Created",
+			wantDetailContains: []string{`"my-bucket"`, `"my-key"`, `"CompleteMultipartUpload"`},
+		},
+		{
+			name:               "EventBridge_enabled_object_deleted",
+			notifXML:           ebEnabledXML,
+			key:                "my-key",
+			dispatchDelete:     true,
+			wantEventCount:     1,
+			wantDetailType:     "Object Deleted",
+			wantDetailContains: []string{`"my-bucket"`, `"my-key"`, `"DeleteObject"`},
+		},
+		{
+			name:           "EventBridge_disabled_no_event",
+			notifXML:       ebDisabledXML,
+			key:            "my-key",
+			wantEventCount: 0,
+		},
+		{
+			name:           "empty_config_no_event",
+			notifXML:       "",
+			key:            "my-key",
+			wantEventCount: 0,
+		},
+		{
+			name:           "EventBridge_and_SQS_both_delivered",
+			notifXML:       ebWithSQSXML,
+			key:            "my-key",
+			etag:           "abc123",
+			size:           10,
+			wantEventCount: 1,
+			wantDetailType: "Object Created",
+			wantQueueCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			eb := &captureEventBridge{}
+			queue := &captureQueue{}
+			targets := &s3.NotificationTargets{
+				EventBridgePublisher: eb,
+				SQSSender:            queue,
+			}
+			d := s3.NewNotificationDispatcher(targets, "us-east-1")
+
+			switch {
+			case tt.dispatchDelete:
+				d.DispatchObjectDeleted(t.Context(), "my-bucket", tt.key, tt.notifXML)
+			case tt.dispatchCopy:
+				d.DispatchObjectCopied(t.Context(), "my-bucket", tt.key, tt.etag, tt.size, tt.notifXML)
+			case tt.dispatchComplete:
+				d.DispatchObjectCompleted(t.Context(), "my-bucket", tt.key, tt.etag, tt.size, tt.notifXML)
+			default:
+				d.DispatchObjectCreated(t.Context(), "my-bucket", tt.key, tt.etag, tt.size, tt.notifXML)
+			}
+
+			eb.mu.Lock()
+			defer eb.mu.Unlock()
+			assert.Len(t, eb.events, tt.wantEventCount)
+
+			if tt.wantEventCount > 0 {
+				assert.Equal(t, "aws.s3", eb.events[0].source)
+				assert.Equal(t, tt.wantDetailType, eb.events[0].detailType)
+
+				for _, c := range tt.wantDetailContains {
+					assert.Contains(t, eb.events[0].detail, c)
+				}
+
+				for _, a := range tt.wantDetailAbsent {
+					assert.NotContains(t, eb.events[0].detail, a)
+				}
+			}
+
+			queue.mu.Lock()
+			defer queue.mu.Unlock()
+			assert.Len(t, queue.messages, tt.wantQueueCount)
+		})
+	}
+}
+
+func TestDetailTypeFromEventName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		eventName string
+		want      string
+	}{
+		{name: "object_created_put", eventName: "s3:ObjectCreated:Put", want: "Object Created"},
+		{name: "object_created_copy", eventName: "s3:ObjectCreated:Copy", want: "Object Created"},
+		{name: "object_created_wildcard", eventName: "s3:ObjectCreated:*", want: "Object Created"},
+		{name: "object_removed_delete", eventName: "s3:ObjectRemoved:Delete", want: "Object Deleted"},
+		{name: "object_removed_wildcard", eventName: "s3:ObjectRemoved:*", want: "Object Deleted"},
+		{name: "object_restore", eventName: "s3:ObjectRestore:Post", want: "Object Restore Initiated"},
+		{name: "unknown_event", eventName: "s3:Replication:OperationMissedThreshold", want: "S3 Event"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, s3.DetailTypeFromEventName(tt.eventName))
+		})
+	}
+}
+
+func TestReasonFromEventName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		eventName string
+		want      string
+	}{
+		{name: "put", eventName: "s3:ObjectCreated:Put", want: "PutObject"},
+		{name: "copy", eventName: "s3:ObjectCreated:Copy", want: "CopyObject"},
+		{name: "multipart", eventName: "s3:ObjectCreated:CompleteMultipartUpload", want: "CompleteMultipartUpload"},
+		{name: "delete", eventName: "s3:ObjectRemoved:Delete", want: "DeleteObject"},
+		{name: "delete_marker", eventName: "s3:ObjectRemoved:DeleteMarkerCreated", want: "DeleteObject"},
+		{name: "unknown", eventName: "s3:ObjectCreated:Unknown", want: "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, s3.ReasonFromEventName(tt.eventName))
+		})
+	}
+}
