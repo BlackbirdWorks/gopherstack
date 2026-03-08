@@ -35,6 +35,9 @@ var ErrTargetResourceTypeNotFound = errors.New("TargetResourceTypeNotFound")
 // ErrExperimentNotRunning is returned when trying to stop an experiment that is not running.
 var ErrExperimentNotRunning = errors.New("ExperimentNotRunning")
 
+// ErrResourceNotFound is returned when a tagged resource ARN is not known.
+var ErrResourceNotFound = errors.New("ResourceNotFound")
+
 // ----------------------------------------
 // Status constants
 // ----------------------------------------
@@ -234,7 +237,9 @@ func (b *InMemoryBackend) GetExperimentTemplate(id string) (*ExperimentTemplate,
 		return nil, fmt.Errorf("%w: %s", ErrTemplateNotFound, id)
 	}
 
-	return tpl, nil
+	cp := cloneTemplate(tpl)
+
+	return cp, nil
 }
 
 // UpdateExperimentTemplate updates an existing experiment template.
@@ -283,7 +288,7 @@ func (b *InMemoryBackend) UpdateExperimentTemplate(
 
 	tpl.LastUpdateTime = time.Now()
 
-	return tpl, nil
+	return cloneTemplate(tpl), nil
 }
 
 // DeleteExperimentTemplate deletes an experiment template by ID.
@@ -307,7 +312,7 @@ func (b *InMemoryBackend) ListExperimentTemplates() ([]*ExperimentTemplate, erro
 
 	result := make([]*ExperimentTemplate, 0, len(b.templates))
 	for _, tpl := range b.templates {
-		result = append(result, tpl)
+		result = append(result, cloneTemplate(tpl))
 	}
 
 	return result, nil
@@ -419,7 +424,7 @@ func (b *InMemoryBackend) StartExperiment(
 	// Run the experiment lifecycle in the background.
 	go b.runExperiment(expCtx, id, tpl)
 
-	return exp, nil
+	return cloneExperiment(exp), nil
 }
 
 // GetExperiment retrieves an experiment by ID.
@@ -432,7 +437,7 @@ func (b *InMemoryBackend) GetExperiment(id string) (*Experiment, error) {
 		return nil, fmt.Errorf("%w: %s", ErrExperimentNotFound, id)
 	}
 
-	return exp, nil
+	return cloneExperiment(exp), nil
 }
 
 // StopExperiment stops a running experiment.
@@ -457,9 +462,10 @@ func (b *InMemoryBackend) StopExperiment(id string) (*Experiment, error) {
 		exp.cancel()
 	}
 
+	snap := cloneExperiment(exp)
 	b.mu.Unlock()
 
-	return exp, nil
+	return snap, nil
 }
 
 // ListExperiments returns all experiments.
@@ -469,7 +475,7 @@ func (b *InMemoryBackend) ListExperiments() ([]*Experiment, error) {
 
 	result := make([]*Experiment, 0, len(b.experiments))
 	for _, exp := range b.experiments {
-		result = append(result, exp)
+		result = append(result, cloneExperiment(exp))
 	}
 
 	return result, nil
@@ -585,7 +591,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 		}
 	}
 
-	return map[string]string{}, nil
+	return nil, fmt.Errorf("%w: %s", ErrResourceNotFound, resourceARN)
 }
 
 // TagResource adds or updates tags on a resource.
@@ -619,7 +625,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		}
 	}
 
-	return nil
+	return fmt.Errorf("%w: %s", ErrResourceNotFound, resourceARN)
 }
 
 // UntagResource removes specific tags from a resource.
@@ -649,7 +655,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 		}
 	}
 
-	return nil
+	return fmt.Errorf("%w: %s", ErrResourceNotFound, resourceARN)
 }
 
 // ----------------------------------------
@@ -671,22 +677,36 @@ func (b *InMemoryBackend) runExperiment(ctx context.Context, expID string, tpl *
 	}
 
 	// Execute external service actions (EC2 stop, etc.).
+	failed := false
+
 	for _, ea := range externalActions {
-		b.executeExternalAction(ctx, ea)
+		if err := b.executeExternalAction(ctx, ea); err != nil {
+			b.markExperimentFailed(expID, err.Error())
+			failed = true
+
+			break
+		}
+	}
+
+	if failed {
+		b.cleanupActions(faultRules, expID, statusFailed, actionStatusFailed)
+
+		return
 	}
 
 	// Wait for duration, stop signal, or context cancellation.
-	var timer <-chan time.Time
+	// If maxDuration is 0 (e.g. all actions are immediate/non-timed), complete right away.
+	if maxDuration == 0 {
+		b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
 
-	if maxDuration > 0 {
-		timer = time.After(maxDuration)
+		return
 	}
 
 	select {
 	case <-ctx.Done():
 		// Manually stopped or context cancelled.
 		b.cleanupActions(faultRules, expID, statusStopped, actionStatusStopped)
-	case <-timer:
+	case <-time.After(maxDuration):
 		// All actions completed naturally.
 		b.cleanupActions(faultRules, expID, statusCompleted, actionStatusCompleted)
 	}
@@ -735,7 +755,8 @@ type externalAction struct {
 }
 
 // executeExternalAction calls the appropriate FISActionProvider for a non-built-in action.
-func (b *InMemoryBackend) executeExternalAction(ctx context.Context, ea externalAction) {
+// Returns an error if the provider reports a failure.
+func (b *InMemoryBackend) executeExternalAction(ctx context.Context, ea externalAction) error {
 	b.mu.RLock()
 	providers := b.actionProviders
 	b.mu.RUnlock()
@@ -761,12 +782,12 @@ func (b *InMemoryBackend) executeExternalAction(ctx context.Context, ea external
 	for _, p := range providers {
 		for _, def := range p.FISActions() {
 			if def.ActionID == ea.actionID {
-				_ = p.ExecuteFISAction(ctx, exec)
-
-				return
+				return p.ExecuteFISAction(ctx, exec)
 			}
 		}
 	}
+
+	return nil
 }
 
 // cleanupActions removes fault rules and sets the final experiment status.
@@ -827,9 +848,173 @@ func (b *InMemoryBackend) getFaultStore() *chaos.FaultStore {
 	return b.faultStore
 }
 
+// markExperimentFailed sets an experiment and all its actions to failed with a reason.
+func (b *InMemoryBackend) markExperimentFailed(expID, reason string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	exp, ok := b.experiments[expID]
+	if !ok {
+		return
+	}
+
+	now := time.Now()
+	exp.Status = ExperimentStatus{Status: statusFailed, Reason: reason}
+	exp.EndTime = &now
+
+	for name, action := range exp.Actions {
+		if action.Status.Status == actionStatusRunning || action.Status.Status == actionStatusPending {
+			action.Status = ExperimentActionStatus{Status: actionStatusFailed, Reason: reason}
+			endTime := now
+			action.EndTime = &endTime
+			exp.Actions[name] = action
+		}
+	}
+}
+
 // ----------------------------------------
-// Conversion helpers
+// Deep copy helpers
 // ----------------------------------------
+
+// cloneTemplate returns a deep copy of an ExperimentTemplate.
+func cloneTemplate(tpl *ExperimentTemplate) *ExperimentTemplate {
+	cp := *tpl
+
+	cp.Tags = copyStringMap(tpl.Tags)
+
+	if tpl.Targets != nil {
+		cp.Targets = make(map[string]ExperimentTemplateTarget, len(tpl.Targets))
+
+		for k, v := range tpl.Targets {
+			t := v
+			t.ResourceArns = append([]string(nil), v.ResourceArns...)
+			t.ResourceTags = copyStringMap(v.ResourceTags)
+			t.Parameters = copyStringMap(v.Parameters)
+
+			filters := make([]ExperimentTemplateTargetFilter, len(v.Filters))
+			for i, f := range v.Filters {
+				filters[i] = ExperimentTemplateTargetFilter{
+					Path:   f.Path,
+					Values: append([]string(nil), f.Values...),
+				}
+			}
+
+			t.Filters = filters
+			cp.Targets[k] = t
+		}
+	}
+
+	if tpl.Actions != nil {
+		cp.Actions = make(map[string]ExperimentTemplateAction, len(tpl.Actions))
+
+		for k, v := range tpl.Actions {
+			a := v
+			a.Parameters = copyStringMap(v.Parameters)
+			a.Targets = copyStringMap(v.Targets)
+			a.StartAfter = append([]string(nil), v.StartAfter...)
+			cp.Actions[k] = a
+		}
+	}
+
+	if tpl.StopConditions != nil {
+		cp.StopConditions = append([]ExperimentTemplateStopCondition(nil), tpl.StopConditions...)
+	}
+
+	if tpl.LogConfiguration != nil {
+		lc := *tpl.LogConfiguration
+		if tpl.LogConfiguration.CloudWatchLogsConfiguration != nil {
+			cwl := *tpl.LogConfiguration.CloudWatchLogsConfiguration
+			lc.CloudWatchLogsConfiguration = &cwl
+		}
+
+		if tpl.LogConfiguration.S3Configuration != nil {
+			s3 := *tpl.LogConfiguration.S3Configuration
+			lc.S3Configuration = &s3
+		}
+
+		cp.LogConfiguration = &lc
+	}
+
+	if tpl.ExperimentOptions != nil {
+		opt := *tpl.ExperimentOptions
+		cp.ExperimentOptions = &opt
+	}
+
+	return &cp
+}
+
+// cloneExperiment returns a snapshot of an Experiment safe to return outside the lock.
+// The cancel field is intentionally NOT copied.
+func cloneExperiment(exp *Experiment) *Experiment {
+	cp := *exp
+	cp.cancel = nil
+
+	cp.Tags = copyStringMap(exp.Tags)
+
+	if exp.Targets != nil {
+		cp.Targets = make(map[string]ExperimentTarget, len(exp.Targets))
+
+		for k, v := range exp.Targets {
+			t := v
+			t.ResourceArns = append([]string(nil), v.ResourceArns...)
+			t.Parameters = copyStringMap(v.Parameters)
+			cp.Targets[k] = t
+		}
+	}
+
+	if exp.Actions != nil {
+		cp.Actions = make(map[string]ExperimentAction, len(exp.Actions))
+
+		for k, v := range exp.Actions {
+			a := v
+			a.Parameters = copyStringMap(v.Parameters)
+			a.Targets = copyStringMap(v.Targets)
+
+			if v.StartTime != nil {
+				st := *v.StartTime
+				a.StartTime = &st
+			}
+
+			if v.EndTime != nil {
+				et := *v.EndTime
+				a.EndTime = &et
+			}
+
+			cp.Actions[k] = a
+		}
+	}
+
+	if exp.StopConditions != nil {
+		cp.StopConditions = append([]ExperimentStopCondition(nil), exp.StopConditions...)
+	}
+
+	if exp.EndTime != nil {
+		et := *exp.EndTime
+		cp.EndTime = &et
+	}
+
+	if exp.LogConfiguration != nil {
+		lc := *exp.LogConfiguration
+		if exp.LogConfiguration.CloudWatchLogsConfiguration != nil {
+			cwl := *exp.LogConfiguration.CloudWatchLogsConfiguration
+			lc.CloudWatchLogsConfiguration = &cwl
+		}
+
+		if exp.LogConfiguration.S3Configuration != nil {
+			s3 := *exp.LogConfiguration.S3Configuration
+			lc.S3Configuration = &s3
+		}
+
+		cp.LogConfiguration = &lc
+	}
+
+	if exp.ExperimentOptions != nil {
+		opt := *exp.ExperimentOptions
+		cp.ExperimentOptions = &opt
+	}
+
+	return &cp
+}
 
 func copyStringMap(m map[string]string) map[string]string {
 	if m == nil {

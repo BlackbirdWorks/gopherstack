@@ -823,7 +823,11 @@ func TestFISHandler_UpdateTemplate_InvalidJSON(t *testing.T) {
 	mustJSON(t, rec, &createResp)
 
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodPatch, "/experimentTemplates/"+createResp.ExperimentTemplate.ID, bytes.NewReader([]byte("not-json")))
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/experimentTemplates/"+createResp.ExperimentTemplate.ID,
+		bytes.NewReader([]byte("not-json")),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	rec2 := httptest.NewRecorder()
 	c := e.NewContext(req, rec2)
@@ -843,7 +847,11 @@ func TestFISHandler_TagResource_InvalidJSON(t *testing.T) {
 	h := newTestHandler(t)
 
 	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/tags/arn:aws:fis:us-east-1:000:experiment-template/EXTabc", bytes.NewReader([]byte("not-json")))
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/tags/arn:aws:fis:us-east-1:000:experiment-template/EXTabc",
+		bytes.NewReader([]byte("not-json")),
+	)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -991,4 +999,111 @@ func TestFISProvider_Init(t *testing.T) {
 	reg, err := p.Init(&service.AppContext{})
 	require.NoError(t, err)
 	require.NotNil(t, reg)
+}
+
+// ----------------------------------------
+// Tag resource not found tests
+// ----------------------------------------
+
+func TestFISHandler_TagResource_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Tagging a non-existent ARN should return 404.
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/tags/arn:aws:fis:us-east-1:000:experiment-template/EXTdoesnotexist",
+		map[string]any{
+			"tags": map[string]string{"key": "val"},
+		},
+	)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFISHandler_UntagResource_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(
+		t,
+		h,
+		http.MethodDelete,
+		"/tags/arn:aws:fis:us-east-1:000:experiment-template/EXTdoesnotexist?tagKeys=key",
+		nil,
+	)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestFISHandler_ListTags_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodGet, "/tags/arn:aws:fis:us-east-1:000:experiment-template/EXTdoesnotexist", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// ----------------------------------------
+// Experiment completes when no timed actions (maxDuration == 0)
+// ----------------------------------------
+
+func TestFISHandler_ExperimentCompletes_NoTimedActions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Template with no actions → maxDuration is 0, should complete immediately.
+	rec := doRequest(t, h, http.MethodPost, "/experimentTemplates", map[string]any{
+		"stopConditions": []map[string]any{{"source": "none"}},
+		"targets":        map[string]any{},
+		"actions":        map[string]any{},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var tplResp struct {
+		ExperimentTemplate struct {
+			ID string `json:"id"`
+		} `json:"experimentTemplate"`
+	}
+
+	mustJSON(t, rec, &tplResp)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/experiments", map[string]any{
+		"experimentTemplateId": tplResp.ExperimentTemplate.ID,
+	})
+	require.Equal(t, http.StatusCreated, rec2.Code)
+
+	var expResp struct {
+		Experiment struct {
+			ID string `json:"id"`
+		} `json:"experiment"`
+	}
+
+	mustJSON(t, rec2, &expResp)
+	expID := expResp.Experiment.ID
+
+	require.Eventually(t, func() bool {
+		rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expID, nil)
+		if rec3.Code != http.StatusOK {
+			return false
+		}
+
+		var resp struct {
+			Experiment struct {
+				Status struct {
+					Status string `json:"status"`
+				} `json:"status"`
+			} `json:"experiment"`
+		}
+
+		if err := json.Unmarshal(rec3.Body.Bytes(), &resp); err != nil {
+			return false
+		}
+
+		return resp.Experiment.Status.Status == "completed"
+	}, 5*time.Second, 50*time.Millisecond)
 }

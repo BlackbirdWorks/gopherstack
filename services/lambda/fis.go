@@ -2,8 +2,11 @@ package lambda
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math/rand/v2"
+	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,8 +20,6 @@ const (
 	lambdaFISDivisor = 100.0
 	// lambdaARNFuncParts is the expected number of parts after splitting on ":function:".
 	lambdaARNFuncParts = 2
-	// decimalBase is the base for decimal integer parsing.
-	decimalBase = 10
 )
 
 // ErrFISInvocationError is returned when a FIS invocation-error action is active for a function.
@@ -129,13 +130,15 @@ func (h *Handler) activateLambdaInvocationDelay(
 	action service.FISActionExecution,
 ) error {
 	delayMs := parseInvocationDelayMs(action.Parameters["invocationDelayMilliseconds"])
+	prob := parseInvocationPercentage(action.Parameters["percentage"])
 	expiry := expiryFromDuration(action.Duration)
 
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		for _, name := range names {
 			b.setFISFault(name, &FISInvocationFault{
-				AddDelayMs: delayMs,
-				Expiry:     expiry,
+				AddDelayMs:       delayMs,
+				ErrorProbability: prob,
+				Expiry:           expiry,
 			})
 		}
 
@@ -256,6 +259,8 @@ func functionNamesFromARNs(arns []string) []string {
 }
 
 // parseInvocationPercentage converts a percentage string (0-100) to a probability (0.0-1.0).
+// An empty or invalid string defaults to 100% (1.0). Negative values also default to 1.0.
+// An explicit "0" returns 0.0 (disable fault injection for 0%).
 func parseInvocationPercentage(s string) float64 {
 	if s == "" {
 		return 1.0
@@ -267,7 +272,7 @@ func parseInvocationPercentage(s string) float64 {
 		return 1.0
 	}
 
-	if v <= 0 {
+	if v < 0 {
 		return 1.0
 	}
 
@@ -292,14 +297,9 @@ func parseInvocationDelayMs(s string) int {
 }
 
 func parseIntSafe(s string, out *int) error {
-	var v int
-
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return errNotAnInteger
-		}
-
-		v = v*decimalBase + int(c-'0')
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return errNotAnInteger
 	}
 
 	*out = v
@@ -314,4 +314,39 @@ func expiryFromDuration(d time.Duration) time.Time {
 	}
 
 	return time.Now().Add(d)
+}
+
+// applyFISFaultToInvocation checks FIS fault state for a function invocation.
+// Returns a non-nil payload/error when a fault should short-circuit the invocation.
+// When (nil, 0, nil) is returned, the invocation should proceed normally.
+func (b *InMemoryBackend) applyFISFaultToInvocation(
+	ctx context.Context,
+	name string,
+) ([]byte, int, error) {
+	delay, faultErr := b.applyFISFault(name)
+
+	if faultErr != nil {
+		// Invocation-level faults keep the transport successful (HTTP 200) and surface
+		// the error via the function error payload, matching real Lambda behavior.
+		if errors.Is(faultErr, ErrFISInvocationError) {
+			errPayload, _ := json.Marshal(map[string]string{
+				"errorMessage": faultErr.Error(),
+				"errorType":    "FISFaultInjection",
+			})
+
+			return errPayload, http.StatusOK, nil
+		}
+
+		return nil, http.StatusInternalServerError, faultErr
+	}
+
+	if delay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, http.StatusInternalServerError, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+
+	return nil, 0, nil
 }

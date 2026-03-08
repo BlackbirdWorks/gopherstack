@@ -1075,14 +1075,9 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	}
 
 	// Check FIS fault injection state for this function.
-	if delay, faultErr := b.applyFISFault(fn.FunctionName); faultErr != nil {
-		return nil, http.StatusInternalServerError, faultErr
-	} else if delay > 0 {
-		select {
-		case <-ctx.Done():
-			return nil, http.StatusInternalServerError, ctx.Err()
-		case <-time.After(delay):
-		}
+	fisPayload, fisStatus, fisErr := b.applyFISFaultToInvocation(ctx, fn.FunctionName)
+	if fisPayload != nil || fisErr != nil {
+		return fisPayload, fisStatus, fisErr
 	}
 
 	// Enforce reserved concurrency limits.

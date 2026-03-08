@@ -425,7 +425,7 @@ func (h *Handler) handleTagResource(c *echo.Context, arnStr string, body []byte)
 	}
 
 	if err := h.Backend.TagResource(arnStr, input.Tags); err != nil {
-		return h.writeError(c, http.StatusInternalServerError, err.Error(), arnStr)
+		return h.writeBackendError(c, err, arnStr)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -434,7 +434,7 @@ func (h *Handler) handleTagResource(c *echo.Context, arnStr string, body []byte)
 func (h *Handler) handleUntagResource(c *echo.Context, arnStr string, query url.Values) error {
 	keys := query["tagKeys"]
 	if err := h.Backend.UntagResource(arnStr, keys); err != nil {
-		return h.writeError(c, http.StatusInternalServerError, err.Error(), arnStr)
+		return h.writeBackendError(c, err, arnStr)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -443,7 +443,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, arnStr string, query url.
 func (h *Handler) handleListTagsForResource(c *echo.Context, arnStr string) error {
 	tags, err := h.Backend.ListTagsForResource(arnStr)
 	if err != nil {
-		return h.writeError(c, http.StatusInternalServerError, err.Error(), arnStr)
+		return h.writeBackendError(c, err, arnStr)
 	}
 
 	return c.JSON(http.StatusOK, tagsResponseDTO{Tags: tags})
@@ -467,6 +467,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error, id string) error
 		return h.writeError(c, http.StatusNotFound, err.Error(), id)
 	case errors.Is(err, ErrExperimentNotRunning):
 		return h.writeError(c, http.StatusConflict, err.Error(), id)
+	case errors.Is(err, ErrResourceNotFound):
+		return h.writeError(c, http.StatusNotFound, err.Error(), id)
 	default:
 		return h.writeError(c, http.StatusInternalServerError, err.Error(), id)
 	}
