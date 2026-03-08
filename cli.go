@@ -802,7 +802,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	wireEventBridgeDelivery(byName["EventBridge"], byName["Lambda"], byName["SQS"], byName["SNS"])
 
 	// Wire S3 bucket notification delivery to SQS/SNS/Lambda targets.
-	wireS3Notifications(byName["S3"], byName["SQS"], byName["SNS"], byName["Lambda"])
+	wireS3Notifications(byName["S3"], byName["SQS"], byName["SNS"], byName["Lambda"], byName["EventBridge"])
 
 	// Wire Step Functions → Lambda Task integration.
 	wireStepFunctionsLambda(byName["StepFunctions"], byName["Lambda"])
@@ -1029,9 +1029,9 @@ func (a *snsPublisherAdapter) PublishToTopic(_ context.Context, topicARN, messag
 	return err
 }
 
-// wireS3Notifications connects the S3 handler to SQS, SNS, and Lambda backends so that
+// wireS3Notifications connects the S3 handler to SQS, SNS, Lambda, and EventBridge backends so that
 // bucket notification configurations are honoured on PutObject, CopyObject, DeleteObject, and CompleteMultipartUpload.
-func wireS3Notifications(s3Reg, sqsReg, snsReg, lambdaReg service.Registerable) {
+func wireS3Notifications(s3Reg, sqsReg, snsReg, lambdaReg, ebReg service.Registerable) {
 	s3H, ok := s3Reg.(*s3backend.S3Handler)
 	if !ok {
 		return
@@ -1057,6 +1057,12 @@ func wireS3Notifications(s3Reg, sqsReg, snsReg, lambdaReg service.Registerable) 
 		}
 	}
 
+	if ebH, ebOk := ebReg.(*ebbackend.Handler); ebOk {
+		if ebBk, bkOk := ebH.Backend.(*ebbackend.InMemoryBackend); bkOk {
+			targets.EventBridgePublisher = &s3EventBridgeAdapter{backend: ebBk}
+		}
+	}
+
 	s3H.SetNotificationDispatcher(s3backend.NewNotificationDispatcher(targets, config.DefaultRegion))
 }
 
@@ -1069,6 +1075,17 @@ func (a *s3SNSPublisherAdapter) PublishToTopic(_ context.Context, topicARN, mess
 	_, err := a.backend.Publish(topicARN, message, "", "", nil)
 
 	return err
+}
+
+// s3EventBridgeAdapter adapts the EventBridge backend to the s3.EventBridgePublisher interface.
+type s3EventBridgeAdapter struct {
+	backend *ebbackend.InMemoryBackend
+}
+
+func (a *s3EventBridgeAdapter) PublishS3Event(_ context.Context, source, detailType, detail string) {
+	a.backend.PutEvents([]ebbackend.EventEntry{
+		{Source: source, DetailType: detailType, Detail: detail},
+	})
 }
 
 // wireAPIGatewayLambda connects the API Gateway handler to the Lambda backend

@@ -8,16 +8,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // notificationConfiguration mirrors the AWS S3 XML notification configuration
 // stored in StoredBucket.NotificationConfig.
 type notificationConfiguration struct {
-	QueueConfigurations  []queueConfiguration  `xml:"QueueConfiguration"`
-	TopicConfigurations  []topicConfiguration  `xml:"TopicConfiguration"`
-	LambdaConfigurations []lambdaConfiguration `xml:"CloudFunctionConfiguration"`
+	EventBridgeConfiguration *eventBridgeConfiguration `xml:"EventBridgeConfiguration"`
+	QueueConfigurations      []queueConfiguration      `xml:"QueueConfiguration"`
+	TopicConfigurations      []topicConfiguration      `xml:"TopicConfiguration"`
+	LambdaConfigurations     []lambdaConfiguration     `xml:"CloudFunctionConfiguration"`
 }
+
+// eventBridgeConfiguration represents the EventBridge notification configuration element.
+// Its presence (non-nil) enables delivery of all S3 events to the default EventBridge event bus.
+type eventBridgeConfiguration struct{}
 
 type queueConfiguration struct {
 	QueueID string             `xml:"Id"`
@@ -79,17 +86,22 @@ func keyMatchesFilter(key string, filter notificationFilter) bool {
 
 // NotificationDispatcher delivers S3 event notifications to configured targets.
 type NotificationDispatcher interface {
-	// DispatchObjectCreated sends an s3:ObjectCreated notification for the given object.
+	// DispatchObjectCreated sends an s3:ObjectCreated:Put notification for a PutObject operation.
 	DispatchObjectCreated(ctx context.Context, bucket, key, etag string, size int64, notifXML string)
+	// DispatchObjectCopied sends an s3:ObjectCreated:Copy notification for a CopyObject operation.
+	DispatchObjectCopied(ctx context.Context, bucket, key, etag string, size int64, notifXML string)
+	// DispatchObjectCompleted sends an s3:ObjectCreated:CompleteMultipartUpload notification.
+	DispatchObjectCompleted(ctx context.Context, bucket, key, etag string, size int64, notifXML string)
 	// DispatchObjectDeleted sends an s3:ObjectRemoved notification for the given object.
 	DispatchObjectDeleted(ctx context.Context, bucket, key, notifXML string)
 }
 
 // NotificationTargets holds concrete delivery clients for each supported target type.
 type NotificationTargets struct {
-	SQSSender     SQSSender
-	SNSPublisher  SNSPublisher
-	LambdaInvoker LambdaInvoker
+	SQSSender            SQSSender
+	SNSPublisher         SNSPublisher
+	LambdaInvoker        LambdaInvoker
+	EventBridgePublisher EventBridgePublisher
 }
 
 // SQSSender sends a message body to an SQS queue identified by ARN.
@@ -105,6 +117,11 @@ type SNSPublisher interface {
 // LambdaInvoker invokes a Lambda function by name or ARN with a JSON payload.
 type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+}
+
+// EventBridgePublisher publishes an S3 event to the default EventBridge event bus.
+type EventBridgePublisher interface {
+	PublishS3Event(ctx context.Context, source, detailType, detail string)
 }
 
 // s3EventRecord is the standard AWS S3 event notification record structure.
@@ -169,6 +186,89 @@ func buildS3EventPayload(eventName, configID, region, bucket, key, etag string, 
 	return string(b), nil
 }
 
+// ebDetail is the EventBridge event detail for S3 events.
+type ebDetail struct {
+	Bucket          ebDetailBucket `json:"bucket"`
+	Version         string         `json:"version"`
+	RequestID       string         `json:"request-id"`
+	Requester       string         `json:"requester,omitempty"`
+	SourceIPAddress string         `json:"source-ip-address,omitempty"`
+	Reason          string         `json:"reason"`
+	Object          ebDetailObject `json:"object"`
+}
+
+type ebDetailBucket struct {
+	Name string `json:"name"`
+}
+
+type ebDetailObject struct {
+	ETag      string `json:"etag,omitempty"`
+	Key       string `json:"key"`
+	Sequencer string `json:"sequencer"`
+	Size      int64  `json:"size,omitempty"`
+}
+
+// buildEventBridgeDetail constructs the EventBridge event detail JSON for an S3 event.
+func buildEventBridgeDetail(bucket, key, etag, reason string, size int64) (string, error) {
+	detail := ebDetail{
+		Version: "0",
+		Bucket:  ebDetailBucket{Name: bucket},
+		Object: ebDetailObject{
+			Key:       key,
+			ETag:      etag,
+			Size:      size,
+			Sequencer: fmt.Sprintf("%016X", time.Now().UnixNano()),
+		},
+		RequestID: uuid.New().String(),
+		Reason:    reason,
+	}
+
+	b, err := json.Marshal(detail)
+	if err != nil {
+		return "", err
+	}
+
+	return string(b), nil
+}
+
+// detailTypeFromEventName maps an S3 event name to the EventBridge detail-type string.
+func detailTypeFromEventName(eventName string) string {
+	switch {
+	case strings.HasPrefix(eventName, "s3:ObjectCreated:"):
+		return "Object Created"
+	case strings.HasPrefix(eventName, "s3:ObjectRemoved:"):
+		return "Object Deleted"
+	case strings.HasPrefix(eventName, "s3:ObjectRestore:"):
+		return "Object Restore Initiated"
+	default:
+		return "S3 Event"
+	}
+}
+
+// reasonFromEventName derives the AWS-style operation reason from an S3 event name
+// (e.g. "s3:ObjectCreated:Put" → "PutObject").
+func reasonFromEventName(eventName string) string {
+	const minEventParts = 3 // S3 event names have format "s3:Category:Operation"
+
+	parts := strings.Split(eventName, ":")
+	if len(parts) < minEventParts {
+		return eventName
+	}
+
+	switch parts[2] {
+	case "Put":
+		return "PutObject"
+	case "Copy":
+		return "CopyObject"
+	case "CompleteMultipartUpload":
+		return "CompleteMultipartUpload"
+	case "Delete", "DeleteMarkerCreated":
+		return "DeleteObject"
+	default:
+		return parts[2]
+	}
+}
+
 // eventMatches returns true when the event name matches the rule event pattern.
 // AWS event patterns use wildcards like "s3:ObjectCreated:*".
 func eventMatches(pattern, eventName string) bool {
@@ -204,6 +304,24 @@ func (d *inMemoryNotificationDispatcher) DispatchObjectCreated(
 	d.dispatch(ctx, "s3:ObjectCreated:Put", bucket, key, etag, size, notifXML)
 }
 
+func (d *inMemoryNotificationDispatcher) DispatchObjectCopied(
+	ctx context.Context,
+	bucket, key, etag string,
+	size int64,
+	notifXML string,
+) {
+	d.dispatch(ctx, "s3:ObjectCreated:Copy", bucket, key, etag, size, notifXML)
+}
+
+func (d *inMemoryNotificationDispatcher) DispatchObjectCompleted(
+	ctx context.Context,
+	bucket, key, etag string,
+	size int64,
+	notifXML string,
+) {
+	d.dispatch(ctx, "s3:ObjectCreated:CompleteMultipartUpload", bucket, key, etag, size, notifXML)
+}
+
 func (d *inMemoryNotificationDispatcher) DispatchObjectDeleted(
 	ctx context.Context,
 	bucket, key, notifXML string,
@@ -236,6 +354,10 @@ func (d *inMemoryNotificationDispatcher) dispatch(
 
 	for _, lc := range cfg.LambdaConfigurations {
 		d.dispatchToLambda(ctx, lc, eventName, bucket, key, etag, size)
+	}
+
+	if cfg.EventBridgeConfiguration != nil {
+		d.dispatchToEventBridge(ctx, eventName, bucket, key, etag, size)
 	}
 }
 
@@ -308,4 +430,24 @@ func matchesAnyEvent(patterns []string, eventName string) bool {
 	}
 
 	return false
+}
+
+func (d *inMemoryNotificationDispatcher) dispatchToEventBridge(
+	ctx context.Context,
+	eventName, bucket, key, etag string,
+	size int64,
+) {
+	if d.targets == nil || d.targets.EventBridgePublisher == nil {
+		return
+	}
+
+	detailType := detailTypeFromEventName(eventName)
+	reason := reasonFromEventName(eventName)
+
+	detail, err := buildEventBridgeDetail(bucket, key, etag, reason, size)
+	if err != nil {
+		return
+	}
+
+	d.targets.EventBridgePublisher.PublishS3Event(ctx, "aws.s3", detailType, detail)
 }

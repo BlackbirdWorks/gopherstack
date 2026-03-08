@@ -1451,6 +1451,22 @@ func (m *mockNotificationDispatcher) DispatchObjectCreated(
 	m.created = append(m.created, notificationEvent{bucket: bucket, key: key, notifXML: notifXML})
 }
 
+func (m *mockNotificationDispatcher) DispatchObjectCopied(
+	_ context.Context, bucket, key, _ string, _ int64, notifXML string,
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.created = append(m.created, notificationEvent{bucket: bucket, key: key, notifXML: notifXML})
+}
+
+func (m *mockNotificationDispatcher) DispatchObjectCompleted(
+	_ context.Context, bucket, key, _ string, _ int64, notifXML string,
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.created = append(m.created, notificationEvent{bucket: bucket, key: key, notifXML: notifXML})
+}
+
 func (m *mockNotificationDispatcher) DispatchObjectDeleted(
 	_ context.Context, bucket, key, notifXML string,
 ) {

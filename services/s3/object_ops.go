@@ -455,7 +455,7 @@ func (h *S3Handler) copyObject(
 			destBucket,
 		); ncErr == nil && notifXML != "" {
 			size := aws.ToInt64(destVer.Size)
-			go h.notifier.DispatchObjectCreated(context.WithoutCancel(ctx), destBucket, destKey, etag, size, notifXML)
+			go h.notifier.DispatchObjectCopied(context.WithoutCancel(ctx), destBucket, destKey, etag, size, notifXML)
 		}
 	}
 
