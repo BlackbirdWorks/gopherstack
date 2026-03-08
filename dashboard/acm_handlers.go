@@ -123,7 +123,7 @@ func (h *DashboardHandler) acmRequestCertificate(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if _, err := h.ACMOps.Backend.RequestCertificate(domainName, ""); err != nil {
+	if _, err := h.ACMOps.Backend.RequestCertificate(domainName, "", "", nil); err != nil {
 		h.Logger.Error("failed to request ACM certificate", "domain", domainName, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)
