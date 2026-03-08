@@ -24,7 +24,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *acm.InMemoryBackend) string {
-				cert, err := b.RequestCertificate("example.com", "AMAZON_ISSUED")
+				cert, err := b.RequestCertificate("example.com", "AMAZON_ISSUED", "", nil)
 				if err != nil {
 					return ""
 				}
@@ -38,6 +38,31 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "example.com", cert.DomainName)
 				assert.Equal(t, id, cert.ARN)
+				assert.NotEmpty(t, cert.CertificateBody, "CertificateBody should be persisted")
+			},
+		},
+		{
+			name: "round_trip_preserves_imported_cert",
+			setup: func(b *acm.InMemoryBackend) string {
+				src, err := b.RequestCertificate("imported.example.com", "", "", nil)
+				if err != nil {
+					return ""
+				}
+				imported, err := b.ImportCertificate(src.CertificateBody, src.PrivateKey, "")
+				if err != nil {
+					return ""
+				}
+
+				return imported.ARN
+			},
+			verify: func(t *testing.T, b *acm.InMemoryBackend, id string) {
+				t.Helper()
+
+				cert, err := b.DescribeCertificate(id)
+				require.NoError(t, err)
+				assert.Equal(t, "IMPORTED", cert.Type)
+				assert.NotEmpty(t, cert.CertificateBody)
+				assert.NotEmpty(t, cert.PrivateKey)
 			},
 		},
 		{
@@ -85,7 +110,7 @@ func TestACMHandler_Persistence(t *testing.T) {
 	h := acm.NewHandler(backend)
 
 	// Create a cert
-	_, err := backend.RequestCertificate("example.com", "AMAZON_ISSUED")
+	_, err := backend.RequestCertificate("example.com", "AMAZON_ISSUED", "", nil)
 	require.NoError(t, err)
 
 	// Test Handler.Snapshot/Restore delegation
