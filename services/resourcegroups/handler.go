@@ -95,6 +95,15 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "resource-groups" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this Resource Groups instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
+
 // isResourceTagsPath reports whether path matches the pattern /resources/{Arn}/tags.
 // The ARN segment must be non-empty, so the path must be longer than "/resources/" + "/tags".
 func isResourceTagsPath(path string) bool {

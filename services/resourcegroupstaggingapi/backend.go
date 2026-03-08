@@ -60,6 +60,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Region returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string { return b.region }
+
 // RegisterProvider adds a tagged-resource provider to the registry.
 // Providers are called in registration order on every GetResources request.
 func (b *InMemoryBackend) RegisterProvider(p ResourceProvider) {

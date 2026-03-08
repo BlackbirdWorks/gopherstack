@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -70,6 +71,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UntagResource",
 	}
 }
+
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "ecr" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this ECR instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // isRegistryPath returns true when path is exactly "/v2" or starts with "/v2/".
 // This prevents false matches against unrelated paths like "/v20180820/..." (S3Control).

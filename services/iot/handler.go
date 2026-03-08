@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -50,6 +51,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeEndpoint",
 	}
 }
+
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "iot" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this IoT instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // RouteMatcher returns a function matching IoT control-plane requests by path prefix.
 func (h *Handler) RouteMatcher() service.Matcher {

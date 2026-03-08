@@ -86,6 +86,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Region returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string { return b.region }
+
 // RequestCertificate creates a new certificate for the given domain.
 // When validationMethod is "DNS" or "EMAIL" the certificate starts in
 // PENDING_VALIDATION and automatically transitions to ISSUED after a short delay.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -343,6 +344,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteRequestValidator",
 	}
 }
+
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "apigateway" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this API Gateway instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // RouteMatcher returns a matcher for API Gateway requests.
 // Matches both X-Amz-Target (JSON protocol) and REST API paths (/restapis/...).

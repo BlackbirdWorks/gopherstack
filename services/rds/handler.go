@@ -80,6 +80,15 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "rds" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this RDS instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
+
 // RouteMatcher returns a function that matches RDS requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {

@@ -53,6 +53,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Region returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string { return b.region }
+
 // CreateSchedule creates a new schedule.
 // The Tags field in the returned Schedule points to the backend-owned Tags
 // collection; callers should treat it as read-only.

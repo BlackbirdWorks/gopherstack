@@ -62,6 +62,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Region returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string { return b.region }
+
 const dirPrefixLen = 2
 
 func (b *InMemoryBackend) CreateResolverEndpoint(

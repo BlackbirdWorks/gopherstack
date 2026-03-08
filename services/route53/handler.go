@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -111,6 +112,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetHealthCheckStatus",
 	}
 }
+
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "route53" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this Route53 instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // extractHealthCheckOperation maps a health-check path+method to an operation name.
 // Returns "" when the path does not match any health check route.

@@ -52,6 +52,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Region returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string { return b.region }
+
 // CreateGroup creates a new resource group.
 // The Tags field in the returned Group points to the backend-owned Tags
 // collection; callers should treat it as read-only.

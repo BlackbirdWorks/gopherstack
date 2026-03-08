@@ -51,6 +51,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Region returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string { return b.region }
+
 // SetDNSRegistrar wires a DNS server so Redshift cluster hostnames are auto-registered.
 func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 	b.mu.Lock("SetDNSRegistrar")
