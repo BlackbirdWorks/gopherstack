@@ -227,6 +227,7 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions returns all regions this ACM instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
+// RouteMatcher returns a function that matches ACM JSON-protocol requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		r := c.Request()

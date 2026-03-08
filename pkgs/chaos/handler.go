@@ -114,8 +114,23 @@ func (h *apiHandler) postEffects(c *echo.Context) error {
 }
 
 // getTargets returns all chaos-injectable targets discovered from the registry.
+// Entries that share the same ChaosServiceName are merged so that the response
+// contains one entry per logical AWS service, with all operations and regions
+// combined. This prevents duplicate entries when multiple handlers share the
+// same SigV4 signing service name (e.g. S3 and S3 Control both sign as "s3").
 func (h *apiHandler) getTargets(c *echo.Context) error {
-	var targets []serviceTarget
+	// Use an ordered key list so the response is deterministic.
+	var order []string
+
+	type mergedTarget struct {
+		opSeen     map[string]bool
+		regionSeen map[string]bool
+		name       string
+		ops        []string
+		regions    []string
+	}
+
+	merged := make(map[string]*mergedTarget)
 
 	for _, entry := range h.registry.GetAll() {
 		cp, ok := entry.Registerable.(service.ChaosProvider)
@@ -123,15 +138,42 @@ func (h *apiHandler) getTargets(c *echo.Context) error {
 			continue
 		}
 
-		targets = append(targets, serviceTarget{
-			Name:       cp.ChaosServiceName(),
-			Operations: cp.ChaosOperations(),
-			Regions:    cp.ChaosRegions(),
-		})
+		name := cp.ChaosServiceName()
+
+		t, exists := merged[name]
+		if !exists {
+			t = &mergedTarget{
+				name:       name,
+				opSeen:     make(map[string]bool),
+				regionSeen: make(map[string]bool),
+			}
+			merged[name] = t
+			order = append(order, name)
+		}
+
+		for _, op := range cp.ChaosOperations() {
+			if !t.opSeen[op] {
+				t.opSeen[op] = true
+				t.ops = append(t.ops, op)
+			}
+		}
+
+		for _, r := range cp.ChaosRegions() {
+			if !t.regionSeen[r] {
+				t.regionSeen[r] = true
+				t.regions = append(t.regions, r)
+			}
+		}
 	}
 
-	if targets == nil {
-		targets = []serviceTarget{}
+	targets := make([]serviceTarget, 0, len(order))
+	for _, name := range order {
+		mt := merged[name]
+		targets = append(targets, serviceTarget{
+			Name:       mt.name,
+			Operations: mt.ops,
+			Regions:    mt.regions,
+		})
 	}
 
 	return c.JSON(http.StatusOK, targetsResponse{Services: targets})
