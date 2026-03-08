@@ -566,6 +566,7 @@ func (h *Handler) handleAWSProxy(
 	for k, v := range lambdaResp.Headers {
 		w.Header().Set(k, v)
 	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	statusCode := lambdaResp.StatusCode
 	if statusCode == 0 {
@@ -640,6 +641,7 @@ func (h *Handler) handleAWSIntegration(
 	responseBody, statusCode := applyResponseTemplate(respBytes, integration, vtlCtx.RequestID)
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
 	_, _ = w.Write(responseBody) //nolint:gosec // G705: Lambda response bytes
 }
@@ -789,6 +791,7 @@ func (h *Handler) handleMockIntegration(w http.ResponseWriter, integration *Inte
 	statusCode, body := mockResponse(integration)
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
 	_, _ = w.Write([]byte(body)) //nolint:gosec // G705: body is API-definition-configured mock response, not user input
 }

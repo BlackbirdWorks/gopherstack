@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,6 +43,7 @@ var (
 	ErrBSValueMustBeSlice          = errors.New("BS value must be [][]byte")
 	ErrCurrentBSValueMustBeSlice   = errors.New("current BS value must be [][]byte")
 	ErrSetTypeMismatch             = errors.New("ADD: existing set type does not match the type being added")
+	ErrSetSizeOverflow             = errors.New("set size overflow")
 )
 
 // twoArgs is the expected argument count for two-argument functions.
@@ -851,6 +853,9 @@ func (e *Evaluator) addToStringSet(path []PathElement, curMap map[string]any, se
 	}
 
 	existing, _ := curMap[setKey].([]string)
+	if len(existing) > math.MaxInt-len(addSlice) {
+		return ErrSetSizeOverflow
+	}
 	merged := make([]string, len(existing)+len(addSlice))
 	copy(merged, existing)
 	copy(merged[len(existing):], addSlice)
@@ -882,6 +887,9 @@ func (e *Evaluator) addToBinarySet(path []PathElement, curMap map[string]any, to
 	}
 
 	existing, _ := curMap["BS"].([][]byte)
+	if len(existing) > math.MaxInt-len(addSlice) {
+		return ErrSetSizeOverflow
+	}
 	merged := make([][]byte, len(existing)+len(addSlice))
 	copy(merged, existing)
 	copy(merged[len(existing):], addSlice)

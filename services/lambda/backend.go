@@ -570,6 +570,7 @@ func writeFunctionURLResponse(w http.ResponseWriter, result []byte) {
 
 	// Fall back to returning raw result.
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(result) //nolint:gosec // G705: writing Lambda invoke result to HTTP response is intentional
 }

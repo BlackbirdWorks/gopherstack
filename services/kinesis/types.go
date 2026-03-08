@@ -41,6 +41,8 @@ const (
 
 	// maxHashKeyBits is the bit-width of the Kinesis hash key space.
 	maxHashKeyBits = 128
+	// maxShardCount is the maximum number of shards allowed in a stream.
+	maxShardCount = 1000
 
 	// consumerStatusActive is the status when a consumer is ready for use.
 	consumerStatusActive = "ACTIVE"
