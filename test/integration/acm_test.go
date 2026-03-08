@@ -215,10 +215,6 @@ func TestIntegration_ACM_ImportCertificate(t *testing.T) {
 	}{}
 	require.NoError(t, json.Unmarshal([]byte(importBody), &importedARN))
 
-	t.Cleanup(func() {
-		acmPost(t, "DeleteCertificate", map[string]any{"CertificateArn": importedARN.CertificateArn}).Body.Close()
-	})
-
 	// Describe the imported cert
 	descImportedResp := acmPost(t, "DescribeCertificate", map[string]any{"CertificateArn": importedARN.CertificateArn})
 	descImportedBody := acmReadBody(t, descImportedResp)
