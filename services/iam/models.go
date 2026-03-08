@@ -32,6 +32,9 @@ type Role struct {
 	Path                     string    `json:"Path"`
 	AssumeRolePolicyDocument string    `json:"AssumeRolePolicyDocument"`
 	PermissionsBoundary      string    `json:"PermissionsBoundary,omitempty"`
+	// MaxSessionDuration is the maximum session duration (in seconds) for role credentials.
+	// A value of 0 means the default system maximum applies (43200 seconds / 12 hours).
+	MaxSessionDuration int32 `json:"MaxSessionDuration,omitempty"`
 }
 
 // Policy represents an IAM managed policy resource.
@@ -173,14 +176,15 @@ type RoleXML struct {
 	Arn                      string                  `xml:"Arn"`
 	CreateDate               string                  `xml:"CreateDate"`
 	AssumeRolePolicyDocument string                  `xml:"AssumeRolePolicyDocument"`
+	MaxSessionDuration       int32                   `xml:"MaxSessionDuration,omitempty"`
 }
 
 // CreateRoleResponse is the XML response for CreateRole.
 type CreateRoleResponse struct {
 	XMLName          xml.Name         `xml:"CreateRoleResponse"`
 	Xmlns            string           `xml:"xmlns,attr"`
-	CreateRoleResult CreateRoleResult `xml:"CreateRoleResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	CreateRoleResult CreateRoleResult `xml:"CreateRoleResult"`
 }
 
 // CreateRoleResult wraps the created role.
@@ -192,8 +196,8 @@ type CreateRoleResult struct {
 type GetRoleResponse struct {
 	XMLName          xml.Name         `xml:"GetRoleResponse"`
 	Xmlns            string           `xml:"xmlns,attr"`
-	GetRoleResult    GetRoleResult    `xml:"GetRoleResult"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+	GetRoleResult    GetRoleResult    `xml:"GetRoleResult"`
 }
 
 // GetRoleResult wraps a single role.

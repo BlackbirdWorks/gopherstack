@@ -166,7 +166,7 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request) (any, error) {
 	case "AssumeRole":
 		return h.dispatchAssumeRole(r)
 	case "GetCallerIdentity":
-		return h.Backend.GetCallerIdentity()
+		return h.Backend.GetCallerIdentity(extractAccessKeyFromAuth(r))
 	case "GetSessionToken":
 		return h.dispatchGetSessionToken(r)
 	case "GetAccessKeyInfo":
@@ -185,6 +185,7 @@ func (h *Handler) dispatchAssumeRole(r *http.Request) (*AssumeRoleResponse, erro
 		RoleSessionName: r.FormValue("RoleSessionName"),
 		ExternalID:      r.FormValue("ExternalId"),
 		Policy:          r.FormValue("Policy"),
+		SourceIdentity:  r.FormValue("SourceIdentity"),
 	}
 
 	durationStr := r.FormValue("DurationSeconds")
@@ -196,6 +197,12 @@ func (h *Handler) dispatchAssumeRole(r *http.Request) (*AssumeRoleResponse, erro
 
 		input.DurationSeconds = int32(d)
 	}
+
+	// Parse session tags: Tags.member.N.Key / Tags.member.N.Value
+	input.Tags = parseSessionTags(r)
+
+	// Parse transitive tag keys: TransitiveTagKeys.member.N
+	input.TransitiveTagKeys = parseTransitiveTagKeys(r)
 
 	return h.Backend.AssumeRole(input)
 }
@@ -224,7 +231,7 @@ func (h *Handler) dispatchGetSessionToken(r *http.Request) (*GetSessionTokenResp
 func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoResponse, error) {
 	_ = r.FormValue("AccessKeyId") // consumed but not validated in mock
 
-	callerIdentity, err := h.Backend.GetCallerIdentity()
+	callerIdentity, err := h.Backend.GetCallerIdentity("")
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +258,7 @@ func (h *Handler) dispatchDecodeAuthorizationMessage(r *http.Request) (*DecodeAu
 		}
 	}
 
-	callerIdentity, ciErr := h.Backend.GetCallerIdentity()
+	callerIdentity, ciErr := h.Backend.GetCallerIdentity("")
 	if ciErr != nil {
 		return nil, ciErr
 	}
@@ -282,6 +289,9 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 	case errors.Is(reqErr, ErrMissingAction), errors.Is(reqErr, ErrInvalidAction):
 		code = invalidAction
 		httpStatus = http.StatusBadRequest
+	case errors.Is(reqErr, ErrAccessDenied):
+		code = "AccessDenied"
+		httpStatus = http.StatusForbidden
 	}
 
 	if httpStatus == http.StatusInternalServerError {
@@ -341,4 +351,65 @@ func parseFormValues(body []byte) map[string]string {
 	}
 
 	return result
+}
+
+// parseSessionTags reads Tags.member.N.Key / Tags.member.N.Value form fields and
+// returns them as a []Tag slice. It supports up to MaxTagCount entries.
+func parseSessionTags(r *http.Request) []Tag {
+	var tags []Tag
+
+	for i := 1; i <= MaxTagCount; i++ {
+		key := r.FormValue(fmt.Sprintf("Tags.member.%d.Key", i))
+		if key == "" {
+			break
+		}
+
+		value := r.FormValue(fmt.Sprintf("Tags.member.%d.Value", i))
+		tags = append(tags, Tag{Key: key, Value: value})
+	}
+
+	return tags
+}
+
+// parseTransitiveTagKeys reads TransitiveTagKeys.member.N form fields.
+func parseTransitiveTagKeys(r *http.Request) []string {
+	var keys []string
+
+	for i := 1; i <= MaxTagCount; i++ {
+		key := r.FormValue(fmt.Sprintf("TransitiveTagKeys.member.%d", i))
+		if key == "" {
+			break
+		}
+
+		keys = append(keys, key)
+	}
+
+	return keys
+}
+
+// extractAccessKeyFromAuth parses the SigV4 Authorization header and returns
+// the access key ID (the portion before the first '/' in the Credential field).
+// Returns an empty string if the header is absent or unparseable.
+func extractAccessKeyFromAuth(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if auth == "" {
+		return ""
+	}
+
+	_, after, ok := strings.Cut(auth, "Credential=")
+	if !ok {
+		return ""
+	}
+
+	// Strip any trailing comma/space that follows the Credential value.
+	if commaIdx := strings.IndexAny(after, ", "); commaIdx != -1 {
+		after = after[:commaIdx]
+	}
+
+	before, _, ok := strings.Cut(after, "/")
+	if !ok {
+		return after
+	}
+
+	return before
 }
