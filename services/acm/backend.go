@@ -31,6 +31,7 @@ const (
 	validationMethodEMAIL   = "EMAIL"
 	statusPendingValidation = "PENDING_VALIDATION"
 	statusIssued            = "ISSUED"
+	validationStatusSuccess = "SUCCESS"
 	validationTokenLen      = 8
 	autoValidateDelayMS     = 100
 	randByteDivisor         = 2
@@ -96,7 +97,7 @@ func (b *InMemoryBackend) RequestCertificate(
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
-	certBody, privateKey, err := generateSelfSignedCert(domainName)
+	certBody, privateKey, err := generateSelfSignedCert(domainName, sans)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate certificate: %w", err)
 	}
@@ -119,9 +120,20 @@ func (b *InMemoryBackend) RequestCertificate(
 	switch validationMethod {
 	case validationMethodDNS, validationMethodEMAIL:
 		status = statusPendingValidation
-		dvoList = buildDomainValidationOptions(allDomains, validationMethod)
+		dvoList, err = buildDomainValidationOptions(allDomains, validationMethod)
 	default:
-		dvoList = buildDomainValidationOptions(allDomains, validationMethodDNS)
+		dvoList, err = buildDomainValidationOptions(allDomains, validationMethodDNS)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// When the certificate is issued immediately, mark all DVOs as validated.
+	if status == statusIssued {
+		for i := range dvoList {
+			dvoList[i].ValidationStatus = validationStatusSuccess
+		}
 	}
 
 	cert := &Certificate{
@@ -206,8 +218,8 @@ func (b *InMemoryBackend) ImportCertificate(certBody, privateKey, certChain stri
 	return &cp, nil
 }
 
-// RenewCertificate triggers renewal for an eligible (AMAZON_ISSUED) certificate.
-// For the mock this is a no-op that succeeds for any existing certificate.
+// RenewCertificate is a no-op that succeeds for any existing certificate in the mock backend.
+// It validates that the certificate exists but does not enforce type-based eligibility.
 func (b *InMemoryBackend) RenewCertificate(certARN string) error {
 	b.mu.RLock("RenewCertificate")
 	_, ok := b.certs[certARN]
@@ -301,11 +313,11 @@ func (b *InMemoryBackend) DeleteCertificate(arn string) error {
 
 // buildDomainValidationOptions creates DomainValidationOption entries with
 // synthetic CNAME records for each domain in the list.
-func buildDomainValidationOptions(domains []string, validationMethod string) []DomainValidationOption {
+func buildDomainValidationOptions(domains []string, validationMethod string) ([]DomainValidationOption, error) {
 	opts := make([]DomainValidationOption, 0, len(domains))
 
 	for _, d := range domains {
-		status := "SUCCESS"
+		status := validationStatusSuccess
 		if validationMethod == validationMethodDNS || validationMethod == validationMethodEMAIL {
 			status = statusPendingValidation
 		}
@@ -318,8 +330,16 @@ func buildDomainValidationOptions(domains []string, validationMethod string) []D
 		}
 
 		if validationMethod == validationMethodDNS {
-			nameToken := randHex(validationTokenLen)
-			valueToken := randHex(validationTokenLen)
+			nameToken, err := randHex(validationTokenLen)
+			if err != nil {
+				return nil, err
+			}
+
+			valueToken, err := randHex(validationTokenLen)
+			if err != nil {
+				return nil, err
+			}
+
 			opt.ResourceRecord = &ResourceRecord{
 				Name:  "_" + nameToken + "." + d + ".",
 				Type:  "CNAME",
@@ -330,31 +350,40 @@ func buildDomainValidationOptions(domains []string, validationMethod string) []D
 		opts = append(opts, opt)
 	}
 
-	return opts
+	return opts, nil
 }
 
 // randHex returns a random lowercase hex string of length n characters.
-func randHex(n int) string {
+func randHex(n int) (string, error) {
 	b := make([]byte, (n+randByteDivisor-1)/randByteDivisor)
 	if _, err := cryptorand.Read(b); err != nil {
-		panic(fmt.Sprintf("acm: cryptorand.Read failed: %v", err))
+		return "", fmt.Errorf("crypto/rand read failed: %w", err)
 	}
 
-	return hex.EncodeToString(b)[:n]
+	return hex.EncodeToString(b)[:n], nil
 }
 
 // generateSelfSignedCert generates a self-signed ECDSA P-256 certificate for
-// the given domain and returns PEM-encoded certificate and private key.
-func generateSelfSignedCert(domainName string) (string, string, error) {
+// the given domain (and optional SANs) and returns PEM-encoded certificate and private key.
+func generateSelfSignedCert(domainName string, sans []string) (string, string, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
 	if err != nil {
 		return "", "", fmt.Errorf("generate key: %w", err)
 	}
 
+	serialBytes := make([]byte, 16) //nolint:mnd // 128-bit random serial
+	if _, err = cryptorand.Read(serialBytes); err != nil {
+		return "", "", fmt.Errorf("generate serial: %w", err)
+	}
+
+	serial := new(big.Int).SetBytes(serialBytes)
+
+	dnsNames := append([]string{domainName}, sans...)
+
 	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
+		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: domainName},
-		DNSNames:     []string{domainName},
+		DNSNames:     dnsNames,
 		NotBefore:    time.Now(),
 		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,

@@ -2,11 +2,19 @@ package integration_test
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"io"
+	"math/big"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -149,38 +157,55 @@ func TestIntegration_ACM_DeleteCertificate(t *testing.T) {
 	assert.Equal(t, http.StatusOK, delResp.StatusCode, "body: %s", delBody)
 }
 
+// acmGenerateSelfSignedCert creates a self-signed ECDSA P-256 cert+key pair for
+// the given domain and returns PEM-encoded certificate and private key strings.
+func acmGenerateSelfSignedCert(t *testing.T, domainName string) (string, string) {
+	t.Helper()
+
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err, "generate ECDSA key")
+
+	serialBytes := make([]byte, 16)
+	_, err = rand.Read(serialBytes)
+	require.NoError(t, err)
+
+	serial := new(big.Int).SetBytes(serialBytes)
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: domainName},
+		DNSNames:     []string{domainName},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	require.NoError(t, err, "create certificate")
+
+	certPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}))
+
+	keyDER, err := x509.MarshalECPrivateKey(priv)
+	require.NoError(t, err, "marshal EC key")
+
+	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
+
+	return certPEM, keyPEM
+}
+
 func TestIntegration_ACM_ImportCertificate(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
-	// First request a cert to get a valid PEM body from the mock
-	reqResp := acmPost(t, "RequestCertificate", map[string]any{
-		"DomainName": "import-source.example.com",
-	})
-	reqM := acmReadJSON(t, reqResp)
-	require.Equal(t, http.StatusOK, reqResp.StatusCode)
-	sourceARN, _ := reqM["CertificateArn"].(string)
-	require.NotEmpty(t, sourceARN)
+	// Generate a real self-signed cert+key pair to import.
+	certPEM, keyPEM := acmGenerateSelfSignedCert(t, "import-test.example.com")
 
-	// Get the PEM body of the source cert
-	getCertResp := acmPost(t, "GetCertificate", map[string]any{"CertificateArn": sourceARN})
-	getCertM := acmReadJSON(t, getCertResp)
-	require.Equal(t, http.StatusOK, getCertResp.StatusCode)
-	certPEM, _ := getCertM["Certificate"].(string)
-	require.NotEmpty(t, certPEM, "Certificate PEM should be present")
-
-	// DescribeCertificate to get the private key from the full cert detail
-	// Use ExportCertificate would fail (AMAZON_ISSUED), so import using cert+key from RequestCertificate
-	// The backend stores the PrivateKey but the SDK doesn't expose it directly.
-	// We'll use the raw HTTP endpoint for ImportCertificate with the source cert fields.
 	importResp := acmPost(t, "ImportCertificate", map[string]any{
 		"Certificate": certPEM,
-		"PrivateKey":  certPEM, // for integration test, provide any non-empty string
+		"PrivateKey":  keyPEM,
 	})
 	importBody := acmReadBody(t, importResp)
 
-	// Note: The server will try to parse the PrivateKey PEM; using certPEM as key may fail parsing.
-	// The mock doesn't validate key format beyond non-empty, so this should succeed.
 	assert.Equal(t, http.StatusOK, importResp.StatusCode, "body: %s", importBody)
 	assert.Contains(t, importBody, "CertificateArn")
 	assert.Contains(t, importBody, "arn:aws:acm:")
@@ -199,6 +224,7 @@ func TestIntegration_ACM_ImportCertificate(t *testing.T) {
 	descImportedBody := acmReadBody(t, descImportedResp)
 	assert.Equal(t, http.StatusOK, descImportedResp.StatusCode, "body: %s", descImportedBody)
 	assert.Contains(t, descImportedBody, "IMPORTED")
+	assert.Contains(t, descImportedBody, "import-test.example.com")
 }
 
 func TestIntegration_ACM_RenewCertificate(t *testing.T) {

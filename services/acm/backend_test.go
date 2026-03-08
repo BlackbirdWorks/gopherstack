@@ -89,34 +89,85 @@ func TestACMBackend_RequestCertificate(t *testing.T) {
 	}
 }
 
-func TestACMBackend_RequestCertificate_WithSANs(t *testing.T) {
+func TestACMBackend_RequestCertificate_Extended(t *testing.T) {
 	t.Parallel()
 
-	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
-	cert, err := b.RequestCertificate("example.com", "", "DNS", []string{"www.example.com", "api.example.com"})
-	require.NoError(t, err)
+	tests := []struct {
+		wantDVOLenMsg            string
+		wantDVORecordType        string
+		wantDVODomain            string
+		wantDomain               string
+		wantDVORecordNameSubstr  string
+		name                     string
+		wantDVOValidationStatus  string
+		wantDVORecordValueSubstr string
+		domain                   string
+		wantDVOValidationMethod  string
+		wantSANs                 []string
+		sans                     []string
+		wantDVOLen               int
+		verifyDVOFields          bool
+	}{
+		{
+			name:          "with_sans",
+			domain:        "example.com",
+			sans:          []string{"www.example.com", "api.example.com"},
+			wantDomain:    "example.com",
+			wantSANs:      []string{"www.example.com", "api.example.com"},
+			wantDVOLen:    3,
+			wantDVOLenMsg: "should have DVOs for primary + 2 SANs",
+		},
+		{
+			name:                     "dns_validation_options",
+			domain:                   "example.com",
+			sans:                     nil,
+			wantDomain:               "example.com",
+			wantDVOLen:               1,
+			verifyDVOFields:          true,
+			wantDVODomain:            "example.com",
+			wantDVOValidationStatus:  "PENDING_VALIDATION",
+			wantDVOValidationMethod:  "DNS",
+			wantDVORecordType:        "CNAME",
+			wantDVORecordNameSubstr:  "example.com",
+			wantDVORecordValueSubstr: "acm-validations.aws",
+		},
+	}
 
-	assert.Equal(t, "example.com", cert.DomainName)
-	assert.Equal(t, []string{"www.example.com", "api.example.com"}, cert.SubjectAlternativeNames)
-	assert.Len(t, cert.DomainValidationOptions, 3, "should have DVOs for primary + 2 SANs")
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-func TestACMBackend_RequestCertificate_DNSValidationOptions(t *testing.T) {
-	t.Parallel()
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			cert, err := b.RequestCertificate(tt.domain, "", "DNS", tt.sans)
+			require.NoError(t, err)
 
-	b := acm.NewInMemoryBackend("000000000000", "us-east-1")
-	cert, err := b.RequestCertificate("example.com", "", "DNS", nil)
-	require.NoError(t, err)
+			assert.Equal(t, tt.wantDomain, cert.DomainName)
 
-	require.Len(t, cert.DomainValidationOptions, 1)
-	dvo := cert.DomainValidationOptions[0]
-	assert.Equal(t, "example.com", dvo.DomainName)
-	assert.Equal(t, "PENDING_VALIDATION", dvo.ValidationStatus)
-	assert.Equal(t, "DNS", dvo.ValidationMethod)
-	require.NotNil(t, dvo.ResourceRecord)
-	assert.Equal(t, "CNAME", dvo.ResourceRecord.Type)
-	assert.Contains(t, dvo.ResourceRecord.Name, "example.com")
-	assert.Contains(t, dvo.ResourceRecord.Value, "acm-validations.aws")
+			if len(tt.wantSANs) > 0 {
+				assert.Equal(t, tt.wantSANs, cert.SubjectAlternativeNames)
+			}
+
+			if tt.wantDVOLen > 0 {
+				if tt.wantDVOLenMsg != "" {
+					assert.Len(t, cert.DomainValidationOptions, tt.wantDVOLen, tt.wantDVOLenMsg)
+				} else {
+					assert.Len(t, cert.DomainValidationOptions, tt.wantDVOLen)
+				}
+			}
+
+			if tt.verifyDVOFields {
+				require.Len(t, cert.DomainValidationOptions, 1)
+				dvo := cert.DomainValidationOptions[0]
+				assert.Equal(t, tt.wantDVODomain, dvo.DomainName)
+				assert.Equal(t, tt.wantDVOValidationStatus, dvo.ValidationStatus)
+				assert.Equal(t, tt.wantDVOValidationMethod, dvo.ValidationMethod)
+				require.NotNil(t, dvo.ResourceRecord)
+				assert.Equal(t, tt.wantDVORecordType, dvo.ResourceRecord.Type)
+				assert.Contains(t, dvo.ResourceRecord.Name, tt.wantDVORecordNameSubstr)
+				assert.Contains(t, dvo.ResourceRecord.Value, tt.wantDVORecordValueSubstr)
+			}
+		})
+	}
 }
 
 func TestACMBackend_DescribeCertificate(t *testing.T) {

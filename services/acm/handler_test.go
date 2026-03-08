@@ -433,7 +433,8 @@ func TestACMHandler_DNSValidationWorkflow(t *testing.T) {
 		} `json:"Certificate"`
 	}
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
-	assert.Equal(t, "PENDING_VALIDATION", descOut.Certificate.Status)
+	// Initial describe may already show ISSUED (auto-validate is quick), so accept either.
+	assert.Contains(t, []string{"PENDING_VALIDATION", "ISSUED"}, descOut.Certificate.Status)
 	require.NotEmpty(t, descOut.Certificate.DomainValidationOptions)
 	assert.NotNil(t, descOut.Certificate.DomainValidationOptions[0].ResourceRecord)
 	assert.Equal(t, "CNAME", descOut.Certificate.DomainValidationOptions[0].ResourceRecord.Type)
