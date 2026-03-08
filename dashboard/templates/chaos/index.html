@@ -1,0 +1,495 @@
+{{define "content"}}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+                Chaos Engineering
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">Inject faults and simulate network conditions to test your application's resilience.</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <!-- Left Column: Fault Rules + Add Rule -->
+        <div class="xl:col-span-2 space-y-6">
+
+            <!-- Section 1: Active Fault Rules -->
+            <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                        <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                        Active Fault Rules
+                    </h2>
+                    <button
+                        hx-post="/dashboard/chaos/faults/clear"
+                        hx-target="#fault-rules-table"
+                        hx-swap="innerHTML"
+                        hx-confirm="Remove all fault rules?"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40 rounded-lg transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                        </svg>
+                        Clear All
+                    </button>
+                </div>
+                <div id="fault-rules-table"
+                    hx-get="/dashboard/chaos/rules"
+                    hx-trigger="every 5s"
+                    hx-swap="innerHTML">
+                    {{template "chaos/rules_fragment.html" .}}
+                </div>
+            </div>
+
+            <!-- Section 2: Add New Fault Rule -->
+            <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                        <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        Add New Fault Rule
+                    </h2>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Dropdowns are auto-populated from registered services. Leave a field empty to match any value.</p>
+                </div>
+                <form
+                    hx-post="/dashboard/chaos/faults"
+                    hx-target="#fault-rules-table"
+                    hx-swap="innerHTML"
+                    id="add-fault-form"
+                    class="p-6 space-y-4">
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <!-- Service -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Service</label>
+                            <select id="fault-service" name="service"
+                                class="w-full px-3 py-2 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                onchange="chaosUpdateDropdowns(this.value)">
+                                <option value="">All Services</option>
+                            </select>
+                        </div>
+                        <!-- Region -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Region</label>
+                            <select id="fault-region" name="region"
+                                class="w-full px-3 py-2 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                <option value="">All Regions</option>
+                            </select>
+                        </div>
+                        <!-- Operation -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Operation</label>
+                            <select id="fault-operation" name="operation"
+                                class="w-full px-3 py-2 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+                                <option value="">All Operations</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- Probability -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                                Probability: <span id="prob-label" class="font-bold text-indigo-600 dark:text-indigo-400">100%</span>
+                            </label>
+                            <input type="range" name="probability" id="fault-probability"
+                                min="1" max="100" value="100"
+                                oninput="document.getElementById('prob-label').textContent = this.value + '%'"
+                                class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 accent-indigo-600">
+                        </div>
+
+                        <!-- Error Code Preset -->
+                        <div>
+                            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Error Preset</label>
+                            <select id="error-preset"
+                                class="w-full px-3 py-2 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                                onchange="chaosApplyPreset(this.value)">
+                                <option value="503:ServiceUnavailable">503 ServiceUnavailable</option>
+                                <option value="500:InternalServerError">500 InternalServerError</option>
+                                <option value="400:ThrottlingException">400 ThrottlingException</option>
+                                <option value="400:ProvisionedThroughputExceededException">400 ProvisionedThroughputExceededException</option>
+                                <option value="429:TooManyRequestsException">429 TooManyRequestsException</option>
+                                <option value="custom">Custom…</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Custom Error Fields (hidden by default) -->
+                    <div id="custom-error-fields" class="hidden grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">HTTP Status Code</label>
+                            <input type="number" id="custom-status-code" name="statusCode" value="503" min="400" max="599"
+                                class="w-full px-3 py-2 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Error Code</label>
+                            <input type="text" id="custom-error-code" name="errorCode" placeholder="ServiceUnavailable"
+                                class="w-full px-3 py-2 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                    </div>
+                    <!-- Hidden preset fields used when not custom -->
+                    <input type="hidden" id="preset-status-code" name="statusCode" value="503">
+                    <input type="hidden" id="preset-error-code" name="errorCode" value="ServiceUnavailable">
+
+                    <div class="flex justify-end">
+                        <button type="submit"
+                            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                            </svg>
+                            Add Rule
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Section 4: Chaos Activity Log -->
+            <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                        <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        Chaos Activity Log
+                        <span class="ml-1 px-1.5 py-0.5 text-xs font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400 rounded">max 100</span>
+                    </h2>
+                </div>
+                <div id="activity-log"
+                    hx-get="/dashboard/chaos/activity"
+                    hx-trigger="every 2s"
+                    hx-swap="innerHTML"
+                    class="overflow-y-auto max-h-80">
+                    {{template "chaos/activity_fragment.html" .}}
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Network Effects + Presets -->
+        <div class="space-y-6">
+
+            <!-- Section 3: Network Effects -->
+            <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                        <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
+                        </svg>
+                        Network Effects
+                    </h2>
+                </div>
+                <div class="p-6 space-y-4">
+                    <div id="effects-indicator">
+                        {{if or .LatencyMs .JitterMs}}
+                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                            <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                            {{.LatencyMs}}ms latency{{if .JitterMs}} ±{{.JitterMs}}ms jitter{{end}}
+                        </span>
+                        {{else}}
+                        <span class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                            No delay active
+                        </span>
+                        {{end}}
+                    </div>
+
+                    <form
+                        hx-post="/dashboard/chaos/effects"
+                        hx-target="#effects-indicator"
+                        hx-swap="innerHTML"
+                        class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                                Latency: <span id="latency-label" class="font-bold text-amber-600 dark:text-amber-400">{{.LatencyMs}}ms</span>
+                            </label>
+                            <input type="range" id="latency-slider"
+                                min="0" max="5000" step="50" value="{{.LatencyMs}}"
+                                oninput="document.getElementById('latency-label').textContent = this.value + 'ms'; document.getElementById('latency-input').value = this.value"
+                                class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer dark:bg-slate-700 accent-amber-500">
+                            <input type="number" id="latency-input" name="latency"
+                                min="0" max="5000" value="{{.LatencyMs}}"
+                                oninput="document.getElementById('latency-slider').value = this.value; document.getElementById('latency-label').textContent = this.value + 'ms'"
+                                class="mt-2 w-full px-3 py-1.5 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-amber-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">Jitter (±ms)</label>
+                            <input type="number" name="jitter" id="jitter-input"
+                                min="0" max="1000" value="{{.JitterMs}}"
+                                class="w-full px-3 py-1.5 text-sm bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-amber-500">
+                        </div>
+                        <div class="flex gap-2">
+                            <button type="submit"
+                                class="flex-1 px-3 py-2 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors">
+                                Apply
+                            </button>
+                            <button type="button"
+                                hx-post="/dashboard/chaos/effects/reset"
+                                hx-target="#effects-indicator"
+                                hx-swap="innerHTML"
+                                onclick="document.getElementById('latency-slider').value=0; document.getElementById('latency-input').value=0; document.getElementById('latency-label').textContent='0ms'; document.getElementById('jitter-input').value=0"
+                                class="flex-1 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg transition-colors">
+                                Reset
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Section 5: Preset Scenarios -->
+            <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+                    <h2 class="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                        <svg class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                        </svg>
+                        Preset Scenarios
+                    </h2>
+                </div>
+                <div class="p-4 space-y-2" id="preset-scenarios">
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Quick-apply common chaos scenarios. Each preset requires a <strong>confirmation</strong> before applying.</p>
+
+                    <!-- Regional Outage preset -->
+                    <div class="flex items-center gap-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">🌩 Regional Outage</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400 truncate">All services → 503, selected region</p>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <select id="preset-region-outage" class="text-xs bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-slate-700 dark:text-slate-300">
+                                <option value="us-east-1">us-east-1</option>
+                                <option value="us-west-2">us-west-2</option>
+                                <option value="eu-west-1">eu-west-1</option>
+                                <option value="ap-southeast-1">ap-southeast-1</option>
+                            </select>
+                            <button onclick="chaosApplyPresetScenario('regional-outage')"
+                                class="px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors">Apply</button>
+                        </div>
+                    </div>
+
+                    <!-- Service Degradation preset -->
+                    <div class="flex items-center gap-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">⚡ Service Degradation</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400 truncate">Selected service, 50% prob, 500ms</p>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <select id="preset-service-degradation" class="text-xs bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-slate-700 dark:text-slate-300">
+                                <option value="">Loading…</option>
+                            </select>
+                            <button onclick="chaosApplyPresetScenario('service-degradation')"
+                                class="px-2 py-1 text-xs font-medium text-white bg-orange-500 hover:bg-orange-600 rounded transition-colors">Apply</button>
+                        </div>
+                    </div>
+
+                    <!-- Throttling Storm preset -->
+                    <div class="flex items-center gap-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">🌪 Throttling Storm</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">All write ops, 30% throttle</p>
+                        </div>
+                        <button onclick="chaosApplyPresetScenario('throttling-storm')"
+                            class="px-2 py-1 text-xs font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded transition-colors">Apply</button>
+                    </div>
+
+                    <!-- Network Slowdown preset -->
+                    <div class="flex items-center gap-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">🐌 Network Slowdown</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">500ms latency, no faults</p>
+                        </div>
+                        <button onclick="chaosApplyPresetScenario('network-slowdown')"
+                            class="px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors">Apply</button>
+                    </div>
+
+                    <!-- Total Chaos preset -->
+                    <div class="flex items-center gap-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-slate-900 dark:text-white">💥 Total Chaos</p>
+                            <p class="text-xs text-slate-500 dark:text-slate-400">All services, 20% prob, 200ms</p>
+                        </div>
+                        <button onclick="chaosApplyPresetScenario('total-chaos')"
+                            class="px-2 py-1 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded transition-colors">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ─── Chaos Dashboard JavaScript ───────────────────────────────────────────────
+(function () {
+    'use strict';
+
+    // Targets fetched from the API
+    let chaosTargets = [];
+
+    // Fetch targets from the chaos API and populate dropdowns
+    async function fetchTargets() {
+        try {
+            const resp = await fetch('/_gopherstack/chaos/targets');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            chaosTargets = data.services || [];
+            populateServiceDropdown();
+            populatePresetServiceDropdown();
+        } catch (e) {
+            console.warn('chaos targets fetch failed:', e);
+        }
+    }
+
+    function populateServiceDropdown() {
+        const sel = document.getElementById('fault-service');
+        if (!sel) return;
+        // keep the "All Services" option
+        while (sel.options.length > 1) sel.remove(1);
+        chaosTargets.forEach(svc => {
+            const opt = new Option(svc.name, svc.name);
+            sel.add(opt);
+        });
+    }
+
+    function populatePresetServiceDropdown() {
+        const sel = document.getElementById('preset-service-degradation');
+        if (!sel) return;
+        sel.innerHTML = '';
+        chaosTargets.forEach(svc => {
+            const opt = new Option(svc.name, svc.name);
+            sel.add(opt);
+        });
+        if (chaosTargets.length === 0) {
+            sel.add(new Option('No services registered', ''));
+        }
+    }
+
+    // Update region and operation dropdowns when service selection changes.
+    window.chaosUpdateDropdowns = function (serviceName) {
+        const regionSel = document.getElementById('fault-region');
+        const opSel = document.getElementById('fault-operation');
+
+        // Reset to "All" option
+        while (regionSel.options.length > 1) regionSel.remove(1);
+        while (opSel.options.length > 1) opSel.remove(1);
+
+        const svc = chaosTargets.find(s => s.name === serviceName);
+        if (!svc) return;
+
+        (svc.regions || []).forEach(r => regionSel.add(new Option(r, r)));
+        (svc.operations || []).forEach(o => opSel.add(new Option(o, o)));
+    };
+
+    // Apply an error preset to the hidden form fields.
+    window.chaosApplyPreset = function (value) {
+        const customFields = document.getElementById('custom-error-fields');
+        const presetStatus = document.getElementById('preset-status-code');
+        const presetCode = document.getElementById('preset-error-code');
+
+        if (value === 'custom') {
+            customFields.classList.remove('hidden');
+            // disable preset hidden fields so custom ones are used
+            presetStatus.disabled = true;
+            presetCode.disabled = true;
+            return;
+        }
+
+        customFields.classList.add('hidden');
+        presetStatus.disabled = false;
+        presetCode.disabled = false;
+
+        const parts = value.split(':');
+        presetStatus.value = parts[0] || '503';
+        presetCode.value = parts[1] || 'ServiceUnavailable';
+    };
+
+    // Preset scenario application
+    window.chaosApplyPresetScenario = async function (scenario) {
+        let rules = [];
+        let effects = null;
+        let confirmMsg = '';
+
+        switch (scenario) {
+            case 'regional-outage': {
+                const region = document.getElementById('preset-region-outage').value;
+                if (!region) return;
+                confirmMsg = `Apply Regional Outage to ${region}? This will add a 503 fault rule for all services in that region.`;
+                rules = [{ region, probability: 1.0, error: { statusCode: 503, code: 'ServiceUnavailable' } }];
+                break;
+            }
+            case 'service-degradation': {
+                const svc = document.getElementById('preset-service-degradation').value;
+                if (!svc) return;
+                confirmMsg = `Apply Service Degradation to "${svc}"? 50% probability 500 error + 500ms latency.`;
+                rules = [{ service: svc, probability: 0.5, error: { statusCode: 500, code: 'InternalServerError' } }];
+                effects = { latency: 500 };
+                break;
+            }
+            case 'throttling-storm':
+                confirmMsg = 'Apply Throttling Storm? All Put/Create/Write operations at 30% throttling.';
+                rules = ['PutItem', 'PutObject', 'CreateQueue', 'Publish', 'SendMessage', 'PutRecord'].map(op => ({
+                    operation: op,
+                    probability: 0.3,
+                    error: { statusCode: 400, code: 'ThrottlingException' }
+                }));
+                break;
+            case 'network-slowdown':
+                confirmMsg = 'Apply Network Slowdown? 500ms latency, no fault rules added.';
+                effects = { latency: 500 };
+                break;
+            case 'total-chaos':
+                confirmMsg = 'Apply Total Chaos? All services at 20% probability + 200ms latency.';
+                rules = [{ probability: 0.2, error: { statusCode: 503, code: 'ServiceUnavailable' } }];
+                effects = { latency: 200 };
+                break;
+            default:
+                return;
+        }
+
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            if (rules.length > 0) {
+                await fetch('/_gopherstack/chaos/faults', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(rules)
+                });
+            }
+            if (effects) {
+                await fetch('/_gopherstack/chaos/effects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(effects)
+                });
+                // Update latency slider UI if visible
+                const latencySlider = document.getElementById('latency-slider');
+                const latencyInput = document.getElementById('latency-input');
+                const latencyLabel = document.getElementById('latency-label');
+                if (latencySlider && effects.latency !== undefined) {
+                    latencySlider.value = effects.latency;
+                    if (latencyInput) latencyInput.value = effects.latency;
+                    if (latencyLabel) latencyLabel.textContent = effects.latency + 'ms';
+                }
+            }
+            // Trigger HTMX refresh on rules table
+            htmx.trigger('#fault-rules-table', 'htmx:load');
+            htmx.ajax('GET', '/dashboard/chaos/rules', { target: '#fault-rules-table', swap: 'innerHTML' });
+        } catch (e) {
+            console.error('preset apply failed:', e);
+            alert('Failed to apply preset: ' + e.message);
+        }
+    };
+
+    // Initialise on load
+    fetchTargets();
+})();
+</script>
+{{end}}

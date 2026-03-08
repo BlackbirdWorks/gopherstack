@@ -454,3 +454,80 @@ func TestChaosHandler_InvalidJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestChaosHandler_Activity_GetEmpty(t *testing.T) {
+	t.Parallel()
+
+	store := chaos.NewFaultStore()
+	reg := service.NewRegistry()
+	e := buildChaosAPI(t, store, reg)
+
+	rec := callGroup(t, e, http.MethodGet, "/_gopherstack/chaos/activity", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+	var events []json.RawMessage
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&events))
+	assert.Empty(t, events)
+}
+
+func TestChaosHandler_Activity_GetWithEvents(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(*chaos.FaultStore)
+		name      string
+		wantFirst string // Service name of the first (newest) event
+		wantCount int
+	}{
+		{
+			name: "single event returned",
+			setup: func(s *chaos.FaultStore) {
+				s.RecordActivity(chaos.ActivityEvent{
+					Service:   "s3",
+					Operation: "PutObject",
+					Triggered: true,
+				})
+			},
+			wantCount: 1,
+			wantFirst: "s3",
+		},
+		{
+			name: "multiple events returned newest-first",
+			setup: func(s *chaos.FaultStore) {
+				s.RecordActivity(chaos.ActivityEvent{Service: "s3"})
+				s.RecordActivity(chaos.ActivityEvent{Service: "dynamodb"})
+				s.RecordActivity(chaos.ActivityEvent{Service: "sqs"})
+			},
+			wantCount: 3,
+			wantFirst: "sqs",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := chaos.NewFaultStore()
+			if tt.setup != nil {
+				tt.setup(store)
+			}
+
+			reg := service.NewRegistry()
+			e := buildChaosAPI(t, store, reg)
+
+			rec := callGroup(t, e, http.MethodGet, "/_gopherstack/chaos/activity", nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var events []struct {
+				Service string `json:"service"`
+			}
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&events))
+			require.Len(t, events, tt.wantCount)
+
+			if tt.wantFirst != "" {
+				assert.Equal(t, tt.wantFirst, events[0].Service)
+			}
+		})
+	}
+}

@@ -13,6 +13,7 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -78,6 +79,7 @@ type AWSSDKProvider interface {
 	GetSWFHandler() service.Registerable
 	GetFirehoseHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
+	GetFaultStore() *chaos.FaultStore
 }
 
 // Provider implements service.Provider for the Dashboard service.
@@ -92,8 +94,8 @@ func (p *Provider) Name() string {
 //
 // extractedConfig holds all concrete service types extracted from a AWSSDKProvider.
 type extractedConfig struct {
-	ddbClient         *ddbsdk.Client
-	s3Client          *s3sdk.Client
+	stepFunctionsOps  *sfnbackend.Handler
+	cloudWatchOps     *cwbackend.Handler
 	ssmClient         *ssmsdk.Client
 	ddb               *dynamodb.DynamoDBHandler
 	s3h               *s3.S3Handler
@@ -108,8 +110,8 @@ type extractedConfig struct {
 	eventBridgeOps    *ebbackend.Handler
 	apiGatewayOps     *apigwbackend.Handler
 	cloudWatchLogsOps *cwlogsbackend.Handler
-	stepFunctionsOps  *sfnbackend.Handler
-	cloudWatchOps     *cwbackend.Handler
+	s3Client          *s3sdk.Client
+	ddbClient         *ddbsdk.Client
 	cloudFormationOps *cfnbackend.Handler
 	kinesisOps        *kinesisbackend.Handler
 	elasticacheOps    *elasticachebackend.Handler
@@ -125,6 +127,7 @@ type extractedConfig struct {
 	resourcegroupsOps *resourcegroupsbackend.Handler
 	swfOps            *swfbackend.Handler
 	firehoseOps       *firehosebackend.Handler
+	faultStore        *chaos.FaultStore
 	gCfg              globalcfg.GlobalConfig
 }
 
@@ -141,6 +144,7 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 	ec.s3Client = ap.GetS3Client()
 	ec.ssmClient = ap.GetSSMClient()
 	ec.gCfg = ap.GetGlobalConfig()
+	ec.faultStore = ap.GetFaultStore()
 	ec.ddb, _ = ap.GetDynamoDBHandler().(*dynamodb.DynamoDBHandler)
 	ec.s3h, _ = ap.GetS3Handler().(*s3.S3Handler)
 	ec.cloudFormationOps, _ = ap.GetCloudFormationHandler().(*cfnbackend.Handler)
@@ -312,6 +316,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		SWFOps:            ec.swfOps,
 		FirehoseOps:       ec.firehoseOps,
 		GlobalConfig:      ec.gCfg,
+		FaultStore:        ec.faultStore,
 		Logger:            ctx.Logger,
 	})
 
