@@ -3,6 +3,7 @@ package rds
 import (
 	"errors"
 	"fmt"
+	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -572,9 +573,7 @@ func (b *InMemoryBackend) CreateDBParameterGroup(name, family, description strin
 func copyDBParameterGroup(pg *DBParameterGroup) DBParameterGroup {
 	cp := *pg
 	cp.Parameters = make(map[string]DBParameter, len(pg.Parameters))
-	for k, v := range pg.Parameters {
-		cp.Parameters[k] = v
-	}
+	maps.Copy(cp.Parameters, pg.Parameters)
 
 	return cp
 }
