@@ -734,6 +734,62 @@ func TestTerraform_Lambda(t *testing.T) {
 	}
 }
 
+// TestTerraform_Lambda_ProvisionedConcurrency provisions a Lambda function with provisioned
+// concurrency and verifies the config exists.
+func TestTerraform_Lambda_ProvisionedConcurrency(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "lambda/provisioned-concurrency",
+			setup: func(t *testing.T, dir string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				var buf bytes.Buffer
+				zw := zip.NewWriter(&buf)
+				f, err := zw.Create("index.py")
+				require.NoError(t, err)
+				_, err = f.Write([]byte("def handler(event, context):\n    return {}\n"))
+				require.NoError(t, err)
+				require.NoError(t, zw.Close())
+
+				zipPath := filepath.Join(dir, "function.zip")
+				require.NoError(t, os.WriteFile(zipPath, buf.Bytes(), 0o644))
+
+				return map[string]any{
+					"FuncName": "tf-prov-" + id,
+					"RoleName": "tf-prov-role-" + id,
+					"ZipPath":  zipPath,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createLambdaClient(t)
+
+				// Publish version should have occurred, so version "1" should exist.
+				listOut, err := client.ListProvisionedConcurrencyConfigs(
+					ctx,
+					&lambdasvc.ListProvisionedConcurrencyConfigsInput{
+						FunctionName: aws.String(vars["FuncName"].(string)),
+					},
+				)
+				require.NoError(t, err, "ListProvisionedConcurrencyConfigs should succeed after terraform apply")
+				assert.NotEmpty(t, listOut.ProvisionedConcurrencyConfigs,
+					"at least one provisioned concurrency config should exist")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_IAM provisions an IAM role, policy, and attachment and verifies the role.
 func TestTerraform_IAM(t *testing.T) {
 	t.Parallel()
