@@ -36,6 +36,7 @@ import (
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
+	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	"github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	"github.com/blackbirdworks/gopherstack/services/ssm"
@@ -70,6 +71,7 @@ type AWSSDKProvider interface {
 	GetElastiCacheHandler() service.Registerable
 	GetRoute53Handler() service.Registerable
 	GetSESHandler() service.Registerable
+	GetSESv2Handler() service.Registerable
 	GetEC2Handler() service.Registerable
 	GetOpenSearchHandler() service.Registerable
 	GetACMHandler() service.Registerable
@@ -121,6 +123,7 @@ type extractedConfig struct {
 	elasticacheOps     *elasticachebackend.Handler
 	route53Ops         *route53backend.Handler
 	sesOps             *sesbackend.Handler
+	sesv2Ops           *sesv2backend.Handler
 	ec2Ops             *ec2backend.Handler
 	opensearchOps      *opensearchbackend.Handler
 	acmOps             *acmbackend.Handler
@@ -289,6 +292,10 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetAppSyncHandler(); h != nil {
 		ec.appSyncOps, _ = h.(*appsyncbackend.Handler)
 	}
+
+	if h := ap.GetSESv2Handler(); h != nil {
+		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -319,6 +326,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ElastiCacheOps:     ec.elasticacheOps,
 		Route53Ops:         ec.route53Ops,
 		SESOps:             ec.sesOps,
+		SESv2Ops:           ec.sesv2Ops,
 		EC2Ops:             ec.ec2Ops,
 		OpenSearchOps:      ec.opensearchOps,
 		ACMOps:             ec.acmOps,

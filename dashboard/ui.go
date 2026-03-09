@@ -46,6 +46,7 @@ import (
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
+	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -116,6 +117,7 @@ type DashboardHandler struct {
 	ElastiCacheOps     *elasticachebackend.Handler
 	Route53Ops         *route53backend.Handler
 	SESOps             *sesbackend.Handler
+	SESv2Ops           *sesv2backend.Handler
 	EC2Ops             *ec2backend.Handler
 	OpenSearchOps      *opensearchbackend.Handler
 	ACMOps             *acmbackend.Handler
@@ -179,6 +181,8 @@ type Config struct {
 	Route53Ops *route53backend.Handler
 	// SESOps provides access to the SES backend.
 	SESOps *sesbackend.Handler
+	// SESv2Ops provides access to the SES v2 backend.
+	SESv2Ops *sesv2backend.Handler
 	// EC2Ops provides access to the EC2 backend.
 	EC2Ops *ec2backend.Handler
 	// OpenSearchOps provides access to the OpenSearch backend.
@@ -261,6 +265,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/elasticache/*.html",
 		"templates/route53/*.html",
 		"templates/ses/*.html",
+		"templates/sesv2/*.html",
 		"templates/ec2/*.html",
 		"templates/opensearch/*.html",
 		"templates/acm/*.html",
@@ -316,6 +321,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		ElastiCacheOps:     cfg.ElastiCacheOps,
 		Route53Ops:         cfg.Route53Ops,
 		SESOps:             cfg.SESOps,
+		SESv2Ops:           cfg.SESv2Ops,
 		EC2Ops:             cfg.EC2Ops,
 		OpenSearchOps:      cfg.OpenSearchOps,
 		ACMOps:             cfg.ACMOps,
@@ -594,6 +600,14 @@ func (h *DashboardHandler) setupAppSyncRoutes() {
 	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
 }
 
+func (h *DashboardHandler) setupSESv2Routes() {
+	h.SubRouter.GET("/dashboard/sesv2", h.sesv2Index)
+	h.SubRouter.POST("/dashboard/sesv2/identity/create", h.sesv2CreateIdentity)
+	h.SubRouter.POST("/dashboard/sesv2/identity/delete", h.sesv2DeleteIdentity)
+	h.SubRouter.POST("/dashboard/sesv2/configuration-set/create", h.sesv2CreateConfigSet)
+	h.SubRouter.POST("/dashboard/sesv2/configuration-set/delete", h.sesv2DeleteConfigSet)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -621,6 +635,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupElastiCacheRoutes()
 	h.setupRoute53Routes()
 	h.setupSESRoutes()
+	h.setupSESv2Routes()
 	h.setupEC2Routes()
 	h.setupOpenSearchRoutes()
 	h.setupACMRoutes()
@@ -703,6 +718,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/kinesis", "Kinesis"},
 	{"/elasticache", "ElastiCache"},
 	{"/route53", "Route53"},
+	{"/sesv2", "SESv2"},
 	{"/ses", "SES"},
 	{"/ec2", "EC2"},
 	{"/opensearch", "OpenSearch"},

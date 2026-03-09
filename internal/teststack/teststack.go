@@ -48,6 +48,7 @@ import (
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
+	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -89,6 +90,7 @@ type Stack struct {
 	ElastiCacheHandler           *elasticachebackend.Handler
 	Route53Handler               *route53backend.Handler
 	SESHandler                   *sesbackend.Handler
+	SESv2Handler                 *sesv2backend.Handler
 	EC2Handler                   *ec2backend.Handler
 	OpenSearchHandler            *opensearchbackend.Handler
 	ACMHandler                   *acmbackend.Handler
@@ -178,6 +180,7 @@ func registerServices(
 	elasticacheHndlr *elasticachebackend.Handler,
 	r53Hndlr *route53backend.Handler,
 	sesHndlr *sesbackend.Handler,
+	sesv2Hndlr *sesv2backend.Handler,
 	ec2Hndlr *ec2backend.Handler,
 	openSearchHndlr *opensearchbackend.Handler,
 	acmHndlr *acmbackend.Handler,
@@ -216,6 +219,7 @@ func registerServices(
 	_ = registry.Register(elasticacheHndlr)
 	_ = registry.Register(r53Hndlr)
 	_ = registry.Register(sesHndlr)
+	_ = registry.Register(sesv2Hndlr)
 	_ = registry.Register(ec2Hndlr)
 	_ = registry.Register(openSearchHndlr)
 	_ = registry.Register(acmHndlr)
@@ -257,6 +261,7 @@ type handlers struct {
 	elasticache     *elasticachebackend.Handler
 	route53         *route53backend.Handler
 	ses             *sesbackend.Handler
+	sesv2           *sesv2backend.Handler
 	ec2             *ec2backend.Handler
 	opensearch      *opensearchbackend.Handler
 	acm             *acmbackend.Handler
@@ -316,6 +321,7 @@ func newHandlers() handlers {
 		),
 		route53: route53backend.NewHandler(route53backend.NewInMemoryBackend()),
 		ses:     sesbackend.NewHandler(sesbackend.NewInMemoryBackend()),
+		sesv2:   sesv2backend.NewHandler(sesv2backend.NewInMemoryBackend()),
 		ec2: ec2backend.NewHandler(
 			ec2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 		),
@@ -417,6 +423,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ElastiCacheOps:     h.elasticache,
 		Route53Ops:         h.route53,
 		SESOps:             h.ses,
+		SESv2Ops:           h.sesv2,
 		EC2Ops:             h.ec2,
 		OpenSearchOps:      h.opensearch,
 		ACMOps:             h.acm,
@@ -457,7 +464,7 @@ func New(t *testing.T) *Stack {
 		registry,
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
-		h.elasticache, h.route53, h.ses, h.ec2, h.opensearch,
+		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.opensearch,
 		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
 		h.appSync,
@@ -496,6 +503,7 @@ func New(t *testing.T) *Stack {
 		ElastiCacheHandler:           h.elasticache,
 		Route53Handler:               h.route53,
 		SESHandler:                   h.ses,
+		SESv2Handler:                 h.sesv2,
 		EC2Handler:                   h.ec2,
 		OpenSearchHandler:            h.opensearch,
 		ACMHandler:                   h.acm,
