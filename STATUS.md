@@ -53,7 +53,7 @@ LocalStack locks these services behind a paid tier. Gopherstack offers them nati
 | --- | --- | --- | --- |
 | **AppSync** | ✅ Yes | ❌ No | ✅ Yes |
 | **ECR** | ✅ Yes | ✅ Yes | ✅ Yes (with Lambda) |
-| **ECS** | ✅ Yes | ❌ No | ✅ Yes |
+| **ECS** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **ElastiCache** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **FIS** | ✅ Yes | ❌ No | ❌ No |
 | **IoT** | ✅ Yes | ❌ No | ❌ No |

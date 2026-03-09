@@ -14,6 +14,7 @@ import (
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -86,6 +87,7 @@ type AWSSDKProvider interface {
 	GetCognitoIdentityHandler() service.Registerable
 	GetCognitoIDPHandler() service.Registerable
 	GetECRHandler() service.Registerable
+	GetECSHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -139,6 +141,7 @@ type extractedConfig struct {
 	cognitoIdentityOps *cognitoidentitybackend.Handler
 	cognitoIDPOps      *cognitoidpbackend.Handler
 	ecrOps             *ecrbackend.Handler
+	ecsOps             *ecsbackend.Handler
 	faultStore         *chaos.FaultStore
 	gCfg               globalcfg.GlobalConfig
 }
@@ -300,6 +303,10 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.ecrOps, _ = h.(*ecrbackend.Handler)
 	}
 
+	if h := ap.GetECSHandler(); h != nil {
+		ec.ecsOps, _ = h.(*ecsbackend.Handler)
+	}
+
 	if h := ap.GetSESv2Handler(); h != nil {
 		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
 	}
@@ -347,6 +354,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CognitoIdentityOps: ec.cognitoIdentityOps,
 		CognitoIDPOps:      ec.cognitoIDPOps,
 		ECROps:             ec.ecrOps,
+		ECSOps:             ec.ecsOps,
 		GlobalConfig:       ec.gCfg,
 		FaultStore:         ec.faultStore,
 		Logger:             ctx.Logger,
