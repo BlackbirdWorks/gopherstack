@@ -719,3 +719,53 @@ func TestSESv2Handler_InvalidJSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestSESv2Handler_ErrorResponseIncludesType(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	// Trigger a NotFoundException by requesting an identity that doesn't exist.
+	rec := doRequest(t, h, http.MethodGet, "/v2/email/identities/missing@example.com", nil)
+
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(
+		t,
+		"NotFoundException",
+		out["__type"],
+		"error response must include __type for SDK/Terraform error classification",
+	)
+	assert.NotEmpty(t, out["message"])
+}
+
+func TestSESv2Handler_URLEncodedIdentity(t *testing.T) {
+	t.Parallel()
+
+	identity := "encoded@example.com"
+	encodedIdentity := "encoded%40example.com"
+
+	h := newHandler()
+
+	// Create the identity with its plain name.
+	doRequest(t, h, http.MethodPost, "/v2/email/identities", map[string]any{"EmailIdentity": identity})
+
+	// GET using percent-encoded path (AWS SDK / Terraform style).
+	rec := doRequest(t, h, http.MethodGet, "/v2/email/identities/"+encodedIdentity, nil)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, identity, out["EmailIdentity"])
+
+	// DELETE using percent-encoded path.
+	rec2 := doRequest(t, h, http.MethodDelete, "/v2/email/identities/"+encodedIdentity, nil)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	// Confirm it is gone.
+	rec3 := doRequest(t, h, http.MethodGet, "/v2/email/identities/"+encodedIdentity, nil)
+	assert.Equal(t, http.StatusNotFound, rec3.Code)
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -88,6 +89,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	_, resource := parseSESv2Path(c.Request().Method, c.Request().URL.Path)
 
+	if decoded, err := url.PathUnescape(resource); err == nil {
+		return decoded
+	}
+
 	return resource
 }
 
@@ -157,7 +162,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
-		op, resource := parseSESv2Path(c.Request().Method, c.Request().URL.Path)
+		op, rawResource := parseSESv2Path(c.Request().Method, c.Request().URL.Path)
+
+		// URL-decode the resource so identities with '@' survive SDK/Terraform percent-encoding.
+		// Fall back to the raw value if the path segment is malformed.
+		resource := rawResource
+		if decoded, err := url.PathUnescape(rawResource); err == nil {
+			resource = decoded
+		}
+
 		log.DebugContext(ctx, "SESv2 request", "operation", op, "resource", resource)
 
 		if op == unknownAction {
@@ -456,9 +469,10 @@ func (h *Handler) handleOpError(c *echo.Context, op string, opErr error) error {
 }
 
 type sesv2ErrorResponse struct {
+	Type    string `json:"__type"`
 	Message string `json:"message"`
 }
 
-func (h *Handler) writeError(c *echo.Context, statusCode int, _ string, message string) error {
-	return c.JSON(statusCode, sesv2ErrorResponse{Message: message})
+func (h *Handler) writeError(c *echo.Context, statusCode int, code, message string) error {
+	return c.JSON(statusCode, sesv2ErrorResponse{Type: code, Message: message})
 }

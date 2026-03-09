@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -237,4 +238,40 @@ func TestIntegration_SESv2_DeleteConfigurationSet(t *testing.T) {
 	sesv2ReadBody(t, resp2)
 
 	assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
+}
+
+// TestIntegration_SESv2_URLEncodedIdentity verifies that AWS SDK / Terraform style
+// percent-encoded identities (e.g. %40 for @) are correctly decoded by the handler.
+func TestIntegration_SESv2_URLEncodedIdentity(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	identity := "url-encoded@example.com"
+
+	// Create via plain identity name.
+	sesv2ReadBody(t, sesv2Do(t, http.MethodPost, "/v2/email/identities", map[string]any{
+		"EmailIdentity": identity,
+	}))
+
+	// GET with percent-encoded path (as AWS SDK/Terraform would send).
+	encodedPath := "/v2/email/identities/" + url.PathEscape(identity)
+	resp := sesv2Do(t, http.MethodGet, encodedPath, nil)
+	body := sesv2ReadBody(t, resp)
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "GET with percent-encoded identity should succeed; body: %s", body)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal([]byte(body), &out))
+	assert.Equal(t, identity, out["EmailIdentity"])
+
+	// DELETE with percent-encoded path.
+	resp2 := sesv2Do(t, http.MethodDelete, encodedPath, nil)
+	sesv2ReadBody(t, resp2)
+
+	assert.Equal(t, http.StatusOK, resp2.StatusCode, "DELETE with percent-encoded identity should succeed")
+
+	// Confirm it is gone.
+	resp3 := sesv2Do(t, http.MethodGet, encodedPath, nil)
+	sesv2ReadBody(t, resp3)
+	assert.Equal(t, http.StatusNotFound, resp3.StatusCode)
 }
