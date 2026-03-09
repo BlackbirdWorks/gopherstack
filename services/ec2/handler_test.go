@@ -194,6 +194,43 @@ func TestEC2Handler_PostForm(t *testing.T) {
 			wantCode:     http.StatusOK,
 			wantContains: []string{"10.0.0.0/16"},
 		},
+		{
+			name:         "DescribeLaunchTemplates_empty",
+			body:         "Action=DescribeLaunchTemplates&Version=2016-11-15",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeLaunchTemplatesResponse"},
+		},
+		{
+			name: "DescribeInstanceTypes_with_filter",
+			body: "Action=DescribeInstanceTypes&Version=2016-11-15" +
+				"&Filter.1.Name=instance-type&Filter.1.Value.1=t3.micro",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeInstanceTypesResponse", "t3.micro"},
+		},
+		{
+			name:         "DescribeInstanceTypes_with_type_param",
+			body:         "Action=DescribeInstanceTypes&Version=2016-11-15&InstanceType.1=t2.small",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeInstanceTypesResponse", "t2.small"},
+		},
+		{
+			name:         "DescribeInstanceTypes_default",
+			body:         "Action=DescribeInstanceTypes&Version=2016-11-15",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeInstanceTypesResponse", "t2.micro"},
+		},
+		{
+			name:         "DescribeVpcAttribute",
+			body:         "Action=DescribeVpcAttribute&Version=2016-11-15&VpcId=vpc-default&Attribute=enableDnsHostnames",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeVpcAttributeResponse", "vpc-default", "enableDnsHostnames"},
+		},
+		{
+			name:         "RevokeSecurityGroupEgress",
+			body:         "Action=RevokeSecurityGroupEgress&Version=2016-11-15&GroupId=sg-default",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"RevokeSecurityGroupEgressResponse", "true"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -1034,4 +1071,51 @@ func extractTagsFromDescribeTagsXML(t *testing.T, body string) map[string]string
 	}
 
 	return m
+}
+
+func TestEC2Handler_DescribeInstanceAttribute(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		attr         string
+		wantContains string
+	}{
+		{
+			name:         "instanceInitiatedShutdownBehavior",
+			attr:         "instanceInitiatedShutdownBehavior",
+			wantContains: "stop",
+		},
+		{
+			name:         "disableApiTermination",
+			attr:         "disableApiTermination",
+			wantContains: "false",
+		},
+		{
+			name:         "sourceDestCheck",
+			attr:         "sourceDestCheck",
+			wantContains: "false",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			// Create an instance first so we have a real ID.
+			createRec := postForm(t, h,
+				"Action=RunInstances&Version=2016-11-15&ImageId=ami-test&InstanceType=t2.micro&MinCount=1&MaxCount=1")
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			instanceID := extractXMLValue(t, createRec.Body.String(), "instanceId")
+			require.NotEmpty(t, instanceID)
+
+			rec := postForm(t, h,
+				"Action=DescribeInstanceAttribute&Version=2016-11-15&InstanceId="+instanceID+"&Attribute="+tt.attr)
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), "DescribeInstanceAttributeResponse")
+			assert.Contains(t, rec.Body.String(), tt.wantContains)
+		})
+	}
 }
