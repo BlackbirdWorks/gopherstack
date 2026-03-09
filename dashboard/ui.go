@@ -673,6 +673,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupECSRoutes()
 	h.setupFISRoutes()
 	h.setupOpenSearchRoutes()
+	h.setupACMRoutes()
 	h.setupRedshiftRoutes()
 	h.setupRDSRoutes()
 	h.setupAWSConfigRoutes()

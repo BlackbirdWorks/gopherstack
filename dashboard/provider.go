@@ -306,6 +306,11 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.ecrOps, _ = h.(*ecrbackend.Handler)
 	}
 
+	extractContainerAndFaultHandlers(ap, ec)
+}
+
+// extractContainerAndFaultHandlers populates container and fault injection service handlers on ec.
+func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetECSHandler(); h != nil {
 		ec.ecsOps, _ = h.(*ecsbackend.Handler)
 	}

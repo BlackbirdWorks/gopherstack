@@ -244,26 +244,28 @@ func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
 	err = page.Locator("form[action='/dashboard/fis/experiments/start'] button").First().Click()
 	require.NoError(t, err)
 
-	// Wait for the experiment to appear in the Active Experiments section.
-	err = page.Locator("#experiments-container").WaitFor(playwright.LocatorWaitForOptions{
-		Timeout: playwright.Float(10000),
+	// Wait for the Stop button to appear in the Active Experiments table, confirming an
+	// experiment is running (the fragment renders a Stop button for RUNNING state).
+	err = page.Locator("form[action='/dashboard/fis/experiments/stop'] button:has-text('Stop')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(15000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "Active Experiments")
+	assert.Contains(t, content, "RUNNING")
 
-	// Stop the running experiment via the backend.
-	experiments, listErr := stack.FISHandler.Backend.ListExperiments()
-	require.NoError(t, listErr)
-	require.NotEmpty(t, experiments)
+	// Stop the experiment by clicking the Stop button in the UI.
+	err = page.Locator("form[action='/dashboard/fis/experiments/stop'] button:has-text('Stop')").First().Click()
+	require.NoError(t, err)
 
-	_, stopErr := stack.FISHandler.Backend.StopExperiment(experiments[0].ID)
-	// It's OK if the experiment already completed (no error) or was stopped.
-	if stopErr != nil && stopErr.Error() != fisbackend.ErrExperimentNotRunning.Error() {
-		require.NoError(t, stopErr)
-	}
+	// After stop, the Stop button should disappear (experiment no longer running).
+	err = page.Locator("form[action='/dashboard/fis/experiments/stop'] button:has-text('Stop')").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateHidden,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
 
 	// Ensure the template is still present.
 	got, getErr := stack.FISHandler.Backend.GetExperimentTemplate(tpl.ID)

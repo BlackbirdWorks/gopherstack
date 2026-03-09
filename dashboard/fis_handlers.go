@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -262,7 +261,7 @@ func (h *DashboardHandler) fisStartExperiment(c *echo.Context) error {
 	}
 
 	if _, err := h.FISOps.Backend.StartExperiment(
-		context.Background(),
+		c.Request().Context(),
 		input,
 		h.GlobalConfig.AccountID,
 		h.GlobalConfig.Region,

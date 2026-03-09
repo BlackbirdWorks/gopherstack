@@ -154,7 +154,179 @@ func TestDashboard_FIS_CreateTemplate(t *testing.T) {
 	}
 }
 
-// TestDashboard_FIS_DeleteTemplate verifies the delete template flow.
+// TestDashboard_FIS_StartExperiment verifies the start experiment flow.
+func TestDashboard_FIS_StartExperiment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*fisbackend.Handler) string
+		name         string
+		wantLocation string
+		wantCode     int
+	}{
+		{
+			name: "starts experiment and redirects",
+			setup: func(h *fisbackend.Handler) string {
+				tpl, err := h.Backend.CreateExperimentTemplate(
+					&fisbackend.ExportedCreateTemplateRequest{
+						Description: "wait template",
+						RoleArn:     "arn:aws:iam::000000000000:role/r",
+						Actions: map[string]fisbackend.ExportedActionDTO{
+							"wait": {
+								ActionID:   "aws:fis:wait",
+								Parameters: map[string]string{"duration": "PT1M"},
+							},
+						},
+						StopConditions: []fisbackend.ExportedStopConditionDTO{{Source: "none"}},
+						Tags:           map[string]string{},
+					},
+					"000000000000", "us-east-1",
+				)
+				require.NoError(t, err)
+
+				return tpl.ID
+			},
+			wantCode:     http.StatusFound,
+			wantLocation: "/dashboard/fis",
+		},
+		{
+			name:         "returns 400 when templateId is missing",
+			setup:        func(_ *fisbackend.Handler) string { return "" },
+			wantCode:     http.StatusBadRequest,
+			wantLocation: "",
+		},
+		{
+			name: "returns 503 when FIS handler is nil",
+			setup: func(_ *fisbackend.Handler) string {
+				return "any-id"
+			},
+			wantCode:     http.StatusServiceUnavailable,
+			wantLocation: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var h *dashboard.DashboardHandler
+			var templateID string
+
+			if tt.name == "returns 503 when FIS handler is nil" {
+				h = dashboard.NewHandler(dashboard.Config{})
+				templateID = "any-id"
+			} else {
+				fisHndlr := fisbackend.NewHandler(fisbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+				templateID = tt.setup(fisHndlr)
+				h = dashboard.NewHandler(dashboard.Config{FISOps: fisHndlr})
+			}
+
+			body := url.Values{"templateId": {templateID}}.Encode()
+			req := httptest.NewRequest(http.MethodPost, "/dashboard/fis/experiments/start",
+				strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			serveHandler(h, w, req)
+
+			assert.Equal(t, tt.wantCode, w.Code)
+			if tt.wantLocation != "" {
+				assert.Equal(t, tt.wantLocation, w.Header().Get("Location"))
+			}
+		})
+	}
+}
+
+// TestDashboard_FIS_StopExperiment verifies the stop experiment flow.
+func TestDashboard_FIS_StopExperiment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(*fisbackend.Handler) string
+		name         string
+		wantLocation string
+		wantCode     int
+	}{
+		{
+			name: "stops running experiment and redirects",
+			setup: func(h *fisbackend.Handler) string {
+				tpl, err := h.Backend.CreateExperimentTemplate(
+					&fisbackend.ExportedCreateTemplateRequest{
+						Description: "wait tpl",
+						RoleArn:     "arn:aws:iam::000000000000:role/r",
+						Actions: map[string]fisbackend.ExportedActionDTO{
+							"wait": {
+								ActionID:   "aws:fis:wait",
+								Parameters: map[string]string{"duration": "PT5M"},
+							},
+						},
+						StopConditions: []fisbackend.ExportedStopConditionDTO{{Source: "none"}},
+						Tags:           map[string]string{},
+					},
+					"000000000000", "us-east-1",
+				)
+				require.NoError(t, err)
+
+				exp, startErr := h.Backend.StartExperiment(
+					t.Context(),
+					&fisbackend.ExportedStartExperimentRequest{
+						ExperimentTemplateID: tpl.ID,
+						Tags:                 map[string]string{},
+					},
+					"000000000000", "us-east-1",
+				)
+				require.NoError(t, startErr)
+
+				return exp.ID
+			},
+			wantCode:     http.StatusFound,
+			wantLocation: "/dashboard/fis",
+		},
+		{
+			name:         "returns 400 when id is missing",
+			setup:        func(_ *fisbackend.Handler) string { return "" },
+			wantCode:     http.StatusBadRequest,
+			wantLocation: "",
+		},
+		{
+			name: "returns 503 when FIS handler is nil",
+			setup: func(_ *fisbackend.Handler) string {
+				return "any-id"
+			},
+			wantCode:     http.StatusServiceUnavailable,
+			wantLocation: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var h *dashboard.DashboardHandler
+			var experimentID string
+
+			if tt.name == "returns 503 when FIS handler is nil" {
+				h = dashboard.NewHandler(dashboard.Config{})
+				experimentID = "any-id"
+			} else {
+				fisHndlr := fisbackend.NewHandler(fisbackend.NewInMemoryBackend("000000000000", "us-east-1"))
+				experimentID = tt.setup(fisHndlr)
+				h = dashboard.NewHandler(dashboard.Config{FISOps: fisHndlr})
+			}
+
+			body := url.Values{"id": {experimentID}}.Encode()
+			req := httptest.NewRequest(http.MethodPost, "/dashboard/fis/experiments/stop",
+				strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			serveHandler(h, w, req)
+
+			assert.Equal(t, tt.wantCode, w.Code)
+			if tt.wantLocation != "" {
+				assert.Equal(t, tt.wantLocation, w.Header().Get("Location"))
+			}
+		})
+	}
+}
 func TestDashboard_FIS_DeleteTemplate(t *testing.T) {
 	t.Parallel()
 
