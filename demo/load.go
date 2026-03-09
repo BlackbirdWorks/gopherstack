@@ -250,6 +250,18 @@ func loadSNS(ctx context.Context, snsClient *sns.Client, _ *sqs.Client) error {
 		pkgslogger.Load(ctx).InfoContext(ctx, "Subscribed SQS queue to SNS topic")
 	}
 
+	// Create a demo platform application for visual inspection of the dashboard.
+	_, err = snsClient.CreatePlatformApplication(ctx, &sns.CreatePlatformApplicationInput{
+		Name:       aws.String("demo-gcm-app"),
+		Platform:   aws.String("GCM"),
+		Attributes: map[string]string{},
+	})
+	if err != nil {
+		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create demo platform application", "error", err)
+	} else {
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created SNS platform application", "name", "demo-gcm-app")
+	}
+
 	return nil
 }
 
