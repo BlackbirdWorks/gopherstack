@@ -296,6 +296,7 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.cognitoIDPOps, _ = h.(*cognitoidpbackend.Handler)
 	}
 
+
 	if h := ap.GetECRHandler(); h != nil {
 		ec.ecrOps, _ = h.(*ecrbackend.Handler)
 	}
