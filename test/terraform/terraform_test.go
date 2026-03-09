@@ -158,6 +158,7 @@ provider "aws" {
     scheduler       = %[1]q
     secretsmanager  = %[1]q
     ses             = %[1]q
+    sesv2           = %[1]q
     sfn             = %[1]q
     sns             = %[1]q
     sqs             = %[1]q

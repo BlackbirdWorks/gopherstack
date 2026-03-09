@@ -128,28 +128,24 @@ func TestSESv2Dashboard_CreateAndDeleteIdentity(t *testing.T) {
 	err = page.Locator("button:has-text('Create Identity')").Last().Click()
 	require.NoError(t, err)
 
-	// Wait for redirect back.
-	err = page.Locator("h1:has-text('SES v2')").WaitFor(playwright.LocatorWaitForOptions{
+	// Wait for the identity row to appear in the table after the redirect.
+	identityRow := page.Locator("td:has-text('ui-created@example.com')")
+	err = identityRow.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
-
-	content, err := page.Content()
-	require.NoError(t, err)
-	assert.Contains(t, content, "ui-created@example.com")
 
 	// Delete the identity.
 	err = page.Locator("form[action='/dashboard/sesv2/identity/delete'] button").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('SES v2')").WaitFor(playwright.LocatorWaitForOptions{
+	// Wait for the identity row to disappear after the redirect.
+	err = identityRow.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateHidden,
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
-
-	content, err = page.Content()
-	require.NoError(t, err)
-	assert.NotContains(t, content, "ui-created@example.com")
 }
 
 // TestSESv2Dashboard_CreateAndDeleteConfigurationSet verifies the create and delete configuration set UI flows.
@@ -191,25 +187,22 @@ func TestSESv2Dashboard_CreateAndDeleteConfigurationSet(t *testing.T) {
 	err = page.Locator("button:has-text('Create Configuration Set')").Last().Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('SES v2')").WaitFor(playwright.LocatorWaitForOptions{
+	// Wait for the configuration set row to appear in the table after the redirect.
+	configRow := page.Locator("td:has-text('ui-config-set')")
+	err = configRow.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
-
-	content, err := page.Content()
-	require.NoError(t, err)
-	assert.Contains(t, content, "ui-config-set")
 
 	// Delete the configuration set.
 	err = page.Locator("form[action='/dashboard/sesv2/configuration-set/delete'] button").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("h1:has-text('SES v2')").WaitFor(playwright.LocatorWaitForOptions{
+	// Wait for the configuration set row to disappear after the redirect.
+	err = configRow.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateHidden,
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)
-
-	content, err = page.Content()
-	require.NoError(t, err)
-	assert.NotContains(t, content, "ui-config-set")
 }
