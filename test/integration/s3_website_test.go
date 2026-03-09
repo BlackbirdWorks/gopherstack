@@ -3,6 +3,8 @@ package integration_test
 import (
 	"testing"
 
+	smithy "github.com/aws/smithy-go"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -83,7 +85,11 @@ func TestIntegration_S3_Website(t *testing.T) {
 			})
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
+
+				var apiErr smithy.APIError
+				require.ErrorAs(t, err, &apiErr, "expected smithy.APIError")
+				assert.Equal(t, "NoSuchWebsiteConfiguration", apiErr.ErrorCode())
 
 				return
 			}
@@ -127,7 +133,11 @@ func TestIntegration_S3_DeleteBucketWebsite(t *testing.T) {
 	_, err = client.DeleteBucketWebsite(ctx, &s3.DeleteBucketWebsiteInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 
-	// Verify it is gone.
+	// Verify it is gone with the expected error code.
 	_, err = client.GetBucketWebsite(ctx, &s3.GetBucketWebsiteInput{Bucket: aws.String(bucket)})
-	assert.Error(t, err)
+
+	var apiErr smithy.APIError
+	require.Error(t, err)
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "NoSuchWebsiteConfiguration", apiErr.ErrorCode())
 }
