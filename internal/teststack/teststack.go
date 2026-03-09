@@ -21,6 +21,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -113,6 +114,7 @@ type Stack struct {
 	TranscribeHandler            *transcribebackend.Handler
 	SupportHandler               *supportbackend.Handler
 	CognitoIdentityHandler       *cognitoidentitybackend.Handler
+	AppSyncHandler               *appsyncbackend.Handler
 	CognitoIDPHandler            *cognitoidpbackend.Handler
 	S3Client                     *s3.Client
 	DDBClient                    *dynamodb.Client
@@ -205,6 +207,7 @@ func registerServices(
 	transcribeHndlr *transcribebackend.Handler,
 	supportHndlr *supportbackend.Handler,
 	cognitoIdentityHndlr *cognitoidentitybackend.Handler,
+	appSyncHndlr *appsyncbackend.Handler,
 	cognitoIDPHndlr *cognitoidpbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
@@ -246,6 +249,7 @@ func registerServices(
 	_ = registry.Register(transcribeHndlr)
 	_ = registry.Register(supportHndlr)
 	_ = registry.Register(cognitoIdentityHndlr)
+	_ = registry.Register(appSyncHndlr)
 	_ = registry.Register(cognitoIDPHndlr)
 }
 
@@ -291,6 +295,7 @@ type handlers struct {
 	transcribe      *transcribebackend.Handler
 	support         *supportbackend.Handler
 	cognitoIdentity *cognitoidentitybackend.Handler
+	appSync         *appsyncbackend.Handler
 	cognitoIDP      *cognitoidpbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
@@ -384,6 +389,9 @@ func newHandlers() handlers {
 			cognitoidentitybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 			config.DefaultRegion,
 		),
+		appSync: appsyncbackend.NewHandler(
+			appsyncbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, "http://localhost:8000"),
+		),
 		cognitoIDP: cognitoidpbackend.NewHandler(
 			cognitoidpbackend.NewInMemoryBackend(
 				config.DefaultAccountID,
@@ -470,6 +478,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		TranscribeOps:      h.transcribe,
 		SupportOps:         h.support,
 		CognitoIdentityOps: h.cognitoIdentity,
+		AppSyncOps:         h.appSync,
 		CognitoIDPOps:      h.cognitoIDP,
 		GlobalConfig:       config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion},
 		FaultStore:         fs,
@@ -497,7 +506,8 @@ func New(t *testing.T) *Stack {
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
 		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.opensearch,
 		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
-		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity, h.cognitoIDP,
+		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
+		h.appSync, h.cognitoIDP,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -553,6 +563,7 @@ func New(t *testing.T) *Stack {
 		TranscribeHandler:            h.transcribe,
 		SupportHandler:               h.support,
 		CognitoIdentityHandler:       h.cognitoIdentity,
+		AppSyncHandler:               h.appSync,
 		CognitoIDPHandler:            h.cognitoIDP,
 		S3Client:                     clients.S3,
 		DDBClient:                    clients.DDB,

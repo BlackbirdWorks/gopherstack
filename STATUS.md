@@ -51,7 +51,7 @@ LocalStack locks these services behind a paid tier. Gopherstack offers them nati
 
 | Service | API Implemented | Has Dashboard UI | Has Terraform Tests |
 | --- | --- | --- | --- |
-| **AppSync** | ✅ Yes | ❌ No | ✅ Yes |
+| **AppSync** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **ECR** | ✅ Yes | ✅ Yes | ✅ Yes (with Lambda) |
 | **ECS** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **ElastiCache** | ✅ Yes | ✅ Yes | ✅ Yes |
@@ -79,7 +79,6 @@ The Chaos API supports:
 *These have been logged as GitHub Issues and should be tackled incrementally.*
 
 ### Missing UIs (Dashboard)
-- AppSync (Pro)
 - Cognito IDP (Free)
 - ECR (Pro)
 - ECS (Pro)
