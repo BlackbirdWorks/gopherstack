@@ -562,3 +562,232 @@ func TestInMemoryBackend_CreateSecurityGroup_InvalidVPC(t *testing.T) {
 	_, err := bk.CreateSecurityGroup("sg-name", "test", "vpc-nonexistent")
 	require.ErrorIs(t, err, ec2.ErrVPCNotFound)
 }
+
+func TestEC2Handler_CreateTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "create_tags_on_vpc",
+			body: "Action=CreateTags&Version=2016-11-15" +
+				"&ResourceId.1=vpc-default" +
+				"&Tag.1.Key=Name&Tag.1.Value=my-vpc" +
+				"&Tag.2.Key=Env&Tag.2.Value=test",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateTagsResponse", "true"},
+		},
+		{
+			name: "create_tags_multiple_resources",
+			body: "Action=CreateTags&Version=2016-11-15" +
+				"&ResourceId.1=vpc-default&ResourceId.2=subnet-default" +
+				"&Tag.1.Key=Project&Tag.1.Value=demo",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateTagsResponse", "true"},
+		},
+		{
+			name:         "create_tags_no_resources",
+			body:         "Action=CreateTags&Version=2016-11-15&Tag.1.Key=Name&Tag.1.Value=x",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateTagsResponse"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestEC2Handler_DeleteTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		setupBody    string
+		deleteBody   string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:      "delete_specific_tag_key",
+			setupBody: "Action=CreateTags&Version=2016-11-15&ResourceId.1=vpc-default&Tag.1.Key=Name&Tag.1.Value=test",
+			deleteBody: "Action=DeleteTags&Version=2016-11-15" +
+				"&ResourceId.1=vpc-default&Tag.1.Key=Name",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteTagsResponse", "true"},
+		},
+		{
+			name:         "delete_tags_no_resources",
+			setupBody:    "",
+			deleteBody:   "Action=DeleteTags&Version=2016-11-15&Tag.1.Key=Name",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteTagsResponse"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			if tt.setupBody != "" {
+				setupRec := postForm(t, h, tt.setupBody)
+				require.Equal(t, http.StatusOK, setupRec.Code)
+			}
+
+			rec := postForm(t, h, tt.deleteBody)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestEC2Handler_DescribeTags_ReflectsCreatedTags(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	// Create tags on the default VPC.
+	createRec := postForm(t, h,
+		"Action=CreateTags&Version=2016-11-15"+
+			"&ResourceId.1=vpc-default"+
+			"&Tag.1.Key=Name&Tag.1.Value=my-vpc")
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	// DescribeTags should return the tag.
+	descRec := postForm(t, h, "Action=DescribeTags&Version=2016-11-15")
+	assert.Equal(t, http.StatusOK, descRec.Code)
+	assert.Contains(t, descRec.Body.String(), "vpc-default")
+	assert.Contains(t, descRec.Body.String(), "Name")
+	assert.Contains(t, descRec.Body.String(), "my-vpc")
+}
+
+func TestEC2Handler_DescribeTags_AfterDelete(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	// Create a tag.
+	createRec := postForm(t, h,
+		"Action=CreateTags&Version=2016-11-15"+
+			"&ResourceId.1=vpc-default"+
+			"&Tag.1.Key=Name&Tag.1.Value=to-delete")
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	// Delete the tag.
+	deleteRec := postForm(t, h,
+		"Action=DeleteTags&Version=2016-11-15"+
+			"&ResourceId.1=vpc-default"+
+			"&Tag.1.Key=Name")
+	require.Equal(t, http.StatusOK, deleteRec.Code)
+
+	// DescribeTags should no longer contain the tag value.
+	descRec := postForm(t, h, "Action=DescribeTags&Version=2016-11-15")
+	assert.Equal(t, http.StatusOK, descRec.Code)
+	assert.NotContains(t, descRec.Body.String(), "to-delete")
+}
+
+func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(bk *ec2.InMemoryBackend)
+		name         string
+		resourceIDs  []string
+		wantContains []ec2.TagEntry
+		wantCount    int
+	}{
+		{
+			name: "create_and_describe",
+			setup: func(bk *ec2.InMemoryBackend) {
+				err := bk.CreateTags([]string{"vpc-1"}, map[string]string{"Name": "test-vpc"})
+				require.NoError(t, err)
+			},
+			resourceIDs: nil,
+			wantCount:   1,
+			wantContains: []ec2.TagEntry{
+				{ResourceID: "vpc-1", Key: "Name", Value: "test-vpc", ResourceType: "vpc"},
+			},
+		},
+		{
+			name: "create_multiple_resources",
+			setup: func(bk *ec2.InMemoryBackend) {
+				err := bk.CreateTags([]string{"vpc-1", "subnet-1"}, map[string]string{"Env": "prod"})
+				require.NoError(t, err)
+			},
+			resourceIDs: nil,
+			wantCount:   2,
+		},
+		{
+			name: "delete_clears_key",
+			setup: func(bk *ec2.InMemoryBackend) {
+				err := bk.CreateTags([]string{"vpc-1"}, map[string]string{"Name": "old", "Env": "dev"})
+				require.NoError(t, err)
+
+				err = bk.DeleteTags([]string{"vpc-1"}, []string{"Name"})
+				require.NoError(t, err)
+			},
+			resourceIDs: nil,
+			wantCount:   1,
+			wantContains: []ec2.TagEntry{
+				{ResourceID: "vpc-1", Key: "Env", Value: "dev", ResourceType: "vpc"},
+			},
+		},
+		{
+			name: "filter_by_resource_id",
+			setup: func(bk *ec2.InMemoryBackend) {
+				err := bk.CreateTags([]string{"vpc-1", "vpc-2"}, map[string]string{"Key": "val"})
+				require.NoError(t, err)
+			},
+			resourceIDs: []string{"vpc-1"},
+			wantCount:   1,
+			wantContains: []ec2.TagEntry{
+				{ResourceID: "vpc-1", Key: "Key", Value: "val", ResourceType: "vpc"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+			tt.setup(bk)
+
+			entries := bk.DescribeTags(tt.resourceIDs)
+			assert.Len(t, entries, tt.wantCount)
+
+			for _, want := range tt.wantContains {
+				found := false
+				for _, e := range entries {
+					if e.ResourceID == want.ResourceID && e.Key == want.Key && e.Value == want.Value {
+						assert.Equal(t, want.ResourceType, e.ResourceType)
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "expected tag entry not found: %+v", want)
+			}
+		})
+	}
+}

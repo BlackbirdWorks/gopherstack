@@ -96,6 +96,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RevokeSecurityGroupEgress",
 		"DescribeInstanceTypes",
 		"DescribeTags",
+		"CreateTags",
+		"DeleteTags",
 		"DescribeInstanceAttribute",
 		"DescribeImageAttribute",
 	}
@@ -240,6 +242,8 @@ func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 		"CreateSubnet":                  h.handleCreateSubnet,
 		"DescribeInstanceTypes":         h.handleDescribeInstanceTypes,
 		"DescribeTags":                  h.handleDescribeTags,
+		"CreateTags":                    h.handleCreateTags,
+		"DeleteTags":                    h.handleDeleteTags,
 		"DescribeInstanceAttribute":     h.handleDescribeInstanceAttribute,
 		"StartInstances":                h.handleStartInstances,
 		"StopInstances":                 h.handleStopInstances,
@@ -554,13 +558,54 @@ func (h *Handler) handleDescribeInstanceTypes(vals url.Values, reqID string) (an
 	}, nil
 }
 
-// handleDescribeTags returns an empty tag list.
+// handleDescribeTags returns tags for EC2 resources.
 // Terraform calls this after RunInstances to read the launch template ID tag.
-func (h *Handler) handleDescribeTags(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error) {
+	resourceIDs := parseMemberList(vals, "Filter.1.Value")
+
+	entries := h.Backend.DescribeTags(resourceIDs)
+
+	items := make([]tagItem, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, tagItem(e))
+	}
+
 	return &describeTagsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		TagSet:    tagItemSet{},
+		TagSet:    tagItemSet{Items: items},
+	}, nil
+}
+
+// handleCreateTags applies tags to one or more resources.
+func (h *Handler) handleCreateTags(vals url.Values, reqID string) (any, error) {
+	resourceIDs := parseMemberList(vals, "ResourceId")
+	tags := parseEC2Tags(vals)
+
+	if err := h.Backend.CreateTags(resourceIDs, tags); err != nil {
+		return nil, err
+	}
+
+	return &createTagsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    "true",
+	}, nil
+}
+
+// handleDeleteTags removes tags from one or more resources.
+func (h *Handler) handleDeleteTags(vals url.Values, reqID string) (any, error) {
+	resourceIDs := parseMemberList(vals, "ResourceId")
+	keys := parseEC2TagKeys(vals)
+
+	if err := h.Backend.DeleteTags(resourceIDs, keys); err != nil {
+		return nil, err
+	}
+
+	return &deleteTagsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    "true",
 	}, nil
 }
 
@@ -665,6 +710,42 @@ func parseMemberList(vals url.Values, prefix string) []string {
 		}
 		result = append(result, v)
 	}
+}
+
+// maxTagsPerRequest is the maximum number of tags accepted in a single EC2 request.
+// AWS allows up to 50 tags per resource; we use 1000 as a generous but bounded limit.
+const maxTagsPerRequest = 1000
+
+// parseEC2Tags extracts Tag.N.Key / Tag.N.Value from EC2 form values.
+func parseEC2Tags(vals url.Values) map[string]string {
+	tags := make(map[string]string)
+
+	for i := 1; i <= maxTagsPerRequest; i++ {
+		key := vals.Get(fmt.Sprintf("Tag.%d.Key", i))
+		if key == "" {
+			return tags
+		}
+
+		tags[key] = vals.Get(fmt.Sprintf("Tag.%d.Value", i))
+	}
+
+	return tags
+}
+
+// parseEC2TagKeys extracts Tag.N.Key from EC2 DeleteTags form values.
+func parseEC2TagKeys(vals url.Values) []string {
+	var keys []string
+
+	for i := 1; i <= maxTagsPerRequest; i++ {
+		key := vals.Get(fmt.Sprintf("Tag.%d.Key", i))
+		if key == "" {
+			return keys
+		}
+
+		keys = append(keys, key)
+	}
+
+	return keys
 }
 
 // marshalXML encodes the payload with the XML declaration header.
@@ -932,6 +1013,20 @@ type describeTagsResponse struct {
 	Xmlns     string     `xml:"xmlns,attr"`
 	RequestID string     `xml:"requestId"`
 	TagSet    tagItemSet `xml:"tagSet"`
+}
+
+type createTagsResponse struct {
+	XMLName   xml.Name `xml:"CreateTagsResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    string   `xml:"return"`
+}
+
+type deleteTagsResponse struct {
+	XMLName   xml.Name `xml:"DeleteTagsResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    string   `xml:"return"`
 }
 
 // namedStringAttr is a string attribute element whose XML element name is set dynamically.
