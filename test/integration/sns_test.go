@@ -382,6 +382,7 @@ func TestIntegration_SNS_PlatformEndpointLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, deviceToken, endpointAttrOut.Attributes["Token"])
 	assert.Equal(t, "true", endpointAttrOut.Attributes["Enabled"])
+	assert.Equal(t, "my-user-data", endpointAttrOut.Attributes["CustomUserData"])
 
 	// SetEndpointAttributes
 	_, err = snsClient.SetEndpointAttributes(ctx, &sns.SetEndpointAttributesInput{

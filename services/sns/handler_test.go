@@ -2297,6 +2297,7 @@ func TestSNSHandler_CreatePlatformApplication(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup            func(b *sns.InMemoryBackend)
 		form             url.Values
 		name             string
 		wantBodyContains []string
@@ -2313,6 +2314,29 @@ func TestSNSHandler_CreatePlatformApplication(t *testing.T) {
 			},
 			wantStatus:       http.StatusOK,
 			wantBodyContains: []string{"CreatePlatformApplicationResponse", "app/GCM/MyApp"},
+		},
+		{
+			name: "duplicate_returns_error",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreatePlatformApplication("MyApp", "GCM", nil)
+			},
+			form: url.Values{
+				"Action":   {"CreatePlatformApplication"},
+				"Name":     {"MyApp"},
+				"Platform": {"GCM"},
+			},
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: []string{"PlatformApplicationAlreadyExists"},
+		},
+		{
+			name: "invalid_name_with_slash",
+			form: url.Values{
+				"Action":   {"CreatePlatformApplication"},
+				"Name":     {"My/App"},
+				"Platform": {"GCM"},
+			},
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: []string{"InvalidParameter"},
 		},
 		{
 			name: "missing_name",
@@ -2337,7 +2361,12 @@ func TestSNSHandler_CreatePlatformApplication(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			h, _ := newTestHandler(t)
+			h, b := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
 			rec := snsPost(t, h, tt.form)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			for _, want := range tt.wantBodyContains {
@@ -2580,6 +2609,20 @@ func TestSNSHandler_CreatePlatformEndpoint(t *testing.T) {
 			},
 			wantStatus:       http.StatusOK,
 			wantBodyContains: []string{"CreatePlatformEndpointResponse", "endpoint/GCM/MyApp"},
+		},
+		{
+			name: "with_custom_user_data",
+			setup: func(b *sns.InMemoryBackend) string {
+				app, _ := b.CreatePlatformApplication("MyApp", "GCM", nil)
+
+				return app.PlatformApplicationArn
+			},
+			formOverrides: url.Values{
+				"Token":          {"device-token-456"},
+				"CustomUserData": {"my-custom-data"},
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"CreatePlatformEndpointResponse"},
 		},
 		{
 			name:          "missing_arn",
@@ -2934,6 +2977,33 @@ func TestInMemoryBackend_PlatformApplicationLifecycle(t *testing.T) {
 
 				_, err = b.GetEndpointAttributes(ep.EndpointArn)
 				require.ErrorIs(t, err, sns.ErrEndpointNotFound)
+			},
+		},
+		{
+			name: "duplicate_returns_error",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreatePlatformApplication("DupApp", "GCM", nil)
+				require.NoError(t, err)
+
+				_, err = b.CreatePlatformApplication("DupApp", "GCM", nil)
+				require.ErrorIs(t, err, sns.ErrPlatformApplicationAlreadyExists)
+			},
+		},
+		{
+			name: "slash_in_name_returns_error",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreatePlatformApplication("My/App", "GCM", nil)
+				require.ErrorIs(t, err, sns.ErrInvalidParameter)
+			},
+		},
+		{
+			name: "slash_in_platform_returns_error",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreatePlatformApplication("MyApp", "GCM/v2", nil)
+				require.ErrorIs(t, err, sns.ErrInvalidParameter)
 			},
 		},
 	}

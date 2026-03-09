@@ -711,6 +711,11 @@ func (h *Handler) handleCreatePlatformEndpoint(c *echo.Context) error {
 
 	attrs := extractFormAttributes(c)
 
+	// CustomUserData is sent as a top-level form field by the AWS SDK, not under Attributes.entry.*.
+	if customData := c.Request().FormValue("CustomUserData"); customData != "" {
+		attrs["CustomUserData"] = customData
+	}
+
 	ep, err := h.Backend.CreatePlatformEndpoint(platformApplicationArn, token, attrs)
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -832,8 +837,8 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound),
 		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound):
 		log.WarnContext(ctx, "SNS resource not found", "error", err)
-	case errors.Is(err, ErrTopicAlreadyExists):
-		log.WarnContext(ctx, "SNS topic already exists", "error", err)
+	case errors.Is(err, ErrTopicAlreadyExists), errors.Is(err, ErrPlatformApplicationAlreadyExists):
+		log.WarnContext(ctx, "SNS resource already exists", "error", err)
 	case errors.Is(err, ErrInvalidParameter):
 		log.WarnContext(ctx, "SNS invalid parameter", "error", err)
 	default:
@@ -852,6 +857,8 @@ func errorCode(err error) string {
 		return "NotFound"
 	case errors.Is(err, ErrTopicAlreadyExists):
 		return "TopicAlreadyExists"
+	case errors.Is(err, ErrPlatformApplicationAlreadyExists):
+		return "PlatformApplicationAlreadyExists"
 	case errors.Is(err, ErrInvalidParameter):
 		return "InvalidParameter"
 	default:

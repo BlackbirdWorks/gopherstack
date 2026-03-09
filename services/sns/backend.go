@@ -23,12 +23,13 @@ import (
 )
 
 var (
-	ErrTopicNotFound               = errors.New("NotFound")
-	ErrTopicAlreadyExists          = errors.New("TopicAlreadyExists")
-	ErrSubscriptionNotFound        = errors.New("NotFound")
-	ErrPlatformApplicationNotFound = errors.New("NotFound")
-	ErrEndpointNotFound            = errors.New("NotFound")
-	ErrInvalidParameter            = errors.New("InvalidParameter")
+	ErrTopicNotFound                    = errors.New("NotFound")
+	ErrTopicAlreadyExists               = errors.New("TopicAlreadyExists")
+	ErrSubscriptionNotFound             = errors.New("NotFound")
+	ErrPlatformApplicationNotFound      = errors.New("NotFound")
+	ErrPlatformApplicationAlreadyExists = errors.New("PlatformApplicationAlreadyExists")
+	ErrEndpointNotFound                 = errors.New("NotFound")
+	ErrInvalidParameter                 = errors.New("InvalidParameter")
 )
 
 const (
@@ -41,6 +42,10 @@ const (
 	// platformARNResourceParts is the expected number of slash-delimited parts
 	// in a platform application ARN resource component: "app/{Platform}/{AppName}".
 	platformARNResourceParts = 3
+
+	// endpointExtraAttrs is the number of extra attributes added to a new endpoint
+	// beyond what the caller provides: Token and Enabled.
+	endpointExtraAttrs = 2
 )
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -769,10 +774,18 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 	name, platform string,
 	attributes map[string]string,
 ) (*PlatformApplication, error) {
+	if strings.ContainsAny(name, "/") || strings.ContainsAny(platform, "/") {
+		return nil, fmt.Errorf("%w: Name and Platform must not contain '/'", ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreatePlatformApplication")
 	defer b.mu.Unlock()
 
 	appArn := arn.Build("sns", b.region, b.accountID, "app/"+platform+"/"+name)
+
+	if _, exists := b.platformApplications[appArn]; exists {
+		return nil, ErrPlatformApplicationAlreadyExists
+	}
 
 	attrs := make(map[string]string, len(attributes))
 	maps.Copy(attrs, attributes)
@@ -878,7 +891,11 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 	resourceParts := strings.SplitN(resource, "/", platformARNResourceParts)
 
 	if len(resourceParts) != platformARNResourceParts {
-		return nil, fmt.Errorf("%w: malformed platform application ARN: %s", ErrInvalidParameter, platformApplicationArn)
+		return nil, fmt.Errorf(
+			"%w: malformed platform application ARN: %s",
+			ErrInvalidParameter,
+			platformApplicationArn,
+		)
 	}
 
 	platform := resourceParts[1]
@@ -887,8 +904,8 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 	endpointArn := arn.Build("sns", b.region, b.accountID,
 		"endpoint/"+platform+"/"+appName+"/"+uuid.New().String())
 
-	// +2 for Token and Enabled attributes added below.
-	attrs := make(map[string]string, len(attributes)+2)
+	// Allocate with room for Token and Enabled (endpointExtraAttrs) beyond caller-supplied attrs.
+	attrs := make(map[string]string, len(attributes)+endpointExtraAttrs)
 	maps.Copy(attrs, attributes)
 	attrs["Token"] = token
 	attrs["Enabled"] = "true"
