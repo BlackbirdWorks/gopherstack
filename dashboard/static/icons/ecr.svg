@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64px" height="64px" viewBox="0 0 64 64" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Icon-Architecture/48/Arch_Amazon-ECR_48</title>
+    <g id="Icon-Architecture/48/Arch_Amazon-ECR_48" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="Icon-Architecture-BG/48/Containers" fill="#C7131F">
+            <rect id="Rectangle" x="0" y="0" width="64" height="64"></rect>
+        </g>
+        <path d="M40,21 L24,21 C22.897,21 22,21.897 22,23 L22,41 C22,42.103 22.897,43 24,43 L40,43 C41.103,43 42,42.103 42,41 L42,23 C42,21.897 41.103,21 40,21 L40,21 Z M32,39 C28.134,39 25,35.866 25,32 C25,28.134 28.134,25 32,25 C35.866,25 39,28.134 39,32 C39,35.866 35.866,39 32,39 L32,39 Z M32,27 C29.239,27 27,29.239 27,32 C27,34.761 29.239,37 32,37 C34.761,37 37,34.761 37,32 C37,29.239 34.761,27 32,27 L32,27 Z M32,33.5 C31.172,33.5 30.5,32.828 30.5,32 C30.5,31.172 31.172,30.5 32,30.5 C32.828,30.5 33.5,31.172 33.5,32 C33.5,32.828 32.828,33.5 32,33.5 L32,33.5 Z M14,16 L14,18 L16,18 L16,16 L14,16 Z M18,16 L18,18 L46,18 L46,16 L18,16 Z M48,16 L48,18 L50,18 L50,16 L48,16 Z M14,20 L14,44 L16,44 L16,20 L14,20 Z M48,20 L48,44 L50,44 L50,20 L48,20 Z M14,46 L14,48 L16,48 L16,46 L14,46 Z M18,46 L18,48 L46,48 L46,46 L18,46 Z M48,46 L48,48 L50,48 L50,46 L48,46 Z" id="Amazon-ECR_Icon_48_Squid" fill="#FFFFFF"></path>
+    </g>
+</svg>

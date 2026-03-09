@@ -29,6 +29,7 @@ import (
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -92,6 +93,7 @@ type Stack struct {
 	SESHandler                   *sesbackend.Handler
 	SESv2Handler                 *sesv2backend.Handler
 	EC2Handler                   *ec2backend.Handler
+	ECRHandler                   *ecrbackend.Handler
 	OpenSearchHandler            *opensearchbackend.Handler
 	ACMHandler                   *acmbackend.Handler
 	RedshiftHandler              *redshiftbackend.Handler
@@ -182,6 +184,7 @@ func registerServices(
 	sesHndlr *sesbackend.Handler,
 	sesv2Hndlr *sesv2backend.Handler,
 	ec2Hndlr *ec2backend.Handler,
+	ecrHndlr *ecrbackend.Handler,
 	openSearchHndlr *opensearchbackend.Handler,
 	acmHndlr *acmbackend.Handler,
 	redshiftHndlr *redshiftbackend.Handler,
@@ -221,6 +224,7 @@ func registerServices(
 	_ = registry.Register(sesHndlr)
 	_ = registry.Register(sesv2Hndlr)
 	_ = registry.Register(ec2Hndlr)
+	_ = registry.Register(ecrHndlr)
 	_ = registry.Register(openSearchHndlr)
 	_ = registry.Register(acmHndlr)
 	_ = registry.Register(redshiftHndlr)
@@ -263,6 +267,7 @@ type handlers struct {
 	ses             *sesbackend.Handler
 	sesv2           *sesv2backend.Handler
 	ec2             *ec2backend.Handler
+	ecr             *ecrbackend.Handler
 	opensearch      *opensearchbackend.Handler
 	acm             *acmbackend.Handler
 	redshift        *redshiftbackend.Handler
@@ -324,6 +329,10 @@ func newHandlers() handlers {
 		sesv2:   sesv2backend.NewHandler(sesv2backend.NewInMemoryBackend()),
 		ec2: ec2backend.NewHandler(
 			ec2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+		),
+		ecr: ecrbackend.NewHandler(
+			ecrbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ""),
+			nil,
 		),
 		opensearch: opensearchbackend.NewHandler(
 			opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -430,6 +439,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		SESOps:             h.ses,
 		SESv2Ops:           h.sesv2,
 		EC2Ops:             h.ec2,
+		ECROps:             h.ecr,
 		OpenSearchOps:      h.opensearch,
 		ACMOps:             h.acm,
 		RedshiftOps:        h.redshift,
@@ -469,7 +479,7 @@ func New(t *testing.T) *Stack {
 		registry,
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
-		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.opensearch,
+		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.opensearch,
 		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity, h.cognitoIDP,
 	)
@@ -509,6 +519,7 @@ func New(t *testing.T) *Stack {
 		SESHandler:                   h.ses,
 		SESv2Handler:                 h.sesv2,
 		EC2Handler:                   h.ec2,
+		ECRHandler:                   h.ecr,
 		OpenSearchHandler:            h.opensearch,
 		ACMHandler:                   h.acm,
 		RedshiftHandler:              h.redshift,

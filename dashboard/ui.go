@@ -28,6 +28,7 @@ import (
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
+	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -119,6 +120,7 @@ type DashboardHandler struct {
 	SESOps             *sesbackend.Handler
 	SESv2Ops           *sesv2backend.Handler
 	EC2Ops             *ec2backend.Handler
+	ECROps             *ecrbackend.Handler
 	OpenSearchOps      *opensearchbackend.Handler
 	ACMOps             *acmbackend.Handler
 	RedshiftOps        *redshiftbackend.Handler
@@ -185,6 +187,8 @@ type Config struct {
 	SESv2Ops *sesv2backend.Handler
 	// EC2Ops provides access to the EC2 backend.
 	EC2Ops *ec2backend.Handler
+	// ECROps provides access to the ECR backend.
+	ECROps *ecrbackend.Handler
 	// OpenSearchOps provides access to the OpenSearch backend.
 	OpenSearchOps *opensearchbackend.Handler
 	// ACMOps provides access to the ACM backend.
@@ -267,6 +271,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/ses/*.html",
 		"templates/sesv2/*.html",
 		"templates/ec2/*.html",
+		"templates/ecr/*.html",
 		"templates/opensearch/*.html",
 		"templates/acm/*.html",
 		"templates/redshift/*.html",
@@ -323,6 +328,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		SESOps:             cfg.SESOps,
 		SESv2Ops:           cfg.SESv2Ops,
 		EC2Ops:             cfg.EC2Ops,
+		ECROps:             cfg.ECROps,
 		OpenSearchOps:      cfg.OpenSearchOps,
 		ACMOps:             cfg.ACMOps,
 		RedshiftOps:        cfg.RedshiftOps,
@@ -517,6 +523,12 @@ func (h *DashboardHandler) setupEC2Routes() {
 	h.SubRouter.GET("/dashboard/ec2", h.ec2Index)
 }
 
+func (h *DashboardHandler) setupECRRoutes() {
+	h.SubRouter.GET("/dashboard/ecr", h.ecrIndex)
+	h.SubRouter.POST("/dashboard/ecr/repository/create", h.ecrCreateRepository)
+	h.SubRouter.POST("/dashboard/ecr/repository/delete", h.ecrDeleteRepository)
+}
+
 func (h *DashboardHandler) setupOpenSearchRoutes() {
 	h.SubRouter.GET("/dashboard/opensearch", h.opensearchIndex)
 	h.SubRouter.GET("/dashboard/opensearch/domain", h.opensearchDomainDetail)
@@ -639,6 +651,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupSESRoutes()
 	h.setupSESv2Routes()
 	h.setupEC2Routes()
+	h.setupECRRoutes()
 	h.setupOpenSearchRoutes()
 	h.setupACMRoutes()
 	h.setupRedshiftRoutes()
@@ -723,6 +736,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/sesv2", "SESv2"},
 	{"/ses", "SES"},
 	{"/ec2", "EC2"},
+	{"/ecr", "ECR"},
 	{"/opensearch", "OpenSearch"},
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},
