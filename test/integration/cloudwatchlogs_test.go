@@ -344,3 +344,164 @@ func TestIntegration_CloudWatchLogs_SubscriptionFilter_KinesisDelivery(t *testin
 	require.True(t, ok, "logEvents should be an array")
 	require.NotEmpty(t, logEvents)
 }
+
+// TestIntegration_CloudWatchLogs_Insights tests the Logs Insights query lifecycle.
+func TestIntegration_CloudWatchLogs_Insights(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createCloudWatchLogsClient(t)
+	ctx := t.Context()
+
+	groupName := "/test/insights-" + uuid.NewString()[:8]
+	streamName := "insights-stream"
+
+	// Setup log group and stream.
+	_, err := client.CreateLogGroup(ctx, &cloudwatchlogssdk.CreateLogGroupInput{
+		LogGroupName: aws.String(groupName),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateLogStream(ctx, &cloudwatchlogssdk.CreateLogStreamInput{
+		LogGroupName:  aws.String(groupName),
+		LogStreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+
+	now := time.Now().UnixMilli()
+	_, err = client.PutLogEvents(ctx, &cloudwatchlogssdk.PutLogEventsInput{
+		LogGroupName:  aws.String(groupName),
+		LogStreamName: aws.String(streamName),
+		LogEvents: []cwlogstypes.InputLogEvent{
+			{Message: aws.String("ERROR: disk full"), Timestamp: aws.Int64(now - 3000)},
+			{Message: aws.String("INFO: service started"), Timestamp: aws.Int64(now - 2000)},
+			{Message: aws.String("ERROR: connection refused"), Timestamp: aws.Int64(now - 1000)},
+		},
+	})
+	require.NoError(t, err)
+
+	// StartQuery.
+	startOut, err := client.StartQuery(ctx, &cloudwatchlogssdk.StartQueryInput{
+		LogGroupName: aws.String(groupName),
+		QueryString:  aws.String("fields @timestamp, @message | filter @message like /ERROR/"),
+		StartTime:    aws.Int64(0),
+		EndTime:      aws.Int64(now + 1000),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, startOut.QueryId)
+
+	queryID := startOut.QueryId
+
+	// GetQueryResults — should be Complete immediately in gopherstack.
+	resultsOut, err := client.GetQueryResults(ctx, &cloudwatchlogssdk.GetQueryResultsInput{
+		QueryId: queryID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, cwlogstypes.QueryStatusComplete, resultsOut.Status)
+	assert.Len(t, resultsOut.Results, 2)
+
+	// DescribeQueries — should list our query.
+	descOut, err := client.DescribeQueries(ctx, &cloudwatchlogssdk.DescribeQueriesInput{
+		LogGroupName: aws.String(groupName),
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, descOut.Queries)
+
+	// StopQuery.
+	stopOut, err := client.StopQuery(ctx, &cloudwatchlogssdk.StopQueryInput{
+		QueryId: queryID,
+	})
+	require.NoError(t, err)
+	assert.True(t, stopOut.Success)
+
+	// GetQueryResults after stop — should be Cancelled.
+	resultsOut2, err := client.GetQueryResults(ctx, &cloudwatchlogssdk.GetQueryResultsInput{
+		QueryId: queryID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, cwlogstypes.QueryStatusCancelled, resultsOut2.Status)
+}
+
+// TestIntegration_CloudWatchLogs_Insights_QueryLanguage verifies various query language features.
+func TestIntegration_CloudWatchLogs_Insights_QueryLanguage(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createCloudWatchLogsClient(t)
+	ctx := t.Context()
+
+	groupName := "/test/insights-ql-" + uuid.NewString()[:8]
+	streamName := "ql-stream"
+
+	_, err := client.CreateLogGroup(ctx, &cloudwatchlogssdk.CreateLogGroupInput{
+		LogGroupName: aws.String(groupName),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateLogStream(ctx, &cloudwatchlogssdk.CreateLogStreamInput{
+		LogGroupName:  aws.String(groupName),
+		LogStreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+
+	now := time.Now().UnixMilli()
+	_, err = client.PutLogEvents(ctx, &cloudwatchlogssdk.PutLogEventsInput{
+		LogGroupName:  aws.String(groupName),
+		LogStreamName: aws.String(streamName),
+		LogEvents: []cwlogstypes.InputLogEvent{
+			{Message: aws.String("ERROR: a"), Timestamp: aws.Int64(now - 4000)},
+			{Message: aws.String("WARN: b"), Timestamp: aws.Int64(now - 3000)},
+			{Message: aws.String("ERROR: c"), Timestamp: aws.Int64(now - 2000)},
+			{Message: aws.String("INFO: d"), Timestamp: aws.Int64(now - 1000)},
+		},
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		query   string
+		wantLen int
+	}{
+		{
+			name:    "filter",
+			query:   "filter @message like /ERROR/",
+			wantLen: 2,
+		},
+		{
+			name:    "limit",
+			query:   "fields @message | limit 2",
+			wantLen: 2,
+		},
+		{
+			name:    "sort_desc",
+			query:   "fields @timestamp | sort @timestamp desc",
+			wantLen: 4,
+		},
+		{
+			name:    "stats_count_by",
+			query:   "stats count(*) by @message",
+			wantLen: 4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			startOut, serr := client.StartQuery(ctx, &cloudwatchlogssdk.StartQueryInput{
+				LogGroupName: aws.String(groupName),
+				QueryString:  aws.String(tt.query),
+				StartTime:    aws.Int64(0),
+				EndTime:      aws.Int64(now + 1000),
+			})
+			require.NoError(t, serr)
+
+			resultsOut, rerr := client.GetQueryResults(ctx, &cloudwatchlogssdk.GetQueryResultsInput{
+				QueryId: startOut.QueryId,
+			})
+			require.NoError(t, rerr)
+			assert.Equal(t, cwlogstypes.QueryStatusComplete, resultsOut.Status)
+			assert.Len(t, resultsOut.Results, tt.wantLen)
+		})
+	}
+}

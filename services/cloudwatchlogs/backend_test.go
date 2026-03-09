@@ -988,3 +988,242 @@ func TestCloudWatchLogsBackend_DeleteLogGroup_ClearsSubscriptionFilters(t *testi
 	require.NoError(t, err)
 	assert.Empty(t, filters)
 }
+
+func TestCloudWatchLogsBackend_StartQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name        string
+		queryString string
+		logGroups   []string
+		wantErr     bool
+	}{
+		{
+			name: "success_empty_group",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("/my/group")
+			},
+			queryString: "fields @timestamp, @message",
+			logGroups:   []string{"/my/group"},
+		},
+		{
+			name: "success_with_events",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("/my/group")
+				_, _ = b.CreateLogStream("/my/group", "stream")
+				_, _ = b.PutLogEvents("/my/group", "stream", []cloudwatchlogs.InputLogEvent{
+					{Message: "hello world", Timestamp: 1000},
+					{Message: "error occurred", Timestamp: 2000},
+				})
+			},
+			queryString: "fields @timestamp, @message",
+			logGroups:   []string{"/my/group"},
+		},
+		{
+			name:        "nonexistent_group_is_ok",
+			queryString: "fields @timestamp",
+			logGroups:   []string{"/nonexistent"},
+		},
+		{
+			name:        "invalid_query_limit",
+			queryString: "limit notanumber",
+			logGroups:   []string{},
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			info, err := b.StartQuery("qid-1", tt.queryString, tt.logGroups, 0, 0)
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, "qid-1", info.QueryID)
+			assert.Equal(t, cloudwatchlogs.QueryStatusComplete, info.Status)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_GetQueryResults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name       string
+		queryID    string
+		wantErr    error
+		wantStatus cloudwatchlogs.QueryStatus
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("/grp")
+				_, _ = b.CreateLogStream("/grp", "s")
+				_, _ = b.PutLogEvents("/grp", "s", []cloudwatchlogs.InputLogEvent{
+					{Message: "msg1", Timestamp: 1000},
+				})
+				_, _ = b.StartQuery("qid-1", "fields @message", []string{"/grp"}, 0, 0)
+			},
+			queryID:    "qid-1",
+			wantStatus: cloudwatchlogs.QueryStatusComplete,
+		},
+		{
+			name:    "not_found",
+			queryID: "no-such-query",
+			wantErr: cloudwatchlogs.ErrQueryNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			results, stats, status, err := b.GetQueryResults(tt.queryID)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, status)
+			assert.NotNil(t, results)
+			assert.GreaterOrEqual(t, stats.RecordsScanned, float64(0))
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_StopQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name    string
+		queryID string
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.StartQuery("qid-1", "fields @message", []string{}, 0, 0)
+			},
+			queryID: "qid-1",
+		},
+		{
+			name:    "not_found",
+			queryID: "no-such-query",
+			wantErr: cloudwatchlogs.ErrQueryNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			err := b.StopQuery(tt.queryID)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Verify status is now Cancelled.
+			_, _, status, getErr := b.GetQueryResults(tt.queryID)
+			require.NoError(t, getErr)
+			assert.Equal(t, cloudwatchlogs.QueryStatusCancelled, status)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_DescribeQueries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name         string
+		logGroupName string
+		status       string
+		wantLen      int
+	}{
+		{
+			name: "all_queries",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("/grp")
+				_, _ = b.StartQuery("q1", "fields @message", []string{"/grp"}, 0, 0)
+				_, _ = b.StartQuery("q2", "fields @timestamp", []string{"/grp"}, 0, 0)
+			},
+			wantLen: 2,
+		},
+		{
+			name: "filter_by_group",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.CreateLogGroup("/grp1")
+				_, _ = b.CreateLogGroup("/grp2")
+				_, _ = b.StartQuery("q1", "fields @message", []string{"/grp1"}, 0, 0)
+				_, _ = b.StartQuery("q2", "fields @message", []string{"/grp2"}, 0, 0)
+			},
+			logGroupName: "/grp1",
+			wantLen:      1,
+		},
+		{
+			name: "filter_by_status",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, _ = b.StartQuery("q1", "fields @message", []string{}, 0, 0)
+				_, _ = b.StartQuery("q2", "fields @message", []string{}, 0, 0)
+				_ = b.StopQuery("q2")
+			},
+			status:  "Complete",
+			wantLen: 1,
+		},
+		{
+			name:    "empty",
+			wantLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			queries, _, err := b.DescribeQueries(tt.logGroupName, tt.status, "", 0)
+			require.NoError(t, err)
+			assert.Len(t, queries, tt.wantLen)
+		})
+	}
+}

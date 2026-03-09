@@ -496,6 +496,65 @@ func TestHandler(t *testing.T) {
 			body:     map[string]any{"logGroupName": "sub-grp", "filterName": "nonexistent"},
 			wantCode: http.StatusNotFound,
 		},
+		{
+			name: "StartQuery",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"qgrp"}`)
+			},
+			action: "StartQuery",
+			body: map[string]any{
+				"logGroupName": "qgrp",
+				"queryString":  "fields @timestamp, @message",
+				"startTime":    0,
+				"endTime":      0,
+			},
+			wantCode:          http.StatusOK,
+			wantNotEmptyField: "queryId",
+		},
+		{
+			name: "StartQuery/MultipleGroups",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp1"}`)
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"grp2"}`)
+			},
+			action: "StartQuery",
+			body: map[string]any{
+				"logGroupNames": []string{"grp1", "grp2"},
+				"queryString":   "fields @message",
+				"startTime":     0,
+				"endTime":       0,
+			},
+			wantCode:          http.StatusOK,
+			wantNotEmptyField: "queryId",
+		},
+		{
+			name:     "StartQuery/InvalidQuery",
+			action:   "StartQuery",
+			body:     map[string]any{"logGroupName": "grp", "queryString": "limit notanumber"},
+			wantCode: http.StatusInternalServerError,
+		},
+		{
+			name:     "GetQueryResults/NotFound",
+			action:   "GetQueryResults",
+			body:     map[string]any{"queryId": "no-such-id"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "StopQuery/NotFound",
+			action:   "StopQuery",
+			body:     map[string]any{"queryId": "no-such-id"},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:          "DescribeQueries/Empty",
+			action:        "DescribeQueries",
+			body:          map[string]any{},
+			wantCode:      http.StatusOK,
+			wantListField: "queries",
+			wantListLen:   0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -574,4 +633,163 @@ func TestHandler_TagRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &listResp3))
 	assert.Len(t, listResp3["tags"], 1)
 	assert.Equal(t, "ops", listResp3["tags"]["team"])
+}
+
+func TestHandler_InsightsWorkflow(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+
+	// Set up log group, stream, and events.
+	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/insights/test"}`)
+	doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"/insights/test","logStreamName":"stream1"}`)
+	doLogsRequest(t, h, e, "PutLogEvents", `{
+"logGroupName":"/insights/test","logStreamName":"stream1",
+"logEvents":[
+{"message":"ERROR: disk full","timestamp":1000},
+{"message":"INFO: startup","timestamp":2000},
+{"message":"ERROR: connection refused","timestamp":3000}
+]
+}`)
+
+	// StartQuery with filter.
+	rec := doLogsRequest(t, h, e, "StartQuery", `{
+"logGroupName":"/insights/test",
+"queryString":"fields @timestamp, @message | filter @message like /ERROR/",
+"startTime":0,"endTime":0
+}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var startOut map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut))
+	queryID := startOut["queryId"]
+	require.NotEmpty(t, queryID)
+
+	// GetQueryResults.
+	rec2 := doLogsRequest(t, h, e, "GetQueryResults", `{"queryId":"`+queryID+`"}`)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resultsOut map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resultsOut))
+	assert.Equal(t, "Complete", resultsOut["status"])
+	rows, ok := resultsOut["results"].([]any)
+	require.True(t, ok)
+	assert.Len(t, rows, 2) // only 2 ERROR events
+
+	// DescribeQueries lists the query.
+	rec3 := doLogsRequest(t, h, e, "DescribeQueries", `{"logGroupName":"/insights/test"}`)
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	var descOut map[string]any
+	require.NoError(t, json.Unmarshal(rec3.Body.Bytes(), &descOut))
+	queries, ok := descOut["queries"].([]any)
+	require.True(t, ok)
+	assert.Len(t, queries, 1)
+
+	// StopQuery cancels the query.
+	rec4 := doLogsRequest(t, h, e, "StopQuery", `{"queryId":"`+queryID+`"}`)
+	require.Equal(t, http.StatusOK, rec4.Code)
+
+	var stopOut map[string]any
+	require.NoError(t, json.Unmarshal(rec4.Body.Bytes(), &stopOut))
+	assert.Equal(t, true, stopOut["success"])
+
+	// GetQueryResults now shows Cancelled.
+	rec5 := doLogsRequest(t, h, e, "GetQueryResults", `{"queryId":"`+queryID+`"}`)
+	require.Equal(t, http.StatusOK, rec5.Code)
+
+	var resultsOut2 map[string]any
+	require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &resultsOut2))
+	assert.Equal(t, "Cancelled", resultsOut2["status"])
+}
+
+func TestHandler_InsightsQueryLanguage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		query       string
+		wantResults int
+	}{
+		{
+			name:        "fields_projection",
+			query:       "fields @timestamp, @message",
+			wantResults: 3,
+		},
+		{
+			name:        "filter_regex",
+			query:       "filter @message like /ERROR/",
+			wantResults: 2,
+		},
+		{
+			name:        "filter_limit",
+			query:       "fields @message | limit 1",
+			wantResults: 1,
+		},
+		{
+			name:        "sort_desc",
+			query:       "fields @timestamp | sort @timestamp desc",
+			wantResults: 3,
+		},
+		{
+			name:        "stats_count",
+			query:       "stats count(*) by @message",
+			wantResults: 3,
+		},
+		{
+			name:        "empty_query",
+			query:       "",
+			wantResults: 3,
+		},
+		{
+			name:        "unknown_command_ignored",
+			query:       "parse @message \"* *\" as level, rest",
+			wantResults: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+
+			doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/grp"}`)
+			doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"/grp","logStreamName":"s"}`)
+			doLogsRequest(t, h, e, "PutLogEvents", `{
+"logGroupName":"/grp","logStreamName":"s",
+"logEvents":[
+{"message":"ERROR: one","timestamp":1000},
+{"message":"INFO: two","timestamp":2000},
+{"message":"ERROR: three","timestamp":3000}
+]
+}`)
+
+			bodyJSON, merr := json.Marshal(map[string]any{
+				"logGroupName": "/grp",
+				"queryString":  tt.query,
+				"startTime":    0,
+				"endTime":      0,
+			})
+			require.NoError(t, merr)
+
+			rec := doLogsRequest(t, h, e, "StartQuery", string(bodyJSON))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var startOut map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut))
+			queryID := startOut["queryId"]
+
+			rec2 := doLogsRequest(t, h, e, "GetQueryResults", `{"queryId":"`+queryID+`"}`)
+			require.Equal(t, http.StatusOK, rec2.Code)
+
+			var resultsOut map[string]any
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resultsOut))
+			rows, ok := resultsOut["results"].([]any)
+			require.True(t, ok, "results should be an array")
+			assert.Len(t, rows, tt.wantResults)
+		})
+	}
 }
