@@ -118,15 +118,15 @@ func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
 	require.NoError(t, err)
 
 	// Open create modal
-	err = page.Locator("button:has-text('Create Repository')").Click()
+	err = page.Locator("button:has-text('+ Create Repository')").Click()
 	require.NoError(t, err)
 
 	// Fill in repository name
 	err = page.Locator("input[name='name']").Fill("e2e-test-repo")
 	require.NoError(t, err)
 
-	// Submit form
-	err = page.Locator("button[type='submit']:has-text('Create Repository')").Click()
+	// Submit form (use Last() since "Create Repository" text appears in both the header button and submit button)
+	err = page.Locator("button:has-text('Create Repository')").Last().Click()
 	require.NoError(t, err)
 
 	// Wait for redirect and verify

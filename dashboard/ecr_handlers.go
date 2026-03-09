@@ -39,6 +39,15 @@ func (h *DashboardHandler) ecrIndex(c *echo.Context) error {
 		return nil
 	}
 
+	// The ECR service handler lazily sets the backend endpoint on the first API
+	// request. The dashboard bypasses that handler, so we replicate the lazy
+	// initialization here to ensure repository URIs reflect the local address.
+	if h.ECROps.Backend.ProxyEndpoint() == "" {
+		if host := c.Request().Host; host != "" {
+			h.ECROps.Backend.SetEndpoint(host)
+		}
+	}
+
 	repos, err := h.ECROps.Backend.DescribeRepositories(nil)
 	if err != nil {
 		h.Logger.Error("failed to list ECR repositories", "error", err)
