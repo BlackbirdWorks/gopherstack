@@ -60,3 +60,36 @@ type subscriptionPayload struct {
 	LogStream           string                 `json:"logStream"`
 	LogEvents           []subscriptionLogEvent `json:"logEvents"`
 }
+
+// QueryStatus represents the lifecycle status of a Logs Insights query.
+type QueryStatus string
+
+const (
+	QueryStatusScheduled QueryStatus = "Scheduled"
+	QueryStatusRunning   QueryStatus = "Running"
+	QueryStatusComplete  QueryStatus = "Complete"
+	QueryStatusFailed    QueryStatus = "Failed"
+	QueryStatusCancelled QueryStatus = "Cancelled"
+)
+
+// ResultField is a single field in a Logs Insights result row.
+type ResultField struct {
+	Field string `json:"field"`
+	Value string `json:"value"`
+}
+
+// QueryStatistics contains execution statistics for a Logs Insights query.
+type QueryStatistics struct {
+	BytesScanned   float64 `json:"bytesScanned"`
+	RecordsMatched float64 `json:"recordsMatched"`
+	RecordsScanned float64 `json:"recordsScanned"`
+}
+
+// QueryInfo contains metadata about a Logs Insights query.
+type QueryInfo struct {
+	QueryID      string      `json:"queryId"`
+	QueryString  string      `json:"queryString"`
+	LogGroupName string      `json:"logGroupName,omitempty"`
+	Status       QueryStatus `json:"status"`
+	CreateTime   int64       `json:"createTime"`
+}

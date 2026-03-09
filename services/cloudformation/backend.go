@@ -263,7 +263,10 @@ func (b *InMemoryBackend) provisionResources(
 	name := stack.StackName
 	physicalIDs := make(map[string]string)
 
-	for logicalID, res := range tmpl.Resources {
+	ordered := topoSortResources(tmpl.Resources)
+
+	for _, logicalID := range ordered {
+		res := tmpl.Resources[logicalID]
 		b.addEvent(arn, name, logicalID, "", res.Type, statusCreateInProgress, "")
 		physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
 		if cerr != nil {
@@ -290,6 +293,82 @@ func (b *InMemoryBackend) provisionResources(
 	}
 
 	return physicalIDs
+}
+
+// topoSortResources returns the logical resource IDs in an order that respects
+// DependsOn declarations. Resources with no dependencies come first; within the
+// same dependency level they are ordered alphabetically for determinism.
+// If a cycle is detected the function falls back to plain alphabetical order.
+func topoSortResources(resources map[string]TemplateResource) []string {
+	// Collect all known IDs in alphabetical order for determinism.
+	all := make([]string, 0, len(resources))
+	for id := range resources {
+		all = append(all, id)
+	}
+
+	sort.Strings(all)
+
+	// Build forward-dependency map (id → ids it depends on) and
+	// reverse-dependency map (id → ids that depend on it) simultaneously.
+	deps := make(map[string][]string, len(resources))
+	revDeps := make(map[string][]string, len(resources))
+
+	for _, id := range all {
+		res := resources[id]
+		if len(res.DependsOn) > 0 {
+			deps[id] = res.DependsOn
+			for _, dep := range res.DependsOn {
+				revDeps[dep] = append(revDeps[dep], id)
+			}
+		}
+	}
+
+	// Kahn's algorithm for topological sort.
+	// inDegree counts how many declared dependencies are still unprocessed.
+	inDegree := make(map[string]int, len(all))
+	for _, id := range all {
+		inDegree[id] = len(deps[id])
+	}
+
+	// Process nodes with zero in-degree first (alphabetical order for determinism).
+	queue := make([]string, 0, len(all))
+	for _, id := range all {
+		if inDegree[id] == 0 {
+			queue = append(queue, id)
+		}
+	}
+
+	result := make([]string, 0, len(all))
+
+	for len(queue) > 0 {
+		// Pop first element (queue is kept sorted).
+		cur := queue[0]
+		queue = queue[1:]
+		result = append(result, cur)
+
+		// Use the reverse-dependency map for O(1) lookup of dependents.
+		for _, dependent := range revDeps[cur] {
+			inDegree[dependent]--
+			if inDegree[dependent] == 0 {
+				insertSorted(&queue, dependent)
+			}
+		}
+	}
+
+	// Cycle detected: fall back to alphabetical order (best-effort).
+	if len(result) < len(all) {
+		return all
+	}
+
+	return result
+}
+
+// insertSorted inserts s into the sorted slice ss, maintaining ascending order.
+func insertSorted(ss *[]string, s string) {
+	i := sort.SearchStrings(*ss, s)
+	*ss = append(*ss, "")
+	copy((*ss)[i+1:], (*ss)[i:])
+	(*ss)[i] = s
 }
 
 // UpdateStack updates an existing stack.

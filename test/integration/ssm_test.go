@@ -240,3 +240,154 @@ func TestIntegration_SSM_SecureString_GetMultipleParameters(t *testing.T) {
 		}
 	}
 }
+
+func TestIntegration_SSM_CreateDocument_GetDocument_DeleteDocument(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	docName := "TestDoc-" + uuid.NewString()
+	content := `{"schemaVersion":"2.2","description":"Test","parameters":{},"mainSteps":[]}`
+
+	_, err := client.CreateDocument(ctx, &ssm.CreateDocumentInput{
+		Name:    aws.String(docName),
+		Content: aws.String(content),
+	})
+	require.NoError(t, err)
+
+	getResp, err := client.GetDocument(ctx, &ssm.GetDocumentInput{
+		Name: aws.String(docName),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, docName, *getResp.Name)
+	assert.NotEmpty(t, *getResp.Content)
+
+	descResp, err := client.DescribeDocument(ctx, &ssm.DescribeDocumentInput{
+		Name: aws.String(docName),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, docName, *descResp.Document.Name)
+
+	listResp, err := client.ListDocuments(ctx, &ssm.ListDocumentsInput{})
+	require.NoError(t, err)
+	found := false
+	for _, d := range listResp.DocumentIdentifiers {
+		if *d.Name == docName {
+			found = true
+
+			break
+		}
+	}
+	assert.True(t, found, "expected document %s in list", docName)
+
+	_, err = client.DeleteDocument(ctx, &ssm.DeleteDocumentInput{
+		Name: aws.String(docName),
+	})
+	require.NoError(t, err)
+}
+
+func TestIntegration_SSM_CreateDocument_Duplicate(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	docName := "DupDoc-" + uuid.NewString()
+	content := `{"schemaVersion":"2.2"}`
+
+	_, err := client.CreateDocument(ctx, &ssm.CreateDocumentInput{
+		Name:    aws.String(docName),
+		Content: aws.String(content),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDocument(ctx, &ssm.CreateDocumentInput{
+		Name:    aws.String(docName),
+		Content: aws.String(content),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DocumentAlreadyExists")
+}
+
+func TestIntegration_SSM_UpdateDocument(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	docName := "UpdDoc-" + uuid.NewString()
+
+	_, err := client.CreateDocument(ctx, &ssm.CreateDocumentInput{
+		Name:    aws.String(docName),
+		Content: aws.String(`{"schemaVersion":"2.2","description":"v1"}`),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateDocument(ctx, &ssm.UpdateDocumentInput{
+		Name:            aws.String(docName),
+		Content:         aws.String(`{"schemaVersion":"2.2","description":"v2"}`),
+		DocumentVersion: aws.String("$LATEST"),
+	})
+	require.NoError(t, err)
+
+	versResp, err := client.ListDocumentVersions(ctx, &ssm.ListDocumentVersionsInput{
+		Name: aws.String(docName),
+	})
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(versResp.DocumentVersions), 2)
+}
+
+func TestIntegration_SSM_SendCommand_ListCommands(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	sendResp, err := client.SendCommand(ctx, &ssm.SendCommandInput{
+		DocumentName: aws.String("AWS-RunShellScript"),
+		InstanceIds:  []string{"i-1234567890abcdef0"},
+		Parameters: map[string][]string{
+			"commands": {"echo hello"},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, sendResp.Command)
+	cmdID := *sendResp.Command.CommandId
+	assert.NotEmpty(t, cmdID)
+
+	listResp, err := client.ListCommands(ctx, &ssm.ListCommandsInput{})
+	require.NoError(t, err)
+	found := false
+	for _, cmd := range listResp.Commands {
+		if *cmd.CommandId == cmdID {
+			found = true
+
+			break
+		}
+	}
+	assert.True(t, found, "expected command %s in list", cmdID)
+}
+
+func TestIntegration_SSM_GetCommandInvocation(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSSMClient(t)
+	ctx := t.Context()
+
+	instanceID := "i-1234567890abcdef0"
+
+	sendResp, err := client.SendCommand(ctx, &ssm.SendCommandInput{
+		DocumentName: aws.String("AWS-RunShellScript"),
+		InstanceIds:  []string{instanceID},
+	})
+	require.NoError(t, err)
+	cmdID := *sendResp.Command.CommandId
+
+	invResp, err := client.GetCommandInvocation(ctx, &ssm.GetCommandInvocationInput{
+		CommandId:  aws.String(cmdID),
+		InstanceId: aws.String(instanceID),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Success", string(invResp.Status))
+}

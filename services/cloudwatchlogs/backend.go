@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +29,7 @@ var (
 	ErrLogStreamAlreadyExist         = errors.New("ResourceAlreadyExistsException")
 	ErrSubscriptionFilterNotFound    = errors.New("ResourceNotFoundException")
 	ErrSubscriptionFilterLimitExceed = errors.New("LimitExceededException")
+	ErrQueryNotFound                 = errors.New("ResourceNotFoundException")
 )
 
 const (
@@ -67,18 +69,34 @@ type StorageBackend interface {
 	DescribeSubscriptionFilters(groupName, filterNamePrefix, nextToken string, limit int) (
 		[]SubscriptionFilter, string, error)
 	DeleteSubscriptionFilter(groupName, filterName string) error
+	StartQuery(queryID, queryString string, logGroupNames []string, startTime, endTime int64) (*QueryInfo, error)
+	GetQueryResults(queryID string) ([][]ResultField, QueryStatistics, QueryStatus, error)
+	StopQuery(queryID string) error
+	DescribeQueries(logGroupName, statusFilter, nextToken string, maxResults int) ([]QueryInfo, string, error)
+}
+
+// storedQuery holds the execution state of a single Logs Insights query.
+type storedQuery struct {
+	info      QueryInfo
+	results   [][]ResultField
+	logGroups []string
+	stats     QueryStatistics
+	startTime int64
+	endTime   int64
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
+	deliverer           SubscriptionDeliverer
 	groups              map[string]*LogGroup
 	streams             map[string]map[string]*LogStream
 	events              map[string]map[string][]*OutputLogEvent
 	subscriptionFilters map[string][]*SubscriptionFilter
-	deliverer           SubscriptionDeliverer
+	queries             map[string]*storedQuery
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string
+	queriesOrder        []string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -95,6 +113,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		streams:             make(map[string]map[string]*LogStream),
 		events:              make(map[string]map[string][]*OutputLogEvent),
 		subscriptionFilters: make(map[string][]*SubscriptionFilter),
+		queries:             make(map[string]*storedQuery),
 		mu:                  lockmetrics.New("cloudwatchlogs"),
 	}
 }
@@ -649,4 +668,152 @@ func parseNextToken(token string) int {
 	}
 
 	return idx
+}
+
+// StartQuery stores a new insights query and executes it immediately against in-memory events.
+func (b *InMemoryBackend) StartQuery(
+	queryID, queryString string, logGroupNames []string, startTime, endTime int64,
+) (*QueryInfo, error) {
+	q, parseErr := parseInsightsQuery(queryString)
+	if parseErr != nil {
+		return nil, fmt.Errorf("invalid query: %w", parseErr)
+	}
+
+	// Collect events under a read lock to avoid blocking concurrent writes.
+	b.mu.RLock("StartQuery")
+
+	var allEvents []*OutputLogEvent
+	var recordsScanned float64
+
+	for _, groupName := range logGroupNames {
+		streamMap, exists := b.events[groupName]
+		if !exists {
+			continue
+		}
+		for _, evts := range streamMap {
+			for _, ev := range evts {
+				recordsScanned++
+				if startTime > 0 && ev.Timestamp < startTime {
+					continue
+				}
+				if endTime > 0 && ev.Timestamp > endTime {
+					continue
+				}
+				allEvents = append(allEvents, ev)
+			}
+		}
+	}
+
+	b.mu.RUnlock()
+
+	// Execute the query outside the lock — regex matching and sorting can be non-trivial.
+	results := executeQuery(q, allEvents)
+	stats := QueryStatistics{
+		RecordsScanned: recordsScanned,
+		RecordsMatched: float64(len(allEvents)),
+		BytesScanned:   0,
+	}
+
+	logGroupName := ""
+	if len(logGroupNames) > 0 {
+		logGroupName = logGroupNames[0]
+	}
+
+	info := QueryInfo{
+		QueryID:      queryID,
+		QueryString:  queryString,
+		Status:       QueryStatusComplete,
+		CreateTime:   time.Now().UnixMilli(),
+		LogGroupName: logGroupName,
+	}
+
+	sq := &storedQuery{
+		info:      info,
+		results:   results,
+		stats:     stats,
+		logGroups: logGroupNames,
+		startTime: startTime,
+		endTime:   endTime,
+	}
+
+	// Store results under a write lock.
+	b.mu.Lock("StartQuery")
+	defer b.mu.Unlock()
+
+	b.queries[queryID] = sq
+	b.queriesOrder = append(b.queriesOrder, queryID)
+
+	cp := info
+
+	return &cp, nil
+}
+
+// GetQueryResults returns the results of a previously started query.
+func (b *InMemoryBackend) GetQueryResults(queryID string) ([][]ResultField, QueryStatistics, QueryStatus, error) {
+	b.mu.RLock("GetQueryResults")
+	defer b.mu.RUnlock()
+
+	sq, ok := b.queries[queryID]
+	if !ok {
+		return nil, QueryStatistics{}, "", fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
+	}
+
+	return sq.results, sq.stats, sq.info.Status, nil
+}
+
+// StopQuery marks a query as cancelled. Since execution is synchronous, this is a no-op on results.
+func (b *InMemoryBackend) StopQuery(queryID string) error {
+	b.mu.Lock("StopQuery")
+	defer b.mu.Unlock()
+
+	sq, ok := b.queries[queryID]
+	if !ok {
+		return fmt.Errorf("%w: query %s not found", ErrQueryNotFound, queryID)
+	}
+
+	sq.info.Status = QueryStatusCancelled
+
+	return nil
+}
+
+// DescribeQueries returns metadata about stored queries with optional filtering and pagination.
+func (b *InMemoryBackend) DescribeQueries(
+	logGroupName, statusFilter, nextToken string, maxResults int,
+) ([]QueryInfo, string, error) {
+	b.mu.RLock("DescribeQueries")
+	defer b.mu.RUnlock()
+
+	all := make([]QueryInfo, 0, len(b.queriesOrder))
+	for _, qid := range b.queriesOrder {
+		sq := b.queries[qid]
+		if logGroupName != "" {
+			found := slices.Contains(sq.logGroups, logGroupName)
+			if !found {
+				continue
+			}
+		}
+		if statusFilter != "" && string(sq.info.Status) != statusFilter {
+			continue
+		}
+		all = append(all, sq.info)
+	}
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []QueryInfo{}, "", nil
+	}
+
+	if maxResults <= 0 {
+		maxResults = defaultDescribeLimit
+	}
+
+	end := startIdx + maxResults
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken, nil
 }

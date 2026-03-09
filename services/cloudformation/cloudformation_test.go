@@ -1796,3 +1796,187 @@ func TestProvider_Init(t *testing.T) {
 		})
 	}
 }
+
+func TestTopoSortResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		resources map[string]cloudformation.TemplateResource
+		// wantBefore asserts pairs [before, after] that must hold in the result.
+		wantBefore [][2]string
+	}{
+		{
+			name: "no_dependencies_alphabetical",
+			resources: map[string]cloudformation.TemplateResource{
+				"Zebra": {Type: "AWS::S3::Bucket"},
+				"Apple": {Type: "AWS::S3::Bucket"},
+				"Mango": {Type: "AWS::S3::Bucket"},
+			},
+			wantBefore: [][2]string{
+				{"Apple", "Mango"},
+				{"Apple", "Zebra"},
+				{"Mango", "Zebra"},
+			},
+		},
+		{
+			name: "single_dependency",
+			resources: map[string]cloudformation.TemplateResource{
+				"Service": {Type: "AWS::ECS::Service", DependsOn: []string{"Cluster"}},
+				"Cluster": {Type: "AWS::ECS::Cluster"},
+			},
+			wantBefore: [][2]string{
+				{"Cluster", "Service"},
+			},
+		},
+		{
+			name: "chain_dependency",
+			resources: map[string]cloudformation.TemplateResource{
+				"C": {Type: "AWS::S3::Bucket", DependsOn: []string{"B"}},
+				"B": {Type: "AWS::S3::Bucket", DependsOn: []string{"A"}},
+				"A": {Type: "AWS::S3::Bucket"},
+			},
+			wantBefore: [][2]string{
+				{"A", "B"},
+				{"B", "C"},
+				{"A", "C"},
+			},
+		},
+		{
+			name: "multiple_dependencies",
+			resources: map[string]cloudformation.TemplateResource{
+				"Service": {Type: "AWS::ECS::Service", DependsOn: []string{"Cluster", "TaskDef"}},
+				"Cluster": {Type: "AWS::ECS::Cluster"},
+				"TaskDef": {Type: "AWS::ECS::TaskDefinition"},
+			},
+			wantBefore: [][2]string{
+				{"Cluster", "Service"},
+				{"TaskDef", "Service"},
+			},
+		},
+		{
+			name:      "empty",
+			resources: map[string]cloudformation.TemplateResource{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := cloudformation.TopoSortResources(tt.resources)
+
+			assert.Len(t, result, len(tt.resources))
+
+			pos := make(map[string]int, len(result))
+			for i, id := range result {
+				pos[id] = i
+			}
+
+			for _, pair := range tt.wantBefore {
+				before, after := pair[0], pair[1]
+				assert.Less(t, pos[before], pos[after],
+					"expected %s (pos %d) before %s (pos %d)", before, pos[before], after, pos[after])
+			}
+		})
+	}
+}
+
+func TestParseDependsOn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input any
+		want  []string
+	}{
+		{
+			name:  "nil",
+			input: nil,
+			want:  nil,
+		},
+		{
+			name:  "single_string",
+			input: "MyCluster",
+			want:  []string{"MyCluster"},
+		},
+		{
+			name:  "slice_of_strings",
+			input: []any{"A", "B"},
+			want:  []string{"A", "B"},
+		},
+		{
+			name:  "empty_slice",
+			input: []any{},
+			want:  []string{},
+		},
+		{
+			name:  "unknown_type",
+			input: 42,
+			want:  nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := cloudformation.ParseDependsOn(tt.input)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestParseTemplate_DependsOn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantDependsOn map[string][]string
+		name          string
+		template      string
+	}{
+		{
+			name: "string_depends_on",
+			template: `{
+"AWSTemplateFormatVersion":"2010-09-09",
+"Resources":{
+"Svc":{"Type":"AWS::ECS::Service","DependsOn":"Cluster","Properties":{}},
+"Cluster":{"Type":"AWS::ECS::Cluster","Properties":{}}
+}}`,
+			wantDependsOn: map[string][]string{
+				"Svc":     {"Cluster"},
+				"Cluster": nil,
+			},
+		},
+		{
+			name: "array_depends_on",
+			template: `{
+"AWSTemplateFormatVersion":"2010-09-09",
+"Resources":{
+"Svc":{"Type":"AWS::ECS::Service","DependsOn":["Cluster","TaskDef"],"Properties":{}},
+"Cluster":{"Type":"AWS::ECS::Cluster","Properties":{}},
+"TaskDef":{"Type":"AWS::ECS::TaskDefinition","Properties":{}}
+}}`,
+			wantDependsOn: map[string][]string{
+				"Svc":     {"Cluster", "TaskDef"},
+				"Cluster": nil,
+				"TaskDef": nil,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tmpl, err := cloudformation.ParseTemplate(tt.template)
+			require.NoError(t, err)
+
+			for logicalID, wantDeps := range tt.wantDependsOn {
+				res, ok := tmpl.Resources[logicalID]
+				require.True(t, ok, "resource %s should exist", logicalID)
+				assert.Equal(t, wantDeps, res.DependsOn, "DependsOn for %s", logicalID)
+			}
+		})
+	}
+}
