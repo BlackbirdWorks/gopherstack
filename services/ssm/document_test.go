@@ -78,7 +78,7 @@ func TestHandler_GetDocument(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*ssm.Handler)
+		setup      func(*testing.T, *ssm.Handler)
 		name       string
 		body       string
 		wantDoc    string
@@ -86,7 +86,8 @@ func TestHandler_GetDocument(t *testing.T) {
 	}{
 		{
 			name: "success",
-			setup: func(h *ssm.Handler) {
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
 				doRequest(
 					t,
 					h,
@@ -116,7 +117,7 @@ func TestHandler_GetDocument(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, "GetDocument", tt.body)
@@ -131,13 +132,48 @@ func TestHandler_GetDocument(t *testing.T) {
 	}
 }
 
+// TestHandler_GetDocument_VersionedContent verifies that requesting a specific
+// version returns that version's content rather than the latest.
+func TestHandler_GetDocument_VersionedContent(t *testing.T) {
+	t.Parallel()
+
+	b := ssm.NewInMemoryBackend()
+
+	_, err := b.CreateDocument(&ssm.CreateDocumentInput{Name: "VerContent", Content: `{"v":1}`})
+	require.NoError(t, err)
+
+	_, err = b.UpdateDocument(&ssm.UpdateDocumentInput{Name: "VerContent", Content: `{"v":2}`})
+	require.NoError(t, err)
+
+	// Request version "1" — should return first content
+	out1, err := b.GetDocument(&ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "1"})
+	require.NoError(t, err)
+	assert.Equal(t, `{"v":1}`, out1.Content)
+	assert.Equal(t, "1", out1.DocumentVersion)
+
+	// Request version "2" — should return second content
+	out2, err := b.GetDocument(&ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "2"})
+	require.NoError(t, err)
+	assert.Equal(t, `{"v":2}`, out2.Content)
+	assert.Equal(t, "2", out2.DocumentVersion)
+
+	// $LATEST — should return the latest (version 2)
+	outLatest, err := b.GetDocument(&ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "$LATEST"})
+	require.NoError(t, err)
+	assert.Equal(t, `{"v":2}`, outLatest.Content)
+
+	// Non-existent version — should return ErrInvalidDocumentVersion
+	_, err = b.GetDocument(&ssm.GetDocumentInput{Name: "VerContent", DocumentVersion: "99"})
+	require.ErrorIs(t, err, ssm.ErrInvalidDocumentVersion)
+}
+
 // --- DescribeDocument ---
 
 func TestHandler_DescribeDocument(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*ssm.Handler)
+		setup      func(*testing.T, *ssm.Handler)
 		name       string
 		body       string
 		wantDoc    string
@@ -145,7 +181,8 @@ func TestHandler_DescribeDocument(t *testing.T) {
 	}{
 		{
 			name: "success",
-			setup: func(h *ssm.Handler) {
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
 				doRequest(t, h, "CreateDocument", `{"Name":"DescDoc","Content":"{}","DocumentType":"Automation"}`)
 			},
 			body:       `{"Name":"DescDoc"}`,
@@ -165,7 +202,7 @@ func TestHandler_DescribeDocument(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, "DescribeDocument", tt.body)
@@ -187,7 +224,7 @@ func TestHandler_ListDocuments(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*ssm.Handler)
+		setup      func(*testing.T, *ssm.Handler)
 		body       string
 		wantStatus int
 		wantMin    int
@@ -200,7 +237,8 @@ func TestHandler_ListDocuments(t *testing.T) {
 		},
 		{
 			name: "with_custom_doc",
-			setup: func(h *ssm.Handler) {
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
 				doRequest(t, h, "CreateDocument", `{"Name":"ListDoc","Content":"{}","DocumentType":"Command"}`)
 			},
 			body:       `{}`,
@@ -215,7 +253,7 @@ func TestHandler_ListDocuments(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, "ListDocuments", tt.body)
@@ -234,20 +272,40 @@ func TestHandler_UpdateDocument(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*ssm.Handler)
+		setup      func(*testing.T, *ssm.Handler)
 		name       string
 		body       string
 		wantVer    string
 		wantStatus int
 	}{
 		{
-			name: "success",
-			setup: func(h *ssm.Handler) {
+			name: "success_no_version",
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
 				doRequest(t, h, "CreateDocument", `{"Name":"UpdDoc","Content":"{}","DocumentType":"Command"}`)
 			},
 			body:       `{"Name":"UpdDoc","Content":"{\"updated\":true}"}`,
 			wantStatus: http.StatusOK,
 			wantVer:    "2",
+		},
+		{
+			name: "success_with_latest_version",
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
+				doRequest(t, h, "CreateDocument", `{"Name":"UpdDocVer","Content":"{}","DocumentType":"Command"}`)
+			},
+			body:       `{"Name":"UpdDocVer","Content":"{\"updated\":true}","DocumentVersion":"1"}`,
+			wantStatus: http.StatusOK,
+			wantVer:    "2",
+		},
+		{
+			name: "invalid_version",
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
+				doRequest(t, h, "CreateDocument", `{"Name":"UpdDocInv","Content":"{}","DocumentType":"Command"}`)
+			},
+			body:       `{"Name":"UpdDocInv","Content":"{}","DocumentVersion":"99"}`,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "not_found",
@@ -262,7 +320,7 @@ func TestHandler_UpdateDocument(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, "UpdateDocument", tt.body)
@@ -284,13 +342,14 @@ func TestHandler_DeleteDocument(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*ssm.Handler)
+		setup      func(*testing.T, *ssm.Handler)
 		body       string
 		wantStatus int
 	}{
 		{
 			name: "success",
-			setup: func(h *ssm.Handler) {
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
 				doRequest(t, h, "CreateDocument", `{"Name":"DelDoc","Content":"{}","DocumentType":"Command"}`)
 			},
 			body:       `{"Name":"DelDoc"}`,
@@ -309,7 +368,7 @@ func TestHandler_DeleteDocument(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, "DeleteDocument", tt.body)
@@ -325,14 +384,15 @@ func TestHandler_DescribeDocumentPermission(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*ssm.Handler)
+		setup      func(*testing.T, *ssm.Handler)
 		body       string
 		wantStatus int
 		wantLen    int
 	}{
 		{
 			name: "empty_permissions",
-			setup: func(h *ssm.Handler) {
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
 				doRequest(t, h, "CreateDocument", `{"Name":"PermDoc","Content":"{}"}`)
 			},
 			body:       `{"Name":"PermDoc","PermissionType":"Share"}`,
@@ -352,7 +412,7 @@ func TestHandler_DescribeDocumentPermission(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, "DescribeDocumentPermission", tt.body)
@@ -374,13 +434,14 @@ func TestHandler_ModifyDocumentPermission(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*ssm.Handler)
+		setup      func(*testing.T, *ssm.Handler)
 		body       string
 		wantStatus int
 	}{
 		{
 			name: "add_accounts",
-			setup: func(h *ssm.Handler) {
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
 				doRequest(t, h, "CreateDocument", `{"Name":"ModPermDoc","Content":"{}"}`)
 			},
 			body:       `{"Name":"ModPermDoc","PermissionType":"Share","AccountIDsToAdd":["111111111111"]}`,
@@ -399,7 +460,7 @@ func TestHandler_ModifyDocumentPermission(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, "ModifyDocumentPermission", tt.body)
@@ -415,14 +476,15 @@ func TestHandler_ListDocumentVersions(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*ssm.Handler)
+		setup      func(*testing.T, *ssm.Handler)
 		body       string
 		wantStatus int
 		wantCount  int
 	}{
 		{
 			name: "single_version",
-			setup: func(h *ssm.Handler) {
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
 				doRequest(t, h, "CreateDocument", `{"Name":"VerDoc","Content":"{}"}`)
 			},
 			body:       `{"Name":"VerDoc"}`,
@@ -431,7 +493,8 @@ func TestHandler_ListDocumentVersions(t *testing.T) {
 		},
 		{
 			name: "multiple_versions",
-			setup: func(h *ssm.Handler) {
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
 				doRequest(t, h, "CreateDocument", `{"Name":"MultiVer","Content":"{}"}`)
 				doRequest(t, h, "UpdateDocument", `{"Name":"MultiVer","Content":"{\"v\":2}"}`)
 				doRequest(t, h, "UpdateDocument", `{"Name":"MultiVer","Content":"{\"v\":3}"}`)
@@ -453,7 +516,7 @@ func TestHandler_ListDocumentVersions(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, "ListDocumentVersions", tt.body)
@@ -484,6 +547,11 @@ func TestHandler_SendCommand(t *testing.T) {
 				`"InstanceIDs":["i-1234567890abcdef0"],` +
 				`"Parameters":{"commands":["echo hello"]}}`,
 			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "document_not_found",
+			body:       `{"DocumentName":"NoSuchDocument","InstanceIDs":["i-abc"]}`,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "invalid_json",
@@ -517,7 +585,7 @@ func TestHandler_ListCommands(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*ssm.Handler)
+		setup      func(*testing.T, *ssm.Handler)
 		body       string
 		wantStatus int
 		wantCount  int
@@ -530,7 +598,8 @@ func TestHandler_ListCommands(t *testing.T) {
 		},
 		{
 			name: "with_commands",
-			setup: func(h *ssm.Handler) {
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
 				doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-abc"]}`)
 				doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-def"]}`)
 			},
@@ -546,7 +615,7 @@ func TestHandler_ListCommands(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, "ListCommands", tt.body)
@@ -565,7 +634,7 @@ func TestHandler_GetCommandInvocation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup             func(*ssm.Handler) string
+		setup             func(*testing.T, *ssm.Handler) string
 		body              func(cmdID string) string
 		name              string
 		wantCommandStatus string
@@ -573,7 +642,8 @@ func TestHandler_GetCommandInvocation(t *testing.T) {
 	}{
 		{
 			name: "success",
-			setup: func(h *ssm.Handler) string {
+			setup: func(t *testing.T, h *ssm.Handler) string {
+				t.Helper()
 				rec := doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-abc"]}`)
 				var out ssm.SendCommandOutput
 				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
@@ -585,6 +655,21 @@ func TestHandler_GetCommandInvocation(t *testing.T) {
 			},
 			wantStatus:        http.StatusOK,
 			wantCommandStatus: "Success",
+		},
+		{
+			name: "wrong_instance_id",
+			setup: func(t *testing.T, h *ssm.Handler) string {
+				t.Helper()
+				rec := doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-abc"]}`)
+				var out ssm.SendCommandOutput
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+
+				return out.Command.CommandID
+			},
+			body: func(cmdID string) string {
+				return `{"CommandId":"` + cmdID + `","InstanceId":"i-wrong"}`
+			},
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:  "not_found",
@@ -603,7 +688,7 @@ func TestHandler_GetCommandInvocation(t *testing.T) {
 			h, _ := newTestHandler(t)
 			var cmdID string
 			if tt.setup != nil {
-				cmdID = tt.setup(h)
+				cmdID = tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, "GetCommandInvocation", tt.body(cmdID))
@@ -626,7 +711,7 @@ func TestHandler_ListCommandInvocations(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		setup      func(*ssm.Handler)
+		setup      func(*testing.T, *ssm.Handler)
 		body       string
 		wantStatus int
 		wantCount  int
@@ -639,7 +724,8 @@ func TestHandler_ListCommandInvocations(t *testing.T) {
 		},
 		{
 			name: "with_invocations",
-			setup: func(h *ssm.Handler) {
+			setup: func(t *testing.T, h *ssm.Handler) {
+				t.Helper()
 				doRequest(t, h, "SendCommand", `{"DocumentName":"AWS-RunShellScript","InstanceIDs":["i-abc","i-def"]}`)
 			},
 			body:       `{}`,
@@ -654,7 +740,7 @@ func TestHandler_ListCommandInvocations(t *testing.T) {
 
 			h, _ := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRequest(t, h, "ListCommandInvocations", tt.body)
@@ -773,4 +859,134 @@ func TestInMemoryBackend_DeleteDocumentCleansUp(t *testing.T) {
 
 	_, err = backend.GetDocument(&ssm.GetDocumentInput{Name: "ToDelete"})
 	require.ErrorIs(t, err, ssm.ErrDocumentNotFound)
+}
+
+// --- Persistence round-trip tests ---
+
+func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup  func(*ssm.InMemoryBackend)
+		verify func(*testing.T, *ssm.InMemoryBackend)
+		name   string
+	}{
+		{
+			name: "document_survives_round_trip",
+			setup: func(b *ssm.InMemoryBackend) {
+				_, _ = b.CreateDocument(&ssm.CreateDocumentInput{
+					Name:         "SnapDoc",
+					Content:      `{"v":1}`,
+					DocumentType: ssm.DocumentTypeCommand,
+				})
+				_, _ = b.UpdateDocument(&ssm.UpdateDocumentInput{Name: "SnapDoc", Content: `{"v":2}`})
+			},
+			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
+				t.Helper()
+
+				out, err := b.GetDocument(&ssm.GetDocumentInput{Name: "SnapDoc"})
+				require.NoError(t, err)
+				assert.Equal(t, `{"v":2}`, out.Content)
+				assert.Equal(t, "2", out.DocumentVersion)
+
+				// Historic version content is also preserved
+				v1, err := b.GetDocument(&ssm.GetDocumentInput{Name: "SnapDoc", DocumentVersion: "1"})
+				require.NoError(t, err)
+				assert.Equal(t, `{"v":1}`, v1.Content)
+			},
+		},
+		{
+			name: "command_survives_round_trip",
+			setup: func(b *ssm.InMemoryBackend) {
+				_, _ = b.SendCommand(&ssm.SendCommandInput{
+					DocumentName: "AWS-RunShellScript",
+					InstanceIDs:  []string{"i-snap"},
+				})
+			},
+			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
+				t.Helper()
+
+				out, err := b.ListCommands(&ssm.ListCommandsInput{})
+				require.NoError(t, err)
+				require.Len(t, out.Commands, 1)
+
+				inv, err := b.GetCommandInvocation(&ssm.GetCommandInvocationInput{
+					CommandID:  out.Commands[0].CommandID,
+					InstanceID: "i-snap",
+				})
+				require.NoError(t, err)
+				assert.Equal(t, "Success", inv.Status)
+			},
+		},
+		{
+			name: "default_docs_restored_from_old_snapshot",
+			setup: func(_ *ssm.InMemoryBackend) {
+				// no-op: we will manually inject a pre-documents snapshot
+			},
+			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
+				t.Helper()
+
+				// After restoring a snapshot that has no "documents" key, defaults should be re-seeded
+				oldSnap := `{"parameters":{},"history":{},"tags":{}}`
+				require.NoError(t, b.Restore([]byte(oldSnap)))
+
+				out, err := b.ListDocuments(&ssm.ListDocumentsInput{})
+				require.NoError(t, err)
+
+				names := make([]string, 0, len(out.DocumentIdentifiers))
+				for _, d := range out.DocumentIdentifiers {
+					names = append(names, d.Name)
+				}
+
+				assert.Contains(t, names, "AWS-RunShellScript")
+				assert.Contains(t, names, "AWS-RunPowerShellScript")
+			},
+		},
+		{
+			name: "permissions_survive_round_trip",
+			setup: func(b *ssm.InMemoryBackend) {
+				_, _ = b.CreateDocument(&ssm.CreateDocumentInput{Name: "PermSnap", Content: "{}"})
+				_, _ = b.ModifyDocumentPermission(&ssm.ModifyDocumentPermissionInput{
+					Name:            "PermSnap",
+					PermissionType:  "Share",
+					AccountIDsToAdd: []string{"111111111111"},
+				})
+			},
+			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
+				t.Helper()
+
+				perm, err := b.DescribeDocumentPermission(&ssm.DescribeDocumentPermissionInput{
+					Name:           "PermSnap",
+					PermissionType: "Share",
+				})
+				require.NoError(t, err)
+				assert.Contains(t, perm.AccountIDs, "111111111111")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if tt.name == "default_docs_restored_from_old_snapshot" {
+				// Special case: use fresh backend and call verify directly (restore is inside verify)
+				fresh := ssm.NewInMemoryBackend()
+				tt.verify(t, fresh)
+
+				return
+			}
+
+			orig := ssm.NewInMemoryBackend()
+			tt.setup(orig)
+
+			snap := orig.Snapshot()
+			require.NotNil(t, snap)
+
+			restored := ssm.NewInMemoryBackend()
+			require.NoError(t, restored.Restore(snap))
+
+			tt.verify(t, restored)
+		})
+	}
 }

@@ -214,6 +214,7 @@ type DocumentVersion struct {
 	DocumentVersion  string  `json:"DocumentVersion"`
 	DocumentFormat   string  `json:"DocumentFormat"`
 	Status           string  `json:"Status"`
+	Content          string  `json:"Content,omitempty"`
 	CreatedDate      float64 `json:"CreatedDate"`
 	IsDefaultVersion bool    `json:"IsDefaultVersion"`
 }

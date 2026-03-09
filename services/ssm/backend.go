@@ -695,6 +695,7 @@ func (b *InMemoryBackend) registerDefaultDocuments() {
 				IsDefaultVersion: true,
 				DocumentFormat:   "JSON",
 				Status:           "Active",
+				Content:          d.content,
 			},
 		}
 	}
@@ -747,6 +748,7 @@ func (b *InMemoryBackend) CreateDocument(input *CreateDocumentInput) (*CreateDoc
 			IsDefaultVersion: true,
 			DocumentFormat:   format,
 			Status:           "Active",
+			Content:          input.Content,
 		},
 	}
 
@@ -773,6 +775,7 @@ func (b *InMemoryBackend) GetDocument(input *GetDocumentInput) (*GetDocumentOutp
 			if v.DocumentVersion == input.DocumentVersion {
 				found = true
 				version = v.DocumentVersion
+				content = v.Content
 
 				break
 			}
@@ -861,6 +864,16 @@ func (b *InMemoryBackend) UpdateDocument(input *UpdateDocumentInput) (*UpdateDoc
 		return nil, ErrDocumentNotFound
 	}
 
+	// Validate DocumentVersion if provided.
+	if input.DocumentVersion != "" {
+		switch input.DocumentVersion {
+		case "$LATEST", "$DEFAULT", doc.LatestVersion:
+			// accepted versions
+		default:
+			return nil, ErrInvalidDocumentVersion
+		}
+	}
+
 	latestVer, _ := strconv.Atoi(doc.LatestVersion)
 	newVer := strconv.Itoa(latestVer + 1)
 
@@ -883,6 +896,7 @@ func (b *InMemoryBackend) UpdateDocument(input *UpdateDocumentInput) (*UpdateDoc
 		IsDefaultVersion: false,
 		DocumentFormat:   format,
 		Status:           "Active",
+		Content:          input.Content,
 	})
 
 	return &UpdateDocumentOutput{DocumentDescription: doc}, nil
@@ -997,6 +1011,10 @@ func (b *InMemoryBackend) SendCommand(input *SendCommandInput) (*SendCommandOutp
 	b.mu.Lock("SendCommand")
 	defer b.mu.Unlock()
 
+	if _, exists := b.documents[input.DocumentName]; !exists {
+		return nil, ErrDocumentNotFound
+	}
+
 	now := UnixTimeFloat(time.Now())
 	cmdID := uuid.NewString()
 
@@ -1073,23 +1091,28 @@ func (b *InMemoryBackend) ListCommands(input *ListCommandsInput) (*ListCommandsO
 	}, nil
 }
 
-// GetCommandInvocation returns a synthetic success invocation for any stored command.
+// GetCommandInvocation returns the stored invocation for the given command and instance.
 func (b *InMemoryBackend) GetCommandInvocation(input *GetCommandInvocationInput) (*GetCommandInvocationOutput, error) {
 	b.mu.RLock("GetCommandInvocation")
 	defer b.mu.RUnlock()
 
-	cmd, exists := b.commands[input.CommandID]
-	if !exists {
+	if _, exists := b.commands[input.CommandID]; !exists {
 		return nil, ErrCommandNotFound
 	}
 
-	return &GetCommandInvocationOutput{
-		CommandID:     input.CommandID,
-		InstanceID:    input.InstanceID,
-		DocumentName:  cmd.DocumentName,
-		Status:        "Success",
-		StatusDetails: "Success",
-	}, nil
+	for _, inv := range b.commandInvocations[input.CommandID] {
+		if inv.InstanceID == input.InstanceID {
+			return &GetCommandInvocationOutput{
+				CommandID:     input.CommandID,
+				InstanceID:    input.InstanceID,
+				DocumentName:  inv.DocumentName,
+				Status:        inv.Status,
+				StatusDetails: inv.StatusDetails,
+			}, nil
+		}
+	}
+
+	return nil, ErrCommandNotFound
 }
 
 // ListCommandInvocations returns invocations for a given command.

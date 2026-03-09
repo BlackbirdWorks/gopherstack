@@ -95,6 +95,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.commands = snap.Commands
 	b.commandInvocations = snap.CommandInvocations
 
+	// Re-seed built-in documents if they are absent from the snapshot
+	// (e.g. snapshots taken before document support was added).
+	for _, name := range []string{"AWS-RunShellScript", "AWS-RunPowerShellScript"} {
+		if _, exists := b.documents[name]; !exists {
+			b.registerDefaultDocuments()
+
+			break
+		}
+	}
+
 	return nil
 }
 
