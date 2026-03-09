@@ -77,6 +77,7 @@ import (
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
+	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -126,6 +127,7 @@ type CLI struct {
 	kmsHandler                   service.Registerable
 	route53Handler               service.Registerable
 	sesHandler                   service.Registerable
+	sesv2Handler                 service.Registerable
 	ec2Handler                   service.Registerable
 	openSearchHandler            service.Registerable
 	acmHandler                   service.Registerable
@@ -358,6 +360,11 @@ func (c *CLI) GetRoute53Handler() service.Registerable { return c.route53Handler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSESHandler() service.Registerable { return c.sesHandler }
+
+// GetSESv2Handler returns the SES v2 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSESv2Handler() service.Registerable { return c.sesv2Handler }
 
 // GetEC2Handler returns the EC2 handler (dashboard.AWSSDKProvider).
 //
@@ -782,6 +789,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.elasticacheHandler = byName["ElastiCache"]
 	cli.route53Handler = byName["Route53"]
 	cli.sesHandler = byName["SES"]
+	cli.sesv2Handler = byName["SESv2"]
 	cli.ec2Handler = byName["EC2"]
 	cli.openSearchHandler = byName["OpenSearch"]
 	cli.acmHandler = byName["ACM"]
@@ -938,6 +946,7 @@ func getServiceProviders() []service.Provider {
 		&elasticachebackend.Provider{},
 		&route53backend.Provider{},
 		&sesbackend.Provider{},
+		&sesv2backend.Provider{},
 		&ec2backend.Provider{},
 		&opensearchbackend.Provider{},
 		&acmbackend.Provider{},
