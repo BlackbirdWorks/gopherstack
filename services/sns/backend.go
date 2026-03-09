@@ -66,6 +66,7 @@ type StorageBackend interface {
 	Publish(topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute) (string, error)
 	ListAllTopics() []Topic
 	ListAllSubscriptions() []Subscription
+	ListAllPlatformApplications() []PlatformApplication
 	GetTopicTags(arn string) map[string]string
 	SetTopicTags(arn string, kv *svcTags.Tags)
 	RemoveTopicTags(arn string, keys []string)
@@ -579,6 +580,23 @@ func (b *InMemoryBackend) ListAllSubscriptions() []Subscription {
 	defer b.mu.RUnlock()
 
 	return b.sortedSubscriptions()
+}
+
+// ListAllPlatformApplications returns all platform applications sorted by ARN.
+func (b *InMemoryBackend) ListAllPlatformApplications() []PlatformApplication {
+	b.mu.RLock("ListAllPlatformApplications")
+	defer b.mu.RUnlock()
+
+	apps := make([]PlatformApplication, 0, len(b.platformApplications))
+	for _, app := range b.platformApplications {
+		apps = append(apps, *app)
+	}
+
+	sort.Slice(apps, func(i, j int) bool {
+		return apps[i].PlatformApplicationArn < apps[j].PlatformApplicationArn
+	})
+
+	return apps
 }
 
 // sortedTopics returns topics sorted by TopicArn. Must be called with at least RLock held.

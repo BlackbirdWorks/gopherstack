@@ -58,6 +58,37 @@
             </tbody>
         </table>
     </div>
+
+    <h2 class="mt-10 text-xl font-semibold text-slate-900 dark:text-white">Platform Applications</h2>
+    <p class="mt-1 text-sm text-slate-600 dark:text-slate-400">Mobile push notification platform applications (APNS, GCM/FCM, ADM).</p>
+    <div class="mt-4 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">Platform</th>
+                    <th scope="col" class="px-6 py-3">ARN</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .PlatformApplications}}
+                <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white whitespace-nowrap">{{.Name}}</td>
+                    <td class="px-6 py-4">
+                        <span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{.Platform}}</span>
+                    </td>
+                    <td class="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400 break-all">{{.PlatformApplicationArn}}</td>
+                </tr>
+                {{else}}
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="3" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No platform applications found. Use <code class="font-mono">CreatePlatformApplication</code> to register one.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <!-- Create Topic Modal -->

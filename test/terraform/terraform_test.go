@@ -58,6 +58,7 @@ import (
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
 	sfnsvc "github.com/aws/aws-sdk-go-v2/service/sfn"
 	snssvc "github.com/aws/aws-sdk-go-v2/service/sns"
+	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
@@ -797,6 +798,44 @@ func TestTerraform_SNSSQSSubscription(t *testing.T) {
 				})
 				require.NoError(t, err, "GetTopicAttributes should succeed after terraform apply")
 				assert.NotEmpty(t, out.Attributes)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SNSPlatformApplication provisions an SNS platform application and verifies it exists.
+func TestTerraform_SNSPlatformApplication(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "sns_platform/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"AppName": "tf-app-" + uuid.NewString()[:8],
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createSNSClient(t)
+				out, err := client.ListPlatformApplications(ctx, &snssvc.ListPlatformApplicationsInput{})
+				require.NoError(t, err, "ListPlatformApplications should succeed after terraform apply")
+
+				appName := vars["AppName"].(string)
+				found := slices.ContainsFunc(out.PlatformApplications, func(app snstypes.PlatformApplication) bool {
+					return strings.HasSuffix(aws.ToString(app.PlatformApplicationArn), "/"+appName)
+				})
+				assert.True(t, found, "platform application %q should exist after terraform apply", appName)
 			},
 		},
 	}
