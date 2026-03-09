@@ -128,40 +128,41 @@ provider "aws" {
 
   # Endpoints are listed alphabetically — keep them sorted when adding new ones.
   endpoints {
-    acm            = %[1]q
-    appsync        = %[1]q
-    apigateway     = %[1]q
-    cloudformation = %[1]q
-    cloudwatch     = %[1]q
-    cloudwatchlogs = %[1]q
-    configservice  = %[1]q
-    dynamodb       = %[1]q
-    ec2            = %[1]q
-    ecr            = %[1]q
-    ecs            = %[1]q
-    elasticache    = %[1]q
-    events         = %[1]q
-    firehose       = %[1]q
-    iam            = %[1]q
-    kinesis        = %[1]q
-    kms            = %[1]q
-    lambda         = %[1]q
-    opensearch     = %[1]q
-    redshift       = %[1]q
-    resourcegroups = %[1]q
-    route53        = %[1]q
+    acm             = %[1]q
+    appsync         = %[1]q
+    apigateway      = %[1]q
+    cloudformation  = %[1]q
+    cloudwatch      = %[1]q
+    cloudwatchlogs  = %[1]q
+    cognitoidentity = %[1]q
+    configservice   = %[1]q
+    dynamodb        = %[1]q
+    ec2             = %[1]q
+    ecr             = %[1]q
+    ecs             = %[1]q
+    elasticache     = %[1]q
+    events          = %[1]q
+    firehose        = %[1]q
+    iam             = %[1]q
+    kinesis         = %[1]q
+    kms             = %[1]q
+    lambda          = %[1]q
+    opensearch      = %[1]q
+    redshift        = %[1]q
+    resourcegroups  = %[1]q
+    route53         = %[1]q
     route53resolver = %[1]q
-    s3             = %[1]q
-    s3control      = %[1]q
-    scheduler      = %[1]q
-    secretsmanager = %[1]q
-    ses            = %[1]q
-    sfn            = %[1]q
-    sns            = %[1]q
-    sqs            = %[1]q
-    ssm            = %[1]q
-    sts            = %[1]q
-    swf            = %[1]q
+    s3              = %[1]q
+    s3control       = %[1]q
+    scheduler       = %[1]q
+    secretsmanager  = %[1]q
+    ses             = %[1]q
+    sfn             = %[1]q
+    sns             = %[1]q
+    sqs             = %[1]q
+    ssm             = %[1]q
+    sts             = %[1]q
+    swf             = %[1]q
   }
 }
 `, addr)
