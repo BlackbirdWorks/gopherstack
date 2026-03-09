@@ -408,14 +408,9 @@ func (h *Handler) handleGetOpenIDToken(
 	}, nil
 }
 
-type rolesInput struct {
-	Authenticated   string `json:"authenticated"`
-	Unauthenticated string `json:"unauthenticated"`
-}
-
 type setIdentityPoolRolesInput struct {
-	IdentityPoolID string     `json:"IdentityPoolId"`
-	Roles          rolesInput `json:"Roles"`
+	Roles          map[string]string `json:"Roles"`
+	IdentityPoolID string            `json:"IdentityPoolId"`
 }
 
 type setIdentityPoolRolesOutput struct{}
@@ -426,8 +421,8 @@ func (h *Handler) handleSetIdentityPoolRoles(
 ) (*setIdentityPoolRolesOutput, error) {
 	if err := h.Backend.SetIdentityPoolRoles(
 		in.IdentityPoolID,
-		in.Roles.Authenticated,
-		in.Roles.Unauthenticated,
+		in.Roles["authenticated"],
+		in.Roles["unauthenticated"],
 	); err != nil {
 		return nil, err
 	}
@@ -440,8 +435,8 @@ type getIdentityPoolRolesInput struct {
 }
 
 type getIdentityPoolRolesOutput struct {
-	IdentityPoolID string     `json:"IdentityPoolId"`
-	Roles          rolesInput `json:"Roles"`
+	Roles          map[string]string `json:"Roles"`
+	IdentityPoolID string            `json:"IdentityPoolId"`
 }
 
 func (h *Handler) handleGetIdentityPoolRoles(
@@ -455,9 +450,9 @@ func (h *Handler) handleGetIdentityPoolRoles(
 
 	return &getIdentityPoolRolesOutput{
 		IdentityPoolID: in.IdentityPoolID,
-		Roles: rolesInput{
-			Authenticated:   roles.AuthenticatedRoleARN,
-			Unauthenticated: roles.UnauthenticatedRoleARN,
+		Roles: map[string]string{
+			"authenticated":   roles.AuthenticatedRoleARN,
+			"unauthenticated": roles.UnauthenticatedRoleARN,
 		},
 	}, nil
 }
