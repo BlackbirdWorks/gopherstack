@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -159,6 +160,7 @@ type CLI struct {
 	stsClient                    *stssdk.Client
 	sqsClient                    *sqssdk.Client
 	secretsManagerClient         *secretsmanager.Client
+	ecrClient                    *ecr.Client
 	AccountID                    string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
 	Port                         string                 `                                  name:"port"               env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
 	ElastiCacheEngine            string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
@@ -751,6 +753,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 	cli.secretsManagerClient = secretsmanager.NewFromConfig(
 		awsCfg,
 		func(o *secretsmanager.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.ecrClient = ecr.NewFromConfig(
+		awsCfg,
+		func(o *ecr.Options) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
@@ -2494,6 +2502,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		SSM:            cli.ssmClient,
 		KMS:            cli.kmsClient,
 		SecretsManager: cli.secretsManagerClient,
+		ECR:            cli.ecrClient,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load demo data", "error", err)

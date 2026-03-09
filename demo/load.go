@@ -9,6 +9,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -40,6 +41,7 @@ type Clients struct {
 	SSM            *ssm.Client
 	KMS            *kms.Client
 	SecretsManager *secretsmanager.Client
+	ECR            *ecr.Client
 }
 
 // LoadData loads sample data into all supported services.
@@ -72,6 +74,10 @@ func LoadData(
 	loadKMS(ctx, clients.KMS)
 
 	loadSecretsManager(ctx, clients.SecretsManager)
+
+	if clients.ECR != nil {
+		loadECR(ctx, clients.ECR)
+	}
 
 	pkgslogger.Load(ctx).InfoContext(ctx, "Demo data loaded successfully")
 
@@ -391,5 +397,24 @@ func loadSecretsManager(ctx context.Context, smClient *secretsmanager.Client) {
 		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create secret", "error", err)
 	} else {
 		pkgslogger.Load(ctx).InfoContext(ctx, "Created secret", "name", secretName)
+	}
+}
+
+func loadECR(ctx context.Context, ecrClient *ecr.Client) {
+	repositories := []string{
+		"demo-app/backend",
+		"demo-app/frontend",
+		"demo-app/worker",
+	}
+
+	for _, name := range repositories {
+		_, err := ecrClient.CreateRepository(ctx, &ecr.CreateRepositoryInput{
+			RepositoryName: aws.String(name),
+		})
+		if err != nil {
+			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create ECR repository", "name", name, "error", err)
+		} else {
+			pkgslogger.Load(ctx).InfoContext(ctx, "Created ECR repository", "name", name)
+		}
 	}
 }

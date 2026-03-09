@@ -189,4 +189,15 @@ type Backend interface {
 
 	// DescribeNetworkInterfaces returns ENIs, optionally filtered by IDs.
 	DescribeNetworkInterfaces(ids []string) []*NetworkInterface
+
+	// ---- tags ----
+
+	// CreateTags adds or updates tags on one or more resources.
+	CreateTags(resourceIDs []string, tags map[string]string) error
+
+	// DeleteTags removes the specified tag keys from one or more resources.
+	DeleteTags(resourceIDs []string, keys []string) error
+
+	// DescribeTags returns tag entries, optionally filtered by resource IDs.
+	DescribeTags(resourceIDs []string) []TagEntry
 }

@@ -52,7 +52,7 @@ LocalStack locks these services behind a paid tier. Gopherstack offers them nati
 | Service | API Implemented | Has Dashboard UI | Has Terraform Tests |
 | --- | --- | --- | --- |
 | **AppSync** | ✅ Yes | ✅ Yes | ✅ Yes |
-| **ECR** | ✅ Yes | ❌ No | ✅ Yes (with Lambda) |
+| **ECR** | ✅ Yes | ✅ Yes | ✅ Yes (with Lambda) |
 | **ECS** | ✅ Yes | ❌ No | ✅ Yes |
 | **ElastiCache** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **FIS** | ✅ Yes | ❌ No | ❌ No |

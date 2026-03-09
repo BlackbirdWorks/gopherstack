@@ -16,6 +16,7 @@ type backendSnapshot struct {
 	RouteTables        map[string]*RouteTable       `json:"routeTables"`
 	NatGateways        map[string]*NatGateway       `json:"natGateways"`
 	NetworkInterfaces  map[string]*NetworkInterface `json:"networkInterfaces"`
+	Tags               map[string]map[string]string `json:"tags"`
 	AccountID          string                       `json:"accountID"`
 	Region             string                       `json:"region"`
 	NextPrivateIPIndex int                          `json:"nextPrivateIPIndex"`
@@ -40,6 +41,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		RouteTables:        b.routeTables,
 		NatGateways:        b.natGateways,
 		NetworkInterfaces:  b.networkInterfaces,
+		Tags:               b.tags,
 		AccountID:          b.AccountID,
 		Region:             b.Region,
 		NextPrivateIPIndex: b.nextPrivateIPIndex,
@@ -110,6 +112,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.NetworkInterfaces = make(map[string]*NetworkInterface)
 	}
 
+	if snap.Tags == nil {
+		snap.Tags = make(map[string]map[string]string)
+	}
+
 	b.instances = snap.Instances
 	b.securityGroups = snap.SecurityGroups
 	b.vpcs = snap.VPCs
@@ -121,6 +127,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.routeTables = snap.RouteTables
 	b.natGateways = snap.NatGateways
 	b.networkInterfaces = snap.NetworkInterfaces
+	b.tags = snap.Tags
 	b.AccountID = snap.AccountID
 	b.Region = snap.Region
 	b.nextPrivateIPIndex = snap.NextPrivateIPIndex
