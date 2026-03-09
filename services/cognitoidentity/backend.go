@@ -128,9 +128,7 @@ func (b *InMemoryBackend) CreateIdentityPool(
 	b.pools[poolID] = pool
 	b.poolsByName[name] = pool
 
-	cp := *pool
-
-	return &cp, nil
+	return clonePool(pool), nil
 }
 
 // DeleteIdentityPool removes an identity pool and all associated identities and roles.
@@ -166,9 +164,7 @@ func (b *InMemoryBackend) DescribeIdentityPool(poolID string) (*IdentityPool, er
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	cp := *pool
-
-	return &cp, nil
+	return clonePool(pool), nil
 }
 
 // ListIdentityPools returns all identity pools, up to maxResults (0 = all).
@@ -178,8 +174,7 @@ func (b *InMemoryBackend) ListIdentityPools(maxResults int) []*IdentityPool {
 
 	out := make([]*IdentityPool, 0, len(b.pools))
 	for _, p := range b.pools {
-		cp := *p
-		out = append(out, &cp)
+		out = append(out, clonePool(p))
 
 		if maxResults > 0 && len(out) >= maxResults {
 			break
@@ -221,9 +216,7 @@ func (b *InMemoryBackend) UpdateIdentityPool(
 	pool.IdentityProviders = cloneProviders(providers)
 	pool.SupportedLoginProviders = cloneStringMap(supportedLoginProviders)
 
-	cp := *pool
-
-	return &cp, nil
+	return clonePool(pool), nil
 }
 
 // GetID returns an existing identity or creates a new one for the given pool and logins.
@@ -238,9 +231,7 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 	// Attempt to find an existing identity for this pool with the same logins.
 	for _, identity := range b.identities {
 		if identity.IdentityPoolID == poolID && mapsEqual(identity.Logins, logins) {
-			cp := *identity
-
-			return &cp, nil
+			return cloneIdentity(identity), nil
 		}
 	}
 
@@ -255,9 +246,7 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 
 	b.identities[identityID] = identity
 
-	cp := *identity
-
-	return &cp, nil
+	return cloneIdentity(identity), nil
 }
 
 // GetCredentialsForIdentity returns synthetic temporary AWS credentials for an identity.
@@ -362,7 +351,7 @@ func cloneProviders(providers []IdentityProvider) []IdentityProvider {
 	return cp
 }
 
-// cloneStringMap returns a shallow copy of a string map.
+// cloneStringMap returns a copy of a string map.
 func cloneStringMap(m map[string]string) map[string]string {
 	if m == nil {
 		return nil
@@ -372,6 +361,26 @@ func cloneStringMap(m map[string]string) map[string]string {
 	maps.Copy(out, m)
 
 	return out
+}
+
+// clonePool returns a deep copy of an IdentityPool to prevent callers from
+// mutating the backend's internal maps and slices.
+func clonePool(pool *IdentityPool) *IdentityPool {
+	cp := *pool
+	cp.IdentityProviders = cloneProviders(pool.IdentityProviders)
+	cp.SupportedLoginProviders = cloneStringMap(pool.SupportedLoginProviders)
+	cp.Tags = cloneStringMap(pool.Tags)
+
+	return &cp
+}
+
+// cloneIdentity returns a deep copy of an Identity to prevent callers from
+// mutating the backend's internal Logins map.
+func cloneIdentity(identity *Identity) *Identity {
+	cp := *identity
+	cp.Logins = cloneStringMap(identity.Logins)
+
+	return &cp
 }
 
 // mapsEqual returns true if both maps have the same key-value pairs.

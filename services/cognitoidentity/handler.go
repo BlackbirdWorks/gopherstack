@@ -419,6 +419,20 @@ func (h *Handler) handleSetIdentityPoolRoles(
 	_ context.Context,
 	in *setIdentityPoolRolesInput,
 ) (*setIdentityPoolRolesOutput, error) {
+	if in.IdentityPoolID == "" {
+		return nil, fmt.Errorf("%w: IdentityPoolId is required", ErrInvalidParameter)
+	}
+
+	_, hasAuth := in.Roles["authenticated"]
+	_, hasUnauth := in.Roles["unauthenticated"]
+
+	if !hasAuth && !hasUnauth {
+		return nil, fmt.Errorf(
+			"%w: Roles must contain at least one of authenticated or unauthenticated",
+			ErrInvalidParameter,
+		)
+	}
+
 	if err := h.Backend.SetIdentityPoolRoles(
 		in.IdentityPoolID,
 		in.Roles["authenticated"],
