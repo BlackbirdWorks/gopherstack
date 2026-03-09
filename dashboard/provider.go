@@ -7,6 +7,7 @@ import (
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -85,6 +86,7 @@ type AWSSDKProvider interface {
 	GetSWFHandler() service.Registerable
 	GetFirehoseHandler() service.Registerable
 	GetCognitoIdentityHandler() service.Registerable
+	GetAppSyncHandler() service.Registerable
 	GetCognitoIDPHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
@@ -139,6 +141,7 @@ type extractedConfig struct {
 	swfOps             *swfbackend.Handler
 	firehoseOps        *firehosebackend.Handler
 	cognitoIdentityOps *cognitoidentitybackend.Handler
+	appSyncOps         *appsyncbackend.Handler
 	cognitoIDPOps      *cognitoidpbackend.Handler
 	ecrOps             *ecrbackend.Handler
 	ecsOps             *ecsbackend.Handler
@@ -295,6 +298,14 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.cognitoIdentityOps, _ = h.(*cognitoidentitybackend.Handler)
 	}
 
+	extractRecentHandlers(ap, ec)
+}
+
+func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+	if h := ap.GetAppSyncHandler(); h != nil {
+		ec.appSyncOps, _ = h.(*appsyncbackend.Handler)
+	}
+
 	if h := ap.GetCognitoIDPHandler(); h != nil {
 		ec.cognitoIDPOps, _ = h.(*cognitoidpbackend.Handler)
 	}
@@ -352,6 +363,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		SWFOps:             ec.swfOps,
 		FirehoseOps:        ec.firehoseOps,
 		CognitoIdentityOps: ec.cognitoIdentityOps,
+		AppSyncOps:         ec.appSyncOps,
 		CognitoIDPOps:      ec.cognitoIDPOps,
 		ECROps:             ec.ecrOps,
 		ECSOps:             ec.ecsOps,

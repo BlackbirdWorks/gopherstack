@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	appsyncsdksvc "github.com/aws/aws-sdk-go-v2/service/appsync"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -162,6 +163,7 @@ type CLI struct {
 	sqsClient                    *sqssdk.Client
 	secretsManagerClient         *secretsmanager.Client
 	ecrClient                    *ecr.Client
+	appSyncSdkClient             *appsyncsdksvc.Client
 	ecsClient                    *ecs.Client
 	AccountID                    string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
 	Port                         string                 `                                  name:"port"               env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
@@ -761,6 +763,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 	cli.ecrClient = ecr.NewFromConfig(
 		awsCfg,
 		func(o *ecr.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.appSyncSdkClient = appsyncsdksvc.NewFromConfig(
+		awsCfg,
+		func(o *appsyncsdksvc.Options) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
@@ -2511,6 +2519,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		KMS:            cli.kmsClient,
 		SecretsManager: cli.secretsManagerClient,
 		ECR:            cli.ecrClient,
+		AppSync:        cli.appSyncSdkClient,
 		ECS:            cli.ecsClient,
 	})
 	if err != nil {
