@@ -90,6 +90,22 @@ func TestPutProvisionedConcurrencyConfig(t *testing.T) {
 			wantCode:    http.StatusBadRequest,
 			wantErrType: "InvalidParameterValueException",
 		},
+		{
+			name:      "latest_qualifier_rejected",
+			funcName:  "put-prov-latest-fn",
+			qualifier: "$LATEST",
+			body:      `{"ProvisionedConcurrentExecutions":5}`,
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
+					FunctionName: "put-prov-latest-fn",
+					PackageType:  lambda.PackageTypeImage,
+					ImageURI:     "test:latest",
+				}))
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErrType: "InvalidParameterValueException",
+		},
 	}
 
 	for _, tt := range tests {

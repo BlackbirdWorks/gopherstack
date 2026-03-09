@@ -81,7 +81,7 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodGet, hasSuffixConcurrency, "GetFunctionConcurrency"},
 	{http.MethodDelete, hasSuffixConcurrency, "DeleteFunctionConcurrency"},
 	{http.MethodPut, hasSuffixProvisionedConcurrency, "PutProvisionedConcurrencyConfig"},
-	{http.MethodGet, hasSuffixProvisionedConcurrency, "GetProvisionedConcurrencyConfig"},
+	{http.MethodGet, hasSuffixProvisionedConcurrency, "ListProvisionedConcurrencyConfigs"},
 	{http.MethodDelete, hasSuffixProvisionedConcurrency, "DeleteProvisionedConcurrencyConfig"},
 }
 
@@ -326,6 +326,11 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 	rest := strings.TrimPrefix(path, lambdaPathPrefix)
 
+	// Special case: GET /provisioned-concurrency dispatches to Get vs List based on Qualifier.
+	if op := resolveProvisionedConcurrencyOp(method, rest, c.Request().URL.Query().Get("Qualifier")); op != "" {
+		return op
+	}
+
 	for _, route := range lambdaOpRoutes {
 		if route.method == method && route.match(rest) {
 			return route.op
@@ -367,6 +372,11 @@ func (h *Handler) IAMAction(r *http.Request) string {
 
 		rest := strings.TrimPrefix(path, prefix)
 
+		// Special case: GET /provisioned-concurrency dispatches to Get vs List based on Qualifier.
+		if op := resolveProvisionedConcurrencyOp(method, rest, r.URL.Query().Get("Qualifier")); op != "" {
+			return "lambda:" + op
+		}
+
 		for _, route := range lambdaOpRoutes {
 			if route.method == method && route.match(rest) {
 				return "lambda:" + route.op
@@ -387,6 +397,21 @@ func (h *Handler) IAMAction(r *http.Request) string {
 	}
 
 	return ""
+}
+
+// resolveProvisionedConcurrencyOp returns the operation name for a GET
+// /provisioned-concurrency request, disambiguating between Get (Qualifier present)
+// and List (Qualifier absent). Returns "" for non-matching requests.
+func resolveProvisionedConcurrencyOp(method, rest, qualifier string) string {
+	if method != http.MethodGet || !hasSuffixProvisionedConcurrency(rest) {
+		return ""
+	}
+
+	if qualifier != "" {
+		return "GetProvisionedConcurrencyConfig"
+	}
+
+	return "ListProvisionedConcurrencyConfigs"
 }
 
 // esmIAMAction returns the IAM action for an event source mapping request.

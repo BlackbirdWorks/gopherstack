@@ -2217,6 +2217,10 @@ func (b *InMemoryBackend) PutProvisionedConcurrencyConfig(
 		return nil, fmt.Errorf("%w: ProvisionedConcurrentExecutions must be > 0", ErrInvalidParameterValue)
 	}
 
+	if qualifier == versionLatest {
+		return nil, fmt.Errorf("%w: provisioned concurrency is not supported for $LATEST", ErrInvalidParameterValue)
+	}
+
 	if _, exists := b.provisionedConcurrencies[name]; !exists {
 		b.provisionedConcurrencies[name] = make(map[string]*ProvisionedConcurrencyConfig)
 	}
