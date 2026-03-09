@@ -34,6 +34,10 @@ const (
 	pathTargetResourceTypes = "targetResourceTypes"
 	// pathTags is the root path for resource tags.
 	pathTags = "tags"
+	// pathSafetyLevers is the root path for safety levers.
+	pathSafetyLevers = "safetyLevers"
+	// subPathResolvedTargets is the sub-path segment for resolved targets.
+	subPathResolvedTargets = "resolvedTargets"
 )
 
 // Handler is the Echo HTTP handler for the FIS REST API.
@@ -73,10 +77,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetExperiment",
 		"StopExperiment",
 		"ListExperiments",
+		"ListExperimentResolvedTargets",
 		"GetAction",
 		"ListActions",
 		"GetTargetResourceType",
 		"ListTargetResourceTypes",
+		"GetSafetyLever",
+		"UpdateSafetyLeverState",
 		"TagResource",
 		"UntagResource",
 		"ListTagsForResource",
@@ -101,6 +108,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			"/" + pathExperiments,
 			"/" + pathActions,
 			"/" + pathTargetResourceTypes,
+			"/" + pathSafetyLevers,
 		} {
 			if strings.HasPrefix(path, prefix) {
 				return true
@@ -185,6 +193,8 @@ func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op, id string, 
 		return h.handleStopExperiment(c, id)
 	case "ListExperiments":
 		return h.handleListExperiments(c)
+	case "ListExperimentResolvedTargets":
+		return h.handleListExperimentResolvedTargets(c, id)
 	case "GetAction":
 		return h.handleGetAction(c, id)
 	case "ListActions":
@@ -201,6 +211,10 @@ func (h *Handler) dispatch(ctx context.Context, c *echo.Context, op, id string, 
 		return h.handleUntagResource(c, id, c.Request().URL.Query())
 	case "ListTagsForResource":
 		return h.handleListTagsForResource(c, id)
+	case "GetSafetyLever":
+		return h.handleGetSafetyLever(c, id)
+	case "UpdateSafetyLeverState":
+		return h.handleUpdateSafetyLeverState(c, id, body)
 	}
 
 	return h.writeError(c, http.StatusNotFound, "unknown operation: "+op, "")
@@ -293,11 +307,14 @@ func (h *Handler) handleStartExperiment(ctx context.Context, c *echo.Context, bo
 
 	exp, err := h.Backend.StartExperiment(ctx, &input, h.AccountID, h.DefaultRegion)
 	if err != nil {
-		if errors.Is(err, ErrTemplateNotFound) {
+		switch {
+		case errors.Is(err, ErrTemplateNotFound):
 			return h.writeError(c, http.StatusNotFound, err.Error(), input.ExperimentTemplateID)
+		case errors.Is(err, ErrSafetyLeverEngaged):
+			return h.writeError(c, http.StatusConflict, err.Error(), "")
+		default:
+			return h.writeError(c, http.StatusInternalServerError, err.Error(), "")
 		}
-
-		return h.writeError(c, http.StatusInternalServerError, err.Error(), "")
 	}
 
 	return c.JSON(http.StatusCreated, experimentResponseDTO{
@@ -450,6 +467,53 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, arnStr string) erro
 }
 
 // ----------------------------------------
+// Resolved targets handlers
+// ----------------------------------------
+
+func (h *Handler) handleListExperimentResolvedTargets(c *echo.Context, id string) error {
+	resolved, err := h.Backend.ListExperimentResolvedTargets(id)
+	if err != nil {
+		return h.writeBackendError(c, err, id)
+	}
+
+	dtos := make([]resolvedTargetDTO, len(resolved))
+	for i, rt := range resolved {
+		dtos[i] = resolvedTargetDTO(rt)
+	}
+
+	return c.JSON(http.StatusOK, listExperimentResolvedTargetsResponseDTO{
+		ResolvedTargets: dtos,
+	})
+}
+
+// ----------------------------------------
+// Safety lever handlers
+// ----------------------------------------
+
+func (h *Handler) handleGetSafetyLever(c *echo.Context, id string) error {
+	lever, err := h.Backend.GetSafetyLever(id)
+	if err != nil {
+		return h.writeBackendError(c, err, id)
+	}
+
+	return c.JSON(http.StatusOK, safetyLeverResponseDTO{SafetyLever: toSafetyLeverDTO(lever)})
+}
+
+func (h *Handler) handleUpdateSafetyLeverState(c *echo.Context, id string, body []byte) error {
+	var input updateSafetyLeverStateRequest
+	if err := json.Unmarshal(body, &input); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "invalid request body: "+err.Error(), id)
+	}
+
+	lever, err := h.Backend.UpdateSafetyLeverState(id, &input)
+	if err != nil {
+		return h.writeBackendError(c, err, id)
+	}
+
+	return c.JSON(http.StatusOK, safetyLeverResponseDTO{SafetyLever: toSafetyLeverDTO(lever)})
+}
+
+// ----------------------------------------
 // Error helpers
 // ----------------------------------------
 
@@ -469,6 +533,10 @@ func (h *Handler) writeBackendError(c *echo.Context, err error, id string) error
 		return h.writeError(c, http.StatusConflict, err.Error(), id)
 	case errors.Is(err, ErrResourceNotFound):
 		return h.writeError(c, http.StatusNotFound, err.Error(), id)
+	case errors.Is(err, ErrSafetyLeverNotFound):
+		return h.writeError(c, http.StatusNotFound, err.Error(), id)
+	case errors.Is(err, ErrSafetyLeverEngaged):
+		return h.writeError(c, http.StatusConflict, err.Error(), id)
 	default:
 		return h.writeError(c, http.StatusInternalServerError, err.Error(), id)
 	}
@@ -512,6 +580,9 @@ func parseFISPath(method, path string) (string, string) {
 			return "StartExperiment", ""
 		case method == http.MethodGet && !hasID:
 			return "ListExperiments", ""
+		// Must check 3-segment path before generic 2-segment GET.
+		case method == http.MethodGet && len(segs) >= 3 && segs[2] == subPathResolvedTargets:
+			return "ListExperimentResolvedTargets", segs[1]
 		case method == http.MethodGet && hasID:
 			return "GetExperiment", segs[1]
 		case method == http.MethodDelete && hasID:
@@ -545,6 +616,16 @@ func parseFISPath(method, path string) (string, string) {
 				return "TagResource", arnStr
 			case http.MethodDelete:
 				return "UntagResource", arnStr
+			}
+		}
+
+	case pathSafetyLevers:
+		if hasID {
+			switch method {
+			case http.MethodGet:
+				return "GetSafetyLever", segs[1]
+			case http.MethodPatch:
+				return "UpdateSafetyLeverState", segs[1]
 			}
 		}
 	}
@@ -742,5 +823,17 @@ func toTargetResourceTypeDTO(rt *TargetResourceTypeSummary) targetResourceTypeDT
 		ResourceType: rt.ResourceType,
 		Description:  rt.Description,
 		Parameters:   params,
+	}
+}
+
+func toSafetyLeverDTO(lever *SafetyLever) safetyLeverDTO {
+	return safetyLeverDTO{
+		ID:   lever.ID,
+		Arn:  lever.Arn,
+		Tags: lever.Tags,
+		State: safetyLeverStateDTO{
+			Status: lever.State.Status,
+			Reason: lever.State.Reason,
+		},
 	}
 }

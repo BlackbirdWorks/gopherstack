@@ -14,16 +14,17 @@ import (
 
 // InMemoryDB stores tables and items organized by region.
 type InMemoryDB struct {
-	Tables         map[string]map[string]*Table
-	deletingTables map[string]map[string]*Table
-	Backups        map[string]*Backup  // backupARN → Backup
-	txnTokens      map[string]struct{} // committed idempotency tokens
-	txnPending     map[string]struct{} // in-progress idempotency tokens
-	exprCache      *ExpressionCache
-	throttler      *Throttler
-	mu             *lockmetrics.RWMutex
-	defaultRegion  string
-	accountID      string
+	Tables               map[string]map[string]*Table
+	deletingTables       map[string]map[string]*Table
+	Backups              map[string]*Backup   // backupARN → Backup
+	txnTokens            map[string]struct{}  // committed idempotency tokens
+	txnPending           map[string]struct{}  // in-progress idempotency tokens
+	fisReplicationPaused map[string]time.Time // keyed by table ARN; value is expiry (zero = no expiry)
+	exprCache            *ExpressionCache
+	throttler            *Throttler
+	mu                   *lockmetrics.RWMutex
+	defaultRegion        string
+	accountID            string
 	// createDelay is the time to wait before transitioning a new table to ACTIVE.
 	// Zero means immediate ACTIVE (no lifecycle simulation).
 	createDelay time.Duration
@@ -104,16 +105,17 @@ func NewInMemoryDB() *InMemoryDB {
 	const exprCacheSize = 1000
 
 	return &InMemoryDB{
-		Tables:         make(map[string]map[string]*Table),
-		deletingTables: make(map[string]map[string]*Table),
-		Backups:        make(map[string]*Backup),
-		txnTokens:      make(map[string]struct{}),
-		txnPending:     make(map[string]struct{}),
-		exprCache:      NewExpressionCache(exprCacheSize),
-		defaultRegion:  config.DefaultRegion,
-		accountID:      config.DefaultAccountID,
-		mu:             lockmetrics.New("ddb"),
-		throttler:      NewThrottler(false),
+		Tables:               make(map[string]map[string]*Table),
+		deletingTables:       make(map[string]map[string]*Table),
+		Backups:              make(map[string]*Backup),
+		txnTokens:            make(map[string]struct{}),
+		txnPending:           make(map[string]struct{}),
+		fisReplicationPaused: make(map[string]time.Time),
+		exprCache:            NewExpressionCache(exprCacheSize),
+		defaultRegion:        config.DefaultRegion,
+		accountID:            config.DefaultAccountID,
+		mu:                   lockmetrics.New("ddb"),
+		throttler:            NewThrottler(false),
 	}
 }
 
