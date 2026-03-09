@@ -867,9 +867,10 @@ func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup  func(*ssm.InMemoryBackend)
-		verify func(*testing.T, *ssm.InMemoryBackend)
-		name   string
+		setup         func(*ssm.InMemoryBackend)
+		verify        func(*testing.T, *ssm.InMemoryBackend)
+		name          string
+		skipRoundTrip bool // when true, verify receives a fresh backend and manages its own restore
 	}{
 		{
 			name: "document_survives_round_trip",
@@ -919,14 +920,12 @@ func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
 			},
 		},
 		{
-			name: "default_docs_restored_from_old_snapshot",
-			setup: func(_ *ssm.InMemoryBackend) {
-				// no-op: we will manually inject a pre-documents snapshot
-			},
+			name:          "default_docs_restored_from_old_snapshot",
+			skipRoundTrip: true,
 			verify: func(t *testing.T, b *ssm.InMemoryBackend) {
 				t.Helper()
 
-				// After restoring a snapshot that has no "documents" key, defaults should be re-seeded
+				// Restore a pre-documents snapshot; defaults should be re-seeded
 				oldSnap := `{"parameters":{},"history":{},"tags":{}}`
 				require.NoError(t, b.Restore([]byte(oldSnap)))
 
@@ -969,10 +968,8 @@ func TestInMemoryBackend_Snapshot_IncludesDocumentsAndCommands(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if tt.name == "default_docs_restored_from_old_snapshot" {
-				// Special case: use fresh backend and call verify directly (restore is inside verify)
-				fresh := ssm.NewInMemoryBackend()
-				tt.verify(t, fresh)
+			if tt.skipRoundTrip {
+				tt.verify(t, ssm.NewInMemoryBackend())
 
 				return
 			}
