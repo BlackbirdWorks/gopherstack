@@ -35,6 +35,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
@@ -1843,6 +1844,38 @@ func TestTerraform_EC2(t *testing.T) {
 				require.NoError(t, err, "DescribeInstances should succeed after terraform apply")
 				require.NotEmpty(t, out.Reservations, "at least one reservation should exist")
 				require.NotEmpty(t, out.Reservations[0].Instances, "at least one instance should exist")
+
+				// Verify that tags from the fixture's `tags = {}` blocks were stored
+				// (via TagSpecification on CreateVpc / standalone CreateTags).
+				// Find the VPC created by this fixture (CIDR 10.0.0.0/16).
+				vpcsOut, err := client.DescribeVpcs(ctx, &ec2svc.DescribeVpcsInput{})
+				require.NoError(t, err, "DescribeVpcs should succeed after terraform apply")
+
+				var vpcID string
+				for _, vpc := range vpcsOut.Vpcs {
+					if aws.ToString(vpc.CidrBlock) == "10.0.0.0/16" && !aws.ToBool(vpc.IsDefault) {
+						vpcID = aws.ToString(vpc.VpcId)
+
+						break
+					}
+				}
+
+				require.NotEmpty(t, vpcID, "VPC with CIDR 10.0.0.0/16 should exist after terraform apply")
+
+				// DescribeTags with resource-id filter to get tags for the fixture's VPC.
+				tagsOut, err := client.DescribeTags(ctx, &ec2svc.DescribeTagsInput{
+					Filters: []ec2types.Filter{
+						{Name: aws.String("resource-id"), Values: []string{vpcID}},
+					},
+				})
+				require.NoError(t, err, "DescribeTags should succeed after terraform apply")
+
+				vpcTags := make(map[string]string)
+				for _, tag := range tagsOut.Tags {
+					vpcTags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+				}
+
+				assert.Equal(t, "test-vpc", vpcTags["Name"], "VPC should have Name=test-vpc tag from terraform fixture")
 			},
 		},
 	}

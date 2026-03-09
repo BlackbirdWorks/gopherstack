@@ -96,8 +96,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RevokeSecurityGroupEgress",
 		"DescribeInstanceTypes",
 		"DescribeTags",
+		"CreateTags",
+		"DeleteTags",
 		"DescribeInstanceAttribute",
 		"DescribeImageAttribute",
+		"DescribeLaunchTemplates",
 	}
 }
 
@@ -169,7 +172,13 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{"InstanceId.1", "GroupId.1", "GroupId", "VpcId.1", "VpcId", "SubnetId.1", "SubnetId"} {
+	resourceKeys := []string{
+		"InstanceId.1", "GroupId.1", "GroupId",
+		"VpcId.1", "VpcId", "SubnetId.1", "SubnetId",
+		"ResourceId.1", "ResourceId",
+	}
+
+	for _, key := range resourceKeys {
 		if v := r.Form.Get(key); v != "" {
 			return v
 		}
@@ -240,6 +249,8 @@ func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 		"CreateSubnet":                  h.handleCreateSubnet,
 		"DescribeInstanceTypes":         h.handleDescribeInstanceTypes,
 		"DescribeTags":                  h.handleDescribeTags,
+		"CreateTags":                    h.handleCreateTags,
+		"DeleteTags":                    h.handleDeleteTags,
 		"DescribeInstanceAttribute":     h.handleDescribeInstanceAttribute,
 		"StartInstances":                h.handleStartInstances,
 		"StopInstances":                 h.handleStopInstances,
@@ -282,6 +293,7 @@ func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 		"AuthorizeSecurityGroupEgress":  h.handleAuthorizeSecurityGroupEgress,
 		"RevokeSecurityGroupIngress":    h.handleRevokeSecurityGroupIngress,
 		"DescribeImageAttribute":        h.handleDescribeImageAttribute,
+		"DescribeLaunchTemplates":       h.handleDescribeLaunchTemplates,
 	}
 }
 
@@ -310,6 +322,17 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	instances, err := h.Backend.RunInstances(imageID, instanceType, subnetID, count)
 	if err != nil {
 		return nil, err
+	}
+
+	if tags := parseTagSpecification(vals, "instance"); len(tags) > 0 {
+		ids := make([]string, 0, len(instances))
+		for _, inst := range instances {
+			ids = append(ids, inst.ID)
+		}
+
+		if err = h.Backend.CreateTags(ids, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	items := make([]instanceItem, 0, len(instances))
@@ -403,6 +426,12 @@ func (h *Handler) handleCreateSecurityGroup(vals url.Values, reqID string) (any,
 		return nil, err
 	}
 
+	if tags := parseTagSpecification(vals, "security-group"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{sg.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createSecurityGroupResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -483,6 +512,12 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 		return nil, err
 	}
 
+	if tags := parseTagSpecification(vals, "vpc"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{v.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createVpcResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -516,6 +551,12 @@ func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
+	if tags := parseTagSpecification(vals, "subnet"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{s.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createSubnetResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -530,6 +571,18 @@ func (h *Handler) handleRevokeSecurityGroupEgress(_ url.Values, reqID string) (a
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		Return:    "true",
+	}, nil
+}
+
+// handleDescribeLaunchTemplates returns an empty stub response.
+// Terraform calls this to read back launch-template metadata when the aws_instance resource's
+// read phase runs after instance creation. Since gopherstack does not implement launch templates,
+// returning an empty set prevents Terraform from failing with a "not found" error.
+func (h *Handler) handleDescribeLaunchTemplates(_ url.Values, reqID string) (any, error) {
+	return &describeLaunchTemplatesResponse{
+		Xmlns:             ec2XMLNS,
+		RequestID:         reqID,
+		LaunchTemplateSet: launchTemplateSet{},
 	}, nil
 }
 
@@ -554,13 +607,66 @@ func (h *Handler) handleDescribeInstanceTypes(vals url.Values, reqID string) (an
 	}, nil
 }
 
-// handleDescribeTags returns an empty tag list.
-// Terraform calls this after RunInstances to read the launch template ID tag.
-func (h *Handler) handleDescribeTags(_ url.Values, reqID string) (any, error) {
+// handleDescribeTags returns tags for EC2 resources, supporting Filter.N.Name / Filter.N.Value.* semantics.
+// If a filter with Name=resource-id is present, only tags for those resource IDs are returned.
+// Other filter names are accepted but ignored (returns all tags when no resource-id filter is present).
+func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error) {
+	var resourceIDs []string
+
+	for i := 1; i <= maxFiltersPerRequest; i++ {
+		name := vals.Get(fmt.Sprintf("Filter.%d.Name", i))
+		if name == "" {
+			break
+		}
+
+		if name == "resource-id" {
+			resourceIDs = parseMemberList(vals, fmt.Sprintf("Filter.%d.Value", i))
+		}
+	}
+
+	entries := h.Backend.DescribeTags(resourceIDs)
+
+	items := make([]tagItem, 0, len(entries))
+	for _, e := range entries {
+		items = append(items, tagItem(e))
+	}
+
 	return &describeTagsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		TagSet:    tagItemSet{},
+		TagSet:    tagItemSet{Items: items},
+	}, nil
+}
+
+// handleCreateTags applies tags to one or more resources.
+func (h *Handler) handleCreateTags(vals url.Values, reqID string) (any, error) {
+	resourceIDs := parseMemberList(vals, "ResourceId")
+	tags := parseEC2Tags(vals)
+
+	if err := h.Backend.CreateTags(resourceIDs, tags); err != nil {
+		return nil, err
+	}
+
+	return &createTagsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    "true",
+	}, nil
+}
+
+// handleDeleteTags removes tags from one or more resources.
+func (h *Handler) handleDeleteTags(vals url.Values, reqID string) (any, error) {
+	resourceIDs := parseMemberList(vals, "ResourceId")
+	keys := parseEC2TagKeys(vals)
+
+	if err := h.Backend.DeleteTags(resourceIDs, keys); err != nil {
+		return nil, err
+	}
+
+	return &deleteTagsResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    "true",
 	}, nil
 }
 
@@ -665,6 +771,75 @@ func parseMemberList(vals url.Values, prefix string) []string {
 		}
 		result = append(result, v)
 	}
+}
+
+// maxTagsPerRequest is the maximum number of tags accepted in a single EC2 request.
+// AWS allows up to 50 tags per resource; we use 1000 as a generous but bounded limit.
+const maxTagsPerRequest = 1000
+
+// maxFiltersPerRequest is the maximum number of filters accepted in a single EC2 DescribeTags request.
+const maxFiltersPerRequest = 100
+
+// parseEC2Tags extracts Tag.N.Key / Tag.N.Value from EC2 form values.
+func parseEC2Tags(vals url.Values) map[string]string {
+	tags := make(map[string]string)
+
+	for i := 1; i <= maxTagsPerRequest; i++ {
+		key := vals.Get(fmt.Sprintf("Tag.%d.Key", i))
+		if key == "" {
+			return tags
+		}
+
+		tags[key] = vals.Get(fmt.Sprintf("Tag.%d.Value", i))
+	}
+
+	return tags
+}
+
+// parseEC2TagKeys extracts Tag.N.Key from EC2 DeleteTags form values.
+func parseEC2TagKeys(vals url.Values) []string {
+	var keys []string
+
+	for i := 1; i <= maxTagsPerRequest; i++ {
+		key := vals.Get(fmt.Sprintf("Tag.%d.Key", i))
+		if key == "" {
+			return keys
+		}
+
+		keys = append(keys, key)
+	}
+
+	return keys
+}
+
+// parseTagSpecification extracts tags from TagSpecification.N.Tag.M.Key/Value form values
+// for a specific resourceType (e.g. "vpc", "subnet", "instance", "security-group").
+// Terraform and the AWS SDK send inline tags this way during resource creation.
+// Returns a map of tag keys to values for the matched resource type, or an empty map if none found.
+func parseTagSpecification(vals url.Values, resourceType string) map[string]string {
+	tags := make(map[string]string)
+
+	for i := 1; i <= maxTagsPerRequest; i++ {
+		rt := vals.Get(fmt.Sprintf("TagSpecification.%d.ResourceType", i))
+		if rt == "" {
+			break
+		}
+
+		if rt != resourceType {
+			continue
+		}
+
+		for j := 1; j <= maxTagsPerRequest; j++ {
+			key := vals.Get(fmt.Sprintf("TagSpecification.%d.Tag.%d.Key", i, j))
+			if key == "" {
+				break
+			}
+
+			tags[key] = vals.Get(fmt.Sprintf("TagSpecification.%d.Tag.%d.Value", i, j))
+		}
+	}
+
+	return tags
 }
 
 // marshalXML encodes the payload with the XML declaration header.
@@ -932,6 +1107,31 @@ type describeTagsResponse struct {
 	Xmlns     string     `xml:"xmlns,attr"`
 	RequestID string     `xml:"requestId"`
 	TagSet    tagItemSet `xml:"tagSet"`
+}
+
+type createTagsResponse struct {
+	XMLName   xml.Name `xml:"CreateTagsResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    string   `xml:"return"`
+}
+
+type deleteTagsResponse struct {
+	XMLName   xml.Name `xml:"DeleteTagsResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    string   `xml:"return"`
+}
+
+type launchTemplateSet struct {
+	Items []struct{} `xml:"item"`
+}
+
+type describeLaunchTemplatesResponse struct {
+	XMLName           xml.Name          `xml:"DescribeLaunchTemplatesResponse"`
+	Xmlns             string            `xml:"xmlns,attr"`
+	RequestID         string            `xml:"requestId"`
+	LaunchTemplateSet launchTemplateSet `xml:"launchTemplates"`
 }
 
 // namedStringAttr is a string attribute element whose XML element name is set dynamically.
