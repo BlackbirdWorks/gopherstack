@@ -43,8 +43,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateUserPool",
 		"DescribeUserPool",
 		"ListUserPools",
+		"DeleteUserPool",
+		"GetUserPoolMfaConfig",
 		"CreateUserPoolClient",
 		"DescribeUserPoolClient",
+		"ListUserPoolClients",
+		"DeleteUserPoolClient",
 		"SignUp",
 		"ConfirmSignUp",
 		"InitiateAuth",
@@ -150,8 +154,12 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"CreateUserPool":         service.WrapOp(h.handleCreateUserPool),
 		"DescribeUserPool":       service.WrapOp(h.handleDescribeUserPool),
 		"ListUserPools":          service.WrapOp(h.handleListUserPools),
+		"DeleteUserPool":         service.WrapOp(h.handleDeleteUserPool),
+		"GetUserPoolMfaConfig":   service.WrapOp(h.handleGetUserPoolMfaConfig),
 		"CreateUserPoolClient":   service.WrapOp(h.handleCreateUserPoolClient),
 		"DescribeUserPoolClient": service.WrapOp(h.handleDescribeUserPoolClient),
+		"ListUserPoolClients":    service.WrapOp(h.handleListUserPoolClients),
+		"DeleteUserPoolClient":   service.WrapOp(h.handleDeleteUserPoolClient),
 		"SignUp":                 service.WrapOp(h.handleSignUp),
 		"ConfirmSignUp":          service.WrapOp(h.handleConfirmSignUp),
 		"InitiateAuth":           service.WrapOp(h.handleInitiateAuth),
@@ -268,11 +276,30 @@ type createUserPoolInput struct {
 	PoolName string `json:"PoolName"`
 }
 
+// userPoolPoliciesData holds the Policies block returned by the Cognito IDP API.
+// Returning a non-nil Policies object prevents nil-pointer panics in the Terraform
+// AWS provider, which accesses Policies.PasswordPolicy and Policies.SignInPolicy
+// unconditionally.
+type userPoolPoliciesData struct {
+	PasswordPolicy *userPoolPasswordPolicyData `json:"PasswordPolicy"`
+	SignInPolicy   *userPoolSignInPolicyData   `json:"SignInPolicy"`
+}
+
+// userPoolPasswordPolicyData is a minimal representation of PasswordPolicyType.
+type userPoolPasswordPolicyData struct{}
+
+// userPoolSignInPolicyData is a minimal representation of SignInPolicyType.
+type userPoolSignInPolicyData struct{}
+
 type userPoolData struct {
-	ID           string  `json:"Id"`
-	Name         string  `json:"Name"`
-	ARN          string  `json:"Arn"`
-	CreationDate float64 `json:"CreationDate"`
+	Policies           userPoolPoliciesData `json:"Policies"`
+	ID                 string               `json:"Id"`
+	Name               string               `json:"Name"`
+	ARN                string               `json:"Arn"`
+	DeletionProtection string               `json:"DeletionProtection"`
+	MfaConfiguration   string               `json:"MfaConfiguration"`
+	CreationDate       float64              `json:"CreationDate"`
+	LastModifiedDate   float64              `json:"LastModifiedDate"`
 }
 
 type createUserPoolOutput struct {
@@ -287,10 +314,13 @@ func (h *Handler) handleCreateUserPool(_ context.Context, in *createUserPoolInpu
 
 	return &createUserPoolOutput{
 		UserPool: userPoolData{
-			ID:           pool.ID,
-			Name:         pool.Name,
-			ARN:          pool.ARN,
-			CreationDate: float64(pool.CreatedAt.Unix()),
+			ID:                 pool.ID,
+			Name:               pool.Name,
+			ARN:                pool.ARN,
+			CreationDate:       float64(pool.CreatedAt.Unix()),
+			LastModifiedDate:   float64(pool.CreatedAt.Unix()),
+			DeletionProtection: "INACTIVE",
+			MfaConfiguration:   "OFF",
 		},
 	}, nil
 }
@@ -314,10 +344,13 @@ func (h *Handler) handleDescribeUserPool(
 
 	return &describeUserPoolOutput{
 		UserPool: userPoolData{
-			ID:           pool.ID,
-			Name:         pool.Name,
-			ARN:          pool.ARN,
-			CreationDate: float64(pool.CreatedAt.Unix()),
+			ID:                 pool.ID,
+			Name:               pool.Name,
+			ARN:                pool.ARN,
+			CreationDate:       float64(pool.CreatedAt.Unix()),
+			LastModifiedDate:   float64(pool.CreatedAt.Unix()),
+			DeletionProtection: "INACTIVE",
+			MfaConfiguration:   "OFF",
 		},
 	}, nil
 }
@@ -336,10 +369,13 @@ func (h *Handler) handleListUserPools(_ context.Context, _ *listUserPoolsInput) 
 	items := make([]userPoolData, 0, len(pools))
 	for _, p := range pools {
 		items = append(items, userPoolData{
-			ID:           p.ID,
-			Name:         p.Name,
-			ARN:          p.ARN,
-			CreationDate: float64(p.CreatedAt.Unix()),
+			ID:                 p.ID,
+			Name:               p.Name,
+			ARN:                p.ARN,
+			CreationDate:       float64(p.CreatedAt.Unix()),
+			LastModifiedDate:   float64(p.CreatedAt.Unix()),
+			DeletionProtection: "INACTIVE",
+			MfaConfiguration:   "OFF",
 		})
 	}
 
@@ -407,6 +443,88 @@ func (h *Handler) handleDescribeUserPoolClient(
 			CreationDate: float64(client.CreatedAt.Unix()),
 		},
 	}, nil
+}
+
+type deleteUserPoolInput struct {
+	UserPoolID string `json:"UserPoolId"`
+}
+
+type deleteUserPoolOutput struct{}
+
+func (h *Handler) handleDeleteUserPool(_ context.Context, in *deleteUserPoolInput) (*deleteUserPoolOutput, error) {
+	if err := h.Backend.DeleteUserPool(in.UserPoolID); err != nil {
+		return nil, err
+	}
+
+	return &deleteUserPoolOutput{}, nil
+}
+
+type deleteUserPoolClientInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	ClientID   string `json:"ClientId"`
+}
+
+type deleteUserPoolClientOutput struct{}
+
+func (h *Handler) handleDeleteUserPoolClient(
+	_ context.Context,
+	in *deleteUserPoolClientInput,
+) (*deleteUserPoolClientOutput, error) {
+	if err := h.Backend.DeleteUserPoolClient(in.UserPoolID, in.ClientID); err != nil {
+		return nil, err
+	}
+
+	return &deleteUserPoolClientOutput{}, nil
+}
+
+type getUserPoolMfaConfigInput struct {
+	UserPoolID string `json:"UserPoolId"`
+}
+
+type getUserPoolMfaConfigOutput struct {
+	MfaConfiguration string `json:"MfaConfiguration"`
+}
+
+func (h *Handler) handleGetUserPoolMfaConfig(
+	_ context.Context,
+	in *getUserPoolMfaConfigInput,
+) (*getUserPoolMfaConfigOutput, error) {
+	if _, err := h.Backend.DescribeUserPool(in.UserPoolID); err != nil {
+		return nil, err
+	}
+
+	return &getUserPoolMfaConfigOutput{MfaConfiguration: "OFF"}, nil
+}
+
+type listUserPoolClientsInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type listUserPoolClientsOutput struct {
+	UserPoolClients []userPoolClientData `json:"UserPoolClients"`
+}
+
+func (h *Handler) handleListUserPoolClients(
+	_ context.Context,
+	in *listUserPoolClientsInput,
+) (*listUserPoolClientsOutput, error) {
+	clients, err := h.Backend.ListUserPoolClients(in.UserPoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]userPoolClientData, 0, len(clients))
+	for _, c := range clients {
+		items = append(items, userPoolClientData{
+			ClientID:     c.ClientID,
+			ClientName:   c.ClientName,
+			UserPoolID:   c.UserPoolID,
+			CreationDate: float64(c.CreatedAt.Unix()),
+		})
+	}
+
+	return &listUserPoolClientsOutput{UserPoolClients: items}, nil
 }
 
 type attributeType struct {
