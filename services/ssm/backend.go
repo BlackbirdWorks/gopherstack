@@ -940,13 +940,13 @@ func (b *InMemoryBackend) ModifyDocumentPermission(
 	current := b.documentPermissions[input.Name]
 
 	for _, id := range input.AccountIDsToAdd {
-		if !containsString(current, id) {
+		if !slices.Contains(current, id) {
 			current = append(current, id)
 		}
 	}
 
 	for _, id := range input.AccountIDsToRemove {
-		current = removeString(current, id)
+		current = slices.DeleteFunc(current, func(v string) bool { return v == id })
 	}
 
 	b.documentPermissions[input.Name] = current
@@ -1145,21 +1145,4 @@ func (b *InMemoryBackend) ListCommandInvocations(
 		CommandInvocations: all[startIdx:end],
 		NextToken:          nextToken,
 	}, nil
-}
-
-// containsString returns true if slice contains s.
-func containsString(slice []string, s string) bool {
-	return slices.Contains(slice, s)
-}
-
-// removeString returns a new slice with s removed.
-func removeString(slice []string, s string) []string {
-	result := make([]string, 0, len(slice))
-	for _, v := range slice {
-		if v != s {
-			result = append(result, v)
-		}
-	}
-
-	return result
 }
