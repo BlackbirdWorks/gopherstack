@@ -7,6 +7,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
+	"github.com/aws/aws-sdk-go-v2/service/appsync"
+	appsynctypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -42,6 +44,7 @@ type Clients struct {
 	KMS            *kms.Client
 	SecretsManager *secretsmanager.Client
 	ECR            *ecr.Client
+	AppSync        *appsync.Client
 }
 
 // LoadData loads sample data into all supported services.
@@ -77,6 +80,10 @@ func LoadData(
 
 	if clients.ECR != nil {
 		loadECR(ctx, clients.ECR)
+	}
+
+	if clients.AppSync != nil {
+		loadAppSync(ctx, clients.AppSync)
 	}
 
 	pkgslogger.Load(ctx).InfoContext(ctx, "Demo data loaded successfully")
@@ -415,6 +422,28 @@ func loadECR(ctx context.Context, ecrClient *ecr.Client) {
 			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create ECR repository", "name", name, "error", err)
 		} else {
 			pkgslogger.Load(ctx).InfoContext(ctx, "Created ECR repository", "name", name)
+		}
+	}
+}
+
+func loadAppSync(ctx context.Context, appSyncClient *appsync.Client) {
+	apis := []struct {
+		name     string
+		authType appsynctypes.AuthenticationType
+	}{
+		{"my-graphql-api", appsynctypes.AuthenticationTypeApiKey},
+		{"user-service-api", appsynctypes.AuthenticationTypeAwsIam},
+	}
+
+	for _, a := range apis {
+		_, err := appSyncClient.CreateGraphqlApi(ctx, &appsync.CreateGraphqlApiInput{
+			Name:               aws.String(a.name),
+			AuthenticationType: a.authType,
+		})
+		if err != nil {
+			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create AppSync API", "name", a.name, "error", err)
+		} else {
+			pkgslogger.Load(ctx).InfoContext(ctx, "Created AppSync API", "name", a.name)
 		}
 	}
 }
