@@ -53,6 +53,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagQueue",
 		"UntagQueue",
 		"ListQueueTags",
+		"ListDeadLetterSourceQueues",
 	}
 }
 
@@ -160,6 +161,7 @@ func (h *Handler) sqsDispatchTable() map[string]sqsDispatchFn {
 		"TagQueue":                     h.handleTagQueue,
 		"UntagQueue":                   h.handleUntagQueue,
 		"ListQueueTags":                h.handleListQueueTags,
+		"ListDeadLetterSourceQueues":   h.handleListDeadLetterSourceQueues,
 	}
 }
 
@@ -354,6 +356,17 @@ type jsonBatchResult struct {
 
 type jsonListQueueTagsResp struct {
 	Tags *tags.Tags `json:"Tags"`
+}
+
+type jsonListDeadLetterSourceQueuesReq struct {
+	QueueURL   string `json:"QueueUrl"`
+	NextToken  string `json:"NextToken"`
+	MaxResults int    `json:"MaxResults"`
+}
+
+type jsonListDeadLetterSourceQueuesResp struct {
+	NextToken string   `json:"NextToken,omitempty"`
+	QueueURLs []string `json:"QueueUrls"`
 }
 
 type jsonSQSError struct {
@@ -851,6 +864,33 @@ func (h *Handler) handleListQueueTags(
 	}
 
 	return jsonListQueueTagsResp{Tags: out.Tags}, nil
+}
+
+func (h *Handler) handleListDeadLetterSourceQueues(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonListDeadLetterSourceQueuesReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrUnknownAction
+	}
+
+	out, err := h.Backend.ListDeadLetterSourceQueues(&ListDeadLetterSourceQueuesInput{
+		QueueURL:   req.QueueURL,
+		NextToken:  req.NextToken,
+		MaxResults: req.MaxResults,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	queueURLs := out.QueueURLs
+	if queueURLs == nil {
+		queueURLs = []string{}
+	}
+
+	return jsonListDeadLetterSourceQueuesResp{QueueURLs: queueURLs, NextToken: out.NextToken}, nil
 }
 
 // errorDetails maps an error to its SQS JSON error type, message, and HTTP status.

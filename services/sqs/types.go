@@ -511,6 +511,19 @@ type ListQueueTagsOutput struct {
 	Tags *tags.Tags
 }
 
+// ListDeadLetterSourceQueuesInput is the input for ListDeadLetterSourceQueues.
+type ListDeadLetterSourceQueuesInput struct {
+	QueueURL   string
+	NextToken  string
+	MaxResults int
+}
+
+// ListDeadLetterSourceQueuesOutput holds the result of ListDeadLetterSourceQueues.
+type ListDeadLetterSourceQueuesOutput struct {
+	NextToken string
+	QueueURLs []string
+}
+
 // TagEntry is a single key/value tag pair in an XML response.
 type TagEntry struct {
 	Key   string `xml:"Key"`

@@ -217,3 +217,205 @@ func TestRedrivePolicy_InvalidJSONIgnored(t *testing.T) {
 		})
 	}
 }
+
+func TestListDeadLetterSourceQueues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup        func(b *sqs.InMemoryBackend) (dlqURL string)
+		name         string
+		wantURLs     []string
+		wantErr      bool
+		wantNotFound bool
+	}{
+		{
+			name: "two_source_queues_point_to_dlq",
+			setup: func(b *sqs.InMemoryBackend) string {
+				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "dlq", Endpoint: "localhost"})
+				if err != nil {
+					panic(err)
+				}
+
+				dlqAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
+					QueueURL:       "http://localhost/000000000000/dlq",
+					AttributeNames: []string{"QueueArn"},
+				})
+				if err != nil {
+					panic(err)
+				}
+
+				dlqARN := dlqAttrs.Attributes["QueueArn"]
+				policy := makeRedrivePolicy(dlqARN, 3)
+
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName:  "src-a",
+					Endpoint:   "localhost",
+					Attributes: map[string]string{"RedrivePolicy": policy},
+				})
+				if err != nil {
+					panic(err)
+				}
+
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName:  "src-b",
+					Endpoint:   "localhost",
+					Attributes: map[string]string{"RedrivePolicy": policy},
+				})
+				if err != nil {
+					panic(err)
+				}
+
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: "unrelated", Endpoint: "localhost"})
+				if err != nil {
+					panic(err)
+				}
+
+				return "http://localhost/000000000000/dlq"
+			},
+			wantURLs: []string{
+				"http://localhost/000000000000/src-a",
+				"http://localhost/000000000000/src-b",
+			},
+		},
+		{
+			name: "no_source_queues",
+			setup: func(b *sqs.InMemoryBackend) string {
+				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "lonely-dlq", Endpoint: "localhost"})
+				if err != nil {
+					panic(err)
+				}
+
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: "plain", Endpoint: "localhost"})
+				if err != nil {
+					panic(err)
+				}
+
+				return "http://localhost/000000000000/lonely-dlq"
+			},
+			wantURLs: []string{},
+		},
+		{
+			name: "dlq_not_found",
+			setup: func(_ *sqs.InMemoryBackend) string {
+				return "http://localhost/000000000000/nonexistent"
+			},
+			wantErr:      true,
+			wantNotFound: true,
+		},
+		{
+			name: "pagination",
+			setup: func(b *sqs.InMemoryBackend) string {
+				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "page-dlq", Endpoint: "localhost"})
+				if err != nil {
+					panic(err)
+				}
+
+				dlqAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
+					QueueURL:       "http://localhost/000000000000/page-dlq",
+					AttributeNames: []string{"QueueArn"},
+				})
+				if err != nil {
+					panic(err)
+				}
+
+				dlqARN := dlqAttrs.Attributes["QueueArn"]
+				policy := makeRedrivePolicy(dlqARN, 2)
+
+				for _, name := range []string{"pq-1", "pq-2", "pq-3"} {
+					_, err = b.CreateQueue(&sqs.CreateQueueInput{
+						QueueName:  name,
+						Endpoint:   "localhost",
+						Attributes: map[string]string{"RedrivePolicy": policy},
+					})
+					if err != nil {
+						panic(err)
+					}
+				}
+
+				return "http://localhost/000000000000/page-dlq"
+			},
+			wantURLs: []string{
+				"http://localhost/000000000000/pq-1",
+				"http://localhost/000000000000/pq-2",
+				"http://localhost/000000000000/pq-3",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sqs.NewInMemoryBackend()
+			dlqURL := tt.setup(b)
+
+			out, err := b.ListDeadLetterSourceQueues(&sqs.ListDeadLetterSourceQueuesInput{
+				QueueURL: dlqURL,
+			})
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.ElementsMatch(t, tt.wantURLs, out.QueueURLs)
+		})
+	}
+}
+
+func TestListDeadLetterSourceQueues_Pagination(t *testing.T) {
+	t.Parallel()
+
+	b := sqs.NewInMemoryBackend()
+
+	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "p-dlq", Endpoint: "localhost"})
+	require.NoError(t, err)
+
+	dlqAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
+		QueueURL:       "http://localhost/000000000000/p-dlq",
+		AttributeNames: []string{"QueueArn"},
+	})
+	require.NoError(t, err)
+
+	dlqARN := dlqAttrs.Attributes["QueueArn"]
+	policy := makeRedrivePolicy(dlqARN, 2)
+
+	for _, name := range []string{"pp-1", "pp-2", "pp-3"} {
+		_, err = b.CreateQueue(&sqs.CreateQueueInput{
+			QueueName:  name,
+			Endpoint:   "localhost",
+			Attributes: map[string]string{"RedrivePolicy": policy},
+		})
+		require.NoError(t, err)
+	}
+
+	dlqURL := "http://localhost/000000000000/p-dlq"
+
+	first, err := b.ListDeadLetterSourceQueues(&sqs.ListDeadLetterSourceQueuesInput{
+		QueueURL:   dlqURL,
+		MaxResults: 2,
+	})
+	require.NoError(t, err)
+	assert.Len(t, first.QueueURLs, 2)
+	assert.NotEmpty(t, first.NextToken)
+
+	second, err := b.ListDeadLetterSourceQueues(&sqs.ListDeadLetterSourceQueuesInput{
+		QueueURL:   dlqURL,
+		MaxResults: 2,
+		NextToken:  first.NextToken,
+	})
+	require.NoError(t, err)
+	assert.Len(t, second.QueueURLs, 1)
+	assert.Empty(t, second.NextToken)
+
+	allURLs := make([]string, 0, len(first.QueueURLs)+len(second.QueueURLs))
+	allURLs = append(allURLs, first.QueueURLs...)
+	allURLs = append(allURLs, second.QueueURLs...)
+	assert.ElementsMatch(t, []string{
+		"http://localhost/000000000000/pp-1",
+		"http://localhost/000000000000/pp-2",
+		"http://localhost/000000000000/pp-3",
+	}, allURLs)
+}

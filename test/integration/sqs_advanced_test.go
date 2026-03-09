@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -345,6 +346,85 @@ func TestIntegration_SQS_FIFODeduplication(t *testing.T) {
 			require.NoError(t, err)
 			assert.Len(t, recvOut.Messages, tt.wantCount,
 				"unexpected number of messages delivered")
+		})
+	}
+}
+
+// TestIntegration_SQS_ListDeadLetterSourceQueues verifies that
+// ListDeadLetterSourceQueues returns all queues whose RedrivePolicy points to
+// a given dead-letter queue.
+func TestIntegration_SQS_ListDeadLetterSourceQueues(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createSQSClient(t)
+	ctx := t.Context()
+
+	tests := []struct {
+		name           string
+		sourceCount    int
+		extraQueues    int
+		wantSourceURLs int
+	}{
+		{
+			name:           "two_sources_one_unrelated",
+			sourceCount:    2,
+			extraQueues:    1,
+			wantSourceURLs: 2,
+		},
+		{
+			name:           "no_sources",
+			sourceCount:    0,
+			extraQueues:    0,
+			wantSourceURLs: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dumpContainerLogsOnFailure(t)
+
+			suffix := uuid.NewString()
+			dlqName := "int-dlq-" + tt.name + "-" + suffix
+
+			dlqOut, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{
+				QueueName: aws.String(dlqName),
+			})
+			require.NoError(t, err)
+
+			dlqAttrs, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+				QueueUrl:       dlqOut.QueueUrl,
+				AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+			})
+			require.NoError(t, err)
+			dlqARN := dlqAttrs.Attributes["QueueArn"]
+
+			redrivePolicy := `{"deadLetterTargetArn":"` + dlqARN + `","maxReceiveCount":3}`
+
+			for i := range tt.sourceCount {
+				srcName := fmt.Sprintf("int-src-%s-%d-%s", tt.name, i, suffix)
+				_, err = client.CreateQueue(ctx, &sqs.CreateQueueInput{
+					QueueName: aws.String(srcName),
+					Attributes: map[string]string{
+						"RedrivePolicy": redrivePolicy,
+					},
+				})
+				require.NoError(t, err)
+			}
+
+			for i := range tt.extraQueues {
+				extraName := fmt.Sprintf("int-extra-%s-%d-%s", tt.name, i, suffix)
+				_, err = client.CreateQueue(ctx, &sqs.CreateQueueInput{
+					QueueName: aws.String(extraName),
+				})
+				require.NoError(t, err)
+			}
+
+			out, err := client.ListDeadLetterSourceQueues(ctx, &sqs.ListDeadLetterSourceQueuesInput{
+				QueueUrl: dlqOut.QueueUrl,
+			})
+			require.NoError(t, err)
+			assert.Len(t, out.QueueUrls, tt.wantSourceURLs)
 		})
 	}
 }

@@ -40,6 +40,7 @@ type StorageBackend interface {
 	UntagQueue(input *UntagQueueInput) error
 	ListQueueTags(input *ListQueueTagsInput) (*ListQueueTagsOutput, error)
 	ChangeMessageVisibilityBatch(input *ChangeMessageVisibilityBatchInput) (*ChangeMessageVisibilityBatchOutput, error)
+	ListDeadLetterSourceQueues(input *ListDeadLetterSourceQueuesInput) (*ListDeadLetterSourceQueuesOutput, error)
 	ListAll() []QueueInfo
 }
 
@@ -821,6 +822,48 @@ func (b *InMemoryBackend) PurgeQueue(input *PurgeQueueInput) error {
 	q.inFlightMessages = nil
 
 	return nil
+}
+
+// ListDeadLetterSourceQueues returns the URLs of all queues that have the given
+// queue configured as their dead-letter queue via a RedrivePolicy.
+func (b *InMemoryBackend) ListDeadLetterSourceQueues(
+	input *ListDeadLetterSourceQueuesInput,
+) (*ListDeadLetterSourceQueuesOutput, error) {
+	b.mu.RLock("ListDeadLetterSourceQueues")
+	defer b.mu.RUnlock()
+
+	dlqName := queueNameFromInput(input.QueueURL)
+
+	dlq, exists := b.queues[dlqName]
+	if !exists {
+		return nil, ErrQueueNotFound
+	}
+
+	dlqARN := dlq.Attributes[attrQueueArn]
+
+	var urls []string
+
+	for _, q := range b.queues {
+		raw, ok := q.Attributes[attrRedrivePolicy]
+		if !ok || raw == "" {
+			continue
+		}
+
+		var pol redrivePolicy
+		if err := json.Unmarshal([]byte(raw), &pol); err != nil {
+			continue
+		}
+
+		if pol.DeadLetterTargetArn == dlqARN {
+			urls = append(urls, q.URL)
+		}
+	}
+
+	sort.Strings(urls)
+
+	p := page.New(urls, input.NextToken, input.MaxResults, sqsDefaultMaxResults)
+
+	return &ListDeadLetterSourceQueuesOutput{QueueURLs: p.Data, NextToken: p.Next}, nil
 }
 
 // ListAll returns a snapshot of all queues as QueueInfo values.
