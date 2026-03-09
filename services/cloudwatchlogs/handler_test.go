@@ -793,3 +793,126 @@ func TestHandler_InsightsQueryLanguage(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_InsightsARNIdentifier(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+
+	// Create log group named "/arn-test" and add events.
+	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/arn-test"}`)
+	doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"/arn-test","logStreamName":"s"}`)
+	doLogsRequest(t, h, e, "PutLogEvents", `{
+"logGroupName":"/arn-test","logStreamName":"s",
+"logEvents":[{"message":"hello","timestamp":1000}]
+}`)
+
+	tests := []struct {
+		body        map[string]any
+		name        string
+		wantResults int
+	}{
+		{
+			name: "arn_identifier_resolves_to_name",
+			body: map[string]any{
+				"logGroupIdentifiers": []string{
+					"arn:aws:logs:us-east-1:123456789012:log-group:/arn-test",
+				},
+				"queryString": "fields @message",
+				"startTime":   0,
+				"endTime":     0,
+			},
+			wantResults: 1,
+		},
+		{
+			name: "plain_name_identifier",
+			body: map[string]any{
+				"logGroupIdentifiers": []string{"/arn-test"},
+				"queryString":         "fields @message",
+				"startTime":           0,
+				"endTime":             0,
+			},
+			wantResults: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+
+			rec := doLogsRequest(t, h, e, "StartQuery", string(bodyBytes))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var startOut map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startOut))
+			queryID := startOut["queryId"]
+			require.NotEmpty(t, queryID)
+
+			rec2 := doLogsRequest(t, h, e, "GetQueryResults", `{"queryId":"`+queryID+`"}`)
+			require.Equal(t, http.StatusOK, rec2.Code)
+
+			var resultsOut map[string]any
+			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resultsOut))
+			rows, ok := resultsOut["results"].([]any)
+			require.True(t, ok)
+			assert.Len(t, rows, tt.wantResults)
+		})
+	}
+}
+
+func TestHandler_DescribeQueries_Pagination(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+
+	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/pg"}`)
+	doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"/pg","logStreamName":"s"}`)
+
+	// Start 3 queries.
+	for i := range 3 {
+		bodyBytes, err := json.Marshal(map[string]any{
+			"logGroupName": "/pg",
+			"queryString":  "fields @message",
+			"startTime":    i,
+			"endTime":      0,
+		})
+		require.NoError(t, err)
+
+		rec := doLogsRequest(t, h, e, "StartQuery", string(bodyBytes))
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// First page: maxResults=2.
+	rec := doLogsRequest(t, h, e, "DescribeQueries", `{"logGroupName":"/pg","maxResults":2}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var page1 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+	page1Queries, ok := page1["queries"].([]any)
+	require.True(t, ok, "page1 queries should be an array")
+	assert.Len(t, page1Queries, 2)
+	nextToken, _ := page1["nextToken"].(string)
+	assert.NotEmpty(t, nextToken)
+
+	// Second page.
+	bodyBytes, err := json.Marshal(map[string]any{
+		"logGroupName": "/pg",
+		"maxResults":   2,
+		"nextToken":    nextToken,
+	})
+	require.NoError(t, err)
+
+	rec2 := doLogsRequest(t, h, e, "DescribeQueries", string(bodyBytes))
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var page2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+	page2Queries, ok := page2["queries"].([]any)
+	require.True(t, ok, "page2 queries should be an array")
+	assert.Len(t, page2Queries, 1)
+}

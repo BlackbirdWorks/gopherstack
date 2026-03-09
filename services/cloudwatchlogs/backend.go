@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -673,15 +674,14 @@ func parseNextToken(token string) int {
 func (b *InMemoryBackend) StartQuery(
 	queryID, queryString string, logGroupNames []string, startTime, endTime int64,
 ) (*QueryInfo, error) {
-	b.mu.Lock("StartQuery")
-	defer b.mu.Unlock()
-
 	q, parseErr := parseInsightsQuery(queryString)
 	if parseErr != nil {
 		return nil, fmt.Errorf("invalid query: %w", parseErr)
 	}
 
-	// Collect all matching events from the requested log groups within the time range.
+	// Collect events under a read lock to avoid blocking concurrent writes.
+	b.mu.RLock("StartQuery")
+
 	var allEvents []*OutputLogEvent
 	var recordsScanned float64
 
@@ -704,6 +704,9 @@ func (b *InMemoryBackend) StartQuery(
 		}
 	}
 
+	b.mu.RUnlock()
+
+	// Execute the query outside the lock — regex matching and sorting can be non-trivial.
 	results := executeQuery(q, allEvents)
 	stats := QueryStatistics{
 		RecordsScanned: recordsScanned,
@@ -732,6 +735,10 @@ func (b *InMemoryBackend) StartQuery(
 		startTime: startTime,
 		endTime:   endTime,
 	}
+
+	// Store results under a write lock.
+	b.mu.Lock("StartQuery")
+	defer b.mu.Unlock()
 
 	b.queries[queryID] = sq
 	b.queriesOrder = append(b.queriesOrder, queryID)
@@ -779,8 +786,11 @@ func (b *InMemoryBackend) DescribeQueries(
 	all := make([]QueryInfo, 0, len(b.queriesOrder))
 	for _, qid := range b.queriesOrder {
 		sq := b.queries[qid]
-		if logGroupName != "" && sq.info.LogGroupName != logGroupName {
-			continue
+		if logGroupName != "" {
+			found := slices.Contains(sq.logGroups, logGroupName)
+			if !found {
+				continue
+			}
 		}
 		if statusFilter != "" && string(sq.info.Status) != statusFilter {
 			continue

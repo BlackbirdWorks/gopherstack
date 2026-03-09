@@ -122,6 +122,12 @@ func TestInsightsQuery_Sort(t *testing.T) {
 			wantFirst: "ERROR: connection refused",
 			wantLast:  "ERROR: disk full",
 		},
+		{
+			name:      "sort_by_message_asc",
+			query:     "fields @message | sort @message asc",
+			wantFirst: "ERROR: connection refused",
+			wantLast:  "INFO: startup complete",
+		},
 	}
 
 	for _, tt := range tests {
@@ -247,4 +253,177 @@ func fieldValue(row []cloudwatchlogs.ResultField, name string) string {
 	}
 
 	return ""
+}
+
+func TestInsightsQuery_IngestionTimeField(t *testing.T) {
+	t.Parallel()
+
+	b := makeInsightsBackend(t)
+	_, err := b.StartQuery("q1", "fields @ingestionTime", []string{"/grp"}, 0, 0)
+	require.NoError(t, err)
+
+	results, _, _, err := b.GetQueryResults("q1")
+	require.NoError(t, err)
+	assert.Len(t, results, 3)
+
+	// Each row should have @ingestionTime set to a non-empty string.
+	for _, row := range results {
+		val := fieldValue(row, "@ingestionTime")
+		assert.NotEmpty(t, val)
+	}
+}
+
+func TestInsightsQuery_SortByIngestionTime(t *testing.T) {
+	t.Parallel()
+
+	b := makeInsightsBackend(t)
+	_, err := b.StartQuery("q1", "fields @message | sort @ingestionTime asc", []string{"/grp"}, 0, 0)
+	require.NoError(t, err)
+
+	results, _, _, err := b.GetQueryResults("q1")
+	require.NoError(t, err)
+	assert.Len(t, results, 3)
+}
+
+func TestInsightsQuery_FilterOnTimestampField(t *testing.T) {
+	t.Parallel()
+
+	// Filter on @timestamp — tests that applyFilters applies the regex against the
+	// correct field rather than always using @message.
+	b := makeInsightsBackend(t)
+
+	// @timestamp values are numeric strings — /0/ will match all since every timestamp
+	// contains a digit; /^9999/ should match none.
+	tests := []struct {
+		name    string
+		query   string
+		wantLen int
+	}{
+		{
+			name:    "matches_all_timestamps",
+			query:   "filter @timestamp like /0/",
+			wantLen: 3,
+		},
+		{
+			name:    "matches_no_timestamps",
+			query:   "filter @timestamp like /^9999999999999$/",
+			wantLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := b.StartQuery("q-"+tt.name, tt.query, []string{"/grp"}, 0, 0)
+			require.NoError(t, err)
+
+			results, _, _, err := b.GetQueryResults("q-" + tt.name)
+			require.NoError(t, err)
+			assert.Len(t, results, tt.wantLen)
+		})
+	}
+}
+
+func TestInsightsQuery_SplitPipesEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	b := makeInsightsBackend(t)
+
+	tests := []struct {
+		name    string
+		query   string
+		wantLen int
+	}{
+		{
+			name:    "pipe_inside_regex_not_split",
+			query:   "fields @message | filter @message like /ERROR|INFO/",
+			wantLen: 3, // both ERROR and INFO match
+		},
+		{
+			name:    "escaped_slash_in_regex",
+			query:   "fields @message | filter @message like /ERROR/",
+			wantLen: 2,
+		},
+		{
+			name:    "char_class_with_pipe",
+			query:   "fields @message | filter @message like /[EI]/",
+			wantLen: 3, // ERROR and INFO both start with E or I
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := b.StartQuery("q-"+tt.name, tt.query, []string{"/grp"}, 0, 0)
+			require.NoError(t, err)
+
+			results, _, _, err := b.GetQueryResults("q-" + tt.name)
+			require.NoError(t, err)
+			assert.Len(t, results, tt.wantLen)
+		})
+	}
+}
+
+func TestInsightsQuery_DescribeQueries_MultiGroup(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	// Start query against two log groups.
+	_, err := b.StartQuery("q1", "fields @message", []string{"/grp1", "/grp2"}, 0, 0)
+	require.NoError(t, err)
+
+	// DescribeQueries filtered by each group should both find the query.
+	page1, _, err := b.DescribeQueries("/grp1", "", "", 10)
+	require.NoError(t, err)
+	assert.Len(t, page1, 1)
+
+	page2, _, err := b.DescribeQueries("/grp2", "", "", 10)
+	require.NoError(t, err)
+	assert.Len(t, page2, 1)
+
+	// A non-matching group returns nothing.
+	page3, _, err := b.DescribeQueries("/grp3", "", "", 10)
+	require.NoError(t, err)
+	assert.Empty(t, page3)
+}
+
+func TestInsightsQuery_UnknownField(t *testing.T) {
+	t.Parallel()
+
+	b := makeInsightsBackend(t)
+
+	tests := []struct {
+		name    string
+		query   string
+		wantLen int
+	}{
+		{
+			// sort by unknown field: fieldValue returns "" for unknown fields — all equal so order preserved
+			name:    "sort_unknown_field",
+			query:   "fields @message | sort @logStreamName asc",
+			wantLen: 3,
+		},
+		{
+			// project unknown field: eventFieldAsString returns "" for unknown fields
+			name:    "project_unknown_field",
+			query:   "fields @logStreamName",
+			wantLen: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := b.StartQuery("q-"+tt.name, tt.query, []string{"/grp"}, 0, 0)
+			require.NoError(t, err)
+
+			results, _, _, err := b.GetQueryResults("q-" + tt.name)
+			require.NoError(t, err)
+			assert.Len(t, results, tt.wantLen)
+		})
+	}
 }

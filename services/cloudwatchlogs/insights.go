@@ -8,12 +8,18 @@ import (
 	"strings"
 )
 
+// filterCondition holds a field name and the compiled regex to match against that field.
+type filterCondition struct {
+	re    *regexp.Regexp
+	field string
+}
+
 // insightsQuery holds the parsed representation of a Logs Insights query string.
 type insightsQuery struct {
 	statsBy   string
 	sortField string
 	fields    []string
-	filters   []*regexp.Regexp
+	filters   []filterCondition
 	limit     int
 	sortDesc  bool
 	hasStats  bool
@@ -48,27 +54,71 @@ func parseInsightsQuery(query string) (*insightsQuery, error) {
 	return q, nil
 }
 
-// splitPipes splits query string on '|' but not within regex literals /.../.
+// regexState tracks parser state while inside a regex literal /.../.
+type regexState struct {
+	inCharClass bool
+	escaped     bool
+}
+
+// advanceRegex processes one byte inside a regex literal, returning the updated state
+// and whether the regex literal has ended (closing '/').
+func advanceRegex(ch byte, st regexState) (regexState, bool) {
+	if st.escaped {
+		return regexState{inCharClass: st.inCharClass, escaped: false}, false
+	}
+
+	switch ch {
+	case '\\':
+		return regexState{inCharClass: st.inCharClass, escaped: true}, false
+	case '[':
+		return regexState{inCharClass: true}, false
+	case ']':
+		return regexState{inCharClass: false}, false
+	case '/':
+		if !st.inCharClass {
+			return regexState{}, true
+		}
+	}
+
+	return regexState{inCharClass: st.inCharClass}, false
+}
+
+// splitPipes splits query string on '|' but not within regex literals /.../,
+// correctly handling escaped characters (e.g. /foo\/bar/) and character classes (e.g. /[a|b]/).
 func splitPipes(query string) []string {
 	var parts []string
 	var cur strings.Builder
 	inRegex := false
+	var rs regexState
+
 	for i := range len(query) {
 		ch := query[i]
-		switch {
-		case ch == '/' && !inRegex:
+
+		if inRegex {
+			cur.WriteByte(ch)
+
+			var ended bool
+			rs, ended = advanceRegex(ch, rs)
+			if ended {
+				inRegex = false
+			}
+
+			continue
+		}
+
+		switch ch {
+		case '/':
 			inRegex = true
+			rs = regexState{}
 			cur.WriteByte(ch)
-		case ch == '/' && inRegex:
-			inRegex = false
-			cur.WriteByte(ch)
-		case ch == '|' && !inRegex:
+		case '|':
 			parts = append(parts, cur.String())
 			cur.Reset()
 		default:
 			cur.WriteByte(ch)
 		}
 	}
+
 	if cur.Len() > 0 {
 		parts = append(parts, cur.String())
 	}
@@ -111,8 +161,7 @@ func parseFields(q *insightsQuery, rest string) error {
 
 func parseFilter(q *insightsQuery, rest string) error {
 	rest = strings.TrimSpace(rest)
-	// Support: filter @message like /pattern/ or filter @field like /pattern/
-	// Also support simple: filter @message like "string"
+	// Support: filter @field like /pattern/ or filter @field like "string"
 	lower := strings.ToLower(rest)
 	likeIdx := strings.Index(lower, " like ")
 	if likeIdx < 0 {
@@ -120,12 +169,13 @@ func parseFilter(q *insightsQuery, rest string) error {
 		return nil
 	}
 
+	fieldName := strings.TrimSpace(rest[:likeIdx])
 	pattern := strings.TrimSpace(rest[likeIdx+len(" like "):])
 	re, err := extractRegexPattern(pattern)
 	if err != nil {
 		return fmt.Errorf("invalid filter pattern %q: %w", pattern, err)
 	}
-	q.filters = append(q.filters, re)
+	q.filters = append(q.filters, filterCondition{field: fieldName, re: re})
 
 	return nil
 }
@@ -221,7 +271,7 @@ func executeQuery(q *insightsQuery, events []*OutputLogEvent) [][]ResultField {
 	return rows
 }
 
-func applyFilters(filters []*regexp.Regexp, events []*OutputLogEvent) []*OutputLogEvent {
+func applyFilters(filters []filterCondition, events []*OutputLogEvent) []*OutputLogEvent {
 	if len(filters) == 0 {
 		return events
 	}
@@ -229,8 +279,9 @@ func applyFilters(filters []*regexp.Regexp, events []*OutputLogEvent) []*OutputL
 	out := make([]*OutputLogEvent, 0, len(events))
 	for _, ev := range events {
 		match := true
-		for _, re := range filters {
-			if !re.MatchString(ev.Message) {
+		for _, fc := range filters {
+			val := eventFieldAsString(ev, fc.field)
+			if !fc.re.MatchString(val) {
 				match = false
 
 				break

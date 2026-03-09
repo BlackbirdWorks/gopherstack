@@ -117,7 +117,6 @@ type startQueryInput struct {
 	LogGroupIdentifiers []string `json:"logGroupIdentifiers"`
 	StartTime           int64    `json:"startTime"`
 	EndTime             int64    `json:"endTime"`
-	Limit               int      `json:"limit"`
 }
 
 type startQueryOutput struct {
@@ -566,6 +565,18 @@ func (h *Handler) subscriptionFilterActions() map[string]actionFn {
 	}
 }
 
+// normalizeLogGroupIdentifier converts a log group identifier to a log group name.
+// Log group identifiers may be ARNs (arn:...:log-group:<name>); in that case the
+// log group name is extracted. Non-ARN identifiers are returned unchanged.
+func normalizeLogGroupIdentifier(id string) string {
+	const logGroupToken = ":log-group:"
+	if idx := strings.LastIndex(id, logGroupToken); idx >= 0 {
+		return id[idx+len(logGroupToken):]
+	}
+
+	return id
+}
+
 func (h *Handler) handleStartQuery(b []byte) (any, error) {
 	var input startQueryInput
 	if err := json.Unmarshal(b, &input); err != nil {
@@ -576,7 +587,9 @@ func (h *Handler) handleStartQuery(b []byte) (any, error) {
 	if len(logGroups) == 0 && input.LogGroupName != "" {
 		logGroups = []string{input.LogGroupName}
 	}
-	logGroups = append(logGroups, input.LogGroupIdentifiers...)
+	for _, id := range input.LogGroupIdentifiers {
+		logGroups = append(logGroups, normalizeLogGroupIdentifier(id))
+	}
 
 	queryID := uuid.New().String()
 	if _, err := h.Backend.StartQuery(
