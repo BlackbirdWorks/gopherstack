@@ -557,8 +557,13 @@ func (b *InMemoryBackend) CreateTags(resourceIDs []string, tags map[string]strin
 }
 
 // DeleteTags removes the specified tag keys from one or more resources.
-// If keys is empty, all tags are removed from the given resources.
+// If keys is empty, the operation is a no-op (EC2 requires at least one tag key).
+// Empty per-resource tag maps are removed after deletions.
 func (b *InMemoryBackend) DeleteTags(resourceIDs []string, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
 	b.mu.Lock("DeleteTags")
 	defer b.mu.Unlock()
 
@@ -567,14 +572,12 @@ func (b *InMemoryBackend) DeleteTags(resourceIDs []string, keys []string) error 
 			continue
 		}
 
-		if len(keys) == 0 {
-			delete(b.tags, id)
-
-			continue
-		}
-
 		for _, k := range keys {
 			delete(b.tags[id], k)
+		}
+
+		if len(b.tags[id]) == 0 {
+			delete(b.tags, id)
 		}
 	}
 

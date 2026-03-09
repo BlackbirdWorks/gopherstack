@@ -171,7 +171,13 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return ""
 	}
 
-	for _, key := range []string{"InstanceId.1", "GroupId.1", "GroupId", "VpcId.1", "VpcId", "SubnetId.1", "SubnetId"} {
+	resourceKeys := []string{
+		"InstanceId.1", "GroupId.1", "GroupId",
+		"VpcId.1", "VpcId", "SubnetId.1", "SubnetId",
+		"ResourceId.1", "ResourceId",
+	}
+
+	for _, key := range resourceKeys {
 		if v := r.Form.Get(key); v != "" {
 			return v
 		}
@@ -558,10 +564,22 @@ func (h *Handler) handleDescribeInstanceTypes(vals url.Values, reqID string) (an
 	}, nil
 }
 
-// handleDescribeTags returns tags for EC2 resources.
-// Terraform calls this after RunInstances to read the launch template ID tag.
+// handleDescribeTags returns tags for EC2 resources, supporting Filter.N.Name / Filter.N.Value.* semantics.
+// If a filter with Name=resource-id is present, only tags for those resource IDs are returned.
+// Other filter names are accepted but ignored (returns all tags when no resource-id filter is present).
 func (h *Handler) handleDescribeTags(vals url.Values, reqID string) (any, error) {
-	resourceIDs := parseMemberList(vals, "Filter.1.Value")
+	var resourceIDs []string
+
+	for i := 1; i <= maxFiltersPerRequest; i++ {
+		name := vals.Get(fmt.Sprintf("Filter.%d.Name", i))
+		if name == "" {
+			break
+		}
+
+		if name == "resource-id" {
+			resourceIDs = parseMemberList(vals, fmt.Sprintf("Filter.%d.Value", i))
+		}
+	}
 
 	entries := h.Backend.DescribeTags(resourceIDs)
 
@@ -715,6 +733,9 @@ func parseMemberList(vals url.Values, prefix string) []string {
 // maxTagsPerRequest is the maximum number of tags accepted in a single EC2 request.
 // AWS allows up to 50 tags per resource; we use 1000 as a generous but bounded limit.
 const maxTagsPerRequest = 1000
+
+// maxFiltersPerRequest is the maximum number of filters accepted in a single EC2 DescribeTags request.
+const maxFiltersPerRequest = 100
 
 // parseEC2Tags extracts Tag.N.Key / Tag.N.Value from EC2 form values.
 func parseEC2Tags(vals url.Values) map[string]string {

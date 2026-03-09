@@ -763,6 +763,34 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 				{ResourceID: "vpc-1", Key: "Key", Value: "val", ResourceType: "vpc"},
 			},
 		},
+		{
+			name: "delete_empty_keys_is_noop",
+			setup: func(bk *ec2.InMemoryBackend) {
+				err := bk.CreateTags([]string{"vpc-1"}, map[string]string{"Name": "keep-me"})
+				require.NoError(t, err)
+
+				// Empty keys: should be a no-op, tag must remain.
+				err = bk.DeleteTags([]string{"vpc-1"}, []string{})
+				require.NoError(t, err)
+			},
+			resourceIDs: nil,
+			wantCount:   1,
+			wantContains: []ec2.TagEntry{
+				{ResourceID: "vpc-1", Key: "Name", Value: "keep-me", ResourceType: "vpc"},
+			},
+		},
+		{
+			name: "delete_all_keys_removes_resource_entry",
+			setup: func(bk *ec2.InMemoryBackend) {
+				err := bk.CreateTags([]string{"vpc-1"}, map[string]string{"Name": "gone"})
+				require.NoError(t, err)
+
+				err = bk.DeleteTags([]string{"vpc-1"}, []string{"Name"})
+				require.NoError(t, err)
+			},
+			resourceIDs: nil,
+			wantCount:   0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -788,6 +816,84 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 
 				assert.True(t, found, "expected tag entry not found: %+v", want)
 			}
+		})
+	}
+}
+
+func TestEC2Handler_DescribeTags_FilterByResourceID(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	// Tag two resources.
+	createRec := postForm(t, h,
+		"Action=CreateTags&Version=2016-11-15"+
+			"&ResourceId.1=vpc-default&ResourceId.2=subnet-default"+
+			"&Tag.1.Key=Name&Tag.1.Value=tagged")
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	// Filter by resource-id using Filter.1.Name=resource-id; only vpc-default should appear.
+	descRec := postForm(t, h,
+		"Action=DescribeTags&Version=2016-11-15"+
+			"&Filter.1.Name=resource-id&Filter.1.Value.1=vpc-default")
+	assert.Equal(t, http.StatusOK, descRec.Code)
+	assert.Contains(t, descRec.Body.String(), "vpc-default")
+	assert.NotContains(t, descRec.Body.String(), "subnet-default")
+}
+
+func TestEC2Handler_DescribeTags_MultipleFilters(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	createRec := postForm(t, h,
+		"Action=CreateTags&Version=2016-11-15"+
+			"&ResourceId.1=vpc-default"+
+			"&Tag.1.Key=Env&Tag.1.Value=prod")
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	// Send a non-resource-id filter first, then resource-id filter.
+	descRec := postForm(t, h,
+		"Action=DescribeTags&Version=2016-11-15"+
+			"&Filter.1.Name=key&Filter.1.Value.1=Env"+
+			"&Filter.2.Name=resource-id&Filter.2.Value.1=vpc-default")
+	assert.Equal(t, http.StatusOK, descRec.Code)
+	assert.Contains(t, descRec.Body.String(), "vpc-default")
+	assert.Contains(t, descRec.Body.String(), "prod")
+}
+
+func TestEC2Handler_ExtractResource_ResourceId(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "ResourceId.1",
+			body: "Action=CreateTags&Version=2016-11-15&ResourceId.1=vpc-abc123",
+			want: "vpc-abc123",
+		},
+		{
+			name: "InstanceId_still_works",
+			body: "Action=DescribeInstances&Version=2016-11-15&InstanceId.1=i-abc123",
+			want: "i-abc123",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+			e := echo.New()
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.want, h.ExtractResource(c))
 		})
 	}
 }
