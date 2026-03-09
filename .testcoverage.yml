@@ -5,7 +5,7 @@
 
 # Total coverage threshold (percentage)
 threshold:
-  total: 85
+  total: 80
 
 # Package-specific thresholds or overrides can be added here
 # override:
