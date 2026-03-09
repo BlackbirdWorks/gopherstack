@@ -1,10 +1,10 @@
 # Gopherstack Feature Parity & Status Matrix
 
-This document tracks the implementation status of AWS services in Gopherstack, specifically focusing on feature parity with Localstack.
+This document tracks the implementation status of AWS services in Gopherstack, specifically focusing on feature parity with LocalStack.
 
-> **Note:** Gopherstack implements 41 services, covering 33 Localstack Community (Free) Tier services and 8 Localstack Pro (Paid) Tier services, offering significant competitive advantages.
+> **Note:** Gopherstack implements 42 services, covering 34 LocalStack Community (Free) Tier services and 8 LocalStack Pro (Paid) Tier services, offering significant competitive advantages.
 
-## Localstack Community (Free) Tier Parity
+## LocalStack Community (Free) Tier Parity
 
 | Service | API Implemented | Has Dashboard UI | Has Terraform Tests |
 | --- | --- | --- | --- |
@@ -43,9 +43,9 @@ This document tracks the implementation status of AWS services in Gopherstack, s
 | **SWF** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Transcribe** | ✅ Yes | ✅ Yes | ❌ No |
 
-## Localstack Pro (Paid) Tier Services implemented in Gopherstack Free
+## LocalStack Pro (Paid) Tier Services implemented in Gopherstack Free
 
-Localstack locks these services behind a paid tier. Gopherstack offers them natively for free.
+LocalStack locks these services behind a paid tier. Gopherstack offers them natively for free.
 
 | Service | API Implemented | Has Dashboard UI | Has Terraform Tests |
 | --- | --- | --- | --- |
@@ -53,9 +53,24 @@ Localstack locks these services behind a paid tier. Gopherstack offers them nati
 | **ECR** | ✅ Yes | ❌ No | ✅ Yes (with Lambda) |
 | **ECS** | ✅ Yes | ❌ No | ✅ Yes |
 | **ElastiCache** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **FIS** | ✅ Yes | ❌ No | ❌ No |
 | **IoT** | ✅ Yes | ❌ No | ❌ No |
 | **IoT Data Plane** | ✅ Yes | ❌ No | ❌ No |
 | **RDS** | ✅ Yes | ✅ Yes | ✅ Yes |
+
+## LocalStack Enterprise Features in Gopherstack Free
+
+Chaos Engineering is locked behind the LocalStack Enterprise (paid) tier. Gopherstack offers it for free.
+
+| Feature | Implemented | Dashboard UI | REST API |
+| --- | --- | --- | --- |
+| **Chaos API** — fault injection and network effects | ✅ Yes | ✅ Yes | ✅ Yes |
+
+The Chaos API supports:
+- Per-service, per-region, per-operation fault injection with configurable error codes and probability
+- Dynamic latency simulation (fixed, range, jitter)
+- Real-time activity log
+- Auto-discovery of all 42 injectable services via `GET /_gopherstack/chaos/targets`
 
 ## Summary of Missing Components
 
@@ -66,12 +81,14 @@ Localstack locks these services behind a paid tier. Gopherstack offers them nati
 - Cognito IDP (Free)
 - ECR (Pro)
 - ECS (Pro)
+- FIS (Pro)
 - IoT (Pro)
 - IoT Data Plane (Pro)
 - Resource Groups Tagging API (Free)
 
 ### Missing Terraform Tests (`test/terraform/fixtures/`)
 - Cognito IDP (Free)
+- FIS (Pro)
 - IoT (Pro)
 - IoT Data Plane (Pro)
 - Resource Groups Tagging API (Free)
@@ -79,9 +96,9 @@ Localstack locks these services behind a paid tier. Gopherstack offers them nati
 - Support API (Free)
 - Transcribe (Free)
 
-## Not Implemented Features (Localstack Parity Gap)
+## Not Implemented Features (LocalStack Parity Gap)
 
-The following services are supported by Localstack (either Free or Pro tier) but are not currently implemented in Gopherstack.
+The following services are supported by LocalStack (either Free or Pro tier) but are not currently implemented in Gopherstack.
 
 | Service | API Implemented | Has Dashboard UI | Has Terraform Tests |
 | --- | --- | --- | --- |
@@ -122,7 +139,6 @@ The following services are supported by Localstack (either Free or Pro tier) but
 | **Elbv2** | ❌ No | ❌ No | ❌ No |
 | **Emr** | ❌ No | ❌ No | ❌ No |
 | **Emr Serverless** | ❌ No | ❌ No | ❌ No |
-| **Fis** | ❌ No | ❌ No | ❌ No |
 | **Glacier** | ❌ No | ❌ No | ❌ No |
 | **Glue** | ❌ No | ❌ No | ❌ No |
 | **Identitystore** | ❌ No | ❌ No | ❌ No |

@@ -364,6 +364,24 @@ func TestChaosHandler_Targets(t *testing.T) {
 			wantNames:    []string{"s3"},
 			wantNotNames: []string{"iam", "IAM"},
 		},
+		{
+			name: "two handlers sharing the same chaos name produce one entry",
+			services: []service.Registerable{
+				&mockChaosService{
+					name:       "S3",
+					chaosName:  "s3",
+					operations: []string{"PutObject", "GetObject"},
+					regions:    []string{"us-east-1"},
+				},
+				&mockChaosService{
+					name:       "S3Control",
+					chaosName:  "s3",
+					operations: []string{"GetPublicAccessBlock"},
+					regions:    []string{"us-east-1"},
+				},
+			},
+			wantNames: []string{"s3"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -401,6 +419,120 @@ func TestChaosHandler_Targets(t *testing.T) {
 
 			for _, notWant := range tt.wantNotNames {
 				assert.NotContains(t, names, notWant)
+			}
+		})
+	}
+}
+
+func TestChaosHandler_TargetsMerge(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		services       []service.Registerable
+		wantService    string
+		wantOperations []string
+		wantRegions    []string
+	}{
+		{
+			name: "two handlers with same chaos name have operations merged",
+			services: []service.Registerable{
+				&mockChaosService{
+					name:       "S3",
+					chaosName:  "s3",
+					operations: []string{"PutObject", "GetObject"},
+					regions:    []string{"us-east-1"},
+				},
+				&mockChaosService{
+					name:       "S3Control",
+					chaosName:  "s3",
+					operations: []string{"GetPublicAccessBlock", "PutPublicAccessBlock"},
+					regions:    []string{"us-east-1"},
+				},
+			},
+			wantService:    "s3",
+			wantOperations: []string{"PutObject", "GetObject", "GetPublicAccessBlock", "PutPublicAccessBlock"},
+			wantRegions:    []string{"us-east-1"},
+		},
+		{
+			name: "duplicate operations are deduplicated",
+			services: []service.Registerable{
+				&mockChaosService{
+					name:       "S3",
+					chaosName:  "s3",
+					operations: []string{"PutObject", "GetObject"},
+					regions:    []string{"us-east-1"},
+				},
+				&mockChaosService{
+					name:       "S3Control",
+					chaosName:  "s3",
+					operations: []string{"GetObject", "DeleteObject"},
+					regions:    []string{"eu-west-1"},
+				},
+			},
+			wantService:    "s3",
+			wantOperations: []string{"PutObject", "GetObject", "DeleteObject"},
+			wantRegions:    []string{"us-east-1", "eu-west-1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := chaos.NewFaultStore()
+			reg := service.NewRegistry()
+
+			for _, svc := range tt.services {
+				require.NoError(t, reg.Register(svc))
+			}
+
+			e := buildChaosAPI(t, store, reg)
+			rec := callGroup(t, e, http.MethodGet, "/_gopherstack/chaos/targets", nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			type targetEntry struct {
+				Name       string   `json:"name"`
+				Operations []string `json:"operations"`
+				Regions    []string `json:"regions"`
+			}
+
+			type targetsResp struct {
+				Services []targetEntry `json:"services"`
+			}
+
+			var resp targetsResp
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			// Find the entry for the expected service name.
+			var found *targetEntry
+			for i := range resp.Services {
+				if resp.Services[i].Name == tt.wantService {
+					cp := resp.Services[i]
+					found = &cp
+
+					break
+				}
+			}
+
+			require.NotNil(t, found, "expected service %q not found in targets", tt.wantService)
+
+			// Exactly one entry for the merged service name.
+			count := 0
+			for _, s := range resp.Services {
+				if s.Name == tt.wantService {
+					count++
+				}
+			}
+
+			assert.Equal(t, 1, count, "expected exactly one entry for %q", tt.wantService)
+
+			for _, op := range tt.wantOperations {
+				assert.Contains(t, found.Operations, op)
+			}
+
+			for _, r := range tt.wantRegions {
+				assert.Contains(t, found.Regions, r)
 			}
 		})
 	}

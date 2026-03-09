@@ -60,6 +60,15 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "es" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this OpenSearch instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{h.Region} }
+
 // ExtractOperation returns the operation name from a request.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path

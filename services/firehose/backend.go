@@ -104,6 +104,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Region returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string { return b.region }
+
 // SetS3Backend wires the S3 backend for actual record delivery.
 func (b *InMemoryBackend) SetS3Backend(s3 S3Storer) {
 	b.s3 = s3

@@ -101,6 +101,15 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
+func (h *Handler) ChaosServiceName() string { return "ec2" }
+
+// ChaosOperations returns all operations that can be fault-injected.
+func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
+
+// ChaosRegions returns all regions this EC2 instance handles.
+func (h *Handler) ChaosRegions() []string { return []string{h.Region} }
+
 // RouteMatcher returns a function that matches EC2 requests.
 // EC2 requests are form-encoded POSTs containing the EC2 API version.
 func (h *Handler) RouteMatcher() service.Matcher {
