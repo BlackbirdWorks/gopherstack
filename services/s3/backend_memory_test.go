@@ -1257,6 +1257,119 @@ func TestDeleteBucketWebsite_NotFound(t *testing.T) {
 	assert.ErrorIs(t, err, s3.ErrNoSuchBucket)
 }
 
+func TestBucketEncryptionConfiguration(t *testing.T) {
+	t.Parallel()
+
+	const encryptionXML = `<ServerSideEncryptionConfiguration>` +
+		`<Rule><ApplyServerSideEncryptionByDefault>` +
+		`<SSEAlgorithm>AES256</SSEAlgorithm>` +
+		`</ApplyServerSideEncryptionByDefault></Rule>` +
+		`</ServerSideEncryptionConfiguration>`
+
+	const kmsEncryptionXML = `<ServerSideEncryptionConfiguration>` +
+		`<Rule><ApplyServerSideEncryptionByDefault>` +
+		`<SSEAlgorithm>aws:kms</SSEAlgorithm>` +
+		`<KMSMasterKeyID>arn:aws:kms:us-east-1:000000000000:key/test-key</KMSMasterKeyID>` +
+		`</ApplyServerSideEncryptionByDefault></Rule>` +
+		`</ServerSideEncryptionConfiguration>`
+
+	tests := []struct {
+		wantErr error
+		setup   func(t *testing.T, backend *s3.InMemoryBackend, bucket string)
+		name    string
+		bucket  string
+		want    string
+	}{
+		{
+			name:   "get returns ServerSideEncryptionConfigurationNotFoundError when not set",
+			bucket: "encryption-test-bucket",
+			setup: func(_ *testing.T, _ *s3.InMemoryBackend, _ string) {
+				// No encryption config stored.
+			},
+			wantErr: s3.ErrNoEncryptionConfig,
+		},
+		{
+			name:   "put then get returns stored AES256 config",
+			bucket: "encryption-test-bucket",
+			setup: func(t *testing.T, backend *s3.InMemoryBackend, bucket string) {
+				t.Helper()
+				err := backend.PutBucketEncryption(t.Context(), bucket, encryptionXML)
+				require.NoError(t, err)
+			},
+			want: encryptionXML,
+		},
+		{
+			name:   "put then get returns stored aws:kms config",
+			bucket: "encryption-test-bucket",
+			setup: func(t *testing.T, backend *s3.InMemoryBackend, bucket string) {
+				t.Helper()
+				err := backend.PutBucketEncryption(t.Context(), bucket, kmsEncryptionXML)
+				require.NoError(t, err)
+			},
+			want: kmsEncryptionXML,
+		},
+		{
+			name:   "delete clears the config",
+			bucket: "encryption-test-bucket",
+			setup: func(t *testing.T, backend *s3.InMemoryBackend, bucket string) {
+				t.Helper()
+				err := backend.PutBucketEncryption(t.Context(), bucket, encryptionXML)
+				require.NoError(t, err)
+				err = backend.DeleteBucketEncryption(t.Context(), bucket)
+				require.NoError(t, err)
+			},
+			wantErr: s3.ErrNoEncryptionConfig,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := newTestBackend(t)
+			_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+				Bucket: aws.String(tt.bucket),
+			})
+			require.NoError(t, err)
+
+			tt.setup(t, backend, tt.bucket)
+
+			got, err := backend.GetBucketEncryption(t.Context(), tt.bucket)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPutBucketEncryption_NotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	err := backend.PutBucketEncryption(t.Context(), "nonexistent-bucket", "<ServerSideEncryptionConfiguration/>")
+	assert.ErrorIs(t, err, s3.ErrNoSuchBucket)
+}
+
+func TestGetBucketEncryption_NotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	_, err := backend.GetBucketEncryption(t.Context(), "nonexistent-bucket")
+	assert.ErrorIs(t, err, s3.ErrNoSuchBucket)
+}
+
+func TestDeleteBucketEncryption_NotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	err := backend.DeleteBucketEncryption(t.Context(), "nonexistent-bucket")
+	assert.ErrorIs(t, err, s3.ErrNoSuchBucket)
+}
+
 func TestCompressionMinBytes_PutObject(t *testing.T) {
 	t.Parallel()
 
