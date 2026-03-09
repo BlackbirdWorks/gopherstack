@@ -236,3 +236,126 @@ type SetSubscriptionAttributesResponse struct {
 	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ SetSubscriptionAttributesResponse"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
+
+// PlatformApplication represents an SNS platform application for mobile push.
+type PlatformApplication struct {
+	Attributes             map[string]string `json:"attributes,omitempty"`
+	PlatformApplicationArn string            `json:"platformApplicationArn"`
+}
+
+// PlatformEndpoint represents an SNS platform endpoint (device token registration).
+type PlatformEndpoint struct {
+	Attributes             map[string]string `json:"attributes,omitempty"`
+	EndpointArn            string            `json:"endpointArn"`
+	PlatformApplicationArn string            `json:"platformApplicationArn"`
+}
+
+// XMLPlatformApplication is the XML representation of a platform application in list responses.
+type XMLPlatformApplication struct {
+	PlatformApplicationArn string              `xml:"PlatformApplicationArn"`
+	Attributes             []XMLAttributeEntry `xml:"Attributes>entry"`
+}
+
+// XMLPlatformEndpoint is the XML representation of a platform endpoint in list responses.
+type XMLPlatformEndpoint struct {
+	EndpointArn string              `xml:"EndpointArn"`
+	Attributes  []XMLAttributeEntry `xml:"Attributes>entry"`
+}
+
+// CreatePlatformApplicationResult holds the result of a CreatePlatformApplication operation.
+type CreatePlatformApplicationResult struct {
+	PlatformApplicationArn string `xml:"PlatformApplicationArn"`
+}
+
+// CreatePlatformApplicationResponse is the XML response for CreatePlatformApplication.
+type CreatePlatformApplicationResponse struct {
+	XMLName                         xml.Name                        `xml:"https://sns.amazonaws.com/doc/2010-03-31/ CreatePlatformApplicationResponse"` //nolint:lll // XML namespace makes this line long.
+	CreatePlatformApplicationResult CreatePlatformApplicationResult `xml:"CreatePlatformApplicationResult"`
+	ResponseMetadata                ResponseMetadata                `xml:"ResponseMetadata"`
+}
+
+// GetPlatformApplicationAttributesResult holds the result of GetPlatformApplicationAttributes.
+type GetPlatformApplicationAttributesResult struct {
+	Attributes []XMLAttributeEntry `xml:"Attributes>entry"`
+}
+
+// GetPlatformApplicationAttributesResponse is the XML response for GetPlatformApplicationAttributes.
+type GetPlatformApplicationAttributesResponse struct {
+	XMLName                                xml.Name                               `xml:"https://sns.amazonaws.com/doc/2010-03-31/ GetPlatformApplicationAttributesResponse"` //nolint:lll // XML namespace makes this line long.
+	ResponseMetadata                       ResponseMetadata                       `xml:"ResponseMetadata"`
+	GetPlatformApplicationAttributesResult GetPlatformApplicationAttributesResult `xml:"GetPlatformApplicationAttributesResult"` //nolint:lll // Long type name.
+}
+
+// SetPlatformApplicationAttributesResponse is the XML response for SetPlatformApplicationAttributes.
+type SetPlatformApplicationAttributesResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ SetPlatformApplicationAttributesResponse"` //nolint:lll // XML namespace makes this line long.
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// ListPlatformApplicationsResult holds the result of ListPlatformApplications.
+type ListPlatformApplicationsResult struct {
+	NextToken            string                   `xml:"NextToken"`
+	PlatformApplications []XMLPlatformApplication `xml:"PlatformApplications>member"`
+}
+
+// ListPlatformApplicationsResponse is the XML response for ListPlatformApplications.
+type ListPlatformApplicationsResponse struct {
+	XMLName                        xml.Name                       `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListPlatformApplicationsResponse"` //nolint:lll // XML namespace makes this line long.
+	ResponseMetadata               ResponseMetadata               `xml:"ResponseMetadata"`
+	ListPlatformApplicationsResult ListPlatformApplicationsResult `xml:"ListPlatformApplicationsResult"`
+}
+
+// DeletePlatformApplicationResponse is the XML response for DeletePlatformApplication.
+type DeletePlatformApplicationResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ DeletePlatformApplicationResponse"` //nolint:lll // XML namespace makes this line long.
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// CreatePlatformEndpointResult holds the result of CreatePlatformEndpoint.
+type CreatePlatformEndpointResult struct {
+	EndpointArn string `xml:"EndpointArn"`
+}
+
+// CreatePlatformEndpointResponse is the XML response for CreatePlatformEndpoint.
+type CreatePlatformEndpointResponse struct {
+	XMLName                      xml.Name                     `xml:"https://sns.amazonaws.com/doc/2010-03-31/ CreatePlatformEndpointResponse"` //nolint:lll // XML namespace makes this line long.
+	CreatePlatformEndpointResult CreatePlatformEndpointResult `xml:"CreatePlatformEndpointResult"`
+	ResponseMetadata             ResponseMetadata             `xml:"ResponseMetadata"`
+}
+
+// GetEndpointAttributesResult holds the result of GetEndpointAttributes.
+type GetEndpointAttributesResult struct {
+	Attributes []XMLAttributeEntry `xml:"Attributes>entry"`
+}
+
+// GetEndpointAttributesResponse is the XML response for GetEndpointAttributes.
+type GetEndpointAttributesResponse struct {
+	XMLName                     xml.Name                    `xml:"https://sns.amazonaws.com/doc/2010-03-31/ GetEndpointAttributesResponse"` //nolint:lll // XML namespace makes this line long.
+	ResponseMetadata            ResponseMetadata            `xml:"ResponseMetadata"`
+	GetEndpointAttributesResult GetEndpointAttributesResult `xml:"GetEndpointAttributesResult"`
+}
+
+// SetEndpointAttributesResponse is the XML response for SetEndpointAttributes.
+type SetEndpointAttributesResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ SetEndpointAttributesResponse"` //nolint:lll // XML namespace makes this line long.
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// ListEndpointsByPlatformApplicationResult holds the result of ListEndpointsByPlatformApplication.
+type ListEndpointsByPlatformApplicationResult struct {
+	NextToken string                `xml:"NextToken"`
+	Endpoints []XMLPlatformEndpoint `xml:"Endpoints>member"`
+}
+
+// ListEndpointsByPlatformApplicationResponse is the XML response for ListEndpointsByPlatformApplication.
+type ListEndpointsByPlatformApplicationResponse struct {
+	XMLName                                  xml.Name                                 `xml:"https://sns.amazonaws.com/doc/2010-03-31/ ListEndpointsByPlatformApplicationResponse"` //nolint:lll // XML namespace makes this line long.
+	ResponseMetadata                         ResponseMetadata                         `xml:"ResponseMetadata"`
+	ListEndpointsByPlatformApplicationResult ListEndpointsByPlatformApplicationResult `xml:"ListEndpointsByPlatformApplicationResult"` //nolint:lll // Long type name.
+}
+
+// DeleteEndpointResponse is the XML response for DeleteEndpoint.
+type DeleteEndpointResponse struct {
+	XMLName          xml.Name         `xml:"https://sns.amazonaws.com/doc/2010-03-31/ DeleteEndpointResponse"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
