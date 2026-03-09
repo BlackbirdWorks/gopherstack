@@ -31,6 +31,7 @@ import (
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
+	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -138,6 +139,7 @@ provider "aws" {
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
     cognitoidentity = %[1]q
+    cognitoidp      = %[1]q
     configservice   = %[1]q
     dynamodb        = %[1]q
     ec2             = %[1]q
@@ -2347,6 +2349,65 @@ func TestTerraform_SESv2(t *testing.T) {
 				var cfgOut map[string]any
 				require.NoError(t, json.NewDecoder(resp2.Body).Decode(&cfgOut))
 				assert.Equal(t, cfgName, cfgOut["ConfigurationSetName"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CognitoIDP provisions a Cognito User Pool and User Pool Client via Terraform
+// and verifies they exist via the Cognito IDP SDK.
+func TestTerraform_CognitoIDP(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "cognitoidp/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"PoolName":   "tf-pool-" + id,
+					"ClientName": "tf-client-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createCognitoIDPClient(t)
+
+				// List pools and find ours by name.
+				listOut, err := client.ListUserPools(ctx, &cognitoidpsvc.ListUserPoolsInput{
+					MaxResults: aws.Int32(60),
+				})
+				require.NoError(t, err, "ListUserPools should succeed")
+
+				var poolID string
+
+				for _, p := range listOut.UserPools {
+					if aws.ToString(p.Name) == vars["PoolName"].(string) {
+						poolID = aws.ToString(p.Id)
+
+						break
+					}
+				}
+
+				require.NotEmpty(t, poolID, "user pool %q should appear in list", vars["PoolName"])
+
+				// Describe the pool.
+				descOut, err := client.DescribeUserPool(ctx, &cognitoidpsvc.DescribeUserPoolInput{
+					UserPoolId: aws.String(poolID),
+				})
+				require.NoError(t, err, "DescribeUserPool should succeed")
+				assert.Equal(t, vars["PoolName"].(string), aws.ToString(descOut.UserPool.Name))
 			},
 		},
 	}

@@ -12,6 +12,7 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
+	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -82,6 +83,7 @@ type AWSSDKProvider interface {
 	GetSWFHandler() service.Registerable
 	GetFirehoseHandler() service.Registerable
 	GetCognitoIdentityHandler() service.Registerable
+	GetCognitoIDPHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -133,6 +135,7 @@ type extractedConfig struct {
 	swfOps             *swfbackend.Handler
 	firehoseOps        *firehosebackend.Handler
 	cognitoIdentityOps *cognitoidentitybackend.Handler
+	cognitoIDPOps      *cognitoidpbackend.Handler
 	faultStore         *chaos.FaultStore
 	gCfg               globalcfg.GlobalConfig
 }
@@ -286,6 +289,10 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.cognitoIdentityOps, _ = h.(*cognitoidentitybackend.Handler)
 	}
 
+	if h := ap.GetCognitoIDPHandler(); h != nil {
+		ec.cognitoIDPOps, _ = h.(*cognitoidpbackend.Handler)
+	}
+
 	if h := ap.GetSESv2Handler(); h != nil {
 		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
 	}
@@ -331,6 +338,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		SWFOps:             ec.swfOps,
 		FirehoseOps:        ec.firehoseOps,
 		CognitoIdentityOps: ec.cognitoIdentityOps,
+		CognitoIDPOps:      ec.cognitoIDPOps,
 		GlobalConfig:       ec.gCfg,
 		FaultStore:         ec.faultStore,
 		Logger:             ctx.Logger,
