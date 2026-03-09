@@ -1,0 +1,90 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <img src="/dashboard/static/icons/cognitoidentity.svg" class="w-8 h-8 rounded-md shadow-sm" alt="cognitoidp" />
+                Cognito User Pools
+                <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
+                    {{len .UserPools}}
+                </span>
+
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory Cognito User Pools (IDP).</p>
+        </div>
+        <div class="flex gap-2">
+            <button onclick="document.getElementById('create-pool-modal').classList.remove('hidden')"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 rounded-lg shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                + Create User Pool
+            </button>
+        </div>
+    </div>
+
+    <!-- Create User Pool Modal -->
+    <div id="create-pool-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-md mx-4">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Create User Pool</h2>
+            <form action="/dashboard/cognitoidp/user-pool/create" method="POST">
+                <div class="mb-4">
+                    <label for="pool-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Pool Name</label>
+                    <input type="text" id="pool-name" name="name" required
+                        class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        placeholder="my-user-pool" />
+                </div>
+                <div class="flex gap-3 justify-end mt-6">
+                    <button type="button" onclick="document.getElementById('create-pool-modal').classList.add('hidden')"
+                        class="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                        class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">
+                        Create User Pool
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Pool ID</th>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">ARN</th>
+                    <th scope="col" class="px-6 py-3">Created</th>
+                    <th scope="col" class="px-6 py-3">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .UserPools}}
+                <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-mono text-xs text-slate-900 dark:text-white truncate max-w-xs" title="{{.PoolID}}">{{.PoolID}}</td>
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
+                    <td class="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400 truncate max-w-xs" title="{{.ARN}}">{{.ARN}}</td>
+                    <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">{{.CreatedAt}}</td>
+                    <td class="px-6 py-4">
+                        <form action="/dashboard/cognitoidp/user-pool/delete" method="POST">
+                            <input type="hidden" name="pool_id" value="{{.PoolID}}" />
+                            <button type="submit"
+                                class="text-xs font-medium text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 transition-colors">
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No user pools. Create one to get started.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}

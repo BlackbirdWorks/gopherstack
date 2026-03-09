@@ -26,9 +26,11 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
+	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -121,6 +123,7 @@ type DashboardHandler struct {
 	SESv2Ops           *sesv2backend.Handler
 	EC2Ops             *ec2backend.Handler
 	ECROps             *ecrbackend.Handler
+	ECSOps             *ecsbackend.Handler
 	OpenSearchOps      *opensearchbackend.Handler
 	ACMOps             *acmbackend.Handler
 	RedshiftOps        *redshiftbackend.Handler
@@ -136,6 +139,7 @@ type DashboardHandler struct {
 	SupportOps         *supportbackend.Handler
 	CognitoIdentityOps *cognitoidentitybackend.Handler
 	AppSyncOps         *appsyncbackend.Handler
+	CognitoIDPOps      *cognitoidpbackend.Handler
 	SubRouter          *echo.Echo
 	ddbProvider        *ddbbackend.DashboardProvider
 	s3Provider         *s3backend.DashboardProvider
@@ -189,6 +193,8 @@ type Config struct {
 	EC2Ops *ec2backend.Handler
 	// ECROps provides access to the ECR backend.
 	ECROps *ecrbackend.Handler
+	// ECSOps provides access to the ECS backend.
+	ECSOps *ecsbackend.Handler
 	// OpenSearchOps provides access to the OpenSearch backend.
 	OpenSearchOps *opensearchbackend.Handler
 	// ACMOps provides access to the ACM backend.
@@ -219,6 +225,8 @@ type Config struct {
 	CognitoIdentityOps *cognitoidentitybackend.Handler
 	// AppSyncOps provides access to the AppSync backend.
 	AppSyncOps *appsyncbackend.Handler
+	// CognitoIDPOps provides access to the Cognito IDP backend.
+	CognitoIDPOps *cognitoidpbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -272,6 +280,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/sesv2/*.html",
 		"templates/ec2/*.html",
 		"templates/ecr/*.html",
+		"templates/ecs/*.html",
 		"templates/opensearch/*.html",
 		"templates/acm/*.html",
 		"templates/redshift/*.html",
@@ -287,6 +296,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/support/*.html",
 		"templates/cognitoidentity/*.html",
 		"templates/appsync/*.html",
+		"templates/cognitoidp/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -329,6 +339,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		SESv2Ops:           cfg.SESv2Ops,
 		EC2Ops:             cfg.EC2Ops,
 		ECROps:             cfg.ECROps,
+		ECSOps:             cfg.ECSOps,
 		OpenSearchOps:      cfg.OpenSearchOps,
 		ACMOps:             cfg.ACMOps,
 		RedshiftOps:        cfg.RedshiftOps,
@@ -344,6 +355,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		SupportOps:         cfg.SupportOps,
 		CognitoIdentityOps: cfg.CognitoIdentityOps,
 		AppSyncOps:         cfg.AppSyncOps,
+		CognitoIDPOps:      cfg.CognitoIDPOps,
 		GlobalConfig:       cfg.GlobalConfig,
 		Logger:             cfg.Logger,
 		FaultStore:         cfg.FaultStore,
@@ -529,6 +541,12 @@ func (h *DashboardHandler) setupECRRoutes() {
 	h.SubRouter.POST("/dashboard/ecr/repository/delete", h.ecrDeleteRepository)
 }
 
+func (h *DashboardHandler) setupECSRoutes() {
+	h.SubRouter.GET("/dashboard/ecs", h.ecsIndex)
+	h.SubRouter.POST("/dashboard/ecs/cluster/create", h.ecsCreateCluster)
+	h.SubRouter.POST("/dashboard/ecs/cluster/delete", h.ecsDeleteCluster)
+}
+
 func (h *DashboardHandler) setupOpenSearchRoutes() {
 	h.SubRouter.GET("/dashboard/opensearch", h.opensearchIndex)
 	h.SubRouter.GET("/dashboard/opensearch/domain", h.opensearchDomainDetail)
@@ -612,6 +630,12 @@ func (h *DashboardHandler) setupAppSyncRoutes() {
 	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
 }
 
+func (h *DashboardHandler) setupCognitoIDPRoutes() {
+	h.SubRouter.GET("/dashboard/cognitoidp", h.cognitoIDPIndex)
+	h.SubRouter.POST("/dashboard/cognitoidp/user-pool/create", h.cognitoIDPCreateUserPool)
+	h.SubRouter.POST("/dashboard/cognitoidp/user-pool/delete", h.cognitoIDPDeleteUserPool)
+}
+
 func (h *DashboardHandler) setupSESv2Routes() {
 	h.SubRouter.GET("/dashboard/sesv2", h.sesv2Index)
 	h.SubRouter.POST("/dashboard/sesv2/identity/create", h.sesv2CreateIdentity)
@@ -650,6 +674,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupSESv2Routes()
 	h.setupEC2Routes()
 	h.setupECRRoutes()
+	h.setupECSRoutes()
 	h.setupOpenSearchRoutes()
 	h.setupACMRoutes()
 	h.setupRedshiftRoutes()
@@ -665,6 +690,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupSupportRoutes()
 	h.setupCognitoIdentityRoutes()
 	h.setupAppSyncRoutes()
+	h.setupCognitoIDPRoutes()
 	h.setupChaosRoutes()
 	h.setupMetaRoutes()
 }
@@ -735,6 +761,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/ses", "SES"},
 	{"/ec2", "EC2"},
 	{"/ecr", "ECR"},
+	{"/ecs", "ECS"},
 	{"/opensearch", "OpenSearch"},
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},
@@ -750,6 +777,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/support", "Support"},
 	{"/cognitoidentity", "CognitoIdentity"},
 	{"/appsync", "AppSync"},
+	{"/cognitoidp", "CognitoIDP"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

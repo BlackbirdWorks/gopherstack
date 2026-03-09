@@ -13,7 +13,9 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
+	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
+	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -85,7 +87,9 @@ type AWSSDKProvider interface {
 	GetFirehoseHandler() service.Registerable
 	GetCognitoIdentityHandler() service.Registerable
 	GetAppSyncHandler() service.Registerable
+	GetCognitoIDPHandler() service.Registerable
 	GetECRHandler() service.Registerable
+	GetECSHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -138,7 +142,9 @@ type extractedConfig struct {
 	firehoseOps        *firehosebackend.Handler
 	cognitoIdentityOps *cognitoidentitybackend.Handler
 	appSyncOps         *appsyncbackend.Handler
+	cognitoIDPOps      *cognitoidpbackend.Handler
 	ecrOps             *ecrbackend.Handler
+	ecsOps             *ecsbackend.Handler
 	faultStore         *chaos.FaultStore
 	gCfg               globalcfg.GlobalConfig
 }
@@ -296,8 +302,16 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.appSyncOps, _ = h.(*appsyncbackend.Handler)
 	}
 
+	if h := ap.GetCognitoIDPHandler(); h != nil {
+		ec.cognitoIDPOps, _ = h.(*cognitoidpbackend.Handler)
+	}
+
 	if h := ap.GetECRHandler(); h != nil {
 		ec.ecrOps, _ = h.(*ecrbackend.Handler)
+	}
+
+	if h := ap.GetECSHandler(); h != nil {
+		ec.ecsOps, _ = h.(*ecsbackend.Handler)
 	}
 
 	if h := ap.GetSESv2Handler(); h != nil {
@@ -346,7 +360,9 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		FirehoseOps:        ec.firehoseOps,
 		CognitoIdentityOps: ec.cognitoIdentityOps,
 		AppSyncOps:         ec.appSyncOps,
+		CognitoIDPOps:      ec.cognitoIDPOps,
 		ECROps:             ec.ecrOps,
+		ECSOps:             ec.ecsOps,
 		GlobalConfig:       ec.gCfg,
 		FaultStore:         ec.faultStore,
 		Logger:             ctx.Logger,

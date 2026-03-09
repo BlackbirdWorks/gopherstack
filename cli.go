@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -163,6 +164,7 @@ type CLI struct {
 	secretsManagerClient         *secretsmanager.Client
 	ecrClient                    *ecr.Client
 	appSyncSdkClient             *appsyncsdksvc.Client
+	ecsClient                    *ecs.Client
 	AccountID                    string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
 	Port                         string                 `                                  name:"port"               env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
 	ElastiCacheEngine            string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
@@ -767,6 +769,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 	cli.appSyncSdkClient = appsyncsdksvc.NewFromConfig(
 		awsCfg,
 		func(o *appsyncsdksvc.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.ecsClient = ecs.NewFromConfig(
+		awsCfg,
+		func(o *ecs.Options) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
@@ -2512,6 +2520,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		SecretsManager: cli.secretsManagerClient,
 		ECR:            cli.ecrClient,
 		AppSync:        cli.appSyncSdkClient,
+		ECS:            cli.ecsClient,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load demo data", "error", err)

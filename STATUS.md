@@ -14,7 +14,7 @@ This document tracks the implementation status of AWS services in Gopherstack, s
 | **CloudFormation** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **CloudWatch** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **CloudWatch Logs** | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Cognito IDP** | ✅ Yes | ❌ No | ❌ No |
+| **Cognito IDP** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Cognito Identity** | ✅ Yes | ❌ No | ❌ No |
 | **DynamoDB** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EC2** | ✅ Yes | ✅ Yes | ✅ Yes |
@@ -53,7 +53,7 @@ LocalStack locks these services behind a paid tier. Gopherstack offers them nati
 | --- | --- | --- | --- |
 | **AppSync** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **ECR** | ✅ Yes | ✅ Yes | ✅ Yes (with Lambda) |
-| **ECS** | ✅ Yes | ❌ No | ✅ Yes |
+| **ECS** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **ElastiCache** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **FIS** | ✅ Yes | ❌ No | ❌ No |
 | **IoT** | ✅ Yes | ❌ No | ❌ No |
