@@ -16,6 +16,7 @@ import (
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -92,6 +93,7 @@ type AWSSDKProvider interface {
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
+	GetFISHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -148,6 +150,7 @@ type extractedConfig struct {
 	ecrOps             *ecrbackend.Handler
 	ecsOps             *ecsbackend.Handler
 	iotOps             *iotbackend.Handler
+	fisOps             *fisbackend.Handler
 	faultStore         *chaos.FaultStore
 	gCfg               globalcfg.GlobalConfig
 }
@@ -326,12 +329,21 @@ func extractECRECSAndIoTHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.ecrOps, _ = h.(*ecrbackend.Handler)
 	}
 
+	extractContainerAndFaultHandlers(ap, ec)
+}
+
+// extractContainerAndFaultHandlers populates container and fault injection service handlers on ec.
+func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetECSHandler(); h != nil {
 		ec.ecsOps, _ = h.(*ecsbackend.Handler)
 	}
 
 	if h := ap.GetIoTHandler(); h != nil {
 		ec.iotOps, _ = h.(*iotbackend.Handler)
+	}
+
+	if h := ap.GetFISHandler(); h != nil {
+		ec.fisOps, _ = h.(*fisbackend.Handler)
 	}
 }
 
@@ -380,6 +392,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ECROps:             ec.ecrOps,
 		ECSOps:             ec.ecsOps,
 		IoTOps:             ec.iotOps,
+		FISOps:             ec.fisOps,
 		GlobalConfig:       ec.gCfg,
 		FaultStore:         ec.faultStore,
 		Logger:             ctx.Logger,

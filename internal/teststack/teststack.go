@@ -35,6 +35,7 @@ import (
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
+	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
@@ -99,6 +100,7 @@ type Stack struct {
 	ECRHandler                   *ecrbackend.Handler
 	ECSHandler                   *ecsbackend.Handler
 	IoTHandler                   *iotbackend.Handler
+	FISHandler                   *fisbackend.Handler
 	OpenSearchHandler            *opensearchbackend.Handler
 	ACMHandler                   *acmbackend.Handler
 	RedshiftHandler              *redshiftbackend.Handler
@@ -282,6 +284,7 @@ type handlers struct {
 	ecr             *ecrbackend.Handler
 	ecs             *ecsbackend.Handler
 	iot             *iotbackend.Handler
+	fis             *fisbackend.Handler
 	opensearch      *opensearchbackend.Handler
 	acm             *acmbackend.Handler
 	redshift        *redshiftbackend.Handler
@@ -355,6 +358,9 @@ func newHandlers() handlers {
 		iot: iotbackend.NewHandler(
 			iotbackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion),
 			nil, // broker is nil in tests; MQTT publish/subscribe is not exercised by dashboard tests
+		),
+		fis: fisbackend.NewHandler(
+			fisbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 		),
 		opensearch: opensearchbackend.NewHandler(
 			opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -467,6 +473,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ECROps:             h.ecr,
 		ECSOps:             h.ecs,
 		IoTOps:             h.iot,
+		FISOps:             h.fis,
 		OpenSearchOps:      h.opensearch,
 		ACMOps:             h.acm,
 		RedshiftOps:        h.redshift,
@@ -551,6 +558,7 @@ func New(t *testing.T) *Stack {
 		ECRHandler:                   h.ecr,
 		ECSHandler:                   h.ecs,
 		IoTHandler:                   h.iot,
+		FISHandler:                   h.fis,
 		OpenSearchHandler:            h.opensearch,
 		ACMHandler:                   h.acm,
 		RedshiftHandler:              h.redshift,

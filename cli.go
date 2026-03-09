@@ -475,7 +475,11 @@ func (c *CLI) GetIoTHandler() service.Registerable { return c.iotHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAppSyncHandler() service.Registerable { return c.appSyncHandler }
 
-// GetCognitoIDPHandler returns the Cognito IDP handler (dashboard.AWSSDKProvider).
+// GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetFISHandler() service.Registerable { return c.fisHandler }
+
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCognitoIDPHandler() service.Registerable { return c.cognitoIDPHandler }

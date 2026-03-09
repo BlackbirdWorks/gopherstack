@@ -131,6 +131,13 @@ func TestDashboard_Routing(t *testing.T) {
 			wantStatus:   http.StatusOK,
 			wantContains: "SNS Topics",
 		},
+		{
+			name:         "fis index renders page",
+			method:       http.MethodGet,
+			path:         "/dashboard/fis",
+			wantStatus:   http.StatusOK,
+			wantContains: "Experiment Templates",
+		},
 	}
 
 	stack := newStack(t)
