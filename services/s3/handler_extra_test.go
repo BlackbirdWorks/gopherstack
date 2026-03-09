@@ -1095,6 +1095,18 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 			wantContains: "PutObject",
 			wantNotEmpty: true,
 		},
+		{
+			name:         "includes PutBucketWebsite",
+			wantContains: "PutBucketWebsite",
+		},
+		{
+			name:         "includes GetBucketWebsite",
+			wantContains: "GetBucketWebsite",
+		},
+		{
+			name:         "includes DeleteBucketWebsite",
+			wantContains: "DeleteBucketWebsite",
+		},
 	}
 
 	for _, tt := range tests {

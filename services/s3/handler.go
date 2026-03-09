@@ -166,6 +166,9 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"DeleteBucketLifecycleConfiguration",
 		"PutBucketNotificationConfiguration",
 		"GetBucketNotificationConfiguration",
+		"PutBucketWebsite",
+		"GetBucketWebsite",
+		"DeleteBucketWebsite",
 		"SelectObjectContent",
 	}
 }
