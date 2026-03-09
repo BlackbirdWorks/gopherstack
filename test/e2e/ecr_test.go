@@ -129,8 +129,8 @@ func TestECRDashboard_CreateAndDeleteRepository(t *testing.T) {
 	err = page.Locator("button:has-text('Create Repository')").Last().Click()
 	require.NoError(t, err)
 
-	// Wait for redirect and verify
-	err = page.Locator("td:has-text('e2e-test-repo')").WaitFor(playwright.LocatorWaitForOptions{
+	// Wait for redirect and verify (use First() since the URI cell also contains the repo name)
+	err = page.Locator("td:has-text('e2e-test-repo')").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
