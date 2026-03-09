@@ -65,6 +65,8 @@ func (h *S3Handler) handleBucketOperation(
 			h.deleteBucketCORS(ctx, w, r, bucket)
 		case r.URL.Query().Has("lifecycle"):
 			h.deleteBucketLifecycleConfiguration(ctx, w, r, bucket)
+		case r.URL.Query().Has("website"):
+			h.deleteBucketWebsite(ctx, w, r, bucket)
 		default:
 			h.deleteBucket(ctx, w, r, bucket)
 		}
@@ -99,9 +101,7 @@ func (h *S3Handler) routeBucketPut(
 	case r.URL.Query().Has("cors"):
 		h.putBucketCORS(ctx, w, r, bucket)
 	case r.URL.Query().Has("website"):
-		// Stub: accept static website configuration.
-		h.setOperation(ctx, "PutBucketWebsite")
-		w.WriteHeader(http.StatusOK)
+		h.putBucketWebsite(ctx, w, r, bucket)
 	case r.URL.Query().Has("lifecycle"):
 		h.putBucketLifecycleConfiguration(ctx, w, r, bucket)
 	case r.URL.Query().Has("replication"):
@@ -160,6 +160,10 @@ func (h *S3Handler) routeBucketGet(
 		h.getBucketLifecycleConfiguration(ctx, w, r, bucket)
 
 		return
+	case q.Has("website"):
+		h.getBucketWebsite(ctx, w, r, bucket)
+
+		return
 	case q.Has("object-lock"):
 		h.getObjectLockConfiguration(ctx, w, r, bucket)
 
@@ -170,6 +174,16 @@ func (h *S3Handler) routeBucketGet(
 		return
 	}
 
+	h.routeBucketGetOrList(ctx, w, r, bucket)
+}
+
+// routeBucketGetOrList handles ACL, versioning, listing, and other bucket GET requests.
+func (h *S3Handler) routeBucketGetOrList(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
 	switch {
 	case r.URL.Query().Has("acl"):
 		h.getBucketACL(ctx, w, r, bucket)
@@ -201,12 +215,6 @@ func (h *S3Handler) routeBucketGetStubs(
 	q := r.URL.Query()
 
 	switch {
-	case q.Has("website"):
-		h.setOperation(ctx, "GetBucketWebsite")
-		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "NoSuchWebsiteConfiguration",
-			Message: "The specified bucket does not have a website configuration",
-		}, http.StatusNotFound)
 	case q.Has("logging"):
 		h.setOperation(ctx, "GetBucketLogging")
 		httputils.WriteXML(
@@ -879,6 +887,57 @@ func (h *S3Handler) getBucketCORS(ctx context.Context, w http.ResponseWriter, r 
 func (h *S3Handler) deleteBucketCORS(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
 	h.setOperation(ctx, "DeleteBucketCors")
 	if err := h.Backend.DeleteBucketCORS(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) putBucketWebsite(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "PutBucketWebsite")
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	// Validate the website XML is well-formed before storing it.
+	var cfg WebsiteConfiguration
+	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    "MalformedXML",
+			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+		}, http.StatusBadRequest)
+
+		return
+	}
+
+	if err = h.Backend.PutBucketWebsite(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) getBucketWebsite(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "GetBucketWebsite")
+	websiteXML, err := h.Backend.GetBucketWebsite(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(websiteXML))
+}
+
+func (h *S3Handler) deleteBucketWebsite(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "DeleteBucketWebsite")
+	if err := h.Backend.DeleteBucketWebsite(ctx, bucket); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return

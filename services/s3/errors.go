@@ -28,6 +28,7 @@ var (
 	ErrNoCORSConfig           = errors.New("NoSuchCORSConfiguration")
 	ErrNoLifecycleConfig      = errors.New("NoSuchLifecycleConfiguration")
 	ErrNoObjectLockConfig     = errors.New("ObjectLockConfigurationNotFoundError")
+	ErrNoWebsiteConfig        = errors.New("NoSuchWebsiteConfiguration")
 	ErrObjectLocked           = errors.New("AccessDenied")
 	ErrNoSuchObjectLockConfig = awserr.New("NoSuchObjectLockConfiguration", awserr.ErrNotFound)
 )
@@ -107,6 +108,11 @@ func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err
 		{ErrNoObjectLockConfig, s3ErrorInfo{
 			"ObjectLockConfigurationNotFoundError",
 			"Object Lock configuration does not exist for this bucket",
+			http.StatusNotFound,
+		}},
+		{ErrNoWebsiteConfig, s3ErrorInfo{
+			"NoSuchWebsiteConfiguration",
+			"The specified bucket does not have a website configuration",
 			http.StatusNotFound,
 		}},
 		{ErrObjectLocked, s3ErrorInfo{

@@ -1095,6 +1095,18 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 			wantContains: "PutObject",
 			wantNotEmpty: true,
 		},
+		{
+			name:         "includes PutBucketWebsite",
+			wantContains: "PutBucketWebsite",
+		},
+		{
+			name:         "includes GetBucketWebsite",
+			wantContains: "GetBucketWebsite",
+		},
+		{
+			name:         "includes DeleteBucketWebsite",
+			wantContains: "DeleteBucketWebsite",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1532,4 +1544,69 @@ func TestS3BucketNotificationCRUD(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "NotificationConfiguration")
+}
+
+// TestS3BucketWebsiteCRUD verifies put/get/delete bucket website configuration.
+func TestS3BucketWebsiteCRUD(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "website-test-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	websiteXML := `<WebsiteConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
+		`<IndexDocument><Suffix>index.html</Suffix></IndexDocument>` +
+		`<ErrorDocument><Key>error.html</Key></ErrorDocument>` +
+		`</WebsiteConfiguration>`
+
+	// GetBucketWebsite before any config → 404 NoSuchWebsiteConfiguration
+	req := httptest.NewRequest(http.MethodGet, "/"+bucket+"?website", nil)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "NoSuchWebsiteConfiguration")
+
+	// PutBucketWebsite
+	req = httptest.NewRequest(http.MethodPut, "/"+bucket+"?website", strings.NewReader(websiteXML))
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// GetBucketWebsite returns stored config
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?website", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "IndexDocument")
+	assert.Contains(t, rec.Body.String(), "index.html")
+
+	// DeleteBucketWebsite
+	req = httptest.NewRequest(http.MethodDelete, "/"+bucket+"?website", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// GetBucketWebsite after delete → 404 NoSuchWebsiteConfiguration
+	req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?website", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "NoSuchWebsiteConfiguration")
+}
+
+// TestS3BucketWebsite_MalformedXML verifies that PutBucketWebsite rejects invalid XML.
+func TestS3BucketWebsite_MalformedXML(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "website-malformed-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?website", strings.NewReader("not-valid-xml"))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MalformedXML")
 }

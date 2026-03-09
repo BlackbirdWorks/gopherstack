@@ -1548,6 +1548,42 @@ func TestTerraform_S3Control(t *testing.T) {
 	}
 }
 
+// TestTerraform_S3Website provisions an S3 bucket with website configuration and verifies it.
+func TestTerraform_S3Website(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "s3_website/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{"BucketName": "tf-s3-web-" + uuid.NewString()[:8]}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createS3Client(t)
+				out, err := client.GetBucketWebsite(ctx, &s3svc.GetBucketWebsiteInput{
+					Bucket: aws.String(vars["BucketName"].(string)),
+				})
+				require.NoError(t, err, "GetBucketWebsite should succeed after terraform apply")
+				require.NotNil(t, out.IndexDocument)
+				assert.Equal(t, "index.html", aws.ToString(out.IndexDocument.Suffix))
+				require.NotNil(t, out.ErrorDocument)
+				assert.Equal(t, "error.html", aws.ToString(out.ErrorDocument.Key))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_AWSConfig provisions a config recorder and delivery channel and verifies them.
 func TestTerraform_AWSConfig(t *testing.T) {
 	t.Parallel()
