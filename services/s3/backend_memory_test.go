@@ -1162,6 +1162,101 @@ func TestGetBucketACL_NotFound(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestBucketWebsiteConfiguration(t *testing.T) {
+	t.Parallel()
+
+	const websiteXML = `<WebsiteConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
+		`<IndexDocument><Suffix>index.html</Suffix></IndexDocument>` +
+		`<ErrorDocument><Key>error.html</Key></ErrorDocument>` +
+		`</WebsiteConfiguration>`
+
+	tests := []struct {
+		wantErr error
+		setup   func(t *testing.T, backend *s3.InMemoryBackend, bucket string)
+		name    string
+		bucket  string
+		want    string
+	}{
+		{
+			name:   "get returns NoSuchWebsiteConfiguration when not set",
+			bucket: "website-test-bucket",
+			setup: func(_ *testing.T, _ *s3.InMemoryBackend, _ string) {
+				// No website config stored.
+			},
+			wantErr: s3.ErrNoWebsiteConfig,
+		},
+		{
+			name:   "put then get returns stored config",
+			bucket: "website-test-bucket",
+			setup: func(t *testing.T, backend *s3.InMemoryBackend, bucket string) {
+				t.Helper()
+				err := backend.PutBucketWebsite(t.Context(), bucket, websiteXML)
+				require.NoError(t, err)
+			},
+			want: websiteXML,
+		},
+		{
+			name:   "delete clears the config",
+			bucket: "website-test-bucket",
+			setup: func(t *testing.T, backend *s3.InMemoryBackend, bucket string) {
+				t.Helper()
+				err := backend.PutBucketWebsite(t.Context(), bucket, websiteXML)
+				require.NoError(t, err)
+				err = backend.DeleteBucketWebsite(t.Context(), bucket)
+				require.NoError(t, err)
+			},
+			wantErr: s3.ErrNoWebsiteConfig,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := newTestBackend(t)
+			_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+				Bucket: aws.String(tt.bucket),
+			})
+			require.NoError(t, err)
+
+			tt.setup(t, backend, tt.bucket)
+
+			got, err := backend.GetBucketWebsite(t.Context(), tt.bucket)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPutBucketWebsite_NotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	err := backend.PutBucketWebsite(t.Context(), "nonexistent-bucket", "<WebsiteConfiguration/>")
+	assert.ErrorIs(t, err, s3.ErrNoSuchBucket)
+}
+
+func TestGetBucketWebsite_NotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	_, err := backend.GetBucketWebsite(t.Context(), "nonexistent-bucket")
+	assert.ErrorIs(t, err, s3.ErrNoSuchBucket)
+}
+
+func TestDeleteBucketWebsite_NotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+	err := backend.DeleteBucketWebsite(t.Context(), "nonexistent-bucket")
+	assert.ErrorIs(t, err, s3.ErrNoSuchBucket)
+}
+
 func TestCompressionMinBytes_PutObject(t *testing.T) {
 	t.Parallel()
 

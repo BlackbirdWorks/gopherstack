@@ -22,6 +22,7 @@ type StoredBucket struct {
 	LifecycleConfig    string    `json:"lifecycleConfig,omitempty"`
 	NotificationConfig string    `json:"notificationConfig,omitempty"`
 	ObjectLockConfig   string    `json:"objectLockConfig,omitempty"`
+	WebsiteConfig      string    `json:"websiteConfig,omitempty"`
 	CreationDate       time.Time `json:"creationDate"`
 	ACL                string    `json:"acl,omitempty"`
 	// Versioning must precede non-pointer fields so its trailing len word falls

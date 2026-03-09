@@ -97,6 +97,53 @@ type CORSRule struct {
 	MaxAgeSeconds  int      `xml:"MaxAgeSeconds,omitempty"`
 }
 
+// WebsiteConfiguration is the XML body for PutBucketWebsite / GetBucketWebsite.
+type WebsiteConfiguration struct {
+	XMLName               xml.Name              `xml:"WebsiteConfiguration"`
+	Xmlns                 string                `xml:"xmlns,attr,omitempty"`
+	IndexDocument         *WebsiteIndexDocument `xml:"IndexDocument,omitempty"`
+	ErrorDocument         *WebsiteErrorDocument `xml:"ErrorDocument,omitempty"`
+	RedirectAllRequestsTo *WebsiteRedirectAll   `xml:"RedirectAllRequestsTo,omitempty"`
+	RoutingRules          []WebsiteRoutingRule  `xml:"RoutingRules>RoutingRule,omitempty"`
+}
+
+// WebsiteIndexDocument specifies the suffix of the object used as an index.
+type WebsiteIndexDocument struct {
+	Suffix string `xml:"Suffix"`
+}
+
+// WebsiteErrorDocument specifies the object to return on 4XX errors.
+type WebsiteErrorDocument struct {
+	Key string `xml:"Key"`
+}
+
+// WebsiteRedirectAll configures a redirect for all requests to a given host.
+type WebsiteRedirectAll struct {
+	HostName string `xml:"HostName"`
+	Protocol string `xml:"Protocol,omitempty"`
+}
+
+// WebsiteRoutingRule is a single conditional routing rule.
+type WebsiteRoutingRule struct {
+	Condition *WebsiteRoutingRuleCondition `xml:"Condition,omitempty"`
+	Redirect  WebsiteRoutingRuleRedirect   `xml:"Redirect"`
+}
+
+// WebsiteRoutingRuleCondition specifies the condition for a routing rule.
+type WebsiteRoutingRuleCondition struct {
+	KeyPrefixEquals             string `xml:"KeyPrefixEquals,omitempty"`
+	HTTPErrorCodeReturnedEquals string `xml:"HttpErrorCodeReturnedEquals,omitempty"`
+}
+
+// WebsiteRoutingRuleRedirect specifies the redirect target for a routing rule.
+type WebsiteRoutingRuleRedirect struct {
+	HostName             string `xml:"HostName,omitempty"`
+	Protocol             string `xml:"Protocol,omitempty"`
+	ReplaceKeyPrefixWith string `xml:"ReplaceKeyPrefixWith,omitempty"`
+	ReplaceKeyWith       string `xml:"ReplaceKeyWith,omitempty"`
+	HTTPRedirectCode     string `xml:"HttpRedirectCode,omitempty"`
+}
+
 type TagSet struct {
 	Tags []Tag `xml:"Tag"`
 }
