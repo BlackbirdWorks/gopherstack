@@ -68,6 +68,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"CreatePlatformApplication",
+		"GetPlatformApplicationAttributes",
+		"SetPlatformApplicationAttributes",
+		"ListPlatformApplications",
+		"DeletePlatformApplication",
+		"CreatePlatformEndpoint",
+		"GetEndpointAttributes",
+		"SetEndpointAttributes",
+		"ListEndpointsByPlatformApplication",
+		"DeleteEndpoint",
 	}
 }
 
@@ -172,23 +182,33 @@ func (h *Handler) dispatch(c *echo.Context, action string) error {
 // buildActions constructs the action dispatch table.
 func (h *Handler) buildActions() map[string]snsActionFn {
 	return map[string]snsActionFn{
-		"CreateTopic":               h.handleCreateTopic,
-		"DeleteTopic":               h.handleDeleteTopic,
-		"ListTopics":                h.handleListTopics,
-		"GetTopicAttributes":        h.handleGetTopicAttributes,
-		"SetTopicAttributes":        h.handleSetTopicAttributes,
-		"Subscribe":                 h.handleSubscribe,
-		"ConfirmSubscription":       h.handleConfirmSubscription,
-		"Unsubscribe":               h.handleUnsubscribe,
-		"ListSubscriptions":         h.handleListSubscriptions,
-		"ListSubscriptionsByTopic":  h.handleListSubscriptionsByTopic,
-		"Publish":                   h.handlePublish,
-		"PublishBatch":              h.handlePublishBatch,
-		"GetSubscriptionAttributes": h.handleGetSubscriptionAttributes,
-		"SetSubscriptionAttributes": h.handleSetSubscriptionAttributes,
-		"ListTagsForResource":       h.handleListTagsForResource,
-		"TagResource":               h.handleTagResource,
-		"UntagResource":             h.handleUntagResource,
+		"CreateTopic":                        h.handleCreateTopic,
+		"DeleteTopic":                        h.handleDeleteTopic,
+		"ListTopics":                         h.handleListTopics,
+		"GetTopicAttributes":                 h.handleGetTopicAttributes,
+		"SetTopicAttributes":                 h.handleSetTopicAttributes,
+		"Subscribe":                          h.handleSubscribe,
+		"ConfirmSubscription":                h.handleConfirmSubscription,
+		"Unsubscribe":                        h.handleUnsubscribe,
+		"ListSubscriptions":                  h.handleListSubscriptions,
+		"ListSubscriptionsByTopic":           h.handleListSubscriptionsByTopic,
+		"Publish":                            h.handlePublish,
+		"PublishBatch":                       h.handlePublishBatch,
+		"GetSubscriptionAttributes":          h.handleGetSubscriptionAttributes,
+		"SetSubscriptionAttributes":          h.handleSetSubscriptionAttributes,
+		"ListTagsForResource":                h.handleListTagsForResource,
+		"TagResource":                        h.handleTagResource,
+		"UntagResource":                      h.handleUntagResource,
+		"CreatePlatformApplication":          h.handleCreatePlatformApplication,
+		"GetPlatformApplicationAttributes":   h.handleGetPlatformApplicationAttributes,
+		"SetPlatformApplicationAttributes":   h.handleSetPlatformApplicationAttributes,
+		"ListPlatformApplications":           h.handleListPlatformApplications,
+		"DeletePlatformApplication":          h.handleDeletePlatformApplication,
+		"CreatePlatformEndpoint":             h.handleCreatePlatformEndpoint,
+		"GetEndpointAttributes":              h.handleGetEndpointAttributes,
+		"SetEndpointAttributes":              h.handleSetEndpointAttributes,
+		"ListEndpointsByPlatformApplication": h.handleListEndpointsByPlatformApplication,
+		"DeleteEndpoint":                     h.handleDeleteEndpoint,
 	}
 }
 
@@ -577,6 +597,215 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 	)
 }
 
+func (h *Handler) handleCreatePlatformApplication(c *echo.Context) error {
+	name := c.Request().FormValue("Name")
+	platform := c.Request().FormValue("Platform")
+
+	if name == "" || platform == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "Name and Platform are required")
+	}
+
+	attrs := extractFormAttributes(c)
+
+	app, err := h.Backend.CreatePlatformApplication(name, platform, attrs)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, CreatePlatformApplicationResponse{
+		CreatePlatformApplicationResult: CreatePlatformApplicationResult{
+			PlatformApplicationArn: app.PlatformApplicationArn,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleGetPlatformApplicationAttributes(c *echo.Context) error {
+	platformApplicationArn := c.Request().FormValue("PlatformApplicationArn")
+	if platformApplicationArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PlatformApplicationArn is required")
+	}
+
+	attrs, err := h.Backend.GetPlatformApplicationAttributes(platformApplicationArn)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, GetPlatformApplicationAttributesResponse{
+		GetPlatformApplicationAttributesResult: GetPlatformApplicationAttributesResult{
+			Attributes: attrsToEntries(attrs),
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleSetPlatformApplicationAttributes(c *echo.Context) error {
+	platformApplicationArn := c.Request().FormValue("PlatformApplicationArn")
+	if platformApplicationArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PlatformApplicationArn is required")
+	}
+
+	attrs := extractFormAttributes(c)
+
+	if err := h.Backend.SetPlatformApplicationAttributes(platformApplicationArn, attrs); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, SetPlatformApplicationAttributesResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListPlatformApplications(c *echo.Context) error {
+	nextToken := c.Request().FormValue("NextToken")
+
+	apps, token, err := h.Backend.ListPlatformApplications(nextToken)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	members := make([]XMLPlatformApplication, len(apps))
+	for i, a := range apps {
+		members[i] = XMLPlatformApplication{
+			PlatformApplicationArn: a.PlatformApplicationArn,
+			Attributes:             attrsToEntries(a.Attributes),
+		}
+	}
+
+	return h.writeXML(c, ListPlatformApplicationsResponse{
+		ListPlatformApplicationsResult: ListPlatformApplicationsResult{
+			PlatformApplications: members,
+			NextToken:            token,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleDeletePlatformApplication(c *echo.Context) error {
+	platformApplicationArn := c.Request().FormValue("PlatformApplicationArn")
+	if platformApplicationArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PlatformApplicationArn is required")
+	}
+
+	if err := h.Backend.DeletePlatformApplication(platformApplicationArn); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, DeletePlatformApplicationResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleCreatePlatformEndpoint(c *echo.Context) error {
+	platformApplicationArn := c.Request().FormValue("PlatformApplicationArn")
+	token := c.Request().FormValue("Token")
+
+	if platformApplicationArn == "" || token == "" {
+		return h.writeError(
+			c,
+			http.StatusBadRequest,
+			"InvalidParameter",
+			"PlatformApplicationArn and Token are required",
+		)
+	}
+
+	attrs := extractFormAttributes(c)
+
+	// CustomUserData is sent as a top-level form field by the AWS SDK, not under Attributes.entry.*.
+	if customData := c.Request().FormValue("CustomUserData"); customData != "" {
+		attrs["CustomUserData"] = customData
+	}
+
+	ep, err := h.Backend.CreatePlatformEndpoint(platformApplicationArn, token, attrs)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, CreatePlatformEndpointResponse{
+		CreatePlatformEndpointResult: CreatePlatformEndpointResult{EndpointArn: ep.EndpointArn},
+		ResponseMetadata:             ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleGetEndpointAttributes(c *echo.Context) error {
+	endpointArn := c.Request().FormValue("EndpointArn")
+	if endpointArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "EndpointArn is required")
+	}
+
+	attrs, err := h.Backend.GetEndpointAttributes(endpointArn)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, GetEndpointAttributesResponse{
+		GetEndpointAttributesResult: GetEndpointAttributesResult{Attributes: attrsToEntries(attrs)},
+		ResponseMetadata:            ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleSetEndpointAttributes(c *echo.Context) error {
+	endpointArn := c.Request().FormValue("EndpointArn")
+	if endpointArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "EndpointArn is required")
+	}
+
+	attrs := extractFormAttributes(c)
+
+	if err := h.Backend.SetEndpointAttributes(endpointArn, attrs); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, SetEndpointAttributesResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleListEndpointsByPlatformApplication(c *echo.Context) error {
+	platformApplicationArn := c.Request().FormValue("PlatformApplicationArn")
+	if platformApplicationArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "PlatformApplicationArn is required")
+	}
+
+	nextToken := c.Request().FormValue("NextToken")
+
+	eps, token, err := h.Backend.ListEndpointsByPlatformApplication(platformApplicationArn, nextToken)
+	if err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	members := make([]XMLPlatformEndpoint, len(eps))
+	for i, ep := range eps {
+		members[i] = XMLPlatformEndpoint{
+			EndpointArn: ep.EndpointArn,
+			Attributes:  attrsToEntries(ep.Attributes),
+		}
+	}
+
+	return h.writeXML(c, ListEndpointsByPlatformApplicationResponse{
+		ListEndpointsByPlatformApplicationResult: ListEndpointsByPlatformApplicationResult{
+			Endpoints: members,
+			NextToken: token,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
+func (h *Handler) handleDeleteEndpoint(c *echo.Context) error {
+	endpointArn := c.Request().FormValue("EndpointArn")
+	if endpointArn == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameter", "EndpointArn is required")
+	}
+
+	if err := h.Backend.DeleteEndpoint(endpointArn); err != nil {
+		return h.handleBackendError(c, err)
+	}
+
+	return h.writeXML(c, DeleteEndpointResponse{
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.New().String()},
+	})
+}
+
 // writeXML marshals v to XML and writes an HTTP 200 OK response.
 func (h *Handler) writeXML(c *echo.Context, v any) error {
 	httputils.WriteXML(c.Request().Context(), c.Response(), http.StatusOK, v)
@@ -605,10 +834,11 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 	status := http.StatusBadRequest
 
 	switch {
-	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound):
+	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound),
+		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound):
 		log.WarnContext(ctx, "SNS resource not found", "error", err)
-	case errors.Is(err, ErrTopicAlreadyExists):
-		log.WarnContext(ctx, "SNS topic already exists", "error", err)
+	case errors.Is(err, ErrTopicAlreadyExists), errors.Is(err, ErrPlatformApplicationAlreadyExists):
+		log.WarnContext(ctx, "SNS resource already exists", "error", err)
 	case errors.Is(err, ErrInvalidParameter):
 		log.WarnContext(ctx, "SNS invalid parameter", "error", err)
 	default:
@@ -622,10 +852,13 @@ func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 // errorCode returns the SNS error code string for the given error.
 func errorCode(err error) string {
 	switch {
-	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound):
+	case errors.Is(err, ErrTopicNotFound), errors.Is(err, ErrSubscriptionNotFound),
+		errors.Is(err, ErrPlatformApplicationNotFound), errors.Is(err, ErrEndpointNotFound):
 		return "NotFound"
 	case errors.Is(err, ErrTopicAlreadyExists):
 		return "TopicAlreadyExists"
+	case errors.Is(err, ErrPlatformApplicationAlreadyExists):
+		return "PlatformApplicationAlreadyExists"
 	case errors.Is(err, ErrInvalidParameter):
 		return "InvalidParameter"
 	default:

@@ -3,17 +3,34 @@ package dashboard
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/services/sns"
 )
 
+const (
+	// arnResourceIndex is the index of the resource segment in an ARN split by ":".
+	arnResourceIndex = 5
+	// platformARNResourceParts is the number of slash-delimited segments in the
+	// resource component of a platform application ARN: "app/{Platform}/{Name}".
+	platformARNResourceParts = 3
+)
+
 // snsIndexData is the template data for the SNS topics list page.
 type snsIndexData struct {
 	PageData
 
-	Topics []any
+	Topics               []any
+	PlatformApplications []snsPlatformApplicationView
+}
+
+// snsPlatformApplicationView is the view model for a single SNS platform application.
+type snsPlatformApplicationView struct {
+	PlatformApplicationArn string
+	Platform               string
+	Name                   string
 }
 
 // snsTopicDetailData is the template data for the SNS topic detail page.
@@ -125,6 +142,7 @@ func (h *DashboardHandler) snsIndex(c *echo.Context) error {
 	}
 
 	topics := h.SNSOps.Backend.ListAllTopics()
+	apps := h.SNSOps.Backend.ListAllPlatformApplications()
 
 	data := snsIndexData{
 		PageData: PageData{
@@ -152,16 +170,43 @@ import boto3
 client = boto3.client('sns', endpoint_url='http://localhost:8000')`,
 			},
 		},
-		Topics: make([]any, 0),
+		Topics:               make([]any, 0),
+		PlatformApplications: make([]snsPlatformApplicationView, 0, len(apps)),
 	}
 
 	for _, t := range topics {
 		data.Topics = append(data.Topics, t)
 	}
 
+	for _, app := range apps {
+		platform, name := parsePlatformARN(app.PlatformApplicationArn)
+		data.PlatformApplications = append(data.PlatformApplications, snsPlatformApplicationView{
+			PlatformApplicationArn: app.PlatformApplicationArn,
+			Platform:               platform,
+			Name:                   name,
+		})
+	}
+
 	h.renderTemplate(w, "sns/index.html", data)
 
 	return nil
+}
+
+// parsePlatformARN extracts the platform type and application name from a platform
+// application ARN in the form "arn:aws:sns:{region}:{account}:app/{Platform}/{Name}".
+// Returns empty strings if the ARN does not match the expected format.
+func parsePlatformARN(arnStr string) (string, string) {
+	parts := strings.SplitN(arnStr, ":", arnResourceIndex+1)
+	if len(parts) <= arnResourceIndex {
+		return "", ""
+	}
+
+	segments := strings.SplitN(parts[arnResourceIndex], "/", platformARNResourceParts)
+	if len(segments) != platformARNResourceParts {
+		return "", ""
+	}
+
+	return segments[1], segments[2]
 }
 
 // snsCreateTopic handles creation of a new SNS topic from the dashboard.

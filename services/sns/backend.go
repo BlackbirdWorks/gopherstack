@@ -23,10 +23,13 @@ import (
 )
 
 var (
-	ErrTopicNotFound        = errors.New("NotFound")
-	ErrTopicAlreadyExists   = errors.New("TopicAlreadyExists")
-	ErrSubscriptionNotFound = errors.New("NotFound")
-	ErrInvalidParameter     = errors.New("InvalidParameter")
+	ErrTopicNotFound                    = errors.New("NotFound")
+	ErrTopicAlreadyExists               = errors.New("TopicAlreadyExists")
+	ErrSubscriptionNotFound             = errors.New("NotFound")
+	ErrPlatformApplicationNotFound      = errors.New("NotFound")
+	ErrPlatformApplicationAlreadyExists = errors.New("PlatformApplicationAlreadyExists")
+	ErrEndpointNotFound                 = errors.New("NotFound")
+	ErrInvalidParameter                 = errors.New("InvalidParameter")
 )
 
 const (
@@ -35,6 +38,14 @@ const (
 	attrFilterPolicy       = "FilterPolicy"
 	attrRawMessageDelivery = "RawMessageDelivery"
 	attrRedrivePolicy      = "RedrivePolicy"
+
+	// platformARNResourceParts is the expected number of slash-delimited parts
+	// in a platform application ARN resource component: "app/{Platform}/{AppName}".
+	platformARNResourceParts = 3
+
+	// endpointExtraAttrs is the number of extra attributes added to a new endpoint
+	// beyond what the caller provides: Token and Enabled.
+	endpointExtraAttrs = 2
 )
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -55,20 +66,38 @@ type StorageBackend interface {
 	Publish(topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute) (string, error)
 	ListAllTopics() []Topic
 	ListAllSubscriptions() []Subscription
+	ListAllPlatformApplications() []PlatformApplication
 	GetTopicTags(arn string) map[string]string
 	SetTopicTags(arn string, kv *svcTags.Tags)
 	RemoveTopicTags(arn string, keys []string)
+	// Platform application operations.
+	CreatePlatformApplication(name, platform string, attributes map[string]string) (*PlatformApplication, error)
+	GetPlatformApplicationAttributes(platformApplicationArn string) (map[string]string, error)
+	SetPlatformApplicationAttributes(platformApplicationArn string, attributes map[string]string) error
+	ListPlatformApplications(nextToken string) ([]PlatformApplication, string, error)
+	DeletePlatformApplication(platformApplicationArn string) error
+	// Platform endpoint operations.
+	CreatePlatformEndpoint(
+		platformApplicationArn, token string,
+		attributes map[string]string,
+	) (*PlatformEndpoint, error)
+	GetEndpointAttributes(endpointArn string) (map[string]string, error)
+	SetEndpointAttributes(endpointArn string, attributes map[string]string) error
+	ListEndpointsByPlatformApplication(platformApplicationArn, nextToken string) ([]PlatformEndpoint, string, error)
+	DeleteEndpoint(endpointArn string) error
 }
 
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
-	emitter       events.EventEmitter[*events.SNSPublishedEvent]
-	topics        map[string]*Topic
-	subscriptions map[string]*Subscription
-	topicTags     map[string]*svcTags.Tags
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	region        string
+	emitter              events.EventEmitter[*events.SNSPublishedEvent]
+	topics               map[string]*Topic
+	subscriptions        map[string]*Subscription
+	topicTags            map[string]*svcTags.Tags
+	platformApplications map[string]*PlatformApplication
+	platformEndpoints    map[string]*PlatformEndpoint
+	mu                   *lockmetrics.RWMutex
+	accountID            string
+	region               string
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -79,12 +108,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		topics:        make(map[string]*Topic),
-		subscriptions: make(map[string]*Subscription),
-		topicTags:     make(map[string]*svcTags.Tags),
-		accountID:     accountID,
-		region:        region,
-		mu:            lockmetrics.New("sns"),
+		topics:               make(map[string]*Topic),
+		subscriptions:        make(map[string]*Subscription),
+		topicTags:            make(map[string]*svcTags.Tags),
+		platformApplications: make(map[string]*PlatformApplication),
+		platformEndpoints:    make(map[string]*PlatformEndpoint),
+		accountID:            accountID,
+		region:               region,
+		mu:                   lockmetrics.New("sns"),
 	}
 }
 
@@ -551,6 +582,23 @@ func (b *InMemoryBackend) ListAllSubscriptions() []Subscription {
 	return b.sortedSubscriptions()
 }
 
+// ListAllPlatformApplications returns all platform applications sorted by ARN.
+func (b *InMemoryBackend) ListAllPlatformApplications() []PlatformApplication {
+	b.mu.RLock("ListAllPlatformApplications")
+	defer b.mu.RUnlock()
+
+	apps := make([]PlatformApplication, 0, len(b.platformApplications))
+	for _, app := range b.platformApplications {
+		apps = append(apps, *app)
+	}
+
+	sort.Slice(apps, func(i, j int) bool {
+		return apps[i].PlatformApplicationArn < apps[j].PlatformApplicationArn
+	})
+
+	return apps
+}
+
 // sortedTopics returns topics sorted by TopicArn. Must be called with at least RLock held.
 func (b *InMemoryBackend) sortedTopics() []Topic {
 	topics := make([]Topic, 0, len(b.topics))
@@ -737,4 +785,258 @@ func (b *InMemoryBackend) UntagTopicByARN(topicARN string, tagKeys []string) err
 	}
 
 	return nil
+}
+
+// CreatePlatformApplication creates a new SNS platform application (e.g. GCM, APNS).
+func (b *InMemoryBackend) CreatePlatformApplication(
+	name, platform string,
+	attributes map[string]string,
+) (*PlatformApplication, error) {
+	if strings.ContainsAny(name, "/") || strings.ContainsAny(platform, "/") {
+		return nil, fmt.Errorf("%w: Name and Platform must not contain '/'", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreatePlatformApplication")
+	defer b.mu.Unlock()
+
+	appArn := arn.Build("sns", b.region, b.accountID, "app/"+platform+"/"+name)
+
+	if _, exists := b.platformApplications[appArn]; exists {
+		return nil, ErrPlatformApplicationAlreadyExists
+	}
+
+	attrs := make(map[string]string, len(attributes))
+	maps.Copy(attrs, attributes)
+
+	app := &PlatformApplication{
+		PlatformApplicationArn: appArn,
+		Attributes:             attrs,
+	}
+	b.platformApplications[appArn] = app
+
+	return app, nil
+}
+
+// GetPlatformApplicationAttributes returns the attributes of a platform application.
+func (b *InMemoryBackend) GetPlatformApplicationAttributes(platformApplicationArn string) (map[string]string, error) {
+	b.mu.RLock("GetPlatformApplicationAttributes")
+	defer b.mu.RUnlock()
+
+	app, exists := b.platformApplications[platformApplicationArn]
+	if !exists {
+		return nil, ErrPlatformApplicationNotFound
+	}
+
+	attrs := make(map[string]string, len(app.Attributes))
+	maps.Copy(attrs, app.Attributes)
+
+	return attrs, nil
+}
+
+// SetPlatformApplicationAttributes updates attributes on a platform application.
+func (b *InMemoryBackend) SetPlatformApplicationAttributes(
+	platformApplicationArn string,
+	attributes map[string]string,
+) error {
+	b.mu.Lock("SetPlatformApplicationAttributes")
+	defer b.mu.Unlock()
+
+	app, exists := b.platformApplications[platformApplicationArn]
+	if !exists {
+		return ErrPlatformApplicationNotFound
+	}
+
+	maps.Copy(app.Attributes, attributes)
+
+	return nil
+}
+
+// ListPlatformApplications returns a page of platform applications and the next pagination token.
+func (b *InMemoryBackend) ListPlatformApplications(nextToken string) ([]PlatformApplication, string, error) {
+	b.mu.RLock("ListPlatformApplications")
+	defer b.mu.RUnlock()
+
+	all := b.sortedPlatformApplications()
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrInvalidParameter
+	}
+
+	apps, next := paginate(all, offset, pageSize)
+
+	return apps, next, nil
+}
+
+// DeletePlatformApplication removes a platform application and its endpoints by ARN.
+func (b *InMemoryBackend) DeletePlatformApplication(platformApplicationArn string) error {
+	b.mu.Lock("DeletePlatformApplication")
+	defer b.mu.Unlock()
+
+	if _, exists := b.platformApplications[platformApplicationArn]; !exists {
+		return ErrPlatformApplicationNotFound
+	}
+
+	delete(b.platformApplications, platformApplicationArn)
+
+	// Remove all endpoints associated with this platform application.
+	for endpointArn, ep := range b.platformEndpoints {
+		if ep.PlatformApplicationArn == platformApplicationArn {
+			delete(b.platformEndpoints, endpointArn)
+		}
+	}
+
+	return nil
+}
+
+// CreatePlatformEndpoint registers a device token as an endpoint for a platform application.
+func (b *InMemoryBackend) CreatePlatformEndpoint(
+	platformApplicationArn, token string,
+	attributes map[string]string,
+) (*PlatformEndpoint, error) {
+	b.mu.Lock("CreatePlatformEndpoint")
+	defer b.mu.Unlock()
+
+	app, exists := b.platformApplications[platformApplicationArn]
+	if !exists {
+		return nil, ErrPlatformApplicationNotFound
+	}
+
+	// Derive the platform and app name from the platform application ARN.
+	// ARN format: arn:aws:sns:{region}:{accountID}:app/{Platform}/{AppName}
+	parts := strings.Split(app.PlatformApplicationArn, ":")
+	resource := parts[len(parts)-1] // "app/{Platform}/{AppName}"
+	resourceParts := strings.SplitN(resource, "/", platformARNResourceParts)
+
+	if len(resourceParts) != platformARNResourceParts {
+		return nil, fmt.Errorf(
+			"%w: malformed platform application ARN: %s",
+			ErrInvalidParameter,
+			platformApplicationArn,
+		)
+	}
+
+	platform := resourceParts[1]
+	appName := resourceParts[2]
+
+	endpointArn := arn.Build("sns", b.region, b.accountID,
+		"endpoint/"+platform+"/"+appName+"/"+uuid.New().String())
+
+	// Allocate with room for Token and Enabled (endpointExtraAttrs) beyond caller-supplied attrs.
+	attrs := make(map[string]string, len(attributes)+endpointExtraAttrs)
+	maps.Copy(attrs, attributes)
+	attrs["Token"] = token
+	attrs["Enabled"] = "true"
+
+	ep := &PlatformEndpoint{
+		EndpointArn:            endpointArn,
+		PlatformApplicationArn: platformApplicationArn,
+		Attributes:             attrs,
+	}
+	b.platformEndpoints[endpointArn] = ep
+
+	return ep, nil
+}
+
+// GetEndpointAttributes returns the attributes of a platform endpoint.
+func (b *InMemoryBackend) GetEndpointAttributes(endpointArn string) (map[string]string, error) {
+	b.mu.RLock("GetEndpointAttributes")
+	defer b.mu.RUnlock()
+
+	ep, exists := b.platformEndpoints[endpointArn]
+	if !exists {
+		return nil, ErrEndpointNotFound
+	}
+
+	attrs := make(map[string]string, len(ep.Attributes))
+	maps.Copy(attrs, ep.Attributes)
+
+	return attrs, nil
+}
+
+// SetEndpointAttributes updates attributes on a platform endpoint.
+func (b *InMemoryBackend) SetEndpointAttributes(endpointArn string, attributes map[string]string) error {
+	b.mu.Lock("SetEndpointAttributes")
+	defer b.mu.Unlock()
+
+	ep, exists := b.platformEndpoints[endpointArn]
+	if !exists {
+		return ErrEndpointNotFound
+	}
+
+	maps.Copy(ep.Attributes, attributes)
+
+	return nil
+}
+
+// ListEndpointsByPlatformApplication returns a page of endpoints for a platform application.
+func (b *InMemoryBackend) ListEndpointsByPlatformApplication(
+	platformApplicationArn, nextToken string,
+) ([]PlatformEndpoint, string, error) {
+	b.mu.RLock("ListEndpointsByPlatformApplication")
+	defer b.mu.RUnlock()
+
+	if _, exists := b.platformApplications[platformApplicationArn]; !exists {
+		return nil, "", ErrPlatformApplicationNotFound
+	}
+
+	all := b.sortedEndpoints()
+	filtered := make([]PlatformEndpoint, 0, len(all))
+
+	for _, ep := range all {
+		if ep.PlatformApplicationArn == platformApplicationArn {
+			filtered = append(filtered, ep)
+		}
+	}
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrInvalidParameter
+	}
+
+	eps, next := paginate(filtered, offset, pageSize)
+
+	return eps, next, nil
+}
+
+// DeleteEndpoint removes a platform endpoint by ARN.
+func (b *InMemoryBackend) DeleteEndpoint(endpointArn string) error {
+	b.mu.Lock("DeleteEndpoint")
+	defer b.mu.Unlock()
+
+	if _, exists := b.platformEndpoints[endpointArn]; !exists {
+		return ErrEndpointNotFound
+	}
+
+	delete(b.platformEndpoints, endpointArn)
+
+	return nil
+}
+
+// sortedPlatformApplications returns platform applications sorted by ARN. Must be called with at least RLock held.
+func (b *InMemoryBackend) sortedPlatformApplications() []PlatformApplication {
+	apps := make([]PlatformApplication, 0, len(b.platformApplications))
+	for _, a := range b.platformApplications {
+		apps = append(apps, *a)
+	}
+
+	sort.Slice(apps, func(i, j int) bool {
+		return apps[i].PlatformApplicationArn < apps[j].PlatformApplicationArn
+	})
+
+	return apps
+}
+
+// sortedEndpoints returns platform endpoints sorted by ARN. Must be called with at least RLock held.
+func (b *InMemoryBackend) sortedEndpoints() []PlatformEndpoint {
+	eps := make([]PlatformEndpoint, 0, len(b.platformEndpoints))
+	for _, ep := range b.platformEndpoints {
+		eps = append(eps, *ep)
+	}
+
+	sort.Slice(eps, func(i, j int) bool {
+		return eps[i].EndpointArn < eps[j].EndpointArn
+	})
+
+	return eps
 }
