@@ -100,6 +100,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteTags",
 		"DescribeInstanceAttribute",
 		"DescribeImageAttribute",
+		"DescribeLaunchTemplates",
 	}
 }
 
@@ -292,6 +293,7 @@ func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 		"AuthorizeSecurityGroupEgress":  h.handleAuthorizeSecurityGroupEgress,
 		"RevokeSecurityGroupIngress":    h.handleRevokeSecurityGroupIngress,
 		"DescribeImageAttribute":        h.handleDescribeImageAttribute,
+		"DescribeLaunchTemplates":       h.handleDescribeLaunchTemplates,
 	}
 }
 
@@ -569,6 +571,18 @@ func (h *Handler) handleRevokeSecurityGroupEgress(_ url.Values, reqID string) (a
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		Return:    "true",
+	}, nil
+}
+
+// handleDescribeLaunchTemplates returns an empty stub response.
+// Terraform calls this to read back launch-template metadata when the aws_instance resource's
+// read phase runs after instance creation. Since gopherstack does not implement launch templates,
+// returning an empty set prevents Terraform from failing with a "not found" error.
+func (h *Handler) handleDescribeLaunchTemplates(_ url.Values, reqID string) (any, error) {
+	return &describeLaunchTemplatesResponse{
+		Xmlns:             ec2XMLNS,
+		RequestID:         reqID,
+		LaunchTemplateSet: launchTemplateSet{},
 	}, nil
 }
 
@@ -1107,6 +1121,17 @@ type deleteTagsResponse struct {
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
 	Return    string   `xml:"return"`
+}
+
+type launchTemplateSet struct {
+	Items []struct{} `xml:"item"`
+}
+
+type describeLaunchTemplatesResponse struct {
+	XMLName           xml.Name          `xml:"DescribeLaunchTemplatesResponse"`
+	Xmlns             string            `xml:"xmlns,attr"`
+	RequestID         string            `xml:"requestId"`
+	LaunchTemplateSet launchTemplateSet `xml:"launchTemplates"`
 }
 
 // namedStringAttr is a string attribute element whose XML element name is set dynamically.
