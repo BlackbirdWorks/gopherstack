@@ -7,9 +7,14 @@ import (
 )
 
 type backendSnapshot struct {
-	Parameters map[string]Parameter          `json:"parameters"`
-	History    map[string][]ParameterHistory `json:"history"`
-	Tags       map[string]*tags.Tags         `json:"tags"`
+	Parameters          map[string]Parameter           `json:"parameters"`
+	History             map[string][]ParameterHistory  `json:"history"`
+	Tags                map[string]*tags.Tags          `json:"tags"`
+	Documents           map[string]Document            `json:"documents"`
+	DocumentVersions    map[string][]DocumentVersion   `json:"document_versions"`
+	DocumentPermissions map[string][]string            `json:"document_permissions"`
+	Commands            map[string]Command             `json:"commands"`
+	CommandInvocations  map[string][]CommandInvocation `json:"command_invocations"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -19,9 +24,14 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Parameters: b.parameters,
-		History:    b.history,
-		Tags:       b.tags,
+		Parameters:          b.parameters,
+		History:             b.history,
+		Tags:                b.tags,
+		Documents:           b.documents,
+		DocumentVersions:    b.documentVersions,
+		DocumentPermissions: b.documentPermissions,
+		Commands:            b.commands,
+		CommandInvocations:  b.commandInvocations,
 	}
 
 	data, err := json.Marshal(snap)
@@ -56,9 +66,34 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Tags = make(map[string]*tags.Tags)
 	}
 
+	if snap.Documents == nil {
+		snap.Documents = make(map[string]Document)
+	}
+
+	if snap.DocumentVersions == nil {
+		snap.DocumentVersions = make(map[string][]DocumentVersion)
+	}
+
+	if snap.DocumentPermissions == nil {
+		snap.DocumentPermissions = make(map[string][]string)
+	}
+
+	if snap.Commands == nil {
+		snap.Commands = make(map[string]Command)
+	}
+
+	if snap.CommandInvocations == nil {
+		snap.CommandInvocations = make(map[string][]CommandInvocation)
+	}
+
 	b.parameters = snap.Parameters
 	b.history = snap.History
 	b.tags = snap.Tags
+	b.documents = snap.Documents
+	b.documentVersions = snap.DocumentVersions
+	b.documentPermissions = snap.DocumentPermissions
+	b.commands = snap.Commands
+	b.commandInvocations = snap.CommandInvocations
 
 	return nil
 }
