@@ -48,6 +48,7 @@ import (
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -144,6 +145,7 @@ type CLI struct {
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
 	cognitoIDPHandler            service.Registerable
+	cognitoIdentityHandler       service.Registerable
 	fisHandler                   service.Registerable
 	faultStore                   *chaos.FaultStore
 	snsClient                    *sns.Client
@@ -456,6 +458,11 @@ func (c *CLI) GetAppSyncHandler() service.Registerable { return c.appSyncHandler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCognitoIDPHandler() service.Registerable { return c.cognitoIDPHandler }
+
+// GetCognitoIdentityHandler returns the Cognito Identity handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCognitoIdentityHandler() service.Registerable { return c.cognitoIdentityHandler }
 
 // GetFaultStore returns the chaos fault store (dashboard.AWSSDKProvider).
 func (c *CLI) GetFaultStore() *chaos.FaultStore { return c.faultStore }
@@ -794,6 +801,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.cognitoIDPHandler = byName["CognitoIDP"]
+	cli.cognitoIdentityHandler = byName["CognitoIdentity"]
 	cli.fisHandler = byName["FIS"]
 }
 
@@ -949,6 +957,7 @@ func getServiceProviders() []service.Provider {
 		&ecsbackend.Provider{},
 		&fisbackend.Provider{},
 		&cognitoidpbackend.Provider{},
+		&cognitoidentitybackend.Provider{},
 		&iotbackend.Provider{},
 		&iotdataplanebackend.Provider{},
 		&appsyncbackend.Provider{},

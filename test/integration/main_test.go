@@ -23,6 +23,7 @@ import (
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cognitoidentitysdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -855,6 +856,26 @@ func createAppSyncClient(t *testing.T) *appsyncsdkv2.Client {
 	}
 
 	return appsyncsdkv2.NewFromConfig(cfg, func(o *appsyncsdkv2.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCognitoIdentityClient returns a Cognito Identity client pointed at the shared test container.
+func createCognitoIdentityClient(t *testing.T) *cognitoidentitysdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return cognitoidentitysdk.NewFromConfig(cfg, func(o *cognitoidentitysdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

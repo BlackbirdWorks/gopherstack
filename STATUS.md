@@ -2,7 +2,7 @@
 
 This document tracks the implementation status of AWS services in Gopherstack, specifically focusing on feature parity with LocalStack.
 
-> **Note:** Gopherstack implements 42 services, covering 34 LocalStack Community (Free) Tier services and 8 LocalStack Pro (Paid) Tier services, offering significant competitive advantages.
+> **Note:** Gopherstack implements 43 services, covering 35 LocalStack Community (Free) Tier services and 8 LocalStack Pro (Paid) Tier services, offering significant competitive advantages.
 
 ## LocalStack Community (Free) Tier Parity
 
@@ -15,6 +15,7 @@ This document tracks the implementation status of AWS services in Gopherstack, s
 | **CloudWatch** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **CloudWatch Logs** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Cognito IDP** | ✅ Yes | ❌ No | ❌ No |
+| **Cognito Identity** | ✅ Yes | ❌ No | ❌ No |
 | **DynamoDB** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EC2** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **EventBridge** | ✅ Yes | ✅ Yes | ✅ Yes |
@@ -70,7 +71,7 @@ The Chaos API supports:
 - Per-service, per-region, per-operation fault injection with configurable error codes and probability
 - Dynamic latency simulation (fixed, range, jitter)
 - Real-time activity log
-- Auto-discovery of all 42 injectable services via `GET /_gopherstack/chaos/targets`
+- Auto-discovery of all 43 injectable services via `GET /_gopherstack/chaos/targets`
 
 ## Summary of Missing Components
 
@@ -127,7 +128,6 @@ The following services are supported by LocalStack (either Free or Pro tier) but
 | **Codedeploy** | ❌ No | ❌ No | ❌ No |
 | **Codepipeline** | ❌ No | ❌ No | ❌ No |
 | **Codestar Connections** | ❌ No | ❌ No | ❌ No |
-| **Cognito Identity** | ❌ No | ❌ No | ❌ No |
 | **Dms** | ❌ No | ❌ No | ❌ No |
 | **Docdb** | ❌ No | ❌ No | ❌ No |
 | **Dynamodbstreams** | ❌ No | ❌ No | ❌ No |
