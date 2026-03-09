@@ -19,12 +19,15 @@ func TestIntegration_S3_Encryption(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	tests := []struct {
-		setup   func(t *testing.T, client *s3.Client, bucket string)
-		name    string
-		wantErr bool
+		setup        func(t *testing.T, client *s3.Client, bucket string)
+		wantAlg      types.ServerSideEncryption
+		wantKMSKeyID string
+		name         string
+		wantErr      bool
 	}{
 		{
-			name: "put and get AES256 encryption configuration",
+			name:    "put and get AES256 encryption configuration",
+			wantAlg: types.ServerSideEncryptionAes256,
 			setup: func(t *testing.T, client *s3.Client, bucket string) {
 				t.Helper()
 				_, err := client.PutBucketEncryption(t.Context(), &s3.PutBucketEncryptionInput{
@@ -43,7 +46,9 @@ func TestIntegration_S3_Encryption(t *testing.T) {
 			},
 		},
 		{
-			name: "put and get aws:kms encryption configuration",
+			name:         "put and get aws:kms encryption configuration",
+			wantAlg:      types.ServerSideEncryptionAwsKms,
+			wantKMSKeyID: "arn:aws:kms:us-east-1:000000000000:key/test-key",
 			setup: func(t *testing.T, client *s3.Client, bucket string) {
 				t.Helper()
 				_, err := client.PutBucketEncryption(t.Context(), &s3.PutBucketEncryptionInput{
@@ -89,7 +94,7 @@ func TestIntegration_S3_Encryption(t *testing.T) {
 
 			tt.setup(t, client, bucket)
 
-			_, err = client.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{
+			out, err := client.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{
 				Bucket: aws.String(bucket),
 			})
 
@@ -104,6 +109,16 @@ func TestIntegration_S3_Encryption(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			require.NotNil(t, out.ServerSideEncryptionConfiguration)
+			require.NotEmpty(t, out.ServerSideEncryptionConfiguration.Rules)
+
+			rule := out.ServerSideEncryptionConfiguration.Rules[0]
+			require.NotNil(t, rule.ApplyServerSideEncryptionByDefault)
+			assert.Equal(t, tt.wantAlg, rule.ApplyServerSideEncryptionByDefault.SSEAlgorithm)
+
+			if tt.wantKMSKeyID != "" {
+				assert.Equal(t, tt.wantKMSKeyID, aws.ToString(rule.ApplyServerSideEncryptionByDefault.KMSMasterKeyID))
+			}
 		})
 	}
 }
@@ -143,12 +158,12 @@ func TestIntegration_S3_DeleteBucketEncryption(t *testing.T) {
 	// Verify it is stored.
 	out, err := client.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
+	require.NotNil(t, out.ServerSideEncryptionConfiguration)
 	require.NotEmpty(t, out.ServerSideEncryptionConfiguration.Rules)
-	assert.Equal(
-		t,
-		types.ServerSideEncryptionAes256,
-		out.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm,
-	)
+
+	rule := out.ServerSideEncryptionConfiguration.Rules[0]
+	require.NotNil(t, rule.ApplyServerSideEncryptionByDefault)
+	assert.Equal(t, types.ServerSideEncryptionAes256, rule.ApplyServerSideEncryptionByDefault.SSEAlgorithm)
 
 	// Delete it.
 	_, err = client.DeleteBucketEncryption(ctx, &s3.DeleteBucketEncryptionInput{Bucket: aws.String(bucket)})

@@ -1605,7 +1605,9 @@ func TestTerraform_S3Encryption(t *testing.T) {
 					Bucket: aws.String(vars["BucketName"].(string)),
 				})
 				require.NoError(t, err, "GetBucketEncryption should succeed after terraform apply")
+				require.NotNil(t, out.ServerSideEncryptionConfiguration)
 				require.NotEmpty(t, out.ServerSideEncryptionConfiguration.Rules)
+				require.NotNil(t, out.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault)
 				assert.Equal(
 					t,
 					s3types.ServerSideEncryptionAes256,
