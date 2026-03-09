@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -42,6 +44,7 @@ type Clients struct {
 	KMS            *kms.Client
 	SecretsManager *secretsmanager.Client
 	ECR            *ecr.Client
+	ECS            *ecs.Client
 }
 
 // LoadData loads sample data into all supported services.
@@ -77,6 +80,10 @@ func LoadData(
 
 	if clients.ECR != nil {
 		loadECR(ctx, clients.ECR)
+	}
+
+	if clients.ECS != nil {
+		loadECS(ctx, clients.ECS)
 	}
 
 	pkgslogger.Load(ctx).InfoContext(ctx, "Demo data loaded successfully")
@@ -416,5 +423,44 @@ func loadECR(ctx context.Context, ecrClient *ecr.Client) {
 		} else {
 			pkgslogger.Load(ctx).InfoContext(ctx, "Created ECR repository", "name", name)
 		}
+	}
+}
+
+func loadECS(ctx context.Context, ecsClient *ecs.Client) {
+	const demoWebPort = int32(80)
+
+	clusters := []string{
+		"demo-cluster",
+		"production-cluster",
+	}
+
+	for _, name := range clusters {
+		_, err := ecsClient.CreateCluster(ctx, &ecs.CreateClusterInput{
+			ClusterName: aws.String(name),
+		})
+		if err != nil {
+			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create ECS cluster", "name", name, "error", err)
+		} else {
+			pkgslogger.Load(ctx).InfoContext(ctx, "Created ECS cluster", "name", name)
+		}
+	}
+
+	_, err := ecsClient.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String("demo-web"),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{
+				Name:      aws.String("web"),
+				Image:     aws.String("nginx:latest"),
+				Essential: aws.Bool(true),
+				PortMappings: []ecstypes.PortMapping{
+					{ContainerPort: aws.Int32(demoWebPort)},
+				},
+			},
+		},
+	})
+	if err != nil {
+		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to register ECS task definition", "error", err)
+	} else {
+		pkgslogger.Load(ctx).InfoContext(ctx, "Registered ECS task definition", "family", "demo-web")
 	}
 }
