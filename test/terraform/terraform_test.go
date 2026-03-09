@@ -51,6 +51,7 @@ import (
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
 	route53resolversvc "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -1572,6 +1573,44 @@ func TestTerraform_S3Website(t *testing.T) {
 				assert.Equal(t, "index.html", aws.ToString(out.IndexDocument.Suffix))
 				require.NotNil(t, out.ErrorDocument)
 				assert.Equal(t, "error.html", aws.ToString(out.ErrorDocument.Key))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_S3Encryption provisions an S3 bucket with server-side encryption configuration and verifies it.
+func TestTerraform_S3Encryption(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "s3_encryption/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{"BucketName": "tf-s3-enc-" + uuid.NewString()[:8]}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createS3Client(t)
+				out, err := client.GetBucketEncryption(ctx, &s3svc.GetBucketEncryptionInput{
+					Bucket: aws.String(vars["BucketName"].(string)),
+				})
+				require.NoError(t, err, "GetBucketEncryption should succeed after terraform apply")
+				require.NotEmpty(t, out.ServerSideEncryptionConfiguration.Rules)
+				assert.Equal(
+					t,
+					s3types.ServerSideEncryptionAes256,
+					out.ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.SSEAlgorithm,
+				)
 			},
 		},
 	}

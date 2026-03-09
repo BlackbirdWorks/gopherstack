@@ -29,6 +29,7 @@ var (
 	ErrNoLifecycleConfig      = errors.New("NoSuchLifecycleConfiguration")
 	ErrNoObjectLockConfig     = errors.New("ObjectLockConfigurationNotFoundError")
 	ErrNoWebsiteConfig        = errors.New("NoSuchWebsiteConfiguration")
+	ErrNoEncryptionConfig     = errors.New("ServerSideEncryptionConfigurationNotFoundError")
 	ErrObjectLocked           = errors.New("AccessDenied")
 	ErrNoSuchObjectLockConfig = awserr.New("NoSuchObjectLockConfiguration", awserr.ErrNotFound)
 )
@@ -39,13 +40,13 @@ type s3ErrorInfo struct {
 	status  int
 }
 
+type s3ErrorEntry struct {
+	err  error
+	info s3ErrorInfo
+}
+
 // WriteError translates a typed Go error to an S3 ErrorResponse XML payload.
 func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
-	type s3ErrorEntry struct {
-		err  error
-		info s3ErrorInfo
-	}
-
 	table := []s3ErrorEntry{
 		{ErrNoSuchBucket, s3ErrorInfo{"NoSuchBucket", "The specified bucket does not exist.", http.StatusNotFound}},
 		{ErrNoSuchKey, s3ErrorInfo{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound}},
@@ -113,6 +114,11 @@ func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err
 		{ErrNoWebsiteConfig, s3ErrorInfo{
 			"NoSuchWebsiteConfiguration",
 			"The specified bucket does not have a website configuration",
+			http.StatusNotFound,
+		}},
+		{ErrNoEncryptionConfig, s3ErrorInfo{
+			"ServerSideEncryptionConfigurationNotFoundError",
+			"The server side encryption configuration was not found",
 			http.StatusNotFound,
 		}},
 		{ErrObjectLocked, s3ErrorInfo{
