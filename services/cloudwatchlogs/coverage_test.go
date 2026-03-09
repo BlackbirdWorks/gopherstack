@@ -185,3 +185,49 @@ func TestHandler_Coverage_DescribeLogGroups_Pagination(t *testing.T) {
 	rec := doLogsRequest(t, h, e, "DescribeLogGroups", `{"limit":2}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestHandler_ChaosProvider(t *testing.T) {
+	t.Parallel()
+
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+
+	assert.Equal(t, "logs", h.ChaosServiceName())
+	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
+	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
+}
+
+func TestHandler_Persistence(t *testing.T) {
+	t.Parallel()
+
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+
+	// Snapshot should delegate to the backend and return non-nil bytes.
+	data := h.Snapshot()
+	require.NotNil(t, data)
+
+	// Restore should delegate to the backend without error.
+	require.NoError(t, h.Restore(data))
+}
+
+func TestHandler_InsightsInvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+	}{
+		{name: "StartQuery", action: "StartQuery"},
+		{name: "GetQueryResults", action: "GetQueryResults"},
+		{name: "StopQuery", action: "StopQuery"},
+		{name: "DescribeQueries", action: "DescribeQueries"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := makeLogsRequest(t, tt.action, "not-valid-json")
+			assert.Equal(t, http.StatusInternalServerError, rec.Code)
+		})
+	}
+}
