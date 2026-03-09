@@ -388,3 +388,63 @@ func TestIntegration_CloudWatch_AlarmActions_SNS(t *testing.T) {
 	require.Len(t, recvOut.Messages, 1, "alarm action should have published a message to SNS/SQS")
 	assert.Contains(t, aws.ToString(recvOut.Messages[0].Body), alarmName)
 }
+
+func TestIntegration_CloudWatch_Dashboards(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	client := createCloudWatchClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	dashName := "test-dashboard-" + suffix
+	dashBody := `{"widgets":[{"type":"text","x":0,"y":0,"width":6,"height":3}]}`
+
+	// PutDashboard
+	_, err := client.PutDashboard(ctx, &cloudwatchsdk.PutDashboardInput{
+		DashboardName: aws.String(dashName),
+		DashboardBody: aws.String(dashBody),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = client.DeleteDashboards(ctx, &cloudwatchsdk.DeleteDashboardsInput{
+			DashboardNames: []string{dashName},
+		})
+	})
+
+	// GetDashboard
+	getOut, err := client.GetDashboard(ctx, &cloudwatchsdk.GetDashboardInput{
+		DashboardName: aws.String(dashName),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, dashName, aws.ToString(getOut.DashboardName))
+	assert.Equal(t, dashBody, aws.ToString(getOut.DashboardBody))
+
+	// ListDashboards - should find our dashboard
+	listOut, err := client.ListDashboards(ctx, &cloudwatchsdk.ListDashboardsInput{
+		DashboardNamePrefix: aws.String("test-dashboard-"),
+	})
+	require.NoError(t, err)
+	found := false
+	for _, e := range listOut.DashboardEntries {
+		if aws.ToString(e.DashboardName) == dashName {
+			found = true
+			assert.NotNil(t, e.Size)
+			assert.Positive(t, aws.ToInt64(e.Size))
+			assert.NotNil(t, e.LastModified)
+		}
+	}
+	assert.True(t, found, "expected dashboard %s in ListDashboards response", dashName)
+
+	// DeleteDashboards
+	_, err = client.DeleteDashboards(ctx, &cloudwatchsdk.DeleteDashboardsInput{
+		DashboardNames: []string{dashName},
+	})
+	require.NoError(t, err)
+
+	// ListDashboards - should no longer find it
+	listAfter, err := client.ListDashboards(ctx, &cloudwatchsdk.ListDashboardsInput{
+		DashboardNamePrefix: aws.String(dashName),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, listAfter.DashboardEntries)
+}

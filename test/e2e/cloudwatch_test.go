@@ -88,3 +88,41 @@ func TestCloudWatchDashboard_Empty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, content, "CloudWatch")
 }
+
+// TestCloudWatchDashboard_Dashboards verifies the dashboards section renders correctly.
+func TestCloudWatchDashboard_Dashboards(t *testing.T) {
+	stack := newStack(t)
+
+	err := stack.CloudWatchHandler.Backend.PutDashboard("my-dashboard", `{"widgets":[]}`)
+	require.NoError(t, err)
+
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
+
+	ctx, err := browser.NewContext()
+	require.NoError(t, err)
+	defer ctx.Close()
+
+	page, err := ctx.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
+
+	defer func() {
+		if t.Failed() {
+			saveScreenshot(t, page, "TestCloudWatchDashboard_Dashboards")
+		}
+	}()
+
+	_, err = page.Goto(server.URL + "/dashboard/cloudwatch")
+	require.NoError(t, err)
+
+	err = page.Locator("h1:has-text('CloudWatch')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(60000),
+	})
+	require.NoError(t, err)
+
+	content, err := page.Content()
+	require.NoError(t, err)
+	assert.Contains(t, content, "Dashboards")
+	assert.Contains(t, content, "my-dashboard")
+}

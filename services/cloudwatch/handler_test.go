@@ -580,3 +580,120 @@ func TestCloudWatchHandler_NewOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestCloudWatchHandler_Dashboards(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup           func(t *testing.T, h *cloudwatch.Handler)
+		name            string
+		body            string
+		wantContains    []string
+		wantNotContains []string
+		wantCode        int
+	}{
+		{
+			name:         "PutDashboard/success",
+			body:         `Action=PutDashboard&DashboardName=MyDash&DashboardBody={"widgets":[]}`,
+			wantCode:     http.StatusOK,
+			wantContains: []string{"PutDashboardResponse"},
+		},
+		{
+			name:     "PutDashboard/missing name",
+			body:     `Action=PutDashboard&DashboardBody={}`,
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "GetDashboard/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, `Action=PutDashboard&DashboardName=FetchMe&DashboardBody={"widgets":[]}`)
+			},
+			body:         "Action=GetDashboard&DashboardName=FetchMe",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"GetDashboardResponse", "FetchMe"},
+		},
+		{
+			name:     "GetDashboard/not found",
+			body:     "Action=GetDashboard&DashboardName=Ghost",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "GetDashboard/missing name",
+			body:     "Action=GetDashboard",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "ListDashboards/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, `Action=PutDashboard&DashboardName=prod-web&DashboardBody={}`)
+				postForm(t, h, `Action=PutDashboard&DashboardName=prod-api&DashboardBody={}`)
+			},
+			body:         "Action=ListDashboards",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ListDashboardsResponse", "prod-web", "prod-api"},
+		},
+		{
+			name: "ListDashboards/with prefix",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, `Action=PutDashboard&DashboardName=prod-web&DashboardBody={}`)
+				postForm(t, h, `Action=PutDashboard&DashboardName=staging-web&DashboardBody={}`)
+			},
+			body:            "Action=ListDashboards&DashboardNamePrefix=prod-",
+			wantCode:        http.StatusOK,
+			wantContains:    []string{"prod-web"},
+			wantNotContains: []string{"staging-web"},
+		},
+		{
+			name:         "ListDashboards/empty",
+			body:         "Action=ListDashboards",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ListDashboardsResponse"},
+		},
+		{
+			name: "DeleteDashboards/success",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postForm(t, h, `Action=PutDashboard&DashboardName=to-delete&DashboardBody={}`)
+			},
+			body:         "Action=DeleteDashboards&DashboardNames.member.1=to-delete",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteDashboardsResponse"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newCWHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postForm(t, h, tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
+func TestCloudWatchHandler_GetSupportedOperations_DashboardOps(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+	ops := h.GetSupportedOperations()
+
+	assert.Contains(t, ops, "PutDashboard")
+	assert.Contains(t, ops, "GetDashboard")
+	assert.Contains(t, ops, "ListDashboards")
+	assert.Contains(t, ops, "DeleteDashboards")
+}

@@ -15,6 +15,7 @@ type cloudWatchIndexData struct {
 	Metrics         []cwbackend.Metric
 	Alarms          []cwbackend.MetricAlarm
 	CompositeAlarms []cwbackend.CompositeAlarm
+	Dashboards      []cwbackend.DashboardEntry
 }
 
 func (h *DashboardHandler) cloudWatchIndex(c *echo.Context) error {
@@ -24,6 +25,7 @@ func (h *DashboardHandler) cloudWatchIndex(c *echo.Context) error {
 
 	metrics, _ := h.CloudWatchOps.Backend.ListMetrics("", "", "", 0)
 	metricAlarms, compositeAlarms, _ := h.CloudWatchOps.Backend.DescribeAlarms(nil, nil, "", "", 0)
+	dashboards, _ := h.CloudWatchOps.Backend.ListDashboards("", "")
 	data := cloudWatchIndexData{
 		PageData: PageData{Title: "CloudWatch", ActiveTab: "cloudwatch",
 			Snippet: &SnippetData{
@@ -50,6 +52,7 @@ client = boto3.client('cloudwatch', endpoint_url='http://localhost:8000')`,
 		Metrics:         metrics.Data,
 		Alarms:          metricAlarms.Data,
 		CompositeAlarms: compositeAlarms.Data,
+		Dashboards:      dashboards.Data,
 	}
 
 	h.renderTemplate(c.Response(), "cloudwatch/index.html", data)

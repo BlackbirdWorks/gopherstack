@@ -732,3 +732,115 @@ func TestCBOR_NewOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestCBOR_Dashboards(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(t *testing.T, h *cloudwatch.Handler)
+		body     cbor.Map
+		wantBody func(t *testing.T, m cbor.Map)
+		name     string
+		op       string
+		wantCode int
+	}{
+		{
+			name: "PutDashboard/success",
+			op:   "PutDashboard",
+			body: cbor.Map{
+				"DashboardName": cbor.String("test-dash"),
+				"DashboardBody": cbor.String(`{"widgets":[]}`),
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "PutDashboard/missing_name",
+			op:       "PutDashboard",
+			body:     cbor.Map{"DashboardBody": cbor.String(`{}`)},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "GetDashboard/success",
+			op:   "GetDashboard",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutDashboard", cbor.Map{
+					"DashboardName": cbor.String("my-dash"),
+					"DashboardBody": cbor.String(`{"widgets":[]}`),
+				})
+			},
+			body:     cbor.Map{"DashboardName": cbor.String("my-dash")},
+			wantCode: http.StatusOK,
+			wantBody: func(t *testing.T, m cbor.Map) {
+				t.Helper()
+				assert.Equal(t, cbor.String("my-dash"), m["DashboardName"])
+				bodyVal, ok := m["DashboardBody"].(cbor.String)
+				require.True(t, ok)
+				assert.JSONEq(t, `{"widgets":[]}`, string(bodyVal))
+			},
+		},
+		{
+			name:     "GetDashboard/not_found",
+			op:       "GetDashboard",
+			body:     cbor.Map{"DashboardName": cbor.String("no-such-dash")},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "GetDashboard/missing_name",
+			op:       "GetDashboard",
+			body:     cbor.Map{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "ListDashboards/success",
+			op:   "ListDashboards",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutDashboard", cbor.Map{
+					"DashboardName": cbor.String("list-dash-1"),
+					"DashboardBody": cbor.String(`{}`),
+				})
+			},
+			body:     cbor.Map{},
+			wantCode: http.StatusOK,
+			wantBody: func(t *testing.T, m cbor.Map) {
+				t.Helper()
+				entries, ok := m["DashboardEntries"].(cbor.List)
+				require.True(t, ok)
+				assert.NotEmpty(t, entries)
+			},
+		},
+		{
+			name: "DeleteDashboards/success",
+			op:   "DeleteDashboards",
+			setup: func(t *testing.T, h *cloudwatch.Handler) {
+				t.Helper()
+				postCBOR(t, h, "PutDashboard", cbor.Map{
+					"DashboardName": cbor.String("del-dash"),
+					"DashboardBody": cbor.String(`{}`),
+				})
+			},
+			body:     cbor.Map{"DashboardNames": cbor.List{cbor.String("del-dash")}},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newCBORHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := postCBOR(t, h, tt.op, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantBody != nil {
+				m := decodeCBORResponse(t, rec)
+				tt.wantBody(t, m)
+			}
+		})
+	}
+}
