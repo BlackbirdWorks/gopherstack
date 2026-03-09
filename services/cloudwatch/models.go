@@ -107,3 +107,11 @@ type MetricDataResult struct {
 	StatusCode string      `json:"StatusCode"`
 	Values     []float64   `json:"Values"`
 }
+
+// DashboardEntry represents a single CloudWatch dashboard summary entry returned by ListDashboards.
+type DashboardEntry struct {
+	LastModified  time.Time `json:"LastModified"`
+	DashboardArn  string    `json:"DashboardArn"`
+	DashboardName string    `json:"DashboardName"`
+	Size          int64     `json:"Size"`
+}

@@ -8,3 +8,19 @@ resource "aws_cloudwatch_metric_alarm" "this" {
   statistic           = "Average"
   threshold           = 80
 }
+
+resource "aws_cloudwatch_dashboard" "this" {
+  dashboard_name = "{{.AlarmName}}-dashboard"
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type       = "metric"
+        x          = 0
+        y          = 0
+        width      = 12
+        height     = 6
+        properties = {}
+      }
+    ]
+  })
+}

@@ -27,11 +27,18 @@ var ErrAlarmNameRequired = errors.New("AlarmName is required")
 // ErrAlarmRuleRequired is returned when a composite alarm rule is missing.
 var ErrAlarmRuleRequired = errors.New("AlarmRule is required")
 
+// ErrDashboardNotFound is returned when a requested dashboard does not exist.
+var ErrDashboardNotFound = errors.New("ResourceNotFoundException")
+
+// ErrDashboardNameRequired is returned when a dashboard name is missing.
+var ErrDashboardNameRequired = errors.New("DashboardName is required")
+
 const (
 	cwDefaultListMetricsLimit       = 500
 	cwDefaultDescribeAlarmsLimit    = 100
 	cwDefaultAlarmHistoryLimit      = 100
 	cwDefaultDescribeForMetricLimit = 100
+	cwDefaultListDashboardsLimit    = 300
 
 	alarmStateAlarm            = "ALARM"
 	alarmStateOK               = "OK"
@@ -86,6 +93,10 @@ type StorageBackend interface {
 	SetAlarmState(alarmName, stateValue, stateReason string) error
 	EnableAlarmActions(alarmNames []string) error
 	DisableAlarmActions(alarmNames []string) error
+	PutDashboard(name, body string) error
+	GetDashboard(name string) (DashboardEntry, string, error)
+	ListDashboards(prefix, nextToken string) (page.Page[DashboardEntry], error)
+	DeleteDashboards(names []string) error
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -95,11 +106,19 @@ type InMemoryBackend struct {
 	alarms          map[string]*MetricAlarm
 	compositeAlarms map[string]*CompositeAlarm
 	alarmHistory    map[string][]AlarmHistoryItem
+	dashboards      map[string]*dashboardRecord
 	snsPublisher    SNSPublisher
 	lambdaInvoker   LambdaInvoker
 	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
+}
+
+// dashboardRecord holds dashboard body and metadata.
+type dashboardRecord struct {
+	lastModified time.Time
+	name         string
+	body         string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -116,6 +135,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		alarms:          make(map[string]*MetricAlarm),
 		compositeAlarms: make(map[string]*CompositeAlarm),
 		alarmHistory:    make(map[string][]AlarmHistoryItem),
+		dashboards:      make(map[string]*dashboardRecord),
 		mu:              lockmetrics.New("cloudwatch"),
 	}
 }
@@ -931,4 +951,80 @@ func (b *InMemoryBackend) reevaluateCompositeAlarms() []compositeAlarmTransition
 	}
 
 	return transitions
+}
+
+// PutDashboard creates or updates a CloudWatch dashboard by name.
+func (b *InMemoryBackend) PutDashboard(name, body string) error {
+	if name == "" {
+		return ErrDashboardNameRequired
+	}
+
+	b.mu.Lock("PutDashboard")
+	defer b.mu.Unlock()
+
+	b.dashboards[name] = &dashboardRecord{
+		name:         name,
+		body:         body,
+		lastModified: time.Now().UTC(),
+	}
+
+	return nil
+}
+
+// GetDashboard returns the dashboard entry and body for the given name.
+func (b *InMemoryBackend) GetDashboard(name string) (DashboardEntry, string, error) {
+	b.mu.RLock("GetDashboard")
+	defer b.mu.RUnlock()
+
+	rec, ok := b.dashboards[name]
+	if !ok {
+		return DashboardEntry{}, "", fmt.Errorf("%w: %s", ErrDashboardNotFound, name)
+	}
+
+	return b.toDashboardEntry(rec), rec.body, nil
+}
+
+// ListDashboards returns a page of dashboard entries optionally filtered by name prefix.
+func (b *InMemoryBackend) ListDashboards(prefix, nextToken string) (page.Page[DashboardEntry], error) {
+	b.mu.RLock("ListDashboards")
+	defer b.mu.RUnlock()
+
+	var result []DashboardEntry
+
+	for _, rec := range b.dashboards {
+		if prefix != "" && !strings.HasPrefix(rec.name, prefix) {
+			continue
+		}
+
+		result = append(result, b.toDashboardEntry(rec))
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].DashboardName < result[j].DashboardName
+	})
+
+	return page.New(result, nextToken, 0, cwDefaultListDashboardsLimit), nil
+}
+
+// DeleteDashboards removes the named dashboards. Names that do not exist are silently ignored.
+func (b *InMemoryBackend) DeleteDashboards(names []string) error {
+	b.mu.Lock("DeleteDashboards")
+	defer b.mu.Unlock()
+
+	for _, name := range names {
+		delete(b.dashboards, name)
+	}
+
+	return nil
+}
+
+// toDashboardEntry converts a dashboardRecord to a DashboardEntry.
+// Caller must hold b.mu (at least read lock).
+func (b *InMemoryBackend) toDashboardEntry(rec *dashboardRecord) DashboardEntry {
+	return DashboardEntry{
+		DashboardName: rec.name,
+		DashboardArn:  arn.Build("cloudwatch", b.region, b.accountID, "dashboard/"+rec.name),
+		LastModified:  rec.lastModified,
+		Size:          int64(len(rec.body)),
+	}
 }
