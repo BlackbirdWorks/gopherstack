@@ -269,3 +269,169 @@ func TestIntegration_SNS_SetTopicAttributes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, displayName, attrOut.Attributes["DisplayName"])
 }
+
+func TestIntegration_SNS_PlatformApplicationLifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	snsClient := createSNSClient(t)
+	ctx := t.Context()
+
+	appName := "test-app-" + uuid.NewString()
+
+	// CreatePlatformApplication
+	createOut, err := snsClient.CreatePlatformApplication(ctx, &sns.CreatePlatformApplicationInput{
+		Name:     aws.String(appName),
+		Platform: aws.String("GCM"),
+		Attributes: map[string]string{
+			"PlatformCredential": "fake-server-key",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createOut.PlatformApplicationArn)
+	assert.Contains(t, *createOut.PlatformApplicationArn, "app/GCM/"+appName)
+
+	appARN := createOut.PlatformApplicationArn
+
+	// GetPlatformApplicationAttributes
+	attrOut, err := snsClient.GetPlatformApplicationAttributes(ctx, &sns.GetPlatformApplicationAttributesInput{
+		PlatformApplicationArn: appARN,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "fake-server-key", attrOut.Attributes["PlatformCredential"])
+
+	// SetPlatformApplicationAttributes
+	_, err = snsClient.SetPlatformApplicationAttributes(ctx, &sns.SetPlatformApplicationAttributesInput{
+		PlatformApplicationArn: appARN,
+		Attributes: map[string]string{
+			"PlatformCredential": "updated-server-key",
+		},
+	})
+	require.NoError(t, err)
+
+	// Verify update
+	attrOut2, err := snsClient.GetPlatformApplicationAttributes(ctx, &sns.GetPlatformApplicationAttributesInput{
+		PlatformApplicationArn: appARN,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "updated-server-key", attrOut2.Attributes["PlatformCredential"])
+
+	// ListPlatformApplications
+	listOut, err := snsClient.ListPlatformApplications(ctx, &sns.ListPlatformApplicationsInput{})
+	require.NoError(t, err)
+	found := false
+	for _, a := range listOut.PlatformApplications {
+		if *a.PlatformApplicationArn == *appARN {
+			found = true
+
+			break
+		}
+	}
+	assert.True(t, found, "created platform application should appear in ListPlatformApplications")
+
+	// DeletePlatformApplication
+	_, err = snsClient.DeletePlatformApplication(ctx, &sns.DeletePlatformApplicationInput{
+		PlatformApplicationArn: appARN,
+	})
+	require.NoError(t, err)
+
+	// Verify gone
+	listOut2, err := snsClient.ListPlatformApplications(ctx, &sns.ListPlatformApplicationsInput{})
+	require.NoError(t, err)
+	for _, a := range listOut2.PlatformApplications {
+		assert.NotEqual(t, *appARN, *a.PlatformApplicationArn, "deleted platform application should not appear in list")
+	}
+}
+
+func TestIntegration_SNS_PlatformEndpointLifecycle(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+	snsClient := createSNSClient(t)
+	ctx := t.Context()
+
+	appName := "test-endpoint-app-" + uuid.NewString()
+
+	// Create a platform application first
+	createAppOut, err := snsClient.CreatePlatformApplication(ctx, &sns.CreatePlatformApplicationInput{
+		Name:     aws.String(appName),
+		Platform: aws.String("GCM"),
+		Attributes: map[string]string{
+			"PlatformCredential": "fake-server-key",
+		},
+	})
+	require.NoError(t, err)
+	appARN := createAppOut.PlatformApplicationArn
+
+	deviceToken := "device-token-" + uuid.NewString()
+
+	// CreatePlatformEndpoint
+	createEndpointOut, err := snsClient.CreatePlatformEndpoint(ctx, &sns.CreatePlatformEndpointInput{
+		PlatformApplicationArn: appARN,
+		Token:                  aws.String(deviceToken),
+		CustomUserData:         aws.String("my-user-data"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createEndpointOut.EndpointArn)
+	assert.Contains(t, *createEndpointOut.EndpointArn, "endpoint/GCM/"+appName)
+
+	endpointARN := createEndpointOut.EndpointArn
+
+	// GetEndpointAttributes
+	endpointAttrOut, err := snsClient.GetEndpointAttributes(ctx, &sns.GetEndpointAttributesInput{
+		EndpointArn: endpointARN,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, deviceToken, endpointAttrOut.Attributes["Token"])
+	assert.Equal(t, "true", endpointAttrOut.Attributes["Enabled"])
+
+	// SetEndpointAttributes
+	_, err = snsClient.SetEndpointAttributes(ctx, &sns.SetEndpointAttributesInput{
+		EndpointArn: endpointARN,
+		Attributes: map[string]string{
+			"Enabled": "false",
+		},
+	})
+	require.NoError(t, err)
+
+	// Verify update
+	endpointAttrOut2, err := snsClient.GetEndpointAttributes(ctx, &sns.GetEndpointAttributesInput{
+		EndpointArn: endpointARN,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "false", endpointAttrOut2.Attributes["Enabled"])
+
+	// ListEndpointsByPlatformApplication
+	listEndpointsOut, err := snsClient.ListEndpointsByPlatformApplication(
+		ctx,
+		&sns.ListEndpointsByPlatformApplicationInput{
+			PlatformApplicationArn: appARN,
+		},
+	)
+	require.NoError(t, err)
+	found := false
+	for _, ep := range listEndpointsOut.Endpoints {
+		if *ep.EndpointArn == *endpointARN {
+			found = true
+
+			break
+		}
+	}
+	assert.True(t, found, "created endpoint should appear in ListEndpointsByPlatformApplication")
+
+	// DeleteEndpoint
+	_, err = snsClient.DeleteEndpoint(ctx, &sns.DeleteEndpointInput{
+		EndpointArn: endpointARN,
+	})
+	require.NoError(t, err)
+
+	// Verify gone
+	listEndpointsOut2, err := snsClient.ListEndpointsByPlatformApplication(
+		ctx,
+		&sns.ListEndpointsByPlatformApplicationInput{
+			PlatformApplicationArn: appARN,
+		},
+	)
+	require.NoError(t, err)
+	for _, ep := range listEndpointsOut2.Endpoints {
+		assert.NotEqual(t, *endpointARN, *ep.EndpointArn, "deleted endpoint should not appear in list")
+	}
+}

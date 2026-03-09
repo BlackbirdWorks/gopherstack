@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -2284,6 +2285,762 @@ func TestSNSHandler_SetSubscriptionAttributes(t *testing.T) {
 			for _, want := range tt.wantBodyContains {
 				assert.Contains(t, rec.Body.String(), want)
 			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Platform Application tests
+// ---------------------------------------------------------------------------
+
+func TestSNSHandler_CreatePlatformApplication(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		form             url.Values
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name: "success",
+			form: url.Values{
+				"Action":                   {"CreatePlatformApplication"},
+				"Name":                     {"MyApp"},
+				"Platform":                 {"GCM"},
+				"Attributes.entry.1.key":   {"PlatformCredential"},
+				"Attributes.entry.1.value": {"my-api-key"},
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"CreatePlatformApplicationResponse", "app/GCM/MyApp"},
+		},
+		{
+			name: "missing_name",
+			form: url.Values{
+				"Action":   {"CreatePlatformApplication"},
+				"Platform": {"GCM"},
+			},
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: []string{"InvalidParameter"},
+		},
+		{
+			name: "missing_platform",
+			form: url.Values{
+				"Action": {"CreatePlatformApplication"},
+				"Name":   {"MyApp"},
+			},
+			wantStatus:       http.StatusBadRequest,
+			wantBodyContains: []string{"InvalidParameter"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, _ := newTestHandler(t)
+			rec := snsPost(t, h, tt.form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+func TestSNSHandler_GetPlatformApplicationAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup            func(b *sns.InMemoryBackend) string
+		formOverrides    url.Values
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name: "success",
+			setup: func(b *sns.InMemoryBackend) string {
+				app, _ := b.CreatePlatformApplication("MyApp", "GCM", map[string]string{"PlatformCredential": "key123"})
+
+				return app.PlatformApplicationArn
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"GetPlatformApplicationAttributesResponse", "PlatformCredential", "key123"},
+		},
+		{
+			name:          "missing_arn",
+			formOverrides: url.Values{"PlatformApplicationArn": {""}},
+			wantStatus:    http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			formOverrides: url.Values{
+				"PlatformApplicationArn": {"arn:aws:sns:us-east-1:000000000000:app/GCM/nonexistent"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, b := newTestHandler(t)
+			form := url.Values{"Action": {"GetPlatformApplicationAttributes"}}
+
+			if tt.setup != nil {
+				form.Set("PlatformApplicationArn", tt.setup(b))
+			}
+
+			maps.Copy(form, tt.formOverrides)
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+func TestSNSHandler_SetPlatformApplicationAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup            func(b *sns.InMemoryBackend) string
+		formOverrides    url.Values
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name: "success",
+			setup: func(b *sns.InMemoryBackend) string {
+				app, _ := b.CreatePlatformApplication("MyApp", "GCM", nil)
+
+				return app.PlatformApplicationArn
+			},
+			formOverrides: url.Values{
+				"Attributes.entry.1.key":   {"PlatformCredential"},
+				"Attributes.entry.1.value": {"new-key"},
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"SetPlatformApplicationAttributesResponse"},
+		},
+		{
+			name:          "missing_arn",
+			formOverrides: url.Values{"PlatformApplicationArn": {""}},
+			wantStatus:    http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			formOverrides: url.Values{
+				"PlatformApplicationArn": {"arn:aws:sns:us-east-1:000000000000:app/GCM/none"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, b := newTestHandler(t)
+			form := url.Values{"Action": {"SetPlatformApplicationAttributes"}}
+
+			if tt.setup != nil {
+				form.Set("PlatformApplicationArn", tt.setup(b))
+			}
+
+			maps.Copy(form, tt.formOverrides)
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+func TestSNSHandler_ListPlatformApplications(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup            func(b *sns.InMemoryBackend)
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name:             "empty",
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"ListPlatformApplicationsResponse"},
+		},
+		{
+			name: "with_applications",
+			setup: func(b *sns.InMemoryBackend) {
+				b.CreatePlatformApplication("App1", "GCM", nil)
+				b.CreatePlatformApplication("App2", "APNS", nil)
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"ListPlatformApplicationsResponse", "app/GCM/App1", "app/APNS/App2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, b := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			rec := snsPost(t, h, url.Values{"Action": {"ListPlatformApplications"}})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+func TestSNSHandler_DeletePlatformApplication(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup         func(b *sns.InMemoryBackend) string
+		formOverrides url.Values
+		name          string
+		wantStatus    int
+	}{
+		{
+			name: "success",
+			setup: func(b *sns.InMemoryBackend) string {
+				app, _ := b.CreatePlatformApplication("MyApp", "GCM", nil)
+
+				return app.PlatformApplicationArn
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:          "missing_arn",
+			formOverrides: url.Values{"PlatformApplicationArn": {""}},
+			wantStatus:    http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			formOverrides: url.Values{
+				"PlatformApplicationArn": {"arn:aws:sns:us-east-1:000000000000:app/GCM/none"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, b := newTestHandler(t)
+			form := url.Values{"Action": {"DeletePlatformApplication"}}
+
+			if tt.setup != nil {
+				form.Set("PlatformApplicationArn", tt.setup(b))
+			}
+
+			maps.Copy(form, tt.formOverrides)
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Platform Endpoint tests
+// ---------------------------------------------------------------------------
+
+func TestSNSHandler_CreatePlatformEndpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup            func(b *sns.InMemoryBackend) string
+		formOverrides    url.Values
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name: "success",
+			setup: func(b *sns.InMemoryBackend) string {
+				app, _ := b.CreatePlatformApplication("MyApp", "GCM", nil)
+
+				return app.PlatformApplicationArn
+			},
+			formOverrides: url.Values{
+				"Token": {"device-token-123"},
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"CreatePlatformEndpointResponse", "endpoint/GCM/MyApp"},
+		},
+		{
+			name:          "missing_arn",
+			formOverrides: url.Values{"Token": {"tok"}, "PlatformApplicationArn": {""}},
+			wantStatus:    http.StatusBadRequest,
+		},
+		{
+			name: "missing_token",
+			formOverrides: url.Values{
+				"PlatformApplicationArn": {"arn:aws:sns:us-east-1:000000000000:app/GCM/App"},
+				"Token":                  {""},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "app_not_found",
+			formOverrides: url.Values{
+				"PlatformApplicationArn": {"arn:aws:sns:us-east-1:000000000000:app/GCM/none"},
+				"Token":                  {"tok"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, b := newTestHandler(t)
+			form := url.Values{"Action": {"CreatePlatformEndpoint"}}
+
+			if tt.setup != nil {
+				form.Set("PlatformApplicationArn", tt.setup(b))
+			}
+
+			maps.Copy(form, tt.formOverrides)
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+func TestSNSHandler_GetEndpointAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup            func(b *sns.InMemoryBackend) string
+		formOverrides    url.Values
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name: "success",
+			setup: func(b *sns.InMemoryBackend) string {
+				app, _ := b.CreatePlatformApplication("MyApp", "GCM", nil)
+				ep, _ := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "my-token", nil)
+
+				return ep.EndpointArn
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"GetEndpointAttributesResponse", "my-token"},
+		},
+		{
+			name:          "missing_arn",
+			formOverrides: url.Values{"EndpointArn": {""}},
+			wantStatus:    http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			formOverrides: url.Values{
+				"EndpointArn": {"arn:aws:sns:us-east-1:000000000000:endpoint/GCM/App/nonexistent"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, b := newTestHandler(t)
+			form := url.Values{"Action": {"GetEndpointAttributes"}}
+
+			if tt.setup != nil {
+				form.Set("EndpointArn", tt.setup(b))
+			}
+
+			maps.Copy(form, tt.formOverrides)
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+func TestSNSHandler_SetEndpointAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup            func(b *sns.InMemoryBackend) string
+		formOverrides    url.Values
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name: "success",
+			setup: func(b *sns.InMemoryBackend) string {
+				app, _ := b.CreatePlatformApplication("MyApp", "GCM", nil)
+				ep, _ := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "tok", nil)
+
+				return ep.EndpointArn
+			},
+			formOverrides: url.Values{
+				"Attributes.entry.1.key":   {"Enabled"},
+				"Attributes.entry.1.value": {"false"},
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"SetEndpointAttributesResponse"},
+		},
+		{
+			name:          "missing_arn",
+			formOverrides: url.Values{"EndpointArn": {""}},
+			wantStatus:    http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			formOverrides: url.Values{
+				"EndpointArn": {"arn:aws:sns:us-east-1:000000000000:endpoint/GCM/App/none"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, b := newTestHandler(t)
+			form := url.Values{"Action": {"SetEndpointAttributes"}}
+
+			if tt.setup != nil {
+				form.Set("EndpointArn", tt.setup(b))
+			}
+
+			maps.Copy(form, tt.formOverrides)
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+func TestSNSHandler_ListEndpointsByPlatformApplication(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup            func(b *sns.InMemoryBackend) string
+		formOverrides    url.Values
+		name             string
+		wantBodyContains []string
+		wantStatus       int
+	}{
+		{
+			name: "success_empty",
+			setup: func(b *sns.InMemoryBackend) string {
+				app, _ := b.CreatePlatformApplication("MyApp", "GCM", nil)
+
+				return app.PlatformApplicationArn
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"ListEndpointsByPlatformApplicationResponse"},
+		},
+		{
+			name: "with_endpoints",
+			setup: func(b *sns.InMemoryBackend) string {
+				app, _ := b.CreatePlatformApplication("MyApp", "GCM", nil)
+				b.CreatePlatformEndpoint(app.PlatformApplicationArn, "tok1", nil)
+				b.CreatePlatformEndpoint(app.PlatformApplicationArn, "tok2", nil)
+
+				return app.PlatformApplicationArn
+			},
+			wantStatus:       http.StatusOK,
+			wantBodyContains: []string{"ListEndpointsByPlatformApplicationResponse", "tok1", "tok2"},
+		},
+		{
+			name:          "missing_arn",
+			formOverrides: url.Values{"PlatformApplicationArn": {""}},
+			wantStatus:    http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			formOverrides: url.Values{
+				"PlatformApplicationArn": {"arn:aws:sns:us-east-1:000000000000:app/GCM/none"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, b := newTestHandler(t)
+			form := url.Values{"Action": {"ListEndpointsByPlatformApplication"}}
+
+			if tt.setup != nil {
+				form.Set("PlatformApplicationArn", tt.setup(b))
+			}
+
+			maps.Copy(form, tt.formOverrides)
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			for _, want := range tt.wantBodyContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
+
+func TestSNSHandler_DeleteEndpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup         func(b *sns.InMemoryBackend) string
+		formOverrides url.Values
+		name          string
+		wantStatus    int
+	}{
+		{
+			name: "success",
+			setup: func(b *sns.InMemoryBackend) string {
+				app, _ := b.CreatePlatformApplication("MyApp", "GCM", nil)
+				ep, _ := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "tok", nil)
+
+				return ep.EndpointArn
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:          "missing_arn",
+			formOverrides: url.Values{"EndpointArn": {""}},
+			wantStatus:    http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			formOverrides: url.Values{
+				"EndpointArn": {"arn:aws:sns:us-east-1:000000000000:endpoint/GCM/App/none"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h, b := newTestHandler(t)
+			form := url.Values{"Action": {"DeleteEndpoint"}}
+
+			if tt.setup != nil {
+				form.Set("EndpointArn", tt.setup(b))
+			}
+
+			maps.Copy(form, tt.formOverrides)
+
+			rec := snsPost(t, h, form)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestInMemoryBackend_PlatformApplicationLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, b *sns.InMemoryBackend)
+		name string
+	}{
+		{
+			name: "create_and_get",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				app, err := b.CreatePlatformApplication("App1", "GCM", map[string]string{"PlatformCredential": "key1"})
+				require.NoError(t, err)
+				assert.Contains(t, app.PlatformApplicationArn, "app/GCM/App1")
+
+				attrs, err := b.GetPlatformApplicationAttributes(app.PlatformApplicationArn)
+				require.NoError(t, err)
+				assert.Equal(t, "key1", attrs["PlatformCredential"])
+			},
+		},
+		{
+			name: "get_not_found",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				_, err := b.GetPlatformApplicationAttributes("arn:aws:sns:us-east-1:000000000000:app/GCM/nonexistent")
+				require.ErrorIs(t, err, sns.ErrPlatformApplicationNotFound)
+			},
+		},
+		{
+			name: "set_attributes",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				app, err := b.CreatePlatformApplication("App2", "APNS", nil)
+				require.NoError(t, err)
+
+				err = b.SetPlatformApplicationAttributes(
+					app.PlatformApplicationArn,
+					map[string]string{"EventEndpointCreated": "arn:aws:sns:us-east-1:000000000000:notify"},
+				)
+				require.NoError(t, err)
+
+				attrs, err := b.GetPlatformApplicationAttributes(app.PlatformApplicationArn)
+				require.NoError(t, err)
+				assert.Equal(t, "arn:aws:sns:us-east-1:000000000000:notify", attrs["EventEndpointCreated"])
+			},
+		},
+		{
+			name: "delete",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				app, err := b.CreatePlatformApplication("App3", "GCM", nil)
+				require.NoError(t, err)
+
+				err = b.DeletePlatformApplication(app.PlatformApplicationArn)
+				require.NoError(t, err)
+
+				_, err = b.GetPlatformApplicationAttributes(app.PlatformApplicationArn)
+				require.ErrorIs(t, err, sns.ErrPlatformApplicationNotFound)
+			},
+		},
+		{
+			name: "delete_also_removes_endpoints",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				app, err := b.CreatePlatformApplication("App4", "GCM", nil)
+				require.NoError(t, err)
+
+				ep, err := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "tok", nil)
+				require.NoError(t, err)
+
+				err = b.DeletePlatformApplication(app.PlatformApplicationArn)
+				require.NoError(t, err)
+
+				_, err = b.GetEndpointAttributes(ep.EndpointArn)
+				require.ErrorIs(t, err, sns.ErrEndpointNotFound)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := sns.NewInMemoryBackend()
+			tt.run(t, b)
+		})
+	}
+}
+
+func TestInMemoryBackend_PlatformEndpointLifecycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, b *sns.InMemoryBackend)
+		name string
+	}{
+		{
+			name: "create_and_get",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				app, _ := b.CreatePlatformApplication("App", "GCM", nil)
+				ep, err := b.CreatePlatformEndpoint(
+					app.PlatformApplicationArn,
+					"dev-token",
+					map[string]string{"CustomData": "some-data"},
+				)
+				require.NoError(t, err)
+				assert.Contains(t, ep.EndpointArn, "endpoint/GCM/App")
+
+				attrs, err := b.GetEndpointAttributes(ep.EndpointArn)
+				require.NoError(t, err)
+				assert.Equal(t, "dev-token", attrs["Token"])
+				assert.Equal(t, "true", attrs["Enabled"])
+				assert.Equal(t, "some-data", attrs["CustomData"])
+			},
+		},
+		{
+			name: "create_app_not_found",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreatePlatformEndpoint("arn:aws:sns:us-east-1:000000000000:app/GCM/none", "tok", nil)
+				require.ErrorIs(t, err, sns.ErrPlatformApplicationNotFound)
+			},
+		},
+		{
+			name: "set_attributes",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				app, _ := b.CreatePlatformApplication("App", "GCM", nil)
+				ep, _ := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "tok", nil)
+
+				err := b.SetEndpointAttributes(ep.EndpointArn, map[string]string{"Enabled": "false"})
+				require.NoError(t, err)
+
+				attrs, err := b.GetEndpointAttributes(ep.EndpointArn)
+				require.NoError(t, err)
+				assert.Equal(t, "false", attrs["Enabled"])
+			},
+		},
+		{
+			name: "list_by_app",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				app, _ := b.CreatePlatformApplication("App", "GCM", nil)
+				app2, _ := b.CreatePlatformApplication("App2", "GCM", nil)
+				b.CreatePlatformEndpoint(app.PlatformApplicationArn, "tok1", nil)
+				b.CreatePlatformEndpoint(app.PlatformApplicationArn, "tok2", nil)
+				b.CreatePlatformEndpoint(app2.PlatformApplicationArn, "tok3", nil)
+
+				eps, _, err := b.ListEndpointsByPlatformApplication(app.PlatformApplicationArn, "")
+				require.NoError(t, err)
+				require.Len(t, eps, 2)
+			},
+		},
+		{
+			name: "delete_endpoint",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				app, _ := b.CreatePlatformApplication("App", "GCM", nil)
+				ep, _ := b.CreatePlatformEndpoint(app.PlatformApplicationArn, "tok", nil)
+
+				err := b.DeleteEndpoint(ep.EndpointArn)
+				require.NoError(t, err)
+
+				_, err = b.GetEndpointAttributes(ep.EndpointArn)
+				require.ErrorIs(t, err, sns.ErrEndpointNotFound)
+			},
+		},
+		{
+			name: "delete_endpoint_not_found",
+			run: func(t *testing.T, b *sns.InMemoryBackend) {
+				t.Helper()
+				err := b.DeleteEndpoint("arn:aws:sns:us-east-1:000000000000:endpoint/GCM/App/none")
+				require.ErrorIs(t, err, sns.ErrEndpointNotFound)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := sns.NewInMemoryBackend()
+			tt.run(t, b)
 		})
 	}
 }
