@@ -897,3 +897,141 @@ func TestEC2Handler_ExtractResource_ResourceId(t *testing.T) {
 		})
 	}
 }
+
+func TestEC2Handler_TagSpecification(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		body         string
+		idTag        string // XML element name containing the created resource ID
+		wantTagKey   string
+		wantTagValue string
+	}{
+		{
+			name: "create_vpc_with_tag_specification",
+			body: "Action=CreateVpc&Version=2016-11-15" +
+				"&CidrBlock=10.77.0.0/16" +
+				"&TagSpecification.1.ResourceType=vpc" +
+				"&TagSpecification.1.Tag.1.Key=Name" +
+				"&TagSpecification.1.Tag.1.Value=my-tagged-vpc",
+			idTag:        "vpcId",
+			wantTagKey:   "Name",
+			wantTagValue: "my-tagged-vpc",
+		},
+		{
+			name: "create_subnet_with_tag_specification",
+			body: "Action=CreateSubnet&Version=2016-11-15" +
+				"&VpcId=vpc-default" +
+				"&CidrBlock=10.88.1.0/24" +
+				"&TagSpecification.1.ResourceType=subnet" +
+				"&TagSpecification.1.Tag.1.Key=Name" +
+				"&TagSpecification.1.Tag.1.Value=my-tagged-subnet",
+			idTag:        "subnetId",
+			wantTagKey:   "Name",
+			wantTagValue: "my-tagged-subnet",
+		},
+		{
+			name: "create_security_group_with_tag_specification",
+			body: "Action=CreateSecurityGroup&Version=2016-11-15" +
+				"&GroupName=tagged-sg" +
+				"&GroupDescription=test" +
+				"&VpcId=vpc-default" +
+				"&TagSpecification.1.ResourceType=security-group" +
+				"&TagSpecification.1.Tag.1.Key=Env" +
+				"&TagSpecification.1.Tag.1.Value=staging",
+			idTag:        "groupId",
+			wantTagKey:   "Env",
+			wantTagValue: "staging",
+		},
+		{
+			name: "run_instances_with_tag_specification",
+			body: "Action=RunInstances&Version=2016-11-15" +
+				"&ImageId=ami-12345678" +
+				"&InstanceType=t2.micro" +
+				"&MinCount=1&MaxCount=1" +
+				"&TagSpecification.1.ResourceType=instance" +
+				"&TagSpecification.1.Tag.1.Key=Name" +
+				"&TagSpecification.1.Tag.1.Value=my-instance",
+			idTag:        "instanceId",
+			wantTagKey:   "Name",
+			wantTagValue: "my-instance",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			rec := postForm(t, h, tt.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			// Extract the resource ID from the creation response XML.
+			resourceID := extractXMLValue(t, rec.Body.String(), tt.idTag)
+			require.NotEmpty(t, resourceID, "resource ID element %q should be present in response", tt.idTag)
+
+			// DescribeTags with a resource-id filter to check only this specific resource.
+			descRec := postForm(t, h,
+				"Action=DescribeTags&Version=2016-11-15"+
+					"&Filter.1.Name=resource-id&Filter.1.Value.1="+resourceID)
+			require.Equal(t, http.StatusOK, descRec.Code)
+
+			tagMap := extractTagsFromDescribeTagsXML(t, descRec.Body.String())
+			assert.Equal(t, tt.wantTagValue, tagMap[tt.wantTagKey],
+				"resource %s should have tag %s=%s (got tags: %v)", resourceID, tt.wantTagKey, tt.wantTagValue, tagMap)
+		})
+	}
+}
+
+// extractXMLValue extracts the text content of the first occurrence of the given XML element.
+// Returns the element text, or an empty string if the element is not found.
+func extractXMLValue(t *testing.T, body, elementName string) string {
+	t.Helper()
+
+	open := "<" + elementName + ">"
+	closeTag := "</" + elementName + ">"
+	start := strings.Index(body, open)
+
+	if start == -1 {
+		return ""
+	}
+
+	start += len(open)
+	end := strings.Index(body[start:], closeTag)
+
+	if end == -1 {
+		return ""
+	}
+
+	return body[start : start+end]
+}
+
+// extractTagsFromDescribeTagsXML parses a DescribeTagsResponse XML body and returns a key→value map.
+// The test fails immediately via require.NoError if the XML is malformed.
+// Returns an empty map if the response contains no tag items.
+func extractTagsFromDescribeTagsXML(t *testing.T, body string) map[string]string {
+	t.Helper()
+
+	type itemEl struct {
+		Key   string `xml:"key"`
+		Value string `xml:"value"`
+	}
+	type tagSet struct {
+		Items []itemEl `xml:"item"`
+	}
+	type resp struct {
+		TagSet tagSet `xml:"tagSet"`
+	}
+
+	var r resp
+
+	require.NoError(t, xml.Unmarshal([]byte(body), &r), "DescribeTagsResponse should be valid XML")
+
+	m := make(map[string]string, len(r.TagSet.Items))
+	for _, item := range r.TagSet.Items {
+		m[item.Key] = item.Value
+	}
+
+	return m
+}

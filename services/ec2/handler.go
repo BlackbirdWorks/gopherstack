@@ -322,6 +322,17 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
+	if tags := parseTagSpecification(vals, "instance"); len(tags) > 0 {
+		ids := make([]string, 0, len(instances))
+		for _, inst := range instances {
+			ids = append(ids, inst.ID)
+		}
+
+		if err = h.Backend.CreateTags(ids, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	items := make([]instanceItem, 0, len(instances))
 	for _, inst := range instances {
 		items = append(items, toInstanceItem(inst))
@@ -413,6 +424,12 @@ func (h *Handler) handleCreateSecurityGroup(vals url.Values, reqID string) (any,
 		return nil, err
 	}
 
+	if tags := parseTagSpecification(vals, "security-group"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{sg.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createSecurityGroupResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -493,6 +510,12 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 		return nil, err
 	}
 
+	if tags := parseTagSpecification(vals, "vpc"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{v.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createVpcResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -524,6 +547,12 @@ func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error)
 	s, err := h.Backend.CreateSubnet(vpcID, cidr, az)
 	if err != nil {
 		return nil, err
+	}
+
+	if tags := parseTagSpecification(vals, "subnet"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{s.ID}, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createSubnetResponse{
@@ -767,6 +796,36 @@ func parseEC2TagKeys(vals url.Values) []string {
 	}
 
 	return keys
+}
+
+// parseTagSpecification extracts tags from TagSpecification.N.Tag.M.Key/Value form values
+// for a specific resourceType (e.g. "vpc", "subnet", "instance", "security-group").
+// Terraform and the AWS SDK send inline tags this way during resource creation.
+// Returns a map of tag keys to values for the matched resource type, or an empty map if none found.
+func parseTagSpecification(vals url.Values, resourceType string) map[string]string {
+	tags := make(map[string]string)
+
+	for i := 1; i <= maxTagsPerRequest; i++ {
+		rt := vals.Get(fmt.Sprintf("TagSpecification.%d.ResourceType", i))
+		if rt == "" {
+			break
+		}
+
+		if rt != resourceType {
+			continue
+		}
+
+		for j := 1; j <= maxTagsPerRequest; j++ {
+			key := vals.Get(fmt.Sprintf("TagSpecification.%d.Tag.%d.Key", i, j))
+			if key == "" {
+				break
+			}
+
+			tags[key] = vals.Get(fmt.Sprintf("TagSpecification.%d.Tag.%d.Value", i, j))
+		}
+	}
+
+	return tags
 }
 
 // marshalXML encodes the payload with the XML declaration header.
