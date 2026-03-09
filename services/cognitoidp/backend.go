@@ -195,6 +195,27 @@ func (b *InMemoryBackend) ListUserPools() []*UserPool {
 	return out
 }
 
+// ListUserPoolClients returns all app clients for the given user pool.
+func (b *InMemoryBackend) ListUserPoolClients(userPoolID string) ([]*UserPoolClient, error) {
+	b.mu.RLock("ListUserPoolClients")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	var out []*UserPoolClient
+
+	for _, c := range b.clients {
+		if c.UserPoolID == userPoolID {
+			cp := *c
+			out = append(out, &cp)
+		}
+	}
+
+	return out, nil
+}
+
 // CreateUserPoolClient creates a new app client for the given user pool.
 func (b *InMemoryBackend) CreateUserPoolClient(userPoolID, clientName string) (*UserPoolClient, error) {
 	b.mu.Lock("CreateUserPoolClient")
