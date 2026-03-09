@@ -13,6 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/iot"
+	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -45,6 +47,7 @@ type Clients struct {
 	SecretsManager *secretsmanager.Client
 	ECR            *ecr.Client
 	ECS            *ecs.Client
+	IoT            *iot.Client
 }
 
 // LoadData loads sample data into all supported services.
@@ -84,6 +87,10 @@ func LoadData(
 
 	if clients.ECS != nil {
 		loadECS(ctx, clients.ECS)
+	}
+
+	if clients.IoT != nil {
+		loadIoT(ctx, clients.IoT)
 	}
 
 	pkgslogger.Load(ctx).InfoContext(ctx, "Demo data loaded successfully")
@@ -462,5 +469,34 @@ func loadECS(ctx context.Context, ecsClient *ecs.Client) {
 		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to register ECS task definition", "error", err)
 	} else {
 		pkgslogger.Load(ctx).InfoContext(ctx, "Registered ECS task definition", "family", "demo-web")
+	}
+}
+
+func loadIoT(ctx context.Context, iotClient *iot.Client) {
+	things := []string{"smart-sensor-1", "smart-sensor-2", "gateway-device-1"}
+
+	for _, thingName := range things {
+		_, err := iotClient.CreateThing(ctx, &iot.CreateThingInput{
+			ThingName: aws.String(thingName),
+		})
+		if err != nil {
+			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create IoT thing", "name", thingName, "error", err)
+		} else {
+			pkgslogger.Load(ctx).InfoContext(ctx, "Created IoT thing", "name", thingName)
+		}
+	}
+
+	_, err := iotClient.CreateTopicRule(ctx, &iot.CreateTopicRuleInput{
+		RuleName: aws.String("demo_sensor_rule"),
+		TopicRulePayload: &iottypes.TopicRulePayload{
+			Sql:         aws.String("SELECT temperature FROM 'sensors/+/data'"),
+			Description: aws.String("Demo rule for sensor data"),
+			Actions:     []iottypes.Action{},
+		},
+	})
+	if err != nil {
+		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create IoT topic rule", "error", err)
+	} else {
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created IoT topic rule", "name", "demo_sensor_rule")
 	}
 }

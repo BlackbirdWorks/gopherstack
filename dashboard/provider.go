@@ -26,6 +26,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -88,6 +89,7 @@ type AWSSDKProvider interface {
 	GetCognitoIDPHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
+	GetIoTHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -142,6 +144,7 @@ type extractedConfig struct {
 	cognitoIDPOps      *cognitoidpbackend.Handler
 	ecrOps             *ecrbackend.Handler
 	ecsOps             *ecsbackend.Handler
+	iotOps             *iotbackend.Handler
 	faultStore         *chaos.FaultStore
 	gCfg               globalcfg.GlobalConfig
 }
@@ -299,6 +302,15 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.cognitoIDPOps, _ = h.(*cognitoidpbackend.Handler)
 	}
 
+	if h := ap.GetSESv2Handler(); h != nil {
+		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
+	}
+
+	extractECRECSAndIoTHandlers(ap, ec)
+}
+
+// extractECRECSAndIoTHandlers populates ECR, ECS, and IoT handlers on ec.
+func extractECRECSAndIoTHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetECRHandler(); h != nil {
 		ec.ecrOps, _ = h.(*ecrbackend.Handler)
 	}
@@ -307,8 +319,8 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.ecsOps, _ = h.(*ecsbackend.Handler)
 	}
 
-	if h := ap.GetSESv2Handler(); h != nil {
-		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
+	if h := ap.GetIoTHandler(); h != nil {
+		ec.iotOps, _ = h.(*iotbackend.Handler)
 	}
 }
 
@@ -355,6 +367,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CognitoIDPOps:      ec.cognitoIDPOps,
 		ECROps:             ec.ecrOps,
 		ECSOps:             ec.ecsOps,
+		IoTOps:             ec.iotOps,
 		GlobalConfig:       ec.gCfg,
 		FaultStore:         ec.faultStore,
 		Logger:             ctx.Logger,

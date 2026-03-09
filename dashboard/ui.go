@@ -34,6 +34,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -123,6 +124,7 @@ type DashboardHandler struct {
 	EC2Ops             *ec2backend.Handler
 	ECROps             *ecrbackend.Handler
 	ECSOps             *ecsbackend.Handler
+	IoTOps             *iotbackend.Handler
 	OpenSearchOps      *opensearchbackend.Handler
 	ACMOps             *acmbackend.Handler
 	RedshiftOps        *redshiftbackend.Handler
@@ -193,6 +195,8 @@ type Config struct {
 	ECROps *ecrbackend.Handler
 	// ECSOps provides access to the ECS backend.
 	ECSOps *ecsbackend.Handler
+	// IoTOps provides access to the IoT backend.
+	IoTOps *iotbackend.Handler
 	// OpenSearchOps provides access to the OpenSearch backend.
 	OpenSearchOps *opensearchbackend.Handler
 	// ACMOps provides access to the ACM backend.
@@ -277,6 +281,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/ec2/*.html",
 		"templates/ecr/*.html",
 		"templates/ecs/*.html",
+		"templates/iot/*.html",
 		"templates/opensearch/*.html",
 		"templates/acm/*.html",
 		"templates/redshift/*.html",
@@ -335,6 +340,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EC2Ops:             cfg.EC2Ops,
 		ECROps:             cfg.ECROps,
 		ECSOps:             cfg.ECSOps,
+		IoTOps:             cfg.IoTOps,
 		OpenSearchOps:      cfg.OpenSearchOps,
 		ACMOps:             cfg.ACMOps,
 		RedshiftOps:        cfg.RedshiftOps,
@@ -541,6 +547,12 @@ func (h *DashboardHandler) setupECSRoutes() {
 	h.SubRouter.POST("/dashboard/ecs/cluster/delete", h.ecsDeleteCluster)
 }
 
+func (h *DashboardHandler) setupIoTRoutes() {
+	h.SubRouter.GET("/dashboard/iot", h.iotIndex)
+	h.SubRouter.POST("/dashboard/iot/thing/create", h.iotCreateThing)
+	h.SubRouter.POST("/dashboard/iot/thing/delete", h.iotDeleteThing)
+}
+
 func (h *DashboardHandler) setupOpenSearchRoutes() {
 	h.SubRouter.GET("/dashboard/opensearch", h.opensearchIndex)
 	h.SubRouter.GET("/dashboard/opensearch/domain", h.opensearchDomainDetail)
@@ -665,6 +677,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupEC2Routes()
 	h.setupECRRoutes()
 	h.setupECSRoutes()
+	h.setupIoTRoutes()
 	h.setupOpenSearchRoutes()
 	h.setupACMRoutes()
 	h.setupRedshiftRoutes()
@@ -751,6 +764,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/ec2", "EC2"},
 	{"/ecr", "ECR"},
 	{"/ecs", "ECS"},
+	{"/iot", "IoT"},
 	{"/opensearch", "OpenSearch"},
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},

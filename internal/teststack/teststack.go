@@ -35,6 +35,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -96,6 +97,7 @@ type Stack struct {
 	EC2Handler                   *ec2backend.Handler
 	ECRHandler                   *ecrbackend.Handler
 	ECSHandler                   *ecsbackend.Handler
+	IoTHandler                   *iotbackend.Handler
 	OpenSearchHandler            *opensearchbackend.Handler
 	ACMHandler                   *acmbackend.Handler
 	RedshiftHandler              *redshiftbackend.Handler
@@ -188,6 +190,7 @@ func registerServices(
 	ec2Hndlr *ec2backend.Handler,
 	ecrHndlr *ecrbackend.Handler,
 	ecsHndlr *ecsbackend.Handler,
+	iotHndlr *iotbackend.Handler,
 	openSearchHndlr *opensearchbackend.Handler,
 	acmHndlr *acmbackend.Handler,
 	redshiftHndlr *redshiftbackend.Handler,
@@ -229,6 +232,7 @@ func registerServices(
 	_ = registry.Register(ec2Hndlr)
 	_ = registry.Register(ecrHndlr)
 	_ = registry.Register(ecsHndlr)
+	_ = registry.Register(iotHndlr)
 	_ = registry.Register(openSearchHndlr)
 	_ = registry.Register(acmHndlr)
 	_ = registry.Register(redshiftHndlr)
@@ -273,6 +277,7 @@ type handlers struct {
 	ec2             *ec2backend.Handler
 	ecr             *ecrbackend.Handler
 	ecs             *ecsbackend.Handler
+	iot             *iotbackend.Handler
 	opensearch      *opensearchbackend.Handler
 	acm             *acmbackend.Handler
 	redshift        *redshiftbackend.Handler
@@ -341,6 +346,10 @@ func newHandlers() handlers {
 		),
 		ecs: ecsbackend.NewHandler(
 			ecsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ecsbackend.NewNoopRunner()),
+		),
+		iot: iotbackend.NewHandler(
+			iotbackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion),
+			nil, // broker is nil in tests; MQTT publish/subscribe is not exercised by dashboard tests
 		),
 		opensearch: opensearchbackend.NewHandler(
 			opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -449,6 +458,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		EC2Ops:             h.ec2,
 		ECROps:             h.ecr,
 		ECSOps:             h.ecs,
+		IoTOps:             h.iot,
 		OpenSearchOps:      h.opensearch,
 		ACMOps:             h.acm,
 		RedshiftOps:        h.redshift,
@@ -488,7 +498,7 @@ func New(t *testing.T) *Stack {
 		registry,
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
-		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.opensearch,
+		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.iot, h.opensearch,
 		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity, h.cognitoIDP,
 	)
@@ -530,6 +540,7 @@ func New(t *testing.T) *Stack {
 		EC2Handler:                   h.ec2,
 		ECRHandler:                   h.ecr,
 		ECSHandler:                   h.ecs,
+		IoTHandler:                   h.iot,
 		OpenSearchHandler:            h.opensearch,
 		ACMHandler:                   h.acm,
 		RedshiftHandler:              h.redshift,
