@@ -3,6 +3,8 @@ package ec2
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -119,6 +121,7 @@ type InMemoryBackend struct {
 	routeTables        map[string]*RouteTable
 	natGateways        map[string]*NatGateway
 	networkInterfaces  map[string]*NetworkInterface
+	tags               map[string]map[string]string // resourceID → key → value
 	mu                 *lockmetrics.RWMutex
 	AccountID          string
 	Region             string
@@ -140,6 +143,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		routeTables:       make(map[string]*RouteTable),
 		natGateways:       make(map[string]*NatGateway),
 		networkInterfaces: make(map[string]*NetworkInterface),
+		tags:              make(map[string]map[string]string),
 		AccountID:         accountID,
 		Region:            region,
 		mu:                lockmetrics.New("ec2"),
@@ -500,4 +504,114 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	delete(b.subnets, id)
 
 	return nil
+}
+
+// TagEntry holds a single resource-tag association returned by DescribeTags.
+type TagEntry struct {
+	ResourceID   string
+	ResourceType string
+	Key          string
+	Value        string
+}
+
+// resourceTypeByID infers the EC2 resource type from the ID prefix.
+func resourceTypeByID(id string) string {
+	prefixes := []struct {
+		prefix string
+		rtype  string
+	}{
+		{"i-", "instance"},
+		{"sg-", "security-group"},
+		{"vpc-", "vpc"},
+		{"subnet-", "subnet"},
+		{"vol-", "volume"},
+		{"igw-", "internet-gateway"},
+		{"rtb-", "route-table"},
+		{"nat-", "natgateway"},
+		{"eipalloc-", "elastic-ip"},
+	}
+
+	for _, e := range prefixes {
+		if strings.HasPrefix(id, e.prefix) {
+			return e.rtype
+		}
+	}
+
+	return "resource"
+}
+
+// CreateTags adds or updates tags on one or more resources.
+func (b *InMemoryBackend) CreateTags(resourceIDs []string, tags map[string]string) error {
+	b.mu.Lock("CreateTags")
+	defer b.mu.Unlock()
+
+	for _, id := range resourceIDs {
+		if b.tags[id] == nil {
+			b.tags[id] = make(map[string]string)
+		}
+
+		maps.Copy(b.tags[id], tags)
+	}
+
+	return nil
+}
+
+// DeleteTags removes the specified tag keys from one or more resources.
+// If keys is empty, the operation is a no-op (EC2 requires at least one tag key).
+// Empty per-resource tag maps are removed after deletions.
+func (b *InMemoryBackend) DeleteTags(resourceIDs []string, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	b.mu.Lock("DeleteTags")
+	defer b.mu.Unlock()
+
+	for _, id := range resourceIDs {
+		if b.tags[id] == nil {
+			continue
+		}
+
+		for _, k := range keys {
+			delete(b.tags[id], k)
+		}
+
+		if len(b.tags[id]) == 0 {
+			delete(b.tags, id)
+		}
+	}
+
+	return nil
+}
+
+// DescribeTags returns all tag entries, optionally filtered by resource IDs.
+func (b *InMemoryBackend) DescribeTags(resourceIDs []string) []TagEntry {
+	b.mu.RLock("DescribeTags")
+	defer b.mu.RUnlock()
+
+	filterSet := make(map[string]bool, len(resourceIDs))
+	for _, id := range resourceIDs {
+		filterSet[id] = true
+	}
+
+	var entries []TagEntry
+
+	for resourceID, tagMap := range b.tags {
+		if len(filterSet) > 0 && !filterSet[resourceID] {
+			continue
+		}
+
+		resType := resourceTypeByID(resourceID)
+
+		for k, v := range tagMap {
+			entries = append(entries, TagEntry{
+				ResourceID:   resourceID,
+				ResourceType: resType,
+				Key:          k,
+				Value:        v,
+			})
+		}
+	}
+
+	return entries
 }
