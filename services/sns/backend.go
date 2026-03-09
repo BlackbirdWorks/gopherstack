@@ -876,18 +876,19 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 	parts := strings.Split(app.PlatformApplicationArn, ":")
 	resource := parts[len(parts)-1] // "app/{Platform}/{AppName}"
 	resourceParts := strings.SplitN(resource, "/", platformARNResourceParts)
-	platform := ""
-	appName := ""
 
-	if len(resourceParts) == platformARNResourceParts {
-		platform = resourceParts[1]
-		appName = resourceParts[2]
+	if len(resourceParts) != platformARNResourceParts {
+		return nil, fmt.Errorf("%w: malformed platform application ARN: %s", ErrInvalidParameter, platformApplicationArn)
 	}
+
+	platform := resourceParts[1]
+	appName := resourceParts[2]
 
 	endpointArn := arn.Build("sns", b.region, b.accountID,
 		"endpoint/"+platform+"/"+appName+"/"+uuid.New().String())
 
-	attrs := make(map[string]string, len(attributes)+1)
+	// +2 for Token and Enabled attributes added below.
+	attrs := make(map[string]string, len(attributes)+2)
 	maps.Copy(attrs, attributes)
 	attrs["Token"] = token
 	attrs["Enabled"] = "true"
