@@ -1,0 +1,32 @@
+{{define "fis/experiments_fragment.html"}}
+    {{if .Experiments}}
+    {{range .Experiments}}
+    <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+        <td class="px-4 py-3 font-mono text-xs text-slate-900 dark:text-white" title="{{.ID}}">{{printf "%.12s" .ID}}…</td>
+        <td class="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-400" title="{{.TemplateID}}">{{printf "%.12s" .TemplateID}}…</td>
+        <td class="px-4 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{.StateBadge}}">
+                {{.State}}
+            </span>
+        </td>
+        <td class="px-4 py-3 text-xs text-slate-600 dark:text-slate-400">{{.StartedAt}}</td>
+        <td class="px-4 py-3 text-xs text-slate-600 dark:text-slate-400">{{.Duration}}</td>
+        <td class="px-4 py-3 text-xs text-slate-600 dark:text-slate-400">{{.ActionsDone}}/{{.ActionsTotal}}</td>
+        <td class="px-4 py-3 text-right">
+            {{if eq .State "RUNNING"}}
+            <form method="POST" action="/dashboard/fis/experiments/stop" class="inline">
+                <input type="hidden" name="id" value="{{.ID}}" />
+                <button type="submit" class="font-medium text-orange-600 dark:text-orange-400 hover:underline text-xs">Stop</button>
+            </form>
+            {{end}}
+        </td>
+    </tr>
+    {{end}}
+    {{else}}
+    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700">
+        <td colspan="7" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+            No experiments yet. Start one from a template above.
+        </td>
+    </tr>
+    {{end}}
+{{end}}

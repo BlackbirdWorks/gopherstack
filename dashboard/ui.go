@@ -34,6 +34,7 @@ import (
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
+	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
@@ -124,6 +125,7 @@ type DashboardHandler struct {
 	EC2Ops             *ec2backend.Handler
 	ECROps             *ecrbackend.Handler
 	ECSOps             *ecsbackend.Handler
+	FISOps             *fisbackend.Handler
 	OpenSearchOps      *opensearchbackend.Handler
 	ACMOps             *acmbackend.Handler
 	RedshiftOps        *redshiftbackend.Handler
@@ -195,6 +197,8 @@ type Config struct {
 	ECROps *ecrbackend.Handler
 	// ECSOps provides access to the ECS backend.
 	ECSOps *ecsbackend.Handler
+	// FISOps provides access to the FIS backend.
+	FISOps *fisbackend.Handler
 	// OpenSearchOps provides access to the OpenSearch backend.
 	OpenSearchOps *opensearchbackend.Handler
 	// ACMOps provides access to the ACM backend.
@@ -281,6 +285,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/ec2/*.html",
 		"templates/ecr/*.html",
 		"templates/ecs/*.html",
+		"templates/fis/*.html",
 		"templates/opensearch/*.html",
 		"templates/acm/*.html",
 		"templates/redshift/*.html",
@@ -340,6 +345,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EC2Ops:             cfg.EC2Ops,
 		ECROps:             cfg.ECROps,
 		ECSOps:             cfg.ECSOps,
+		FISOps:             cfg.FISOps,
 		OpenSearchOps:      cfg.OpenSearchOps,
 		ACMOps:             cfg.ACMOps,
 		RedshiftOps:        cfg.RedshiftOps,
@@ -675,6 +681,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupEC2Routes()
 	h.setupECRRoutes()
 	h.setupECSRoutes()
+	h.setupFISRoutes()
 	h.setupOpenSearchRoutes()
 	h.setupACMRoutes()
 	h.setupRedshiftRoutes()
@@ -762,6 +769,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/ec2", "EC2"},
 	{"/ecr", "ECR"},
 	{"/ecs", "ECS"},
+	{"/fis", "FIS"},
 	{"/opensearch", "OpenSearch"},
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},
