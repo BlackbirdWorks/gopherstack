@@ -1843,6 +1843,27 @@ func TestTerraform_EC2(t *testing.T) {
 				require.NoError(t, err, "DescribeInstances should succeed after terraform apply")
 				require.NotEmpty(t, out.Reservations, "at least one reservation should exist")
 				require.NotEmpty(t, out.Reservations[0].Instances, "at least one instance should exist")
+
+				// Verify that Terraform's CreateTags calls persisted tag on all resources.
+				// The fixture sets Name tags on the VPC, subnet, SG, and instance.
+				tagsOut, err := client.DescribeTags(ctx, &ec2svc.DescribeTagsInput{})
+				require.NoError(t, err, "DescribeTags should succeed after terraform apply")
+
+				tagsByResource := make(map[string]map[string]string)
+				for _, tag := range tagsOut.Tags {
+					id := aws.ToString(tag.ResourceId)
+					if tagsByResource[id] == nil {
+						tagsByResource[id] = make(map[string]string)
+					}
+					tagsByResource[id][aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+				}
+
+				require.NotEmpty(t, tagsByResource, "DescribeTags should return at least one tagged resource")
+
+				// Every resource created by the fixture must have a Name tag.
+				for _, tags := range tagsByResource {
+					assert.Contains(t, tags, "Name", "each tagged resource should have a Name tag")
+				}
 			},
 		},
 	}
