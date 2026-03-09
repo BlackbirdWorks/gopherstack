@@ -7,6 +7,7 @@ import (
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -80,6 +81,7 @@ type AWSSDKProvider interface {
 	GetSWFHandler() service.Registerable
 	GetFirehoseHandler() service.Registerable
 	GetCognitoIdentityHandler() service.Registerable
+	GetAppSyncHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -130,6 +132,7 @@ type extractedConfig struct {
 	swfOps             *swfbackend.Handler
 	firehoseOps        *firehosebackend.Handler
 	cognitoIdentityOps *cognitoidentitybackend.Handler
+	appSyncOps         *appsyncbackend.Handler
 	faultStore         *chaos.FaultStore
 	gCfg               globalcfg.GlobalConfig
 }
@@ -282,6 +285,10 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCognitoIdentityHandler(); h != nil {
 		ec.cognitoIdentityOps, _ = h.(*cognitoidentitybackend.Handler)
 	}
+
+	if h := ap.GetAppSyncHandler(); h != nil {
+		ec.appSyncOps, _ = h.(*appsyncbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -323,6 +330,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		SWFOps:             ec.swfOps,
 		FirehoseOps:        ec.firehoseOps,
 		CognitoIdentityOps: ec.cognitoIdentityOps,
+		AppSyncOps:         ec.appSyncOps,
 		GlobalConfig:       ec.gCfg,
 		FaultStore:         ec.faultStore,
 		Logger:             ctx.Logger,

@@ -20,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -130,6 +131,7 @@ type DashboardHandler struct {
 	TranscribeOps      *transcribebackend.Handler
 	SupportOps         *supportbackend.Handler
 	CognitoIdentityOps *cognitoidentitybackend.Handler
+	AppSyncOps         *appsyncbackend.Handler
 	SubRouter          *echo.Echo
 	ddbProvider        *ddbbackend.DashboardProvider
 	s3Provider         *s3backend.DashboardProvider
@@ -207,6 +209,8 @@ type Config struct {
 	SupportOps *supportbackend.Handler
 	// CognitoIdentityOps provides access to the Cognito Identity backend.
 	CognitoIdentityOps *cognitoidentitybackend.Handler
+	// AppSyncOps provides access to the AppSync backend.
+	AppSyncOps *appsyncbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -272,6 +276,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/transcribe/*.html",
 		"templates/support/*.html",
 		"templates/cognitoidentity/*.html",
+		"templates/appsync/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -326,6 +331,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		TranscribeOps:      cfg.TranscribeOps,
 		SupportOps:         cfg.SupportOps,
 		CognitoIdentityOps: cfg.CognitoIdentityOps,
+		AppSyncOps:         cfg.AppSyncOps,
 		GlobalConfig:       cfg.GlobalConfig,
 		Logger:             cfg.Logger,
 		FaultStore:         cfg.FaultStore,
@@ -584,6 +590,10 @@ func (h *DashboardHandler) setupCognitoIdentityRoutes() {
 	h.SubRouter.GET("/dashboard/cognitoidentity", h.cognitoIdentityIndex)
 }
 
+func (h *DashboardHandler) setupAppSyncRoutes() {
+	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -626,6 +636,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupTranscribeRoutes()
 	h.setupSupportRoutes()
 	h.setupCognitoIdentityRoutes()
+	h.setupAppSyncRoutes()
 	h.setupChaosRoutes()
 	h.setupMetaRoutes()
 }
@@ -708,6 +719,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/transcribe", "Transcribe"},
 	{"/support", "Support"},
 	{"/cognitoidentity", "CognitoIdentity"},
+	{"/appsync", "AppSync"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
