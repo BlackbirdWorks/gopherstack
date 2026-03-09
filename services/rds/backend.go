@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -176,6 +177,7 @@ type InMemoryBackend struct {
 	optionGroups           map[string]*OptionGroup
 	clusters               map[string]*DBCluster
 	clusterSnapshots       map[string]*DBClusterSnapshot
+	fisFailoverFaults      map[string]time.Time // keyed by cluster identifier; value is expiry (zero = permanent)
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -193,6 +195,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		optionGroups:           make(map[string]*OptionGroup),
 		clusters:               make(map[string]*DBCluster),
 		clusterSnapshots:       make(map[string]*DBClusterSnapshot),
+		fisFailoverFaults:      make(map[string]time.Time),
 		accountID:              accountID,
 		region:                 region,
 		mu:                     lockmetrics.New("rds"),

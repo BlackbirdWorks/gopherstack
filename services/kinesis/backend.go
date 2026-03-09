@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"math/rand/v2"
 	"sort"
 	"strings"
 	"time"
@@ -39,12 +40,19 @@ type StorageBackend interface {
 	ListAll() []StreamInfo
 }
 
+// kinesisThrottleFault holds the state of an active FIS throughput-exception fault on a stream.
+type kinesisThrottleFault struct {
+	expiry      time.Time
+	probability float64 // fraction of calls to throttle (0.0–1.0); 1.0 = always throttle
+}
+
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	streams   map[string]*Stream
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	streams             map[string]*Stream
+	fisThroughputFaults map[string]*kinesisThrottleFault // keyed by stream name
+	mu                  *lockmetrics.RWMutex
+	accountID           string
+	region              string
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -55,10 +63,11 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		streams:   make(map[string]*Stream),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("kinesis"),
+		streams:             make(map[string]*Stream),
+		fisThroughputFaults: make(map[string]*kinesisThrottleFault),
+		accountID:           accountID,
+		region:              region,
+		mu:                  lockmetrics.New("kinesis"),
 	}
 }
 
@@ -252,6 +261,10 @@ func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, er
 		return nil, ErrStreamNotFound
 	}
 
+	if b.isThroughputFaultActiveLocked(input.StreamName) {
+		return nil, ErrProvisionedThroughputExceeded
+	}
+
 	if len(stream.Shards) == 0 {
 		return nil, ErrInvalidArgument
 	}
@@ -424,12 +437,17 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		return nil, err
 	}
 
-	b.mu.RLock("GetRecords")
-	defer b.mu.RUnlock()
+	// Use a write lock so isThroughputFaultActiveLocked can lazily evict expired entries.
+	b.mu.Lock("GetRecords")
+	defer b.mu.Unlock()
 
 	stream, exists := b.streams[it.StreamName]
 	if !exists {
 		return nil, ErrStreamNotFound
+	}
+
+	if b.isThroughputFaultActiveLocked(it.StreamName) {
+		return nil, ErrProvisionedThroughputExceeded
 	}
 
 	shard := findShard(stream.Shards, it.ShardID)
@@ -535,6 +553,36 @@ func (b *InMemoryBackend) ListAll() []StreamInfo {
 	}
 
 	return result
+}
+
+// isThroughputFaultActiveLocked reports whether a FIS throughput exception should be
+// applied to the current request for the given stream name, using probability-based
+// sampling when percentage < 100.
+// Caller MUST hold a write lock (b.mu.Lock) on b.mu — this function lazily removes
+// expired fault entries to prevent unbounded map growth.
+func (b *InMemoryBackend) isThroughputFaultActiveLocked(streamName string) bool {
+	fault, ok := b.fisThroughputFaults[streamName]
+	if !ok || fault == nil {
+		return false
+	}
+
+	if !fault.expiry.IsZero() && time.Now().After(fault.expiry) {
+		// Lazily evict expired entry.
+		delete(b.fisThroughputFaults, streamName)
+
+		return false
+	}
+
+	if fault.probability <= 0 {
+		return false
+	}
+
+	if fault.probability >= 1.0 {
+		return true
+	}
+
+	//nolint:gosec // weak random is intentional for fault injection
+	return rand.Float64() < fault.probability
 }
 
 // findTimestampPosition returns the index of the first record whose arrival

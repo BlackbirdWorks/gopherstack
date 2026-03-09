@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -93,4 +94,30 @@ const StreamShardID = streamShardID
 
 func (j *Janitor) RunOnce(ctx context.Context) {
 	j.runOnce(ctx)
+}
+
+// LookupReplicationPauseKeyForTest exposes lookupReplicationPauseKey for unit tests.
+func (db *InMemoryDB) LookupReplicationPauseKeyForTest(tableARNOrName string) (any, string, bool) {
+	t, k, found := db.lookupReplicationPauseKey(tableARNOrName)
+
+	return t, k, found
+}
+
+// InjectExpiredReplicationPauseForTest directly inserts an expired entry
+// into fisReplicationPaused without starting a cleanup goroutine, allowing
+// tests to exercise the lazy-eviction path in IsReplicationPaused.
+func (db *InMemoryDB) InjectExpiredReplicationPauseForTest(tableARN string) {
+	db.mu.Lock("InjectExpiredReplicationPauseForTest")
+	defer db.mu.Unlock()
+
+	db.fisReplicationPaused[tableARN] = time.Now().Add(-time.Hour) // already expired
+}
+
+// ScheduleReplicationPauseCleanupForTest exposes scheduleReplicationPauseCleanup for tests.
+func (db *InMemoryDB) ScheduleReplicationPauseCleanupForTest(
+	ctx context.Context,
+	tableARNs []string,
+	dur time.Duration,
+) {
+	db.scheduleReplicationPauseCleanup(ctx, tableARNs, dur)
 }

@@ -38,6 +38,12 @@ var ErrExperimentNotRunning = errors.New("ExperimentNotRunning")
 // ErrResourceNotFound is returned when a tagged resource ARN is not known.
 var ErrResourceNotFound = errors.New("ResourceNotFound")
 
+// ErrSafetyLeverNotFound is returned when the safety lever ID does not match this account.
+var ErrSafetyLeverNotFound = errors.New("SafetyLeverNotFound")
+
+// ErrSafetyLeverEngaged is returned when StartExperiment is blocked by an engaged safety lever.
+var ErrSafetyLeverEngaged = errors.New("SafetyLeverEngaged")
+
 // ----------------------------------------
 // Status constants
 // ----------------------------------------
@@ -123,6 +129,13 @@ type StorageBackend interface {
 	StopExperiment(id string) (*Experiment, error)
 	ListExperiments() ([]*Experiment, error)
 
+	// Phase 3 — resolved targets
+	ListExperimentResolvedTargets(id string) ([]ExperimentResolvedTarget, error)
+
+	// Phase 3 — safety lever
+	GetSafetyLever(id string) (*SafetyLever, error)
+	UpdateSafetyLeverState(id string, input *updateSafetyLeverStateRequest) (*SafetyLever, error)
+
 	// Action / target-resource-type discovery
 	ListActions() []ActionSummary
 	GetAction(id string) (*ActionSummary, error)
@@ -150,6 +163,7 @@ type InMemoryBackend struct {
 	templates       map[string]*ExperimentTemplate
 	experiments     map[string]*Experiment
 	faultStore      *chaos.FaultStore
+	safetyLever     *SafetyLever
 	accountID       string
 	region          string
 	actionProviders []service.FISActionProvider
@@ -158,11 +172,19 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	safetyLeverARN := arn.Build("fis", region, accountID, fmt.Sprintf("safety-lever/%s", accountID))
+
 	return &InMemoryBackend{
 		templates:   make(map[string]*ExperimentTemplate),
 		experiments: make(map[string]*Experiment),
 		accountID:   accountID,
 		region:      region,
+		safetyLever: &SafetyLever{
+			ID:    accountID,
+			Arn:   safetyLeverARN,
+			Tags:  make(map[string]string),
+			State: SafetyLeverState{Status: "disengaged"},
+		},
 	}
 }
 
@@ -330,7 +352,12 @@ func (b *InMemoryBackend) StartExperiment(
 ) (*Experiment, error) {
 	b.mu.RLock()
 	tpl, ok := b.templates[input.ExperimentTemplateID]
+	leverEngaged := b.safetyLever != nil && b.safetyLever.State.Status == "engaged"
 	b.mu.RUnlock()
+
+	if leverEngaged {
+		return nil, fmt.Errorf("%w: safety lever is engaged", ErrSafetyLeverEngaged)
+	}
 
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTemplateNotFound, input.ExperimentTemplateID)
@@ -486,6 +513,76 @@ func (b *InMemoryBackend) ListExperiments() ([]*Experiment, error) {
 	}
 
 	return result, nil
+}
+
+// ----------------------------------------
+// Phase 3 — Resolved Targets
+// ----------------------------------------
+
+// ListExperimentResolvedTargets returns the resolved resource ARN counts for each
+// named target group in the given experiment.
+func (b *InMemoryBackend) ListExperimentResolvedTargets(id string) ([]ExperimentResolvedTarget, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	exp, ok := b.experiments[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrExperimentNotFound, id)
+	}
+
+	resolved := make([]ExperimentResolvedTarget, 0, len(exp.Targets))
+
+	for name, tgt := range exp.Targets {
+		resolved = append(resolved, ExperimentResolvedTarget{
+			ResourceType:         tgt.ResourceType,
+			TargetName:           name,
+			TargetResourcesCount: len(tgt.ResourceArns),
+		})
+	}
+
+	return resolved, nil
+}
+
+// ----------------------------------------
+// Phase 3 — Safety Lever
+// ----------------------------------------
+
+// GetSafetyLever returns the current state of the account's safety lever.
+// The id must match the backend's accountID.
+func (b *InMemoryBackend) GetSafetyLever(id string) (*SafetyLever, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if b.safetyLever == nil || b.safetyLever.ID != id {
+		return nil, fmt.Errorf("%w: %s", ErrSafetyLeverNotFound, id)
+	}
+
+	cp := *b.safetyLever
+
+	return &cp, nil
+}
+
+// UpdateSafetyLeverState updates the state of the account's safety lever.
+// Setting status to "engaged" blocks new experiments from starting.
+func (b *InMemoryBackend) UpdateSafetyLeverState(
+	id string,
+	input *updateSafetyLeverStateRequest,
+) (*SafetyLever, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.safetyLever == nil || b.safetyLever.ID != id {
+		return nil, fmt.Errorf("%w: %s", ErrSafetyLeverNotFound, id)
+	}
+
+	b.safetyLever.State = SafetyLeverState{
+		Status: input.UpdateSafetyLeverStateInput.Status,
+		Reason: input.UpdateSafetyLeverStateInput.Reason,
+	}
+
+	cp := *b.safetyLever
+
+	return &cp, nil
 }
 
 // ----------------------------------------

@@ -2,6 +2,7 @@ package rds
 
 import (
 	"encoding/json"
+	"time"
 )
 
 type backendSnapshot struct {
@@ -105,6 +106,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.clusterSnapshots = snap.ClusterSnapshots
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	// FIS fault state is transient — clear it on restore so stale faults are not retained.
+	b.fisFailoverFaults = make(map[string]time.Time)
 
 	return nil
 }
