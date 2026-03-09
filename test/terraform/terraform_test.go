@@ -2366,6 +2366,8 @@ func TestTerraform_SESv2(t *testing.T) {
 func TestTerraform_CognitoIDP(t *testing.T) {
 	t.Parallel()
 
+	const maxUserPoolsToList = int32(60)
+
 	tests := []tfTestCase{
 		{
 			name:    "success",
@@ -2386,7 +2388,7 @@ func TestTerraform_CognitoIDP(t *testing.T) {
 
 				// List pools and find ours by name.
 				listOut, err := client.ListUserPools(ctx, &cognitoidpsvc.ListUserPoolsInput{
-					MaxResults: aws.Int32(60),
+					MaxResults: aws.Int32(maxUserPoolsToList),
 				})
 				require.NoError(t, err, "ListUserPools should succeed")
 
