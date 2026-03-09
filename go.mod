@@ -15,6 +15,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.55.1
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.64.0
+	github.com/aws/aws-sdk-go-v2/service/cognitoidentity v1.33.20
 	github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.59.1
 	github.com/aws/aws-sdk-go-v2/service/configservice v1.61.2
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.56.1

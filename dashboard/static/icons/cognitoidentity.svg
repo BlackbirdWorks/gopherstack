@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64px" height="64px" viewBox="0 0 64 64" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Icon-Architecture/48/Arch_Amazon-Cognito_48</title>
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g fill="#DD344C">
+            <rect x="0" y="0" width="64" height="64" rx="8"/>
+        </g>
+        <g fill="#FFFFFF" transform="translate(8, 8)">
+            <path d="M24,4 C13,4 4,13 4,24 C4,35 13,44 24,44 C35,44 44,35 44,24 C44,13 35,4 24,4 Z M24,8 C32.8,8 40,15.2 40,24 C40,32.8 32.8,40 24,40 C15.2,40 8,32.8 8,24 C8,15.2 15.2,8 24,8 Z"/>
+            <circle cx="24" cy="18" r="5"/>
+            <path d="M24,25 C17.4,25 12,27.7 12,31 L12,33 L36,33 L36,31 C36,27.7 30.6,25 24,25 Z"/>
+        </g>
+    </g>
+</svg>

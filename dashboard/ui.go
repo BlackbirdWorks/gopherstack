@@ -24,6 +24,7 @@ import (
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
@@ -128,6 +129,7 @@ type DashboardHandler struct {
 	Route53ResolverOps *route53resolverbackend.Handler
 	TranscribeOps      *transcribebackend.Handler
 	SupportOps         *supportbackend.Handler
+	CognitoIdentityOps *cognitoidentitybackend.Handler
 	SubRouter          *echo.Echo
 	ddbProvider        *ddbbackend.DashboardProvider
 	s3Provider         *s3backend.DashboardProvider
@@ -203,6 +205,8 @@ type Config struct {
 	TranscribeOps *transcribebackend.Handler
 	// SupportOps provides access to the Support backend.
 	SupportOps *supportbackend.Handler
+	// CognitoIdentityOps provides access to the Cognito Identity backend.
+	CognitoIdentityOps *cognitoidentitybackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -267,6 +271,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/route53resolver/*.html",
 		"templates/transcribe/*.html",
 		"templates/support/*.html",
+		"templates/cognitoidentity/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -320,6 +325,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		Route53ResolverOps: cfg.Route53ResolverOps,
 		TranscribeOps:      cfg.TranscribeOps,
 		SupportOps:         cfg.SupportOps,
+		CognitoIdentityOps: cfg.CognitoIdentityOps,
 		GlobalConfig:       cfg.GlobalConfig,
 		Logger:             cfg.Logger,
 		FaultStore:         cfg.FaultStore,
@@ -574,6 +580,10 @@ func (h *DashboardHandler) setupSupportRoutes() {
 	h.SubRouter.POST("/dashboard/support/create", h.supportCreateCase)
 }
 
+func (h *DashboardHandler) setupCognitoIdentityRoutes() {
+	h.SubRouter.GET("/dashboard/cognitoidentity", h.cognitoIdentityIndex)
+}
+
 func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
@@ -615,6 +625,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupRoute53ResolverRoutes()
 	h.setupTranscribeRoutes()
 	h.setupSupportRoutes()
+	h.setupCognitoIdentityRoutes()
 	h.setupChaosRoutes()
 	h.setupMetaRoutes()
 }
@@ -696,6 +707,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/route53resolver", "Route53Resolver"},
 	{"/transcribe", "Transcribe"},
 	{"/support", "Support"},
+	{"/cognitoidentity", "CognitoIdentity"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

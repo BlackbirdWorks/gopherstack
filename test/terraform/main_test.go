@@ -23,6 +23,7 @@ import (
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -981,6 +982,24 @@ func createECSClient(t *testing.T) *ecssvc.Client {
 	}
 
 	return ecssvc.NewFromConfig(cfg, func(o *ecssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCognitoIdentityClient returns a Cognito Identity client pointed at the shared test container.
+func createCognitoIdentityClient(t *testing.T) *cognitoidentitysvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return cognitoidentitysvc.NewFromConfig(cfg, func(o *cognitoidentitysvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

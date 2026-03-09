@@ -40,6 +40,7 @@ type docPageData struct {
 	Route53ResolverOps []string
 	TranscribeOps      []string
 	SupportOps         []string
+	CognitoIdentityOps []string
 }
 
 // docIndex renders the documentation page.
@@ -91,6 +92,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		Route53ResolverOps: h.getSupportedOps(h.Route53ResolverOps),
 		TranscribeOps:      h.getSupportedOps(h.TranscribeOps),
 		SupportOps:         h.getSupportedOps(h.SupportOps),
+		CognitoIdentityOps: h.getSupportedOps(h.CognitoIdentityOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)

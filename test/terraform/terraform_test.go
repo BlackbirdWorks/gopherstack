@@ -30,6 +30,7 @@ import (
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -127,40 +128,41 @@ provider "aws" {
 
   # Endpoints are listed alphabetically — keep them sorted when adding new ones.
   endpoints {
-    acm            = %[1]q
-    appsync        = %[1]q
-    apigateway     = %[1]q
-    cloudformation = %[1]q
-    cloudwatch     = %[1]q
-    cloudwatchlogs = %[1]q
-    configservice  = %[1]q
-    dynamodb       = %[1]q
-    ec2            = %[1]q
-    ecr            = %[1]q
-    ecs            = %[1]q
-    elasticache    = %[1]q
-    events         = %[1]q
-    firehose       = %[1]q
-    iam            = %[1]q
-    kinesis        = %[1]q
-    kms            = %[1]q
-    lambda         = %[1]q
-    opensearch     = %[1]q
-    redshift       = %[1]q
-    resourcegroups = %[1]q
-    route53        = %[1]q
+    acm             = %[1]q
+    appsync         = %[1]q
+    apigateway      = %[1]q
+    cloudformation  = %[1]q
+    cloudwatch      = %[1]q
+    cloudwatchlogs  = %[1]q
+    cognitoidentity = %[1]q
+    configservice   = %[1]q
+    dynamodb        = %[1]q
+    ec2             = %[1]q
+    ecr             = %[1]q
+    ecs             = %[1]q
+    elasticache     = %[1]q
+    events          = %[1]q
+    firehose        = %[1]q
+    iam             = %[1]q
+    kinesis         = %[1]q
+    kms             = %[1]q
+    lambda          = %[1]q
+    opensearch      = %[1]q
+    redshift        = %[1]q
+    resourcegroups  = %[1]q
+    route53         = %[1]q
     route53resolver = %[1]q
-    s3             = %[1]q
-    s3control      = %[1]q
-    scheduler      = %[1]q
-    secretsmanager = %[1]q
-    ses            = %[1]q
-    sfn            = %[1]q
-    sns            = %[1]q
-    sqs            = %[1]q
-    ssm            = %[1]q
-    sts            = %[1]q
-    swf            = %[1]q
+    s3              = %[1]q
+    s3control       = %[1]q
+    scheduler       = %[1]q
+    secretsmanager  = %[1]q
+    ses             = %[1]q
+    sfn             = %[1]q
+    sns             = %[1]q
+    sqs             = %[1]q
+    ssm             = %[1]q
+    sts             = %[1]q
+    swf             = %[1]q
   }
 }
 `, addr)
@@ -2002,6 +2004,78 @@ func TestTerraform_ECS(t *testing.T) {
 				require.NoError(t, err, "DescribeServices should succeed after terraform apply")
 				require.Len(t, svcOut.Services, 1)
 				assert.Equal(t, vars["ServiceName"].(string), *svcOut.Services[0].ServiceName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CognitoIdentityPool provisions a Cognito Identity Pool with IAM roles
+// and a roles attachment via Terraform, then verifies the pool and its roles exist.
+func TestTerraform_CognitoIdentityPool(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "cognitoidentity/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"PoolName":       "tf-identity-pool-" + id,
+					"AuthRoleName":   "tf-cognito-auth-" + id,
+					"UnauthRoleName": "tf-cognito-unauth-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createCognitoIdentityClient(t)
+
+				// List pools and find ours by name.
+				listOut, err := client.ListIdentityPools(ctx, &cognitoidentitysvc.ListIdentityPoolsInput{
+					MaxResults: aws.Int32(60),
+				})
+				require.NoError(t, err, "ListIdentityPools should succeed after terraform apply")
+
+				var poolID string
+
+				for _, p := range listOut.IdentityPools {
+					if aws.ToString(p.IdentityPoolName) == vars["PoolName"].(string) {
+						poolID = aws.ToString(p.IdentityPoolId)
+
+						break
+					}
+				}
+
+				require.NotEmpty(t, poolID, "identity pool %q should appear in list", vars["PoolName"])
+
+				// Describe pool to confirm it exists.
+				descOut, err := client.DescribeIdentityPool(ctx, &cognitoidentitysvc.DescribeIdentityPoolInput{
+					IdentityPoolId: aws.String(poolID),
+				})
+				require.NoError(t, err, "DescribeIdentityPool should succeed after terraform apply")
+				assert.Equal(t, vars["PoolName"].(string), aws.ToString(descOut.IdentityPoolName))
+				assert.True(t, descOut.AllowUnauthenticatedIdentities)
+
+				// Verify roles were attached via GetIdentityPoolRoles.
+				rolesOut, err := client.GetIdentityPoolRoles(ctx, &cognitoidentitysvc.GetIdentityPoolRolesInput{
+					IdentityPoolId: aws.String(poolID),
+				})
+				require.NoError(t, err, "GetIdentityPoolRoles should succeed after terraform apply")
+				assert.NotEmpty(t, rolesOut.Roles["authenticated"], "authenticated role ARN should be set")
+				assert.NotEmpty(t, rolesOut.Roles["unauthenticated"], "unauthenticated role ARN should be set")
+				assert.Contains(t, rolesOut.Roles["authenticated"], vars["AuthRoleName"].(string))
+				assert.Contains(t, rolesOut.Roles["unauthenticated"], vars["UnauthRoleName"].(string))
 			},
 		},
 	}
