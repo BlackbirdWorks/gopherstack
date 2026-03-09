@@ -2,6 +2,8 @@ package dashboard
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -61,15 +63,15 @@ func (h *DashboardHandler) ecsIndex(c *echo.Context) error {
 
 	clusterViews := make([]ecsClusterView, 0, len(clusters))
 
-	for _, c := range clusters {
+	for _, cluster := range clusters {
 		clusterViews = append(clusterViews, ecsClusterView{
-			Name:                c.ClusterName,
-			ARN:                 c.ClusterArn,
-			Status:              c.Status,
-			ActiveServicesCount: c.ActiveServicesCount,
-			RunningTasksCount:   c.RunningTasksCount,
-			PendingTasksCount:   c.PendingTasksCount,
-			CreatedAt:           c.CreatedAt.Format("2006-01-02 15:04:05"),
+			Name:                cluster.ClusterName,
+			ARN:                 cluster.ClusterArn,
+			Status:              cluster.Status,
+			ActiveServicesCount: cluster.ActiveServicesCount,
+			RunningTasksCount:   cluster.RunningTasksCount,
+			PendingTasksCount:   cluster.PendingTasksCount,
+			CreatedAt:           cluster.CreatedAt.Format("2006-01-02 15:04:05"),
 		})
 	}
 
@@ -82,19 +84,7 @@ func (h *DashboardHandler) ecsIndex(c *echo.Context) error {
 	tdViews := make([]ecsTaskDefinitionView, 0, len(tdArns))
 
 	for _, arn := range tdArns {
-		td, tdErr := h.ECSOps.Backend.DescribeTaskDefinition(arn)
-		if tdErr != nil {
-			h.Logger.Error("failed to describe task definition", "arn", arn, "error", tdErr)
-
-			continue
-		}
-
-		tdViews = append(tdViews, ecsTaskDefinitionView{
-			Family:   td.Family,
-			ARN:      td.TaskDefinitionArn,
-			Revision: td.Revision,
-			Status:   td.Status,
-		})
+		tdViews = append(tdViews, taskDefinitionViewFromARN(arn))
 	}
 
 	h.renderTemplate(w, "ecs/index.html", ecsIndexData{
@@ -156,6 +146,42 @@ func (h *DashboardHandler) ecsDeleteCluster(c *echo.Context) error {
 	}
 
 	return c.Redirect(http.StatusFound, "/dashboard/ecs")
+}
+
+// taskDefinitionViewFromARN builds an ecsTaskDefinitionView by parsing the ARN.
+func taskDefinitionViewFromARN(arn string) ecsTaskDefinitionView {
+	// ECS task definition ARNs have the form:
+	//   arn:aws:ecs:{region}:{account}:task-definition/{family}:{revision}
+	// Splitting on ":" yields 7 segments: "arn", "aws", "ecs", region, account,
+	// "task-definition/<family>", and the revision number.
+	const minARNParts = 7
+
+	// ListTaskDefinitions only returns ACTIVE definitions, so we can safely
+	// set Status to "ACTIVE" without an extra DescribeTaskDefinition call.
+	const statusActive = "ACTIVE"
+
+	view := ecsTaskDefinitionView{ARN: arn, Status: statusActive}
+
+	// Extract the resource portion after the last ":"
+	// e.g. "task-definition/my-family:3"
+	parts := strings.Split(arn, ":")
+	if len(parts) < minARNParts {
+		return view
+	}
+
+	revisionStr := parts[len(parts)-1]
+	rev, err := strconv.Atoi(revisionStr)
+	if err == nil {
+		view.Revision = rev
+	}
+
+	// Family lives in the second-to-last ":" segment, after "task-definition/"
+	resource := parts[len(parts)-2]
+	if idx := strings.LastIndex(resource, "/"); idx >= 0 {
+		view.Family = resource[idx+1:]
+	}
+
+	return view
 }
 
 func ecsSnippetData() *SnippetData {
