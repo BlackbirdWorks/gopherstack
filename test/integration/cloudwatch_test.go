@@ -428,7 +428,8 @@ func TestIntegration_CloudWatch_Dashboards(t *testing.T) {
 	for _, e := range listOut.DashboardEntries {
 		if aws.ToString(e.DashboardName) == dashName {
 			found = true
-			assert.Positive(t, e.Size)
+			assert.NotNil(t, e.Size)
+			assert.Positive(t, aws.ToInt64(e.Size))
 			assert.NotNil(t, e.LastModified)
 		}
 	}

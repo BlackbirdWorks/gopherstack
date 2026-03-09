@@ -616,7 +616,7 @@ func TestCloudWatchHandler_Dashboards(t *testing.T) {
 		{
 			name:     "GetDashboard/not found",
 			body:     "Action=GetDashboard&DashboardName=Ghost",
-			wantCode: http.StatusNotFound,
+			wantCode: http.StatusBadRequest,
 		},
 		{
 			name:     "GetDashboard/missing name",

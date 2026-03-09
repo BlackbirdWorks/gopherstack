@@ -999,7 +999,7 @@ func (h *Handler) handleGetDashboard(form url.Values, c *echo.Context) error {
 
 	entry, body, err := h.Backend.GetDashboard(name)
 	if err != nil {
-		return h.xmlError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 
 	type result struct {

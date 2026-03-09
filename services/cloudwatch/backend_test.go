@@ -851,16 +851,16 @@ func TestCloudWatchBackend_Dashboards(t *testing.T) {
 	tests := []struct {
 		setup        func(t *testing.T, b *cloudwatch.InMemoryBackend)
 		name         string
+		putName      string
+		putBody      string
 		wantNames    []string
 		wantNotNames []string
-		wantErr      bool
+		wantPutErr   bool
 	}{
 		{
-			name: "PutDashboard/creates",
-			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
-				t.Helper()
-				require.NoError(t, b.PutDashboard("MyDash", `{"widgets":[]}`))
-			},
+			name:      "PutDashboard/creates",
+			putName:   "MyDash",
+			putBody:   `{"widgets":[]}`,
 			wantNames: []string{"MyDash"},
 		},
 		{
@@ -868,16 +868,16 @@ func TestCloudWatchBackend_Dashboards(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
 				require.NoError(t, b.PutDashboard("UpdateDash", `{"widgets":[]}`))
-				require.NoError(t, b.PutDashboard("UpdateDash", `{"widgets":[{"type":"text"}]}`))
 			},
+			putName:   "UpdateDash",
+			putBody:   `{"widgets":[{"type":"text"}]}`,
 			wantNames: []string{"UpdateDash"},
 		},
 		{
-			name: "PutDashboard/missing name returns error",
-			setup: func(t *testing.T, _ *cloudwatch.InMemoryBackend) {
-				t.Helper()
-			},
-			wantErr: true,
+			name:       "PutDashboard/missing name returns error",
+			putName:    "",
+			putBody:    `{}`,
+			wantPutErr: true,
 		},
 	}
 
@@ -887,17 +887,22 @@ func TestCloudWatchBackend_Dashboards(t *testing.T) {
 
 			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
-			if tt.name == "PutDashboard/missing name returns error" {
-				err := b.PutDashboard("", `{}`)
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			err := b.PutDashboard(tt.putName, tt.putBody)
+
+			if tt.wantPutErr {
 				require.Error(t, err)
 
 				return
 			}
 
-			tt.setup(t, b)
-
-			page, err := b.ListDashboards("", "")
 			require.NoError(t, err)
+
+			page, listErr := b.ListDashboards("", "")
+			require.NoError(t, listErr)
 
 			names := make([]string, 0, len(page.Data))
 			for _, e := range page.Data {
