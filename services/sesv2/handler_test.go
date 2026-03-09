@@ -769,3 +769,53 @@ func TestSESv2Handler_URLEncodedIdentity(t *testing.T) {
 	rec3 := doRequest(t, h, http.MethodGet, "/v2/email/identities/"+encodedIdentity, nil)
 	assert.Equal(t, http.StatusNotFound, rec3.Code)
 }
+
+func TestSESv2Handler_TagOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	arn := "arn:aws:ses:us-east-1:123456789012:identity/test@example.com"
+
+	tests := []struct {
+		body       any
+		name       string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:       "ListTagsForResource returns empty list",
+			method:     http.MethodGet,
+			path:       "/v2/email/tags?ResourceArn=" + arn,
+			body:       nil,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "TagResource accepted",
+			method: http.MethodPost,
+			path:   "/v2/email/tags",
+			body: map[string]any{
+				"ResourceArn": arn,
+				"Tags":        []map[string]string{{"Key": "env", "Value": "test"}},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "UntagResource accepted",
+			method:     http.MethodDelete,
+			path:       "/v2/email/tags?ResourceArn=" + arn + "&TagKeys=env",
+			body:       nil,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}

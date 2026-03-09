@@ -47,6 +47,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetConfigurationSet",
 		"ListConfigurationSets",
 		"DeleteConfigurationSet",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -119,6 +122,8 @@ func parseSESv2Path(method, path string) (string, string) {
 		}
 	case "configuration-sets":
 		return parseConfigSetPath(method, segments)
+	case "tags":
+		return parseTagsPath(method)
 	}
 
 	return unknownAction, ""
@@ -156,6 +161,19 @@ func parseConfigSetPath(method string, segments []string) (string, string) {
 	return unknownAction, ""
 }
 
+func parseTagsPath(method string) (string, string) {
+	switch method {
+	case http.MethodGet:
+		return "ListTagsForResource", ""
+	case http.MethodPost:
+		return "TagResource", ""
+	case http.MethodDelete:
+		return "UntagResource", ""
+	}
+
+	return unknownAction, ""
+}
+
 // Handler returns the Echo handler function for SES v2 requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -178,34 +196,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 				fmt.Sprintf("no route for %s %s", c.Request().Method, c.Request().URL.Path))
 		}
 
-		var (
-			resp  any
-			opErr error
-		)
-
-		switch op {
-		case "CreateEmailIdentity":
-			resp, opErr = h.handleCreateEmailIdentity(c)
-		case "GetEmailIdentity":
-			resp, opErr = h.handleGetEmailIdentity(resource)
-		case "ListEmailIdentities":
-			resp = h.handleListEmailIdentities(c)
-		case "DeleteEmailIdentity":
-			resp, opErr = h.handleDeleteEmailIdentity(resource)
-		case "SendEmail":
-			resp, opErr = h.handleSendEmail(c)
-		case "CreateConfigurationSet":
-			resp, opErr = h.handleCreateConfigurationSet(c)
-		case "GetConfigurationSet":
-			resp, opErr = h.handleGetConfigurationSet(resource)
-		case "ListConfigurationSets":
-			resp = h.handleListConfigurationSets(c)
-		case "DeleteConfigurationSet":
-			resp, opErr = h.handleDeleteConfigurationSet(resource)
-		default:
-			return h.writeError(c, http.StatusBadRequest, "BadRequestException",
-				fmt.Sprintf("%s is not a valid SES v2 operation", op))
-		}
+		resp, opErr := h.dispatchOp(c, op, resource)
 
 		if opErr != nil {
 			return h.handleOpError(c, op, opErr)
@@ -216,6 +207,37 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		return c.JSON(http.StatusOK, resp)
+	}
+}
+
+// dispatchOp routes an already-identified operation to its handler.
+func (h *Handler) dispatchOp(c *echo.Context, op, resource string) (any, error) {
+	switch op {
+	case "CreateEmailIdentity":
+		return h.handleCreateEmailIdentity(c)
+	case "GetEmailIdentity":
+		return h.handleGetEmailIdentity(resource)
+	case "ListEmailIdentities":
+		return h.handleListEmailIdentities(c), nil
+	case "DeleteEmailIdentity":
+		return h.handleDeleteEmailIdentity(resource)
+	case "SendEmail":
+		return h.handleSendEmail(c)
+	case "CreateConfigurationSet":
+		return h.handleCreateConfigurationSet(c)
+	case "GetConfigurationSet":
+		return h.handleGetConfigurationSet(resource)
+	case "ListConfigurationSets":
+		return h.handleListConfigurationSets(c), nil
+	case "DeleteConfigurationSet":
+		return h.handleDeleteConfigurationSet(resource)
+	case "ListTagsForResource":
+		return h.handleListTagsForResource(), nil
+	case "TagResource", "UntagResource":
+		// Tags are not persisted; accept and ignore.
+		return &emptyDeleteOutput{}, nil
+	default:
+		return nil, fmt.Errorf("%w: %s is not a valid SES v2 operation", ErrInvalidParameter, op)
 	}
 }
 
@@ -306,6 +328,15 @@ type configurationSetSummary struct {
 type listConfigurationSetsOutput struct {
 	NextToken         string                    `json:"NextToken,omitempty"`
 	ConfigurationSets []configurationSetSummary `json:"ConfigurationSets"`
+}
+
+type tagEntry struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+type listTagsOutput struct {
+	Tags []tagEntry `json:"Tags"`
 }
 
 // ---- action handlers ----
@@ -449,6 +480,13 @@ func (h *Handler) handleDeleteConfigurationSet(name string) (any, error) {
 	}
 
 	return &emptyDeleteOutput{}, nil
+}
+
+// handleListTagsForResource returns an empty tag list.
+// The SES v2 Terraform provider calls this after every create to refresh tag state.
+// Tags are not persisted in this implementation.
+func (h *Handler) handleListTagsForResource() any {
+	return &listTagsOutput{Tags: []tagEntry{}}
 }
 
 // ---- error handling ----
