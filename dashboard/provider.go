@@ -237,10 +237,6 @@ func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.sesOps, _ = h.(*sesbackend.Handler)
 	}
 
-	if h := ap.GetSESv2Handler(); h != nil {
-		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
-	}
-
 	if h := ap.GetEC2Handler(); h != nil {
 		ec.ec2Ops, _ = h.(*ec2backend.Handler)
 	}
@@ -288,6 +284,10 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetCognitoIdentityHandler(); h != nil {
 		ec.cognitoIdentityOps, _ = h.(*cognitoidentitybackend.Handler)
+	}
+
+	if h := ap.GetSESv2Handler(); h != nil {
+		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
 	}
 }
 

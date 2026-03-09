@@ -5,9 +5,9 @@ import (
 )
 
 type backendSnapshot struct {
-	Identities        map[string]*EmailIdentity        `json:"identities"`
-	ConfigurationSets map[string]*ConfigurationSet     `json:"configurationSets"`
-	Emails            []Email                          `json:"emails"`
+	Identities        map[string]*EmailIdentity    `json:"identities"`
+	ConfigurationSets map[string]*ConfigurationSet `json:"configurationSets"`
+	Emails            []Email                      `json:"emails"`
 }
 
 // Snapshot serialises the backend state to JSON.

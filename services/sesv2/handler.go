@@ -94,7 +94,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // parseSESv2Path maps a method + path to a SES v2 operation and resource name.
 // Returns (unknownAction, "") when no pattern matches.
 //
-//nolint:cyclop // path routing table has necessary branches for each HTTP method + resource combination
+
 func parseSESv2Path(method, path string) (string, string) {
 	// Strip /v2/email/ prefix and split remaining path into segments.
 	tail := strings.TrimPrefix(path, sesv2PathPrefix)
@@ -176,7 +176,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case "GetEmailIdentity":
 			resp, opErr = h.handleGetEmailIdentity(resource)
 		case "ListEmailIdentities":
-			resp, opErr = h.handleListEmailIdentities(c)
+			resp = h.handleListEmailIdentities(c)
 		case "DeleteEmailIdentity":
 			resp, opErr = h.handleDeleteEmailIdentity(resource)
 		case "SendEmail":
@@ -186,7 +186,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case "GetConfigurationSet":
 			resp, opErr = h.handleGetConfigurationSet(resource)
 		case "ListConfigurationSets":
-			resp, opErr = h.handleListConfigurationSets(c)
+			resp = h.handleListConfigurationSets(c)
 		case "DeleteConfigurationSet":
 			resp, opErr = h.handleDeleteConfigurationSet(resource)
 		default:
@@ -213,9 +213,9 @@ type createEmailIdentityInput struct {
 }
 
 type sendEmailInput struct {
+	Content          emailContent     `json:"Content"`
 	FromEmailAddress string           `json:"FromEmailAddress"`
 	Destination      emailDestination `json:"Destination"`
-	Content          emailContent     `json:"Content"`
 }
 
 type emailDestination struct {
@@ -230,8 +230,8 @@ type emailContent struct {
 }
 
 type simpleEmailContent struct {
-	Subject emailData   `json:"Subject"`
-	Body    emailBody   `json:"Body"`
+	Body    emailBody `json:"Body"`
+	Subject emailData `json:"Subject"`
 }
 
 type emailBody struct {
@@ -266,14 +266,14 @@ type getEmailIdentityOutput struct {
 }
 
 type emailIdentitySummary struct {
-	IdentityName       string `json:"IdentityName"`
-	IdentityType       string `json:"IdentityType"`
-	SendingEnabled     bool   `json:"SendingEnabled"`
+	IdentityName   string `json:"IdentityName"`
+	IdentityType   string `json:"IdentityType"`
+	SendingEnabled bool   `json:"SendingEnabled"`
 }
 
 type listEmailIdentitiesOutput struct {
-	EmailIdentities []emailIdentitySummary `json:"EmailIdentities"`
 	NextToken       string                 `json:"NextToken,omitempty"`
+	EmailIdentities []emailIdentitySummary `json:"EmailIdentities"`
 }
 
 type sendEmailOutput struct {
@@ -291,8 +291,8 @@ type configurationSetSummary struct {
 }
 
 type listConfigurationSetsOutput struct {
-	ConfigurationSets []configurationSetSummary `json:"ConfigurationSets"`
 	NextToken         string                    `json:"NextToken,omitempty"`
+	ConfigurationSets []configurationSetSummary `json:"ConfigurationSets"`
 }
 
 // ---- action handlers ----
@@ -328,7 +328,7 @@ func (h *Handler) handleGetEmailIdentity(identity string) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleListEmailIdentities(c *echo.Context) (any, error) {
+func (h *Handler) handleListEmailIdentities(c *echo.Context) any {
 	nextToken := c.QueryParam("NextToken")
 	pg := h.Backend.ListEmailIdentities(nextToken, 0)
 
@@ -345,15 +345,17 @@ func (h *Handler) handleListEmailIdentities(c *echo.Context) (any, error) {
 	return &listEmailIdentitiesOutput{
 		EmailIdentities: items,
 		NextToken:       pg.Next,
-	}, nil
+	}
 }
+
+type emptyDeleteOutput struct{}
 
 func (h *Handler) handleDeleteEmailIdentity(identity string) (any, error) {
 	if err := h.Backend.DeleteEmailIdentity(identity); err != nil {
 		return nil, err
 	}
 
-	return nil, nil
+	return &emptyDeleteOutput{}, nil
 }
 
 func (h *Handler) handleSendEmail(c *echo.Context) (any, error) {
@@ -412,7 +414,7 @@ func (h *Handler) handleGetConfigurationSet(name string) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleListConfigurationSets(c *echo.Context) (any, error) {
+func (h *Handler) handleListConfigurationSets(c *echo.Context) any {
 	nextToken := c.QueryParam("NextToken")
 	pg := h.Backend.ListConfigurationSets(nextToken, 0)
 
@@ -425,7 +427,7 @@ func (h *Handler) handleListConfigurationSets(c *echo.Context) (any, error) {
 	return &listConfigurationSetsOutput{
 		ConfigurationSets: items,
 		NextToken:         pg.Next,
-	}, nil
+	}
 }
 
 func (h *Handler) handleDeleteConfigurationSet(name string) (any, error) {
@@ -433,7 +435,7 @@ func (h *Handler) handleDeleteConfigurationSet(name string) (any, error) {
 		return nil, err
 	}
 
-	return nil, nil
+	return &emptyDeleteOutput{}, nil
 }
 
 // ---- error handling ----

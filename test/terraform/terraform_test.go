@@ -2164,3 +2164,68 @@ func TestTerraform_CognitoIdentityPool(t *testing.T) {
 		})
 	}
 }
+
+// TestTerraform_SESv2 provisions SES v2 email identity and configuration set resources.
+func TestTerraform_SESv2(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "sesv2/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"Email":         "tf-sesv2-" + uuid.NewString()[:8] + "@example.com",
+					"ConfigSetName": "tf-cfg-" + uuid.NewString()[:8],
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				email := vars["Email"].(string)
+				cfgName := vars["ConfigSetName"].(string)
+
+				// Verify email identity was created.
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+					endpoint+"/v2/email/identities/"+email, nil)
+				require.NoError(t, err)
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err)
+				defer resp.Body.Close()
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode,
+					"email identity %q should exist after terraform apply", email)
+
+				var identityOut map[string]any
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&identityOut))
+				assert.Equal(t, email, identityOut["EmailIdentity"])
+
+				// Verify configuration set was created.
+				req2, err := http.NewRequestWithContext(ctx, http.MethodGet,
+					endpoint+"/v2/email/configuration-sets/"+cfgName, nil)
+				require.NoError(t, err)
+
+				resp2, err := http.DefaultClient.Do(req2)
+				require.NoError(t, err)
+				defer resp2.Body.Close()
+
+				assert.Equal(t, http.StatusOK, resp2.StatusCode,
+					"configuration set %q should exist after terraform apply", cfgName)
+
+				var cfgOut map[string]any
+				require.NoError(t, json.NewDecoder(resp2.Body).Decode(&cfgOut))
+				assert.Equal(t, cfgName, cfgOut["ConfigurationSetName"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}

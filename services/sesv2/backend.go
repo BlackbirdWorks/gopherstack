@@ -16,24 +16,24 @@ import (
 
 // Errors returned by the SES v2 backend.
 var (
-	ErrIdentityNotFound        = errors.New("NotFoundException")
-	ErrIdentityAlreadyExists   = errors.New("AlreadyExistsException")
-	ErrConfigSetNotFound       = errors.New("NotFoundException")
-	ErrConfigSetAlreadyExists  = errors.New("AlreadyExistsException")
-	ErrInvalidParameter        = errors.New("BadRequestException")
+	ErrIdentityNotFound       = errors.New("NotFoundException")
+	ErrIdentityAlreadyExists  = errors.New("AlreadyExistsException")
+	ErrConfigSetNotFound      = errors.New("NotFoundException")
+	ErrConfigSetAlreadyExists = errors.New("AlreadyExistsException")
+	ErrInvalidParameter       = errors.New("BadRequestException")
 )
 
 // EmailIdentity represents a verified email address or domain identity.
 type EmailIdentity struct {
-	Identity         string
-	IdentityType     string // "EMAIL_ADDRESS" or "DOMAIN"
-	VerifiedForSending bool
+	Identity           string `json:"identity"`
+	IdentityType       string `json:"identityType"` // "EMAIL_ADDRESS" or "DOMAIN"
+	VerifiedForSending bool   `json:"verifiedForSending"`
 }
 
 // ConfigurationSet represents a SES v2 configuration set.
 type ConfigurationSet struct {
-	Name      string
-	CreatedAt time.Time
+	CreatedAt time.Time `json:"createdAt"`
+	Name      string    `json:"name"`
 }
 
 // Email captures a sent email for local inspection.
@@ -52,9 +52,9 @@ type InMemoryBackend struct {
 	identities        map[string]*EmailIdentity
 	configurationSets map[string]*ConfigurationSet
 	mu                *lockmetrics.RWMutex
-	emails            []Email
 	region            string
 	accountID         string
+	emails            []Email
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

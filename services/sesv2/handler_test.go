@@ -55,10 +55,10 @@ func TestSESv2Handler_CreateEmailIdentity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		body     map[string]any
-		wantCode int
+		name     string
 		wantType string
+		wantCode int
 	}{
 		{
 			name:     "creates email identity",
@@ -92,7 +92,13 @@ func TestSESv2Handler_CreateEmailIdentity(t *testing.T) {
 
 			if tt.name == "duplicate identity returns conflict" {
 				// Create once first.
-				doRequest(t, h, http.MethodPost, "/v2/email/identities", map[string]any{"EmailIdentity": "dup@example.com"})
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v2/email/identities",
+					map[string]any{"EmailIdentity": "dup@example.com"},
+				)
 			}
 
 			rec := doRequest(t, h, http.MethodPost, "/v2/email/identities", tt.body)
@@ -213,8 +219,8 @@ func TestSESv2Handler_SendEmail(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		body     map[string]any
+		name     string
 		wantCode int
 	}{
 		{
@@ -279,8 +285,8 @@ func TestSESv2Handler_CreateConfigurationSet(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		body     map[string]any
+		name     string
 		wantCode int
 	}{
 		{
@@ -307,7 +313,13 @@ func TestSESv2Handler_CreateConfigurationSet(t *testing.T) {
 			h := newHandler()
 
 			if tt.name == "duplicate returns conflict" {
-				doRequest(t, h, http.MethodPost, "/v2/email/configuration-sets", map[string]any{"ConfigurationSetName": "dup-config"})
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v2/email/configuration-sets",
+					map[string]any{"ConfigurationSetName": "dup-config"},
+				)
 			}
 
 			rec := doRequest(t, h, http.MethodPost, "/v2/email/configuration-sets", tt.body)
@@ -344,7 +356,13 @@ func TestSESv2Handler_GetConfigurationSet(t *testing.T) {
 			h := newHandler()
 
 			if tt.wantCode == http.StatusOK {
-				doRequest(t, h, http.MethodPost, "/v2/email/configuration-sets", map[string]any{"ConfigurationSetName": tt.csName})
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v2/email/configuration-sets",
+					map[string]any{"ConfigurationSetName": tt.csName},
+				)
 			}
 
 			rec := doRequest(t, h, http.MethodGet, "/v2/email/configuration-sets/"+tt.csName, nil)
@@ -407,7 +425,13 @@ func TestSESv2Handler_DeleteConfigurationSet(t *testing.T) {
 			h := newHandler()
 
 			if tt.wantCode == http.StatusOK {
-				doRequest(t, h, http.MethodPost, "/v2/email/configuration-sets", map[string]any{"ConfigurationSetName": tt.csName})
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v2/email/configuration-sets",
+					map[string]any{"ConfigurationSetName": tt.csName},
+				)
 			}
 
 			rec := doRequest(t, h, http.MethodDelete, "/v2/email/configuration-sets/"+tt.csName, nil)
@@ -481,10 +505,10 @@ func TestSESv2Handler_ExtractOperation(t *testing.T) {
 	e := echo.New()
 
 	tests := []struct {
-		name    string
-		method  string
-		path    string
-		wantOp  string
+		name   string
+		method string
+		path   string
+		wantOp string
 	}{
 		{
 			name:   "GET identities list",
@@ -654,7 +678,13 @@ func TestSESv2Handler_Persistence(t *testing.T) {
 
 	// Create some state.
 	doRequest(t, h, http.MethodPost, "/v2/email/identities", map[string]any{"EmailIdentity": "persist@example.com"})
-	doRequest(t, h, http.MethodPost, "/v2/email/configuration-sets", map[string]any{"ConfigurationSetName": "persist-config"})
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v2/email/configuration-sets",
+		map[string]any{"ConfigurationSetName": "persist-config"},
+	)
 
 	// Snapshot.
 	snap := h.Snapshot()
