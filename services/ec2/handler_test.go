@@ -1077,24 +1077,28 @@ func TestEC2Handler_DescribeInstanceAttribute(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		attr         string
-		wantContains string
+		name string
+		args struct {
+			attr string
+		}
+		want struct {
+			bodyContains string
+		}
 	}{
 		{
-			name:         "instanceInitiatedShutdownBehavior",
-			attr:         "instanceInitiatedShutdownBehavior",
-			wantContains: "stop",
+			name: "shutdown_behavior_returns_stop",
+			args: struct{ attr string }{attr: "instanceInitiatedShutdownBehavior"},
+			want: struct{ bodyContains string }{bodyContains: "stop"},
 		},
 		{
-			name:         "disableApiTermination",
-			attr:         "disableApiTermination",
-			wantContains: "false",
+			name: "disable_api_termination_returns_false",
+			args: struct{ attr string }{attr: "disableApiTermination"},
+			want: struct{ bodyContains string }{bodyContains: "false"},
 		},
 		{
-			name:         "sourceDestCheck",
-			attr:         "sourceDestCheck",
-			wantContains: "false",
+			name: "source_dest_check_returns_false",
+			args: struct{ attr string }{attr: "sourceDestCheck"},
+			want: struct{ bodyContains string }{bodyContains: "false"},
 		},
 	}
 
@@ -1103,7 +1107,7 @@ func TestEC2Handler_DescribeInstanceAttribute(t *testing.T) {
 			t.Parallel()
 
 			h := newHandler()
-			// Create an instance first so we have a real ID.
+			// Create an instance first to get a real instance ID.
 			createRec := postForm(t, h,
 				"Action=RunInstances&Version=2016-11-15&ImageId=ami-test&InstanceType=t2.micro&MinCount=1&MaxCount=1")
 			require.Equal(t, http.StatusOK, createRec.Code)
@@ -1112,10 +1116,12 @@ func TestEC2Handler_DescribeInstanceAttribute(t *testing.T) {
 			require.NotEmpty(t, instanceID)
 
 			rec := postForm(t, h,
-				"Action=DescribeInstanceAttribute&Version=2016-11-15&InstanceId="+instanceID+"&Attribute="+tt.attr)
+				"Action=DescribeInstanceAttribute&Version=2016-11-15"+
+					"&InstanceId="+instanceID+"&Attribute="+tt.args.attr)
+
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), "DescribeInstanceAttributeResponse")
-			assert.Contains(t, rec.Body.String(), tt.wantContains)
+			assert.Contains(t, rec.Body.String(), tt.want.bodyContains)
 		})
 	}
 }
