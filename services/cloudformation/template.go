@@ -37,9 +37,75 @@ type TemplateParameter struct {
 }
 
 // TemplateResource represents a CloudFormation template resource.
+// DependsOn may be a single resource name (string) or a list of names ([]string).
 type TemplateResource struct {
 	Properties map[string]any `json:"Properties" yaml:"Properties"`
 	Type       string         `json:"Type"       yaml:"Type"`
+	DependsOn  []string       `json:"-"          yaml:"-"`
+}
+
+// UnmarshalJSON implements [json.Unmarshaler] for TemplateResource so that
+// DependsOn can be either a JSON string or a JSON array of strings.
+func (r *TemplateResource) UnmarshalJSON(data []byte) error {
+	type plain struct {
+		DependsOn  any            `json:"DependsOn"`
+		Properties map[string]any `json:"Properties"`
+		Type       string         `json:"Type"`
+	}
+
+	var p plain
+	if err := json.Unmarshal(data, &p); err != nil {
+		return err
+	}
+
+	r.Type = p.Type
+	r.Properties = p.Properties
+	r.DependsOn = parseDependsOn(p.DependsOn)
+
+	return nil
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler for TemplateResource.
+func (r *TemplateResource) UnmarshalYAML(unmarshal func(any) error) error {
+	type plain struct {
+		DependsOn  any            `yaml:"DependsOn"`
+		Properties map[string]any `yaml:"Properties"`
+		Type       string         `yaml:"Type"`
+	}
+
+	var p plain
+	if err := unmarshal(&p); err != nil {
+		return err
+	}
+
+	r.Type = p.Type
+	r.Properties = p.Properties
+	r.DependsOn = parseDependsOn(p.DependsOn)
+
+	return nil
+}
+
+// parseDependsOn converts the raw DependsOn value (string or []string) into a []string.
+func parseDependsOn(v any) []string {
+	if v == nil {
+		return nil
+	}
+
+	switch d := v.(type) {
+	case string:
+		return []string{d}
+	case []any:
+		out := make([]string, 0, len(d))
+		for _, item := range d {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+
+		return out
+	default:
+		return nil
+	}
 }
 
 // TemplateOutputExport holds the export name for a template output.
