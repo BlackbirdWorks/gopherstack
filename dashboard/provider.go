@@ -298,6 +298,10 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.cognitoIdentityOps, _ = h.(*cognitoidentitybackend.Handler)
 	}
 
+	extractRecentHandlers(ap, ec)
+}
+
+func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetAppSyncHandler(); h != nil {
 		ec.appSyncOps, _ = h.(*appsyncbackend.Handler)
 	}
