@@ -23,6 +23,7 @@ Full in-memory SQS implementation supporting standard queues, FIFO queues, visib
 | `TagQueue` | Add tags to a queue |
 | `UntagQueue` | Remove tags from a queue |
 | `ListQueueTags` | List all tags on a queue |
+| `ListDeadLetterSourceQueues` | List all queues whose RedrivePolicy points to a given DLQ |
 
 ## AWS CLI Examples
 
@@ -62,7 +63,6 @@ aws --endpoint-url http://localhost:8000 sqs purge-queue \
 
 ## Known Limitations
 
-- Dead-letter queues are accepted at creation time but messages are not automatically moved to them after `maxReceiveCount` failures.
 - Long-polling (`WaitTimeSeconds > 0`) is supported but uses a short-poll with a sleep rather than true blocking.
 - Message retention period is not enforced; messages persist until explicitly deleted or the queue is purged.
 - SNS-SQS subscription fan-out is supported when both services are wired together in Gopherstack.
