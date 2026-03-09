@@ -26,6 +26,7 @@ type docPageData struct {
 	ElastiCacheOps     []string
 	Route53Ops         []string
 	SESOps             []string
+	SESv2Ops           []string
 	EC2Ops             []string
 	OpenSearchOps      []string
 	ACMOps             []string
@@ -78,6 +79,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		ElastiCacheOps:     h.getSupportedOps(h.ElastiCacheOps),
 		Route53Ops:         h.getSupportedOps(h.Route53Ops),
 		SESOps:             h.getSupportedOps(h.SESOps),
+		SESv2Ops:           h.getSupportedOps(h.SESv2Ops),
 		EC2Ops:             h.getSupportedOps(h.EC2Ops),
 		OpenSearchOps:      h.getSupportedOps(h.OpenSearchOps),
 		ACMOps:             h.getSupportedOps(h.ACMOps),
