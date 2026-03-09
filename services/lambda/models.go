@@ -385,3 +385,25 @@ type FunctionConcurrency struct {
 type PutFunctionConcurrencyInput struct {
 	ReservedConcurrentExecutions int `json:"ReservedConcurrentExecutions"`
 }
+
+// ProvisionedConcurrencyConfig holds the provisioned concurrency configuration for a function version or alias.
+type ProvisionedConcurrencyConfig struct {
+	FunctionArn                              string `json:"FunctionArn,omitempty"`
+	LastModified                             string `json:"LastModified"`
+	Status                                   string `json:"Status"`
+	StatusReason                             string `json:"StatusReason,omitempty"`
+	AllocatedProvisionedConcurrentExecutions int    `json:"AllocatedProvisionedConcurrentExecutions"`
+	AvailableProvisionedConcurrentExecutions int    `json:"AvailableProvisionedConcurrentExecutions"`
+	RequestedProvisionedConcurrentExecutions int    `json:"RequestedProvisionedConcurrentExecutions"`
+}
+
+// PutProvisionedConcurrencyConfigInput is the request body for PutProvisionedConcurrencyConfig.
+type PutProvisionedConcurrencyConfigInput struct {
+	ProvisionedConcurrentExecutions int `json:"ProvisionedConcurrentExecutions"`
+}
+
+// ListProvisionedConcurrencyConfigsOutput is the response for ListProvisionedConcurrencyConfigs.
+type ListProvisionedConcurrencyConfigsOutput struct {
+	NextMarker                    string                          `json:"NextMarker,omitempty"`
+	ProvisionedConcurrencyConfigs []*ProvisionedConcurrencyConfig `json:"ProvisionedConcurrencyConfigs"`
+}

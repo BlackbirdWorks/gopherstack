@@ -60,6 +60,8 @@ var (
 	ErrTooManyRequests = errors.New("TooManyRequestsException")
 	// ErrFunctionConcurrencyNotFound is returned when a function has no reserved concurrency configured.
 	ErrFunctionConcurrencyNotFound = errors.New("ResourceNotFoundException")
+	// ErrProvisionedConcurrencyConfigNotFound is returned when no provisioned concurrency config exists for the qualifier.
+	ErrProvisionedConcurrencyConfigNotFound = errors.New("ResourceNotFoundException")
 )
 
 // versionLatest is the sentinel qualifier for the live function configuration.
@@ -143,6 +145,9 @@ type InMemoryBackend struct {
 	functionConcurrencies map[string]int
 	// activeConcurrencies tracks the number of active synchronous invocations per function name.
 	activeConcurrencies map[string]int
+	// provisionedConcurrencies stores provisioned concurrency configs keyed by
+	// function name → qualifier → config.
+	provisionedConcurrencies map[string]map[string]*ProvisionedConcurrencyConfig
 	// layers stores layer versions keyed by layerName → []LayerVersion (ordered by version).
 	layers map[string][]*LayerVersion
 	// layerVersionCounters tracks the next version number per layer.
@@ -169,27 +174,28 @@ func NewInMemoryBackend(
 	accountID, region string,
 ) *InMemoryBackend {
 	return &InMemoryBackend{
-		functions:             make(map[string]*FunctionConfiguration),
-		runtimes:              make(map[string]*functionRuntime),
-		eventSourceMappings:   make(map[string]*EventSourceMapping),
-		functionURLConfigs:    make(map[string]*FunctionURLConfig),
-		functionURLServers:    make(map[string]*functionURLServer),
-		versions:              make(map[string][]*FunctionVersion),
-		aliases:               make(map[string]map[string]*FunctionAlias),
-		versionCounters:       make(map[string]int),
-		layers:                make(map[string][]*LayerVersion),
-		layerVersionCounters:  make(map[string]int64),
-		layerPolicies:         make(map[string]map[int64]map[string]*LayerVersionStatement),
-		eventInvokeConfigs:    make(map[string]*FunctionEventInvokeConfig),
-		functionConcurrencies: make(map[string]int),
-		activeConcurrencies:   make(map[string]int),
-		fisFaults:             make(map[string]*FISInvocationFault),
-		docker:                dockerClient,
-		portAlloc:             portAlloc,
-		settings:              settings,
-		accountID:             accountID,
-		region:                region,
-		mu:                    lockmetrics.New("lambda"),
+		functions:                make(map[string]*FunctionConfiguration),
+		runtimes:                 make(map[string]*functionRuntime),
+		eventSourceMappings:      make(map[string]*EventSourceMapping),
+		functionURLConfigs:       make(map[string]*FunctionURLConfig),
+		functionURLServers:       make(map[string]*functionURLServer),
+		versions:                 make(map[string][]*FunctionVersion),
+		aliases:                  make(map[string]map[string]*FunctionAlias),
+		versionCounters:          make(map[string]int),
+		layers:                   make(map[string][]*LayerVersion),
+		layerVersionCounters:     make(map[string]int64),
+		layerPolicies:            make(map[string]map[int64]map[string]*LayerVersionStatement),
+		eventInvokeConfigs:       make(map[string]*FunctionEventInvokeConfig),
+		functionConcurrencies:    make(map[string]int),
+		activeConcurrencies:      make(map[string]int),
+		provisionedConcurrencies: make(map[string]map[string]*ProvisionedConcurrencyConfig),
+		fisFaults:                make(map[string]*FISInvocationFault),
+		docker:                   dockerClient,
+		portAlloc:                portAlloc,
+		settings:                 settings,
+		accountID:                accountID,
+		region:                   region,
+		mu:                       lockmetrics.New("lambda"),
 	}
 }
 
@@ -2190,4 +2196,111 @@ func (b *InMemoryBackend) DeleteFunctionConcurrency(name string) error {
 	fn.ReservedConcurrentExecutions = nil
 
 	return nil
+}
+
+// PutProvisionedConcurrencyConfig sets the provisioned concurrency configuration for a function qualifier.
+// The qualifier must be a version number or alias name; $LATEST is not supported.
+// Status is returned as READY immediately (stub implementation — no actual pre-warming).
+func (b *InMemoryBackend) PutProvisionedConcurrencyConfig(
+	name, qualifier string,
+	requested int,
+) (*ProvisionedConcurrencyConfig, error) {
+	b.mu.Lock("PutProvisionedConcurrencyConfig")
+	defer b.mu.Unlock()
+
+	fn, ok := b.functions[name]
+	if !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	if requested <= 0 {
+		return nil, fmt.Errorf("%w: ProvisionedConcurrentExecutions must be > 0", ErrInvalidParameterValue)
+	}
+
+	if _, exists := b.provisionedConcurrencies[name]; !exists {
+		b.provisionedConcurrencies[name] = make(map[string]*ProvisionedConcurrencyConfig)
+	}
+
+	cfg := &ProvisionedConcurrencyConfig{
+		AllocatedProvisionedConcurrentExecutions: requested,
+		AvailableProvisionedConcurrentExecutions: requested,
+		FunctionArn:                              buildAliasARN(b.region, b.accountID, fn.FunctionName, qualifier),
+		LastModified:                             time.Now().UTC().Format(time.RFC3339),
+		RequestedProvisionedConcurrentExecutions: requested,
+		Status:                                   "READY",
+	}
+
+	b.provisionedConcurrencies[name][qualifier] = cfg
+
+	return cfg, nil
+}
+
+// GetProvisionedConcurrencyConfig returns the provisioned concurrency configuration for a function qualifier.
+func (b *InMemoryBackend) GetProvisionedConcurrencyConfig(
+	name, qualifier string,
+) (*ProvisionedConcurrencyConfig, error) {
+	b.mu.RLock("GetProvisionedConcurrencyConfig")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	qualifiers, ok := b.provisionedConcurrencies[name]
+	if !ok {
+		return nil, ErrProvisionedConcurrencyConfigNotFound
+	}
+
+	cfg, ok := qualifiers[qualifier]
+	if !ok {
+		return nil, ErrProvisionedConcurrencyConfigNotFound
+	}
+
+	return cfg, nil
+}
+
+// DeleteProvisionedConcurrencyConfig removes the provisioned concurrency configuration for a function qualifier.
+func (b *InMemoryBackend) DeleteProvisionedConcurrencyConfig(name, qualifier string) error {
+	b.mu.Lock("DeleteProvisionedConcurrencyConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return ErrFunctionNotFound
+	}
+
+	qualifiers, ok := b.provisionedConcurrencies[name]
+	if !ok {
+		return ErrProvisionedConcurrencyConfigNotFound
+	}
+
+	if _, exists := qualifiers[qualifier]; !exists {
+		return ErrProvisionedConcurrencyConfigNotFound
+	}
+
+	delete(qualifiers, qualifier)
+
+	if len(qualifiers) == 0 {
+		delete(b.provisionedConcurrencies, name)
+	}
+
+	return nil
+}
+
+// ListProvisionedConcurrencyConfigs returns all provisioned concurrency configurations for a function.
+func (b *InMemoryBackend) ListProvisionedConcurrencyConfigs(name string) ([]*ProvisionedConcurrencyConfig, error) {
+	b.mu.RLock("ListProvisionedConcurrencyConfigs")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.functions[name]; !ok {
+		return nil, ErrFunctionNotFound
+	}
+
+	qualifiers := b.provisionedConcurrencies[name]
+	configs := make([]*ProvisionedConcurrencyConfig, 0, len(qualifiers))
+
+	for _, cfg := range qualifiers {
+		configs = append(configs, cfg)
+	}
+
+	return configs, nil
 }

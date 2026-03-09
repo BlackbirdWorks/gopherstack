@@ -80,6 +80,9 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodPut, hasSuffixConcurrency, "PutFunctionConcurrency"},
 	{http.MethodGet, hasSuffixConcurrency, "GetFunctionConcurrency"},
 	{http.MethodDelete, hasSuffixConcurrency, "DeleteFunctionConcurrency"},
+	{http.MethodPut, hasSuffixProvisionedConcurrency, "PutProvisionedConcurrencyConfig"},
+	{http.MethodGet, hasSuffixProvisionedConcurrency, "GetProvisionedConcurrencyConfig"},
+	{http.MethodDelete, hasSuffixProvisionedConcurrency, "DeleteProvisionedConcurrencyConfig"},
 }
 
 func isEmptyRest(rest string) bool            { return rest == "" }
@@ -88,6 +91,9 @@ func hasSuffixConfiguration(rest string) bool { return strings.HasSuffix(rest, "
 func hasSuffixInvocations(rest string) bool   { return strings.HasSuffix(rest, "/invocations") }
 func hasSuffixURL(rest string) bool           { return strings.HasSuffix(rest, "/url") }
 func hasSuffixConcurrency(rest string) bool   { return strings.HasSuffix(rest, "/concurrency") }
+func hasSuffixProvisionedConcurrency(rest string) bool {
+	return strings.HasSuffix(rest, "/provisioned-concurrency")
+}
 func hasSuffixEventInvokeConfig(rest string) bool {
 	return strings.HasSuffix(rest, "/event-invoke-config")
 }
@@ -208,6 +214,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutFunctionConcurrency",
 		"GetFunctionConcurrency",
 		"DeleteFunctionConcurrency",
+		"PutProvisionedConcurrencyConfig",
+		"GetProvisionedConcurrencyConfig",
+		"DeleteProvisionedConcurrencyConfig",
+		"ListProvisionedConcurrencyConfigs",
 	}
 }
 
@@ -581,6 +591,37 @@ func (h *Handler) buildConcurrencyRoutes() []handlerEntry {
 				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/concurrency")
 
 				return h.handleDeleteFunctionConcurrency(c, name)
+			},
+		},
+		{
+			method: http.MethodPut,
+			match:  hasSuffixProvisionedConcurrency,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/provisioned-concurrency")
+
+				return h.handlePutProvisionedConcurrencyConfig(c, name)
+			},
+		},
+		{
+			method: http.MethodGet,
+			match:  hasSuffixProvisionedConcurrency,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/provisioned-concurrency")
+				qualifier := c.Request().URL.Query().Get("Qualifier")
+				if qualifier != "" {
+					return h.handleGetProvisionedConcurrencyConfig(c, name, qualifier)
+				}
+
+				return h.handleListProvisionedConcurrencyConfigs(c, name)
+			},
+		},
+		{
+			method: http.MethodDelete,
+			match:  hasSuffixProvisionedConcurrency,
+			execute: func(c *echo.Context, rest string) error {
+				name := strings.TrimSuffix(strings.TrimPrefix(rest, "/"), "/provisioned-concurrency")
+
+				return h.handleDeleteProvisionedConcurrencyConfig(c, name)
 			},
 		},
 	}
@@ -2077,4 +2118,125 @@ func (h *Handler) handleDeleteFunctionConcurrency(c *echo.Context, name string) 
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+// handlePutProvisionedConcurrencyConfig handles
+// PUT /2015-03-31/functions/{name}/provisioned-concurrency?Qualifier={qualifier}.
+func (h *Handler) handlePutProvisionedConcurrencyConfig(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+	if qualifier == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"Qualifier is required for PutProvisionedConcurrencyConfig")
+	}
+
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "failed to read body")
+	}
+
+	var input PutProvisionedConcurrencyConfigInput
+	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", "invalid JSON")
+	}
+
+	cfg, putErr := lambdaBk.PutProvisionedConcurrencyConfig(name, qualifier, input.ProvisionedConcurrentExecutions)
+	if putErr != nil {
+		if errors.Is(putErr, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(putErr, ErrInvalidParameterValue) {
+			return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", putErr.Error())
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", putErr.Error())
+	}
+
+	return c.JSON(http.StatusCreated, cfg)
+}
+
+// handleGetProvisionedConcurrencyConfig handles
+// GET /2015-03-31/functions/{name}/provisioned-concurrency?Qualifier={qualifier}.
+func (h *Handler) handleGetProvisionedConcurrencyConfig(c *echo.Context, name, qualifier string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	cfg, err := lambdaBk.GetProvisionedConcurrencyConfig(name, qualifier)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(err, ErrProvisionedConcurrencyConfigNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("No provisioned concurrency config found for qualifier: %s", qualifier))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, cfg)
+}
+
+// handleDeleteProvisionedConcurrencyConfig handles
+// DELETE /2015-03-31/functions/{name}/provisioned-concurrency?Qualifier={qualifier}.
+func (h *Handler) handleDeleteProvisionedConcurrencyConfig(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+	if qualifier == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"Qualifier is required for DeleteProvisionedConcurrencyConfig")
+	}
+
+	if err := lambdaBk.DeleteProvisionedConcurrencyConfig(name, qualifier); err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		if errors.Is(err, ErrProvisionedConcurrencyConfigNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("No provisioned concurrency config found for qualifier: %s", qualifier))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+// handleListProvisionedConcurrencyConfigs handles
+// GET /2015-03-31/functions/{name}/provisioned-concurrency (no Qualifier).
+func (h *Handler) handleListProvisionedConcurrencyConfigs(c *echo.Context, name string) error {
+	lambdaBk, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", "backend not available")
+	}
+
+	configs, err := lambdaBk.ListProvisionedConcurrencyConfigs(name)
+	if err != nil {
+		if errors.Is(err, ErrFunctionNotFound) {
+			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
+				fmt.Sprintf("Function not found: %s", name))
+		}
+
+		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
+	}
+
+	return c.JSON(http.StatusOK, &ListProvisionedConcurrencyConfigsOutput{
+		ProvisionedConcurrencyConfigs: configs,
+	})
 }
