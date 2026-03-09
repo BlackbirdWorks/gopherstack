@@ -25,6 +25,7 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
+	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
@@ -136,6 +137,7 @@ type DashboardHandler struct {
 	TranscribeOps      *transcribebackend.Handler
 	SupportOps         *supportbackend.Handler
 	CognitoIdentityOps *cognitoidentitybackend.Handler
+	CognitoIDPOps      *cognitoidpbackend.Handler
 	SubRouter          *echo.Echo
 	ddbProvider        *ddbbackend.DashboardProvider
 	s3Provider         *s3backend.DashboardProvider
@@ -219,6 +221,8 @@ type Config struct {
 	SupportOps *supportbackend.Handler
 	// CognitoIdentityOps provides access to the Cognito Identity backend.
 	CognitoIdentityOps *cognitoidentitybackend.Handler
+	// CognitoIDPOps provides access to the Cognito IDP backend.
+	CognitoIDPOps *cognitoidpbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -287,6 +291,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/transcribe/*.html",
 		"templates/support/*.html",
 		"templates/cognitoidentity/*.html",
+		"templates/cognitoidp/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -344,6 +349,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		TranscribeOps:      cfg.TranscribeOps,
 		SupportOps:         cfg.SupportOps,
 		CognitoIdentityOps: cfg.CognitoIdentityOps,
+		CognitoIDPOps:      cfg.CognitoIDPOps,
 		GlobalConfig:       cfg.GlobalConfig,
 		Logger:             cfg.Logger,
 		FaultStore:         cfg.FaultStore,
@@ -614,6 +620,12 @@ func (h *DashboardHandler) setupCognitoIdentityRoutes() {
 	h.SubRouter.GET("/dashboard/cognitoidentity", h.cognitoIdentityIndex)
 }
 
+func (h *DashboardHandler) setupCognitoIDPRoutes() {
+	h.SubRouter.GET("/dashboard/cognitoidp", h.cognitoIDPIndex)
+	h.SubRouter.POST("/dashboard/cognitoidp/user-pool/create", h.cognitoIDPCreateUserPool)
+	h.SubRouter.POST("/dashboard/cognitoidp/user-pool/delete", h.cognitoIDPDeleteUserPool)
+}
+
 func (h *DashboardHandler) setupSESv2Routes() {
 	h.SubRouter.GET("/dashboard/sesv2", h.sesv2Index)
 	h.SubRouter.POST("/dashboard/sesv2/identity/create", h.sesv2CreateIdentity)
@@ -667,6 +679,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupTranscribeRoutes()
 	h.setupSupportRoutes()
 	h.setupCognitoIdentityRoutes()
+	h.setupCognitoIDPRoutes()
 	h.setupChaosRoutes()
 	h.setupMetaRoutes()
 }
@@ -752,6 +765,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/transcribe", "Transcribe"},
 	{"/support", "Support"},
 	{"/cognitoidentity", "CognitoIdentity"},
+	{"/cognitoidp", "CognitoIDP"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
