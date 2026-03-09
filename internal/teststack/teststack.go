@@ -33,6 +33,7 @@ import (
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
+	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
@@ -94,6 +95,7 @@ type Stack struct {
 	SESv2Handler                 *sesv2backend.Handler
 	EC2Handler                   *ec2backend.Handler
 	ECRHandler                   *ecrbackend.Handler
+	FISHandler                   *fisbackend.Handler
 	OpenSearchHandler            *opensearchbackend.Handler
 	ACMHandler                   *acmbackend.Handler
 	RedshiftHandler              *redshiftbackend.Handler
@@ -268,6 +270,7 @@ type handlers struct {
 	sesv2           *sesv2backend.Handler
 	ec2             *ec2backend.Handler
 	ecr             *ecrbackend.Handler
+	fis             *fisbackend.Handler
 	opensearch      *opensearchbackend.Handler
 	acm             *acmbackend.Handler
 	redshift        *redshiftbackend.Handler
@@ -333,6 +336,9 @@ func newHandlers() handlers {
 		ecr: ecrbackend.NewHandler(
 			ecrbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ""),
 			nil,
+		),
+		fis: fisbackend.NewHandler(
+			fisbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 		),
 		opensearch: opensearchbackend.NewHandler(
 			opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -440,6 +446,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		SESv2Ops:           h.sesv2,
 		EC2Ops:             h.ec2,
 		ECROps:             h.ecr,
+		FISOps:             h.fis,
 		OpenSearchOps:      h.opensearch,
 		ACMOps:             h.acm,
 		RedshiftOps:        h.redshift,
@@ -520,6 +527,7 @@ func New(t *testing.T) *Stack {
 		SESv2Handler:                 h.sesv2,
 		EC2Handler:                   h.ec2,
 		ECRHandler:                   h.ecr,
+		FISHandler:                   h.fis,
 		OpenSearchHandler:            h.opensearch,
 		ACMHandler:                   h.acm,
 		RedshiftHandler:              h.redshift,

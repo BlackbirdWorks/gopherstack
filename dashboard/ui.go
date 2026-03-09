@@ -32,6 +32,7 @@ import (
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
+	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
@@ -121,6 +122,7 @@ type DashboardHandler struct {
 	SESv2Ops           *sesv2backend.Handler
 	EC2Ops             *ec2backend.Handler
 	ECROps             *ecrbackend.Handler
+	FISOps             *fisbackend.Handler
 	OpenSearchOps      *opensearchbackend.Handler
 	ACMOps             *acmbackend.Handler
 	RedshiftOps        *redshiftbackend.Handler
@@ -189,6 +191,8 @@ type Config struct {
 	EC2Ops *ec2backend.Handler
 	// ECROps provides access to the ECR backend.
 	ECROps *ecrbackend.Handler
+	// FISOps provides access to the FIS backend.
+	FISOps *fisbackend.Handler
 	// OpenSearchOps provides access to the OpenSearch backend.
 	OpenSearchOps *opensearchbackend.Handler
 	// ACMOps provides access to the ACM backend.
@@ -272,6 +276,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/sesv2/*.html",
 		"templates/ec2/*.html",
 		"templates/ecr/*.html",
+		"templates/fis/*.html",
 		"templates/opensearch/*.html",
 		"templates/acm/*.html",
 		"templates/redshift/*.html",
@@ -329,6 +334,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		SESv2Ops:           cfg.SESv2Ops,
 		EC2Ops:             cfg.EC2Ops,
 		ECROps:             cfg.ECROps,
+		FISOps:             cfg.FISOps,
 		OpenSearchOps:      cfg.OpenSearchOps,
 		ACMOps:             cfg.ACMOps,
 		RedshiftOps:        cfg.RedshiftOps,
@@ -652,8 +658,8 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupSESv2Routes()
 	h.setupEC2Routes()
 	h.setupECRRoutes()
+	h.setupFISRoutes()
 	h.setupOpenSearchRoutes()
-	h.setupACMRoutes()
 	h.setupRedshiftRoutes()
 	h.setupRDSRoutes()
 	h.setupAWSConfigRoutes()
@@ -737,6 +743,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/ses", "SES"},
 	{"/ec2", "EC2"},
 	{"/ecr", "ECR"},
+	{"/fis", "FIS"},
 	{"/opensearch", "OpenSearch"},
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},
