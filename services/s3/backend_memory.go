@@ -1766,6 +1766,62 @@ func (b *InMemoryBackend) DeleteBucketWebsite(_ context.Context, bucketName stri
 	return nil
 }
 
+// PutBucketEncryption stores the server-side encryption configuration for a bucket.
+func (b *InMemoryBackend) PutBucketEncryption(_ context.Context, bucketName, encryptionXML string) error {
+	b.mu.RLock("PutBucketEncryption")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketEncryption")
+	defer bucket.mu.Unlock()
+
+	bucket.EncryptionConfig = encryptionXML
+
+	return nil
+}
+
+// GetBucketEncryption returns the server-side encryption configuration for a bucket.
+func (b *InMemoryBackend) GetBucketEncryption(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketEncryption")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketEncryption")
+	defer bucket.mu.RUnlock()
+
+	if bucket.EncryptionConfig == "" {
+		return "", ErrNoEncryptionConfig
+	}
+
+	return bucket.EncryptionConfig, nil
+}
+
+// DeleteBucketEncryption clears the server-side encryption configuration for a bucket.
+func (b *InMemoryBackend) DeleteBucketEncryption(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketEncryption")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketEncryption")
+	defer bucket.mu.Unlock()
+
+	bucket.EncryptionConfig = ""
+
+	return nil
+}
+
 // PutBucketNotificationConfiguration stores the notification configuration for a bucket.
 func (b *InMemoryBackend) PutBucketNotificationConfiguration(_ context.Context, bucketName, notifXML string) error {
 	b.mu.RLock("PutBucketNotificationConfiguration")

@@ -95,6 +95,13 @@ func TestWriteError(t *testing.T) {
 				"<Resource></Resource><RequestId></RequestId></Error>",
 		},
 		{
+			err:          s3.ErrNoEncryptionConfig,
+			expectedCode: http.StatusNotFound,
+			expectedXML: "<Error><Code>ServerSideEncryptionConfigurationNotFoundError</Code>" +
+				"<Message>The server side encryption configuration was not found</Message>" +
+				"<Resource></Resource><RequestId></RequestId></Error>",
+		},
+		{
 			err:          nil,
 			expectedCode: http.StatusInternalServerError,
 			expectedXML: "<Error><Code>InternalError</Code>" +

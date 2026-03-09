@@ -84,6 +84,11 @@ type StorageBackend interface {
 	GetBucketWebsite(ctx context.Context, bucket string) (string, error)
 	DeleteBucketWebsite(ctx context.Context, bucket string) error
 
+	// Encryption
+	PutBucketEncryption(ctx context.Context, bucket, encryptionXML string) error
+	GetBucketEncryption(ctx context.Context, bucket string) (string, error)
+	DeleteBucketEncryption(ctx context.Context, bucket string) error
+
 	// Notifications
 	PutBucketNotificationConfiguration(ctx context.Context, bucket, notifXML string) error
 	GetBucketNotificationConfiguration(ctx context.Context, bucket string) (string, error)

@@ -366,3 +366,22 @@ type PartXML struct {
 	Size       int64  `xml:"Size"`
 	PartNumber int    `xml:"PartNumber"`
 }
+
+// ServerSideEncryptionConfiguration is the XML body for PutBucketEncryption / GetBucketEncryption.
+type ServerSideEncryptionConfiguration struct {
+	XMLName xml.Name                   `xml:"ServerSideEncryptionConfiguration"`
+	Xmlns   string                     `xml:"xmlns,attr,omitempty"`
+	Rules   []ServerSideEncryptionRule `xml:"Rule"`
+}
+
+// ServerSideEncryptionRule represents a single encryption rule.
+type ServerSideEncryptionRule struct {
+	ApplyServerSideEncryptionByDefault ServerSideEncryptionByDefault `xml:"ApplyServerSideEncryptionByDefault"`
+	BucketKeyEnabled                   bool                          `xml:"BucketKeyEnabled,omitempty"`
+}
+
+// ServerSideEncryptionByDefault holds the default encryption algorithm and optional KMS key.
+type ServerSideEncryptionByDefault struct {
+	SSEAlgorithm   string `xml:"SSEAlgorithm"`
+	KMSMasterKeyID string `xml:"KMSMasterKeyID,omitempty"`
+}

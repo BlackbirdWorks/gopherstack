@@ -67,6 +67,8 @@ func (h *S3Handler) handleBucketOperation(
 			h.deleteBucketLifecycleConfiguration(ctx, w, r, bucket)
 		case r.URL.Query().Has("website"):
 			h.deleteBucketWebsite(ctx, w, r, bucket)
+		case r.URL.Query().Has("encryption"):
+			h.deleteBucketEncryption(ctx, w, r, bucket)
 		default:
 			h.deleteBucket(ctx, w, r, bucket)
 		}
@@ -109,9 +111,7 @@ func (h *S3Handler) routeBucketPut(
 		h.setOperation(ctx, "PutBucketReplication")
 		w.WriteHeader(http.StatusOK)
 	case r.URL.Query().Has("encryption"):
-		// Stub: accept encryption configuration.
-		h.setOperation(ctx, "PutBucketEncryption")
-		w.WriteHeader(http.StatusOK)
+		h.putBucketEncryption(ctx, w, r, bucket)
 	case r.URL.Query().Has("object-lock"):
 		h.putObjectLockConfiguration(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):
@@ -162,6 +162,10 @@ func (h *S3Handler) routeBucketGet(
 		return
 	case q.Has("website"):
 		h.getBucketWebsite(ctx, w, r, bucket)
+
+		return
+	case q.Has("encryption"):
+		h.getBucketEncryption(ctx, w, r, bucket)
 
 		return
 	case q.Has("object-lock"):
@@ -237,12 +241,6 @@ func (h *S3Handler) routeBucketGetStubs(
 			http.StatusOK,
 			s3RequestPaymentConfiguration{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Payer: "BucketOwner"},
 		)
-	case q.Has("encryption"):
-		h.setOperation(ctx, "GetBucketEncryption")
-		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "ServerSideEncryptionConfigurationNotFoundError",
-			Message: "The server side encryption configuration was not found",
-		}, http.StatusNotFound)
 	case q.Has("intelligent-tiering"):
 		h.setOperation(ctx, "ListBucketIntelligentTieringConfigurations")
 		httputils.WriteXML(
@@ -938,6 +936,57 @@ func (h *S3Handler) getBucketWebsite(ctx context.Context, w http.ResponseWriter,
 func (h *S3Handler) deleteBucketWebsite(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
 	h.setOperation(ctx, "DeleteBucketWebsite")
 	if err := h.Backend.DeleteBucketWebsite(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) putBucketEncryption(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "PutBucketEncryption")
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	var cfg ServerSideEncryptionConfiguration
+	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    "MalformedXML",
+			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+		}, http.StatusBadRequest)
+
+		return
+	}
+
+	if err = h.Backend.PutBucketEncryption(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) getBucketEncryption(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "GetBucketEncryption")
+	encryptionXML, err := h.Backend.GetBucketEncryption(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(encryptionXML))
+}
+
+func (h *S3Handler) deleteBucketEncryption(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "DeleteBucketEncryption")
+	if err := h.Backend.DeleteBucketEncryption(ctx, bucket); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
