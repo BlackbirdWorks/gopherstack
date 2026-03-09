@@ -146,6 +146,17 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 			},
 		)
 	}
+	if h.AppSyncOps != nil {
+		data.Services = append(
+			data.Services,
+			serviceStatus{
+				Name: "AppSync",
+				Link: "/dashboard/appsync",
+				Icon: `<img src="/dashboard/static/icons/appsync.svg" ` +
+					`class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="AppSync" />`,
+			},
+		)
+	}
 
 	h.renderTemplate(w, "dashboard_index.html", data)
 

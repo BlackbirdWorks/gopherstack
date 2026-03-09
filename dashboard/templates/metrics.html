@@ -239,6 +239,24 @@
                                             Manager</label>
                                     </div>
                                 </li>
+                                <li>
+                                    <div class="flex items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+                                        <input id="filter-ECR" type="checkbox" value="ECR" checked
+                                            onchange="toggleService('ECR')"
+                                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-700 dark:focus:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500">
+                                        <label for="filter-ECR"
+                                            class="w-full ml-2 text-sm font-medium text-gray-900 rounded dark:text-gray-300">ECR</label>
+                                    </div>
+                                </li>
+                                <li>
+                                    <div class="flex items-center p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-600">
+                                        <input id="filter-AppSync" type="checkbox" value="AppSync" checked
+                                            onchange="toggleService('AppSync')"
+                                            class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-700 dark:focus:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500">
+                                        <label for="filter-AppSync"
+                                            class="w-full ml-2 text-sm font-medium text-gray-900 rounded dark:text-gray-300">AppSync</label>
+                                    </div>
+                                </li>
                             </ul>
                         </div>
                     </div>
@@ -298,7 +316,7 @@
 
 <script>
     var currentMetrics = null;
-    var currentFilters = ['DynamoDB', 'S3', 'SSM', 'IAM', 'STS', 'SNS', 'SQS', 'KMS', 'SecretsManager'];
+    var currentFilters = ['DynamoDB', 'S3', 'SSM', 'IAM', 'STS', 'SNS', 'SQS', 'KMS', 'SecretsManager', 'ECR', 'AppSync'];
 
     function toggleService(service) {
         const index = currentFilters.indexOf(service);
