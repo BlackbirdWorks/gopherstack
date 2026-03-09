@@ -25,6 +25,7 @@ import (
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
@@ -102,6 +103,7 @@ type Stack struct {
 	Route53ResolverHandler       *route53resolverbackend.Handler
 	TranscribeHandler            *transcribebackend.Handler
 	SupportHandler               *supportbackend.Handler
+	CognitoIdentityHandler       *cognitoidentitybackend.Handler
 	S3Client                     *s3.Client
 	DDBClient                    *dynamodb.Client
 	FaultStore                   *chaos.FaultStore
@@ -189,6 +191,7 @@ func registerServices(
 	route53resolverHndlr *route53resolverbackend.Handler,
 	transcribeHndlr *transcribebackend.Handler,
 	supportHndlr *supportbackend.Handler,
+	cognitoIdentityHndlr *cognitoidentitybackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -225,6 +228,7 @@ func registerServices(
 	_ = registry.Register(route53resolverHndlr)
 	_ = registry.Register(transcribeHndlr)
 	_ = registry.Register(supportHndlr)
+	_ = registry.Register(cognitoIdentityHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -264,6 +268,7 @@ type handlers struct {
 	route53resolver *route53resolverbackend.Handler
 	transcribe      *transcribebackend.Handler
 	support         *supportbackend.Handler
+	cognitoIdentity *cognitoidentitybackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -341,6 +346,10 @@ func newHandlers() handlers {
 		),
 		transcribe: transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend()),
 		support:    supportbackend.NewHandler(supportbackend.NewInMemoryBackend()),
+		cognitoIdentity: cognitoidentitybackend.NewHandler(
+			cognitoidentitybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+			config.DefaultRegion,
+		),
 	}
 }
 
@@ -414,6 +423,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		Route53ResolverOps: h.route53resolver,
 		TranscribeOps:      h.transcribe,
 		SupportOps:         h.support,
+		CognitoIdentityOps: h.cognitoIdentity,
 		GlobalConfig:       config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion},
 		FaultStore:         fs,
 		Logger:             slog.Default(),
@@ -440,7 +450,7 @@ func New(t *testing.T) *Stack {
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
 		h.elasticache, h.route53, h.ses, h.ec2, h.opensearch,
 		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
-		h.scheduler, h.route53resolver, h.transcribe, h.support,
+		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -491,6 +501,7 @@ func New(t *testing.T) *Stack {
 		Route53ResolverHandler:       h.route53resolver,
 		TranscribeHandler:            h.transcribe,
 		SupportHandler:               h.support,
+		CognitoIdentityHandler:       h.cognitoIdentity,
 		S3Client:                     clients.S3,
 		DDBClient:                    clients.DDB,
 		FaultStore:                   faultStore,

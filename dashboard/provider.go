@@ -11,6 +11,7 @@ import (
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -78,6 +79,7 @@ type AWSSDKProvider interface {
 	GetResourceGroupsHandler() service.Registerable
 	GetSWFHandler() service.Registerable
 	GetFirehoseHandler() service.Registerable
+	GetCognitoIdentityHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -94,41 +96,42 @@ func (p *Provider) Name() string {
 //
 // extractedConfig holds all concrete service types extracted from a AWSSDKProvider.
 type extractedConfig struct {
-	stepFunctionsOps  *sfnbackend.Handler
-	cloudWatchOps     *cwbackend.Handler
-	ssmClient         *ssmsdk.Client
-	ddb               *dynamodb.DynamoDBHandler
-	s3h               *s3.S3Handler
-	ssmOps            *ssm.Handler
-	iamOps            *iambackend.Handler
-	stsOps            *stsbackend.Handler
-	snsOps            *sns.Handler
-	sqsOps            *sqsbackend.Handler
-	kmsOps            *kmsbackend.Handler
-	secretsManagerOps *secretsmanagerbackend.Handler
-	lambdaOps         *lambdabackend.Handler
-	eventBridgeOps    *ebbackend.Handler
-	apiGatewayOps     *apigwbackend.Handler
-	cloudWatchLogsOps *cwlogsbackend.Handler
-	s3Client          *s3sdk.Client
-	ddbClient         *ddbsdk.Client
-	cloudFormationOps *cfnbackend.Handler
-	kinesisOps        *kinesisbackend.Handler
-	elasticacheOps    *elasticachebackend.Handler
-	route53Ops        *route53backend.Handler
-	sesOps            *sesbackend.Handler
-	ec2Ops            *ec2backend.Handler
-	opensearchOps     *opensearchbackend.Handler
-	acmOps            *acmbackend.Handler
-	redshiftOps       *redshiftbackend.Handler
-	rdsOps            *rdsbackend.Handler
-	awsconfigOps      *awsconfigbackend.Handler
-	s3controlOps      *s3controlbackend.Handler
-	resourcegroupsOps *resourcegroupsbackend.Handler
-	swfOps            *swfbackend.Handler
-	firehoseOps       *firehosebackend.Handler
-	faultStore        *chaos.FaultStore
-	gCfg              globalcfg.GlobalConfig
+	stepFunctionsOps   *sfnbackend.Handler
+	cloudWatchOps      *cwbackend.Handler
+	ssmClient          *ssmsdk.Client
+	ddb                *dynamodb.DynamoDBHandler
+	s3h                *s3.S3Handler
+	ssmOps             *ssm.Handler
+	iamOps             *iambackend.Handler
+	stsOps             *stsbackend.Handler
+	snsOps             *sns.Handler
+	sqsOps             *sqsbackend.Handler
+	kmsOps             *kmsbackend.Handler
+	secretsManagerOps  *secretsmanagerbackend.Handler
+	lambdaOps          *lambdabackend.Handler
+	eventBridgeOps     *ebbackend.Handler
+	apiGatewayOps      *apigwbackend.Handler
+	cloudWatchLogsOps  *cwlogsbackend.Handler
+	s3Client           *s3sdk.Client
+	ddbClient          *ddbsdk.Client
+	cloudFormationOps  *cfnbackend.Handler
+	kinesisOps         *kinesisbackend.Handler
+	elasticacheOps     *elasticachebackend.Handler
+	route53Ops         *route53backend.Handler
+	sesOps             *sesbackend.Handler
+	ec2Ops             *ec2backend.Handler
+	opensearchOps      *opensearchbackend.Handler
+	acmOps             *acmbackend.Handler
+	redshiftOps        *redshiftbackend.Handler
+	rdsOps             *rdsbackend.Handler
+	awsconfigOps       *awsconfigbackend.Handler
+	s3controlOps       *s3controlbackend.Handler
+	resourcegroupsOps  *resourcegroupsbackend.Handler
+	swfOps             *swfbackend.Handler
+	firehoseOps        *firehosebackend.Handler
+	cognitoIdentityOps *cognitoidentitybackend.Handler
+	faultStore         *chaos.FaultStore
+	gCfg               globalcfg.GlobalConfig
 }
 
 // extractFromProvider tries to extract all service types from the AppContext.Config.
@@ -197,7 +200,7 @@ func extractIntegrationHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 // extractMonitoringHandlers populates integration/monitoring service handlers on ec.
 //
-//nolint:dupl // structurally similar to extractLongTailHandlers by necessity; both extract service handlers
+
 func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetEventBridgeHandler(); h != nil {
 		ec.eventBridgeOps, _ = h.(*ebbackend.Handler)
@@ -238,7 +241,7 @@ func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 // extractLongTailHandlers populates long-tail service handlers on ec.
 //
-//nolint:dupl // structurally similar to extractMonitoringHandlers by necessity; both extract service handlers
+
 func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetOpenSearchHandler(); h != nil {
 		ec.opensearchOps, _ = h.(*opensearchbackend.Handler)
@@ -275,6 +278,10 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetFirehoseHandler(); h != nil {
 		ec.firehoseOps, _ = h.(*firehosebackend.Handler)
 	}
+
+	if h := ap.GetCognitoIdentityHandler(); h != nil {
+		ec.cognitoIdentityOps, _ = h.(*cognitoidentitybackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -282,42 +289,43 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	ec := extractFromProvider(ctx)
 
 	handler := NewHandler(Config{
-		DDBClient:         ec.ddbClient,
-		S3Client:          ec.s3Client,
-		SSMClient:         ec.ssmClient,
-		DDBOps:            ec.ddb,
-		S3Ops:             ec.s3h,
-		SSMOps:            ec.ssmOps,
-		IAMOps:            ec.iamOps,
-		STSOps:            ec.stsOps,
-		SNSOps:            ec.snsOps,
-		SQSOps:            ec.sqsOps,
-		KMSOps:            ec.kmsOps,
-		SecretsManagerOps: ec.secretsManagerOps,
-		LambdaOps:         ec.lambdaOps,
-		EventBridgeOps:    ec.eventBridgeOps,
-		APIGatewayOps:     ec.apiGatewayOps,
-		CloudWatchLogsOps: ec.cloudWatchLogsOps,
-		StepFunctionsOps:  ec.stepFunctionsOps,
-		CloudWatchOps:     ec.cloudWatchOps,
-		CloudFormationOps: ec.cloudFormationOps,
-		KinesisOps:        ec.kinesisOps,
-		ElastiCacheOps:    ec.elasticacheOps,
-		Route53Ops:        ec.route53Ops,
-		SESOps:            ec.sesOps,
-		EC2Ops:            ec.ec2Ops,
-		OpenSearchOps:     ec.opensearchOps,
-		ACMOps:            ec.acmOps,
-		RedshiftOps:       ec.redshiftOps,
-		RDSOps:            ec.rdsOps,
-		AWSConfigOps:      ec.awsconfigOps,
-		S3ControlOps:      ec.s3controlOps,
-		ResourceGroupsOps: ec.resourcegroupsOps,
-		SWFOps:            ec.swfOps,
-		FirehoseOps:       ec.firehoseOps,
-		GlobalConfig:      ec.gCfg,
-		FaultStore:        ec.faultStore,
-		Logger:            ctx.Logger,
+		DDBClient:          ec.ddbClient,
+		S3Client:           ec.s3Client,
+		SSMClient:          ec.ssmClient,
+		DDBOps:             ec.ddb,
+		S3Ops:              ec.s3h,
+		SSMOps:             ec.ssmOps,
+		IAMOps:             ec.iamOps,
+		STSOps:             ec.stsOps,
+		SNSOps:             ec.snsOps,
+		SQSOps:             ec.sqsOps,
+		KMSOps:             ec.kmsOps,
+		SecretsManagerOps:  ec.secretsManagerOps,
+		LambdaOps:          ec.lambdaOps,
+		EventBridgeOps:     ec.eventBridgeOps,
+		APIGatewayOps:      ec.apiGatewayOps,
+		CloudWatchLogsOps:  ec.cloudWatchLogsOps,
+		StepFunctionsOps:   ec.stepFunctionsOps,
+		CloudWatchOps:      ec.cloudWatchOps,
+		CloudFormationOps:  ec.cloudFormationOps,
+		KinesisOps:         ec.kinesisOps,
+		ElastiCacheOps:     ec.elasticacheOps,
+		Route53Ops:         ec.route53Ops,
+		SESOps:             ec.sesOps,
+		EC2Ops:             ec.ec2Ops,
+		OpenSearchOps:      ec.opensearchOps,
+		ACMOps:             ec.acmOps,
+		RedshiftOps:        ec.redshiftOps,
+		RDSOps:             ec.rdsOps,
+		AWSConfigOps:       ec.awsconfigOps,
+		S3ControlOps:       ec.s3controlOps,
+		ResourceGroupsOps:  ec.resourcegroupsOps,
+		SWFOps:             ec.swfOps,
+		FirehoseOps:        ec.firehoseOps,
+		CognitoIdentityOps: ec.cognitoIdentityOps,
+		GlobalConfig:       ec.gCfg,
+		FaultStore:         ec.faultStore,
+		Logger:             ctx.Logger,
 	})
 
 	return handler, nil
