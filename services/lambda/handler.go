@@ -24,8 +24,27 @@ import (
 // lambdaPathPrefix is the path prefix for Lambda REST API v1 endpoints.
 const lambdaPathPrefix = "/2015-03-31/functions"
 
+// lambda2017PathPrefix is the API date prefix used by the AWS SDK v2 for
+// reserved concurrency operations (PutFunctionConcurrency, DeleteFunctionConcurrency).
+const lambda2017PathPrefix = "/2017-10-31/functions"
+
+// lambda2019PathPrefix is the API date prefix used by the AWS SDK v2 for
+// provisioned concurrency and GetFunctionConcurrency operations.
+const lambda2019PathPrefix = "/2019-09-30/functions"
+
 // lambda2020PathPrefix is the path prefix for Lambda REST API v2 endpoints (e.g. code signing configs).
 const lambda2020PathPrefix = "/2020-06-30/functions"
+
+// lambdaFunctionPrefixes holds all the date-versioned /functions path prefixes that
+// Gopherstack normalises to lambdaPathPrefix for route matching.
+//
+//nolint:gochecknoglobals // intentional package-level prefix table
+var lambdaFunctionPrefixes = []string{
+	lambdaPathPrefix,
+	lambda2017PathPrefix,
+	lambda2019PathPrefix,
+	lambda2020PathPrefix,
+}
 
 // esmPathPrefix is the path prefix for Lambda event source mapping endpoints.
 const esmPathPrefix = "/2015-03-31/event-source-mappings"
@@ -237,12 +256,27 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		target := c.Request().Header.Get("X-Amz-Target")
 
 		return strings.HasPrefix(path, lambdaPathPrefix) ||
+			strings.HasPrefix(path, lambda2017PathPrefix) ||
+			strings.HasPrefix(path, lambda2019PathPrefix) ||
 			strings.HasPrefix(path, lambda2020PathPrefix) ||
 			strings.HasPrefix(path, esmPathPrefix) ||
 			strings.HasPrefix(path, lambdaTagsPathPrefix) ||
 			strings.HasPrefix(path, lambdaLayersPathPrefix) ||
 			strings.HasPrefix(target, "AWSLambda")
 	}
+}
+
+// normalizeFunctionPath strips the date-versioned /functions prefix from path and
+// returns the remainder (including the leading slash before the function name).
+// It falls back to stripping lambdaPathPrefix when no other prefix matches.
+func normalizeFunctionPath(path string) string {
+	for _, prefix := range lambdaFunctionPrefixes {
+		if after, ok := strings.CutPrefix(path, prefix); ok {
+			return after
+		}
+	}
+
+	return strings.TrimPrefix(path, lambdaPathPrefix)
 }
 
 // MatchPriority returns the routing priority for the Lambda handler.
@@ -324,7 +358,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		}
 	}
 
-	rest := strings.TrimPrefix(path, lambdaPathPrefix)
+	rest := normalizeFunctionPath(path)
 
 	// Special case: GET /provisioned-concurrency dispatches to Get vs List based on Qualifier.
 	if op := resolveProvisionedConcurrencyOp(method, rest, c.Request().URL.Query().Get("Qualifier")); op != "" {
@@ -342,7 +376,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource returns the function name from the request path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	rest := strings.TrimPrefix(c.Request().URL.Path, lambdaPathPrefix+"/")
+	rest := strings.TrimPrefix(normalizeFunctionPath(c.Request().URL.Path), "/")
 	parts := strings.SplitN(rest, "/", 2) //nolint:mnd // split into at most name + rest
 
 	if len(parts) > 0 && parts[0] != "" {
@@ -364,13 +398,11 @@ func (h *Handler) IAMAction(r *http.Request) string {
 		rest := strings.TrimPrefix(path, lambdaLayersPathPrefix)
 
 		return "lambda:" + extractLayerOperation(strings.TrimPrefix(rest, "/"), method)
-	case strings.HasPrefix(path, lambdaPathPrefix) || strings.HasPrefix(path, lambda2020PathPrefix):
-		prefix := lambdaPathPrefix
-		if strings.HasPrefix(path, lambda2020PathPrefix) {
-			prefix = lambda2020PathPrefix
-		}
-
-		rest := strings.TrimPrefix(path, prefix)
+	case strings.HasPrefix(path, lambdaPathPrefix) ||
+		strings.HasPrefix(path, lambda2017PathPrefix) ||
+		strings.HasPrefix(path, lambda2019PathPrefix) ||
+		strings.HasPrefix(path, lambda2020PathPrefix):
+		rest := normalizeFunctionPath(path)
 
 		// Special case: GET /provisioned-concurrency dispatches to Get vs List based on Qualifier.
 		if op := resolveProvisionedConcurrencyOp(method, rest, r.URL.Query().Get("Qualifier")); op != "" {
@@ -751,7 +783,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "route not found")
 		}
 
-		rest := strings.TrimPrefix(path, lambdaPathPrefix)
+		rest := normalizeFunctionPath(path)
 
 		for _, route := range routes {
 			if route.method == method && route.match(rest) {
@@ -1018,6 +1050,21 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
+	}
+
+	// When Publish: true, immediately publish version 1 so that the caller can
+	// reference aws_lambda_function.this.version (used by provisioned concurrency etc.).
+	if input.Publish {
+		if lambdaBk, ok := h.Backend.(*InMemoryBackend); ok {
+			if v, pubErr := lambdaBk.PublishVersion(fn.FunctionName, ""); pubErr == nil {
+				fn.Version = v.Version
+			} else {
+				logger.Load(c.Request().Context()).Warn(
+					"lambda: Publish=true but PublishVersion failed; version not set in response",
+					"function", fn.FunctionName, "error", pubErr,
+				)
+			}
+		}
 	}
 
 	return c.JSON(http.StatusCreated, fn)

@@ -68,8 +68,8 @@ type FunctionConfiguration struct {
 	CreatedAt                    time.Time          `json:"-"`
 	Environment                  *EnvironmentConfig `json:"Environment,omitempty"`
 	ReservedConcurrentExecutions *int               `json:"ReservedConcurrentExecutions,omitempty"`
-	FunctionArn                  string             `json:"FunctionArn"`
-	FunctionName                 string             `json:"FunctionName"`
+	ImageURI                     string             `json:"ImageUri,omitempty"`
+	LastUpdateStatus             LastUpdateStatus   `json:"LastUpdateStatus"`
 	PackageType                  string             `json:"PackageType"`
 	StateReason                  string             `json:"StateReason,omitempty"`
 	Role                         string             `json:"Role"`
@@ -77,14 +77,15 @@ type FunctionConfiguration struct {
 	Runtime                      string             `json:"Runtime,omitempty"`
 	RevisionID                   string             `json:"RevisionId"`
 	Description                  string             `json:"Description"`
-	ImageURI                     string             `json:"ImageUri,omitempty"`
+	FunctionArn                  string             `json:"FunctionArn"`
 	State                        FunctionState      `json:"State"`
-	LastUpdateStatus             LastUpdateStatus   `json:"LastUpdateStatus"`
+	FunctionName                 string             `json:"FunctionName"`
 	S3BucketCode                 string             `json:"-"`
 	S3KeyCode                    string             `json:"-"`
 	Handler                      string             `json:"Handler,omitempty"`
-	Layers                       []*FunctionLayer   `json:"Layers,omitempty"`
+	Version                      string             `json:"Version,omitempty"`
 	ZipData                      []byte             `json:"-"`
+	Layers                       []*FunctionLayer   `json:"Layers,omitempty"`
 	MemorySize                   int                `json:"MemorySize"`
 	Timeout                      int                `json:"Timeout"`
 	CodeSize                     int64              `json:"CodeSize"`
@@ -110,6 +111,8 @@ type CreateFunctionInput struct {
 	Layers     []string `json:"Layers,omitempty"`
 	MemorySize int      `json:"MemorySize"`
 	Timeout    int      `json:"Timeout"`
+	// Publish, when true, creates the function and immediately publishes version 1.
+	Publish bool `json:"Publish,omitempty"`
 }
 
 // ImageConfig holds optional image command/entrypoint overrides.
