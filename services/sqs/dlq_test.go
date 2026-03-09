@@ -222,27 +222,24 @@ func TestListDeadLetterSourceQueues(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup        func(b *sqs.InMemoryBackend) (dlqURL string)
-		name         string
-		wantURLs     []string
-		wantErr      bool
-		wantNotFound bool
+		setup    func(t *testing.T, b *sqs.InMemoryBackend) (dlqURL string)
+		name     string
+		wantURLs []string
+		wantErr  bool
 	}{
 		{
 			name: "two_source_queues_point_to_dlq",
-			setup: func(b *sqs.InMemoryBackend) string {
+			setup: func(t *testing.T, b *sqs.InMemoryBackend) string {
+				t.Helper()
+
 				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "dlq", Endpoint: "localhost"})
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 
 				dlqAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
 					QueueURL:       "http://localhost/000000000000/dlq",
 					AttributeNames: []string{"QueueArn"},
 				})
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 
 				dlqARN := dlqAttrs.Attributes["QueueArn"]
 				policy := makeRedrivePolicy(dlqARN, 3)
@@ -252,23 +249,17 @@ func TestListDeadLetterSourceQueues(t *testing.T) {
 					Endpoint:   "localhost",
 					Attributes: map[string]string{"RedrivePolicy": policy},
 				})
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 
 				_, err = b.CreateQueue(&sqs.CreateQueueInput{
 					QueueName:  "src-b",
 					Endpoint:   "localhost",
 					Attributes: map[string]string{"RedrivePolicy": policy},
 				})
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 
 				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: "unrelated", Endpoint: "localhost"})
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 
 				return "http://localhost/000000000000/dlq"
 			},
@@ -279,16 +270,14 @@ func TestListDeadLetterSourceQueues(t *testing.T) {
 		},
 		{
 			name: "no_source_queues",
-			setup: func(b *sqs.InMemoryBackend) string {
+			setup: func(t *testing.T, b *sqs.InMemoryBackend) string {
+				t.Helper()
+
 				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "lonely-dlq", Endpoint: "localhost"})
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 
 				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: "plain", Endpoint: "localhost"})
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 
 				return "http://localhost/000000000000/lonely-dlq"
 			},
@@ -296,27 +285,24 @@ func TestListDeadLetterSourceQueues(t *testing.T) {
 		},
 		{
 			name: "dlq_not_found",
-			setup: func(_ *sqs.InMemoryBackend) string {
+			setup: func(_ *testing.T, _ *sqs.InMemoryBackend) string {
 				return "http://localhost/000000000000/nonexistent"
 			},
-			wantErr:      true,
-			wantNotFound: true,
+			wantErr: true,
 		},
 		{
-			name: "pagination",
-			setup: func(b *sqs.InMemoryBackend) string {
+			name: "three_source_queues",
+			setup: func(t *testing.T, b *sqs.InMemoryBackend) string {
+				t.Helper()
+
 				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "page-dlq", Endpoint: "localhost"})
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 
 				dlqAttrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
 					QueueURL:       "http://localhost/000000000000/page-dlq",
 					AttributeNames: []string{"QueueArn"},
 				})
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 
 				dlqARN := dlqAttrs.Attributes["QueueArn"]
 				policy := makeRedrivePolicy(dlqARN, 2)
@@ -327,9 +313,7 @@ func TestListDeadLetterSourceQueues(t *testing.T) {
 						Endpoint:   "localhost",
 						Attributes: map[string]string{"RedrivePolicy": policy},
 					})
-					if err != nil {
-						panic(err)
-					}
+					require.NoError(t, err)
 				}
 
 				return "http://localhost/000000000000/page-dlq"
@@ -347,7 +331,7 @@ func TestListDeadLetterSourceQueues(t *testing.T) {
 			t.Parallel()
 
 			b := sqs.NewInMemoryBackend()
-			dlqURL := tt.setup(b)
+			dlqURL := tt.setup(t, b)
 
 			out, err := b.ListDeadLetterSourceQueues(&sqs.ListDeadLetterSourceQueuesInput{
 				QueueURL: dlqURL,
@@ -355,6 +339,7 @@ func TestListDeadLetterSourceQueues(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+				require.ErrorIs(t, err, sqs.ErrQueueNotFound)
 
 				return
 			}

@@ -1277,17 +1277,17 @@ func TestHandlerActions_ListDeadLetterSourceQueues(t *testing.T) {
 
 				policy := `{"deadLetterTargetArn":"` + dlqARN + `","maxReceiveCount":3}`
 
-				_ = doCreateQueue(t, h, "handler-src-a")
-				_ = doCreateQueue(t, h, "handler-src-b")
+				srcAURL := doCreateQueue(t, h, "handler-src-a")
+				srcBURL := doCreateQueue(t, h, "handler-src-b")
 
 				rec2 := doRequest(t, h, "SetQueueAttributes", map[string]any{
-					"QueueUrl":   "http:///000000000000/handler-src-a",
+					"QueueUrl":   srcAURL,
 					"Attributes": map[string]string{"RedrivePolicy": policy},
 				})
 				require.Equal(t, http.StatusOK, rec2.Code)
 
 				rec3 := doRequest(t, h, "SetQueueAttributes", map[string]any{
-					"QueueUrl":   "http:///000000000000/handler-src-b",
+					"QueueUrl":   srcBURL,
 					"Attributes": map[string]string{"RedrivePolicy": policy},
 				})
 				require.Equal(t, http.StatusOK, rec3.Code)
@@ -1331,7 +1331,7 @@ func TestHandlerActions_ListDeadLetterSourceQueues(t *testing.T) {
 			if tt.wantCode == http.StatusOK {
 				var resp struct {
 					NextToken string   `json:"NextToken"`
-					QueueURLs []string `json:"QueueUrls"`
+					QueueURLs []string `json:"queueUrls"`
 				}
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.Len(t, resp.QueueURLs, tt.wantURLCount)

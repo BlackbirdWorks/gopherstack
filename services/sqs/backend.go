@@ -854,6 +854,11 @@ func (b *InMemoryBackend) ListDeadLetterSourceQueues(
 			continue
 		}
 
+		count, err := pol.MaxReceiveCount.Int64()
+		if err != nil || count <= 0 {
+			continue
+		}
+
 		if pol.DeadLetterTargetArn == dlqARN {
 			urls = append(urls, q.URL)
 		}
