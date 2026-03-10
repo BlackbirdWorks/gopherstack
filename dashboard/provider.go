@@ -9,6 +9,7 @@ import (
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -102,6 +103,7 @@ type AWSSDKProvider interface {
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
+	GetAPIGatewayManagementAPIHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -158,6 +160,7 @@ type extractedConfig struct {
 	appSyncOps               *appsyncbackend.Handler
 	cognitoIDPOps            *cognitoidpbackend.Handler
 	iotDataPlaneOps          *iotdataplanebackend.Handler
+	apiGatewayMgmtOps        *apigwmgmtbackend.Handler
 	amplifyOps               *amplifybackend.Handler
 	ecrOps                   *ecrbackend.Handler
 	ecsOps                   *ecsbackend.Handler
@@ -373,6 +376,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetFISHandler(); h != nil {
 		ec.fisOps, _ = h.(*fisbackend.Handler)
 	}
+
+	if h := ap.GetAPIGatewayManagementAPIHandler(); h != nil {
+		ec.apiGatewayMgmtOps, _ = h.(*apigwmgmtbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -380,54 +387,55 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	ec := extractFromProvider(ctx)
 
 	handler := NewHandler(Config{
-		DDBClient:                ec.ddbClient,
-		S3Client:                 ec.s3Client,
-		SSMClient:                ec.ssmClient,
-		DDBOps:                   ec.ddb,
-		S3Ops:                    ec.s3h,
-		SSMOps:                   ec.ssmOps,
-		IAMOps:                   ec.iamOps,
-		STSOps:                   ec.stsOps,
-		SNSOps:                   ec.snsOps,
-		SQSOps:                   ec.sqsOps,
-		KMSOps:                   ec.kmsOps,
-		SecretsManagerOps:        ec.secretsManagerOps,
-		LambdaOps:                ec.lambdaOps,
-		EventBridgeOps:           ec.eventBridgeOps,
-		APIGatewayOps:            ec.apiGatewayOps,
-		CloudWatchLogsOps:        ec.cloudWatchLogsOps,
-		StepFunctionsOps:         ec.stepFunctionsOps,
-		CloudWatchOps:            ec.cloudWatchOps,
-		CloudFormationOps:        ec.cloudFormationOps,
-		KinesisOps:               ec.kinesisOps,
-		ElastiCacheOps:           ec.elasticacheOps,
-		Route53Ops:               ec.route53Ops,
-		SESOps:                   ec.sesOps,
-		SESv2Ops:                 ec.sesv2Ops,
-		EC2Ops:                   ec.ec2Ops,
-		OpenSearchOps:            ec.opensearchOps,
-		ACMOps:                   ec.acmOps,
-		ACMPCAOps:                ec.acmpcaOps,
-		RedshiftOps:              ec.redshiftOps,
-		RDSOps:                   ec.rdsOps,
-		AWSConfigOps:             ec.awsconfigOps,
-		S3ControlOps:             ec.s3controlOps,
-		ResourceGroupsOps:        ec.resourcegroupsOps,
-		ResourceGroupsTaggingOps: ec.resourcegroupstaggingOps,
-		SWFOps:                   ec.swfOps,
-		FirehoseOps:              ec.firehoseOps,
-		CognitoIdentityOps:       ec.cognitoIdentityOps,
-		AppSyncOps:               ec.appSyncOps,
-		CognitoIDPOps:            ec.cognitoIDPOps,
-		IoTDataPlaneOps:          ec.iotDataPlaneOps,
-		AmplifyOps:               ec.amplifyOps,
-		ECROps:                   ec.ecrOps,
-		ECSOps:                   ec.ecsOps,
-		IoTOps:                   ec.iotOps,
-		FISOps:                   ec.fisOps,
-		GlobalConfig:             ec.gCfg,
-		FaultStore:               ec.faultStore,
-		Logger:                   ctx.Logger,
+		DDBClient:                  ec.ddbClient,
+		S3Client:                   ec.s3Client,
+		SSMClient:                  ec.ssmClient,
+		DDBOps:                     ec.ddb,
+		S3Ops:                      ec.s3h,
+		SSMOps:                     ec.ssmOps,
+		IAMOps:                     ec.iamOps,
+		STSOps:                     ec.stsOps,
+		SNSOps:                     ec.snsOps,
+		SQSOps:                     ec.sqsOps,
+		KMSOps:                     ec.kmsOps,
+		SecretsManagerOps:          ec.secretsManagerOps,
+		LambdaOps:                  ec.lambdaOps,
+		EventBridgeOps:             ec.eventBridgeOps,
+		APIGatewayOps:              ec.apiGatewayOps,
+		CloudWatchLogsOps:          ec.cloudWatchLogsOps,
+		StepFunctionsOps:           ec.stepFunctionsOps,
+		CloudWatchOps:              ec.cloudWatchOps,
+		CloudFormationOps:          ec.cloudFormationOps,
+		KinesisOps:                 ec.kinesisOps,
+		ElastiCacheOps:             ec.elasticacheOps,
+		Route53Ops:                 ec.route53Ops,
+		SESOps:                     ec.sesOps,
+		SESv2Ops:                   ec.sesv2Ops,
+		EC2Ops:                     ec.ec2Ops,
+		OpenSearchOps:              ec.opensearchOps,
+		ACMOps:                     ec.acmOps,
+		ACMPCAOps:                  ec.acmpcaOps,
+		RedshiftOps:                ec.redshiftOps,
+		RDSOps:                     ec.rdsOps,
+		AWSConfigOps:               ec.awsconfigOps,
+		S3ControlOps:               ec.s3controlOps,
+		ResourceGroupsOps:          ec.resourcegroupsOps,
+		ResourceGroupsTaggingOps:   ec.resourcegroupstaggingOps,
+		SWFOps:                     ec.swfOps,
+		FirehoseOps:                ec.firehoseOps,
+		CognitoIdentityOps:         ec.cognitoIdentityOps,
+		AppSyncOps:                 ec.appSyncOps,
+		CognitoIDPOps:              ec.cognitoIDPOps,
+		IoTDataPlaneOps:            ec.iotDataPlaneOps,
+		APIGatewayManagementAPIOps: ec.apiGatewayMgmtOps,
+		AmplifyOps:                 ec.amplifyOps,
+		ECROps:                     ec.ecrOps,
+		ECSOps:                     ec.ecsOps,
+		IoTOps:                     ec.iotOps,
+		FISOps:                     ec.fisOps,
+		GlobalConfig:               ec.gCfg,
+		FaultStore:                 ec.faultStore,
+		Logger:                     ctx.Logger,
 	})
 
 	return handler, nil

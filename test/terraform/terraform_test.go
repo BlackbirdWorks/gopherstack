@@ -2782,3 +2782,103 @@ func TestTerraform_Support(t *testing.T) {
 		})
 	}
 }
+
+// TestTerraform_APIGatewayManagementAPI provisions an API Gateway REST API via Terraform
+// and verifies that the API Gateway Management API endpoints work correctly.
+func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "connections",
+			fixture: "apigatewaymanagementapi/connections",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{"APIName": "tf-apigw-mgmt-" + id}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				connectionID := "tf-conn-" + uuid.NewString()[:8]
+
+				// Create a simulated connection via the dashboard endpoint.
+				createURL := endpoint + "/dashboard/apigatewaymanagementapi/connection/create"
+				createReq, err := http.NewRequestWithContext(
+					ctx,
+					http.MethodPost,
+					createURL,
+					strings.NewReader("connectionId="+connectionID+"&sourceIp=10.0.0.1&userAgent=test-agent"),
+				)
+				require.NoError(t, err, "creating dashboard create request should succeed")
+				createReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+				createClient := &http.Client{
+					CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+						return http.ErrUseLastResponse
+					},
+				}
+				createResp, err := createClient.Do(createReq)
+				require.NoError(t, err, "dashboard create connection request should succeed")
+				defer createResp.Body.Close()
+				assert.Equal(t, http.StatusFound, createResp.StatusCode, "create connection should redirect")
+
+				// GetConnection via /@connections/{connectionId}.
+				getURL := endpoint + "/@connections/" + connectionID
+				getReq, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
+				require.NoError(t, err, "creating get request should succeed")
+				getReq.Header.Set("Authorization", "Bearer test")
+
+				getResp, err := http.DefaultClient.Do(getReq)
+				require.NoError(t, err, "GetConnection should succeed")
+				defer getResp.Body.Close()
+				assert.Equal(t, http.StatusOK, getResp.StatusCode, "GetConnection should return 200")
+
+				// PostToConnection via /@connections/{connectionId}.
+				postURL := endpoint + "/@connections/" + connectionID
+				postReq, err := http.NewRequestWithContext(
+					ctx,
+					http.MethodPost,
+					postURL,
+					bytes.NewReader([]byte(`{"message":"hello from test"}`)),
+				)
+				require.NoError(t, err, "creating post request should succeed")
+				postReq.Header.Set("Content-Type", "application/json")
+				postReq.Header.Set("Authorization", "Bearer test")
+
+				postResp, err := http.DefaultClient.Do(postReq)
+				require.NoError(t, err, "PostToConnection should succeed")
+				defer postResp.Body.Close()
+				assert.Equal(t, http.StatusOK, postResp.StatusCode, "PostToConnection should return 200")
+
+				// DeleteConnection via /@connections/{connectionId}.
+				delURL := endpoint + "/@connections/" + connectionID
+				delReq, err := http.NewRequestWithContext(ctx, http.MethodDelete, delURL, nil)
+				require.NoError(t, err, "creating delete request should succeed")
+				delReq.Header.Set("Authorization", "Bearer test")
+
+				delResp, err := http.DefaultClient.Do(delReq)
+				require.NoError(t, err, "DeleteConnection should succeed")
+				defer delResp.Body.Close()
+				assert.Equal(t, http.StatusNoContent, delResp.StatusCode, "DeleteConnection should return 204")
+
+				// GetConnection after delete should return 410.
+				getReq2, err := http.NewRequestWithContext(ctx, http.MethodGet, getURL, nil)
+				require.NoError(t, err, "creating second get request should succeed")
+				getReq2.Header.Set("Authorization", "Bearer test")
+				getResp2, err := http.DefaultClient.Do(getReq2)
+				require.NoError(t, err, "GetConnection after delete should not error")
+				defer getResp2.Body.Close()
+				assert.Equal(t, http.StatusGone, getResp2.StatusCode, "GetConnection after delete should return 410")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
