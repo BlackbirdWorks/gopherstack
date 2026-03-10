@@ -35,6 +35,7 @@ import (
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
+	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
@@ -98,6 +99,7 @@ type Stack struct {
 	EC2Handler                   *ec2backend.Handler
 	ECRHandler                   *ecrbackend.Handler
 	ECSHandler                   *ecsbackend.Handler
+	FISHandler                   *fisbackend.Handler
 	OpenSearchHandler            *opensearchbackend.Handler
 	ACMHandler                   *acmbackend.Handler
 	RedshiftHandler              *redshiftbackend.Handler
@@ -281,6 +283,7 @@ type handlers struct {
 	ec2             *ec2backend.Handler
 	ecr             *ecrbackend.Handler
 	ecs             *ecsbackend.Handler
+	fis             *fisbackend.Handler
 	opensearch      *opensearchbackend.Handler
 	acm             *acmbackend.Handler
 	redshift        *redshiftbackend.Handler
@@ -351,6 +354,9 @@ func newHandlers() handlers {
 		),
 		ecs: ecsbackend.NewHandler(
 			ecsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ecsbackend.NewNoopRunner()),
+		),
+		fis: fisbackend.NewHandler(
+			fisbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 		),
 		opensearch: opensearchbackend.NewHandler(
 			opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -463,6 +469,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		EC2Ops:             h.ec2,
 		ECROps:             h.ecr,
 		ECSOps:             h.ecs,
+		FISOps:             h.fis,
 		OpenSearchOps:      h.opensearch,
 		ACMOps:             h.acm,
 		RedshiftOps:        h.redshift,
@@ -547,6 +554,7 @@ func New(t *testing.T) *Stack {
 		EC2Handler:                   h.ec2,
 		ECRHandler:                   h.ecr,
 		ECSHandler:                   h.ecs,
+		FISHandler:                   h.fis,
 		OpenSearchHandler:            h.opensearch,
 		ACMHandler:                   h.acm,
 		RedshiftHandler:              h.redshift,

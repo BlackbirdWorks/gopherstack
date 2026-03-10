@@ -16,7 +16,12 @@ func (h *DashboardHandler) iotDataPlaneSnippet() *SnippetData {
 	return &SnippetData{
 		ID:    "iotdataplane-operations",
 		Title: "Using IoT Data Plane",
-		Cli:   `aws iot-data publish --topic "my/topic" --payload '{"message":"hello"}' --endpoint-url http://localhost:8000`,
+		Cli: `# Write payload to a temp file, then publish via fileb:// reference
+echo -n '{"message":"hello"}' > /tmp/iot-payload.json
+aws iot-data publish \
+  --topic "my/topic" \
+  --payload fileb:///tmp/iot-payload.json \
+  --endpoint-url http://localhost:8000`,
 		Go: `// Initialize AWS SDK v2 for IoT Data Plane
 cfg, err := config.LoadDefaultConfig(context.TODO(),
     config.WithRegion("us-east-1"),

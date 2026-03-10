@@ -2466,7 +2466,7 @@ func TestTerraform_IoTDataPlane(t *testing.T) {
 
 				return map[string]any{"ThingName": "tf-iot-thing-" + id}
 			},
-			verify: func(t *testing.T, _ context.Context, vars map[string]any) {
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 
 				thingName := vars["ThingName"].(string)
@@ -2476,7 +2476,7 @@ func TestTerraform_IoTDataPlane(t *testing.T) {
 				payload := []byte(`{"state":{"reported":{"connected":true}}}`)
 
 				req, err := http.NewRequestWithContext(
-					context.Background(),
+					ctx,
 					http.MethodPost,
 					url,
 					bytes.NewReader(payload),
