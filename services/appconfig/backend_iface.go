@@ -82,4 +82,11 @@ type StorageBackend interface {
 	ListDeployments(applicationID, environmentID string) ([]Deployment, error)
 	// StopDeployment stops an in-progress deployment.
 	StopDeployment(applicationID, environmentID string, deploymentNumber int32) error
+
+	// ListTagsForResource returns the tags for a resource by ARN.
+	ListTagsForResource(resourceArn string) (map[string]string, error)
+	// TagResource adds or updates tags on a resource.
+	TagResource(resourceArn string, tags map[string]string) error
+	// UntagResource removes tags from a resource.
+	UntagResource(resourceArn string, tagKeys []string) error
 }

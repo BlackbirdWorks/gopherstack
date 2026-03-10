@@ -69,6 +69,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetDeployment",
 		"ListDeployments",
 		"StopDeployment",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -86,7 +89,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/applications") || strings.HasPrefix(path, "/deploymentstrategies")
+		return strings.HasPrefix(path, "/applications") ||
+			strings.HasPrefix(path, "/deploymentstrategies") ||
+			strings.HasPrefix(path, "/tags/arn:aws:appconfig:")
 	}
 }
 
@@ -116,6 +121,7 @@ type appConfigRoute struct {
 	environmentID string
 	profileID     string
 	strategyID    string
+	resourceArn   string
 	operation     string
 	versionNumber int32
 	deploymentNum int32
@@ -137,9 +143,29 @@ func parseAppConfigPath(method, path string) appConfigRoute {
 		return parseDeploymentStrategyRoute(method, parts)
 	case "applications":
 		return parseApplicationRoute(method, parts)
+	case "tags":
+		// ARN spans all remaining path segments joined by "/"
+		return parseTagRoute(method, strings.Join(parts[1:], "/"))
 	}
 
 	return appConfigRoute{operation: "Unknown"}
+}
+
+func parseTagRoute(method, resourceArn string) appConfigRoute {
+	base := appConfigRoute{resourceArn: resourceArn}
+
+	switch method {
+	case http.MethodGet:
+		base.operation = "ListTagsForResource"
+	case http.MethodPost:
+		base.operation = "TagResource"
+	case http.MethodDelete:
+		base.operation = "UntagResource"
+	default:
+		base.operation = "Unknown"
+	}
+
+	return base
 }
 
 func parseDeploymentStrategyRoute(method string, parts []string) appConfigRoute {
@@ -385,7 +411,7 @@ func parseHostedVersionRoute(method, appID, profileID string, parts []string) ap
 
 // Handler returns the Echo handler function for AppConfig operations.
 //
-//nolint:cyclop // dispatch table requires multiple branches
+//nolint:cyclop,gocyclo // dispatch table requires multiple branches
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		log := logger.Load(c.Request().Context())
@@ -453,6 +479,12 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return h.handleListDeployments(c, route.applicationID, route.environmentID)
 		case "StopDeployment":
 			return h.handleStopDeployment(c, route.applicationID, route.environmentID, route.deploymentNum)
+		case "ListTagsForResource":
+			return h.handleListTagsForResource(c, route.resourceArn)
+		case "TagResource":
+			return h.handleTagResource(c, route.resourceArn)
+		case "UntagResource":
+			return h.handleUntagResource(c, route.resourceArn)
 		default:
 			log.Warn("appconfig: unmatched route", "method", c.Request().Method, "path", c.Request().URL.Path)
 
@@ -952,6 +984,40 @@ func (h *Handler) handleStopDeployment(
 			return notFoundResponse(c, err)
 		}
 
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string) error {
+	tags, err := h.Backend.ListTagsForResource(resourceArn)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"Tags": tags})
+}
+
+func (h *Handler) handleTagResource(c *echo.Context, resourceArn string) error {
+	var req struct {
+		Tags map[string]string `json:"Tags"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
+	}
+
+	if err := h.Backend.TagResource(resourceArn, req.Tags); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string) error {
+	keysToRemove := c.Request().URL.Query()["tagKeys"]
+
+	if err := h.Backend.UntagResource(resourceArn, keysToRemove); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
