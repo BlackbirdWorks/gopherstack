@@ -122,33 +122,37 @@ type NetworkInterface struct {
 
 // AMIStub is a static image entry.
 type AMIStub struct {
-	ImageID      string
-	Name         string
-	Description  string
-	Architecture string
-	Platform     string
+	ImageID        string
+	Name           string
+	Description    string
+	Architecture   string
+	Platform       string
+	RootDeviceName string
 }
 
 //nolint:gochecknoglobals // package-level stub data for describe operations
 var stubAMIs = []AMIStub{
 	{
-		ImageID:      "ami-0c55b159cbfafe1f0",
-		Name:         "amzn2-ami-hvm",
-		Description:  "Amazon Linux 2 (x86_64)",
-		Architecture: "x86_64",
+		ImageID:        "ami-0c55b159cbfafe1f0",
+		Name:           "amzn2-ami-hvm",
+		Description:    "Amazon Linux 2 (x86_64)",
+		Architecture:   "x86_64",
+		RootDeviceName: "/dev/xvda",
 	},
 	{
-		ImageID:      "ami-0eb260c4d5475b901",
-		Name:         "ubuntu-22.04-lts",
-		Description:  "Ubuntu 22.04 LTS (x86_64)",
-		Architecture: "x86_64",
+		ImageID:        "ami-0eb260c4d5475b901",
+		Name:           "ubuntu-22.04-lts",
+		Description:    "Ubuntu 22.04 LTS (x86_64)",
+		Architecture:   "x86_64",
+		RootDeviceName: "/dev/sda1",
 	},
 	{
-		ImageID:      "ami-09d3b3274b6c5d4aa",
-		Name:         "windows-server-2022",
-		Description:  "Windows Server 2022",
-		Architecture: "x86_64",
-		Platform:     "windows",
+		ImageID:        "ami-09d3b3274b6c5d4aa",
+		Name:           "windows-server-2022",
+		Description:    "Windows Server 2022",
+		Architecture:   "x86_64",
+		Platform:       "windows",
+		RootDeviceName: "/dev/sda1",
 	},
 }
 

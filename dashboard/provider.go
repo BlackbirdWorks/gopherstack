@@ -16,6 +16,7 @@ import (
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
+	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
@@ -107,6 +108,7 @@ type AWSSDKProvider interface {
 	GetCognitoIDPHandler() service.Registerable
 	GetIoTDataPlaneHandler() service.Registerable
 	GetAmplifyHandler() service.Registerable
+	GetAutoscalingHandler() service.Registerable
 	GetAPIGatewayV2Handler() service.Registerable
 	GetAthenaHandler() service.Registerable
 	GetBackupHandler() service.Registerable
@@ -181,6 +183,7 @@ type extractedConfig struct {
 	appConfigDataOps          *appconfigdatabackend.Handler
 	amplifyOps                *amplifybackend.Handler
 	athenaOps                 *athenabackend.Handler
+	autoscalingOps            *autoscalingbackend.Handler
 	backupOps                 *backupbackend.Handler
 	appConfigOps              *appconfigbackend.Handler
 	applicationAutoscalingOps *applicationautoscalingbackend.Handler
@@ -379,10 +382,6 @@ func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
 	}
 
-	if h := ap.GetBatchHandler(); h != nil {
-		ec.batchOps, _ = h.(*batchbackend.Handler)
-	}
-
 	extractECRECSAndIoTHandlers(ap, ec)
 }
 
@@ -436,6 +435,14 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetBackupHandler(); h != nil {
 		ec.backupOps, _ = h.(*backupbackend.Handler)
+	}
+
+	if h := ap.GetAutoscalingHandler(); h != nil {
+		ec.autoscalingOps, _ = h.(*autoscalingbackend.Handler)
+	}
+
+	if h := ap.GetBatchHandler(); h != nil {
+		ec.batchOps, _ = h.(*batchbackend.Handler)
 	}
 
 	if h := ap.GetCeHandler(); h != nil {
@@ -493,6 +500,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		AppConfigDataOps:           ec.appConfigDataOps,
 		AmplifyOps:                 ec.amplifyOps,
 		AthenaOps:                  ec.athenaOps,
+		AutoscalingOps:             ec.autoscalingOps,
 		BackupOps:                  ec.backupOps,
 		AppConfigOps:               ec.appConfigOps,
 		ApplicationAutoscalingOps:  ec.applicationAutoscalingOps,
