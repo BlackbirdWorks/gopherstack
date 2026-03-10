@@ -36,6 +36,7 @@ import (
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
+	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
@@ -177,14 +178,16 @@ type DashboardHandler struct {
 	// BedrockRuntimeOps provides access to the Bedrock Runtime backend.
 	BedrockRuntimeOps *bedrockruntimebackend.Handler
 	// CeOps provides access to the Cost Explorer backend.
-	CeOps        *cebackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	CeOps *cebackend.Handler
+	// CloudFrontOps provides access to the CloudFront backend.
+	CloudFrontOps *cloudfrontbackend.Handler
+	SubRouter     *echo.Echo
+	ddbProvider   *ddbbackend.DashboardProvider
+	s3Provider    *s3backend.DashboardProvider
+	FaultStore    *chaos.FaultStore
+	Logger        *slog.Logger
+	layout        *template.Template
+	GlobalConfig  config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -299,6 +302,8 @@ type Config struct {
 	BedrockRuntimeOps *bedrockruntimebackend.Handler
 	// CeOps provides access to the Cost Explorer backend.
 	CeOps *cebackend.Handler
+	// CloudFrontOps provides access to the CloudFront backend.
+	CloudFrontOps *cloudfrontbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -386,6 +391,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/batch/*.html",
 		"templates/bedrockruntime/*.html",
 		"templates/ce/*.html",
+		"templates/cloudfront/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -462,6 +468,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		BatchOps:                   cfg.BatchOps,
 		BedrockRuntimeOps:          cfg.BedrockRuntimeOps,
 		CeOps:                      cfg.CeOps,
+		CloudFrontOps:              cfg.CloudFrontOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -767,6 +774,12 @@ func (h *DashboardHandler) setupBackupRoutes() {
 	h.SubRouter.POST("/dashboard/backup/vault/delete", h.backupDeleteVault)
 }
 
+func (h *DashboardHandler) setupCloudFrontRoutes() {
+	h.SubRouter.GET("/dashboard/cloudfront", h.cloudfrontIndex)
+	h.SubRouter.POST("/dashboard/cloudfront/distribution/create", h.cloudfrontCreateDistribution)
+	h.SubRouter.POST("/dashboard/cloudfront/distribution/delete", h.cloudfrontDeleteDistribution)
+}
+
 func (h *DashboardHandler) setupAppConfigRoutes() {
 	h.SubRouter.GET("/dashboard/appconfig", h.appConfigIndex)
 	h.SubRouter.POST("/dashboard/appconfig/application/create", h.appConfigCreateApplication)
@@ -883,6 +896,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupAthenaRoutes()
 	h.setupBackupRoutes()
 	h.setupBedrockRuntimeRoutes()
+	h.setupCloudFrontRoutes()
 }
 
 // setupRecentServiceRoutes sets up dashboard routes for recently-added services.
@@ -996,6 +1010,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/autoscaling", "Autoscaling"},
 	{"/appconfig", "AppConfig"},
 	{"/backup", "Backup"},
+	{"/cloudfront", "CloudFront"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

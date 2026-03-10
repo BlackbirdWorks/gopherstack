@@ -41,6 +41,7 @@ import (
 	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	bedrockruntimetypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cloudfrontsvc "github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -3454,6 +3455,50 @@ func TestTerraform_Ce(t *testing.T) {
 					}
 				}
 				assert.True(t, found, "cost category %q should be listed", vars["CategoryName"].(string))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CloudFront provisions a CloudFront OAI via Terraform and verifies it exists.
+func TestTerraform_CloudFront(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "cloudfront/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{"Suffix": id}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCloudFrontClient(t)
+				suffix := vars["Suffix"].(string)
+				out, err := client.ListCloudFrontOriginAccessIdentities(
+					ctx,
+					&cloudfrontsvc.ListCloudFrontOriginAccessIdentitiesInput{},
+				)
+				require.NoError(t, err, "ListCloudFrontOriginAccessIdentities should succeed after terraform apply")
+				found := false
+				for _, oai := range out.CloudFrontOriginAccessIdentityList.Items {
+					if aws.ToString(oai.Comment) == "OAI-"+suffix {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "OAI should be listed after apply")
 			},
 		},
 	}
