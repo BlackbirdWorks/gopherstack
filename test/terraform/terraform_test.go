@@ -47,6 +47,7 @@ import (
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
+	cesvc "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -162,6 +163,7 @@ provider "aws" {
     autoscaling     = %[1]q
     backup          = %[1]q
     batch           = %[1]q
+    ce              = %[1]q
     cloudformation  = %[1]q
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
@@ -3408,6 +3410,50 @@ func TestTerraform_BedrockRuntime(t *testing.T) {
 				})
 				require.NoError(t, err, "Converse should succeed")
 				require.NotNil(t, converseOut.Output, "Converse output should not be nil")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Ce provisions a Cost Explorer cost category via Terraform,
+// then verifies it is listed via the Ce SDK.
+func TestTerraform_Ce(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ce/cost_category",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"CategoryName": "tf-ce-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCeClient(t)
+				out, err := client.ListCostCategoryDefinitions(ctx, &cesvc.ListCostCategoryDefinitionsInput{})
+				require.NoError(t, err, "ListCostCategoryDefinitions should succeed after terraform apply")
+
+				found := false
+				for _, ref := range out.CostCategoryReferences {
+					if aws.ToString(ref.Name) == vars["CategoryName"].(string) {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "cost category %q should be listed", vars["CategoryName"].(string))
 			},
 		},
 	}

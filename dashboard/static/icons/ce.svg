@@ -1,0 +1,12 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="64" height="64" rx="8" fill="#1A9C3E"/>
+<g fill="white">
+  <!-- Dollar sign / cost symbol -->
+  <rect x="30" y="10" width="4" height="6" rx="1"/>
+  <rect x="30" y="48" width="4" height="6" rx="1"/>
+  <!-- Circle for currency symbol -->
+  <path d="M32 18 C22 18 16 24 16 32 C16 40 22 46 32 46 C42 46 48 40 48 32 C48 24 42 18 32 18Z" stroke="white" stroke-width="3" fill="none"/>
+  <!-- S inside dollar sign -->
+  <path d="M27 28 C27 25 37 25 37 28 C37 31 27 31 27 34 C27 37 37 37 37 34" stroke="white" stroke-width="3" fill="none" stroke-linecap="round"/>
+</g>
+</svg>
