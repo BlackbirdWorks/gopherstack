@@ -286,7 +286,7 @@ func errResp(code, msg string) map[string]string {
 
 // epochSeconds returns the Unix epoch timestamp as a float64 for JSON serialization.
 // The AWS CodeArtifact SDK deserializes timestamps as JSON numbers (epoch seconds).
-func epochSeconds(ts interface{ Unix() int64 }) float64 {
+func epochSeconds(ts time.Time) float64 {
 	return float64(ts.Unix())
 }
 

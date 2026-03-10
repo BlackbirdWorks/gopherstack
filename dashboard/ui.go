@@ -917,7 +917,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupBackupRoutes()
 	h.setupBedrockRuntimeRoutes()
 	h.setupCloudFrontRoutes()
-	h.setupNewestServiceRoutes()
+	h.setupCodeArtifactRoutes()
 }
 
 // setupRecentServiceRoutes sets up dashboard routes for recently-added services.
@@ -930,11 +930,6 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupBatchRoutes()
 	h.setupBedrockRoutes()
 	h.setupCeRoutes()
-}
-
-// setupNewestServiceRoutes sets up dashboard routes for the most recently-added services.
-func (h *DashboardHandler) setupNewestServiceRoutes() {
-	h.setupCodeArtifactRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.

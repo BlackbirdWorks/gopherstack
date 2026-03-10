@@ -707,7 +707,7 @@ func buildStack(
 	h handlers,
 	clients sdkClients,
 	faultStore *chaos.FaultStore,
-	dashHndlr *dashboard.DashboardHandler,
+	dashboardHandler *dashboard.DashboardHandler,
 ) *Stack {
 	return &Stack{
 		Echo:                           e,
@@ -775,7 +775,7 @@ func buildStack(
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
-		Dashboard:                      dashHndlr,
+		Dashboard:                      dashboardHandler,
 	}
 }
 

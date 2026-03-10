@@ -94,7 +94,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		return strings.HasPrefix(path, v1Prefix) || strings.HasPrefix(path, tagsPrefix)
+		return strings.HasPrefix(path, v1Prefix)
 	}
 }
 
