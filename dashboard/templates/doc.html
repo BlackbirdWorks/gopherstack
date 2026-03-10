@@ -236,6 +236,20 @@
                 </li>{{end}}
             </ul>
         </div>
+
+        <!-- CloudFront -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-sky-600 dark:text-sky-400 flex items-center gap-2 mb-4">
+                <span>🌩️</span> CloudFront
+            </h3>
+            <ul class="space-y-1">
+                {{range .CloudFrontOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
     </div>
 
     <!-- Category: Messaging & Integration -->
@@ -689,6 +703,118 @@
             </h3>
             <ul class="space-y-1">
                 {{range .AppConfigDataOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Athena -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-cyan-600 dark:text-cyan-400 flex items-center gap-2 mb-4">
+                <span>🔍</span> Athena
+            </h3>
+            <ul class="space-y-1">
+                {{range .AthenaOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Auto Scaling -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-orange-600 dark:text-orange-400 flex items-center gap-2 mb-4">
+                <span>📈</span> Auto Scaling
+            </h3>
+            <ul class="space-y-1">
+                {{range .AutoscalingOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Application Auto Scaling -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-orange-500 dark:text-orange-300 flex items-center gap-2 mb-4">
+                <span>⚖️</span> Application Auto Scaling
+            </h3>
+            <ul class="space-y-1">
+                {{range .ApplicationAutoscalingOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- AWS Backup -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-green-700 dark:text-green-400 flex items-center gap-2 mb-4">
+                <span>💾</span> AWS Backup
+            </h3>
+            <ul class="space-y-1">
+                {{range .BackupOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Batch -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-blue-700 dark:text-blue-400 flex items-center gap-2 mb-4">
+                <span>⚙️</span> Batch
+            </h3>
+            <ul class="space-y-1">
+                {{range .BatchOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Bedrock -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2 mb-4">
+                <span>🪨</span> Bedrock
+            </h3>
+            <ul class="space-y-1">
+                {{range .BedrockOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Bedrock Runtime -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-indigo-500 dark:text-indigo-300 flex items-center gap-2 mb-4">
+                <span>🤖</span> Bedrock Runtime
+            </h3>
+            <ul class="space-y-1">
+                {{range .BedrockRuntimeOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Cognito IDP -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2 mb-4">
+                <span>👤</span> Cognito IDP
+            </h3>
+            <ul class="space-y-1">
+                {{range .CognitoIDPOps}}<li
                     class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
                     {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
                 </li>{{end}}
