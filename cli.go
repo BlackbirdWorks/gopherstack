@@ -487,6 +487,9 @@ func (c *CLI) GetIoTDataPlaneHandler() service.Registerable { return c.iotDataPl
 func (c *CLI) GetFISHandler() service.Registerable { return c.fisHandler }
 
 // GetCognitoIDPHandler returns the Cognito IDP handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCognitoIDPHandler() service.Registerable { return c.cognitoIDPHandler }
 
 // GetCognitoIdentityHandler returns the Cognito Identity handler (dashboard.AWSSDKProvider).
 //
