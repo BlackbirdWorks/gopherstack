@@ -2511,9 +2511,19 @@ func TestTerraform_STS(t *testing.T) {
 				out, err := client.GetCallerIdentity(ctx, &stssvc.GetCallerIdentityInput{})
 				require.NoError(t, err, "GetCallerIdentity should succeed after terraform apply")
 				require.NotNil(t, out)
-				assert.NotEmpty(t, aws.ToString(out.Account))
-				assert.NotEmpty(t, aws.ToString(out.Arn))
-				assert.NotEmpty(t, aws.ToString(out.UserId))
+				assert.Equal(
+					t,
+					"000000000000",
+					aws.ToString(out.Account),
+					"mock STS should return the fixed test account ID",
+				)
+				assert.Contains(
+					t,
+					aws.ToString(out.Arn),
+					":root",
+					"mock STS ARN should be a root identity for static credentials",
+				)
+				assert.NotEmpty(t, aws.ToString(out.UserId), "mock STS user ID should not be empty")
 			},
 		},
 	}
