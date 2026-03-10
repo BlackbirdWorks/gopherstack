@@ -74,7 +74,9 @@ func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion
 // RouteMatcher returns a function matching API Gateway v2 requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().URL.Path, "/v2/")
+		path := c.Request().URL.Path
+
+		return path == apisPathPrefix || strings.HasPrefix(path, apisPathPrefix+"/")
 	}
 }
 

@@ -48,6 +48,7 @@ type docPageData struct {
 	IoTDataPlaneOps            []string
 	ResourceGroupsTaggingOps   []string
 	APIGatewayManagementAPIOps []string
+	APIGatewayV2Ops            []string
 	AmplifyOps                 []string
 }
 
@@ -108,6 +109,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		IoTDataPlaneOps:            h.getSupportedOps(h.IoTDataPlaneOps),
 		ResourceGroupsTaggingOps:   h.getSupportedOps(h.ResourceGroupsTaggingOps),
 		APIGatewayManagementAPIOps: h.getSupportedOps(h.APIGatewayManagementAPIOps),
+		APIGatewayV2Ops:            h.getSupportedOps(h.APIGatewayV2Ops),
 		AmplifyOps:                 h.getSupportedOps(h.AmplifyOps),
 	}
 
