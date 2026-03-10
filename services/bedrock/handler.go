@@ -321,11 +321,11 @@ type guardrailDetailOutput struct {
 	GuardrailID             string  `json:"guardrailId"`
 	GuardrailArn            string  `json:"guardrailArn"`
 	Name                    string  `json:"name"`
-	Description             string  `json:"description,omitempty"`
+	Description             string  `json:"description"`
 	Status                  string  `json:"status"`
 	Version                 string  `json:"version"`
-	BlockedInputMessaging   string  `json:"blockedInputMessaging,omitempty"`
-	BlockedOutputsMessaging string  `json:"blockedOutputsMessaging,omitempty"`
+	BlockedInputMessaging   string  `json:"blockedInputMessaging"`
+	BlockedOutputsMessaging string  `json:"blockedOutputsMessaging"`
 }
 
 func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
