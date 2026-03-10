@@ -37,6 +37,7 @@ import (
 	athenasdkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
 	backupsvc "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
+	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
@@ -3306,4 +3307,54 @@ func TestTerraform_Batch(t *testing.T) {
 			runTFTest(t, tc)
 		})
 	}
+}
+
+// TestTerraform_BedrockRuntime verifies that the Bedrock Runtime service is reachable
+// and model invocations (InvokeModel, Converse) return the expected mock responses.
+func TestTerraform_BedrockRuntime(t *testing.T) {
+t.Parallel()
+
+tests := []tfTestCase{
+{
+name:    "success",
+fixture: "bedrockruntime/success",
+setup: func(t *testing.T, _ string) map[string]any {
+t.Helper()
+
+return map[string]any{}
+},
+verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+t.Helper()
+client := createBedrockRuntimeClient(t)
+
+invokeOut, err := client.InvokeModel(ctx, &bedrockruntimesvc.InvokeModelInput{
+ModelId: aws.String("anthropic.claude-v2"),
+Body:    []byte(`{"prompt":"Human: Hello\n\nAssistant:"}`),
+})
+require.NoError(t, err, "InvokeModel should succeed")
+assert.NotEmpty(t, invokeOut.Body, "InvokeModel response body should not be empty")
+
+converseOut, err := client.Converse(ctx, &bedrockruntimesvc.ConverseInput{
+ModelId: aws.String("anthropic.claude-3-sonnet-20240229-v1:0"),
+Messages: []bedrockruntimesvc.Message{
+{
+Role: "user",
+Content: []bedrockruntimesvc.ContentBlock{
+&bedrockruntimesvc.ContentBlockMemberText{Value: "Hello!"},
+},
+},
+},
+})
+require.NoError(t, err, "Converse should succeed")
+require.NotNil(t, converseOut.Output, "Converse output should not be nil")
+},
+},
+}
+
+for _, tc := range tests {
+t.Run(tc.name, func(t *testing.T) {
+t.Parallel()
+runTFTest(t, tc)
+})
+}
 }

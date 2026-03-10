@@ -60,6 +60,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -170,6 +171,7 @@ type CLI struct {
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
+	bedrockruntimeHandler         service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -558,6 +560,11 @@ func (c *CLI) GetApplicationAutoscalingHandler() service.Registerable {
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetBatchHandler() service.Registerable { return c.batchHandler }
+
+// GetBedrockRuntimeHandler returns the Bedrock Runtime handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetBedrockRuntimeHandler() service.Registerable { return c.bedrockruntimeHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -960,6 +967,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.appConfigHandler = byName["AppConfig"]
 	cli.applicationautoscalingHandler = byName["ApplicationAutoscaling"]
 	cli.batchHandler = byName["Batch"]
+	cli.bedrockruntimeHandler = byName["BedrockRuntime"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
@@ -1136,6 +1144,7 @@ func getServiceProviders() []service.Provider {
 		&backupbackend.Provider{},
 		&applicationautoscalingbackend.Provider{},
 		&batchbackend.Provider{},
+		&bedrockruntimebackend.Provider{},
 	}
 }
 
