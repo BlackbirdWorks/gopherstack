@@ -28,6 +28,7 @@ import (
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -165,7 +166,9 @@ type DashboardHandler struct {
 	AppConfigOps               *appconfigbackend.Handler
 	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
-	SubRouter                 *echo.Echo
+	// BatchOps provides access to the Batch backend.
+	BatchOps  *batchbackend.Handler
+	SubRouter *echo.Echo
 	ddbProvider               *ddbbackend.DashboardProvider
 	s3Provider                *s3backend.DashboardProvider
 	FaultStore                *chaos.FaultStore
@@ -276,6 +279,8 @@ type Config struct {
 	AppConfigOps *appconfigbackend.Handler
 	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
+	// BatchOps provides access to the Batch backend.
+	BatchOps *batchbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -358,6 +363,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/athena/*.html",
 		"templates/appconfig/*.html",
 		"templates/applicationautoscaling/*.html",
+		"templates/batch/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -429,6 +435,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		AthenaOps:                  cfg.AthenaOps,
 		AppConfigOps:               cfg.AppConfigOps,
 		ApplicationAutoscalingOps:  cfg.ApplicationAutoscalingOps,
+		BatchOps:                    cfg.BatchOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -846,6 +853,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupAmplifyRoutes()
 	h.setupAppConfigRoutes()
 	h.setupApplicationAutoscalingRoutes()
+	h.setupBatchRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -941,6 +949,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/iotdataplane", "IoTDataPlane"},
 	{"/amplify", "Amplify"},
 	{"/applicationautoscaling", "ApplicationAutoscaling"},
+	{"/batch", "Batch"},
 	{"/athena", "Athena"},
 	{"/appconfig", "AppConfig"},
 	{"/chaos", "Chaos"},

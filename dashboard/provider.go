@@ -16,6 +16,7 @@ import (
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
+	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -108,6 +109,7 @@ type AWSSDKProvider interface {
 	GetAthenaHandler() service.Registerable
 	GetAppConfigHandler() service.Registerable
 	GetApplicationAutoscalingHandler() service.Registerable
+	GetBatchHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -177,6 +179,7 @@ type extractedConfig struct {
 	athenaOps                 *athenabackend.Handler
 	appConfigOps              *appconfigbackend.Handler
 	applicationAutoscalingOps *applicationautoscalingbackend.Handler
+	batchOps                  *batchbackend.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
 	iotOps                    *iotbackend.Handler
@@ -412,6 +415,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.applicationAutoscalingOps, _ = h.(*applicationautoscalingbackend.Handler)
 	}
 
+	if h := ap.GetBatchHandler(); h != nil {
+		ec.batchOps, _ = h.(*batchbackend.Handler)
+	}
+
 	if h := ap.GetAthenaHandler(); h != nil {
 		ec.athenaOps, _ = h.(*athenabackend.Handler)
 	}
@@ -469,6 +476,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		AthenaOps:                  ec.athenaOps,
 		AppConfigOps:               ec.appConfigOps,
 		ApplicationAutoscalingOps:  ec.applicationAutoscalingOps,
+		BatchOps:                    ec.batchOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		IoTOps:                     ec.iotOps,
