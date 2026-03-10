@@ -18,6 +18,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.23.20
 	github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.41.12
 	github.com/aws/aws-sdk-go-v2/service/appsync v1.53.3
+	github.com/aws/aws-sdk-go-v2/service/backup v1.54.8
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.55.1
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.64.0
@@ -76,8 +77,6 @@ require (
 	golang.org/x/crypto v0.48.0
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-require github.com/aws/aws-sdk-go-v2/service/backup v1.54.8
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

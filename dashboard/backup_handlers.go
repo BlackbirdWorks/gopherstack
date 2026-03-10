@@ -19,20 +19,13 @@ type backupIndexData struct {
 	Vaults []backupVaultView
 }
 
-// backupIndex renders the Backup dashboard index.
-//
-
-func (h *DashboardHandler) backupIndex(c *echo.Context) error {
-	w := c.Response()
-
-	if h.BackupOps == nil {
-		h.renderTemplate(w, "backup/index.html", backupIndexData{
-			PageData: PageData{Title: "Backup Vaults", ActiveTab: "backup",
-				Snippet: &SnippetData{
-					ID:    "backup-operations",
-					Title: "Using Backup",
-					Cli:   `aws backup help --endpoint-url http://localhost:8000`,
-					Go: `// Initialize AWS SDK v2 for Backup
+// backupSnippet returns the shared SnippetData for the Backup dashboard pages.
+func backupSnippet() *SnippetData {
+	return &SnippetData{
+		ID:    "backup-operations",
+		Title: "Using Backup",
+		Cli:   `aws backup help --endpoint-url http://localhost:8000`,
+		Go: `// Initialize AWS SDK v2 for Backup
 cfg, err := config.LoadDefaultConfig(context.TODO(),
     config.WithEndpointResolverWithOptions(
         aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
@@ -44,12 +37,21 @@ if err != nil {
     log.Fatal(err)
 }
 client := backup.NewFromConfig(cfg)`,
-					Python: `# Initialize boto3 client for Backup
+		Python: `# Initialize boto3 client for Backup
 import boto3
 
 client = boto3.client('backup', endpoint_url='http://localhost:8000')`,
-				}},
-			Vaults: []backupVaultView{},
+	}
+}
+
+// backupIndex renders the Backup dashboard index.
+func (h *DashboardHandler) backupIndex(c *echo.Context) error {
+	w := c.Response()
+
+	if h.BackupOps == nil {
+		h.renderTemplate(w, "backup/index.html", backupIndexData{
+			PageData: PageData{Title: "Backup Vaults", ActiveTab: "backup", Snippet: backupSnippet()},
+			Vaults:   []backupVaultView{},
 		})
 
 		return nil
@@ -66,29 +68,8 @@ client = boto3.client('backup', endpoint_url='http://localhost:8000')`,
 	}
 
 	h.renderTemplate(w, "backup/index.html", backupIndexData{
-		PageData: PageData{Title: "Backup Vaults", ActiveTab: "backup",
-			Snippet: &SnippetData{
-				ID:    "backup-operations",
-				Title: "Using Backup",
-				Cli:   `aws backup help --endpoint-url http://localhost:8000`,
-				Go: `// Initialize AWS SDK v2 for Backup
-cfg, err := config.LoadDefaultConfig(context.TODO(),
-    config.WithEndpointResolverWithOptions(
-        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-            return aws.Endpoint{URL: "http://localhost:8000"}, nil
-        }),
-    ),
-)
-if err != nil {
-    log.Fatal(err)
-}
-client := backup.NewFromConfig(cfg)`,
-				Python: `# Initialize boto3 client for Backup
-import boto3
-
-client = boto3.client('backup', endpoint_url='http://localhost:8000')`,
-			}},
-		Vaults: views,
+		PageData: PageData{Title: "Backup Vaults", ActiveTab: "backup", Snippet: backupSnippet()},
+		Vaults:   views,
 	})
 
 	return nil

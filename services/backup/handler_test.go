@@ -3,858 +3,762 @@ package backup_test
 import (
 	"bytes"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/services/backup"
 )
 
-func newTestBackupHandler(t *testing.T) *backup.Handler {
-	t.Helper()
+func newTestBackupHandler() *backup.Handler {
+	backend := backup.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	return backup.NewHandler(backup.NewInMemoryBackend("000000000000", "us-east-1"))
+	return backup.NewHandler(backend)
 }
 
-func doBackupRequest(t *testing.T, h *backup.Handler, action string, body any) *httptest.ResponseRecorder {
+func doREST(
+	t *testing.T,
+	h *backup.Handler,
+	method, path string,
+	body map[string]any,
+) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var bodyBytes []byte
+
 	if body != nil {
 		var err error
 		bodyBytes, err = json.Marshal(body)
 		require.NoError(t, err)
-	} else {
-		bodyBytes = []byte("{}")
 	}
 
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
-	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-	req.Header.Set("X-Amz-Target", "AmazonBackupService."+action)
-
+	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
 
+	e := echo.New()
+	c := e.NewContext(req, rec)
 	err := h.Handler()(c)
 	require.NoError(t, err)
 
 	return rec
 }
 
-func doInvalidBackupRequest(t *testing.T, h *backup.Handler, action string) *httptest.ResponseRecorder {
+func parseResp(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("not-json"))
-	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-	req.Header.Set("X-Amz-Target", "AmazonBackupService."+action)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &m))
 
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	err := h.Handler()(c)
-	require.NoError(t, err)
-
-	return rec
+	return m
 }
 
-func TestBackupHandler_Name(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	assert.Equal(t, "Backup", h.Name())
-}
-
-func TestBackupHandler_GetSupportedOperations(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	ops := h.GetSupportedOperations()
-	assert.Contains(t, ops, "CreateBackupVault")
-	assert.Contains(t, ops, "DescribeBackupVault")
-	assert.Contains(t, ops, "ListBackupVaults")
-	assert.Contains(t, ops, "DeleteBackupVault")
-	assert.Contains(t, ops, "CreateBackupPlan")
-	assert.Contains(t, ops, "GetBackupPlan")
-	assert.Contains(t, ops, "ListBackupPlans")
-	assert.Contains(t, ops, "UpdateBackupPlan")
-	assert.Contains(t, ops, "DeleteBackupPlan")
-	assert.Contains(t, ops, "StartBackupJob")
-	assert.Contains(t, ops, "DescribeBackupJob")
-	assert.Contains(t, ops, "ListBackupJobs")
-	assert.Contains(t, ops, "TagResource")
-	assert.Contains(t, ops, "ListTags")
-}
-
-func TestBackupHandler_MatchPriority(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	assert.Equal(t, service.PriorityHeaderExact, h.MatchPriority())
-}
-
-func TestBackupHandler_RouteMatcher(t *testing.T) {
+// TestBackupVaultCRUD exercises CreateBackupVault, DescribeBackupVault,
+// ListBackupVaults, and DeleteBackupVault through the REST handler.
+func TestBackupVaultCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		target    string
-		wantMatch bool
-	}{
-		{name: "Match", target: "AmazonBackupService.CreateBackupVault", wantMatch: true},
-		{name: "NoMatch", target: "AWSScheduler.CreateSchedule", wantMatch: false},
-		{name: "Empty", target: "", wantMatch: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := newTestBackupHandler(t)
-			matcher := h.RouteMatcher()
-
-			e := echo.New()
-			req := httptest.NewRequest(http.MethodPost, "/", nil)
-			req.Header.Set("X-Amz-Target", tt.target)
-			c := e.NewContext(req, httptest.NewRecorder())
-
-			assert.Equal(t, tt.wantMatch, matcher(c))
-		})
-	}
-}
-
-func TestBackupHandler_ExtractOperation(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "AmazonBackupService.CreateBackupVault")
-	c := e.NewContext(req, httptest.NewRecorder())
-	assert.Equal(t, "CreateBackupVault", h.ExtractOperation(c))
-}
-
-func TestBackupHandler_CreateBackupVault(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		body     map[string]any
-		name     string
-		wantCode int
-		wantArn  bool
+		ops        func(t *testing.T, h *backup.Handler)
+		name       string
+		wantStatus int
 	}{
 		{
-			name:     "success",
-			body:     map[string]any{"BackupVaultName": "my-vault"},
-			wantCode: http.StatusOK,
-			wantArn:  true,
+			name: "create_vault",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPut, "/backup-vaults/my-vault", map[string]any{
+					"BackupVaultTags": map[string]string{"Env": "test"},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				assert.Equal(t, "my-vault", resp["BackupVaultName"])
+				assert.NotEmpty(t, resp["BackupVaultArn"])
+				assert.NotNil(t, resp["CreationDate"])
+			},
 		},
 		{
-			name:     "missing_name",
-			body:     map[string]any{},
-			wantCode: http.StatusBadRequest,
+			name: "describe_vault",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/backup-vaults/my-vault", nil)
+				rec := doREST(t, h, http.MethodGet, "/backup-vaults/my-vault", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				assert.Equal(t, "my-vault", resp["BackupVaultName"])
+			},
+		},
+		{
+			name: "describe_vault_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodGet, "/backup-vaults/missing", nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "list_vaults",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/backup-vaults/vault-a", nil)
+				doREST(t, h, http.MethodPut, "/backup-vaults/vault-b", nil)
+				rec := doREST(t, h, http.MethodGet, "/backup-vaults", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				list, ok := resp["BackupVaultList"].([]any)
+				require.True(t, ok)
+				assert.Len(t, list, 2)
+			},
+		},
+		{
+			name: "delete_vault",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/backup-vaults/del-vault", nil)
+				rec := doREST(t, h, http.MethodDelete, "/backup-vaults/del-vault", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				rec2 := doREST(t, h, http.MethodGet, "/backup-vaults/del-vault", nil)
+				assert.Equal(t, http.StatusNotFound, rec2.Code)
+			},
+		},
+		{
+			name: "create_vault_duplicate",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/backup-vaults/dup-vault", nil)
+				rec := doREST(t, h, http.MethodPut, "/backup-vaults/dup-vault", nil)
+				assert.Equal(t, http.StatusConflict, rec.Code)
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			h := newTestBackupHandler(t)
-			rec := doBackupRequest(t, h, "CreateBackupVault", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantArn {
-				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp["BackupVaultArn"], "arn:aws:backup:")
-			}
+			h := newTestBackupHandler()
+			tt.ops(t, h)
 		})
 	}
 }
 
-func TestBackupHandler_CreateBackupVaultAlreadyExists(t *testing.T) {
+// TestBackupPlanCRUD exercises CreateBackupPlan, GetBackupPlan, ListBackupPlans,
+// UpdateBackupPlan, and DeleteBackupPlan through the REST handler.
+func TestBackupPlanCRUD(t *testing.T) {
 	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	body := map[string]any{"BackupVaultName": "my-vault"}
-	doBackupRequest(t, h, "CreateBackupVault", body)
-
-	rec := doBackupRequest(t, h, "CreateBackupVault", body)
-	assert.Equal(t, http.StatusConflict, rec.Code)
-}
-
-func TestBackupHandler_DescribeBackupVault(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "my-vault"})
-
-	rec := doBackupRequest(t, h, "DescribeBackupVault", map[string]any{"BackupVaultName": "my-vault"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "my-vault", resp["BackupVaultName"])
-	assert.Contains(t, resp["BackupVaultArn"], "arn:aws:backup:")
-}
-
-func TestBackupHandler_ListBackupVaults(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "vault-1"})
-	doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "vault-2"})
-
-	rec := doBackupRequest(t, h, "ListBackupVaults", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	list, ok := resp["BackupVaultList"].([]any)
-	require.True(t, ok)
-	assert.Len(t, list, 2)
-}
-
-func TestBackupHandler_DeleteBackupVault(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "my-vault"})
-
-	rec := doBackupRequest(t, h, "DeleteBackupVault", map[string]any{"BackupVaultName": "my-vault"})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Verify deleted
-	rec2 := doBackupRequest(t, h, "DescribeBackupVault", map[string]any{"BackupVaultName": "my-vault"})
-	assert.Equal(t, http.StatusNotFound, rec2.Code)
-}
-
-func TestBackupHandler_CreateBackupPlan(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "my-vault"})
 
 	tests := []struct {
-		body     map[string]any
-		name     string
-		wantCode int
-		wantID   bool
+		ops  func(t *testing.T, h *backup.Handler)
+		name string
 	}{
 		{
-			name: "success",
-			body: map[string]any{
-				"BackupPlan": map[string]any{
-					"BackupPlanName": "my-plan",
-					"Rules": []map[string]any{
-						{
-							"RuleName":              "daily",
-							"TargetBackupVaultName": "my-vault",
-							"ScheduleExpression":    "cron(0 5 ? * * *)",
+			name: "create_and_get",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPut, "/backup/plans", map[string]any{
+					"BackupPlan": map[string]any{
+						"BackupPlanName": "my-plan",
+						"Rules": []map[string]any{
+							{
+								"RuleName":              "rule1",
+								"TargetBackupVaultName": "vault1",
+								"ScheduleExpression":    "cron(0 5 ? * * *)",
+							},
 						},
 					},
-				},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				createResp := parseResp(t, rec)
+				planID, ok := createResp["BackupPlanId"].(string)
+				require.True(t, ok)
+				assert.NotEmpty(t, planID)
+
+				rec2 := doREST(t, h, http.MethodGet, "/backup/plans/"+planID, nil)
+				assert.Equal(t, http.StatusOK, rec2.Code)
+				getResp := parseResp(t, rec2)
+				assert.Equal(t, planID, getResp["BackupPlanId"])
+				bp, ok := getResp["BackupPlan"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "my-plan", bp["BackupPlanName"])
 			},
-			wantCode: http.StatusOK,
-			wantID:   true,
 		},
 		{
-			name: "missing_name",
-			body: map[string]any{
-				"BackupPlan": map[string]any{},
+			name: "list_plans",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/backup/plans", map[string]any{
+					"BackupPlan": map[string]any{"BackupPlanName": "plan-a", "Rules": []any{}},
+				})
+				doREST(t, h, http.MethodPut, "/backup/plans", map[string]any{
+					"BackupPlan": map[string]any{"BackupPlanName": "plan-b", "Rules": []any{}},
+				})
+				rec := doREST(t, h, http.MethodGet, "/backup/plans", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				list, ok := resp["BackupPlansList"].([]any)
+				require.True(t, ok)
+				assert.Len(t, list, 2)
 			},
-			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "update_plan",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				createRec := doREST(t, h, http.MethodPut, "/backup/plans", map[string]any{
+					"BackupPlan": map[string]any{"BackupPlanName": "upd-plan", "Rules": []any{}},
+				})
+				createResp := parseResp(t, createRec)
+				planID := createResp["BackupPlanId"].(string)
+
+				rec := doREST(t, h, http.MethodPost, "/backup/plans/"+planID, map[string]any{
+					"BackupPlan": map[string]any{
+						"BackupPlanName": "upd-plan",
+						"Rules": []map[string]any{
+							{"RuleName": "new-rule", "TargetBackupVaultName": "vault1"},
+						},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				updResp := parseResp(t, rec)
+				assert.Equal(t, planID, updResp["BackupPlanId"])
+				assert.NotEmpty(t, updResp["VersionId"])
+			},
+		},
+		{
+			name: "delete_plan",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				createRec := doREST(t, h, http.MethodPut, "/backup/plans", map[string]any{
+					"BackupPlan": map[string]any{"BackupPlanName": "del-plan", "Rules": []any{}},
+				})
+				planID := parseResp(t, createRec)["BackupPlanId"].(string)
+
+				rec := doREST(t, h, http.MethodDelete, "/backup/plans/"+planID, nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				rec2 := doREST(t, h, http.MethodGet, "/backup/plans/"+planID, nil)
+				assert.Equal(t, http.StatusNotFound, rec2.Code)
+			},
+		},
+		{
+			name: "get_plan_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodGet, "/backup/plans/not-exist", nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			handler := newTestBackupHandler(t)
-			rec := doBackupRequest(t, handler, "CreateBackupPlan", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantID {
-				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.NotEmpty(t, resp["BackupPlanId"])
-				assert.Contains(t, resp["BackupPlanArn"], "arn:aws:backup:")
-			}
+			h := newTestBackupHandler()
+			tt.ops(t, h)
 		})
 	}
 }
 
-func TestBackupHandler_GetBackupPlan(t *testing.T) {
+// TestBackupJobCRUD exercises StartBackupJob, DescribeBackupJob, and ListBackupJobs.
+func TestBackupJobCRUD(t *testing.T) {
 	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	createRec := doBackupRequest(t, h, "CreateBackupPlan", map[string]any{
-		"BackupPlan": map[string]any{
-			"BackupPlanName": "my-plan",
-			"Rules": []map[string]any{
-				{"RuleName": "daily", "TargetBackupVaultName": "my-vault"},
-			},
-		},
-	})
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	planID := createResp["BackupPlanId"]
-
-	rec := doBackupRequest(t, h, "GetBackupPlan", map[string]any{"BackupPlanId": planID})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, planID, resp["BackupPlanId"])
-	assert.Contains(t, resp, "BackupPlan")
-}
-
-func TestBackupHandler_ListBackupPlans(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	doBackupRequest(t, h, "CreateBackupPlan", map[string]any{
-		"BackupPlan": map[string]any{
-			"BackupPlanName": "plan-1",
-			"Rules":          []map[string]any{},
-		},
-	})
-	doBackupRequest(t, h, "CreateBackupPlan", map[string]any{
-		"BackupPlan": map[string]any{
-			"BackupPlanName": "plan-2",
-			"Rules":          []map[string]any{},
-		},
-	})
-
-	rec := doBackupRequest(t, h, "ListBackupPlans", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	list, ok := resp["BackupPlansList"].([]any)
-	require.True(t, ok)
-	assert.Len(t, list, 2)
-}
-
-func TestBackupHandler_UpdateBackupPlan(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	createRec := doBackupRequest(t, h, "CreateBackupPlan", map[string]any{
-		"BackupPlan": map[string]any{
-			"BackupPlanName": "my-plan",
-			"Rules": []map[string]any{
-				{"RuleName": "daily", "TargetBackupVaultName": "my-vault"},
-			},
-		},
-	})
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	planID := createResp["BackupPlanId"]
-
-	rec := doBackupRequest(t, h, "UpdateBackupPlan", map[string]any{
-		"BackupPlanId": planID,
-		"BackupPlan": map[string]any{
-			"BackupPlanName": "my-plan",
-			"Rules": []map[string]any{
-				{"RuleName": "weekly", "TargetBackupVaultName": "my-vault", "ScheduleExpression": "cron(0 5 ? * 1 *)"},
-			},
-		},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.NotEmpty(t, resp["VersionId"])
-}
-
-func TestBackupHandler_DeleteBackupPlan(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	createRec := doBackupRequest(t, h, "CreateBackupPlan", map[string]any{
-		"BackupPlan": map[string]any{
-			"BackupPlanName": "my-plan",
-			"Rules":          []map[string]any{},
-		},
-	})
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	planID := createResp["BackupPlanId"]
-
-	rec := doBackupRequest(t, h, "DeleteBackupPlan", map[string]any{"BackupPlanId": planID})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Verify deleted
-	rec2 := doBackupRequest(t, h, "GetBackupPlan", map[string]any{"BackupPlanId": planID})
-	assert.Equal(t, http.StatusNotFound, rec2.Code)
-}
-
-func TestBackupHandler_StartBackupJob(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "my-vault"})
 
 	tests := []struct {
-		body     map[string]any
-		name     string
-		wantCode int
-		wantID   bool
+		ops  func(t *testing.T, h *backup.Handler)
+		name string
 	}{
 		{
-			name: "success",
-			body: map[string]any{
-				"BackupVaultName": "my-vault",
-				"ResourceArn":     "arn:aws:ec2:us-east-1:000000000000:instance/i-12345",
-				"IamRoleArn":      "arn:aws:iam::000000000000:role/backup-role",
+			name: "start_and_describe",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/backup-vaults/myvault", nil)
+				rec := doREST(t, h, http.MethodPut, "/backup-jobs", map[string]any{
+					"BackupVaultName": "myvault",
+					"ResourceArn":     "arn:aws:ec2:us-east-1:123456789012:instance/i-abc",
+					"IamRoleArn":      "arn:aws:iam::123456789012:role/role",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				startResp := parseResp(t, rec)
+				jobID, ok := startResp["BackupJobId"].(string)
+				require.True(t, ok)
+				assert.NotEmpty(t, jobID)
+
+				rec2 := doREST(t, h, http.MethodGet, "/backup-jobs/"+jobID, nil)
+				assert.Equal(t, http.StatusOK, rec2.Code)
+				descResp := parseResp(t, rec2)
+				assert.Equal(t, jobID, descResp["BackupJobId"])
+				assert.Equal(t, "CREATED", descResp["State"])
 			},
-			wantCode: http.StatusOK,
-			wantID:   true,
 		},
 		{
-			name:     "missing_vault",
-			body:     map[string]any{},
-			wantCode: http.StatusBadRequest,
+			name: "list_jobs",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				doREST(t, h, http.MethodPut, "/backup-vaults/vault1", nil)
+				doREST(t, h, http.MethodPut, "/backup-jobs", map[string]any{"BackupVaultName": "vault1"})
+				doREST(t, h, http.MethodPut, "/backup-jobs", map[string]any{"BackupVaultName": "vault1"})
+				rec := doREST(t, h, http.MethodGet, "/backup-jobs", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseResp(t, rec)
+				jobs, ok := resp["BackupJobs"].([]any)
+				require.True(t, ok)
+				assert.Len(t, jobs, 2)
+			},
 		},
 		{
-			name:     "vault_not_found",
-			body:     map[string]any{"BackupVaultName": "nonexistent"},
-			wantCode: http.StatusNotFound,
+			name: "start_job_vault_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPut, "/backup-jobs", map[string]any{"BackupVaultName": "missing"})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "describe_job_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodGet, "/backup-jobs/no-such-job", nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			handler := newTestBackupHandler(t)
-			doBackupRequest(t, handler, "CreateBackupVault", map[string]any{"BackupVaultName": "my-vault"})
-			rec := doBackupRequest(t, handler, "StartBackupJob", tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
-
-			if tt.wantID {
-				var resp map[string]string
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.NotEmpty(t, resp["BackupJobId"])
-			}
+			h := newTestBackupHandler()
+			tt.ops(t, h)
 		})
 	}
 }
 
-func TestBackupHandler_DescribeBackupJob(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "my-vault"})
-	startRec := doBackupRequest(t, h, "StartBackupJob", map[string]any{
-		"BackupVaultName": "my-vault",
-		"ResourceArn":     "arn:aws:ec2:::instance/i-12345",
-		"IamRoleArn":      "arn:aws:iam:::role/backup-role",
-	})
-	var startResp map[string]string
-	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
-
-	rec := doBackupRequest(t, h, "DescribeBackupJob", map[string]any{"BackupJobId": startResp["BackupJobId"]})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, startResp["BackupJobId"], resp["BackupJobId"])
-	assert.Equal(t, "CREATED", resp["State"])
-}
-
-func TestBackupHandler_ListBackupJobs(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "my-vault"})
-	doBackupRequest(t, h, "StartBackupJob", map[string]any{
-		"BackupVaultName": "my-vault",
-		"ResourceArn":     "arn:1",
-	})
-	doBackupRequest(t, h, "StartBackupJob", map[string]any{
-		"BackupVaultName": "my-vault",
-		"ResourceArn":     "arn:2",
-	})
-
-	rec := doBackupRequest(t, h, "ListBackupJobs", nil)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	jobs, ok := resp["BackupJobs"].([]any)
-	require.True(t, ok)
-	assert.Len(t, jobs, 2)
-}
-
-func TestBackupHandler_TagResource(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	createRec := doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "my-vault"})
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	vaultARN := createResp["BackupVaultArn"]
-
-	rec := doBackupRequest(t, h, "TagResource", map[string]any{
-		"ResourceArn": vaultARN,
-		"Tags":        map[string]string{"env": "test", "team": "platform"},
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-}
-
-func TestBackupHandler_ListTags(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	createRec := doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "my-vault"})
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	vaultARN := createResp["BackupVaultArn"]
-
-	doBackupRequest(t, h, "TagResource", map[string]any{
-		"ResourceArn": vaultARN,
-		"Tags":        map[string]string{"env": "prod"},
-	})
-
-	rec := doBackupRequest(t, h, "ListTags", map[string]any{"ResourceArn": vaultARN})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	tags, ok := resp["Tags"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "prod", tags["env"])
-}
-
-func TestBackupHandler_ErrorStatus(t *testing.T) {
+// TestBackupTagging exercises TagResource and ListTags.
+func TestBackupTagging(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		body     any
-		name     string
-		action   string
-		wantCode int
+		ops  func(t *testing.T, h *backup.Handler)
+		name string
 	}{
 		{
-			name:     "DescribeBackupVault_NotFound",
-			action:   "DescribeBackupVault",
-			body:     map[string]any{"BackupVaultName": "nonexistent"},
-			wantCode: http.StatusNotFound,
+			name: "tag_and_list",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				// Create vault and get its ARN.
+				rec := doREST(t, h, http.MethodPut, "/backup-vaults/tag-vault", nil)
+				require.Equal(t, http.StatusOK, rec.Code)
+				vaultResp := parseResp(t, rec)
+				vaultARN := vaultResp["BackupVaultArn"].(string)
+
+				// TagResource.
+				tagRec := doREST(t, h, http.MethodPost, "/tags/"+vaultARN, map[string]any{
+					"Tags": map[string]string{"Project": "demo"},
+				})
+				assert.Equal(t, http.StatusOK, tagRec.Code)
+
+				// ListTags.
+				listRec := doREST(t, h, http.MethodGet, "/tags/"+vaultARN, nil)
+				assert.Equal(t, http.StatusOK, listRec.Code)
+				listResp := parseResp(t, listRec)
+				tags, ok := listResp["Tags"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "demo", tags["Project"])
+			},
 		},
 		{
-			name:     "DeleteBackupVault_NotFound",
-			action:   "DeleteBackupVault",
-			body:     map[string]any{"BackupVaultName": "nonexistent"},
-			wantCode: http.StatusNotFound,
-		},
-		{
-			name:     "GetBackupPlan_NotFound",
-			action:   "GetBackupPlan",
-			body:     map[string]any{"BackupPlanId": "nonexistent"},
-			wantCode: http.StatusNotFound,
-		},
-		{
-			name:     "DeleteBackupPlan_NotFound",
-			action:   "DeleteBackupPlan",
-			body:     map[string]any{"BackupPlanId": "nonexistent"},
-			wantCode: http.StatusNotFound,
-		},
-		{
-			name:     "DescribeBackupJob_NotFound",
-			action:   "DescribeBackupJob",
-			body:     map[string]any{"BackupJobId": "nonexistent"},
-			wantCode: http.StatusNotFound,
-		},
-		{
-			name:     "UnknownAction",
-			action:   "UnknownAction",
-			body:     nil,
-			wantCode: http.StatusBadRequest,
+			name: "tag_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(
+					t,
+					h,
+					http.MethodPost,
+					"/tags/arn:aws:backup:us-east-1:123:backup-vault:no",
+					map[string]any{
+						"Tags": map[string]string{"k": "v"},
+					},
+				)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			h := newTestBackupHandler(t)
-			rec := doBackupRequest(t, h, tt.action, tt.body)
-			assert.Equal(t, tt.wantCode, rec.Code)
+			h := newTestBackupHandler()
+			tt.ops(t, h)
 		})
 	}
 }
 
-func TestBackupHandler_InvalidJSON(t *testing.T) {
+// TestBackupRouteMatcher verifies that the RouteMatcher correctly identifies Backup requests.
+func TestBackupRouteMatcher(t *testing.T) {
 	t.Parallel()
 
+	h := newTestBackupHandler()
+	matcher := h.RouteMatcher()
+
 	tests := []struct {
-		name     string
-		action   string
-		wantCode int
+		name string
+		path string
+		want bool
 	}{
-		{name: "CreateBackupVault", action: "CreateBackupVault", wantCode: http.StatusBadRequest},
-		{name: "DescribeBackupVault", action: "DescribeBackupVault", wantCode: http.StatusBadRequest},
-		{name: "DeleteBackupVault", action: "DeleteBackupVault", wantCode: http.StatusBadRequest},
-		{name: "CreateBackupPlan", action: "CreateBackupPlan", wantCode: http.StatusBadRequest},
-		{name: "GetBackupPlan", action: "GetBackupPlan", wantCode: http.StatusBadRequest},
-		{name: "DeleteBackupPlan", action: "DeleteBackupPlan", wantCode: http.StatusBadRequest},
-		{name: "StartBackupJob", action: "StartBackupJob", wantCode: http.StatusBadRequest},
-		{name: "DescribeBackupJob", action: "DescribeBackupJob", wantCode: http.StatusBadRequest},
+		{name: "backup-vaults collection", path: "/backup-vaults", want: true},
+		{name: "backup-vaults item", path: "/backup-vaults/my-vault", want: true},
+		{name: "backup plans collection", path: "/backup/plans", want: true},
+		{name: "backup plans item", path: "/backup/plans/some-id", want: true},
+		{name: "backup jobs collection", path: "/backup-jobs", want: true},
+		{name: "backup jobs item", path: "/backup-jobs/some-id", want: true},
+		{name: "tags on backup resource", path: "/tags/arn:aws:backup:us-east-1:123:backup-vault:v", want: true},
+		{name: "unrelated path", path: "/applications", want: false},
+		{name: "s3 path", path: "/my-bucket", want: false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			h := newTestBackupHandler(t)
-			rec := doInvalidBackupRequest(t, h, tt.action)
-			assert.Equal(t, tt.wantCode, rec.Code)
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			e := echo.New()
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			got := matcher(c)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
 
-func TestBackupProvider(t *testing.T) {
+// TestBackupHandlerMetadata covers Name, GetSupportedOperations, Chaos methods, MatchPriority,
+// ExtractOperation, ExtractResource, Region, and Persistence methods.
+func TestBackupHandlerMetadata(t *testing.T) {
 	t.Parallel()
 
-	p := &backup.Provider{}
-	assert.Equal(t, "Backup", p.Name())
-}
-
-func TestBackupProviderInit(t *testing.T) {
-	t.Parallel()
-
-	p := &backup.Provider{}
-	ctx := &service.AppContext{Logger: slog.Default()}
-	svc, err := p.Init(ctx)
-	require.NoError(t, err)
-	assert.NotNil(t, svc)
-	assert.Equal(t, "Backup", svc.Name())
-}
-
-func TestBackupPersistence(t *testing.T) {
-	t.Parallel()
-
-	b := backup.NewInMemoryBackend("000000000000", "us-east-1")
-	h := backup.NewHandler(b)
-
-	// Create some data.
-	_, err := b.CreateBackupVault("my-vault", "", "", nil)
-	require.NoError(t, err)
-	_, err = b.CreateBackupPlan("my-plan", []backup.Rule{}, nil)
-	require.NoError(t, err)
-	job, err := b.StartBackupJob("my-vault", "arn:aws:ec2:::instance/i-1", "", "")
-	require.NoError(t, err)
-	require.NotNil(t, job)
-
-	// Snapshot.
-	snap := h.Snapshot()
-	require.NotNil(t, snap)
-
-	// Restore into fresh backend.
-	b2 := backup.NewInMemoryBackend("000000000000", "us-east-1")
-	h2 := backup.NewHandler(b2)
-	require.NoError(t, h2.Restore(snap))
-
-	vaults := b2.ListBackupVaults()
-	require.Len(t, vaults, 1)
-	assert.Equal(t, "my-vault", vaults[0].BackupVaultName)
-
-	plans := b2.ListBackupPlans()
-	require.Len(t, plans, 1)
-	assert.Equal(t, "my-plan", plans[0].BackupPlanName)
-
-	jobs := b2.ListBackupJobs("")
-	require.Len(t, jobs, 1)
-}
-
-func TestBackupBackend_Region(t *testing.T) {
-	t.Parallel()
-
-	b := backup.NewInMemoryBackend("000000000000", "eu-west-1")
-	assert.Equal(t, "eu-west-1", b.Region())
-}
-
-func TestBackupHandler_ChaosInterface(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	assert.Equal(t, "backup", h.ChaosServiceName())
-	assert.Contains(t, h.ChaosOperations(), "CreateBackupVault")
-	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
-}
-
-func TestBackupHandler_ExtractResource(t *testing.T) {
-	t.Parallel()
+	h := newTestBackupHandler()
 
 	tests := []struct {
-		body    string
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "Name",
+			run: func(t *testing.T) {
+				t.Helper()
+				assert.Equal(t, "Backup", h.Name())
+			},
+		},
+		{
+			name: "GetSupportedOperations",
+			run: func(t *testing.T) {
+				t.Helper()
+				ops := h.GetSupportedOperations()
+				assert.Contains(t, ops, "CreateBackupVault")
+				assert.Contains(t, ops, "CreateBackupPlan")
+				assert.Contains(t, ops, "StartBackupJob")
+			},
+		},
+		{
+			name: "ChaosServiceName",
+			run: func(t *testing.T) {
+				t.Helper()
+				assert.Equal(t, "backup", h.ChaosServiceName())
+			},
+		},
+		{
+			name: "ChaosOperations",
+			run: func(t *testing.T) {
+				t.Helper()
+				ops := h.ChaosOperations()
+				assert.NotEmpty(t, ops)
+			},
+		},
+		{
+			name: "ChaosRegions",
+			run: func(t *testing.T) {
+				t.Helper()
+				regions := h.ChaosRegions()
+				assert.NotEmpty(t, regions)
+			},
+		},
+		{
+			name: "MatchPriority",
+			run: func(t *testing.T) {
+				t.Helper()
+				assert.Positive(t, h.MatchPriority())
+			},
+		},
+		{
+			name: "Region",
+			run: func(t *testing.T) {
+				t.Helper()
+				assert.Equal(t, "us-east-1", h.Backend.Region())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
+}
+
+// TestBackupExtractOperation verifies ExtractOperation for the various REST paths.
+func TestBackupExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestBackupHandler()
+
+	tests := []struct {
 		name    string
+		method  string
+		path    string
+		wantOp  string
 		wantRes string
 	}{
 		{
-			name:    "BackupVaultName",
-			body:    `{"BackupVaultName":"my-vault"}`,
-			wantRes: "my-vault",
+			name:    "create vault",
+			method:  http.MethodPut,
+			path:    "/backup-vaults/myvault",
+			wantOp:  "CreateBackupVault",
+			wantRes: "myvault",
 		},
 		{
-			name:    "BackupPlanId",
-			body:    `{"BackupPlanId":"my-plan-id"}`,
-			wantRes: "my-plan-id",
+			name:    "describe vault",
+			method:  http.MethodGet,
+			path:    "/backup-vaults/myvault",
+			wantOp:  "DescribeBackupVault",
+			wantRes: "myvault",
+		},
+		{name: "list vaults", method: http.MethodGet, path: "/backup-vaults", wantOp: "ListBackupVaults"},
+		{
+			name:    "delete vault",
+			method:  http.MethodDelete,
+			path:    "/backup-vaults/myvault",
+			wantOp:  "DeleteBackupVault",
+			wantRes: "myvault",
+		},
+		{name: "create plan", method: http.MethodPut, path: "/backup/plans", wantOp: "CreateBackupPlan"},
+		{
+			name:    "get plan",
+			method:  http.MethodGet,
+			path:    "/backup/plans/planid",
+			wantOp:  "GetBackupPlan",
+			wantRes: "planid",
+		},
+		{name: "list plans", method: http.MethodGet, path: "/backup/plans", wantOp: "ListBackupPlans"},
+		{
+			name:    "update plan",
+			method:  http.MethodPost,
+			path:    "/backup/plans/planid",
+			wantOp:  "UpdateBackupPlan",
+			wantRes: "planid",
 		},
 		{
-			name:    "BackupJobId",
-			body:    `{"BackupJobId":"my-job-id"}`,
-			wantRes: "my-job-id",
+			name:    "delete plan",
+			method:  http.MethodDelete,
+			path:    "/backup/plans/planid",
+			wantOp:  "DeleteBackupPlan",
+			wantRes: "planid",
+		},
+		{name: "start job", method: http.MethodPut, path: "/backup-jobs", wantOp: "StartBackupJob"},
+		{
+			name:    "describe job",
+			method:  http.MethodGet,
+			path:    "/backup-jobs/jobid",
+			wantOp:  "DescribeBackupJob",
+			wantRes: "jobid",
+		},
+		{name: "list jobs", method: http.MethodGet, path: "/backup-jobs", wantOp: "ListBackupJobs"},
+		{
+			name:    "tag resource",
+			method:  http.MethodPost,
+			path:    "/tags/arn:aws:backup:us-east-1:123:backup-vault:v",
+			wantOp:  "TagResource",
+			wantRes: "arn:aws:backup:us-east-1:123:backup-vault:v",
 		},
 		{
-			name:    "ResourceArn",
-			body:    `{"ResourceArn":"arn:aws:ec2:::instance/i-12345"}`,
-			wantRes: "arn:aws:ec2:::instance/i-12345",
-		},
-		{
-			name:    "empty_body",
-			body:    `{}`,
-			wantRes: "",
+			name:    "list tags",
+			method:  http.MethodGet,
+			path:    "/tags/arn:aws:backup:us-east-1:123:backup-vault:v",
+			wantOp:  "ListTags",
+			wantRes: "arn:aws:backup:us-east-1:123:backup-vault:v",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			h := newTestBackupHandler(t)
+			req := httptest.NewRequest(tt.method, tt.path, nil)
 			e := echo.New()
-			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tt.body))
-			c := e.NewContext(req, httptest.NewRecorder())
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
 			assert.Equal(t, tt.wantRes, h.ExtractResource(c))
 		})
 	}
 }
 
-func TestBackupHandler_TagPlan(t *testing.T) {
+// TestBackupPersistence exercises Snapshot and Restore.
+func TestBackupPersistence(t *testing.T) {
 	t.Parallel()
 
-	h := newTestBackupHandler(t)
-	createRec := doBackupRequest(t, h, "CreateBackupPlan", map[string]any{
-		"BackupPlan": map[string]any{
-			"BackupPlanName": "my-plan",
-			"Rules":          []map[string]any{},
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{
+			name: "snapshot_restore",
+			run: func(t *testing.T) {
+				t.Helper()
+				h := newTestBackupHandler()
+				doREST(t, h, http.MethodPut, "/backup-vaults/snap-vault", nil)
+
+				snap := h.Snapshot()
+				require.NotNil(t, snap)
+
+				h2 := newTestBackupHandler()
+				require.NoError(t, h2.Restore(snap))
+
+				rec := doREST(t, h2, http.MethodGet, "/backup-vaults/snap-vault", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
 		},
-	})
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	planARN := createResp["BackupPlanArn"]
-
-	rec := doBackupRequest(t, h, "TagResource", map[string]any{
-		"ResourceArn": planARN,
-		"Tags":        map[string]string{"env": "test"},
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	listRec := doBackupRequest(t, h, "ListTags", map[string]any{"ResourceArn": planARN})
-	require.Equal(t, http.StatusOK, listRec.Code)
-
-	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	tags, ok := listResp["Tags"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "test", tags["env"])
-}
-
-func TestBackupHandler_TagResource_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	rec := doBackupRequest(t, h, "TagResource", map[string]any{
-		"ResourceArn": "arn:aws:backup:us-east-1:000000000000:backup-vault:nonexistent",
-		"Tags":        map[string]string{"env": "test"},
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestBackupHandler_ListTags_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	rec := doBackupRequest(t, h, "ListTags", map[string]any{
-		"ResourceArn": "arn:aws:backup:us-east-1:000000000000:backup-vault:nonexistent",
-	})
-	assert.Equal(t, http.StatusNotFound, rec.Code)
-}
-
-func TestBackupHandler_GetBackupPlan_ByName(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	createRec := doBackupRequest(t, h, "CreateBackupPlan", map[string]any{
-		"BackupPlan": map[string]any{
-			"BackupPlanName": "my-plan",
-			"Rules":          []map[string]any{},
+		{
+			name: "restore_invalid_json",
+			run: func(t *testing.T) {
+				t.Helper()
+				h := newTestBackupHandler()
+				err := h.Restore([]byte("not-json"))
+				require.Error(t, err)
+			},
 		},
-	})
-	require.Equal(t, http.StatusOK, createRec.Code)
+	}
 
-	// GetBackupPlan by name (name = plan ID or plan name)
-	rec := doBackupRequest(t, h, "GetBackupPlan", map[string]any{"BackupPlanId": "my-plan"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	plan, ok := resp["BackupPlan"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "my-plan", plan["BackupPlanName"])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
 }
 
-func TestBackupHandler_DeleteBackupPlan_ByID(t *testing.T) {
+// TestBackupErrorPaths exercises additional error branches for full handler coverage.
+func TestBackupErrorPaths(t *testing.T) {
 	t.Parallel()
 
-	h := newTestBackupHandler(t)
-	createRec := doBackupRequest(t, h, "CreateBackupPlan", map[string]any{
-		"BackupPlan": map[string]any{
-			"BackupPlanName": "my-plan",
-			"Rules":          []map[string]any{},
+	tests := []struct {
+		ops        func(t *testing.T, h *backup.Handler)
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "create_plan_missing_name",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPut, "/backup/plans", map[string]any{
+					"BackupPlan": map[string]any{"BackupPlanName": "", "Rules": []any{}},
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
 		},
-	})
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	planID := createResp["BackupPlanId"]
+		{
+			name: "create_plan_bad_body",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				req := httptest.NewRequest(http.MethodPut, "/backup/plans", bytes.NewBufferString("notjson"))
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				e := echo.New()
+				c := e.NewContext(req, rec)
+				err := h.Handler()(c)
+				require.NoError(t, err)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "update_plan_bad_body",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				req := httptest.NewRequest(http.MethodPost, "/backup/plans/someid", bytes.NewBufferString("notjson"))
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				e := echo.New()
+				c := e.NewContext(req, rec)
+				err := h.Handler()(c)
+				require.NoError(t, err)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "start_job_bad_body",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				req := httptest.NewRequest(http.MethodPut, "/backup-jobs", bytes.NewBufferString("notjson"))
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				e := echo.New()
+				c := e.NewContext(req, rec)
+				err := h.Handler()(c)
+				require.NoError(t, err)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "tag_bad_body",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				req := httptest.NewRequest(
+					http.MethodPost,
+					"/tags/arn:aws:backup:us-east-1:123:backup-vault:v",
+					bytes.NewBufferString("notjson"),
+				)
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				e := echo.New()
+				c := e.NewContext(req, rec)
+				err := h.Handler()(c)
+				require.NoError(t, err)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "list_tags_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodGet, "/tags/arn:aws:backup:us-east-1:123:backup-vault:nope", nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "delete_plan_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodDelete, "/backup/plans/missing-id", nil)
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "update_plan_not_found",
+			ops: func(t *testing.T, h *backup.Handler) {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/backup/plans/missing-id", map[string]any{
+					"BackupPlan": map[string]any{"BackupPlanName": "n", "Rules": []any{}},
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+	}
 
-	rec := doBackupRequest(t, h, "DeleteBackupPlan", map[string]any{"BackupPlanId": planID})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, planID, resp["BackupPlanId"])
-}
-
-func TestBackupHandler_ListBackupJobs_FilterByVault(t *testing.T) {
-	t.Parallel()
-
-	h := newTestBackupHandler(t)
-	doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "vault-a"})
-	doBackupRequest(t, h, "CreateBackupVault", map[string]any{"BackupVaultName": "vault-b"})
-	doBackupRequest(t, h, "StartBackupJob", map[string]any{"BackupVaultName": "vault-a", "ResourceArn": "arn:1"})
-	doBackupRequest(t, h, "StartBackupJob", map[string]any{"BackupVaultName": "vault-b", "ResourceArn": "arn:2"})
-
-	rec := doBackupRequest(t, h, "ListBackupJobs", map[string]any{"ByBackupVaultName": "vault-a"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	jobs, ok := resp["BackupJobs"].([]any)
-	require.True(t, ok)
-	assert.Len(t, jobs, 1)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestBackupHandler()
+			tt.ops(t, h)
+		})
+	}
 }

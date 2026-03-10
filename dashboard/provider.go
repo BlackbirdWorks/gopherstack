@@ -419,6 +419,11 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.athenaOps, _ = h.(*athenabackend.Handler)
 	}
 
+	extractLatestServiceHandlers(ap, ec)
+}
+
+// extractLatestServiceHandlers populates handlers for the most recently added services.
+func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetBackupHandler(); h != nil {
 		ec.backupOps, _ = h.(*backupbackend.Handler)
 	}

@@ -18,6 +18,9 @@ var (
 )
 
 // Vault represents an AWS Backup vault.
+//
+// The Tags field is backend-owned. Callers must treat the returned pointer as
+// read-only; mutate tags only via TagResource / CreateBackupVault.
 type Vault struct {
 	CreationTime           time.Time  `json:"creationTime"`
 	Tags                   *tags.Tags `json:"tags,omitempty"`
@@ -40,6 +43,9 @@ type Rule struct {
 }
 
 // Plan represents an AWS Backup plan.
+//
+// The Tags field is backend-owned. Callers must treat the returned pointer as
+// read-only; mutate tags only via TagResource / CreateBackupPlan.
 type Plan struct {
 	CreationTime   time.Time  `json:"creationTime"`
 	Tags           *tags.Tags `json:"tags,omitempty"`

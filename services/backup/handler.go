@@ -1,30 +1,33 @@
 package backup
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
-	backupTargetPrefix = "AmazonBackupService."
+	backupMatchPriority = service.PriorityPathVersioned
+
+	pathBackupVaults = "/backup-vaults"
+	pathBackupPlans  = "/backup/plans"
+	pathBackupJobs   = "/backup-jobs"
+	pathTags         = "/tags/"
 )
 
 var (
-	errUnknownAction  = errors.New("unknown action")
 	errInvalidRequest = errors.New("invalid request")
 )
 
-// Handler is the Echo HTTP handler for AWS Backup operations.
+// Handler is the Echo HTTP handler for AWS Backup operations (REST-JSON protocol).
 type Handler struct {
 	Backend *InMemoryBackend
 }
@@ -66,572 +69,567 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions returns all regions this Backup instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
-// RouteMatcher returns a function that matches Backup requests.
+// RouteMatcher returns a function that matches AWS Backup REST requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), backupTargetPrefix)
+		path := c.Request().URL.Path
+
+		return path == pathBackupVaults ||
+			strings.HasPrefix(path, pathBackupVaults+"/") ||
+			path == pathBackupPlans ||
+			strings.HasPrefix(path, pathBackupPlans+"/") ||
+			path == pathBackupJobs ||
+			strings.HasPrefix(path, pathBackupJobs+"/") ||
+			strings.HasPrefix(path, pathTags+"arn:aws:backup:")
 	}
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
+func (h *Handler) MatchPriority() int { return backupMatchPriority }
 
-// ExtractOperation extracts the Backup action from the X-Amz-Target header.
-func (h *Handler) ExtractOperation(c *echo.Context) string {
-	target := c.Request().Header.Get("X-Amz-Target")
-
-	return strings.TrimPrefix(target, backupTargetPrefix)
+// backupRoute holds the parsed information from a Backup REST request path.
+type backupRoute struct {
+	resource  string // vault-name, plan-id, job-id, or resource-arn
+	operation string
 }
 
-// ExtractResource extracts the primary resource name from the request body.
-func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, readErr := httputils.ReadBody(c.Request())
-	if readErr != nil {
-		return ""
+// parseBackupPath maps HTTP method + path to an operation name and resource ID.
+func parseBackupPath(method, rawPath string) backupRoute {
+	path, _ := url.PathUnescape(rawPath)
+
+	switch {
+	case strings.HasPrefix(path, pathBackupVaults):
+		return parseVaultRoute(method, strings.TrimPrefix(path, pathBackupVaults))
+	case strings.HasPrefix(path, pathBackupPlans):
+		return parsePlanRoute(method, strings.TrimPrefix(path, pathBackupPlans))
+	case strings.HasPrefix(path, pathBackupJobs):
+		return parseJobRoute(method, strings.TrimPrefix(path, pathBackupJobs))
+	case strings.HasPrefix(path, pathTags):
+		return parseTagsRoute(method, strings.TrimPrefix(path, pathTags))
 	}
 
-	var m map[string]json.RawMessage
-	if unmarshalErr := json.Unmarshal(body, &m); unmarshalErr != nil {
-		return ""
-	}
+	return backupRoute{operation: "Unknown"}
+}
 
-	for _, key := range []string{"BackupVaultName", "BackupPlanId", "BackupJobId", "ResourceArn"} {
-		if v, ok := m[key]; ok {
-			var s string
-			if json.Unmarshal(v, &s) == nil {
-				return s
-			}
+func parseVaultRoute(method, suffix string) backupRoute {
+	// suffix is either "" (collection) or "/{name}"
+	name := strings.TrimPrefix(suffix, "/")
+	if name == "" {
+		// /backup-vaults
+		if method == http.MethodGet {
+			return backupRoute{operation: "ListBackupVaults"}
+		}
+	} else if !strings.Contains(name, "/") {
+		// /backup-vaults/{name}
+		switch method {
+		case http.MethodPut:
+			return backupRoute{operation: "CreateBackupVault", resource: name}
+		case http.MethodGet:
+			return backupRoute{operation: "DescribeBackupVault", resource: name}
+		case http.MethodDelete:
+			return backupRoute{operation: "DeleteBackupVault", resource: name}
 		}
 	}
 
-	return ""
+	return backupRoute{operation: "Unknown"}
+}
+
+func parsePlanRoute(method, suffix string) backupRoute {
+	// suffix is "" or "/{id}"
+	id := strings.TrimPrefix(suffix, "/")
+	if id == "" {
+		// /backup/plans
+		switch method {
+		case http.MethodPut:
+			return backupRoute{operation: "CreateBackupPlan"}
+		case http.MethodGet:
+			return backupRoute{operation: "ListBackupPlans"}
+		}
+	} else if !strings.Contains(id, "/") {
+		// /backup/plans/{id}
+		switch method {
+		case http.MethodGet:
+			return backupRoute{operation: "GetBackupPlan", resource: id}
+		case http.MethodPost:
+			return backupRoute{operation: "UpdateBackupPlan", resource: id}
+		case http.MethodDelete:
+			return backupRoute{operation: "DeleteBackupPlan", resource: id}
+		}
+	}
+
+	return backupRoute{operation: "Unknown"}
+}
+
+func parseJobRoute(method, suffix string) backupRoute {
+	id := strings.TrimPrefix(suffix, "/")
+	if id == "" {
+		// /backup-jobs
+		switch method {
+		case http.MethodPut:
+			return backupRoute{operation: "StartBackupJob"}
+		case http.MethodGet:
+			return backupRoute{operation: "ListBackupJobs"}
+		}
+	} else if !strings.Contains(id, "/") {
+		// /backup-jobs/{id}
+		if method == http.MethodGet {
+			return backupRoute{operation: "DescribeBackupJob", resource: id}
+		}
+	}
+
+	return backupRoute{operation: "Unknown"}
+}
+
+func parseTagsRoute(method, resourceArn string) backupRoute {
+	switch method {
+	case http.MethodPost:
+		return backupRoute{operation: "TagResource", resource: resourceArn}
+	case http.MethodGet:
+		return backupRoute{operation: "ListTags", resource: resourceArn}
+	}
+
+	return backupRoute{operation: "Unknown"}
+}
+
+// ExtractOperation extracts the Backup operation name from the REST path.
+func (h *Handler) ExtractOperation(c *echo.Context) string {
+	r := parseBackupPath(c.Request().Method, c.Request().URL.Path)
+
+	return r.operation
+}
+
+// ExtractResource extracts the primary resource identifier from the URL path.
+func (h *Handler) ExtractResource(c *echo.Context) string {
+	r := parseBackupPath(c.Request().Method, c.Request().URL.Path)
+
+	return r.resource
 }
 
 // Handler returns the Echo handler function for Backup requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		return service.HandleTarget(
-			c, logger.Load(c.Request().Context()),
-			"Backup", "application/x-amz-json-1.1",
-			h.GetSupportedOperations(),
-			h.dispatch,
-			h.handleError,
-		)
+		log := logger.Load(c.Request().Context())
+		route := parseBackupPath(c.Request().Method, c.Request().URL.Path)
+
+		log.Debug("backup request", "operation", route.operation, "resource", route.resource)
+
+		var body []byte
+		if c.Request().Body != nil {
+			decoder := json.NewDecoder(c.Request().Body)
+			var raw json.RawMessage
+			if err := decoder.Decode(&raw); err == nil {
+				body = raw
+			}
+		}
+
+		return h.dispatch(c, route, body)
 	}
 }
 
-func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
-	return map[string]service.JSONOpFunc{
-		"CreateBackupVault":   service.WrapOp(h.handleCreateBackupVault),
-		"DescribeBackupVault": service.WrapOp(h.handleDescribeBackupVault),
-		"ListBackupVaults":    service.WrapOp(h.handleListBackupVaults),
-		"DeleteBackupVault":   service.WrapOp(h.handleDeleteBackupVault),
-		"CreateBackupPlan":    service.WrapOp(h.handleCreateBackupPlan),
-		"GetBackupPlan":       service.WrapOp(h.handleGetBackupPlan),
-		"ListBackupPlans":     service.WrapOp(h.handleListBackupPlans),
-		"UpdateBackupPlan":    service.WrapOp(h.handleUpdateBackupPlan),
-		"DeleteBackupPlan":    service.WrapOp(h.handleDeleteBackupPlan),
-		"StartBackupJob":      service.WrapOp(h.handleStartBackupJob),
-		"DescribeBackupJob":   service.WrapOp(h.handleDescribeBackupJob),
-		"ListBackupJobs":      service.WrapOp(h.handleListBackupJobs),
-		"TagResource":         service.WrapOp(h.handleTagResource),
-		"ListTags":            service.WrapOp(h.handleListTags),
+//nolint:cyclop // dispatch table for 14 REST operations is inherently wide
+func (h *Handler) dispatch(c *echo.Context, route backupRoute, body []byte) error {
+	switch route.operation {
+	case "CreateBackupVault":
+		return h.handleCreateBackupVault(c, route.resource, body)
+	case "DescribeBackupVault":
+		return h.handleDescribeBackupVault(c, route.resource)
+	case "ListBackupVaults":
+		return h.handleListBackupVaults(c)
+	case "DeleteBackupVault":
+		return h.handleDeleteBackupVault(c, route.resource)
+	case "CreateBackupPlan":
+		return h.handleCreateBackupPlan(c, body)
+	case "GetBackupPlan":
+		return h.handleGetBackupPlan(c, route.resource)
+	case "ListBackupPlans":
+		return h.handleListBackupPlans(c)
+	case "UpdateBackupPlan":
+		return h.handleUpdateBackupPlan(c, route.resource, body)
+	case "DeleteBackupPlan":
+		return h.handleDeleteBackupPlan(c, route.resource)
+	case "StartBackupJob":
+		return h.handleStartBackupJob(c, body)
+	case "DescribeBackupJob":
+		return h.handleDescribeBackupJob(c, route.resource)
+	case "ListBackupJobs":
+		return h.handleListBackupJobs(c)
+	case "TagResource":
+		return h.handleTagResource(c, route.resource, body)
+	case "ListTags":
+		return h.handleListTags(c, route.resource)
+	default:
+		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
-	fn, ok := h.dispatchTable()[action]
-	if !ok {
-		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
-	}
-
-	result, err := fn(ctx, body)
-	if err != nil {
-		return nil, err
-	}
-
-	return json.Marshal(result)
-}
-
-func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	var syntaxErr *json.SyntaxError
-	var typeErr *json.UnmarshalTypeError
-
+func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "ResourceNotFoundException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusNotFound, payload)
+		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrAlreadyExists):
-		payload, _ := json.Marshal(service.JSONErrorResponse{
-			Type:    "AlreadyExistsException",
-			Message: err.Error(),
-		})
-
-		return c.JSONBlob(http.StatusConflict, payload)
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusConflict, errResp("AlreadyExistsException", err.Error()))
+	case errors.Is(err, errInvalidRequest):
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
 	}
+}
+
+func errResp(code, msg string) map[string]string {
+	return map[string]string{"code": code, "message": msg}
+}
+
+// epochSeconds returns the Unix epoch timestamp as a float64 for JSON serialization.
+// The AWS Backup SDK deserializes timestamps as JSON numbers (epoch seconds).
+func epochSeconds(ts interface{ Unix() int64 }) float64 {
+	return float64(ts.Unix())
 }
 
 // --- Vault handlers ---
 
-type createBackupVaultInput struct {
+type createBackupVaultBody struct {
 	BackupVaultTags  map[string]string `json:"BackupVaultTags"`
-	BackupVaultName  string            `json:"BackupVaultName"`
 	EncryptionKeyArn string            `json:"EncryptionKeyArn"`
 	CreatorRequestID string            `json:"CreatorRequestId"`
 }
 
-type createBackupVaultOutput struct {
-	BackupVaultArn  string `json:"BackupVaultArn"`
-	BackupVaultName string `json:"BackupVaultName"`
-	CreationDate    string `json:"CreationDate"`
-}
-
-func (h *Handler) handleCreateBackupVault(
-	_ context.Context,
-	in *createBackupVaultInput,
-) (*createBackupVaultOutput, error) {
-	if in.BackupVaultName == "" {
-		return nil, fmt.Errorf("%w: BackupVaultName is required", errInvalidRequest)
+func (h *Handler) handleCreateBackupVault(c *echo.Context, name string, body []byte) error {
+	if name == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "BackupVaultName is required"))
 	}
 
-	v, err := h.Backend.CreateBackupVault(
-		in.BackupVaultName,
-		in.EncryptionKeyArn,
-		in.CreatorRequestID,
-		in.BackupVaultTags,
-	)
+	var in createBackupVaultBody
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+		}
+	}
+
+	v, err := h.Backend.CreateBackupVault(name, in.EncryptionKeyArn, in.CreatorRequestID, in.BackupVaultTags)
 	if err != nil {
-		return nil, err
+		return h.handleError(c, err)
 	}
 
-	return &createBackupVaultOutput{
-		BackupVaultArn:  v.BackupVaultArn,
-		BackupVaultName: v.BackupVaultName,
-		CreationDate:    v.CreationTime.Format("2006-01-02T15:04:05Z"),
-	}, nil
+	return c.JSON(http.StatusOK, map[string]any{
+		"BackupVaultArn":  v.BackupVaultArn,
+		"BackupVaultName": v.BackupVaultName,
+		"CreationDate":    epochSeconds(v.CreationTime),
+	})
 }
 
-type describeBackupVaultInput struct {
-	BackupVaultName string `json:"BackupVaultName"`
-}
-
-type describeBackupVaultOutput struct {
-	BackupVaultName        string `json:"BackupVaultName"`
-	BackupVaultArn         string `json:"BackupVaultArn"`
-	EncryptionKeyArn       string `json:"EncryptionKeyArn,omitempty"`
-	CreationDate           string `json:"CreationDate"`
-	NumberOfRecoveryPoints int64  `json:"NumberOfRecoveryPoints"`
-}
-
-func (h *Handler) handleDescribeBackupVault(
-	_ context.Context,
-	in *describeBackupVaultInput,
-) (*describeBackupVaultOutput, error) {
-	v, err := h.Backend.DescribeBackupVault(in.BackupVaultName)
+func (h *Handler) handleDescribeBackupVault(c *echo.Context, name string) error {
+	v, err := h.Backend.DescribeBackupVault(name)
 	if err != nil {
-		return nil, err
+		return h.handleError(c, err)
 	}
 
-	return &describeBackupVaultOutput{
-		BackupVaultName:        v.BackupVaultName,
-		BackupVaultArn:         v.BackupVaultArn,
-		EncryptionKeyArn:       v.EncryptionKeyArn,
-		NumberOfRecoveryPoints: v.NumberOfRecoveryPoints,
-		CreationDate:           v.CreationTime.Format("2006-01-02T15:04:05Z"),
-	}, nil
+	resp := map[string]any{
+		"BackupVaultName":        v.BackupVaultName,
+		"BackupVaultArn":         v.BackupVaultArn,
+		"CreationDate":           epochSeconds(v.CreationTime),
+		"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
+	}
+	if v.EncryptionKeyArn != "" {
+		resp["EncryptionKeyArn"] = v.EncryptionKeyArn
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
-type listBackupVaultsInput struct{}
-
-type vaultSummary struct {
-	BackupVaultName        string `json:"BackupVaultName"`
-	BackupVaultArn         string `json:"BackupVaultArn"`
-	NumberOfRecoveryPoints int64  `json:"NumberOfRecoveryPoints"`
-}
-
-type listBackupVaultsOutput struct {
-	BackupVaultList []vaultSummary `json:"BackupVaultList"`
-}
-
-func (h *Handler) handleListBackupVaults(_ context.Context, _ *listBackupVaultsInput) (*listBackupVaultsOutput, error) {
+func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 	vaults := h.Backend.ListBackupVaults()
-	items := make([]vaultSummary, 0, len(vaults))
+	items := make([]map[string]any, 0, len(vaults))
+
 	for _, v := range vaults {
-		items = append(items, vaultSummary{
-			BackupVaultName:        v.BackupVaultName,
-			BackupVaultArn:         v.BackupVaultArn,
-			NumberOfRecoveryPoints: v.NumberOfRecoveryPoints,
+		items = append(items, map[string]any{
+			"BackupVaultName":        v.BackupVaultName,
+			"BackupVaultArn":         v.BackupVaultArn,
+			"CreationDate":           epochSeconds(v.CreationTime),
+			"NumberOfRecoveryPoints": v.NumberOfRecoveryPoints,
 		})
 	}
 
-	return &listBackupVaultsOutput{BackupVaultList: items}, nil
+	return c.JSON(http.StatusOK, map[string]any{
+		"BackupVaultList": items,
+	})
 }
 
-type deleteBackupVaultInput struct {
-	BackupVaultName string `json:"BackupVaultName"`
-}
-
-type deleteBackupVaultOutput struct{}
-
-func (h *Handler) handleDeleteBackupVault(
-	_ context.Context,
-	in *deleteBackupVaultInput,
-) (*deleteBackupVaultOutput, error) {
-	if err := h.Backend.DeleteBackupVault(in.BackupVaultName); err != nil {
-		return nil, err
+func (h *Handler) handleDeleteBackupVault(c *echo.Context, name string) error {
+	if err := h.Backend.DeleteBackupVault(name); err != nil {
+		return h.handleError(c, err)
 	}
 
-	return &deleteBackupVaultOutput{}, nil
+	return c.NoContent(http.StatusOK)
 }
 
 // --- Plan handlers ---
 
-type backupRuleInput struct {
+type backupRuleJSON struct {
 	RuleName                string `json:"RuleName"`
 	TargetBackupVaultName   string `json:"TargetBackupVaultName"`
-	ScheduleExpression      string `json:"ScheduleExpression"`
-	StartWindowMinutes      int64  `json:"StartWindowMinutes"`
-	CompletionWindowMinutes int64  `json:"CompletionWindowMinutes"`
+	ScheduleExpression      string `json:"ScheduleExpression,omitempty"`
+	StartWindowMinutes      int64  `json:"StartWindowMinutes,omitempty"`
+	CompletionWindowMinutes int64  `json:"CompletionWindowMinutes,omitempty"`
 }
 
-type backupPlanInput struct {
+type backupPlanBodyDoc struct {
+	BackupPlanName string           `json:"BackupPlanName"`
+	Rules          []backupRuleJSON `json:"Rules"`
+}
+
+type createBackupPlanBody struct {
 	BackupPlanTags map[string]string `json:"BackupPlanTags"`
-	BackupPlanName string            `json:"BackupPlanName"`
-	Rules          []backupRuleInput `json:"Rules"`
+	BackupPlan     backupPlanBodyDoc `json:"BackupPlan"`
 }
 
-type createBackupPlanInput struct {
-	BackupPlan backupPlanInput `json:"BackupPlan"`
+func rulesFromJSON(in []backupRuleJSON) []Rule {
+	rules := make([]Rule, 0, len(in))
+	for _, r := range in {
+		rules = append(rules, Rule{
+			RuleName:                r.RuleName,
+			TargetVaultName:         r.TargetBackupVaultName,
+			ScheduleExpression:      r.ScheduleExpression,
+			StartWindowMinutes:      r.StartWindowMinutes,
+			CompletionWindowMinutes: r.CompletionWindowMinutes,
+		})
+	}
+
+	return rules
 }
 
-type createBackupPlanOutput struct {
-	BackupPlanArn string `json:"BackupPlanArn"`
-	BackupPlanID  string `json:"BackupPlanId"`
-	VersionID     string `json:"VersionId"`
-	CreationDate  string `json:"CreationDate"`
+func rulesToJSON(rules []Rule) []backupRuleJSON {
+	out := make([]backupRuleJSON, 0, len(rules))
+	for _, r := range rules {
+		out = append(out, backupRuleJSON{
+			RuleName:                r.RuleName,
+			TargetBackupVaultName:   r.TargetVaultName,
+			ScheduleExpression:      r.ScheduleExpression,
+			StartWindowMinutes:      r.StartWindowMinutes,
+			CompletionWindowMinutes: r.CompletionWindowMinutes,
+		})
+	}
+
+	return out
 }
 
-func (h *Handler) handleCreateBackupPlan(
-	_ context.Context,
-	in *createBackupPlanInput,
-) (*createBackupPlanOutput, error) {
+func (h *Handler) handleCreateBackupPlan(c *echo.Context, body []byte) error {
+	var in createBackupPlanBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+	}
+
 	if in.BackupPlan.BackupPlanName == "" {
-		return nil, fmt.Errorf("%w: BackupPlanName is required", errInvalidRequest)
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", fmt.Sprintf("%s: BackupPlanName is required", errInvalidRequest)),
+		)
 	}
 
-	rules := make([]Rule, 0, len(in.BackupPlan.Rules))
-	for _, r := range in.BackupPlan.Rules {
-		rules = append(rules, Rule{
-			RuleName:                r.RuleName,
-			TargetVaultName:         r.TargetBackupVaultName,
-			ScheduleExpression:      r.ScheduleExpression,
-			StartWindowMinutes:      r.StartWindowMinutes,
-			CompletionWindowMinutes: r.CompletionWindowMinutes,
-		})
-	}
-
-	p, err := h.Backend.CreateBackupPlan(in.BackupPlan.BackupPlanName, rules, in.BackupPlan.BackupPlanTags)
+	p, err := h.Backend.CreateBackupPlan(
+		in.BackupPlan.BackupPlanName,
+		rulesFromJSON(in.BackupPlan.Rules),
+		in.BackupPlanTags,
+	)
 	if err != nil {
-		return nil, err
+		return h.handleError(c, err)
 	}
 
-	return &createBackupPlanOutput{
-		BackupPlanArn: p.BackupPlanArn,
-		BackupPlanID:  p.BackupPlanID,
-		VersionID:     p.VersionID,
-		CreationDate:  p.CreationTime.Format("2006-01-02T15:04:05Z"),
-	}, nil
+	return c.JSON(http.StatusOK, map[string]any{
+		"BackupPlanArn": p.BackupPlanArn,
+		"BackupPlanId":  p.BackupPlanID,
+		"VersionId":     p.VersionID,
+		"CreationDate":  epochSeconds(p.CreationTime),
+	})
 }
 
-type getBackupPlanInput struct {
-	BackupPlanID string `json:"BackupPlanId"`
-}
-
-type backupRuleOutput struct {
-	RuleName              string `json:"RuleName"`
-	TargetBackupVaultName string `json:"TargetBackupVaultName"`
-	ScheduleExpression    string `json:"ScheduleExpression,omitempty"`
-}
-
-type backupPlanOutput struct {
-	BackupPlanName string             `json:"BackupPlanName"`
-	Rules          []backupRuleOutput `json:"Rules"`
-}
-
-type getBackupPlanOutput struct {
-	BackupPlanArn string           `json:"BackupPlanArn"`
-	BackupPlanID  string           `json:"BackupPlanId"`
-	VersionID     string           `json:"VersionId"`
-	CreationDate  string           `json:"CreationDate"`
-	BackupPlan    backupPlanOutput `json:"BackupPlan"`
-}
-
-func (h *Handler) handleGetBackupPlan(_ context.Context, in *getBackupPlanInput) (*getBackupPlanOutput, error) {
-	p, err := h.Backend.GetBackupPlan(in.BackupPlanID)
+func (h *Handler) handleGetBackupPlan(c *echo.Context, id string) error {
+	p, err := h.Backend.GetBackupPlan(id)
 	if err != nil {
-		return nil, err
+		return h.handleError(c, err)
 	}
 
-	rules := make([]backupRuleOutput, 0, len(p.Rules))
-	for _, r := range p.Rules {
-		rules = append(rules, backupRuleOutput{
-			RuleName:              r.RuleName,
-			TargetBackupVaultName: r.TargetVaultName,
-			ScheduleExpression:    r.ScheduleExpression,
-		})
-	}
-
-	return &getBackupPlanOutput{
-		BackupPlan: backupPlanOutput{
-			BackupPlanName: p.BackupPlanName,
-			Rules:          rules,
+	return c.JSON(http.StatusOK, map[string]any{
+		"BackupPlanArn": p.BackupPlanArn,
+		"BackupPlanId":  p.BackupPlanID,
+		"VersionId":     p.VersionID,
+		"CreationDate":  epochSeconds(p.CreationTime),
+		"BackupPlan": map[string]any{
+			"BackupPlanName": p.BackupPlanName,
+			"Rules":          rulesToJSON(p.Rules),
 		},
-		BackupPlanArn: p.BackupPlanArn,
-		BackupPlanID:  p.BackupPlanID,
-		VersionID:     p.VersionID,
-		CreationDate:  p.CreationTime.Format("2006-01-02T15:04:05Z"),
-	}, nil
+	})
 }
 
-type listBackupPlansInput struct{}
-
-type planSummary struct {
-	BackupPlanName string `json:"BackupPlanName"`
-	BackupPlanArn  string `json:"BackupPlanArn"`
-	BackupPlanID   string `json:"BackupPlanId"`
-	VersionID      string `json:"VersionId"`
-}
-
-type listBackupPlansOutput struct {
-	BackupPlansList []planSummary `json:"BackupPlansList"`
-}
-
-func (h *Handler) handleListBackupPlans(_ context.Context, _ *listBackupPlansInput) (*listBackupPlansOutput, error) {
+func (h *Handler) handleListBackupPlans(c *echo.Context) error {
 	plans := h.Backend.ListBackupPlans()
-	items := make([]planSummary, 0, len(plans))
+	items := make([]map[string]any, 0, len(plans))
+
 	for _, p := range plans {
-		items = append(items, planSummary{
-			BackupPlanName: p.BackupPlanName,
-			BackupPlanArn:  p.BackupPlanArn,
-			BackupPlanID:   p.BackupPlanID,
-			VersionID:      p.VersionID,
+		items = append(items, map[string]any{
+			"BackupPlanName": p.BackupPlanName,
+			"BackupPlanArn":  p.BackupPlanArn,
+			"BackupPlanId":   p.BackupPlanID,
+			"VersionId":      p.VersionID,
+			"CreationDate":   epochSeconds(p.CreationTime),
 		})
 	}
 
-	return &listBackupPlansOutput{BackupPlansList: items}, nil
+	return c.JSON(http.StatusOK, map[string]any{
+		"BackupPlansList": items,
+	})
 }
 
-type updateBackupPlanInput struct {
-	BackupPlanID string          `json:"BackupPlanId"`
-	BackupPlan   backupPlanInput `json:"BackupPlan"`
+type updateBackupPlanBody struct {
+	BackupPlan backupPlanBodyDoc `json:"BackupPlan"`
 }
 
-type updateBackupPlanOutput struct {
-	BackupPlanArn string `json:"BackupPlanArn"`
-	BackupPlanID  string `json:"BackupPlanId"`
-	VersionID     string `json:"VersionId"`
-}
-
-func (h *Handler) handleUpdateBackupPlan(
-	_ context.Context,
-	in *updateBackupPlanInput,
-) (*updateBackupPlanOutput, error) {
-	rules := make([]Rule, 0, len(in.BackupPlan.Rules))
-	for _, r := range in.BackupPlan.Rules {
-		rules = append(rules, Rule{
-			RuleName:                r.RuleName,
-			TargetVaultName:         r.TargetBackupVaultName,
-			ScheduleExpression:      r.ScheduleExpression,
-			StartWindowMinutes:      r.StartWindowMinutes,
-			CompletionWindowMinutes: r.CompletionWindowMinutes,
-		})
+func (h *Handler) handleUpdateBackupPlan(c *echo.Context, id string, body []byte) error {
+	var in updateBackupPlanBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 	}
 
-	p, err := h.Backend.UpdateBackupPlan(in.BackupPlanID, rules)
+	p, err := h.Backend.UpdateBackupPlan(id, rulesFromJSON(in.BackupPlan.Rules))
 	if err != nil {
-		return nil, err
+		return h.handleError(c, err)
 	}
 
-	return &updateBackupPlanOutput{
-		BackupPlanArn: p.BackupPlanArn,
-		BackupPlanID:  p.BackupPlanID,
-		VersionID:     p.VersionID,
-	}, nil
+	return c.JSON(http.StatusOK, map[string]any{
+		"BackupPlanArn": p.BackupPlanArn,
+		"BackupPlanId":  p.BackupPlanID,
+		"VersionId":     p.VersionID,
+	})
 }
 
-type deleteBackupPlanInput struct {
-	BackupPlanID string `json:"BackupPlanId"`
-}
-
-type deleteBackupPlanOutput struct {
-	BackupPlanArn string `json:"BackupPlanArn"`
-	BackupPlanID  string `json:"BackupPlanId"`
-	VersionID     string `json:"VersionId"`
-}
-
-func (h *Handler) handleDeleteBackupPlan(
-	_ context.Context,
-	in *deleteBackupPlanInput,
-) (*deleteBackupPlanOutput, error) {
-	p, err := h.Backend.GetBackupPlan(in.BackupPlanID)
+func (h *Handler) handleDeleteBackupPlan(c *echo.Context, id string) error {
+	p, err := h.Backend.GetBackupPlan(id)
 	if err != nil {
-		return nil, err
+		return h.handleError(c, err)
 	}
 
-	if delErr := h.Backend.DeleteBackupPlan(in.BackupPlanID); delErr != nil {
-		return nil, delErr
+	if delErr := h.Backend.DeleteBackupPlan(id); delErr != nil {
+		return h.handleError(c, delErr)
 	}
 
-	return &deleteBackupPlanOutput{
-		BackupPlanArn: p.BackupPlanArn,
-		BackupPlanID:  p.BackupPlanID,
-		VersionID:     p.VersionID,
-	}, nil
+	return c.JSON(http.StatusOK, map[string]any{
+		"BackupPlanArn": p.BackupPlanArn,
+		"BackupPlanId":  p.BackupPlanID,
+		"VersionId":     p.VersionID,
+		"DeletionDate":  epochSeconds(p.CreationTime),
+	})
 }
 
 // --- Job handlers ---
 
-type startBackupJobInput struct {
+type startBackupJobBody struct {
 	BackupVaultName string `json:"BackupVaultName"`
 	ResourceArn     string `json:"ResourceArn"`
 	IamRoleArn      string `json:"IamRoleArn"`
 	ResourceType    string `json:"ResourceType"`
 }
 
-type startBackupJobOutput struct {
-	BackupJobID    string `json:"BackupJobId"`
-	BackupVaultArn string `json:"BackupVaultArn"`
-	CreationDate   string `json:"CreationDate"`
-}
+func (h *Handler) handleStartBackupJob(c *echo.Context, body []byte) error {
+	var in startBackupJobBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+	}
 
-func (h *Handler) handleStartBackupJob(_ context.Context, in *startBackupJobInput) (*startBackupJobOutput, error) {
 	if in.BackupVaultName == "" {
-		return nil, fmt.Errorf("%w: BackupVaultName is required", errInvalidRequest)
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("ValidationException", fmt.Sprintf("%s: BackupVaultName is required", errInvalidRequest)),
+		)
 	}
 
 	j, err := h.Backend.StartBackupJob(in.BackupVaultName, in.ResourceArn, in.IamRoleArn, in.ResourceType)
 	if err != nil {
-		return nil, err
+		return h.handleError(c, err)
 	}
 
-	return &startBackupJobOutput{
-		BackupJobID:    j.BackupJobID,
-		BackupVaultArn: j.BackupVaultArn,
-		CreationDate:   j.CreationTime.Format("2006-01-02T15:04:05Z"),
-	}, nil
+	return c.JSON(http.StatusOK, map[string]any{
+		"BackupJobId":    j.BackupJobID,
+		"BackupVaultArn": j.BackupVaultArn,
+		"CreationDate":   epochSeconds(j.CreationTime),
+	})
 }
 
-type describeBackupJobInput struct {
-	BackupJobID string `json:"BackupJobId"`
-}
-
-type describeBackupJobOutput struct {
-	BackupJobID     string `json:"BackupJobId"`
-	BackupVaultName string `json:"BackupVaultName"`
-	BackupVaultArn  string `json:"BackupVaultArn"`
-	ResourceArn     string `json:"ResourceArn,omitempty"`
-	ResourceType    string `json:"ResourceType,omitempty"`
-	IamRoleArn      string `json:"IamRoleArn,omitempty"`
-	State           string `json:"State"`
-	CreationDate    string `json:"CreationDate"`
-}
-
-func (h *Handler) handleDescribeBackupJob(
-	_ context.Context,
-	in *describeBackupJobInput,
-) (*describeBackupJobOutput, error) {
-	j, err := h.Backend.DescribeBackupJob(in.BackupJobID)
+func (h *Handler) handleDescribeBackupJob(c *echo.Context, jobID string) error {
+	j, err := h.Backend.DescribeBackupJob(jobID)
 	if err != nil {
-		return nil, err
+		return h.handleError(c, err)
 	}
 
-	return &describeBackupJobOutput{
-		BackupJobID:     j.BackupJobID,
-		BackupVaultName: j.BackupVaultName,
-		BackupVaultArn:  j.BackupVaultArn,
-		ResourceArn:     j.ResourceArn,
-		ResourceType:    j.ResourceType,
-		IamRoleArn:      j.IAMRoleArn,
-		State:           j.State,
-		CreationDate:    j.CreationTime.Format("2006-01-02T15:04:05Z"),
-	}, nil
+	resp := map[string]any{
+		"BackupJobId":     j.BackupJobID,
+		"BackupVaultName": j.BackupVaultName,
+		"BackupVaultArn":  j.BackupVaultArn,
+		"State":           j.State,
+		"CreationDate":    epochSeconds(j.CreationTime),
+	}
+	if j.ResourceArn != "" {
+		resp["ResourceArn"] = j.ResourceArn
+	}
+	if j.ResourceType != "" {
+		resp["ResourceType"] = j.ResourceType
+	}
+	if j.IAMRoleArn != "" {
+		resp["IamRoleArn"] = j.IAMRoleArn
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
-type listBackupJobsInput struct {
-	ByBackupVaultName string `json:"ByBackupVaultName"`
-}
+func (h *Handler) handleListBackupJobs(c *echo.Context) error {
+	vaultFilter := c.Request().URL.Query().Get("backupVaultName")
+	jobs := h.Backend.ListBackupJobs(vaultFilter)
+	items := make([]map[string]any, 0, len(jobs))
 
-type jobSummary struct {
-	BackupJobID     string `json:"BackupJobId"`
-	BackupVaultName string `json:"BackupVaultName"`
-	BackupVaultArn  string `json:"BackupVaultArn"`
-	ResourceArn     string `json:"ResourceArn,omitempty"`
-	State           string `json:"State"`
-}
-
-type listBackupJobsOutput struct {
-	BackupJobs []jobSummary `json:"BackupJobs"`
-}
-
-func (h *Handler) handleListBackupJobs(_ context.Context, in *listBackupJobsInput) (*listBackupJobsOutput, error) {
-	jobs := h.Backend.ListBackupJobs(in.ByBackupVaultName)
-	items := make([]jobSummary, 0, len(jobs))
 	for _, j := range jobs {
-		items = append(items, jobSummary{
-			BackupJobID:     j.BackupJobID,
-			BackupVaultName: j.BackupVaultName,
-			BackupVaultArn:  j.BackupVaultArn,
-			ResourceArn:     j.ResourceArn,
-			State:           j.State,
+		items = append(items, map[string]any{
+			"BackupJobId":     j.BackupJobID,
+			"BackupVaultName": j.BackupVaultName,
+			"BackupVaultArn":  j.BackupVaultArn,
+			"ResourceArn":     j.ResourceArn,
+			"State":           j.State,
+			"CreationDate":    epochSeconds(j.CreationTime),
 		})
 	}
 
-	return &listBackupJobsOutput{BackupJobs: items}, nil
+	return c.JSON(http.StatusOK, map[string]any{
+		"BackupJobs": items,
+	})
 }
 
 // --- Tag handlers ---
 
-type tagResourceInput struct {
-	Tags        map[string]string `json:"Tags"`
-	ResourceArn string            `json:"ResourceArn"`
+type tagResourceBody struct {
+	Tags map[string]string `json:"Tags"`
 }
 
-type tagResourceOutput struct{}
+func (h *Handler) handleTagResource(c *echo.Context, resourceArn string, body []byte) error {
+	var in tagResourceBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
+	}
 
-func (h *Handler) handleTagResource(_ context.Context, in *tagResourceInput) (*tagResourceOutput, error) {
 	if in.Tags == nil {
 		in.Tags = make(map[string]string)
 	}
 
-	if err := h.Backend.TagResource(in.ResourceArn, in.Tags); err != nil {
-		return nil, err
+	if err := h.Backend.TagResource(resourceArn, in.Tags); err != nil {
+		return h.handleError(c, err)
 	}
 
-	return &tagResourceOutput{}, nil
+	return c.NoContent(http.StatusOK)
 }
 
-type listTagsInput struct {
-	ResourceArn string `json:"ResourceArn"`
-}
-
-type listTagsOutput struct {
-	Tags map[string]string `json:"Tags"`
-}
-
-func (h *Handler) handleListTags(_ context.Context, in *listTagsInput) (*listTagsOutput, error) {
-	t, err := h.Backend.ListTags(in.ResourceArn)
+func (h *Handler) handleListTags(c *echo.Context, resourceArn string) error {
+	t, err := h.Backend.ListTags(resourceArn)
 	if err != nil {
-		return nil, err
+		return h.handleError(c, err)
 	}
 
-	return &listTagsOutput{Tags: t}, nil
+	return c.JSON(http.StatusOK, map[string]any{
+		"Tags": t,
+	})
 }
