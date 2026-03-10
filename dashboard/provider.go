@@ -386,7 +386,6 @@ func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.bedrockRuntimeOps, _ = h.(*bedrockruntimebackend.Handler)
 	}
 
-
 	extractECRECSAndIoTHandlers(ap, ec)
 }
 

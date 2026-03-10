@@ -1,9 +1,10 @@
 package bedrockruntime
 
 import (
-	"bytes"
-	"context"
+	"encoding/binary"
 	"encoding/json"
+	"hash/crc32"
+	"math"
 	"net/http"
 	"strings"
 
@@ -15,6 +16,25 @@ import (
 )
 
 const modelPathPrefix = "/model/"
+
+// Event stream frame constants (AWS binary event stream protocol).
+const (
+	eventStreamPreludeLen = 12 // 4 (total-len) + 4 (headers-len) + 4 (prelude-CRC)
+	eventStreamMsgCRCLen  = 4
+
+	// eventStreamHeaderValueTypeString is the AWS event stream type byte for string headers.
+	eventStreamHeaderValueTypeString = 7
+	// eventStreamHeaderValueLenBytes is the number of bytes used to encode a header value length.
+	eventStreamHeaderValueLenBytes = 2
+)
+
+// Mock response token counts used in model responses.
+const (
+	mockInputTokenCount  = 10
+	mockOutputTokenCount = 10
+	mockTotalTokenCount  = 20
+	mockLatencyMS        = 1
+)
 
 // Handler is the Echo HTTP handler for AWS Bedrock Runtime operations.
 type Handler struct {
@@ -105,13 +125,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		switch op {
 		case "InvokeModel":
-			return h.handleInvokeModel(r.Context(), c, modelID, body)
+			return h.handleInvokeModel(c, modelID, body)
 		case "InvokeModelWithResponseStream":
-			return h.handleInvokeModelWithResponseStream(r.Context(), c, modelID, body)
+			return h.handleInvokeModelWithResponseStream(c, modelID, body)
 		case "Converse":
-			return h.handleConverse(r.Context(), c, modelID, body)
+			return h.handleConverse(c, modelID, body)
 		case "ConverseStream":
-			return h.handleConverseStream(r.Context(), c, modelID, body)
+			return h.handleConverseStream(c, modelID, body)
 		default:
 			return c.JSON(http.StatusNotFound, errorResponse("UnknownOperationException", "unknown operation: "+path))
 		}
@@ -120,7 +140,6 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // handleInvokeModel handles POST /model/{modelId}/invoke.
 func (h *Handler) handleInvokeModel(
-	ctx context.Context,
 	c *echo.Context,
 	modelID string,
 	body []byte,
@@ -134,17 +153,14 @@ func (h *Handler) handleInvokeModel(
 
 	h.Backend.RecordInvocation("InvokeModel", modelID, string(body), string(out))
 
-	_ = ctx
-
 	c.Response().Header().Set("Content-Type", "application/json")
 
 	return c.JSONBlob(http.StatusOK, out)
 }
 
 // handleInvokeModelWithResponseStream handles POST /model/{modelId}/invoke-with-response-stream.
-// It returns a minimal event-stream response containing a single chunk event and a stop event.
+// It returns a well-formed AWS event stream frame containing a single chunk event.
 func (h *Handler) handleInvokeModelWithResponseStream(
-	ctx context.Context,
 	c *echo.Context,
 	modelID string,
 	body []byte,
@@ -158,10 +174,11 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 
 	h.Backend.RecordInvocation("InvokeModelWithResponseStream", modelID, string(body), string(out))
 
-	_ = ctx
-
-	// Build a minimal AWS event stream frame containing the response bytes as a single chunk event.
-	frame := buildEventStreamFrame(out)
+	frame := encodeEventStreamMsg([][2]string{
+		{":message-type", "event"},
+		{":event-type", "chunk"},
+		{":content-type", "application/octet-stream"},
+	}, out)
 
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
@@ -172,7 +189,6 @@ func (h *Handler) handleInvokeModelWithResponseStream(
 
 // handleConverse handles POST /model/{modelId}/converse.
 func (h *Handler) handleConverse(
-	ctx context.Context,
 	c *echo.Context,
 	modelID string,
 	body []byte,
@@ -186,8 +202,6 @@ func (h *Handler) handleConverse(
 
 	h.Backend.RecordInvocation("Converse", modelID, string(body), string(out))
 
-	_ = ctx
-
 	c.Response().Header().Set("Content-Type", "application/json")
 
 	return c.JSONBlob(http.StatusOK, out)
@@ -195,7 +209,6 @@ func (h *Handler) handleConverse(
 
 // handleConverseStream handles POST /model/{modelId}/converse-stream.
 func (h *Handler) handleConverseStream(
-	ctx context.Context,
 	c *echo.Context,
 	modelID string,
 	body []byte,
@@ -209,9 +222,11 @@ func (h *Handler) handleConverseStream(
 
 	h.Backend.RecordInvocation("ConverseStream", modelID, string(body), string(out))
 
-	_ = ctx
-
-	frame := buildEventStreamFrame(out)
+	frame := encodeEventStreamMsg([][2]string{
+		{":message-type", "event"},
+		{":event-type", "messageStop"},
+		{":content-type", "application/json"},
+	}, out)
 
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
@@ -228,29 +243,29 @@ func mockInvokeModelResponse(modelID string) map[string]any {
 	switch {
 	case strings.Contains(modelIDLower, "claude"):
 		return map[string]any{
-			"completion": "This is a mock response from Gopherstack.",
+			"completion":  "This is a mock response from Gopherstack.",
 			"stop_reason": "end_turn",
-			"model": modelID,
+			"model":       modelID,
 		}
 	case strings.Contains(modelIDLower, "titan"):
 		return map[string]any{
 			"results": []map[string]any{
 				{"outputText": "This is a mock response from Gopherstack.", "completionReason": "FINISH"},
 			},
-			"inputTextTokenCount": 10,
+			"inputTextTokenCount": mockInputTokenCount,
 		}
 	case strings.Contains(modelIDLower, "llama"):
 		return map[string]any{
-			"generation":            "This is a mock response from Gopherstack.",
-			"prompt_token_count":    10,
-			"generation_token_count": 10,
-			"stop_reason":           "stop",
+			"generation":             "This is a mock response from Gopherstack.",
+			"prompt_token_count":     mockInputTokenCount,
+			"generation_token_count": mockOutputTokenCount,
+			"stop_reason":            "stop",
 		}
 	default:
 		return map[string]any{
-			"completion": "This is a mock response from Gopherstack.",
+			"completion":  "This is a mock response from Gopherstack.",
 			"stop_reason": "end_turn",
-			"model": modelID,
+			"model":       modelID,
 		}
 	}
 }
@@ -267,41 +282,68 @@ func mockConverseResponse() map[string]any {
 		},
 		"stopReason": "end_turn",
 		"usage": map[string]any{
-			"inputTokens":  10,
-			"outputTokens": 10,
-			"totalTokens":  20,
+			"inputTokens":  mockInputTokenCount,
+			"outputTokens": mockOutputTokenCount,
+			"totalTokens":  mockTotalTokenCount,
 		},
 		"metrics": map[string]any{
-			"latencyMs": 1,
+			"latencyMs": mockLatencyMS,
 		},
 	}
 }
 
-// buildEventStreamFrame encodes payload as a minimal AWS binary event stream frame.
-// Frame structure: total-length (4 bytes BE) | headers-length (4 bytes BE) |
-//
-//	prelude-CRC (4 bytes) | headers | payload | message-CRC (4 bytes)
-//
-// For simplicity the mock emits a frame with no headers so headers-length = 0.
-func buildEventStreamFrame(payload []byte) []byte {
-	// Total length = 4 (total-len) + 4 (headers-len) + 4 (prelude-CRC) + payload + 4 (msg-CRC)
-	totalLen := uint32(4 + 4 + 4 + len(payload) + 4)
+// encodeEventStreamMsg encodes a single AWS event stream binary message.
+// Format: totalLen(4) | headersLen(4) | preludeCRC(4) | headers | payload | msgCRC(4).
+// Uses the same framing as the Kinesis event stream implementation.
+func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
+	hdrBytes := buildEventStreamHeaders(hdrs)
+	headerLen := len(hdrBytes)
+	payloadLen := len(payload)
 
-	var buf bytes.Buffer
-	writeUint32BE(&buf, totalLen)
-	writeUint32BE(&buf, 0) // headers-length
-	writeUint32BE(&buf, 0) // prelude-CRC (mock: 0)
-	buf.Write(payload)
-	writeUint32BE(&buf, 0) // message-CRC (mock: 0)
+	// Guard against integer overflow: payloadLen must fit within the remaining frame space.
+	if headerLen > math.MaxInt32-eventStreamPreludeLen-payloadLen-eventStreamMsgCRCLen {
+		return nil
+	}
 
-	return buf.Bytes()
+	totalLen := eventStreamPreludeLen + headerLen + payloadLen + eventStreamMsgCRCLen
+	buf := make([]byte, totalLen)
+
+	//nolint:gosec // totalLen is bounded by the overflow check above
+	binary.BigEndian.PutUint32(buf[0:4], uint32(totalLen))
+	//nolint:gosec // headerLen is bounded by the overflow check above
+	binary.BigEndian.PutUint32(buf[4:8], uint32(headerLen))
+
+	preludeCRC := crc32.ChecksumIEEE(buf[0:8])
+	binary.BigEndian.PutUint32(buf[8:eventStreamPreludeLen], preludeCRC)
+
+	copy(buf[eventStreamPreludeLen:eventStreamPreludeLen+headerLen], hdrBytes)
+	copy(buf[eventStreamPreludeLen+headerLen:eventStreamPreludeLen+headerLen+payloadLen], payload)
+
+	msgCRC := crc32.ChecksumIEEE(buf[0 : eventStreamPreludeLen+headerLen+payloadLen])
+	binary.BigEndian.PutUint32(buf[eventStreamPreludeLen+headerLen+payloadLen:], msgCRC)
+
+	return buf
 }
 
-func writeUint32BE(buf *bytes.Buffer, v uint32) {
-	buf.WriteByte(byte(v >> 24))
-	buf.WriteByte(byte(v >> 16))
-	buf.WriteByte(byte(v >> 8))
-	buf.WriteByte(byte(v))
+// buildEventStreamHeaders encodes name/value header pairs in AWS event stream binary format.
+func buildEventStreamHeaders(hdrs [][2]string) []byte {
+	var buf [512]byte
+	n := 0
+
+	for _, kv := range hdrs {
+		name, value := kv[0], kv[1]
+		buf[n] = byte(len(name)) //nolint:gosec // header name bounded by AWS event stream protocol
+		n++
+		n += copy(buf[n:], name)
+		buf[n] = eventStreamHeaderValueTypeString
+		n++
+		//nolint:gosec // header value length fits in uint16 by AWS event stream protocol
+		binary.BigEndian.PutUint16(buf[n:n+eventStreamHeaderValueLenBytes], uint16(len(value)))
+		n += eventStreamHeaderValueLenBytes
+		n += copy(buf[n:], value)
+	}
+
+	return buf[:n]
 }
 
 // --- Helpers ---

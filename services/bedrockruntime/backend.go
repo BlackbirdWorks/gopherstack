@@ -17,10 +17,10 @@ type Invocation struct {
 
 // InMemoryBackend stores Bedrock Runtime state in memory.
 type InMemoryBackend struct {
-	invocations []*Invocation
 	mu          *lockmetrics.RWMutex
 	accountID   string
 	region      string
+	invocations []*Invocation
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

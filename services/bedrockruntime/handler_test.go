@@ -137,9 +137,9 @@ func TestHandler_ExtractOperation(t *testing.T) {
 	e := echo.New()
 
 	tests := []struct {
-		name      string
-		path      string
-		wantOp    string
+		name   string
+		path   string
+		wantOp string
 	}{
 		{
 			name:   "InvokeModel",
@@ -181,9 +181,9 @@ func TestHandler_ExtractResource(t *testing.T) {
 	e := echo.New()
 
 	tests := []struct {
-		name       string
-		path       string
-		wantModel  string
+		name      string
+		path      string
+		wantModel string
 	}{
 		{
 			name:      "claude model id",
@@ -290,9 +290,9 @@ func TestHandler_Converse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body    map[string]any
 		name    string
 		modelID string
-		body    map[string]any
 	}{
 		{
 			name:    "basic converse",
