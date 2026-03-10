@@ -435,6 +435,19 @@ func (b *InMemoryBackend) ListHostedConfigurationVersions(
 	b.mu.RLock("ListHostedConfigurationVersions")
 	defer b.mu.RUnlock()
 
+	if _, ok := b.applications[applicationID]; !ok {
+		return nil, fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
+	}
+
+	appProfiles, hasProfiles := b.configProfiles[applicationID]
+	if !hasProfiles {
+		return nil, fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+	}
+
+	if _, ok := appProfiles[profileID]; !ok {
+		return nil, fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
+	}
+
 	versions := b.hostedConfigVersions[applicationID]
 	profileVersions := versions[profileID]
 
@@ -645,6 +658,19 @@ func (b *InMemoryBackend) GetDeployment(
 func (b *InMemoryBackend) ListDeployments(applicationID, environmentID string) ([]Deployment, error) {
 	b.mu.RLock("ListDeployments")
 	defer b.mu.RUnlock()
+
+	if _, ok := b.applications[applicationID]; !ok {
+		return nil, fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
+	}
+
+	appEnvs, hasEnvs := b.environments[applicationID]
+	if !hasEnvs {
+		return nil, fmt.Errorf("%w: environment %s", ErrEnvironmentNotFound, environmentID)
+	}
+
+	if _, ok := appEnvs[environmentID]; !ok {
+		return nil, fmt.Errorf("%w: environment %s", ErrEnvironmentNotFound, environmentID)
+	}
 
 	envDeployments := b.deployments[applicationID]
 	deploys := envDeployments[environmentID]

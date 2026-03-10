@@ -144,11 +144,14 @@ func parseAppConfigPath(method, path string) appConfigRoute {
 
 func parseDeploymentStrategyRoute(method string, parts []string) appConfigRoute {
 	if len(parts) == 1 {
-		if method == http.MethodPost {
+		switch method {
+		case http.MethodPost:
 			return appConfigRoute{operation: "CreateDeploymentStrategy"}
+		case http.MethodGet:
+			return appConfigRoute{operation: "ListDeploymentStrategies"}
 		}
 
-		return appConfigRoute{operation: "ListDeploymentStrategies"}
+		return appConfigRoute{operation: "Unknown"}
 	}
 
 	strategyID := parts[1]
@@ -170,11 +173,14 @@ func parseDeploymentStrategyRoute(method string, parts []string) appConfigRoute 
 
 func parseApplicationRoute(method string, parts []string) appConfigRoute {
 	if len(parts) == 1 {
-		if method == http.MethodPost {
+		switch method {
+		case http.MethodPost:
 			return appConfigRoute{operation: "CreateApplication"}
+		case http.MethodGet:
+			return appConfigRoute{operation: "ListApplications"}
 		}
 
-		return appConfigRoute{operation: "ListApplications"}
+		return appConfigRoute{operation: "Unknown"}
 	}
 
 	appID := parts[1]
@@ -208,11 +214,14 @@ func parseAppIDRoute(method, appID string) appConfigRoute {
 
 func parseEnvironmentRoute(method, appID string, parts []string) appConfigRoute {
 	if len(parts) == pathPartsSubLevel {
-		if method == http.MethodPost {
+		switch method {
+		case http.MethodPost:
 			return appConfigRoute{applicationID: appID, operation: "CreateEnvironment"}
+		case http.MethodGet:
+			return appConfigRoute{applicationID: appID, operation: "ListEnvironments"}
 		}
 
-		return appConfigRoute{applicationID: appID, operation: "ListEnvironments"}
+		return appConfigRoute{applicationID: appID, operation: "Unknown"}
 	}
 
 	envID := parts[3]
@@ -241,16 +250,26 @@ func parseEnvIDRoute(method, appID, envID string) appConfigRoute {
 	return appConfigRoute{applicationID: appID, environmentID: envID, operation: "Unknown"}
 }
 
+// parseDeploymentRoute parses deployment routes under /environments/{envId}/deployments.
+//
+//nolint:dupl // similar structure to parseHostedVersionRoute by design; different resource fields
 func parseDeploymentRoute(method, appID, envID string, parts []string) appConfigRoute {
 	if len(parts) == pathPartsDeepLevel {
-		if method == http.MethodPost {
+		switch method {
+		case http.MethodPost:
 			return appConfigRoute{applicationID: appID, environmentID: envID, operation: "StartDeployment"}
+		case http.MethodGet:
+			return appConfigRoute{applicationID: appID, environmentID: envID, operation: "ListDeployments"}
 		}
 
-		return appConfigRoute{applicationID: appID, environmentID: envID, operation: "ListDeployments"}
+		return appConfigRoute{applicationID: appID, environmentID: envID, operation: "Unknown"}
 	}
 
-	depNum, _ := strconv.ParseInt(parts[5], 10, 32)
+	depNum, err := strconv.ParseInt(parts[5], 10, 32)
+	if err != nil {
+		return appConfigRoute{applicationID: appID, environmentID: envID, operation: "Unknown"}
+	}
+
 	num := int32(depNum)
 
 	switch method {
@@ -278,11 +297,14 @@ func parseDeploymentRoute(method, appID, envID string, parts []string) appConfig
 
 func parseConfigProfileRoute(method, appID string, parts []string) appConfigRoute {
 	if len(parts) == pathPartsSubLevel {
-		if method == http.MethodPost {
+		switch method {
+		case http.MethodPost:
 			return appConfigRoute{applicationID: appID, operation: "CreateConfigurationProfile"}
+		case http.MethodGet:
+			return appConfigRoute{applicationID: appID, operation: "ListConfigurationProfiles"}
 		}
 
-		return appConfigRoute{applicationID: appID, operation: "ListConfigurationProfiles"}
+		return appConfigRoute{applicationID: appID, operation: "Unknown"}
 	}
 
 	profileID := parts[3]
@@ -311,20 +333,34 @@ func parseProfileIDRoute(method, appID, profileID string) appConfigRoute {
 	return appConfigRoute{applicationID: appID, profileID: profileID, operation: "Unknown"}
 }
 
+// parseHostedVersionRoute parses hosted configuration version routes.
+//
+//nolint:dupl // similar structure to parseDeploymentRoute by design; different resource fields
 func parseHostedVersionRoute(method, appID, profileID string, parts []string) appConfigRoute {
 	if len(parts) == pathPartsDeepLevel {
-		if method == http.MethodPost {
+		switch method {
+		case http.MethodPost:
 			return appConfigRoute{
 				applicationID: appID,
 				profileID:     profileID,
 				operation:     "CreateHostedConfigurationVersion",
 			}
+		case http.MethodGet:
+			return appConfigRoute{
+				applicationID: appID,
+				profileID:     profileID,
+				operation:     "ListHostedConfigurationVersions",
+			}
 		}
 
-		return appConfigRoute{applicationID: appID, profileID: profileID, operation: "ListHostedConfigurationVersions"}
+		return appConfigRoute{applicationID: appID, profileID: profileID, operation: "Unknown"}
 	}
 
-	verNum, _ := strconv.ParseInt(parts[5], 10, 32)
+	verNum, err := strconv.ParseInt(parts[5], 10, 32)
+	if err != nil {
+		return appConfigRoute{applicationID: appID, profileID: profileID, operation: "Unknown"}
+	}
+
 	num := int32(verNum)
 
 	switch method {
@@ -431,8 +467,8 @@ func notFoundResponse(c *echo.Context, err error) error {
 
 func (h *Handler) handleCreateApplication(c *echo.Context) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string `json:"Name"`
+		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
@@ -467,8 +503,8 @@ func (h *Handler) handleListApplications(c *echo.Context) error {
 
 func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string `json:"Name"`
+		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
@@ -500,8 +536,8 @@ func (h *Handler) handleDeleteApplication(c *echo.Context, applicationID string)
 
 func (h *Handler) handleCreateEnvironment(c *echo.Context, applicationID string) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string `json:"Name"`
+		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
@@ -547,8 +583,8 @@ func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) 
 
 func (h *Handler) handleUpdateEnvironment(c *echo.Context, applicationID, environmentID string) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string `json:"Name"`
+		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
@@ -580,10 +616,10 @@ func (h *Handler) handleDeleteEnvironment(c *echo.Context, applicationID, enviro
 
 func (h *Handler) handleCreateConfigurationProfile(c *echo.Context, applicationID string) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		LocationURI string `json:"locationUri"`
-		Type        string `json:"type"`
+		Name        string `json:"Name"`
+		Description string `json:"Description"`
+		LocationURI string `json:"LocationUri"`
+		Type        string `json:"Type"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
@@ -635,8 +671,8 @@ func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID
 
 func (h *Handler) handleUpdateConfigurationProfile(c *echo.Context, applicationID, profileID string) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name        string `json:"Name"`
+		Description string `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
@@ -686,8 +722,7 @@ func (h *Handler) handleCreateHostedConfigurationVersion(c *echo.Context, applic
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
-	c.Response().Header().Set("Content-Type", v.ContentType)
-	c.Response().Header().Set("AppConfig-Configuration-Version", strconv.Itoa(int(v.VersionNumber)))
+	c.Response().Header().Set("Appconfig-Configuration-Version", strconv.Itoa(int(v.VersionNumber)))
 
 	return c.JSON(http.StatusCreated, v)
 }
@@ -707,7 +742,7 @@ func (h *Handler) handleGetHostedConfigurationVersion(
 	}
 
 	c.Response().Header().Set("Content-Type", v.ContentType)
-	c.Response().Header().Set("AppConfig-Configuration-Version", strconv.Itoa(int(v.VersionNumber)))
+	c.Response().Header().Set("Appconfig-Configuration-Version", strconv.Itoa(int(v.VersionNumber)))
 
 	return c.Blob(http.StatusOK, v.ContentType, v.Content)
 }
@@ -743,13 +778,13 @@ func (h *Handler) handleDeleteHostedConfigurationVersion(
 
 func (h *Handler) handleCreateDeploymentStrategy(c *echo.Context) error {
 	var req struct {
-		Name                        string  `json:"name"`
-		Description                 string  `json:"description"`
-		GrowthType                  string  `json:"growthType"`
-		ReplicateTo                 string  `json:"replicateTo"`
-		DeploymentDurationInMinutes int32   `json:"deploymentDurationInMinutes"`
-		FinalBakeTimeInMinutes      int32   `json:"finalBakeTimeInMinutes"`
-		GrowthFactor                float32 `json:"growthFactor"`
+		Name                        string  `json:"Name"`
+		Description                 string  `json:"Description"`
+		GrowthType                  string  `json:"GrowthType"`
+		ReplicateTo                 string  `json:"ReplicateTo"`
+		DeploymentDurationInMinutes int32   `json:"DeploymentDurationInMinutes"`
+		FinalBakeTimeInMinutes      int32   `json:"FinalBakeTimeInMinutes"`
+		GrowthFactor                float32 `json:"GrowthFactor"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
@@ -788,20 +823,45 @@ func (h *Handler) handleListDeploymentStrategies(c *echo.Context) error {
 
 func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID string) error {
 	var req struct {
-		Name                        string  `json:"name"`
-		Description                 string  `json:"description"`
-		DeploymentDurationInMinutes int32   `json:"deploymentDurationInMinutes"`
-		FinalBakeTimeInMinutes      int32   `json:"finalBakeTimeInMinutes"`
-		GrowthFactor                float32 `json:"growthFactor"`
+		DeploymentDurationInMinutes *int32   `json:"DeploymentDurationInMinutes"`
+		FinalBakeTimeInMinutes      *int32   `json:"FinalBakeTimeInMinutes"`
+		GrowthFactor                *float32 `json:"GrowthFactor"`
+		Name                        string   `json:"Name"`
+		Description                 string   `json:"Description"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})
 	}
 
+	// Fetch current values to use as defaults for omitted pointer fields.
+	existing, err := h.Backend.GetDeploymentStrategy(strategyID)
+	if err != nil {
+		if errors.Is(err, awserr.ErrNotFound) {
+			return notFoundResponse(c, err)
+		}
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+	}
+
+	deployDur := existing.DeploymentDurationInMinutes
+	if req.DeploymentDurationInMinutes != nil {
+		deployDur = *req.DeploymentDurationInMinutes
+	}
+
+	bakeTime := existing.FinalBakeTimeInMinutes
+	if req.FinalBakeTimeInMinutes != nil {
+		bakeTime = *req.FinalBakeTimeInMinutes
+	}
+
+	growthFactor := existing.GrowthFactor
+	if req.GrowthFactor != nil {
+		growthFactor = *req.GrowthFactor
+	}
+
 	strategy, err := h.Backend.UpdateDeploymentStrategy(
 		strategyID, req.Name, req.Description,
-		req.DeploymentDurationInMinutes, req.FinalBakeTimeInMinutes,
-		req.GrowthFactor,
+		deployDur, bakeTime,
+		growthFactor,
 	)
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
@@ -828,9 +888,9 @@ func (h *Handler) handleDeleteDeploymentStrategy(c *echo.Context, strategyID str
 
 func (h *Handler) handleStartDeployment(c *echo.Context, applicationID, environmentID string) error {
 	var req struct {
-		ConfigurationProfileID string `json:"configurationProfileId"`
-		DeploymentStrategyID   string `json:"deploymentStrategyId"`
-		ConfigurationVersion   string `json:"configurationVersion"`
+		ConfigurationProfileID string `json:"ConfigurationProfileId"`
+		DeploymentStrategyID   string `json:"DeploymentStrategyId"`
+		ConfigurationVersion   string `json:"ConfigurationVersion"`
 	}
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "invalid request body"})

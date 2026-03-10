@@ -919,10 +919,10 @@ func TestHandler_HostedConfigVersion_HTTP_NotFound(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name:       "list versions empty",
+			name:       "list versions unknown app",
 			method:     http.MethodGet,
 			pathSuffix: "/applications/app-1/configurationprofiles/prof-1/hostedconfigurationversions",
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -935,6 +935,40 @@ func TestHandler_HostedConfigVersion_HTTP_NotFound(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+func TestHandler_HostedConfigVersion_HTTP_ListEmpty(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Pre-create app and profile so listing returns an empty list (200).
+	appRec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"Name":"my-app"}`))
+	require.Equal(t, http.StatusCreated, appRec.Code)
+
+	var appOut struct {
+		ID string `json:"Id"`
+	}
+
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appOut))
+
+	profRec := doRequest(t, h, http.MethodPost,
+		"/applications/"+appOut.ID+"/configurationprofiles",
+		[]byte(`{"Name":"my-profile","LocationUri":"hosted"}`),
+	)
+	require.Equal(t, http.StatusCreated, profRec.Code)
+
+	var profOut struct {
+		ID string `json:"Id"`
+	}
+
+	require.NoError(t, json.Unmarshal(profRec.Body.Bytes(), &profOut))
+
+	listRec := doRequest(t, h, http.MethodGet,
+		"/applications/"+appOut.ID+"/configurationprofiles/"+profOut.ID+"/hostedconfigurationversions",
+		nil,
+	)
+	assert.Equal(t, http.StatusOK, listRec.Code)
 }
 
 func TestHandler_DeleteApplication_NotFound_HTTP(t *testing.T) {
@@ -1013,6 +1047,32 @@ func TestHandler_ListDeployments_HTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, http.MethodGet, "/applications/app-1/environments/env-1/deployments", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Pre-create app and environment so listing returns 200 with empty list.
+	appRec := doRequest(t, h, http.MethodPost, "/applications", []byte(`{"Name":"list-deploy-app"}`))
+	require.Equal(t, http.StatusCreated, appRec.Code)
+
+	var appOut struct {
+		ID string `json:"Id"`
+	}
+
+	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appOut))
+
+	envRec := doRequest(t, h, http.MethodPost,
+		"/applications/"+appOut.ID+"/environments",
+		[]byte(`{"Name":"production"}`),
+	)
+	require.Equal(t, http.StatusCreated, envRec.Code)
+
+	var envOut struct {
+		ID string `json:"Id"`
+	}
+
+	require.NoError(t, json.Unmarshal(envRec.Body.Bytes(), &envOut))
+
+	listRec := doRequest(t, h, http.MethodGet,
+		"/applications/"+appOut.ID+"/environments/"+envOut.ID+"/deployments",
+		nil,
+	)
+	assert.Equal(t, http.StatusOK, listRec.Code)
 }

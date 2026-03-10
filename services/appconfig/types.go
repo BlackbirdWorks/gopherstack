@@ -24,68 +24,69 @@ var (
 )
 
 // Application represents an AppConfig application.
+// JSON field names match the AWS AppConfig REST API (PascalCase).
 type Application struct {
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"CreatedAt,omitzero"`
+	UpdatedAt   time.Time `json:"UpdatedAt,omitzero"`
+	ID          string    `json:"Id"`
+	Name        string    `json:"Name"`
+	Description string    `json:"Description,omitempty"`
 }
 
 // Environment represents an AppConfig environment.
 type Environment struct {
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
-	ApplicationID string    `json:"applicationId"`
-	ID            string    `json:"id"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description,omitempty"`
-	State         string    `json:"state"`
+	CreatedAt     time.Time `json:"CreatedAt,omitzero"`
+	UpdatedAt     time.Time `json:"UpdatedAt,omitzero"`
+	ApplicationID string    `json:"ApplicationId"`
+	ID            string    `json:"Id"`
+	Name          string    `json:"Name"`
+	Description   string    `json:"Description,omitempty"`
+	State         string    `json:"State"`
 }
 
 // ConfigurationProfile represents an AppConfig configuration profile.
 type ConfigurationProfile struct {
-	ApplicationID string `json:"applicationId"`
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Description   string `json:"description,omitempty"`
-	LocationURI   string `json:"locationUri"`
-	Type          string `json:"type"`
+	ApplicationID string `json:"ApplicationId"`
+	ID            string `json:"Id"`
+	Name          string `json:"Name"`
+	Description   string `json:"Description,omitempty"`
+	LocationURI   string `json:"LocationUri"`
+	Type          string `json:"Type,omitempty"`
 }
 
 // HostedConfigurationVersion represents a hosted configuration version.
 type HostedConfigurationVersion struct {
-	CreatedAt              time.Time `json:"createdAt"`
-	ApplicationID          string    `json:"applicationId"`
-	ConfigurationProfileID string    `json:"configurationProfileId"`
-	ContentType            string    `json:"contentType"`
+	CreatedAt              time.Time `json:"CreatedAt,omitzero"`
+	ApplicationID          string    `json:"ApplicationId"`
+	ConfigurationProfileID string    `json:"ConfigurationProfileId"`
+	ContentType            string    `json:"ContentType"`
 	Content                []byte    `json:"-"`
-	VersionNumber          int32     `json:"versionNumber"`
+	VersionNumber          int32     `json:"VersionNumber"`
 }
 
 // DeploymentStrategy represents an AppConfig deployment strategy.
 type DeploymentStrategy struct {
-	CreatedAt                   time.Time `json:"createdAt"`
-	UpdatedAt                   time.Time `json:"updatedAt"`
-	ID                          string    `json:"id"`
-	Name                        string    `json:"name"`
-	Description                 string    `json:"description,omitempty"`
-	GrowthType                  string    `json:"growthType"`
-	ReplicateTo                 string    `json:"replicateTo"`
-	DeploymentDurationInMinutes int32     `json:"deploymentDurationInMinutes"`
-	GrowthFactor                float32   `json:"growthFactor"`
-	FinalBakeTimeInMinutes      int32     `json:"finalBakeTimeInMinutes"`
+	CreatedAt                   time.Time `json:"CreatedAt,omitzero"`
+	UpdatedAt                   time.Time `json:"UpdatedAt,omitzero"`
+	ID                          string    `json:"Id"`
+	Name                        string    `json:"Name"`
+	Description                 string    `json:"Description,omitempty"`
+	GrowthType                  string    `json:"GrowthType"`
+	ReplicateTo                 string    `json:"ReplicateTo"`
+	DeploymentDurationInMinutes int32     `json:"DeploymentDurationInMinutes"`
+	GrowthFactor                float32   `json:"GrowthFactor"`
+	FinalBakeTimeInMinutes      int32     `json:"FinalBakeTimeInMinutes"`
 }
 
 // Deployment represents an AppConfig deployment.
 type Deployment struct {
-	StartedAt              time.Time `json:"startedAt"`
-	CompletedAt            time.Time `json:"completedAt"`
-	ApplicationID          string    `json:"applicationId"`
-	EnvironmentID          string    `json:"environmentId"`
-	ConfigurationProfileID string    `json:"configurationProfileId"`
-	DeploymentStrategyID   string    `json:"deploymentStrategyId"`
-	ConfigurationVersion   string    `json:"configurationVersion"`
-	State                  string    `json:"state"`
-	DeploymentNumber       int32     `json:"deploymentNumber"`
+	StartedAt              time.Time `json:"StartedAt,omitzero"`
+	CompletedAt            time.Time `json:"CompletedAt,omitzero"`
+	ApplicationID          string    `json:"ApplicationId"`
+	EnvironmentID          string    `json:"EnvironmentId"`
+	ConfigurationProfileID string    `json:"ConfigurationProfileId"`
+	DeploymentStrategyID   string    `json:"DeploymentStrategyId"`
+	ConfigurationVersion   string    `json:"ConfigurationVersion"`
+	State                  string    `json:"State"`
+	DeploymentNumber       int32     `json:"DeploymentNumber"`
 }
