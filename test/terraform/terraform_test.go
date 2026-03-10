@@ -51,6 +51,7 @@ import (
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
+	taggingsvc "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
 	route53resolversvc "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -158,6 +159,7 @@ provider "aws" {
     opensearch      = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
+    resourcegroupstaggingapi = %[1]q
     route53         = %[1]q
     route53resolver = %[1]q
     s3              = %[1]q
@@ -1605,6 +1607,37 @@ func TestTerraform_ResourceGroups(t *testing.T) {
 				require.NoError(t, err, "GetGroup should succeed after terraform apply")
 				require.NotNil(t, out.Group)
 				assert.Equal(t, vars["GroupName"].(string), aws.ToString(out.Group.Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ResourceGroupsTagging calls GetResources via the Resource Groups Tagging API data source.
+func TestTerraform_ResourceGroupsTagging(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "get_resources",
+			fixture: "resourcegroupstaggingapi/get_resources",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createResourceGroupsTaggingAPIClient(t)
+				out, err := client.GetResources(ctx, &taggingsvc.GetResourcesInput{})
+				require.NoError(t, err, "GetResources should succeed after terraform apply")
+				require.NotNil(t, out)
 			},
 		},
 	}

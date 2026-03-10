@@ -27,7 +27,7 @@ This document tracks the implementation status of AWS services in Gopherstack, s
 | **OpenSearch** / Elasticsearch | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Redshift** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Resource Groups** | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Resource Groups Tagging API** | ✅ Yes | ❌ No | ❌ No |
+| **Resource Groups Tagging API** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Route 53** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Route 53 Resolver** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **S3** | ✅ Yes | ✅ Yes | ✅ Yes |
@@ -84,13 +84,11 @@ The Chaos API supports:
 - ECS (Pro)
 - FIS (Pro)
 - IoT Data Plane (Pro)
-- Resource Groups Tagging API (Free)
 
 ### Missing Terraform Tests (`test/terraform/fixtures/`)
 - Cognito IDP (Free)
 - FIS (Pro)
 - IoT Data Plane (Pro)
-- Resource Groups Tagging API (Free)
 - Support API (Free)
 - Transcribe (Free)
 
