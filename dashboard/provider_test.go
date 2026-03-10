@@ -95,6 +95,7 @@ func (m *mockAWSProvider) GetBedrockRuntimeHandler() service.Registerable       
 func (m *mockAWSProvider) GetCeHandler() service.Registerable                      { return nil }
 func (m *mockAWSProvider) GetCloudControlHandler() service.Registerable            { return nil }
 func (m *mockAWSProvider) GetCloudFrontHandler() service.Registerable              { return nil }
+func (m *mockAWSProvider) GetCodeBuildHandler() service.Registerable               { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 

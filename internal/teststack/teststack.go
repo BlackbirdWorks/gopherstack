@@ -42,6 +42,7 @@ import (
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -152,6 +153,7 @@ type Stack struct {
 	CeHandler                      *cebackend.Handler
 	CloudControlHandler            *cloudcontrolbackend.Handler
 	CloudFrontHandler              *cloudfrontbackend.Handler
+	CodeBuildHandler               *codebuildbackend.Handler
 	S3Client                       *s3.Client
 	DDBClient                      *dynamodb.Client
 	FaultStore                     *chaos.FaultStore
@@ -402,6 +404,7 @@ type handlers struct {
 	ce              *cebackend.Handler
 	cloudcontrol    *cloudcontrolbackend.Handler
 	cloudFront      *cloudfrontbackend.Handler
+	codebuild       *codebuildbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -551,6 +554,9 @@ func populateExtendedHandlers(h *handlers) {
 	h.cloudFront = cloudfrontbackend.NewHandler(
 		cloudfrontbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.codebuild = codebuildbackend.NewHandler(
+		codebuildbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -649,6 +655,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CeOps:                      h.ce,
 		CloudControlOps:            h.cloudcontrol,
 		CloudFrontOps:              h.cloudFront,
+		CodeBuildOps:               h.codebuild,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -687,6 +694,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.bedrockruntime)
 	_ = registry.Register(h.cloudcontrol)
 	registerCloudfrontService(registry, h.cloudFront)
+	_ = registry.Register(h.codebuild)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -773,6 +781,7 @@ func buildStack(
 		CeHandler:                      h.ce,
 		CloudControlHandler:            h.cloudcontrol,
 		CloudFrontHandler:              h.cloudFront,
+		CodeBuildHandler:               h.codebuild,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,

@@ -869,3 +869,113 @@ func TestHandler_UnknownAction(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestHandler_ChaosOperations(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+ops := h.ChaosOperations()
+assert.Equal(t, h.GetSupportedOperations(), ops)
+}
+
+func TestHandler_ChaosRegions(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+regions := h.ChaosRegions()
+assert.Equal(t, []string{"us-east-1"}, regions)
+}
+
+func TestHandler_Region(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+assert.Equal(t, "us-east-1", h.Backend.Region())
+}
+
+func TestHandler_ExtractOperation(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+name       string
+target     string
+wantOp     string
+}{
+{
+name:   "create project",
+target: "CodeBuild_20161006.CreateProject",
+wantOp: "CreateProject",
+},
+{
+name:   "batch get projects",
+target: "CodeBuild_20161006.BatchGetProjects",
+wantOp: "BatchGetProjects",
+},
+{
+name:   "empty target",
+target: "",
+wantOp: "",
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+e := echo.New()
+req := httptest.NewRequest(http.MethodPost, "/", nil)
+req.Header.Set("X-Amz-Target", tt.target)
+rec := httptest.NewRecorder()
+c := e.NewContext(req, rec)
+
+op := h.ExtractOperation(c)
+assert.Equal(t, tt.wantOp, op)
+})
+}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+e := echo.New()
+req := httptest.NewRequest(http.MethodPost, "/", nil)
+rec := httptest.NewRecorder()
+c := e.NewContext(req, rec)
+
+resource := h.ExtractResource(c)
+assert.Equal(t, "", resource)
+}
+
+func TestHandler_TagResource_NotFound(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+rec := doRequest(t, h, "TagResource", map[string]any{
+"resourceArn": "arn:aws:codebuild:us-east-1:000000000000:project/nonexistent",
+"tags":        map[string]string{"key": "value"},
+})
+assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_UntagResource_NotFound(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+rec := doRequest(t, h, "UntagResource", map[string]any{
+"resourceArn": "arn:aws:codebuild:us-east-1:000000000000:project/nonexistent",
+"tagKeys":     []string{"key"},
+})
+assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_ListBuildsForProject_NotFound(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+rec := doRequest(t, h, "ListBuildsForProject", map[string]any{
+"projectName": "nonexistent-project",
+})
+assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
