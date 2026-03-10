@@ -20,6 +20,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
+	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -104,6 +105,7 @@ type Stack struct {
 	FISHandler                   *fisbackend.Handler
 	OpenSearchHandler            *opensearchbackend.Handler
 	ACMHandler                   *acmbackend.Handler
+	ACMPCAHandler                *acmpcabackend.Handler
 	RedshiftHandler              *redshiftbackend.Handler
 	RDSHandler                   *rdsbackend.Handler
 	AWSConfigHandler             *awsconfigbackend.Handler
@@ -199,6 +201,7 @@ func registerServices(
 	iotHndlr *iotbackend.Handler,
 	openSearchHndlr *opensearchbackend.Handler,
 	acmHndlr *acmbackend.Handler,
+	acmpcaHndlr *acmpcabackend.Handler,
 	redshiftHndlr *redshiftbackend.Handler,
 	rdsHndlr *rdsbackend.Handler,
 	awsconfigHndlr *awsconfigbackend.Handler,
@@ -243,6 +246,7 @@ func registerServices(
 	_ = registry.Register(iotHndlr)
 	_ = registry.Register(openSearchHndlr)
 	_ = registry.Register(acmHndlr)
+	_ = registry.Register(acmpcaHndlr)
 	_ = registry.Register(redshiftHndlr)
 	_ = registry.Register(rdsHndlr)
 	_ = registry.Register(awsconfigHndlr)
@@ -291,6 +295,7 @@ type handlers struct {
 	fis             *fisbackend.Handler
 	opensearch      *opensearchbackend.Handler
 	acm             *acmbackend.Handler
+	acmpca          *acmpcabackend.Handler
 	redshift        *redshiftbackend.Handler
 	rds             *rdsbackend.Handler
 	awsconfig       *awsconfigbackend.Handler
@@ -381,6 +386,9 @@ func populateExtendedHandlers(h *handlers) {
 	)
 	h.acm = acmbackend.NewHandler(
 		acmbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.acmpca = acmpcabackend.NewHandler(
+		acmpcabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.redshift = redshiftbackend.NewHandler(
 		redshiftbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -490,6 +498,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		FISOps:                   h.fis,
 		OpenSearchOps:            h.opensearch,
 		ACMOps:                   h.acm,
+		ACMPCAOps:                h.acmpca,
 		RedshiftOps:              h.redshift,
 		RDSOps:                   h.rds,
 		AWSConfigOps:             h.awsconfig,
@@ -531,7 +540,7 @@ func New(t *testing.T) *Stack {
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
 		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.iot, h.opensearch,
-		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
+		h.acm, h.acmpca, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
 		h.appSync, h.cognitoIDP, h.iotDataPlane,
 	)
@@ -577,6 +586,7 @@ func New(t *testing.T) *Stack {
 		FISHandler:                   h.fis,
 		OpenSearchHandler:            h.opensearch,
 		ACMHandler:                   h.acm,
+		ACMPCAHandler:                h.acmpca,
 		RedshiftHandler:              h.redshift,
 		RDSHandler:                   h.rds,
 		AWSConfigHandler:             h.awsconfig,

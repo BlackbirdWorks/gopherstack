@@ -46,6 +46,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
+	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -135,6 +136,7 @@ type CLI struct {
 	ec2Handler                   service.Registerable
 	openSearchHandler            service.Registerable
 	acmHandler                   service.Registerable
+	acmpcaHandler                service.Registerable
 	redshiftHandler              service.Registerable
 	rdsHandler                   service.Registerable
 	awsconfigHandler             service.Registerable
@@ -393,6 +395,11 @@ func (c *CLI) GetOpenSearchHandler() service.Registerable { return c.openSearchH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetACMHandler() service.Registerable { return c.acmHandler }
+
+// GetACMPCAHandler returns the ACM PCA handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetACMPCAHandler() service.Registerable { return c.acmpcaHandler }
 
 // GetRedshiftHandler returns the Redshift handler (dashboard.AWSSDKProvider).
 //
@@ -842,6 +849,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.ec2Handler = byName["EC2"]
 	cli.openSearchHandler = byName["OpenSearch"]
 	cli.acmHandler = byName["ACM"]
+	cli.acmpcaHandler = byName["ACMPCA"]
 	cli.redshiftHandler = byName["Redshift"]
 	cli.awsconfigHandler = byName["AWSConfig"]
 	cli.s3controlHandler = byName["S3Control"]
@@ -1001,6 +1009,7 @@ func getServiceProviders() []service.Provider {
 		&ec2backend.Provider{},
 		&opensearchbackend.Provider{},
 		&acmbackend.Provider{},
+		&acmpcabackend.Provider{},
 		&redshiftbackend.Provider{},
 		&awsconfigbackend.Provider{},
 		&s3controlbackend.Provider{},
