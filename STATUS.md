@@ -2,7 +2,7 @@
 
 This document tracks the implementation status of AWS services in Gopherstack, specifically focusing on feature parity with LocalStack.
 
-> **Note:** Gopherstack implements 44 services, covering 36 LocalStack Community (Free) Tier services and 8 LocalStack Pro (Paid) Tier services, offering significant competitive advantages.
+> **Note:** Gopherstack implements 45 services, covering 36 LocalStack Community (Free) Tier services and 9 LocalStack Pro (Paid) Tier services, offering significant competitive advantages.
 
 ## LocalStack Community (Free) Tier Parity
 
@@ -73,7 +73,7 @@ The Chaos API supports:
 - Per-service, per-region, per-operation fault injection with configurable error codes and probability
 - Dynamic latency simulation (fixed, range, jitter)
 - Real-time activity log
-- Auto-discovery of all 44 injectable services via `GET /_gopherstack/chaos/targets`
+- Auto-discovery of all 45 injectable services via `GET /_gopherstack/chaos/targets`
 
 ## Summary of Missing Components
 
@@ -110,7 +110,7 @@ The following services are supported by LocalStack (either Free or Pro tier) but
 | **Batch** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Bedrock** | ❌ No | ❌ No | ❌ No |
 | **Bedrock Runtime** | ❌ No | ❌ No | ❌ No |
-| **Ce** | ❌ No | ❌ No | ❌ No |
+| **Ce** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Cloudcontrol** | ❌ No | ❌ No | ❌ No |
 | **Cloudfront** | ❌ No | ❌ No | ❌ No |
 | **Cloudtrail** | ❌ No | ❌ No | ❌ No |

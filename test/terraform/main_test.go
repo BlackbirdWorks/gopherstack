@@ -30,6 +30,7 @@ import (
 	autoscalingsvc "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	backupsvc "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
+	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
@@ -37,6 +38,7 @@ import (
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
+	cesvc "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -1295,6 +1297,24 @@ func createBatchClient(t *testing.T) *batchsvc.Client {
 	})
 }
 
+// createBedrockClient returns a Bedrock client pointed at the shared test container.
+func createBedrockClient(t *testing.T) *bedrocksvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return bedrocksvc.NewFromConfig(cfg, func(o *bedrocksvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
 // createBedrockRuntimeClient returns a Bedrock Runtime client pointed at the shared test container.
 func createBedrockRuntimeClient(t *testing.T) *bedrockruntimesvc.Client {
 	t.Helper()
@@ -1309,6 +1329,24 @@ func createBedrockRuntimeClient(t *testing.T) *bedrockruntimesvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return bedrockruntimesvc.NewFromConfig(cfg, func(o *bedrockruntimesvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCeClient returns a Cost Explorer client pointed at the shared test container.
+func createCeClient(t *testing.T) *cesvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return cesvc.NewFromConfig(cfg, func(o *cesvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

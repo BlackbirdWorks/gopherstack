@@ -33,7 +33,9 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
+	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -173,15 +175,19 @@ type DashboardHandler struct {
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
 	// BatchOps provides access to the Batch backend.
 	BatchOps *batchbackend.Handler
+	// BedrockOps provides access to the Bedrock backend.
+	BedrockOps *bedrockbackend.Handler
 	// BedrockRuntimeOps provides access to the Bedrock Runtime backend.
 	BedrockRuntimeOps *bedrockruntimebackend.Handler
-	SubRouter         *echo.Echo
-	ddbProvider       *ddbbackend.DashboardProvider
-	s3Provider        *s3backend.DashboardProvider
-	FaultStore        *chaos.FaultStore
-	Logger            *slog.Logger
-	layout            *template.Template
-	GlobalConfig      config.GlobalConfig
+	// CeOps provides access to the Cost Explorer backend.
+	CeOps        *cebackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -292,8 +298,12 @@ type Config struct {
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
 	// BatchOps provides access to the Batch backend.
 	BatchOps *batchbackend.Handler
+	// BedrockOps provides access to the Bedrock backend.
+	BedrockOps *bedrockbackend.Handler
 	// BedrockRuntimeOps provides access to the Bedrock Runtime backend.
 	BedrockRuntimeOps *bedrockruntimebackend.Handler
+	// CeOps provides access to the Cost Explorer backend.
+	CeOps *cebackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -379,7 +389,9 @@ func parseDashboardTemplates() *template.Template {
 		"templates/backup/*.html",
 		"templates/applicationautoscaling/*.html",
 		"templates/batch/*.html",
+		"templates/bedrock/*.html",
 		"templates/bedrockruntime/*.html",
+		"templates/ce/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -454,7 +466,9 @@ func NewHandler(cfg Config) *DashboardHandler {
 		AppConfigOps:               cfg.AppConfigOps,
 		ApplicationAutoscalingOps:  cfg.ApplicationAutoscalingOps,
 		BatchOps:                   cfg.BatchOps,
+		BedrockOps:                 cfg.BedrockOps,
 		BedrockRuntimeOps:          cfg.BedrockRuntimeOps,
+		CeOps:                      cfg.CeOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -886,6 +900,8 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupAutoscalingRoutes()
 	h.setupApplicationAutoscalingRoutes()
 	h.setupBatchRoutes()
+	h.setupBedrockRoutes()
+	h.setupCeRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -982,7 +998,9 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/amplify", "Amplify"},
 	{"/applicationautoscaling", "ApplicationAutoscaling"},
 	{"/batch", "Batch"},
+	{"/bedrock", "Bedrock"},
 	{"/bedrockruntime", "BedrockRuntime"},
+	{"/ce", "Ce"},
 	{"/athena", "Athena"},
 	{"/autoscaling", "Autoscaling"},
 	{"/appconfig", "AppConfig"},

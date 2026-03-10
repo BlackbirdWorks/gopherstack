@@ -115,10 +115,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			}
 		}
 
-		// Match /tags/{arn} — requires exactly three segments.
+		// Match /tags/{arn} — only for FIS-owned resources (arn:aws:fis:...).
 		segs := pathSegments(path)
 		if len(segs) >= minSegmentsForID && segs[0] == pathTags {
-			return true
+			return strings.Contains(segs[1], ":fis:")
 		}
 
 		return false

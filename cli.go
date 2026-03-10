@@ -61,7 +61,9 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
+	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -173,7 +175,9 @@ type CLI struct {
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
+	bedrockHandler                service.Registerable
 	bedrockruntimeHandler         service.Registerable
+	ceHandler                     service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -568,10 +572,20 @@ func (c *CLI) GetApplicationAutoscalingHandler() service.Registerable {
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetBatchHandler() service.Registerable { return c.batchHandler }
 
+// GetBedrockHandler returns the Bedrock handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetBedrockHandler() service.Registerable { return c.bedrockHandler }
+
 // GetBedrockRuntimeHandler returns the Bedrock Runtime handler.
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetBedrockRuntimeHandler() service.Registerable { return c.bedrockruntimeHandler }
+
+// GetCeHandler returns the Cost Explorer handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCeHandler() service.Registerable { return c.ceHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -981,6 +995,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.appConfigHandler = byName["AppConfig"]
 	cli.applicationautoscalingHandler = byName["ApplicationAutoscaling"]
 	cli.batchHandler = byName["Batch"]
+	cli.bedrockHandler = byName["Bedrock"]
 	cli.bedrockruntimeHandler = byName["BedrockRuntime"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
@@ -989,6 +1004,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cognitoIdentityHandler = byName["CognitoIdentity"]
 	cli.fisHandler = byName["FIS"]
 	cli.backupHandler = byName["Backup"]
+	cli.ceHandler = byName["Ce"]
 }
 
 // initializeServices initializes all service providers.
@@ -1159,7 +1175,9 @@ func getServiceProviders() []service.Provider {
 		&backupbackend.Provider{},
 		&applicationautoscalingbackend.Provider{},
 		&batchbackend.Provider{},
+		&bedrockbackend.Provider{},
 		&bedrockruntimebackend.Provider{},
+		&cebackend.Provider{},
 	}
 }
 
