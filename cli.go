@@ -59,6 +59,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -168,6 +169,7 @@ type CLI struct {
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
+	bedrockHandler                service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -551,6 +553,11 @@ func (c *CLI) GetApplicationAutoscalingHandler() service.Registerable {
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetBatchHandler() service.Registerable { return c.batchHandler }
+
+// GetBedrockHandler returns the Bedrock handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetBedrockHandler() service.Registerable { return c.bedrockHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -953,6 +960,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.appConfigHandler = byName["AppConfig"]
 	cli.applicationautoscalingHandler = byName["ApplicationAutoscaling"]
 	cli.batchHandler = byName["Batch"]
+	cli.bedrockHandler = byName["Bedrock"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
@@ -1127,6 +1135,7 @@ func getServiceProviders() []service.Provider {
 		&appconfigbackend.Provider{},
 		&applicationautoscalingbackend.Provider{},
 		&batchbackend.Provider{},
+		&bedrockbackend.Provider{},
 	}
 }
 

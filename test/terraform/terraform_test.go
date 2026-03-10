@@ -36,6 +36,7 @@ import (
 	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	athenasdkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
 	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
+	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
@@ -3261,4 +3262,51 @@ func TestTerraform_Batch(t *testing.T) {
 			runTFTest(t, tc)
 		})
 	}
+}
+
+// TestTerraform_Bedrock provisions Bedrock guardrail via Terraform and verifies it exists.
+func TestTerraform_Bedrock(t *testing.T) {
+t.Parallel()
+
+tests := []tfTestCase{
+{
+name:    "success",
+fixture: "bedrock/success",
+setup: func(t *testing.T, _ string) map[string]any {
+t.Helper()
+id := uuid.NewString()[:8]
+
+return map[string]any{
+"Suffix": id,
+}
+},
+verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+t.Helper()
+client := createBedrockClient(t)
+suffix := vars["Suffix"].(string)
+
+out, err := client.ListGuardrails(ctx, &bedrocksvc.ListGuardrailsInput{})
+require.NoError(t, err, "ListGuardrails should succeed")
+
+var found bool
+
+for _, g := range out.Guardrails {
+if g.Name != nil && *g.Name == "tf-guardrail-"+suffix {
+found = true
+
+break
+}
+}
+
+assert.True(t, found, "guardrail tf-guardrail-%s should exist", suffix)
+},
+},
+}
+
+for _, tc := range tests {
+t.Run(tc.name, func(t *testing.T) {
+t.Parallel()
+runTFTest(t, tc)
+})
+}
 }
