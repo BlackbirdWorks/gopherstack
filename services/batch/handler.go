@@ -21,7 +21,7 @@ const (
 	tagsPrefix            = "/v1/tags/"
 	appsyncV1Prefix       = "/v1/apis"
 	codeartifactDomain    = "/v1/domain"
-	codeartifactRepos     = "/v1/repositor"
+	codeartifactRepos     = "/v1/repository"
 	codeartifactAuthToken = "/v1/authorization-token" //nolint:gosec // not a credential
 )
 
