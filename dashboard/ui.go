@@ -33,11 +33,11 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
-	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
+	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
@@ -172,8 +172,8 @@ type DashboardHandler struct {
 	AutoscalingOps             *autoscalingbackend.Handler
 	BackupOps                  *backupbackend.Handler
 	// CloudTrailOps provides access to the CloudTrail backend.
-	CloudTrailOps              *cloudtrailbackend.Handler
-	AppConfigOps               *appconfigbackend.Handler
+	CloudTrailOps *cloudtrailbackend.Handler
+	AppConfigOps  *appconfigbackend.Handler
 	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
 	// BatchOps provides access to the Batch backend.

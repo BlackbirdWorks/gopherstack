@@ -581,8 +581,8 @@ func TestCloudTrailMetadata(t *testing.T) {
 	h := newTestCloudTrailHandler()
 
 	tests := []struct {
-		name string
 		fn   func(t *testing.T)
+		name string
 	}{
 		{
 			name: "name",
@@ -627,7 +627,7 @@ func TestCloudTrailMetadata(t *testing.T) {
 			name: "match_priority",
 			fn: func(t *testing.T) {
 				t.Helper()
-				assert.Greater(t, h.MatchPriority(), 0)
+				assert.Positive(t, h.MatchPriority())
 			},
 		},
 	}
@@ -729,9 +729,9 @@ func TestCloudTrailExtractOperation(t *testing.T) {
 	h := newTestCloudTrailHandler()
 
 	tests := []struct {
-		name      string
-		target    string
-		wantOp    string
+		name   string
+		target string
+		wantOp string
 	}{
 		{
 			name:   "create_trail",
@@ -759,341 +759,341 @@ func TestCloudTrailExtractOperation(t *testing.T) {
 
 // TestCloudTrailExtractResource verifies ExtractResource always returns empty string.
 func TestCloudTrailExtractResource(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestCloudTrailHandler()
-req := httptest.NewRequest(http.MethodPost, "/", nil)
-e := echo.New()
-c := e.NewContext(req, httptest.NewRecorder())
-assert.Equal(t, "", h.ExtractResource(c))
+	h := newTestCloudTrailHandler()
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	e := echo.New()
+	c := e.NewContext(req, httptest.NewRecorder())
+	assert.Empty(t, h.ExtractResource(c))
 }
 
 // TestCloudTrailTrailWithAllFields creates a trail with optional fields set.
 func TestCloudTrailTrailWithAllFields(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-ops  func(t *testing.T, h *cloudtrail.Handler)
-name string
-}{
-{
-name: "create_with_tags_and_options",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-rec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":                       "full-trail",
-"S3BucketName":               "bucket",
-"S3KeyPrefix":                "logs/",
-"SnsTopicName":               "my-topic",
-"IncludeGlobalServiceEvents": true,
-"IsMultiRegionTrail":         true,
-"EnableLogFileValidation":    true,
-"TagsList": []map[string]string{
-{"Key": "Env", "Value": "prod"},
-},
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-resp := parseCloudTrailResp(t, rec)
-assert.Equal(t, "full-trail", resp["Name"])
-assert.Equal(t, "logs/", resp["S3KeyPrefix"])
-assert.Equal(t, true, resp["IsMultiRegionTrail"])
-assert.Equal(t, true, resp["LogFileValidationEnabled"])
-},
-},
-{
-name: "get_trail_by_arn",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":         "arn-trail",
-"S3BucketName": "bucket",
-})
-createResp := parseCloudTrailResp(t, createRec)
-trailARN := createResp["TrailARN"].(string)
-rec := doCloudTrailOp(t, h, "GetTrail", map[string]any{
-"Name": trailARN,
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-resp := parseCloudTrailResp(t, rec)
-trail, ok := resp["Trail"].(map[string]any)
-require.True(t, ok)
-assert.Equal(t, "arn-trail", trail["Name"])
-},
-},
-{
-name: "describe_trails_by_arn",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":         "arn-trail-2",
-"S3BucketName": "bucket",
-})
-createResp := parseCloudTrailResp(t, createRec)
-trailARN := createResp["TrailARN"].(string)
-rec := doCloudTrailOp(t, h, "DescribeTrails", map[string]any{
-"trailNameList": []string{trailARN},
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-resp := parseCloudTrailResp(t, rec)
-list, ok := resp["trailList"].([]any)
-require.True(t, ok)
-assert.Len(t, list, 1)
-},
-},
-{
-name: "delete_by_arn",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":         "arn-del-trail",
-"S3BucketName": "bucket",
-})
-createResp := parseCloudTrailResp(t, createRec)
-trailARN := createResp["TrailARN"].(string)
-rec := doCloudTrailOp(t, h, "DeleteTrail", map[string]any{
-"Name": trailARN,
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-},
-},
-{
-name: "start_logging_by_arn",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":         "log-arn-trail",
-"S3BucketName": "bucket",
-})
-createResp := parseCloudTrailResp(t, createRec)
-trailARN := createResp["TrailARN"].(string)
-rec := doCloudTrailOp(t, h, "StartLogging", map[string]any{
-"Name": trailARN,
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-},
-},
-{
-name: "update_trail_boolean_fields",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":         "bool-trail",
-"S3BucketName": "bucket",
-})
-boolTrue := true
-boolFalse := false
-rec := doCloudTrailOp(t, h, "UpdateTrail", map[string]any{
-"Name":                       "bool-trail",
-"IncludeGlobalServiceEvents": boolTrue,
-"IsMultiRegionTrail":         boolFalse,
-"EnableLogFileValidation":    boolTrue,
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-},
-},
-{
-name: "update_trail_missing_name",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-rec := doCloudTrailOp(t, h, "UpdateTrail", map[string]any{
-"S3BucketName": "bucket",
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
-},
-},
-{
-name: "remove_tags_not_found",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-rec := doCloudTrailOp(t, h, "RemoveTags", map[string]any{
-"ResourceId": "arn:aws:cloudtrail:us-east-1:123456789012:trail/missing",
-"TagsList":   []map[string]string{{"Key": "Env"}},
-})
-assert.Equal(t, http.StatusNotFound, rec.Code)
-},
-},
-{
-name: "put_event_selectors_with_data_resources",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":         "data-trail",
-"S3BucketName": "bucket",
-})
-rec := doCloudTrailOp(t, h, "PutEventSelectors", map[string]any{
-"TrailName": "data-trail",
-"EventSelectors": []map[string]any{
-{
-"ReadWriteType":           "All",
-"IncludeManagementEvents": true,
-"DataResources": []map[string]any{
-{"Type": "AWS::S3::Object", "Values": []string{"arn:aws:s3:::my-bucket/"}},
-},
-},
-},
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-},
-},
-{
-name: "get_event_selectors_not_found",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-rec := doCloudTrailOp(t, h, "GetEventSelectors", map[string]any{
-"TrailName": "missing-trail",
-})
-assert.Equal(t, http.StatusNotFound, rec.Code)
-},
-},
-{
-name: "list_tags_empty_resources",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-rec := doCloudTrailOp(t, h, "ListTags", map[string]any{
-"ResourceIdList": []string{},
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-resp := parseCloudTrailResp(t, rec)
-tagList, ok := resp["ResourceTagList"].([]any)
-require.True(t, ok)
-assert.Empty(t, tagList)
-},
-},
-{
-name: "add_tags_by_name",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":         "named-tag-trail",
-"S3BucketName": "bucket",
-})
-rec := doCloudTrailOp(t, h, "AddTags", map[string]any{
-"ResourceId": "named-tag-trail",
-"TagsList":   []map[string]string{{"Key": "K", "Value": "V"}},
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-},
-},
-{
-name: "stop_logging_by_arn",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":         "stop-arn-trail",
-"S3BucketName": "bucket",
-})
-createResp := parseCloudTrailResp(t, createRec)
-trailARN := createResp["TrailARN"].(string)
-doCloudTrailOp(t, h, "StartLogging", map[string]any{"Name": trailARN})
-rec := doCloudTrailOp(t, h, "StopLogging", map[string]any{
-"Name": trailARN,
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-},
-},
-{
-name: "get_trail_status_by_arn",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":         "status-arn-trail",
-"S3BucketName": "bucket",
-})
-createResp := parseCloudTrailResp(t, createRec)
-trailARN := createResp["TrailARN"].(string)
-rec := doCloudTrailOp(t, h, "GetTrailStatus", map[string]any{
-"Name": trailARN,
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-},
-},
-{
-name: "update_trail_optional_string_fields",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":         "str-trail",
-"S3BucketName": "bucket",
-})
-rec := doCloudTrailOp(t, h, "UpdateTrail", map[string]any{
-"Name":                      "str-trail",
-"SnsTopicName":              "topic",
-"CloudWatchLogsLogGroupArn": "arn:aws:logs:us-east-1:123:log-group:test",
-"CloudWatchLogsRoleArn":     "arn:aws:iam::123:role/test",
-"KMSKeyId":                  "arn:aws:kms:us-east-1:123:key/abc",
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-resp := parseCloudTrailResp(t, rec)
-assert.Equal(t, "arn:aws:logs:us-east-1:123:log-group:test", resp["CloudWatchLogsLogGroupArn"])
-assert.Equal(t, "arn:aws:iam::123:role/test", resp["CloudWatchLogsRoleArn"])
-assert.Equal(t, "arn:aws:kms:us-east-1:123:key/abc", resp["KMSKeyId"])
-},
-},
-{
-name: "trail_map_with_all_optional_fields",
-ops: func(t *testing.T, h *cloudtrail.Handler) {
-t.Helper()
-rec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
-"Name":                      "optional-trail",
-"S3BucketName":              "bucket",
-"S3KeyPrefix":               "prefix/",
-"SnsTopicName":              "my-sns",
-"CloudWatchLogsLogGroupArn": "arn:logs",
-"CloudWatchLogsRoleArn":     "arn:role",
-"KMSKeyId":                  "arn:kms",
-})
-assert.Equal(t, http.StatusOK, rec.Code)
-resp := parseCloudTrailResp(t, rec)
-assert.Equal(t, "prefix/", resp["S3KeyPrefix"])
-assert.Equal(t, "my-sns", resp["SnsTopicName"])
-},
-},
-}
+	tests := []struct {
+		ops  func(t *testing.T, h *cloudtrail.Handler)
+		name string
+	}{
+		{
+			name: "create_with_tags_and_options",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":                       "full-trail",
+					"S3BucketName":               "bucket",
+					"S3KeyPrefix":                "logs/",
+					"SnsTopicName":               "my-topic",
+					"IncludeGlobalServiceEvents": true,
+					"IsMultiRegionTrail":         true,
+					"EnableLogFileValidation":    true,
+					"TagsList": []map[string]string{
+						{"Key": "Env", "Value": "prod"},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				assert.Equal(t, "full-trail", resp["Name"])
+				assert.Equal(t, "logs/", resp["S3KeyPrefix"])
+				assert.Equal(t, true, resp["IsMultiRegionTrail"])
+				assert.Equal(t, true, resp["LogFileValidationEnabled"])
+			},
+		},
+		{
+			name: "get_trail_by_arn",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "arn-trail",
+					"S3BucketName": "bucket",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				trailARN := createResp["TrailARN"].(string)
+				rec := doCloudTrailOp(t, h, "GetTrail", map[string]any{
+					"Name": trailARN,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				trail, ok := resp["Trail"].(map[string]any)
+				require.True(t, ok)
+				assert.Equal(t, "arn-trail", trail["Name"])
+			},
+		},
+		{
+			name: "describe_trails_by_arn",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "arn-trail-2",
+					"S3BucketName": "bucket",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				trailARN := createResp["TrailARN"].(string)
+				rec := doCloudTrailOp(t, h, "DescribeTrails", map[string]any{
+					"trailNameList": []string{trailARN},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				list, ok := resp["trailList"].([]any)
+				require.True(t, ok)
+				assert.Len(t, list, 1)
+			},
+		},
+		{
+			name: "delete_by_arn",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "arn-del-trail",
+					"S3BucketName": "bucket",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				trailARN := createResp["TrailARN"].(string)
+				rec := doCloudTrailOp(t, h, "DeleteTrail", map[string]any{
+					"Name": trailARN,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "start_logging_by_arn",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "log-arn-trail",
+					"S3BucketName": "bucket",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				trailARN := createResp["TrailARN"].(string)
+				rec := doCloudTrailOp(t, h, "StartLogging", map[string]any{
+					"Name": trailARN,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "update_trail_boolean_fields",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "bool-trail",
+					"S3BucketName": "bucket",
+				})
+				boolTrue := true
+				boolFalse := false
+				rec := doCloudTrailOp(t, h, "UpdateTrail", map[string]any{
+					"Name":                       "bool-trail",
+					"IncludeGlobalServiceEvents": boolTrue,
+					"IsMultiRegionTrail":         boolFalse,
+					"EnableLogFileValidation":    boolTrue,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "update_trail_missing_name",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "UpdateTrail", map[string]any{
+					"S3BucketName": "bucket",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "remove_tags_not_found",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "RemoveTags", map[string]any{
+					"ResourceId": "arn:aws:cloudtrail:us-east-1:123456789012:trail/missing",
+					"TagsList":   []map[string]string{{"Key": "Env"}},
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "put_event_selectors_with_data_resources",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "data-trail",
+					"S3BucketName": "bucket",
+				})
+				rec := doCloudTrailOp(t, h, "PutEventSelectors", map[string]any{
+					"TrailName": "data-trail",
+					"EventSelectors": []map[string]any{
+						{
+							"ReadWriteType":           "All",
+							"IncludeManagementEvents": true,
+							"DataResources": []map[string]any{
+								{"Type": "AWS::S3::Object", "Values": []string{"arn:aws:s3:::my-bucket/"}},
+							},
+						},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "get_event_selectors_not_found",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "GetEventSelectors", map[string]any{
+					"TrailName": "missing-trail",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "list_tags_empty_resources",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "ListTags", map[string]any{
+					"ResourceIdList": []string{},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				tagList, ok := resp["ResourceTagList"].([]any)
+				require.True(t, ok)
+				assert.Empty(t, tagList)
+			},
+		},
+		{
+			name: "add_tags_by_name",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "named-tag-trail",
+					"S3BucketName": "bucket",
+				})
+				rec := doCloudTrailOp(t, h, "AddTags", map[string]any{
+					"ResourceId": "named-tag-trail",
+					"TagsList":   []map[string]string{{"Key": "K", "Value": "V"}},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "stop_logging_by_arn",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "stop-arn-trail",
+					"S3BucketName": "bucket",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				trailARN := createResp["TrailARN"].(string)
+				doCloudTrailOp(t, h, "StartLogging", map[string]any{"Name": trailARN})
+				rec := doCloudTrailOp(t, h, "StopLogging", map[string]any{
+					"Name": trailARN,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "get_trail_status_by_arn",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				createRec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "status-arn-trail",
+					"S3BucketName": "bucket",
+				})
+				createResp := parseCloudTrailResp(t, createRec)
+				trailARN := createResp["TrailARN"].(string)
+				rec := doCloudTrailOp(t, h, "GetTrailStatus", map[string]any{
+					"Name": trailARN,
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+			},
+		},
+		{
+			name: "update_trail_optional_string_fields",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":         "str-trail",
+					"S3BucketName": "bucket",
+				})
+				rec := doCloudTrailOp(t, h, "UpdateTrail", map[string]any{
+					"Name":                      "str-trail",
+					"SnsTopicName":              "topic",
+					"CloudWatchLogsLogGroupArn": "arn:aws:logs:us-east-1:123:log-group:test",
+					"CloudWatchLogsRoleArn":     "arn:aws:iam::123:role/test",
+					"KMSKeyId":                  "arn:aws:kms:us-east-1:123:key/abc",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				assert.Equal(t, "arn:aws:logs:us-east-1:123:log-group:test", resp["CloudWatchLogsLogGroupArn"])
+				assert.Equal(t, "arn:aws:iam::123:role/test", resp["CloudWatchLogsRoleArn"])
+				assert.Equal(t, "arn:aws:kms:us-east-1:123:key/abc", resp["KMSKeyId"])
+			},
+		},
+		{
+			name: "trail_map_with_all_optional_fields",
+			ops: func(t *testing.T, h *cloudtrail.Handler) {
+				t.Helper()
+				rec := doCloudTrailOp(t, h, "CreateTrail", map[string]any{
+					"Name":                      "optional-trail",
+					"S3BucketName":              "bucket",
+					"S3KeyPrefix":               "prefix/",
+					"SnsTopicName":              "my-sns",
+					"CloudWatchLogsLogGroupArn": "arn:logs",
+					"CloudWatchLogsRoleArn":     "arn:role",
+					"KMSKeyId":                  "arn:kms",
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseCloudTrailResp(t, rec)
+				assert.Equal(t, "prefix/", resp["S3KeyPrefix"])
+				assert.Equal(t, "my-sns", resp["SnsTopicName"])
+			},
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
-h := newTestCloudTrailHandler()
-tt.ops(t, h)
-})
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestCloudTrailHandler()
+			tt.ops(t, h)
+		})
+	}
 }
 
 // TestCloudTrailProvider exercises the Provider methods.
 func TestCloudTrailProvider(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-p := &cloudtrail.Provider{}
+	p := &cloudtrail.Provider{}
 
-tests := []struct {
-name string
-fn   func(t *testing.T)
-}{
-{
-name: "name",
-fn: func(t *testing.T) {
-t.Helper()
-assert.Equal(t, "CloudTrail", p.Name())
-},
-},
-{
-name: "init",
-fn: func(t *testing.T) {
-t.Helper()
-// Provider.Init requires service.AppContext; test basic init with nil config.
-appCtx := &service.AppContext{}
-reg, err := p.Init(appCtx)
-require.NoError(t, err)
-require.NotNil(t, reg)
-assert.Equal(t, "CloudTrail", reg.Name())
-},
-},
-}
+	tests := []struct {
+		fn   func(t *testing.T)
+		name string
+	}{
+		{
+			name: "name",
+			fn: func(t *testing.T) {
+				t.Helper()
+				assert.Equal(t, "CloudTrail", p.Name())
+			},
+		},
+		{
+			name: "init",
+			fn: func(t *testing.T) {
+				t.Helper()
+				// Provider.Init requires service.AppContext; test basic init with nil config.
+				appCtx := &service.AppContext{}
+				reg, err := p.Init(appCtx)
+				require.NoError(t, err)
+				require.NotNil(t, reg)
+				assert.Equal(t, "CloudTrail", reg.Name())
+			},
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
-tt.fn(t)
-})
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.fn(t)
+		})
+	}
 }

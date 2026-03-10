@@ -26,8 +26,8 @@ type DataResource struct {
 // EventSelector represents a CloudTrail event selector.
 type EventSelector struct {
 	ReadWriteType           string         `json:"ReadWriteType"`
-	IncludeManagementEvents bool           `json:"IncludeManagementEvents"`
 	DataResources           []DataResource `json:"DataResources"`
+	IncludeManagementEvents bool           `json:"IncludeManagementEvents"`
 }
 
 // Trail represents an AWS CloudTrail trail.
@@ -35,26 +35,26 @@ type EventSelector struct {
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via AddTags / CreateTrail.
 type Trail struct {
-	CreationTime                time.Time      `json:"creationTime"`
-	Tags                        *tags.Tags     `json:"tags,omitempty"`
-	EventSelectors              []EventSelector `json:"eventSelectors,omitempty"`
-	Name                        string         `json:"name"`
-	S3BucketName                string         `json:"s3BucketName"`
-	S3KeyPrefix                 string         `json:"s3KeyPrefix,omitempty"`
-	SnsTopicName                string         `json:"snsTopicName,omitempty"`
-	SnsTopicARN                 string         `json:"snsTopicArn,omitempty"`
-	CloudWatchLogsLogGroupARN   string         `json:"cloudWatchLogsLogGroupArn,omitempty"`
-	CloudWatchLogsRoleARN       string         `json:"cloudWatchLogsRoleArn,omitempty"`
-	KMSKeyID                    string         `json:"kmsKeyId,omitempty"`
-	TrailARN                    string         `json:"trailArn"`
-	HomeRegion                  string         `json:"homeRegion"`
-	AccountID                   string         `json:"accountId"`
-	Region                      string         `json:"region"`
-	IncludeGlobalServiceEvents  bool           `json:"includeGlobalServiceEvents"`
-	IsMultiRegionTrail          bool           `json:"isMultiRegionTrail"`
-	LogFileValidationEnabled    bool           `json:"logFileValidationEnabled"`
-	IsLogging                   bool           `json:"isLogging"`
-	HasCustomEventSelectors     bool           `json:"hasCustomEventSelectors"`
+	CreationTime               time.Time       `json:"creationTime"`
+	Tags                       *tags.Tags      `json:"tags,omitempty"`
+	KMSKeyID                   string          `json:"kmsKeyId,omitempty"`
+	TrailARN                   string          `json:"trailArn"`
+	S3BucketName               string          `json:"s3BucketName"`
+	S3KeyPrefix                string          `json:"s3KeyPrefix,omitempty"`
+	SnsTopicName               string          `json:"snsTopicName,omitempty"`
+	SnsTopicARN                string          `json:"snsTopicArn,omitempty"`
+	CloudWatchLogsLogGroupARN  string          `json:"cloudWatchLogsLogGroupArn,omitempty"`
+	CloudWatchLogsRoleARN      string          `json:"cloudWatchLogsRoleArn,omitempty"`
+	Region                     string          `json:"region"`
+	Name                       string          `json:"name"`
+	HomeRegion                 string          `json:"homeRegion"`
+	AccountID                  string          `json:"accountId"`
+	EventSelectors             []EventSelector `json:"eventSelectors,omitempty"`
+	IncludeGlobalServiceEvents bool            `json:"includeGlobalServiceEvents"`
+	IsMultiRegionTrail         bool            `json:"isMultiRegionTrail"`
+	LogFileValidationEnabled   bool            `json:"logFileValidationEnabled"`
+	IsLogging                  bool            `json:"isLogging"`
+	HasCustomEventSelectors    bool            `json:"hasCustomEventSelectors"`
 }
 
 // InMemoryBackend is the in-memory store for CloudTrail resources.

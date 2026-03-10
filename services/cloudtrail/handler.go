@@ -81,7 +81,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 }
 
 // ExtractResource extracts the primary resource identifier from the request body.
-func (h *Handler) ExtractResource(c *echo.Context) string {
+func (h *Handler) ExtractResource(_ *echo.Context) string {
 	return ""
 }
 
@@ -138,7 +138,10 @@ func (h *Handler) dispatch(c *echo.Context, operation string, body []byte) error
 	case "ListTrails":
 		return h.handleListTrails(c)
 	default:
-		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "unknown operation: "+operation))
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "unknown operation: "+operation),
+		)
 	}
 }
 
@@ -162,20 +165,20 @@ func errResp(code, msg string) map[string]string {
 // --- CreateTrail ---
 
 type createTrailBody struct {
-	TagsList                   []struct {
+	Name                      string `json:"Name"`
+	S3BucketName              string `json:"S3BucketName"`
+	S3KeyPrefix               string `json:"S3KeyPrefix"`
+	SnsTopicName              string `json:"SnsTopicName"`
+	CloudWatchLogsLogGroupArn string `json:"CloudWatchLogsLogGroupArn"`
+	CloudWatchLogsRoleArn     string `json:"CloudWatchLogsRoleArn"`
+	KMSKeyID                  string `json:"KMSKeyId"`
+	TagsList                  []struct {
 		Key   string `json:"Key"`
 		Value string `json:"Value"`
 	} `json:"TagsList"`
-	Name                        string `json:"Name"`
-	S3BucketName                string `json:"S3BucketName"`
-	S3KeyPrefix                 string `json:"S3KeyPrefix"`
-	SnsTopicName                string `json:"SnsTopicName"`
-	CloudWatchLogsLogGroupArn   string `json:"CloudWatchLogsLogGroupArn"`
-	CloudWatchLogsRoleArn       string `json:"CloudWatchLogsRoleArn"`
-	KMSKeyID                    string `json:"KMSKeyId"`
-	IncludeGlobalServiceEvents  bool   `json:"IncludeGlobalServiceEvents"`
-	IsMultiRegionTrail          bool   `json:"IsMultiRegionTrail"`
-	EnableLogFileValidation     bool   `json:"EnableLogFileValidation"`
+	IncludeGlobalServiceEvents bool `json:"IncludeGlobalServiceEvents"`
+	IsMultiRegionTrail         bool `json:"IsMultiRegionTrail"`
+	EnableLogFileValidation    bool `json:"EnableLogFileValidation"`
 }
 
 func (h *Handler) handleCreateTrail(c *echo.Context, body []byte) error {
@@ -234,15 +237,18 @@ func (h *Handler) handleGetTrail(c *echo.Context, body []byte) error {
 // --- DescribeTrails ---
 
 type describeTrailsBody struct {
-	TrailNameList           []string `json:"trailNameList"`
-	IncludeShadowTrails     bool     `json:"includeShadowTrails"`
+	TrailNameList       []string `json:"trailNameList"`
+	IncludeShadowTrails bool     `json:"includeShadowTrails"`
 }
 
 func (h *Handler) handleDescribeTrails(c *echo.Context, body []byte) error {
 	var in describeTrailsBody
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
+			return c.JSON(
+				http.StatusBadRequest,
+				errResp("InvalidParameterCombinationException", "invalid request body"),
+			)
 		}
 	}
 
@@ -258,16 +264,16 @@ func (h *Handler) handleDescribeTrails(c *echo.Context, body []byte) error {
 // --- UpdateTrail ---
 
 type updateTrailBody struct {
-	Name                        string `json:"Name"`
-	S3BucketName                string `json:"S3BucketName"`
-	S3KeyPrefix                 string `json:"S3KeyPrefix"`
-	SnsTopicName                string `json:"SnsTopicName"`
-	CloudWatchLogsLogGroupArn   string `json:"CloudWatchLogsLogGroupArn"`
-	CloudWatchLogsRoleArn       string `json:"CloudWatchLogsRoleArn"`
-	KMSKeyID                    string `json:"KMSKeyId"`
-	IncludeGlobalServiceEvents  *bool  `json:"IncludeGlobalServiceEvents"`
-	IsMultiRegionTrail          *bool  `json:"IsMultiRegionTrail"`
-	EnableLogFileValidation     *bool  `json:"EnableLogFileValidation"`
+	IncludeGlobalServiceEvents *bool  `json:"IncludeGlobalServiceEvents"`
+	IsMultiRegionTrail         *bool  `json:"IsMultiRegionTrail"`
+	EnableLogFileValidation    *bool  `json:"EnableLogFileValidation"`
+	Name                       string `json:"Name"`
+	S3BucketName               string `json:"S3BucketName"`
+	S3KeyPrefix                string `json:"S3KeyPrefix"`
+	SnsTopicName               string `json:"SnsTopicName"`
+	CloudWatchLogsLogGroupArn  string `json:"CloudWatchLogsLogGroupArn"`
+	CloudWatchLogsRoleArn      string `json:"CloudWatchLogsRoleArn"`
+	KMSKeyID                   string `json:"KMSKeyId"`
 }
 
 func (h *Handler) handleUpdateTrail(c *echo.Context, body []byte) error {
@@ -425,11 +431,11 @@ func (h *Handler) handleGetEventSelectors(c *echo.Context, body []byte) error {
 // --- AddTags ---
 
 type addTagsBody struct {
-	TagsList []struct {
+	ResourceID string `json:"ResourceId"`
+	TagsList   []struct {
 		Key   string `json:"Key"`
 		Value string `json:"Value"`
 	} `json:"TagsList"`
-	ResourceId string `json:"ResourceId"`
 }
 
 func (h *Handler) handleAddTags(c *echo.Context, body []byte) error {
@@ -443,7 +449,7 @@ func (h *Handler) handleAddTags(c *echo.Context, body []byte) error {
 		kv[tag.Key] = tag.Value
 	}
 
-	if err := h.Backend.AddTags(in.ResourceId, kv); err != nil {
+	if err := h.Backend.AddTags(in.ResourceID, kv); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -453,10 +459,10 @@ func (h *Handler) handleAddTags(c *echo.Context, body []byte) error {
 // --- RemoveTags ---
 
 type removeTagsBody struct {
-	TagsList []struct {
+	ResourceID string `json:"ResourceId"`
+	TagsList   []struct {
 		Key string `json:"Key"`
 	} `json:"TagsList"`
-	ResourceId string `json:"ResourceId"`
 }
 
 func (h *Handler) handleRemoveTags(c *echo.Context, body []byte) error {
@@ -470,7 +476,7 @@ func (h *Handler) handleRemoveTags(c *echo.Context, body []byte) error {
 		keys = append(keys, tag.Key)
 	}
 
-	if err := h.Backend.RemoveTags(in.ResourceId, keys); err != nil {
+	if err := h.Backend.RemoveTags(in.ResourceID, keys); err != nil {
 		return h.handleError(c, err)
 	}
 
@@ -480,7 +486,7 @@ func (h *Handler) handleRemoveTags(c *echo.Context, body []byte) error {
 // --- ListTags ---
 
 type listTagsBody struct {
-	ResourceIdList []string `json:"ResourceIdList"`
+	ResourceIDList []string `json:"ResourceIdList"`
 }
 
 func (h *Handler) handleListTags(c *echo.Context, body []byte) error {
@@ -489,7 +495,7 @@ func (h *Handler) handleListTags(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterCombinationException", "invalid request body"))
 	}
 
-	tagsByResource := h.Backend.ListTags(in.ResourceIdList)
+	tagsByResource := h.Backend.ListTags(in.ResourceIDList)
 	resourceTagList := make([]map[string]any, 0, len(tagsByResource))
 
 	for resourceID, kv := range tagsByResource {
@@ -528,14 +534,14 @@ func (h *Handler) handleListTrails(c *echo.Context) error {
 // trailToMap converts a Trail to the JSON map used in API responses.
 func trailToMap(t *Trail) map[string]any {
 	m := map[string]any{
-		"Name":                        t.Name,
-		"S3BucketName":                t.S3BucketName,
-		"TrailARN":                    t.TrailARN,
-		"HomeRegion":                  t.HomeRegion,
-		"IncludeGlobalServiceEvents":  t.IncludeGlobalServiceEvents,
-		"IsMultiRegionTrail":          t.IsMultiRegionTrail,
-		"LogFileValidationEnabled":    t.LogFileValidationEnabled,
-		"HasCustomEventSelectors":     t.HasCustomEventSelectors,
+		"Name":                       t.Name,
+		"S3BucketName":               t.S3BucketName,
+		"TrailARN":                   t.TrailARN,
+		"HomeRegion":                 t.HomeRegion,
+		"IncludeGlobalServiceEvents": t.IncludeGlobalServiceEvents,
+		"IsMultiRegionTrail":         t.IsMultiRegionTrail,
+		"LogFileValidationEnabled":   t.LogFileValidationEnabled,
+		"HasCustomEventSelectors":    t.HasCustomEventSelectors,
 	}
 	if t.S3KeyPrefix != "" {
 		m["S3KeyPrefix"] = t.S3KeyPrefix
