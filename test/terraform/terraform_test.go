@@ -32,7 +32,7 @@ import (
 	appconfigdatasvc "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
-	athenadkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
+	athenasdkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
@@ -3140,7 +3140,7 @@ func TestTerraform_Athena(t *testing.T) {
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 				client := createAthenaClient(t)
-				out, err := client.ListWorkGroups(ctx, &athenadkv2.ListWorkGroupsInput{})
+				out, err := client.ListWorkGroups(ctx, &athenasdkv2.ListWorkGroupsInput{})
 				require.NoError(t, err, "ListWorkGroups should succeed after terraform apply")
 				found := false
 				for _, wg := range out.WorkGroups {

@@ -587,3 +587,412 @@ func TestHandler_UnknownOperation(t *testing.T) {
 		})
 	}
 }
+
+// --- Additional WorkGroup tests ---
+
+func TestHandler_UpdateWorkGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "success" {
+				_ = doRequest(t, h, "CreateWorkGroup", `{"Name":"upd-wg"}`)
+				rec := doRequest(t, h, "UpdateWorkGroup",
+					`{"WorkGroup":"upd-wg","Description":"updated","State":"DISABLED"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			} else {
+				rec := doRequest(t, h, "UpdateWorkGroup",
+					`{"WorkGroup":"no-such-wg","Description":"x"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
+// --- Additional NamedQuery tests ---
+
+func TestHandler_ListNamedQueries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name:       "returns_ids_for_workgroup",
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			_ = doRequest(t, h, "CreateNamedQuery",
+				`{"Name":"q1","Database":"db","QueryString":"SELECT 1","WorkGroup":"primary"}`)
+
+			rec := doRequest(t, h, "ListNamedQueries", `{"WorkGroup":"primary"}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string][]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Len(t, resp["NamedQueryIds"], tt.wantCount)
+		})
+	}
+}
+
+func TestHandler_BatchGetNamedQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "returns_found_and_unprocessed",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doRequest(t, h, "CreateNamedQuery",
+				`{"Name":"bq1","Database":"db","QueryString":"SELECT 1"}`)
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var created map[string]string
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			id := created["NamedQueryId"]
+
+			rec := doRequest(t, h, "BatchGetNamedQuery",
+				`{"NamedQueryIds":["`+id+`","missing-id"]}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			found, _ := resp["NamedQueries"].([]any)
+			assert.Len(t, found, 1)
+			unprocessed, _ := resp["UnprocessedNamedQueryIds"].([]any)
+			assert.Len(t, unprocessed, 1)
+		})
+	}
+}
+
+func TestHandler_DeleteNamedQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "success" {
+				createRec := doRequest(t, h, "CreateNamedQuery",
+					`{"Name":"del-q","Database":"db","QueryString":"SELECT 1"}`)
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var cr map[string]string
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &cr))
+
+				rec := doRequest(t, h, "DeleteNamedQuery", `{"NamedQueryId":"`+cr["NamedQueryId"]+`"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			} else {
+				rec := doRequest(t, h, "DeleteNamedQuery", `{"NamedQueryId":"nonexistent"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
+// --- Additional DataCatalog tests ---
+
+func TestHandler_ListDataCatalogs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "returns_list",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			_ = doRequest(t, h, "CreateDataCatalog", `{"Name":"cat1","Type":"GLUE"}`)
+
+			rec := doRequest(t, h, "ListDataCatalogs", `{}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			list, _ := resp["DataCatalogsSummary"].([]any)
+			assert.GreaterOrEqual(t, len(list), 1)
+		})
+	}
+}
+
+func TestHandler_UpdateDataCatalog(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "success" {
+				_ = doRequest(t, h, "CreateDataCatalog", `{"Name":"upd-cat","Type":"GLUE"}`)
+				rec := doRequest(t, h, "UpdateDataCatalog",
+					`{"Name":"upd-cat","Type":"GLUE","Description":"updated"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			} else {
+				rec := doRequest(t, h, "UpdateDataCatalog",
+					`{"Name":"missing-cat","Type":"GLUE","Description":"x"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteDataCatalog(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "success" {
+				_ = doRequest(t, h, "CreateDataCatalog", `{"Name":"del-cat","Type":"GLUE"}`)
+				rec := doRequest(t, h, "DeleteDataCatalog", `{"Name":"del-cat"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			} else {
+				rec := doRequest(t, h, "DeleteDataCatalog", `{"Name":"nonexistent"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
+// --- Additional QueryExecution tests ---
+
+func TestHandler_StopQueryExecution(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not_found",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "success" {
+				startRec := doRequest(t, h, "StartQueryExecution", `{"QueryString":"SELECT 1"}`)
+				require.Equal(t, http.StatusOK, startRec.Code)
+
+				var cr map[string]string
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &cr))
+
+				rec := doRequest(t, h, "StopQueryExecution",
+					`{"QueryExecutionId":"`+cr["QueryExecutionId"]+`"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			} else {
+				rec := doRequest(t, h, "StopQueryExecution", `{"QueryExecutionId":"missing"}`)
+				assert.Equal(t, tt.wantStatus, rec.Code)
+			}
+		})
+	}
+}
+
+func TestHandler_ListQueryExecutions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+		wantCount  int
+	}{
+		{
+			name:       "returns_ids",
+			wantStatus: http.StatusOK,
+			wantCount:  1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			_ = doRequest(t, h, "StartQueryExecution",
+				`{"QueryString":"SELECT 1","WorkGroup":"primary"}`)
+
+			rec := doRequest(t, h, "ListQueryExecutions", `{"WorkGroup":"primary"}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			ids, _ := resp["QueryExecutionIds"].([]any)
+			assert.Len(t, ids, tt.wantCount)
+		})
+	}
+}
+
+func TestHandler_BatchGetQueryExecution(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "returns_found_and_unprocessed",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			startRec := doRequest(t, h, "StartQueryExecution", `{"QueryString":"SELECT 1"}`)
+			require.Equal(t, http.StatusOK, startRec.Code)
+
+			var cr map[string]string
+			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &cr))
+			id := cr["QueryExecutionId"]
+
+			rec := doRequest(t, h, "BatchGetQueryExecution",
+				`{"QueryExecutionIds":["`+id+`","missing-id"]}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			found, _ := resp["QueryExecutions"].([]any)
+			assert.Len(t, found, 1)
+			unprocessed, _ := resp["UnprocessedQueryExecutionIds"].([]any)
+			assert.Len(t, unprocessed, 1)
+		})
+	}
+}
+
+func TestHandler_GetQueryResults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "returns_empty_result_set",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "GetQueryResults", `{"QueryExecutionId":"any-id"}`)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			rs, _ := resp["ResultSet"].(map[string]any)
+			require.NotNil(t, rs, "ResultSet should be present")
+			rows, _ := rs["Rows"].([]any)
+			assert.Empty(t, rows, "rows should be empty for mock")
+		})
+	}
+}

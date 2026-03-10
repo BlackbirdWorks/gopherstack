@@ -922,6 +922,11 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.appConfigDataHandler = byName["AppConfigData"]
 	cli.amplifyHandler = byName["Amplify"]
 	cli.apiGatewayV2Handler = byName["APIGatewayV2"]
+	storeCLIExtendedHandlers(cli, byName)
+}
+
+// storeCLIExtendedHandlers assigns handlers for services added after the initial set.
+func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.athenaHandler = byName["Athena"]
 	cli.appConfigHandler = byName["AppConfig"]
 	cli.ecrHandler = byName["ECR"]
