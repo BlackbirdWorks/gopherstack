@@ -13,6 +13,7 @@ import (
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -102,6 +103,7 @@ type AWSSDKProvider interface {
 	GetIoTDataPlaneHandler() service.Registerable
 	GetAmplifyHandler() service.Registerable
 	GetAPIGatewayV2Handler() service.Registerable
+	GetAthenaHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -168,6 +170,7 @@ type extractedConfig struct {
 	apiGatewayV2Ops          *apigwv2backend.Handler
 	appConfigDataOps         *appconfigdatabackend.Handler
 	amplifyOps               *amplifybackend.Handler
+	athenaOps                *athenabackend.Handler
 	ecrOps                   *ecrbackend.Handler
 	ecsOps                   *ecsbackend.Handler
 	iotOps                   *iotbackend.Handler
@@ -394,6 +397,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetAppConfigDataHandler(); h != nil {
 		ec.appConfigDataOps, _ = h.(*appconfigdatabackend.Handler)
 	}
+
+	if h := ap.GetAthenaHandler(); h != nil {
+		ec.athenaOps, _ = h.(*athenabackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -445,6 +452,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		APIGatewayV2Ops:            ec.apiGatewayV2Ops,
 		AppConfigDataOps:           ec.appConfigDataOps,
 		AmplifyOps:                 ec.amplifyOps,
+		AthenaOps:                  ec.athenaOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		IoTOps:                     ec.iotOps,

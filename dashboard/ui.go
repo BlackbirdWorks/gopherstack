@@ -26,6 +26,7 @@ import (
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -158,6 +159,7 @@ type DashboardHandler struct {
 	APIGatewayV2Ops            *apigwv2backend.Handler
 	AppConfigDataOps           *appconfigdatabackend.Handler
 	AmplifyOps                 *amplifybackend.Handler
+	AthenaOps                  *athenabackend.Handler
 	SubRouter                  *echo.Echo
 	ddbProvider                *ddbbackend.DashboardProvider
 	s3Provider                 *s3backend.DashboardProvider
@@ -263,6 +265,8 @@ type Config struct {
 	AppConfigDataOps *appconfigdatabackend.Handler
 	// AmplifyOps provides access to the Amplify backend.
 	AmplifyOps *amplifybackend.Handler
+	// AthenaOps provides access to the Athena backend.
+	AthenaOps *athenabackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -342,6 +346,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/apigatewaymanagementapi/*.html",
 		"templates/appconfigdata/*.html",
 		"templates/amplify/*.html",
+		"templates/athena/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -410,6 +415,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		APIGatewayV2Ops:            cfg.APIGatewayV2Ops,
 		AppConfigDataOps:           cfg.AppConfigDataOps,
 		AmplifyOps:                 cfg.AmplifyOps,
+		AthenaOps:                  cfg.AthenaOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -700,6 +706,11 @@ func (h *DashboardHandler) setupAmplifyRoutes() {
 	h.SubRouter.GET("/dashboard/amplify", h.amplifyIndex)
 }
 
+func (h *DashboardHandler) setupAthenaRoutes() {
+	h.SubRouter.GET("/dashboard/athena", h.athenaIndex)
+	h.SubRouter.GET("/dashboard/athena/workgroup", h.athenaDetail)
+}
+
 func (h *DashboardHandler) setupAppSyncRoutes() {
 	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
 }
@@ -787,6 +798,13 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupRoute53ResolverRoutes()
 	h.setupTranscribeRoutes()
 	h.setupSupportRoutes()
+	h.setupExtendedServiceRoutes()
+	h.setupChaosRoutes()
+	h.setupMetaRoutes()
+}
+
+// setupExtendedServiceRoutes registers routes for services added after the initial set.
+func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupCognitoIdentityRoutes()
 	h.setupAppSyncRoutes()
 	h.setupCognitoIDPRoutes()
@@ -795,8 +813,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupAPIGatewayV2Routes()
 	h.setupAppConfigDataRoutes()
 	h.setupAmplifyRoutes()
-	h.setupChaosRoutes()
-	h.setupMetaRoutes()
+	h.setupAthenaRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -891,6 +908,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/cognitoidp", "CognitoIDP"},
 	{"/iotdataplane", "IoTDataPlane"},
 	{"/amplify", "Amplify"},
+	{"/athena", "Athena"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

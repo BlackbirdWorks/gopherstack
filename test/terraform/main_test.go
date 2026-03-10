@@ -24,6 +24,7 @@ import (
 	apigwv2svc "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	appconfigdatasvc "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
+	athenadkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -1176,6 +1177,24 @@ func createAppConfigDataClient(t *testing.T) *appconfigdatasvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return appconfigdatasvc.NewFromConfig(cfg, func(o *appconfigdatasvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAthenaClient returns an Athena client pointed at the shared test container.
+func createAthenaClient(t *testing.T) *athenadkv2.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return athenadkv2.NewFromConfig(cfg, func(o *athenadkv2.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

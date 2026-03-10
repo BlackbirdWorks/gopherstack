@@ -161,6 +161,7 @@ type CLI struct {
 	appConfigDataHandler         service.Registerable
 	amplifyHandler               service.Registerable
 	apiGatewayV2Handler          service.Registerable
+	athenaHandler                service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
 	iotHandler                   service.Registerable
@@ -522,6 +523,11 @@ func (c *CLI) GetAmplifyHandler() service.Registerable { return c.amplifyHandler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAPIGatewayV2Handler() service.Registerable { return c.apiGatewayV2Handler }
+
+// GetAthenaHandler returns the Athena handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAthenaHandler() service.Registerable { return c.athenaHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -909,6 +915,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.appConfigDataHandler = byName["AppConfigData"]
 	cli.amplifyHandler = byName["Amplify"]
 	cli.apiGatewayV2Handler = byName["APIGatewayV2"]
+	cli.athenaHandler = byName["Athena"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
