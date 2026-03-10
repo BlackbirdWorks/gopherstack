@@ -16,7 +16,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
-const supportTargetPrefix = "AmazonSupport."
+const supportTargetPrefix = "AWSSupport_20130415."
 
 var (
 	errUnknownAction  = errors.New("unknown action")
