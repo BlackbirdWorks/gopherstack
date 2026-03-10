@@ -292,6 +292,62 @@ func TestHandler_EmptyConnectionID(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+func TestHandler_ChaosInterface(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	assert.Equal(t, "apigatewaymanagementapi", h.ChaosServiceName())
+	assert.Equal(t, []string{"PostToConnection", "GetConnection", "DeleteConnection"}, h.ChaosOperations())
+	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
+	assert.Equal(t, 87, h.MatchPriority())
+}
+
+func TestBackend_ListConnections(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewaymanagementapi.NewInMemoryBackend()
+
+	conns := b.ListConnections()
+	assert.Empty(t, conns)
+
+	_, err := b.CreateConnection("list-conn-1", "1.2.3.4", "ua1")
+	require.NoError(t, err)
+
+	_, err = b.CreateConnection("list-conn-2", "5.6.7.8", "ua2")
+	require.NoError(t, err)
+
+	conns = b.ListConnections()
+	assert.Len(t, conns, 2)
+}
+
+func TestProvider_NameAndInit(t *testing.T) {
+	t.Parallel()
+
+	p := apigatewaymanagementapi.Provider{}
+	assert.Equal(t, "APIGatewayManagementAPI", p.Name())
+
+	h, err := p.Init(nil)
+	require.NoError(t, err)
+	assert.NotNil(t, h)
+}
+
+func TestHandler_UnknownPathPrefix(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/restapis/something", nil)
+	req = req.WithContext(logger.Save(t.Context(), slog.Default()))
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
 func TestBackend_PostToConnection_AfterDelete(t *testing.T) {
 	t.Parallel()
 
