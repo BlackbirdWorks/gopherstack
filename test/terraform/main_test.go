@@ -66,6 +66,7 @@ import (
 	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
+	cesvc "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/docker/docker/api/types/build"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -1271,6 +1272,24 @@ func createBatchClient(t *testing.T) *batchsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return batchsvc.NewFromConfig(cfg, func(o *batchsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCeClient returns a Cost Explorer client pointed at the shared test container.
+func createCeClient(t *testing.T) *cesvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return cesvc.NewFromConfig(cfg, func(o *cesvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

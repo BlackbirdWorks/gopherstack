@@ -18,7 +18,6 @@ The following services are supported by Localstack (either Free or Pro tier) but
 | **Batch** | ❌ No | ❌ No | ❌ No |
 | **Bedrock** | ❌ No | ❌ No | ❌ No |
 | **Bedrock Runtime** | ❌ No | ❌ No | ❌ No |
-| **Ce** | ❌ No | ❌ No | ❌ No |
 | **Cloudcontrol** | ❌ No | ❌ No | ❌ No |
 | **Cloudfront** | ❌ No | ❌ No | ❌ No |
 | **Cloudtrail** | ❌ No | ❌ No | ❌ No |
