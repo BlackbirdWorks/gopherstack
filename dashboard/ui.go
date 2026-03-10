@@ -805,11 +805,16 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupIoTDataPlaneRoutes()
 	h.setupAPIGatewayManagementAPIRoutes()
 	h.setupAPIGatewayV2Routes()
+	h.setupRecentServiceRoutes()
+	h.setupChaosRoutes()
+	h.setupMetaRoutes()
+}
+
+// setupRecentServiceRoutes sets up dashboard routes for recently-added services.
+func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupAppConfigDataRoutes()
 	h.setupAmplifyRoutes()
 	h.setupAppConfigRoutes()
-	h.setupChaosRoutes()
-	h.setupMetaRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.

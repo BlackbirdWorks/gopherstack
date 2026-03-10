@@ -1,14 +1,32 @@
 package appconfig
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"maps"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+const appConfigIDChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+// newResourceID generates a cryptographically random 7-character lowercase alphanumeric ID,
+// matching the format of real AWS AppConfig resource IDs (4-7 chars required by the provider).
+func newResourceID() string {
+	const length = 7
+	b := make([]byte, length)
+	charCount := uint64(len(appConfigIDChars))
+
+	for i := range b {
+		var v [8]byte
+		_, _ = rand.Read(v[:])
+		b[i] = appConfigIDChars[binary.BigEndian.Uint64(v[:])%charCount]
+	}
+
+	return string(b)
+}
 
 // InMemoryBackend implements StorageBackend for AppConfig using in-memory maps.
 type InMemoryBackend struct {
@@ -47,7 +65,7 @@ func (b *InMemoryBackend) CreateApplication(name, description string) (*Applicat
 
 	now := time.Now()
 	app := &Application{
-		ID:          uuid.NewString(),
+		ID:          newResourceID(),
 		Name:        name,
 		Description: description,
 		CreatedAt:   now,
@@ -143,7 +161,7 @@ func (b *InMemoryBackend) CreateEnvironment(applicationID, name, description str
 
 	now := time.Now()
 	env := &Environment{
-		ID:            uuid.NewString(),
+		ID:            newResourceID(),
 		ApplicationID: applicationID,
 		Name:          name,
 		Description:   description,
@@ -259,7 +277,7 @@ func (b *InMemoryBackend) CreateConfigurationProfile(
 	}
 
 	profile := &ConfigurationProfile{
-		ID:            uuid.NewString(),
+		ID:            newResourceID(),
 		ApplicationID: applicationID,
 		Name:          name,
 		Description:   description,
@@ -498,7 +516,7 @@ func (b *InMemoryBackend) CreateDeploymentStrategy(
 
 	now := time.Now()
 	strategy := &DeploymentStrategy{
-		ID:                          uuid.NewString(),
+		ID:                          newResourceID(),
 		Name:                        name,
 		Description:                 description,
 		DeploymentDurationInMinutes: deploymentDuration,
