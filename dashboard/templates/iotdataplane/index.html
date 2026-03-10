@@ -1,0 +1,69 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <img src="/dashboard/static/icons/iotdataplane.svg" class="w-8 h-8 rounded-md shadow-sm" alt="iotdataplane" />
+                IoT Data Plane
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory IoT Data Plane for publishing messages directly to MQTT topics over HTTP.</p>
+        </div>
+    </div>
+
+    <div class="mt-8 grid grid-cols-1 gap-6">
+        <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                </svg>
+                Supported Operations
+            </h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div class="flex items-center gap-2 p-3 rounded-lg bg-slate-50/80 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                    <span class="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"></span>
+                    <span class="text-sm font-medium text-slate-700 dark:text-slate-300">Publish</span>
+                    <span class="ml-auto text-xs text-slate-500 dark:text-slate-400">POST /topics/&lt;topic&gt;</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                About IoT Data Plane
+            </h2>
+            <div class="prose prose-sm dark:prose-invert max-w-none">
+                <p class="text-slate-600 dark:text-slate-400">
+                    The IoT Data Plane service provides an HTTP interface for publishing messages to MQTT topics.
+                    Messages are delivered to the embedded MQTT broker and can trigger IoT Topic Rules.
+                </p>
+                <ul class="mt-3 space-y-2 text-slate-600 dark:text-slate-400">
+                    <li class="flex items-start gap-2">
+                        <span class="text-green-500 mt-0.5">✓</span>
+                        <span>Publish messages to any MQTT topic via <code class="text-xs bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded">POST /topics/&lt;topic&gt;</code></span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-green-500 mt-0.5">✓</span>
+                        <span>Supports both raw binary payloads and JSON-wrapped payloads</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-green-500 mt-0.5">✓</span>
+                        <span>Messages are forwarded to the MQTT broker for IoT Topic Rule dispatch</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-green-500 mt-0.5">✓</span>
+                        <span>Compatible with the AWS IoT Data Plane SDK (<code class="text-xs bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded">aws-sdk-go-v2/service/iotdataplane</code>)</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}
