@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -102,6 +103,57 @@ func NewInMemoryBackend() *InMemoryBackend {
 		activities:           make(map[string][]ScalingActivity),
 		mu:                   lockmetrics.New("autoscaling"),
 	}
+}
+
+// makeInstances creates the desired number of healthy InService instances for an ASG.
+// The fake service immediately puts instances in InService/Healthy state so that
+// Terraform provider capacity checks do not time out.
+func makeInstances(count int32, azs []string, launchConfigName string) []Instance {
+	if count <= 0 {
+		return []Instance{}
+	}
+
+	az := "us-east-1a"
+	if len(azs) > 0 {
+		az = azs[0]
+	}
+
+	instances := make([]Instance, 0, count)
+
+	for range count {
+		// Use full UUID (stripped of dashes) to generate a unique, collision-free instance ID.
+		id := "i-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:17]
+		instances = append(instances, Instance{
+			InstanceID:              id,
+			AvailabilityZone:        az,
+			LifecycleState:          "InService",
+			HealthStatus:            "Healthy",
+			LaunchConfigurationName: launchConfigName,
+			InstanceType:            "t2.micro",
+		})
+	}
+
+	return instances
+}
+
+// adjustInstances adjusts the instances slice to match the new desired count.
+// It adds or removes instances from the end, preserving existing instance IDs.
+func adjustInstances(existing []Instance, desired int32, azs []string, launchConfigName string) []Instance {
+	current := len(existing)
+	want := int(desired)
+
+	if want == current {
+		return existing
+	}
+
+	if want < current {
+		return existing[:want]
+	}
+
+	// Add new instances for the delta.
+	delta := desired - int32(current) //nolint:gosec // current <= math.MaxInt32 (bounded by desired which is int32)
+
+	return append(existing, makeInstances(delta, azs, launchConfigName)...)
 }
 
 // CreateAutoScalingGroup creates a new Auto Scaling group.
@@ -238,6 +290,7 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 
 	if input.DesiredCapacity != nil {
 		g.DesiredCapacity = *input.DesiredCapacity
+		g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
 	}
 
 	if input.DefaultCooldown != nil {
