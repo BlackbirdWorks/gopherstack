@@ -19,6 +19,27 @@ var (
 	ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrConflict)
 )
 
+// unixEpochTime wraps [time.Time] and marshals to/from a JSON number (Unix seconds),
+// which is the format expected by the AWS CloudControl SDK v2 client.
+type unixEpochTime struct {
+	time.Time
+}
+
+func (t unixEpochTime) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.Unix())
+}
+
+func (t *unixEpochTime) UnmarshalJSON(b []byte) error {
+	var epoch int64
+	if err := json.Unmarshal(b, &epoch); err != nil {
+		return err
+	}
+
+	t.Time = time.Unix(epoch, 0)
+
+	return nil
+}
+
 // Resource represents an in-memory CloudControl managed resource.
 type Resource struct {
 	TypeName   string
@@ -28,13 +49,13 @@ type Resource struct {
 
 // ProgressEvent represents the status of a CloudControl resource operation.
 type ProgressEvent struct {
-	EventTime       time.Time `json:"EventTime"`
-	TypeName        string    `json:"TypeName"`
-	Identifier      string    `json:"Identifier,omitempty"`
-	RequestToken    string    `json:"RequestToken"`
-	Operation       string    `json:"Operation"`
-	OperationStatus string    `json:"OperationStatus"`
-	StatusMessage   string    `json:"StatusMessage,omitempty"`
+	EventTime       unixEpochTime `json:"EventTime"`
+	TypeName        string        `json:"TypeName"`
+	Identifier      string        `json:"Identifier,omitempty"`
+	RequestToken    string        `json:"RequestToken"`
+	Operation       string        `json:"Operation"`
+	OperationStatus string        `json:"OperationStatus"`
+	StatusMessage   string        `json:"StatusMessage,omitempty"`
 }
 
 // InMemoryBackend is a thread-safe in-memory store for CloudControl resources.
@@ -84,7 +105,7 @@ func (b *InMemoryBackend) CreateResource(typeName, desiredState string) (*Progre
 
 	token := uuid.NewString()
 	event := &ProgressEvent{
-		EventTime:       time.Now(),
+		EventTime:       unixEpochTime{time.Now()},
 		TypeName:        typeName,
 		Identifier:      identifier,
 		RequestToken:    token,
@@ -154,7 +175,7 @@ func (b *InMemoryBackend) DeleteResource(typeName, identifier string) (*Progress
 
 	token := uuid.NewString()
 	event := &ProgressEvent{
-		EventTime:       time.Now(),
+		EventTime:       unixEpochTime{time.Now()},
 		TypeName:        typeName,
 		Identifier:      identifier,
 		RequestToken:    token,
@@ -182,7 +203,7 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument str
 
 	token := uuid.NewString()
 	event := &ProgressEvent{
-		EventTime:       time.Now(),
+		EventTime:       unixEpochTime{time.Now()},
 		TypeName:        typeName,
 		Identifier:      identifier,
 		RequestToken:    token,
@@ -218,7 +239,7 @@ func (b *InMemoryBackend) CancelResourceRequest(requestToken string) (*ProgressE
 	}
 
 	cancelled := &ProgressEvent{
-		EventTime:       time.Now(),
+		EventTime:       unixEpochTime{time.Now()},
 		TypeName:        event.TypeName,
 		Identifier:      event.Identifier,
 		RequestToken:    requestToken,

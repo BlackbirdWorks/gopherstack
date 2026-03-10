@@ -690,6 +690,76 @@ func TestInMemoryBackend_Region(t *testing.T) {
 	assert.Equal(t, "eu-west-1", b.Region())
 }
 
+func TestHandler_EventTimeIsUnixNumber(t *testing.T) {
+	t.Parallel()
+
+	// The AWS CloudControl SDK v2 expects EventTime to be a JSON number (Unix epoch seconds),
+	// not a string. Each test case creates its own handler and verifies the wire format.
+	tests := []struct {
+		getRequest func(t *testing.T, h *cloudcontrol.Handler) *httptest.ResponseRecorder
+		name       string
+	}{
+		{
+			name: "create_resource_event_time_is_number",
+			getRequest: func(t *testing.T, h *cloudcontrol.Handler) *httptest.ResponseRecorder {
+				t.Helper()
+
+				return doRequest(t, h, "CreateResource", map[string]any{
+					"TypeName":     "AWS::Logs::LogGroup",
+					"DesiredState": `{"LogGroupName":"evt-test"}`,
+				})
+			},
+		},
+		{
+			name: "get_request_status_event_time_is_number",
+			getRequest: func(t *testing.T, h *cloudcontrol.Handler) *httptest.ResponseRecorder {
+				t.Helper()
+				// First create a resource to obtain a request token.
+				createRec := doRequest(t, h, "CreateResource", map[string]any{
+					"TypeName":     "AWS::Logs::LogGroup",
+					"DesiredState": `{"LogGroupName":"evt-status"}`,
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
+
+				var createOut map[string]any
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+				pe, ok := createOut["ProgressEvent"].(map[string]any)
+				require.True(t, ok)
+
+				token, tokenOK := pe["RequestToken"].(string)
+				require.True(t, tokenOK, "RequestToken should be a string")
+				require.NotEmpty(t, token)
+
+				return doRequest(t, h, "GetResourceRequestStatus", map[string]any{
+					"RequestToken": token,
+				})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := tt.getRequest(t, h)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			pe, ok := out["ProgressEvent"].(map[string]any)
+			require.True(t, ok, "ProgressEvent should be present in response")
+
+			// EventTime must be a JSON number (float64 after json.Unmarshal into any).
+			eventTime, exists := pe["EventTime"]
+			require.True(t, exists, "EventTime must be present in ProgressEvent")
+			_, isNumber := eventTime.(float64)
+			assert.True(t, isNumber, "EventTime must be a JSON number (Unix epoch), got %T: %v", eventTime, eventTime)
+		})
+	}
+}
+
 func TestProvider_Name(t *testing.T) {
 	t.Parallel()
 

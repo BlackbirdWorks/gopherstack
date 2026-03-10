@@ -698,6 +698,18 @@ func New(t *testing.T) *Stack {
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
 
+	return buildStack(h, e, clients, faultStore, dashHndlr)
+}
+
+// buildStack assembles the Stack struct from wired components.
+// It is extracted from New to satisfy the funlen limit on that function.
+func buildStack(
+	h handlers,
+	e *echo.Echo,
+	clients sdkClients,
+	faultStore *chaos.FaultStore,
+	dashHndlr *dashboard.DashboardHandler,
+) *Stack {
 	return &Stack{
 		Echo:                           e,
 		S3Backend:                      h.s3Bk,
