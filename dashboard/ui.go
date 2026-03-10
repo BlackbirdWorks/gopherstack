@@ -23,6 +23,8 @@ import (
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
+	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -154,8 +156,10 @@ type DashboardHandler struct {
 	CognitoIDPOps              *cognitoidpbackend.Handler
 	IoTDataPlaneOps            *iotdataplanebackend.Handler
 	APIGatewayManagementAPIOps *apigwmgmtbackend.Handler
+	APIGatewayV2Ops            *apigwv2backend.Handler
 	AppConfigDataOps           *appconfigdatabackend.Handler
 	AmplifyOps                 *amplifybackend.Handler
+	AppConfigOps               *appconfigbackend.Handler
 	SubRouter                  *echo.Echo
 	ddbProvider                *ddbbackend.DashboardProvider
 	s3Provider                 *s3backend.DashboardProvider
@@ -255,10 +259,14 @@ type Config struct {
 	IoTDataPlaneOps *iotdataplanebackend.Handler
 	// APIGatewayManagementAPIOps provides access to the API Gateway Management API backend.
 	APIGatewayManagementAPIOps *apigwmgmtbackend.Handler
+	// APIGatewayV2Ops provides access to the API Gateway V2 backend.
+	APIGatewayV2Ops *apigwv2backend.Handler
 	// AppConfigDataOps provides access to the AppConfigData backend.
 	AppConfigDataOps *appconfigdatabackend.Handler
 	// AmplifyOps provides access to the Amplify backend.
 	AmplifyOps *amplifybackend.Handler
+	// AppConfigOps provides access to the AppConfig backend.
+	AppConfigOps *appconfigbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -301,6 +309,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/lambda/*.html",
 		"templates/eventbridge/*.html",
 		"templates/apigateway/*.html",
+		"templates/apigatewayv2/*.html",
 		"templates/cloudwatchlogs/*.html",
 		"templates/stepfunctions/*.html",
 		"templates/cloudwatch/*.html",
@@ -337,6 +346,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/apigatewaymanagementapi/*.html",
 		"templates/appconfigdata/*.html",
 		"templates/amplify/*.html",
+		"templates/appconfig/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -402,8 +412,10 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CognitoIDPOps:              cfg.CognitoIDPOps,
 		IoTDataPlaneOps:            cfg.IoTDataPlaneOps,
 		APIGatewayManagementAPIOps: cfg.APIGatewayManagementAPIOps,
+		APIGatewayV2Ops:            cfg.APIGatewayV2Ops,
 		AppConfigDataOps:           cfg.AppConfigDataOps,
 		AmplifyOps:                 cfg.AmplifyOps,
+		AppConfigOps:               cfg.AppConfigOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -694,6 +706,12 @@ func (h *DashboardHandler) setupAmplifyRoutes() {
 	h.SubRouter.GET("/dashboard/amplify", h.amplifyIndex)
 }
 
+func (h *DashboardHandler) setupAppConfigRoutes() {
+	h.SubRouter.GET("/dashboard/appconfig", h.appConfigIndex)
+	h.SubRouter.POST("/dashboard/appconfig/application/create", h.appConfigCreateApplication)
+	h.SubRouter.POST("/dashboard/appconfig/application/delete", h.appConfigDeleteApplication)
+}
+
 func (h *DashboardHandler) setupAppSyncRoutes() {
 	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
 }
@@ -706,6 +724,11 @@ func (h *DashboardHandler) setupAPIGatewayManagementAPIRoutes() {
 	h.SubRouter.GET("/dashboard/apigatewaymanagementapi", h.apiGatewayManagementAPIIndex)
 	h.SubRouter.POST("/dashboard/apigatewaymanagementapi/connection/create", h.apiGatewayManagementAPICreateConnection)
 	h.SubRouter.POST("/dashboard/apigatewaymanagementapi/connection/delete", h.apiGatewayManagementAPIDeleteConnection)
+}
+
+func (h *DashboardHandler) setupAPIGatewayV2Routes() {
+	h.SubRouter.GET("/dashboard/apigatewayv2", h.apiGatewayV2Index)
+	h.SubRouter.GET("/dashboard/apigatewayv2/api", h.apiGatewayV2Detail)
 }
 
 func (h *DashboardHandler) setupAppConfigDataRoutes() {
@@ -781,10 +804,17 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupCognitoIDPRoutes()
 	h.setupIoTDataPlaneRoutes()
 	h.setupAPIGatewayManagementAPIRoutes()
-	h.setupAppConfigDataRoutes()
-	h.setupAmplifyRoutes()
+	h.setupAPIGatewayV2Routes()
+	h.setupRecentServiceRoutes()
 	h.setupChaosRoutes()
 	h.setupMetaRoutes()
+}
+
+// setupRecentServiceRoutes sets up dashboard routes for recently-added services.
+func (h *DashboardHandler) setupRecentServiceRoutes() {
+	h.setupAppConfigDataRoutes()
+	h.setupAmplifyRoutes()
+	h.setupAppConfigRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -842,6 +872,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/lambda", "Lambda"},
 	{"/eventbridge", "EventBridge"},
 	{"/apigatewaymanagementapi", "APIGatewayManagementAPI"},
+	{"/apigatewayv2", "APIGatewayV2"},
 	{"/appconfigdata", "AppConfigData"},
 	{"/apigateway", "APIGateway"},
 	{"/cloudwatchlogs", "CloudWatchLogs"},
@@ -878,6 +909,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/cognitoidp", "CognitoIDP"},
 	{"/iotdataplane", "IoTDataPlane"},
 	{"/amplify", "Amplify"},
+	{"/appconfig", "AppConfig"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

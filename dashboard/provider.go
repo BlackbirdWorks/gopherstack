@@ -10,6 +10,8 @@ import (
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
+	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -100,6 +102,8 @@ type AWSSDKProvider interface {
 	GetCognitoIDPHandler() service.Registerable
 	GetIoTDataPlaneHandler() service.Registerable
 	GetAmplifyHandler() service.Registerable
+	GetAPIGatewayV2Handler() service.Registerable
+	GetAppConfigHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -163,8 +167,10 @@ type extractedConfig struct {
 	cognitoIDPOps            *cognitoidpbackend.Handler
 	iotDataPlaneOps          *iotdataplanebackend.Handler
 	apiGatewayMgmtOps        *apigwmgmtbackend.Handler
+	apiGatewayV2Ops          *apigwv2backend.Handler
 	appConfigDataOps         *appconfigdatabackend.Handler
 	amplifyOps               *amplifybackend.Handler
+	appConfigOps             *appconfigbackend.Handler
 	ecrOps                   *ecrbackend.Handler
 	ecsOps                   *ecsbackend.Handler
 	iotOps                   *iotbackend.Handler
@@ -350,6 +356,10 @@ func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.amplifyOps, _ = h.(*amplifybackend.Handler)
 	}
 
+	if h := ap.GetAPIGatewayV2Handler(); h != nil {
+		ec.apiGatewayV2Ops, _ = h.(*apigwv2backend.Handler)
+	}
+
 	if h := ap.GetSESv2Handler(); h != nil {
 		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
 	}
@@ -382,6 +392,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetAPIGatewayManagementAPIHandler(); h != nil {
 		ec.apiGatewayMgmtOps, _ = h.(*apigwmgmtbackend.Handler)
+	}
+
+	if h := ap.GetAppConfigHandler(); h != nil {
+		ec.appConfigOps, _ = h.(*appconfigbackend.Handler)
 	}
 
 	if h := ap.GetAppConfigDataHandler(); h != nil {
@@ -435,8 +449,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CognitoIDPOps:              ec.cognitoIDPOps,
 		IoTDataPlaneOps:            ec.iotDataPlaneOps,
 		APIGatewayManagementAPIOps: ec.apiGatewayMgmtOps,
+		APIGatewayV2Ops:            ec.apiGatewayV2Ops,
 		AppConfigDataOps:           ec.appConfigDataOps,
 		AmplifyOps:                 ec.amplifyOps,
+		AppConfigOps:               ec.appConfigOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		IoTOps:                     ec.iotOps,

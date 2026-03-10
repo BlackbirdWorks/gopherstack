@@ -24,6 +24,8 @@ import (
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
+	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -128,6 +130,8 @@ type Stack struct {
 	APIGatewayManagementAPIHandler *apigwmgmtbackend.Handler
 	AppConfigDataHandler           *appconfigdatabackend.Handler
 	AmplifyHandler                 *amplifybackend.Handler
+	APIGatewayV2Handler            *apigwv2backend.Handler
+	AppConfigHandler               *appconfigbackend.Handler
 	S3Client                       *s3.Client
 	DDBClient                      *dynamodb.Client
 	FaultStore                     *chaos.FaultStore
@@ -227,6 +231,8 @@ func registerServices(
 	apiGatewayMgmtHndlr *apigwmgmtbackend.Handler,
 	appConfigDataHndlr *appconfigdatabackend.Handler,
 	amplifyHndlr *amplifybackend.Handler,
+	apigwv2Hndlr *apigwv2backend.Handler,
+	appConfigHndlr *appconfigbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -275,6 +281,8 @@ func registerServices(
 	_ = registry.Register(apiGatewayMgmtHndlr)
 	_ = registry.Register(appConfigDataHndlr)
 	_ = registry.Register(amplifyHndlr)
+	_ = registry.Register(apigwv2Hndlr)
+	_ = registry.Register(appConfigHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -327,6 +335,8 @@ type handlers struct {
 	apiGatewayMgmt  *apigwmgmtbackend.Handler
 	appConfigData   *appconfigdatabackend.Handler
 	amplify         *amplifybackend.Handler
+	apigwv2         *apigwv2backend.Handler
+	appConfig       *appconfigbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -452,6 +462,8 @@ func populateExtendedHandlers(h *handlers) {
 	h.amplify = amplifybackend.NewHandler(
 		amplifybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.apigwv2 = apigwv2backend.NewHandler(apigwv2backend.NewInMemoryBackend())
+	h.appConfig = appconfigbackend.NewHandler(appconfigbackend.NewInMemoryBackend())
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -538,6 +550,8 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		APIGatewayManagementAPIOps: h.apiGatewayMgmt,
 		AppConfigDataOps:           h.appConfigData,
 		AmplifyOps:                 h.amplify,
+		APIGatewayV2Ops:            h.apigwv2,
+		AppConfigOps:               h.appConfig,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -568,7 +582,7 @@ func New(t *testing.T) *Stack {
 		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.iot, h.opensearch,
 		h.acm, h.acmpca, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
-		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData, h.amplify,
+		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData, h.amplify, h.apigwv2, h.appConfig,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -632,6 +646,8 @@ func New(t *testing.T) *Stack {
 		APIGatewayManagementAPIHandler: h.apiGatewayMgmt,
 		AppConfigDataHandler:           h.appConfigData,
 		AmplifyHandler:                 h.amplify,
+		APIGatewayV2Handler:            h.apigwv2,
+		AppConfigHandler:               h.appConfig,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
