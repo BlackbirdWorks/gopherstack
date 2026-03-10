@@ -147,6 +147,7 @@ type CLI struct {
 	transcribeHandler            service.Registerable
 	supportHandler               service.Registerable
 	appSyncHandler               service.Registerable
+	iotDataPlaneHandler          service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
 	cognitoIDPHandler            service.Registerable
@@ -466,6 +467,11 @@ func (c *CLI) GetECSHandler() service.Registerable { return c.ecsHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAppSyncHandler() service.Registerable { return c.appSyncHandler }
+
+// GetIoTDataPlaneHandler returns the IoT Data Plane handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetIoTDataPlaneHandler() service.Registerable { return c.iotDataPlaneHandler }
 
 // GetCognitoIDPHandler returns the Cognito IDP handler (dashboard.AWSSDKProvider).
 //
@@ -830,6 +836,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.transcribeHandler = byName["Transcribe"]
 	cli.supportHandler = byName["Support"]
 	cli.appSyncHandler = byName["AppSync"]
+	cli.iotDataPlaneHandler = byName["IoTDataPlane"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.cognitoIDPHandler = byName["CognitoIDP"]

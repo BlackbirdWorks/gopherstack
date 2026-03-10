@@ -16,6 +16,7 @@ import (
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -88,6 +89,7 @@ type AWSSDKProvider interface {
 	GetCognitoIdentityHandler() service.Registerable
 	GetAppSyncHandler() service.Registerable
 	GetCognitoIDPHandler() service.Registerable
+	GetIoTDataPlaneHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
@@ -143,6 +145,7 @@ type extractedConfig struct {
 	cognitoIdentityOps *cognitoidentitybackend.Handler
 	appSyncOps         *appsyncbackend.Handler
 	cognitoIDPOps      *cognitoidpbackend.Handler
+	iotDataPlaneOps    *iotdataplanebackend.Handler
 	ecrOps             *ecrbackend.Handler
 	ecsOps             *ecsbackend.Handler
 	faultStore         *chaos.FaultStore
@@ -310,6 +313,10 @@ func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.cognitoIDPOps, _ = h.(*cognitoidpbackend.Handler)
 	}
 
+	if h := ap.GetIoTDataPlaneHandler(); h != nil {
+		ec.iotDataPlaneOps, _ = h.(*iotdataplanebackend.Handler)
+	}
+
 	if h := ap.GetECRHandler(); h != nil {
 		ec.ecrOps, _ = h.(*ecrbackend.Handler)
 	}
@@ -365,6 +372,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CognitoIdentityOps: ec.cognitoIdentityOps,
 		AppSyncOps:         ec.appSyncOps,
 		CognitoIDPOps:      ec.cognitoIDPOps,
+		IoTDataPlaneOps:    ec.iotDataPlaneOps,
 		ECROps:             ec.ecrOps,
 		ECSOps:             ec.ecsOps,
 		GlobalConfig:       ec.gCfg,

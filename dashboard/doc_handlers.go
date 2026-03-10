@@ -43,6 +43,7 @@ type docPageData struct {
 	SupportOps         []string
 	CognitoIdentityOps []string
 	AppSyncOps         []string
+	IoTDataPlaneOps    []string
 }
 
 // docIndex renders the documentation page.
@@ -97,6 +98,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		SupportOps:         h.getSupportedOps(h.SupportOps),
 		CognitoIdentityOps: h.getSupportedOps(h.CognitoIdentityOps),
 		AppSyncOps:         h.getSupportedOps(h.AppSyncOps),
+		IoTDataPlaneOps:    h.getSupportedOps(h.IoTDataPlaneOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)
