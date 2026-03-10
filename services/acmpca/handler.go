@@ -108,6 +108,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagCertificateAuthority",
 		"UntagCertificateAuthority",
 		"ListTagsForCertificateAuthority",
+		"ListTags",
 	}
 }
 
@@ -427,7 +428,7 @@ func (h *Handler) dispatchCertAndTagOps(action string, body []byte) (any, error)
 		return h.jsonTagCA(body)
 	case "UntagCertificateAuthority":
 		return h.jsonUntagCA(body)
-	case "ListTagsForCertificateAuthority":
+	case "ListTagsForCertificateAuthority", "ListTags":
 		return h.jsonListTags(body)
 	default:
 		return nil, errUnknownACMPCAAction
