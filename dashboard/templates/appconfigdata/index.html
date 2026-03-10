@@ -1,0 +1,224 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <img src="/dashboard/static/icons/appconfigdata.svg" class="w-8 h-8 rounded-md shadow-sm" alt="appconfigdata" />
+                AppConfigData
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory AWS AppConfigData for retrieving deployed configuration data at runtime.</p>
+        </div>
+        <div class="flex gap-2">
+            <button onclick="document.getElementById('set-configuration-modal').classList.remove('hidden')"
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors shadow-sm">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                + Set Configuration
+            </button>
+        </div>
+    </div>
+
+    <!-- Configuration Profiles Table -->
+    <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel mb-6">
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+            <svg class="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Configuration Profiles
+        </h2>
+        {{if .Profiles}}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left text-slate-600 dark:text-slate-400">
+                <thead class="text-xs uppercase bg-slate-50 dark:bg-slate-700/50">
+                    <tr>
+                        <th class="px-4 py-2 text-slate-700 dark:text-slate-300">Application</th>
+                        <th class="px-4 py-2 text-slate-700 dark:text-slate-300">Environment</th>
+                        <th class="px-4 py-2 text-slate-700 dark:text-slate-300">Profile</th>
+                        <th class="px-4 py-2 text-slate-700 dark:text-slate-300">Content Type</th>
+                        <th class="px-4 py-2 text-slate-700 dark:text-slate-300">Content (preview)</th>
+                        <th class="px-4 py-2 text-slate-700 dark:text-slate-300">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {{range .Profiles}}
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
+                        <td class="px-4 py-3 font-mono text-xs">{{.ApplicationIdentifier}}</td>
+                        <td class="px-4 py-3 font-mono text-xs">{{.EnvironmentIdentifier}}</td>
+                        <td class="px-4 py-3 font-mono text-xs">{{.ConfigurationProfileIdentifier}}</td>
+                        <td class="px-4 py-3 text-xs">
+                            <span class="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{{.ContentType}}</span>
+                        </td>
+                        <td class="px-4 py-3 font-mono text-xs truncate max-w-xs">{{.Content}}</td>
+                        <td class="px-4 py-3">
+                            <form method="POST" action="/dashboard/appconfigdata/configuration/delete" class="inline">
+                                <input type="hidden" name="applicationIdentifier" value="{{.ApplicationIdentifier}}">
+                                <input type="hidden" name="environmentIdentifier" value="{{.EnvironmentIdentifier}}">
+                                <input type="hidden" name="configurationProfileIdentifier" value="{{.ConfigurationProfileIdentifier}}">
+                                <button type="submit"
+                                    class="px-2 py-1 text-xs rounded bg-red-100 hover:bg-red-200 dark:bg-red-900/40 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 transition-colors">
+                                    Delete
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <p class="text-sm text-slate-500 dark:text-slate-400">No configuration profiles. Add one using the button above.</p>
+        {{end}}
+    </div>
+
+    <!-- Active Sessions Table -->
+    <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel mb-6">
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+            <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            </svg>
+            Active Sessions
+        </h2>
+        {{if .Sessions}}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left text-slate-600 dark:text-slate-400">
+                <thead class="text-xs uppercase bg-slate-50 dark:bg-slate-700/50">
+                    <tr>
+                        <th class="px-4 py-2 text-slate-700 dark:text-slate-300">Token</th>
+                        <th class="px-4 py-2 text-slate-700 dark:text-slate-300">Application</th>
+                        <th class="px-4 py-2 text-slate-700 dark:text-slate-300">Environment</th>
+                        <th class="px-4 py-2 text-slate-700 dark:text-slate-300">Profile</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    {{range .Sessions}}
+                    <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-colors">
+                        <td class="px-4 py-3 font-mono text-xs truncate max-w-xs">{{.Token}}</td>
+                        <td class="px-4 py-3 font-mono text-xs">{{.ApplicationIdentifier}}</td>
+                        <td class="px-4 py-3 font-mono text-xs">{{.EnvironmentIdentifier}}</td>
+                        <td class="px-4 py-3 font-mono text-xs">{{.ConfigurationProfileIdentifier}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <p class="text-sm text-slate-500 dark:text-slate-400">No active sessions.</p>
+        {{end}}
+    </div>
+
+    <!-- Supported Operations -->
+    <div class="mt-4 grid grid-cols-1 gap-6">
+        <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Supported Operations
+            </h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="flex items-center gap-2 p-3 rounded-lg bg-slate-50/80 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                    <span class="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"></span>
+                    <span class="text-sm font-medium text-slate-700 dark:text-slate-300">StartConfigurationSession</span>
+                    <span class="ml-auto text-xs text-slate-500 dark:text-slate-400">POST /configurationsessions</span>
+                </div>
+                <div class="flex items-center gap-2 p-3 rounded-lg bg-slate-50/80 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                    <span class="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"></span>
+                    <span class="text-sm font-medium text-slate-700 dark:text-slate-300">GetLatestConfiguration</span>
+                    <span class="ml-auto text-xs text-slate-500 dark:text-slate-400">GET /configuration/&lt;token&gt;</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel">
+            <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                About AppConfigData
+            </h2>
+            <div class="prose prose-sm dark:prose-invert max-w-none">
+                <p class="text-slate-600 dark:text-slate-400">
+                    AWS AppConfigData provides a runtime HTTP API for applications to retrieve deployed configuration data.
+                    Applications call <code class="text-xs bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded">StartConfigurationSession</code> to begin a session,
+                    then poll <code class="text-xs bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded">GetLatestConfiguration</code> to retrieve current configuration.
+                </p>
+                <ul class="mt-3 space-y-2 text-slate-600 dark:text-slate-400">
+                    <li class="flex items-start gap-2">
+                        <span class="text-green-500 mt-0.5">&#10003;</span>
+                        <span>Start a retrieval session via <code class="text-xs bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded">POST /configurationsessions</code></span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-green-500 mt-0.5">&#10003;</span>
+                        <span>Retrieve configuration via <code class="text-xs bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded">GET /configuration/&lt;token&gt;</code></span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-green-500 mt-0.5">&#10003;</span>
+                        <span>Token rotation on each retrieval for safe polling</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <span class="text-green-500 mt-0.5">&#10003;</span>
+                        <span>Compatible with AWS SDK v2 <code class="text-xs bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded">appconfigdata</code> client</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Set Configuration Modal -->
+<div id="set-configuration-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-lg mx-4 border border-slate-200 dark:border-slate-700">
+        <h3 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Set Configuration Profile</h3>
+        <form method="POST" action="/dashboard/appconfigdata/configuration/set">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Application Identifier</label>
+                    <input type="text" name="applicationIdentifier" placeholder="e.g. my-app"
+                        class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Environment Identifier</label>
+                    <input type="text" name="environmentIdentifier" placeholder="e.g. prod"
+                        class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Configuration Profile Identifier</label>
+                    <input type="text" name="configurationProfileIdentifier" placeholder="e.g. my-profile"
+                        class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        required>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Content Type</label>
+                    <input type="text" name="contentType" placeholder="e.g. application/json" value="application/json"
+                        class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Configuration Content</label>
+                    <textarea name="content" rows="4" placeholder='e.g. {"featureFlag":true}'
+                        class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono"></textarea>
+                </div>
+            </div>
+            <div class="mt-6 flex gap-3 justify-end">
+                <button type="button" onclick="document.getElementById('set-configuration-modal').classList.add('hidden')"
+                    class="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors shadow-sm">
+                    Save
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

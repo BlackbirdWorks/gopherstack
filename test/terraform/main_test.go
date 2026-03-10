@@ -21,6 +21,7 @@ import (
 	acmpcasvc "github.com/aws/aws-sdk-go-v2/service/acmpca"
 	amplifysdkv2 "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
+	appconfigdatasvc "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
@@ -1138,6 +1139,24 @@ func createAmplifyClient(t *testing.T) *amplifysdkv2.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return amplifysdkv2.NewFromConfig(cfg, func(o *amplifysdkv2.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAppConfigDataClient returns an AppConfigData client pointed at the shared test container.
+func createAppConfigDataClient(t *testing.T) *appconfigdatasvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return appconfigdatasvc.NewFromConfig(cfg, func(o *appconfigdatasvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
