@@ -557,11 +557,29 @@ func (h *Handler) handleDescribeInstanceStatus(vals url.Values, reqID string) (a
 	}, nil
 }
 
-func (h *Handler) handleDescribeImages(_ url.Values, reqID string) (any, error) {
+func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {
 	amis := h.Backend.DescribeImages()
+
+	// Collect requested image IDs from ImageId.1, ImageId.2, ... query params.
+	requested := make(map[string]struct{})
+
+	for i := 1; ; i++ {
+		id := vals.Get(fmt.Sprintf("ImageId.%d", i))
+		if id == "" {
+			break
+		}
+
+		requested[id] = struct{}{}
+	}
 
 	items := make([]amiItem, 0, len(amis))
 	for _, a := range amis {
+		if len(requested) > 0 {
+			if _, ok := requested[a.ImageID]; !ok {
+				continue
+			}
+		}
+
 		items = append(items, amiItem{
 			ImageID:      a.ImageID,
 			Name:         a.Name,

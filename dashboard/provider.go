@@ -371,20 +371,12 @@ func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.amplifyOps, _ = h.(*amplifybackend.Handler)
 	}
 
-	if h := ap.GetAutoscalingHandler(); h != nil {
-		ec.autoscalingOps, _ = h.(*autoscalingbackend.Handler)
-	}
-
 	if h := ap.GetAPIGatewayV2Handler(); h != nil {
 		ec.apiGatewayV2Ops, _ = h.(*apigwv2backend.Handler)
 	}
 
 	if h := ap.GetSESv2Handler(); h != nil {
 		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
-	}
-
-	if h := ap.GetBatchHandler(); h != nil {
-		ec.batchOps, _ = h.(*batchbackend.Handler)
 	}
 
 	extractECRECSAndIoTHandlers(ap, ec)
@@ -440,6 +432,14 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetBackupHandler(); h != nil {
 		ec.backupOps, _ = h.(*backupbackend.Handler)
+	}
+
+	if h := ap.GetAutoscalingHandler(); h != nil {
+		ec.autoscalingOps, _ = h.(*autoscalingbackend.Handler)
+	}
+
+	if h := ap.GetBatchHandler(); h != nil {
+		ec.batchOps, _ = h.(*batchbackend.Handler)
 	}
 }
 

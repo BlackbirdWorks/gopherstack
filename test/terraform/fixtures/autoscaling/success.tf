@@ -1,6 +1,6 @@
 resource "aws_launch_configuration" "this" {
   name          = "{{.LCName}}"
-  image_id      = "ami-12345678"
+  image_id      = "ami-0c55b159cbfafe1f0"
   instance_type = "t2.micro"
 }
 
