@@ -317,7 +317,7 @@ func newHandlers() handlers {
 	kms := kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend())
 	sm := smbackend.NewHandler(smbackend.NewInMemoryBackend())
 
-	return handlers{
+	h := handlers{
 		s3Bk:    s3Bk,
 		iamBk:   iamBk,
 		s3:      s3backend.NewHandler(s3Bk),
@@ -345,71 +345,79 @@ func newHandlers() handlers {
 		route53: route53backend.NewHandler(route53backend.NewInMemoryBackend()),
 		ses:     sesbackend.NewHandler(sesbackend.NewInMemoryBackend()),
 		sesv2:   sesv2backend.NewHandler(sesv2backend.NewInMemoryBackend()),
-		ec2: ec2backend.NewHandler(
-			ec2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		ecr: ecrbackend.NewHandler(
-			ecrbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ""),
-			nil,
-		),
-		ecs: ecsbackend.NewHandler(
-			ecsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ecsbackend.NewNoopRunner()),
-		),
-		iot: iotbackend.NewHandler(
-			iotbackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion),
-			nil, // broker is nil in tests; MQTT publish/subscribe is not exercised by dashboard tests
-		),
-		fis: fisbackend.NewHandler(
-			fisbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		opensearch: opensearchbackend.NewHandler(
-			opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		acm: acmbackend.NewHandler(
-			acmbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		redshift: redshiftbackend.NewHandler(
-			redshiftbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		rds: rdsbackend.NewHandler(
-			rdsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		awsconfig: awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend()),
-		s3control: s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend()),
-		resourcegroups: resourcegroupsbackend.NewHandler(
-			resourcegroupsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		rgtagging: rgtabackend.NewHandler(
-			rgtabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		swf: swfbackend.NewHandler(swfbackend.NewInMemoryBackend()),
-		firehose: firehosebackend.NewHandler(
-			firehosebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		scheduler: schedulerbackend.NewHandler(
-			schedulerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		route53resolver: route53resolverbackend.NewHandler(
-			route53resolverbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		transcribe: transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend()),
-		support:    supportbackend.NewHandler(supportbackend.NewInMemoryBackend()),
-		cognitoIdentity: cognitoidentitybackend.NewHandler(
-			cognitoidentitybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-			config.DefaultRegion,
-		),
-		appSync: appsyncbackend.NewHandler(
-			appsyncbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, "http://localhost:8000"),
-		),
-		cognitoIDP: cognitoidpbackend.NewHandler(
-			cognitoidpbackend.NewInMemoryBackend(
-				config.DefaultAccountID,
-				config.DefaultRegion,
-				"http://localhost:8000",
-			),
-			config.DefaultRegion,
-		),
 	}
+	populateExtendedHandlers(&h)
+
+	return h
+}
+
+// populateExtendedHandlers fills in the regional and newer service handlers that would push
+// newHandlers past the funlen limit.
+func populateExtendedHandlers(h *handlers) {
+	h.ec2 = ec2backend.NewHandler(
+		ec2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.ecr = ecrbackend.NewHandler(
+		ecrbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ""),
+		nil,
+	)
+	h.ecs = ecsbackend.NewHandler(
+		ecsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ecsbackend.NewNoopRunner()),
+	)
+	h.iot = iotbackend.NewHandler(
+		iotbackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion),
+		nil, // broker is nil in tests; MQTT publish/subscribe is not exercised by dashboard tests
+	)
+	h.fis = fisbackend.NewHandler(
+		fisbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.opensearch = opensearchbackend.NewHandler(
+		opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.acm = acmbackend.NewHandler(
+		acmbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.redshift = redshiftbackend.NewHandler(
+		redshiftbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.rds = rdsbackend.NewHandler(
+		rdsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.awsconfig = awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend())
+	h.s3control = s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend())
+	h.resourcegroups = resourcegroupsbackend.NewHandler(
+		resourcegroupsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.rgtagging = rgtabackend.NewHandler(
+		rgtabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.swf = swfbackend.NewHandler(swfbackend.NewInMemoryBackend())
+	h.firehose = firehosebackend.NewHandler(
+		firehosebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.scheduler = schedulerbackend.NewHandler(
+		schedulerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.route53resolver = route53resolverbackend.NewHandler(
+		route53resolverbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.transcribe = transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend())
+	h.support = supportbackend.NewHandler(supportbackend.NewInMemoryBackend())
+	h.cognitoIdentity = cognitoidentitybackend.NewHandler(
+		cognitoidentitybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+		config.DefaultRegion,
+	)
+	h.appSync = appsyncbackend.NewHandler(
+		appsyncbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, "http://localhost:8000"),
+	)
+	h.cognitoIDP = cognitoidpbackend.NewHandler(
+		cognitoidpbackend.NewInMemoryBackend(
+			config.DefaultAccountID,
+			config.DefaultRegion,
+			"http://localhost:8000",
+		),
+		config.DefaultRegion,
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
