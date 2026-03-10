@@ -1765,6 +1765,62 @@ func TestProvider_Name(t *testing.T) {
 	}
 }
 
+func TestHandler_DescribeType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		form         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name:     "known_type_logs_loggroup",
+			form:     "Action=DescribeType&TypeName=AWS::Logs::LogGroup",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"AWS::Logs::LogGroup",
+				"LogGroupName",
+				"RESOURCE",
+				"DescribeTypeResponse",
+			},
+		},
+		{
+			name:     "unknown_type_uses_generic_id",
+			form:     "Action=DescribeType&TypeName=AWS::Custom::Widget",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"AWS::Custom::Widget",
+				"RESOURCE",
+				"DescribeTypeResponse",
+			},
+		},
+		{
+			name:     "missing_type_name_returns_error",
+			form:     "Action=DescribeType",
+			wantCode: http.StatusBadRequest,
+			wantContains: []string{
+				"CFNRegistryException",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			rec := postForm(t, h, tt.form)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			body := rec.Body.String()
+			for _, want := range tt.wantContains {
+				assert.Contains(t, body, want)
+			}
+		})
+	}
+}
+
 func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 

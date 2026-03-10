@@ -23,6 +23,7 @@ import (
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
+	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -121,6 +122,7 @@ type AWSSDKProvider interface {
 	GetBedrockHandler() service.Registerable
 	GetBedrockRuntimeHandler() service.Registerable
 	GetCeHandler() service.Registerable
+	GetCloudControlHandler() service.Registerable
 	GetCloudFrontHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
@@ -197,6 +199,7 @@ type extractedConfig struct {
 	bedrockOps                *bedrockbackend.Handler
 	bedrockRuntimeOps         *bedrockruntimebackend.Handler
 	ceOps                     *cebackend.Handler
+	cloudcontrolOps           *cloudcontrolbackend.Handler
 	cloudFrontOps             *cloudfrontbackend.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
@@ -466,6 +469,10 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.ceOps, _ = h.(*cebackend.Handler)
 	}
 
+	if h := ap.GetCloudControlHandler(); h != nil {
+		ec.cloudcontrolOps, _ = h.(*cloudcontrolbackend.Handler)
+	}
+
 	if h := ap.GetCloudFrontHandler(); h != nil {
 		ec.cloudFrontOps, _ = h.(*cloudfrontbackend.Handler)
 	}
@@ -529,6 +536,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		BedrockOps:                 ec.bedrockOps,
 		BedrockRuntimeOps:          ec.bedrockRuntimeOps,
 		CeOps:                      ec.ceOps,
+		CloudControlOps:            ec.cloudcontrolOps,
 		CloudFrontOps:              ec.cloudFrontOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
