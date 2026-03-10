@@ -2486,6 +2486,57 @@ func TestTerraform_CognitoIDP(t *testing.T) {
 	}
 }
 
+// TestTerraform_IoTDataPlane provisions an IoT thing via Terraform and verifies
+// that the IoT Data Plane can publish a message to the thing's shadow topic.
+func TestTerraform_IoTDataPlane(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "publish",
+			fixture: "iotdataplane/publish",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{"ThingName": "tf-iot-thing-" + id}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				thingName := vars["ThingName"].(string)
+				topic := "things/" + thingName + "/shadow/update"
+				url := endpoint + "/topics/" + topic
+
+				payload := []byte(`{"state":{"reported":{"connected":true}}}`)
+
+				req, err := http.NewRequestWithContext(
+					ctx,
+					http.MethodPost,
+					url,
+					bytes.NewReader(payload),
+				)
+				require.NoError(t, err, "creating publish request should succeed")
+				req.Header.Set("Content-Type", "application/json")
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "publish request should succeed")
+				defer resp.Body.Close()
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode,
+					"IoT Data Plane publish to topic %q should return 200", topic)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_IoT provisions an IoT Thing via Terraform and verifies it exists via the IoT SDK.
 func TestTerraform_IoT(t *testing.T) {
 	t.Parallel()

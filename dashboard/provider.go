@@ -17,6 +17,7 @@ import (
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -92,6 +93,7 @@ type AWSSDKProvider interface {
 	GetCognitoIdentityHandler() service.Registerable
 	GetAppSyncHandler() service.Registerable
 	GetCognitoIDPHandler() service.Registerable
+	GetIoTDataPlaneHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -150,6 +152,7 @@ type extractedConfig struct {
 	cognitoIdentityOps       *cognitoidentitybackend.Handler
 	appSyncOps               *appsyncbackend.Handler
 	cognitoIDPOps            *cognitoidpbackend.Handler
+	iotDataPlaneOps          *iotdataplanebackend.Handler
 	ecrOps                   *ecrbackend.Handler
 	ecsOps                   *ecsbackend.Handler
 	iotOps                   *iotbackend.Handler
@@ -323,6 +326,10 @@ func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.cognitoIDPOps, _ = h.(*cognitoidpbackend.Handler)
 	}
 
+	if h := ap.GetIoTDataPlaneHandler(); h != nil {
+		ec.iotDataPlaneOps, _ = h.(*iotdataplanebackend.Handler)
+	}
+
 	if h := ap.GetSESv2Handler(); h != nil {
 		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
 	}
@@ -397,6 +404,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CognitoIdentityOps:       ec.cognitoIdentityOps,
 		AppSyncOps:               ec.appSyncOps,
 		CognitoIDPOps:            ec.cognitoIDPOps,
+		IoTDataPlaneOps:          ec.iotDataPlaneOps,
 		ECROps:                   ec.ecrOps,
 		ECSOps:                   ec.ecsOps,
 		IoTOps:                   ec.iotOps,
