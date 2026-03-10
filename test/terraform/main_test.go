@@ -32,7 +32,9 @@ import (
 	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
 	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	cloudcontrolsvc "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cloudfrontsvc "github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	cloudtrailsvc "github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -1366,6 +1368,42 @@ func createCeClient(t *testing.T) *cesvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return cesvc.NewFromConfig(cfg, func(o *cesvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudControlClient returns a CloudControl API client pointed at the shared test container.
+func createCloudControlClient(t *testing.T) *cloudcontrolsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return cloudcontrolsvc.NewFromConfig(cfg, func(o *cloudcontrolsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudFrontClient returns a CloudFront client pointed at the shared test container.
+func createCloudFrontClient(t *testing.T) *cloudfrontsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return cloudfrontsvc.NewFromConfig(cfg, func(o *cloudfrontsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

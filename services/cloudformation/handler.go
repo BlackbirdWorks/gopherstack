@@ -1,6 +1,7 @@
 package cloudformation
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"net/http"
@@ -51,6 +52,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteChangeSet",
 		"ListChangeSets",
 		"GetTemplate",
+		"DescribeType",
 	}
 }
 
@@ -143,7 +145,107 @@ func (h *Handler) dispatch(action string, form url.Values, c *echo.Context) erro
 		return err
 	}
 
+	if action == "DescribeType" {
+		return h.handleDescribeType(form, c)
+	}
+
 	return h.xmlError(c, "InvalidAction", "unknown action: "+action)
+}
+
+// typeSchemaFor returns the primary identifier property name for a given CloudFormation resource type.
+// The primary identifier is used by Terraform's AWS provider to construct resource IDs.
+// Falls back to "Id" for unknown types.
+func typeSchemaFor(typeName string) string {
+	primaryIdentifiers := map[string]string{
+		"AWS::Logs::LogGroup":         "LogGroupName",
+		"AWS::S3::Bucket":             "BucketName",
+		"AWS::Lambda::Function":       "FunctionName",
+		"AWS::SNS::Topic":             "TopicArn",
+		"AWS::SQS::Queue":             "QueueUrl",
+		"AWS::DynamoDB::Table":        "TableName",
+		"AWS::IAM::Role":              "RoleName",
+		"AWS::EC2::VPC":               "VpcId",
+		"AWS::EC2::Instance":          "InstanceId",
+		"AWS::RDS::DBInstance":        "DBInstanceIdentifier",
+		"AWS::ECS::Cluster":           "ClusterArn",
+		"AWS::KMS::Key":               "KeyId",
+		"AWS::SecretsManager::Secret": "Id",
+	}
+
+	if prop, ok := primaryIdentifiers[typeName]; ok {
+		return prop
+	}
+
+	return "Id"
+}
+
+// handleDescribeType returns a minimal CloudFormation type schema for the requested TypeName.
+// This is called by the Terraform AWS provider before creating a CloudControl API resource.
+func (h *Handler) handleDescribeType(form url.Values, c *echo.Context) error {
+	typeName := form.Get("TypeName")
+	if typeName == "" {
+		return h.xmlError(c, "CFNRegistryException", "TypeName is required")
+	}
+
+	primaryProp := typeSchemaFor(typeName)
+
+	// Build a minimal CloudFormation registry schema JSON using structured data.
+	// The Terraform provider uses primaryIdentifier to construct resource IDs.
+	type cfnSchema struct {
+		Properties           map[string]struct{} `json:"properties"`
+		TypeName             string              `json:"typeName"`
+		Description          string              `json:"description"`
+		PrimaryIdentifier    []string            `json:"primaryIdentifier"`
+		AdditionalProperties bool                `json:"additionalProperties"`
+	}
+
+	schemaObj := cfnSchema{
+		TypeName:             typeName,
+		Description:          "Stub schema for " + typeName,
+		PrimaryIdentifier:    []string{"/properties/" + primaryProp},
+		Properties:           map[string]struct{}{primaryProp: {}},
+		AdditionalProperties: true,
+	}
+
+	schemaBytes, err := json.Marshal(schemaObj)
+	if err != nil {
+		return h.xmlError(c, "InternalFailure", "failed to marshal schema: "+err.Error())
+	}
+
+	arn := fmt.Sprintf("arn:aws:cloudformation:%s::type/resource/%s/00000001",
+		config.DefaultRegion, strings.ReplaceAll(typeName, "::", "-"))
+
+	type typeResult struct {
+		Arn              string `xml:"Arn"`
+		DefaultVersionID string `xml:"DefaultVersionId"`
+		Schema           string `xml:"Schema"`
+		Type             string `xml:"Type"`
+		TypeName         string `xml:"TypeName"`
+		Visibility       string `xml:"Visibility"`
+		IsActivated      bool   `xml:"IsActivated"`
+		IsDefaultVersion bool   `xml:"IsDefaultVersion"`
+	}
+	type response struct {
+		XMLName   xml.Name   `xml:"DescribeTypeResponse"`
+		Xmlns     string     `xml:"xmlns,attr"`
+		RequestID string     `xml:"ResponseMetadata>RequestId"`
+		Result    typeResult `xml:"DescribeTypeResult"`
+	}
+
+	return writeXML(c, response{
+		Xmlns:     cfnNS,
+		RequestID: uuid.New().String(),
+		Result: typeResult{
+			Arn:              arn,
+			DefaultVersionID: "00000001",
+			IsActivated:      true,
+			IsDefaultVersion: true,
+			Schema:           string(schemaBytes),
+			Type:             "RESOURCE",
+			TypeName:         typeName,
+			Visibility:       "PUBLIC",
+		},
+	})
 }
 
 func (h *Handler) dispatchStackOps(action string, form url.Values, c *echo.Context) (bool, error) {

@@ -41,7 +41,9 @@ import (
 	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	bedrockruntimetypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	cloudcontrolsvc "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cloudfrontsvc "github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	cloudtrailsvc "github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
@@ -167,7 +169,9 @@ provider "aws" {
     batch           = %[1]q
     bedrock         = %[1]q
     ce              = %[1]q
+    cloudcontrol    = %[1]q
     cloudformation  = %[1]q
+    cloudfront      = %[1]q
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
     cognitoidentity          = %[1]q
@@ -3544,6 +3548,121 @@ func TestTerraform_CloudTrail(t *testing.T) {
 				require.NoError(t, err, "DescribeTrails should succeed after terraform apply")
 				require.NotEmpty(t, out.TrailList, "trail %q should be listed", trailName)
 				assert.Equal(t, trailName, aws.ToString(out.TrailList[0].Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CloudControl provisions a CloudControl API resource via Terraform,
+// then verifies it is listed via the CloudControl SDK.
+func TestTerraform_CloudControl(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "cloudcontrol/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createCloudControlClient(t)
+				expectedName := "tf-cloudcontrol-" + vars["Suffix"].(string)
+
+				out, err := client.ListResources(ctx, &cloudcontrolsvc.ListResourcesInput{
+					TypeName: aws.String("AWS::Logs::LogGroup"),
+				})
+				require.NoError(t, err, "ListResources should succeed after terraform apply")
+
+				var foundIdentifier string
+
+				for _, rd := range out.ResourceDescriptions {
+					var props map[string]any
+					propsJSON := []byte(aws.ToString(rd.Properties))
+					if unmarshalErr := json.Unmarshal(propsJSON, &props); unmarshalErr == nil {
+						if props["LogGroupName"] == expectedName {
+							foundIdentifier = aws.ToString(rd.Identifier)
+
+							break
+						}
+					}
+
+					if aws.ToString(rd.Identifier) == expectedName {
+						foundIdentifier = expectedName
+
+						break
+					}
+				}
+
+				assert.NotEmpty(t, foundIdentifier, "cloudcontrol resource %q should be listed", expectedName)
+
+				if foundIdentifier != "" {
+					getOut, getErr := client.GetResource(ctx, &cloudcontrolsvc.GetResourceInput{
+						TypeName:   aws.String("AWS::Logs::LogGroup"),
+						Identifier: aws.String(foundIdentifier),
+					})
+					require.NoError(t, getErr, "GetResource should succeed after terraform apply")
+					require.NotNil(t, getOut.ResourceDescription, "resource description should not be nil")
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CloudFront provisions a CloudFront OAI via Terraform and verifies it exists.
+func TestTerraform_CloudFront(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "cloudfront/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{"Suffix": id}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCloudFrontClient(t)
+				suffix := vars["Suffix"].(string)
+				out, err := client.ListCloudFrontOriginAccessIdentities(
+					ctx,
+					&cloudfrontsvc.ListCloudFrontOriginAccessIdentitiesInput{},
+				)
+				require.NoError(t, err, "ListCloudFrontOriginAccessIdentities should succeed after terraform apply")
+				found := false
+				for _, oai := range out.CloudFrontOriginAccessIdentityList.Items {
+					if aws.ToString(oai.Comment) == "OAI-"+suffix {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "OAI should be listed after apply")
 			},
 		},
 	}

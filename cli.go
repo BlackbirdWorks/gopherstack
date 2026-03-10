@@ -64,7 +64,9 @@ import (
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
+	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
+	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -180,6 +182,8 @@ type CLI struct {
 	bedrockHandler                service.Registerable
 	bedrockruntimeHandler         service.Registerable
 	ceHandler                     service.Registerable
+	cloudcontrolHandler           service.Registerable
+	cloudFrontHandler             service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -593,6 +597,16 @@ func (c *CLI) GetBedrockRuntimeHandler() service.Registerable { return c.bedrock
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCeHandler() service.Registerable { return c.ceHandler }
+
+// GetCloudControlHandler returns the CloudControl handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn,nolintlint // architecturally required to return interface
+func (c *CLI) GetCloudControlHandler() service.Registerable { return c.cloudcontrolHandler }
+
+// GetCloudFrontHandler returns the CloudFront handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCloudFrontHandler() service.Registerable { return c.cloudFrontHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -1013,6 +1027,8 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.backupHandler = byName["Backup"]
 	cli.cloudtrailHandler = byName["CloudTrail"]
 	cli.ceHandler = byName["Ce"]
+	cli.cloudcontrolHandler = byName["CloudControl"]
+	cli.cloudFrontHandler = byName["CloudFront"]
 }
 
 // initializeServices initializes all service providers.
@@ -1187,6 +1203,8 @@ func getServiceProviders() []service.Provider {
 		&bedrockbackend.Provider{},
 		&bedrockruntimebackend.Provider{},
 		&cebackend.Provider{},
+		&cloudcontrolbackend.Provider{},
+		&cloudfrontbackend.Provider{},
 	}
 }
 
