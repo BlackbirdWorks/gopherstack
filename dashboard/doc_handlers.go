@@ -52,6 +52,15 @@ type docPageData struct {
 	AppConfigDataOps           []string
 	AmplifyOps                 []string
 	AppConfigOps               []string
+	AthenaOps                  []string
+	AutoscalingOps             []string
+	ApplicationAutoscalingOps  []string
+	BackupOps                  []string
+	BatchOps                   []string
+	BedrockOps                 []string
+	BedrockRuntimeOps          []string
+	CognitoIDPOps              []string
+	CloudFrontOps              []string
 }
 
 // docIndex renders the documentation page.
@@ -115,6 +124,15 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		AppConfigDataOps:           h.getSupportedOps(h.AppConfigDataOps),
 		AmplifyOps:                 h.getSupportedOps(h.AmplifyOps),
 		AppConfigOps:               h.getSupportedOps(h.AppConfigOps),
+		AthenaOps:                  h.getSupportedOps(h.AthenaOps),
+		AutoscalingOps:             h.getSupportedOps(h.AutoscalingOps),
+		ApplicationAutoscalingOps:  h.getSupportedOps(h.ApplicationAutoscalingOps),
+		BackupOps:                  h.getSupportedOps(h.BackupOps),
+		BatchOps:                   h.getSupportedOps(h.BatchOps),
+		BedrockOps:                 h.getSupportedOps(h.BedrockOps),
+		BedrockRuntimeOps:          h.getSupportedOps(h.BedrockRuntimeOps),
+		CognitoIDPOps:              h.getSupportedOps(h.CognitoIDPOps),
+		CloudFrontOps:              h.getSupportedOps(h.CloudFrontOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)
