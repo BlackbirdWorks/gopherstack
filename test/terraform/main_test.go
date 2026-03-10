@@ -21,6 +21,7 @@ import (
 	acmpcasvc "github.com/aws/aws-sdk-go-v2/service/acmpca"
 	amplifysdkv2 "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
+	apigwv2svc "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	appconfigsvc "github.com/aws/aws-sdk-go-v2/service/appconfig"
 	appconfigdatasvc "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
@@ -831,6 +832,24 @@ func createAPIGatewayClient(t *testing.T) *apigwsvc.Client {
 	}
 
 	return apigwsvc.NewFromConfig(cfg, func(o *apigwsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAPIGatewayV2Client returns an API Gateway V2 client pointed at the shared test container.
+func createAPIGatewayV2Client(t *testing.T) *apigwv2svc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return apigwv2svc.NewFromConfig(cfg, func(o *apigwv2svc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

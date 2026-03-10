@@ -26,6 +26,7 @@ import (
 	acmpcasvc "github.com/aws/aws-sdk-go-v2/service/acmpca"
 	amplifysdkv2 "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
+	apigwv2svc "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
 	appconfigsvc "github.com/aws/aws-sdk-go-v2/service/appconfig"
 	appconfigtypes "github.com/aws/aws-sdk-go-v2/service/appconfig/types"
 	appconfigdatasvc "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
@@ -146,6 +147,7 @@ provider "aws" {
     amplify         = %[1]q
     appconfig       = %[1]q
     apigateway      = %[1]q
+    apigatewayv2    = %[1]q
     appsync         = %[1]q
     cloudformation  = %[1]q
     cloudwatch      = %[1]q
@@ -2245,6 +2247,49 @@ func TestTerraform_AppSync(t *testing.T) {
 				require.NoError(t, err, "GetDataSource should succeed")
 				assert.Equal(t, "NoneDS", aws.ToString(dsOut.DataSource.Name))
 				assert.Equal(t, appsyncsdktypes.DataSourceTypeNone, dsOut.DataSource.Type)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_APIGatewayV2 provisions an HTTP API, stage, integration, and route
+// via Terraform, then verifies the API is listed via the API Gateway V2 SDK.
+func TestTerraform_APIGatewayV2(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "apigatewayv2/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"APIName": "tf-apigwv2-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createAPIGatewayV2Client(t)
+				out, err := client.GetApis(ctx, &apigwv2svc.GetApisInput{})
+				require.NoError(t, err, "GetApis should succeed after terraform apply")
+				found := false
+				for _, api := range out.Items {
+					if aws.ToString(api.Name) == vars["APIName"].(string) {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "HTTP API %q should be listed", vars["APIName"].(string))
 			},
 		},
 	}
