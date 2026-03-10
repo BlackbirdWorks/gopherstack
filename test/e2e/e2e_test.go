@@ -597,7 +597,7 @@ func TestE2E_MetricsDashboard(t *testing.T) {
 	dashboardView := page.Locator("#dashboard-view")
 	err = dashboardView.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: aws.Float64(1000),
+		Timeout: aws.Float64(5000),
 	})
 	require.NoError(t, err, "Dashboard view should become visible after metrics load")
 

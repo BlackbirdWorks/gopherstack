@@ -29,7 +29,9 @@ import (
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
+	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -164,6 +166,8 @@ type DashboardHandler struct {
 	AppConfigDataOps           *appconfigdatabackend.Handler
 	AmplifyOps                 *amplifybackend.Handler
 	AthenaOps                  *athenabackend.Handler
+	AutoscalingOps             *autoscalingbackend.Handler
+	BackupOps                  *backupbackend.Handler
 	AppConfigOps               *appconfigbackend.Handler
 	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
@@ -278,6 +282,10 @@ type Config struct {
 	AmplifyOps *amplifybackend.Handler
 	// AthenaOps provides access to the Athena backend.
 	AthenaOps *athenabackend.Handler
+	// AutoscalingOps provides access to the Autoscaling backend.
+	AutoscalingOps *autoscalingbackend.Handler
+	// BackupOps provides access to the Backup backend.
+	BackupOps *backupbackend.Handler
 	// AppConfigOps provides access to the AppConfig backend.
 	AppConfigOps *appconfigbackend.Handler
 	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
@@ -366,7 +374,9 @@ func parseDashboardTemplates() *template.Template {
 		"templates/appconfigdata/*.html",
 		"templates/amplify/*.html",
 		"templates/athena/*.html",
+		"templates/autoscaling/*.html",
 		"templates/appconfig/*.html",
+		"templates/backup/*.html",
 		"templates/applicationautoscaling/*.html",
 		"templates/batch/*.html",
 		"templates/bedrock/*.html",
@@ -439,6 +449,8 @@ func NewHandler(cfg Config) *DashboardHandler {
 		AppConfigDataOps:           cfg.AppConfigDataOps,
 		AmplifyOps:                 cfg.AmplifyOps,
 		AthenaOps:                  cfg.AthenaOps,
+		AutoscalingOps:             cfg.AutoscalingOps,
+		BackupOps:                  cfg.BackupOps,
 		AppConfigOps:               cfg.AppConfigOps,
 		ApplicationAutoscalingOps:  cfg.ApplicationAutoscalingOps,
 		BatchOps:                   cfg.BatchOps,
@@ -738,6 +750,16 @@ func (h *DashboardHandler) setupAthenaRoutes() {
 	h.SubRouter.GET("/dashboard/athena/workgroup", h.athenaDetail)
 }
 
+func (h *DashboardHandler) setupAutoscalingRoutes() {
+	h.SubRouter.GET("/dashboard/autoscaling", h.autoscalingIndex)
+}
+
+func (h *DashboardHandler) setupBackupRoutes() {
+	h.SubRouter.GET("/dashboard/backup", h.backupIndex)
+	h.SubRouter.POST("/dashboard/backup/vault/create", h.backupCreateVault)
+	h.SubRouter.POST("/dashboard/backup/vault/delete", h.backupDeleteVault)
+}
+
 func (h *DashboardHandler) setupAppConfigRoutes() {
 	h.SubRouter.GET("/dashboard/appconfig", h.appConfigIndex)
 	h.SubRouter.POST("/dashboard/appconfig/application/create", h.appConfigCreateApplication)
@@ -852,6 +874,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupAPIGatewayV2Routes()
 	h.setupRecentServiceRoutes()
 	h.setupAthenaRoutes()
+	h.setupBackupRoutes()
 }
 
 // setupRecentServiceRoutes sets up dashboard routes for recently-added services.
@@ -859,6 +882,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupAppConfigDataRoutes()
 	h.setupAmplifyRoutes()
 	h.setupAppConfigRoutes()
+	h.setupAutoscalingRoutes()
 	h.setupApplicationAutoscalingRoutes()
 	h.setupBatchRoutes()
 	h.setupBedrockRoutes()
@@ -960,7 +984,9 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/batch", "Batch"},
 	{"/bedrock", "Bedrock"},
 	{"/athena", "Athena"},
+	{"/autoscaling", "Autoscaling"},
 	{"/appconfig", "AppConfig"},
+	{"/backup", "Backup"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

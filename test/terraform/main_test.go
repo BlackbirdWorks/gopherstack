@@ -27,6 +27,8 @@ import (
 	applicationautoscalingsvc "github.com/aws/aws-sdk-go-v2/service/applicationautoscaling"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	athenasdkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
+	autoscalingsvc "github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	backupsvc "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
 	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
@@ -1167,6 +1169,24 @@ func createAmplifyClient(t *testing.T) *amplifysdkv2.Client {
 	})
 }
 
+// createAutoscalingClient returns an Autoscaling client pointed at the shared test container.
+func createAutoscalingClient(t *testing.T) *autoscalingsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return autoscalingsvc.NewFromConfig(cfg, func(o *autoscalingsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
 // createAppConfigClient returns an AppConfig client pointed at the shared test container.
 func createAppConfigClient(t *testing.T) *appconfigsvc.Client {
 	t.Helper()
@@ -1235,6 +1255,24 @@ func createAthenaClient(t *testing.T) *athenasdkv2.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return athenasdkv2.NewFromConfig(cfg, func(o *athenasdkv2.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createBackupClient returns a Backup client pointed at the shared test container.
+func createBackupClient(t *testing.T) *backupsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return backupsvc.NewFromConfig(cfg, func(o *backupsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
