@@ -42,6 +42,7 @@ import (
 	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -190,13 +191,15 @@ type DashboardHandler struct {
 	CloudControlOps *cloudcontrolbackend.Handler
 	// CloudFrontOps provides access to the CloudFront backend.
 	CloudFrontOps *cloudfrontbackend.Handler
-	SubRouter     *echo.Echo
-	ddbProvider   *ddbbackend.DashboardProvider
-	s3Provider    *s3backend.DashboardProvider
-	FaultStore    *chaos.FaultStore
-	Logger        *slog.Logger
-	layout        *template.Template
-	GlobalConfig  config.GlobalConfig
+	// CodeArtifactOps provides access to the CodeArtifact backend.
+	CodeArtifactOps *codeartifactbackend.Handler
+	SubRouter       *echo.Echo
+	ddbProvider     *ddbbackend.DashboardProvider
+	s3Provider      *s3backend.DashboardProvider
+	FaultStore      *chaos.FaultStore
+	Logger          *slog.Logger
+	layout          *template.Template
+	GlobalConfig    config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -319,6 +322,8 @@ type Config struct {
 	CloudControlOps *cloudcontrolbackend.Handler
 	// CloudFrontOps provides access to the CloudFront backend.
 	CloudFrontOps *cloudfrontbackend.Handler
+	// CodeArtifactOps provides access to the CodeArtifact backend.
+	CodeArtifactOps *codeartifactbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -410,6 +415,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/ce/*.html",
 		"templates/cloudcontrol/*.html",
 		"templates/cloudfront/*.html",
+		"templates/codeartifact/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -490,6 +496,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CeOps:                      cfg.CeOps,
 		CloudControlOps:            cfg.CloudControlOps,
 		CloudFrontOps:              cfg.CloudFrontOps,
+		CodeArtifactOps:            cfg.CodeArtifactOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -807,6 +814,12 @@ func (h *DashboardHandler) setupCloudFrontRoutes() {
 	h.SubRouter.POST("/dashboard/cloudfront/distribution/delete", h.cloudfrontDeleteDistribution)
 }
 
+func (h *DashboardHandler) setupCodeArtifactRoutes() {
+	h.SubRouter.GET("/dashboard/codeartifact", h.codeartifactIndex)
+	h.SubRouter.POST("/dashboard/codeartifact/domain/create", h.codeartifactCreateDomain)
+	h.SubRouter.POST("/dashboard/codeartifact/domain/delete", h.codeartifactDeleteDomain)
+}
+
 func (h *DashboardHandler) setupAppConfigRoutes() {
 	h.SubRouter.GET("/dashboard/appconfig", h.appConfigIndex)
 	h.SubRouter.POST("/dashboard/appconfig/application/create", h.appConfigCreateApplication)
@@ -925,6 +938,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupCloudTrailRoutes()
 	h.setupBedrockRuntimeRoutes()
 	h.setupCloudFrontRoutes()
+	h.setupCodeArtifactRoutes()
 }
 
 // setupRecentServiceRoutes sets up dashboard routes for recently-added services.
@@ -1044,6 +1058,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/backup", "Backup"},
 	{"/cloudtrail", "CloudTrail"},
 	{"/cloudfront", "CloudFront"},
+	{"/codeartifact", "CodeArtifact"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
