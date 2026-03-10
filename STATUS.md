@@ -9,6 +9,7 @@ This document tracks the implementation status of AWS services in Gopherstack, s
 | Service | API Implemented | Has Dashboard UI | Has Terraform Tests |
 | --- | --- | --- | --- |
 | **ACM** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **ACM PCA** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **API Gateway** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **AWS Config** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **CloudFormation** | ✅ Yes | ✅ Yes | ✅ Yes |
@@ -98,7 +99,7 @@ The following services are supported by LocalStack (either Free or Pro tier) but
 | **Account** | ❌ No | ❌ No | ❌ No |
 | **Acm Pca** | ❌ No | ❌ No | ❌ No |
 | **Amplify** | ✅ Yes | ✅ Yes | ✅ Yes |
-| **APIgatewaymanagementapi** | ❌ No | ❌ No | ❌ No |
+| **APIgatewaymanagementapi** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **APIgatewayv2** | ❌ No | ❌ No | ❌ No |
 | **Appconfig** | ❌ No | ❌ No | ❌ No |
 | **Appconfigdata** | ❌ No | ❌ No | ❌ No |

@@ -19,8 +19,10 @@ import (
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
+	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -102,61 +104,63 @@ type PageData struct {
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DashboardHandler struct {
-	SNSOps                   *snsbackend.Handler
-	KMSOps                   *kmsbackend.Handler
-	SSM                      *ssmsdk.Client
-	DDBOps                   *ddbbackend.DynamoDBHandler
-	S3Ops                    *s3backend.S3Handler
-	SSMOps                   *ssmbackend.Handler
-	IAMOps                   *iambackend.Handler
-	STSOps                   *stsbackend.Handler
-	S3                       *s3.Client
-	DynamoDB                 *dynamodb.Client
-	SQSOps                   *sqsbackend.Handler
-	SecretsManagerOps        *secretsmanagerbackend.Handler
-	LambdaOps                *lambdabackend.Handler
-	EventBridgeOps           *ebbackend.Handler
-	APIGatewayOps            *apigwbackend.Handler
-	CloudWatchLogsOps        *cwlogsbackend.Handler
-	StepFunctionsOps         *sfnbackend.Handler
-	CloudWatchOps            *cwbackend.Handler
-	CloudFormationOps        *cfnbackend.Handler
-	KinesisOps               *kinesisbackend.Handler
-	ElastiCacheOps           *elasticachebackend.Handler
-	Route53Ops               *route53backend.Handler
-	SESOps                   *sesbackend.Handler
-	SESv2Ops                 *sesv2backend.Handler
-	EC2Ops                   *ec2backend.Handler
-	ECROps                   *ecrbackend.Handler
-	ECSOps                   *ecsbackend.Handler
-	IoTOps                   *iotbackend.Handler
-	FISOps                   *fisbackend.Handler
-	OpenSearchOps            *opensearchbackend.Handler
-	ACMOps                   *acmbackend.Handler
-	RedshiftOps              *redshiftbackend.Handler
-	RDSOps                   *rdsbackend.Handler
-	AWSConfigOps             *awsconfigbackend.Handler
-	S3ControlOps             *s3controlbackend.Handler
-	ResourceGroupsOps        *resourcegroupsbackend.Handler
-	ResourceGroupsTaggingOps *taggingbackend.Handler
-	SWFOps                   *swfbackend.Handler
-	FirehoseOps              *firehosebackend.Handler
-	SchedulerOps             *schedulerbackend.Handler
-	Route53ResolverOps       *route53resolverbackend.Handler
-	TranscribeOps            *transcribebackend.Handler
-	SupportOps               *supportbackend.Handler
-	CognitoIdentityOps       *cognitoidentitybackend.Handler
-	AppSyncOps               *appsyncbackend.Handler
-	CognitoIDPOps            *cognitoidpbackend.Handler
-	IoTDataPlaneOps          *iotdataplanebackend.Handler
-	AmplifyOps               *amplifybackend.Handler
-	SubRouter                *echo.Echo
-	ddbProvider              *ddbbackend.DashboardProvider
-	s3Provider               *s3backend.DashboardProvider
-	FaultStore               *chaos.FaultStore
-	Logger                   *slog.Logger
-	layout                   *template.Template
-	GlobalConfig             config.GlobalConfig
+	SNSOps                     *snsbackend.Handler
+	KMSOps                     *kmsbackend.Handler
+	SSM                        *ssmsdk.Client
+	DDBOps                     *ddbbackend.DynamoDBHandler
+	S3Ops                      *s3backend.S3Handler
+	SSMOps                     *ssmbackend.Handler
+	IAMOps                     *iambackend.Handler
+	STSOps                     *stsbackend.Handler
+	S3                         *s3.Client
+	DynamoDB                   *dynamodb.Client
+	SQSOps                     *sqsbackend.Handler
+	SecretsManagerOps          *secretsmanagerbackend.Handler
+	LambdaOps                  *lambdabackend.Handler
+	EventBridgeOps             *ebbackend.Handler
+	APIGatewayOps              *apigwbackend.Handler
+	CloudWatchLogsOps          *cwlogsbackend.Handler
+	StepFunctionsOps           *sfnbackend.Handler
+	CloudWatchOps              *cwbackend.Handler
+	CloudFormationOps          *cfnbackend.Handler
+	KinesisOps                 *kinesisbackend.Handler
+	ElastiCacheOps             *elasticachebackend.Handler
+	Route53Ops                 *route53backend.Handler
+	SESOps                     *sesbackend.Handler
+	SESv2Ops                   *sesv2backend.Handler
+	EC2Ops                     *ec2backend.Handler
+	ECROps                     *ecrbackend.Handler
+	ECSOps                     *ecsbackend.Handler
+	IoTOps                     *iotbackend.Handler
+	FISOps                     *fisbackend.Handler
+	OpenSearchOps              *opensearchbackend.Handler
+	ACMOps                     *acmbackend.Handler
+	ACMPCAOps                  *acmpcabackend.Handler
+	RedshiftOps                *redshiftbackend.Handler
+	RDSOps                     *rdsbackend.Handler
+	AWSConfigOps               *awsconfigbackend.Handler
+	S3ControlOps               *s3controlbackend.Handler
+	ResourceGroupsOps          *resourcegroupsbackend.Handler
+	ResourceGroupsTaggingOps   *taggingbackend.Handler
+	SWFOps                     *swfbackend.Handler
+	FirehoseOps                *firehosebackend.Handler
+	SchedulerOps               *schedulerbackend.Handler
+	Route53ResolverOps         *route53resolverbackend.Handler
+	TranscribeOps              *transcribebackend.Handler
+	SupportOps                 *supportbackend.Handler
+	CognitoIdentityOps         *cognitoidentitybackend.Handler
+	AppSyncOps                 *appsyncbackend.Handler
+	CognitoIDPOps              *cognitoidpbackend.Handler
+	IoTDataPlaneOps            *iotdataplanebackend.Handler
+	APIGatewayManagementAPIOps *apigwmgmtbackend.Handler
+	AmplifyOps                 *amplifybackend.Handler
+	SubRouter                  *echo.Echo
+	ddbProvider                *ddbbackend.DashboardProvider
+	s3Provider                 *s3backend.DashboardProvider
+	FaultStore                 *chaos.FaultStore
+	Logger                     *slog.Logger
+	layout                     *template.Template
+	GlobalConfig               config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -213,6 +217,8 @@ type Config struct {
 	OpenSearchOps *opensearchbackend.Handler
 	// ACMOps provides access to the ACM backend.
 	ACMOps *acmbackend.Handler
+	// ACMPCAOps provides access to the ACM PCA backend.
+	ACMPCAOps *acmpcabackend.Handler
 	// RedshiftOps provides access to the Redshift backend.
 	RedshiftOps *redshiftbackend.Handler
 	// RDSOps provides access to the RDS backend.
@@ -245,6 +251,8 @@ type Config struct {
 	CognitoIDPOps *cognitoidpbackend.Handler
 	// IoTDataPlaneOps provides access to the IoT Data Plane backend.
 	IoTDataPlaneOps *iotdataplanebackend.Handler
+	// APIGatewayManagementAPIOps provides access to the API Gateway Management API backend.
+	APIGatewayManagementAPIOps *apigwmgmtbackend.Handler
 	// AmplifyOps provides access to the Amplify backend.
 	AmplifyOps *amplifybackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -305,6 +313,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/fis/*.html",
 		"templates/opensearch/*.html",
 		"templates/acm/*.html",
+		"templates/acmpca/*.html",
 		"templates/redshift/*.html",
 		"templates/rds/*.html",
 		"templates/awsconfig/*.html",
@@ -321,6 +330,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/appsync/*.html",
 		"templates/cognitoidp/*.html",
 		"templates/iotdataplane/*.html",
+		"templates/apigatewaymanagementapi/*.html",
 		"templates/amplify/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -338,61 +348,63 @@ func NewHandler(cfg Config) *DashboardHandler {
 	s3Provider := s3backend.NewDashboardProvider()
 
 	h := &DashboardHandler{
-		DynamoDB:                 cfg.DDBClient,
-		S3:                       cfg.S3Client,
-		SSM:                      cfg.SSMClient,
-		DDBOps:                   cfg.DDBOps,
-		S3Ops:                    cfg.S3Ops,
-		SSMOps:                   cfg.SSMOps,
-		IAMOps:                   cfg.IAMOps,
-		STSOps:                   cfg.STSOps,
-		SNSOps:                   cfg.SNSOps,
-		SQSOps:                   cfg.SQSOps,
-		KMSOps:                   cfg.KMSOps,
-		SecretsManagerOps:        cfg.SecretsManagerOps,
-		LambdaOps:                cfg.LambdaOps,
-		EventBridgeOps:           cfg.EventBridgeOps,
-		APIGatewayOps:            cfg.APIGatewayOps,
-		CloudWatchLogsOps:        cfg.CloudWatchLogsOps,
-		StepFunctionsOps:         cfg.StepFunctionsOps,
-		CloudWatchOps:            cfg.CloudWatchOps,
-		CloudFormationOps:        cfg.CloudFormationOps,
-		KinesisOps:               cfg.KinesisOps,
-		ElastiCacheOps:           cfg.ElastiCacheOps,
-		Route53Ops:               cfg.Route53Ops,
-		SESOps:                   cfg.SESOps,
-		SESv2Ops:                 cfg.SESv2Ops,
-		EC2Ops:                   cfg.EC2Ops,
-		ECROps:                   cfg.ECROps,
-		ECSOps:                   cfg.ECSOps,
-		IoTOps:                   cfg.IoTOps,
-		FISOps:                   cfg.FISOps,
-		OpenSearchOps:            cfg.OpenSearchOps,
-		ACMOps:                   cfg.ACMOps,
-		RedshiftOps:              cfg.RedshiftOps,
-		RDSOps:                   cfg.RDSOps,
-		AWSConfigOps:             cfg.AWSConfigOps,
-		S3ControlOps:             cfg.S3ControlOps,
-		ResourceGroupsOps:        cfg.ResourceGroupsOps,
-		ResourceGroupsTaggingOps: cfg.ResourceGroupsTaggingOps,
-		SWFOps:                   cfg.SWFOps,
-		FirehoseOps:              cfg.FirehoseOps,
-		SchedulerOps:             cfg.SchedulerOps,
-		Route53ResolverOps:       cfg.Route53ResolverOps,
-		TranscribeOps:            cfg.TranscribeOps,
-		SupportOps:               cfg.SupportOps,
-		CognitoIdentityOps:       cfg.CognitoIdentityOps,
-		AppSyncOps:               cfg.AppSyncOps,
-		CognitoIDPOps:            cfg.CognitoIDPOps,
-		IoTDataPlaneOps:          cfg.IoTDataPlaneOps,
-		AmplifyOps:               cfg.AmplifyOps,
-		GlobalConfig:             cfg.GlobalConfig,
-		Logger:                   cfg.Logger,
-		FaultStore:               cfg.FaultStore,
-		layout:                   tmpl,
-		ddbProvider:              ddbProvider,
-		s3Provider:               s3Provider,
-		SubRouter:                echo.New(),
+		DynamoDB:                   cfg.DDBClient,
+		S3:                         cfg.S3Client,
+		SSM:                        cfg.SSMClient,
+		DDBOps:                     cfg.DDBOps,
+		S3Ops:                      cfg.S3Ops,
+		SSMOps:                     cfg.SSMOps,
+		IAMOps:                     cfg.IAMOps,
+		STSOps:                     cfg.STSOps,
+		SNSOps:                     cfg.SNSOps,
+		SQSOps:                     cfg.SQSOps,
+		KMSOps:                     cfg.KMSOps,
+		SecretsManagerOps:          cfg.SecretsManagerOps,
+		LambdaOps:                  cfg.LambdaOps,
+		EventBridgeOps:             cfg.EventBridgeOps,
+		APIGatewayOps:              cfg.APIGatewayOps,
+		CloudWatchLogsOps:          cfg.CloudWatchLogsOps,
+		StepFunctionsOps:           cfg.StepFunctionsOps,
+		CloudWatchOps:              cfg.CloudWatchOps,
+		CloudFormationOps:          cfg.CloudFormationOps,
+		KinesisOps:                 cfg.KinesisOps,
+		ElastiCacheOps:             cfg.ElastiCacheOps,
+		Route53Ops:                 cfg.Route53Ops,
+		SESOps:                     cfg.SESOps,
+		SESv2Ops:                   cfg.SESv2Ops,
+		EC2Ops:                     cfg.EC2Ops,
+		ECROps:                     cfg.ECROps,
+		ECSOps:                     cfg.ECSOps,
+		IoTOps:                     cfg.IoTOps,
+		FISOps:                     cfg.FISOps,
+		OpenSearchOps:              cfg.OpenSearchOps,
+		ACMOps:                     cfg.ACMOps,
+		ACMPCAOps:                  cfg.ACMPCAOps,
+		RedshiftOps:                cfg.RedshiftOps,
+		RDSOps:                     cfg.RDSOps,
+		AWSConfigOps:               cfg.AWSConfigOps,
+		S3ControlOps:               cfg.S3ControlOps,
+		ResourceGroupsOps:          cfg.ResourceGroupsOps,
+		ResourceGroupsTaggingOps:   cfg.ResourceGroupsTaggingOps,
+		SWFOps:                     cfg.SWFOps,
+		FirehoseOps:                cfg.FirehoseOps,
+		SchedulerOps:               cfg.SchedulerOps,
+		Route53ResolverOps:         cfg.Route53ResolverOps,
+		TranscribeOps:              cfg.TranscribeOps,
+		SupportOps:                 cfg.SupportOps,
+		CognitoIdentityOps:         cfg.CognitoIdentityOps,
+		AppSyncOps:                 cfg.AppSyncOps,
+		CognitoIDPOps:              cfg.CognitoIDPOps,
+		IoTDataPlaneOps:            cfg.IoTDataPlaneOps,
+		APIGatewayManagementAPIOps: cfg.APIGatewayManagementAPIOps,
+		AmplifyOps:                 cfg.AmplifyOps,
+		GlobalConfig:               cfg.GlobalConfig,
+		Logger:                     cfg.Logger,
+		FaultStore:                 cfg.FaultStore,
+		layout:                     tmpl,
+		ddbProvider:                ddbProvider,
+		s3Provider:                 s3Provider,
+		SubRouter:                  echo.New(),
 	}
 
 	h.SubRouter.Pre(pkgslogger.EchoMiddleware(cfg.Logger))
@@ -596,6 +608,12 @@ func (h *DashboardHandler) setupACMRoutes() {
 	h.SubRouter.POST("/dashboard/acm/delete", h.acmDeleteCertificate)
 }
 
+func (h *DashboardHandler) setupACMPCARoutes() {
+	h.SubRouter.GET("/dashboard/acmpca", h.acmpcaIndex)
+	h.SubRouter.POST("/dashboard/acmpca/create", h.acmpcaCreateCA)
+	h.SubRouter.POST("/dashboard/acmpca/delete", h.acmpcaDeleteCA)
+}
+
 func (h *DashboardHandler) setupRedshiftRoutes() {
 	h.SubRouter.GET("/dashboard/redshift", h.redshiftIndex)
 	h.SubRouter.POST("/dashboard/redshift/create", h.redshiftCreateCluster)
@@ -678,6 +696,12 @@ func (h *DashboardHandler) setupIoTDataPlaneRoutes() {
 	h.SubRouter.GET("/dashboard/iotdataplane", h.iotDataPlaneIndex)
 }
 
+func (h *DashboardHandler) setupAPIGatewayManagementAPIRoutes() {
+	h.SubRouter.GET("/dashboard/apigatewaymanagementapi", h.apiGatewayManagementAPIIndex)
+	h.SubRouter.POST("/dashboard/apigatewaymanagementapi/connection/create", h.apiGatewayManagementAPICreateConnection)
+	h.SubRouter.POST("/dashboard/apigatewaymanagementapi/connection/delete", h.apiGatewayManagementAPIDeleteConnection)
+}
+
 func (h *DashboardHandler) setupCognitoIDPRoutes() {
 	h.SubRouter.GET("/dashboard/cognitoidp", h.cognitoIDPIndex)
 	h.SubRouter.POST("/dashboard/cognitoidp/user-pool/create", h.cognitoIDPCreateUserPool)
@@ -727,6 +751,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupFISRoutes()
 	h.setupOpenSearchRoutes()
 	h.setupACMRoutes()
+	h.setupACMPCARoutes()
 	h.setupRedshiftRoutes()
 	h.setupRDSRoutes()
 	h.setupAWSConfigRoutes()
@@ -743,6 +768,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupAppSyncRoutes()
 	h.setupCognitoIDPRoutes()
 	h.setupIoTDataPlaneRoutes()
+	h.setupAPIGatewayManagementAPIRoutes()
 	h.setupAmplifyRoutes()
 	h.setupChaosRoutes()
 	h.setupMetaRoutes()
@@ -802,6 +828,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/secretsmanager", "SecretsManager"},
 	{"/lambda", "Lambda"},
 	{"/eventbridge", "EventBridge"},
+	{"/apigatewaymanagementapi", "APIGatewayManagementAPI"},
 	{"/apigateway", "APIGateway"},
 	{"/cloudwatchlogs", "CloudWatchLogs"},
 	{"/stepfunctions", "StepFunctions"},
@@ -818,6 +845,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/iot", "IoT"},
 	{"/fis", "FIS"},
 	{"/opensearch", "OpenSearch"},
+	{"/acmpca", "ACMPCA"},
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},
 	{"/rds", "RDS"},

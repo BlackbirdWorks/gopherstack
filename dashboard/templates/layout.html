@@ -476,6 +476,20 @@
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
                         </li>
+                        <li>
+                            <a href="/dashboard/acmpca"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "acmpca"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-acmpca" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/acm.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="acmpca" /> <span
+                                    class="sidebar-text truncate" title="ACM PCA">ACM PCA</span>
+                            </a>
+                            <div id="tooltip-acmpca" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                ACM PCA
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
 
                     </ul>
                 </li>
@@ -859,6 +873,20 @@
                             <div id="tooltip-iotdataplane" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
                                 IoT Data Plane
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/apigatewaymanagementapi"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "apigatewaymanagementapi"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-apigatewaymanagementapi" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/apigatewaymanagementapi.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="apigatewaymanagementapi" /> <span
+                                    class="sidebar-text truncate" title="APIGW Management">APIGW Management</span>
+                            </a>
+                            <div id="tooltip-apigatewaymanagementapi" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                API Gateway Management API
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
                         </li>
