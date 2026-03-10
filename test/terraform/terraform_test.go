@@ -43,6 +43,7 @@ import (
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
+	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -2490,6 +2491,42 @@ func TestTerraform_IoTDataPlane(t *testing.T) {
 
 				assert.Equal(t, http.StatusOK, resp.StatusCode,
 					"IoT Data Plane publish to topic %q should return 200", topic)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_IoT provisions an IoT Thing via Terraform and verifies it exists via the IoT SDK.
+func TestTerraform_IoT(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "iot/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{"ThingName": "tf-iot-thing-" + id}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createIoTClient(t)
+
+				out, err := client.DescribeThing(ctx, &iotsvc.DescribeThingInput{
+					ThingName: aws.String(vars["ThingName"].(string)),
+				})
+				require.NoError(t, err, "DescribeThing should succeed after terraform apply")
+				assert.Equal(t, vars["ThingName"].(string), aws.ToString(out.ThingName))
 			},
 		},
 	}

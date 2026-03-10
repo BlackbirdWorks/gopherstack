@@ -37,6 +37,7 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
@@ -99,6 +100,7 @@ type Stack struct {
 	EC2Handler                   *ec2backend.Handler
 	ECRHandler                   *ecrbackend.Handler
 	ECSHandler                   *ecsbackend.Handler
+	IoTHandler                   *iotbackend.Handler
 	FISHandler                   *fisbackend.Handler
 	OpenSearchHandler            *opensearchbackend.Handler
 	ACMHandler                   *acmbackend.Handler
@@ -194,6 +196,7 @@ func registerServices(
 	ec2Hndlr *ec2backend.Handler,
 	ecrHndlr *ecrbackend.Handler,
 	ecsHndlr *ecsbackend.Handler,
+	iotHndlr *iotbackend.Handler,
 	openSearchHndlr *opensearchbackend.Handler,
 	acmHndlr *acmbackend.Handler,
 	redshiftHndlr *redshiftbackend.Handler,
@@ -237,6 +240,7 @@ func registerServices(
 	_ = registry.Register(ec2Hndlr)
 	_ = registry.Register(ecrHndlr)
 	_ = registry.Register(ecsHndlr)
+	_ = registry.Register(iotHndlr)
 	_ = registry.Register(openSearchHndlr)
 	_ = registry.Register(acmHndlr)
 	_ = registry.Register(redshiftHndlr)
@@ -283,6 +287,7 @@ type handlers struct {
 	ec2             *ec2backend.Handler
 	ecr             *ecrbackend.Handler
 	ecs             *ecsbackend.Handler
+	iot             *iotbackend.Handler
 	fis             *fisbackend.Handler
 	opensearch      *opensearchbackend.Handler
 	acm             *acmbackend.Handler
@@ -317,7 +322,7 @@ func newHandlers() handlers {
 	kms := kmsbackend.NewHandler(kmsbackend.NewInMemoryBackend())
 	sm := smbackend.NewHandler(smbackend.NewInMemoryBackend())
 
-	return handlers{
+	h := handlers{
 		s3Bk:    s3Bk,
 		iamBk:   iamBk,
 		s3:      s3backend.NewHandler(s3Bk),
@@ -345,68 +350,80 @@ func newHandlers() handlers {
 		route53: route53backend.NewHandler(route53backend.NewInMemoryBackend()),
 		ses:     sesbackend.NewHandler(sesbackend.NewInMemoryBackend()),
 		sesv2:   sesv2backend.NewHandler(sesv2backend.NewInMemoryBackend()),
-		ec2: ec2backend.NewHandler(
-			ec2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		ecr: ecrbackend.NewHandler(
-			ecrbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ""),
-			nil,
-		),
-		ecs: ecsbackend.NewHandler(
-			ecsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ecsbackend.NewNoopRunner()),
-		),
-		fis: fisbackend.NewHandler(
-			fisbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		opensearch: opensearchbackend.NewHandler(
-			opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		acm: acmbackend.NewHandler(
-			acmbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		redshift: redshiftbackend.NewHandler(
-			redshiftbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		rds: rdsbackend.NewHandler(
-			rdsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		awsconfig: awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend()),
-		s3control: s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend()),
-		resourcegroups: resourcegroupsbackend.NewHandler(
-			resourcegroupsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		rgtagging: rgtabackend.NewHandler(
-			rgtabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		swf: swfbackend.NewHandler(swfbackend.NewInMemoryBackend()),
-		firehose: firehosebackend.NewHandler(
-			firehosebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		scheduler: schedulerbackend.NewHandler(
-			schedulerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		route53resolver: route53resolverbackend.NewHandler(
-			route53resolverbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-		),
-		transcribe: transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend()),
-		support:    supportbackend.NewHandler(supportbackend.NewInMemoryBackend()),
-		cognitoIdentity: cognitoidentitybackend.NewHandler(
-			cognitoidentitybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
-			config.DefaultRegion,
-		),
-		appSync: appsyncbackend.NewHandler(
-			appsyncbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, "http://localhost:8000"),
-		),
-		cognitoIDP: cognitoidpbackend.NewHandler(
-			cognitoidpbackend.NewInMemoryBackend(
-				config.DefaultAccountID,
-				config.DefaultRegion,
-				"http://localhost:8000",
-			),
-			config.DefaultRegion,
-		),
-		iotDataPlane: iotdataplanebackend.NewHandler(iotdataplanebackend.NewInMemoryBackend()),
 	}
+	populateExtendedHandlers(&h)
+
+	return h
+}
+
+// populateExtendedHandlers fills in the regional and newer service handlers that would push
+// newHandlers past the funlen limit.
+func populateExtendedHandlers(h *handlers) {
+	h.ec2 = ec2backend.NewHandler(
+		ec2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.ecr = ecrbackend.NewHandler(
+		ecrbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ""),
+		nil,
+	)
+	h.ecs = ecsbackend.NewHandler(
+		ecsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, ecsbackend.NewNoopRunner()),
+	)
+	h.iot = iotbackend.NewHandler(
+		iotbackend.NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion),
+		nil, // broker is nil in tests; MQTT publish/subscribe is not exercised by dashboard tests
+	)
+	h.fis = fisbackend.NewHandler(
+		fisbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.opensearch = opensearchbackend.NewHandler(
+		opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.acm = acmbackend.NewHandler(
+		acmbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.redshift = redshiftbackend.NewHandler(
+		redshiftbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.rds = rdsbackend.NewHandler(
+		rdsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.awsconfig = awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend())
+	h.s3control = s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend())
+	h.resourcegroups = resourcegroupsbackend.NewHandler(
+		resourcegroupsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.rgtagging = rgtabackend.NewHandler(
+		rgtabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.swf = swfbackend.NewHandler(swfbackend.NewInMemoryBackend())
+	h.firehose = firehosebackend.NewHandler(
+		firehosebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.scheduler = schedulerbackend.NewHandler(
+		schedulerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.route53resolver = route53resolverbackend.NewHandler(
+		route53resolverbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.transcribe = transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend())
+	h.support = supportbackend.NewHandler(supportbackend.NewInMemoryBackend())
+	h.cognitoIdentity = cognitoidentitybackend.NewHandler(
+		cognitoidentitybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+		config.DefaultRegion,
+	)
+	h.appSync = appsyncbackend.NewHandler(
+		appsyncbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion, "http://localhost:8000"),
+	)
+	h.cognitoIDP = cognitoidpbackend.NewHandler(
+		cognitoidpbackend.NewInMemoryBackend(
+			config.DefaultAccountID,
+			config.DefaultRegion,
+			"http://localhost:8000",
+		),
+		config.DefaultRegion,
+	)
+	h.iotDataPlane = iotdataplanebackend.NewHandler(iotdataplanebackend.NewInMemoryBackend())
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -469,6 +486,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		EC2Ops:             h.ec2,
 		ECROps:             h.ecr,
 		ECSOps:             h.ecs,
+		IoTOps:             h.iot,
 		FISOps:             h.fis,
 		OpenSearchOps:      h.opensearch,
 		ACMOps:             h.acm,
@@ -511,7 +529,7 @@ func New(t *testing.T) *Stack {
 		registry,
 		h.ddb, h.s3, h.ssm, h.iam, h.sts, h.sns, h.sqs, h.kms, h.sm,
 		h.lambda, h.eb, h.apigw, h.cwlogs, h.sfn, h.cw, h.cfn, h.kinesis,
-		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.opensearch,
+		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.iot, h.opensearch,
 		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
 		h.appSync, h.cognitoIDP, h.iotDataPlane,
@@ -554,6 +572,7 @@ func New(t *testing.T) *Stack {
 		EC2Handler:                   h.ec2,
 		ECRHandler:                   h.ecr,
 		ECSHandler:                   h.ecs,
+		IoTHandler:                   h.iot,
 		FISHandler:                   h.fis,
 		OpenSearchHandler:            h.opensearch,
 		ACMHandler:                   h.acm,

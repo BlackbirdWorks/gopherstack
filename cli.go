@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
@@ -150,6 +151,7 @@ type CLI struct {
 	iotDataPlaneHandler          service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
+	iotHandler                   service.Registerable
 	cognitoIDPHandler            service.Registerable
 	cognitoIdentityHandler       service.Registerable
 	fisHandler                   service.Registerable
@@ -166,6 +168,7 @@ type CLI struct {
 	ecrClient                    *ecr.Client
 	appSyncSdkClient             *appsyncsdksvc.Client
 	ecsClient                    *ecs.Client
+	iotClient                    *iotsdk.Client
 	AccountID                    string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
 	Port                         string                 `                                  name:"port"               env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
 	ElastiCacheEngine            string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
@@ -462,6 +465,11 @@ func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECSHandler() service.Registerable { return c.ecsHandler }
+
+// GetIoTHandler returns the IoT handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetIoTHandler() service.Registerable { return c.iotHandler }
 
 // GetAppSyncHandler returns the AppSync handler (dashboard.AWSSDKProvider).
 //
@@ -786,6 +794,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
+	cli.iotClient = iotsdk.NewFromConfig(
+		awsCfg,
+		func(o *iotsdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
 }
 
 // serviceByName builds a lookup map from service Name() to the service instance.
@@ -841,6 +855,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.iotDataPlaneHandler = byName["IoTDataPlane"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
+	cli.iotHandler = byName["IoT"]
 	cli.cognitoIDPHandler = byName["CognitoIDP"]
 	cli.cognitoIdentityHandler = byName["CognitoIdentity"]
 	cli.fisHandler = byName["FIS"]
@@ -2530,6 +2545,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		ECR:            cli.ecrClient,
 		AppSync:        cli.appSyncSdkClient,
 		ECS:            cli.ecsClient,
+		IoT:            cli.iotClient,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load demo data", "error", err)

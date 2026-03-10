@@ -56,7 +56,7 @@ LocalStack locks these services behind a paid tier. Gopherstack offers them nati
 | **ECS** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **ElastiCache** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **FIS** | ✅ Yes | ✅ Yes | ❌ No |
-| **IoT** | ✅ Yes | ❌ No | ❌ No |
+| **IoT** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **IoT Data Plane** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **RDS** | ✅ Yes | ✅ Yes | ✅ Yes |
 
@@ -83,13 +83,11 @@ The Chaos API supports:
 - ECR (Pro)
 - ECS (Pro)
 - FIS (Pro)
-- IoT (Pro)
 - Resource Groups Tagging API (Free)
 
 ### Missing Terraform Tests (`test/terraform/fixtures/`)
 - Cognito IDP (Free)
 - FIS (Pro)
-- IoT (Pro)
 - Resource Groups Tagging API (Free)
 - STS (Free)
 - Support API (Free)

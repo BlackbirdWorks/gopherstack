@@ -34,6 +34,7 @@ import (
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
+	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -1019,6 +1020,24 @@ func createCognitoIDPClient(t *testing.T) *cognitoidpsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return cognitoidpsvc.NewFromConfig(cfg, func(o *cognitoidpsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createIoTClient returns an IoT client pointed at the shared test container.
+func createIoTClient(t *testing.T) *iotsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return iotsvc.NewFromConfig(cfg, func(o *iotsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
