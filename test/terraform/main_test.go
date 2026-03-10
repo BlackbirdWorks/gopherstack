@@ -27,6 +27,7 @@ import (
 	applicationautoscalingsvc "github.com/aws/aws-sdk-go-v2/service/applicationautoscaling"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	athenasdkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
+	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -1233,6 +1234,24 @@ func createAthenaClient(t *testing.T) *athenasdkv2.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return athenasdkv2.NewFromConfig(cfg, func(o *athenasdkv2.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createBatchClient returns a Batch client pointed at the shared test container.
+func createBatchClient(t *testing.T) *batchsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return batchsvc.NewFromConfig(cfg, func(o *batchsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
