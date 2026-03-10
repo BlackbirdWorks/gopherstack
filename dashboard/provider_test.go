@@ -92,6 +92,7 @@ func (m *mockAWSProvider) GetBackupHandler() service.Registerable               
 func (m *mockAWSProvider) GetBatchHandler() service.Registerable                   { return nil }
 func (m *mockAWSProvider) GetBedrockHandler() service.Registerable                 { return nil }
 func (m *mockAWSProvider) GetBedrockRuntimeHandler() service.Registerable          { return nil }
+func (m *mockAWSProvider) GetCeHandler() service.Registerable                      { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 
