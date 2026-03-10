@@ -41,6 +41,7 @@ import (
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
+	taggingsvc "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
 	route53resolversvc "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -903,6 +904,27 @@ func createResourceGroupsClient(t *testing.T) *resourcegroupssvc.Client {
 	}
 
 	return resourcegroupssvc.NewFromConfig(cfg, func(o *resourcegroupssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createResourceGroupsTaggingAPIClient returns a Resource Groups Tagging API client
+// pointed at the shared test container.
+func createResourceGroupsTaggingAPIClient(t *testing.T) *taggingsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return taggingsvc.NewFromConfig(cfg, func(o *taggingsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
