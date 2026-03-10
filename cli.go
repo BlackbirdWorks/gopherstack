@@ -2602,6 +2602,45 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load demo data", "error", err)
 	}
+
+	seedAppConfigDataDemoProfiles(ctx, cli.appConfigDataHandler, log)
+}
+
+// seedAppConfigDataDemoProfiles seeds demo configuration profiles for visual dashboard inspection.
+// AppConfigData has no AWS SDK write API, so profiles are seeded directly via the backend.
+func seedAppConfigDataDemoProfiles(ctx context.Context, h service.Registerable, log *slog.Logger) {
+	acdHandler, ok := h.(*appconfigdatabackend.Handler)
+	if !ok || acdHandler == nil {
+		log.DebugContext(ctx, "AppConfigData handler not available; skipping demo profile seeding")
+
+		return
+	}
+
+	profiles := []struct {
+		app, env, profile, content, contentType string
+	}{
+		{
+			app: "demo-app", env: "production", profile: "feature-flags",
+			content:     `{"featureFlagX":true,"enableNewUI":false,"maxRetries":3}`,
+			contentType: "application/json",
+		},
+		{
+			app: "demo-app", env: "production", profile: "rate-limits",
+			content:     `{"requestsPerMinute":100,"burstLimit":200}`,
+			contentType: "application/json",
+		},
+		{
+			app: "demo-app", env: "staging", profile: "feature-flags",
+			content:     `{"featureFlagX":true,"enableNewUI":true,"maxRetries":5}`,
+			contentType: "application/json",
+		},
+	}
+
+	for _, p := range profiles {
+		acdHandler.Backend.SetConfiguration(p.app, p.env, p.profile, p.content, p.contentType)
+	}
+
+	log.InfoContext(ctx, "Seeded AppConfigData demo profiles", "count", len(profiles))
 }
 
 // persistenceMiddleware returns an Echo middleware that schedules a debounced snapshot
