@@ -50,6 +50,30 @@ func doRequest(
 	return rec
 }
 
+// malformedJSON is an intentionally malformed JSON payload used in tests.
+const malformedJSON = `{"key": invalid}`
+
+// doRawRequest sends raw bytes as the request body (e.g. for malformed JSON).
+func doRawRequest(
+	t *testing.T,
+	handler *amplify.Handler,
+	method, path string,
+	raw []byte,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(method, path, bytes.NewBuffer(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	e := echo.New()
+	c := e.NewContext(req, rec)
+	err := handler.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
 // ---- Service metadata tests ----
 
 func TestHandler_Name(t *testing.T) {
@@ -208,8 +232,9 @@ func TestHandler_CreateApp(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "invalid_json_returns_400",
-			body:       "not-json",
+			// body is a JSON string (not an object) — wrong type/shape, not syntax error
+			name:       "wrong_type_body_returns_400",
+			body:       "not-an-object",
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -231,6 +256,15 @@ func TestHandler_CreateApp(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandler_CreateApp_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandler()
+	rec := doRawRequest(t, h, http.MethodPost, "/apps", []byte(malformedJSON))
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_GetApp(t *testing.T) {
@@ -398,13 +432,14 @@ func TestHandler_CreateBranch(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "invalid_json_returns_400",
+			// body is a JSON string (not an object) — wrong type/shape, not syntax error
+			name: "wrong_type_body_returns_400",
 			setup: func(b *amplify.InMemoryBackend) string {
 				app, _ := b.CreateApp("TestApp", "", "", "", nil)
 
 				return app.AppID
 			},
-			body:       "not-json",
+			body:       "not-an-object",
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -420,6 +455,16 @@ func TestHandler_CreateBranch(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+func TestHandler_CreateBranch_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	app, _ := b.CreateApp("TestApp", "", "", "", nil)
+	rec := doRawRequest(t, h, http.MethodPost, "/apps/"+app.AppID+"/branches", []byte(malformedJSON))
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_GetBranch(t *testing.T) {
@@ -576,13 +621,14 @@ func TestHandler_TagResource(t *testing.T) {
 			wantStatus: http.StatusNotFound,
 		},
 		{
-			name: "invalid_json_returns_400",
+			// body is a JSON string (not an object) — wrong type/shape, not syntax error
+			name: "wrong_type_body_returns_400",
 			setup: func(b *amplify.InMemoryBackend) string {
 				app, _ := b.CreateApp("TestApp", "", "", "", nil)
 
 				return app.ARN
 			},
-			body:       "not-json",
+			body:       "not-an-object",
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -599,6 +645,17 @@ func TestHandler_TagResource(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
+}
+
+func TestHandler_TagResource_MalformedJSON(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandler()
+	app, _ := b.CreateApp("TestApp", "", "", "", nil)
+	encodedARN := encodeARN(app.ARN)
+	rec := doRawRequest(t, h, http.MethodPost, "/tags/"+encodedARN, []byte(malformedJSON))
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_ListTagsForResource(t *testing.T) {
