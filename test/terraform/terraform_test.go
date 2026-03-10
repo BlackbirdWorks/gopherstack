@@ -41,6 +41,7 @@ import (
 	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	bedrockruntimetypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	cloudcontrolsvc "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
@@ -166,6 +167,7 @@ provider "aws" {
     batch           = %[1]q
     bedrock         = %[1]q
     ce              = %[1]q
+    cloudcontrol    = %[1]q
     cloudformation  = %[1]q
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
@@ -3503,6 +3505,64 @@ func TestTerraform_Ce(t *testing.T) {
 					}
 				}
 				assert.True(t, found, "cost category %q should be listed", vars["CategoryName"].(string))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CloudControl provisions a CloudControl API resource via Terraform,
+// then verifies it is listed via the CloudControl SDK.
+func TestTerraform_CloudControl(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "cloudcontrol/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createCloudControlClient(t)
+				out, err := client.ListResources(ctx, &cloudcontrolsvc.ListResourcesInput{
+					TypeName: aws.String("AWS::Logs::LogGroup"),
+				})
+				require.NoError(t, err, "ListResources should succeed after terraform apply")
+
+				expectedName := "tf-cloudcontrol-" + vars["Suffix"].(string)
+				found := false
+
+				for _, rd := range out.ResourceDescriptions {
+					var props map[string]any
+					propsJSON := []byte(aws.ToString(rd.Properties))
+					if unmarshalErr := json.Unmarshal(propsJSON, &props); unmarshalErr == nil {
+						if props["LogGroupName"] == expectedName {
+							found = true
+
+							break
+						}
+					}
+					if aws.ToString(rd.Identifier) == expectedName {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "cloudcontrol resource %q should be listed", expectedName)
 			},
 		},
 	}
