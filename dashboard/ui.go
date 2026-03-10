@@ -26,6 +26,7 @@ import (
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
+	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -164,13 +165,15 @@ type DashboardHandler struct {
 	AthenaOps                  *athenabackend.Handler
 	BackupOps                  *backupbackend.Handler
 	AppConfigOps               *appconfigbackend.Handler
-	SubRouter                  *echo.Echo
-	ddbProvider                *ddbbackend.DashboardProvider
-	s3Provider                 *s3backend.DashboardProvider
-	FaultStore                 *chaos.FaultStore
-	Logger                     *slog.Logger
-	layout                     *template.Template
-	GlobalConfig               config.GlobalConfig
+	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
+	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
+	SubRouter                 *echo.Echo
+	ddbProvider               *ddbbackend.DashboardProvider
+	s3Provider                *s3backend.DashboardProvider
+	FaultStore                *chaos.FaultStore
+	Logger                    *slog.Logger
+	layout                    *template.Template
+	GlobalConfig              config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -275,6 +278,8 @@ type Config struct {
 	BackupOps *backupbackend.Handler
 	// AppConfigOps provides access to the AppConfig backend.
 	AppConfigOps *appconfigbackend.Handler
+	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
+	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -357,6 +362,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/athena/*.html",
 		"templates/appconfig/*.html",
 		"templates/backup/*.html",
+		"templates/applicationautoscaling/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -428,6 +434,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		AthenaOps:                  cfg.AthenaOps,
 		BackupOps:                  cfg.BackupOps,
 		AppConfigOps:               cfg.AppConfigOps,
+		ApplicationAutoscalingOps:  cfg.ApplicationAutoscalingOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -735,6 +742,12 @@ func (h *DashboardHandler) setupAppConfigRoutes() {
 	h.SubRouter.POST("/dashboard/appconfig/application/delete", h.appConfigDeleteApplication)
 }
 
+func (h *DashboardHandler) setupApplicationAutoscalingRoutes() {
+	h.SubRouter.GET("/dashboard/applicationautoscaling", h.applicationautoscalingIndex)
+	h.SubRouter.POST("/dashboard/applicationautoscaling/create", h.applicationautoscalingCreate)
+	h.SubRouter.POST("/dashboard/applicationautoscaling/delete", h.applicationautoscalingDelete)
+}
+
 func (h *DashboardHandler) setupAppSyncRoutes() {
 	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
 }
@@ -845,6 +858,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupAppConfigDataRoutes()
 	h.setupAmplifyRoutes()
 	h.setupAppConfigRoutes()
+	h.setupApplicationAutoscalingRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -939,6 +953,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/cognitoidp", "CognitoIDP"},
 	{"/iotdataplane", "IoTDataPlane"},
 	{"/amplify", "Amplify"},
+	{"/applicationautoscaling", "ApplicationAutoscaling"},
 	{"/athena", "Athena"},
 	{"/appconfig", "AppConfig"},
 	{"/backup", "Backup"},

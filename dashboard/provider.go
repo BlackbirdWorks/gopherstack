@@ -13,6 +13,7 @@ import (
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
+	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -108,6 +109,7 @@ type AWSSDKProvider interface {
 	GetAthenaHandler() service.Registerable
 	GetBackupHandler() service.Registerable
 	GetAppConfigHandler() service.Registerable
+	GetApplicationAutoscalingHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -130,59 +132,60 @@ func (p *Provider) Name() string {
 //
 // extractedConfig holds all concrete service types extracted from a AWSSDKProvider.
 type extractedConfig struct {
-	stepFunctionsOps         *sfnbackend.Handler
-	cloudWatchOps            *cwbackend.Handler
-	ssmClient                *ssmsdk.Client
-	ddb                      *dynamodb.DynamoDBHandler
-	s3h                      *s3.S3Handler
-	ssmOps                   *ssm.Handler
-	iamOps                   *iambackend.Handler
-	stsOps                   *stsbackend.Handler
-	snsOps                   *sns.Handler
-	sqsOps                   *sqsbackend.Handler
-	kmsOps                   *kmsbackend.Handler
-	secretsManagerOps        *secretsmanagerbackend.Handler
-	lambdaOps                *lambdabackend.Handler
-	eventBridgeOps           *ebbackend.Handler
-	apiGatewayOps            *apigwbackend.Handler
-	cloudWatchLogsOps        *cwlogsbackend.Handler
-	s3Client                 *s3sdk.Client
-	ddbClient                *ddbsdk.Client
-	cloudFormationOps        *cfnbackend.Handler
-	kinesisOps               *kinesisbackend.Handler
-	elasticacheOps           *elasticachebackend.Handler
-	route53Ops               *route53backend.Handler
-	sesOps                   *sesbackend.Handler
-	sesv2Ops                 *sesv2backend.Handler
-	ec2Ops                   *ec2backend.Handler
-	opensearchOps            *opensearchbackend.Handler
-	acmOps                   *acmbackend.Handler
-	acmpcaOps                *acmpcabackend.Handler
-	redshiftOps              *redshiftbackend.Handler
-	rdsOps                   *rdsbackend.Handler
-	awsconfigOps             *awsconfigbackend.Handler
-	s3controlOps             *s3controlbackend.Handler
-	resourcegroupsOps        *resourcegroupsbackend.Handler
-	resourcegroupstaggingOps *taggingbackend.Handler
-	swfOps                   *swfbackend.Handler
-	firehoseOps              *firehosebackend.Handler
-	cognitoIdentityOps       *cognitoidentitybackend.Handler
-	appSyncOps               *appsyncbackend.Handler
-	cognitoIDPOps            *cognitoidpbackend.Handler
-	iotDataPlaneOps          *iotdataplanebackend.Handler
-	apiGatewayMgmtOps        *apigwmgmtbackend.Handler
-	apiGatewayV2Ops          *apigwv2backend.Handler
-	appConfigDataOps         *appconfigdatabackend.Handler
-	amplifyOps               *amplifybackend.Handler
-	athenaOps                *athenabackend.Handler
-	backupOps                *backupbackend.Handler
-	appConfigOps             *appconfigbackend.Handler
-	ecrOps                   *ecrbackend.Handler
-	ecsOps                   *ecsbackend.Handler
-	iotOps                   *iotbackend.Handler
-	fisOps                   *fisbackend.Handler
-	faultStore               *chaos.FaultStore
-	gCfg                     globalcfg.GlobalConfig
+	stepFunctionsOps          *sfnbackend.Handler
+	cloudWatchOps             *cwbackend.Handler
+	ssmClient                 *ssmsdk.Client
+	ddb                       *dynamodb.DynamoDBHandler
+	s3h                       *s3.S3Handler
+	ssmOps                    *ssm.Handler
+	iamOps                    *iambackend.Handler
+	stsOps                    *stsbackend.Handler
+	snsOps                    *sns.Handler
+	sqsOps                    *sqsbackend.Handler
+	kmsOps                    *kmsbackend.Handler
+	secretsManagerOps         *secretsmanagerbackend.Handler
+	lambdaOps                 *lambdabackend.Handler
+	eventBridgeOps            *ebbackend.Handler
+	apiGatewayOps             *apigwbackend.Handler
+	cloudWatchLogsOps         *cwlogsbackend.Handler
+	s3Client                  *s3sdk.Client
+	ddbClient                 *ddbsdk.Client
+	cloudFormationOps         *cfnbackend.Handler
+	kinesisOps                *kinesisbackend.Handler
+	elasticacheOps            *elasticachebackend.Handler
+	route53Ops                *route53backend.Handler
+	sesOps                    *sesbackend.Handler
+	sesv2Ops                  *sesv2backend.Handler
+	ec2Ops                    *ec2backend.Handler
+	opensearchOps             *opensearchbackend.Handler
+	acmOps                    *acmbackend.Handler
+	acmpcaOps                 *acmpcabackend.Handler
+	redshiftOps               *redshiftbackend.Handler
+	rdsOps                    *rdsbackend.Handler
+	awsconfigOps              *awsconfigbackend.Handler
+	s3controlOps              *s3controlbackend.Handler
+	resourcegroupsOps         *resourcegroupsbackend.Handler
+	resourcegroupstaggingOps  *taggingbackend.Handler
+	swfOps                    *swfbackend.Handler
+	firehoseOps               *firehosebackend.Handler
+	cognitoIdentityOps        *cognitoidentitybackend.Handler
+	appSyncOps                *appsyncbackend.Handler
+	cognitoIDPOps             *cognitoidpbackend.Handler
+	iotDataPlaneOps           *iotdataplanebackend.Handler
+	apiGatewayMgmtOps         *apigwmgmtbackend.Handler
+	apiGatewayV2Ops           *apigwv2backend.Handler
+	appConfigDataOps          *appconfigdatabackend.Handler
+	amplifyOps                *amplifybackend.Handler
+	athenaOps                 *athenabackend.Handler
+	backupOps                 *backupbackend.Handler
+	appConfigOps              *appconfigbackend.Handler
+	applicationAutoscalingOps *applicationautoscalingbackend.Handler
+	ecrOps                    *ecrbackend.Handler
+	ecsOps                    *ecsbackend.Handler
+	iotOps                    *iotbackend.Handler
+	fisOps                    *fisbackend.Handler
+	faultStore                *chaos.FaultStore
+	gCfg                      globalcfg.GlobalConfig
 }
 
 // extractFromProvider tries to extract all service types from the AppContext.Config.
@@ -408,6 +411,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.appConfigDataOps, _ = h.(*appconfigdatabackend.Handler)
 	}
 
+	if h := ap.GetApplicationAutoscalingHandler(); h != nil {
+		ec.applicationAutoscalingOps, _ = h.(*applicationautoscalingbackend.Handler)
+	}
+
 	if h := ap.GetAthenaHandler(); h != nil {
 		ec.athenaOps, _ = h.(*athenabackend.Handler)
 	}
@@ -469,6 +476,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		AthenaOps:                  ec.athenaOps,
 		BackupOps:                  ec.backupOps,
 		AppConfigOps:               ec.appConfigOps,
+		ApplicationAutoscalingOps:  ec.applicationAutoscalingOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		IoTOps:                     ec.iotOps,
