@@ -40,8 +40,8 @@ type CostCategoryRule struct {
 // SplitChargeRule represents a cost category split charge rule.
 type SplitChargeRule struct {
 	Source  string
-	Targets []string
 	Method  string
+	Targets []string
 }
 
 // AnomalyMonitor represents an in-memory AWS CE anomaly monitor.
@@ -60,10 +60,10 @@ type AnomalySubscription struct {
 	Tags             map[string]string
 	SubscriptionARN  string
 	SubscriptionName string
-	MonitorARNList   []string
 	Frequency        string
-	Threshold        float64
+	MonitorARNList   []string
 	Subscribers      []Subscriber
+	Threshold        float64
 }
 
 // Subscriber represents a CE anomaly subscription notification target.
@@ -112,6 +112,7 @@ func (b *InMemoryBackend) buildAnomalySubscriptionARN() string {
 
 func effectiveStart() string {
 	now := time.Now().UTC()
+
 	return fmt.Sprintf("%d-%02d-01T00:00:00Z", now.Year(), now.Month())
 }
 
@@ -145,6 +146,7 @@ func (b *InMemoryBackend) CreateCostCategoryDefinition(
 	b.costCategories[catARN] = cat
 
 	out := *cat
+
 	return &out, nil
 }
 
@@ -161,6 +163,7 @@ func (b *InMemoryBackend) DeleteCostCategoryDefinition(catARN string) (*CostCate
 	delete(b.costCategories, catARN)
 
 	out := *cat
+
 	return &out, nil
 }
 
@@ -175,6 +178,7 @@ func (b *InMemoryBackend) DescribeCostCategoryDefinition(catARN string) (*CostCa
 	}
 
 	out := *cat
+
 	return &out, nil
 }
 
@@ -213,6 +217,7 @@ func (b *InMemoryBackend) UpdateCostCategoryDefinition(
 	cat.EffectiveStart = effectiveStart()
 
 	out := *cat
+
 	return &out, nil
 }
 
@@ -252,16 +257,19 @@ func (b *InMemoryBackend) TagResource(resourceARN string, resourceTags map[strin
 
 	if cat, ok := b.costCategories[resourceARN]; ok {
 		maps.Copy(cat.Tags, resourceTags)
+
 		return nil
 	}
 
 	if mon, ok := b.anomalyMonitors[resourceARN]; ok {
 		maps.Copy(mon.Tags, resourceTags)
+
 		return nil
 	}
 
 	if sub, ok := b.anomalySubscriptions[resourceARN]; ok {
 		maps.Copy(sub.Tags, resourceTags)
+
 		return nil
 	}
 
@@ -323,6 +331,7 @@ func (b *InMemoryBackend) CreateAnomalyMonitor(
 	b.anomalyMonitors[monARN] = mon
 
 	out := *mon
+
 	return &out, nil
 }
 
@@ -384,6 +393,7 @@ func (b *InMemoryBackend) UpdateAnomalyMonitor(monARN, monitorName string) (*Ano
 	mon.MonitorName = monitorName
 
 	out := *mon
+
 	return &out, nil
 }
 
@@ -421,6 +431,7 @@ func (b *InMemoryBackend) CreateAnomalySubscription(
 	b.anomalySubscriptions[subARN] = sub
 
 	out := *sub
+
 	return &out, nil
 }
 
@@ -509,5 +520,6 @@ func (b *InMemoryBackend) UpdateAnomalySubscription(
 	}
 
 	out := *sub
+
 	return &out, nil
 }

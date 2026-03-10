@@ -82,7 +82,7 @@ require (
 
 require github.com/aws/aws-sdk-go-v2/service/batch v1.61.1
 
-require github.com/aws/aws-sdk-go-v2/service/costexplorer v1.63.4 // indirect
+require github.com/aws/aws-sdk-go-v2/service/costexplorer v1.63.4
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

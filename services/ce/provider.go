@@ -13,7 +13,7 @@ func (p *Provider) Name() string { return "Ce" }
 
 // Init initializes the Cost Explorer service.
 //
-//nolint:ireturn // architecturally required to return interface
+//nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion

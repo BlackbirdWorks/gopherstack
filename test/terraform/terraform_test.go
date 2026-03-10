@@ -45,6 +45,7 @@ import (
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
+	cesvc "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -81,7 +82,6 @@ import (
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
-	cesvc "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -3372,43 +3372,43 @@ func TestTerraform_Batch(t *testing.T) {
 // TestTerraform_Ce provisions a Cost Explorer cost category via Terraform,
 // then verifies it is listed via the Ce SDK.
 func TestTerraform_Ce(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "ce/cost_category",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ce/cost_category",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"CategoryName": "tf-ce-" + id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createCeClient(t)
-out, err := client.ListCostCategoryDefinitions(ctx, &cesvc.ListCostCategoryDefinitionsInput{})
-require.NoError(t, err, "ListCostCategoryDefinitions should succeed after terraform apply")
+				return map[string]any{
+					"CategoryName": "tf-ce-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCeClient(t)
+				out, err := client.ListCostCategoryDefinitions(ctx, &cesvc.ListCostCategoryDefinitionsInput{})
+				require.NoError(t, err, "ListCostCategoryDefinitions should succeed after terraform apply")
 
-found := false
-for _, ref := range out.CostCategoryReferences {
-if aws.ToString(ref.Name) == vars["CategoryName"].(string) {
-found = true
+				found := false
+				for _, ref := range out.CostCategoryReferences {
+					if aws.ToString(ref.Name) == vars["CategoryName"].(string) {
+						found = true
 
-break
-}
-}
-assert.True(t, found, "cost category %q should be listed", vars["CategoryName"].(string))
-},
-},
-}
+						break
+					}
+				}
+				assert.True(t, found, "cost category %q should be listed", vars["CategoryName"].(string))
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }

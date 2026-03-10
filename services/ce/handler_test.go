@@ -134,9 +134,8 @@ func TestHandler_CostCategoryCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		setup      func(t *testing.T, h *ce.Handler)
-		wantStatus int
+		setup func(t *testing.T, h *ce.Handler)
+		name  string
 	}{
 		{
 			name: "create_and_list",
@@ -298,8 +297,8 @@ func TestHandler_AnomalyMonitorCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		setup func(t *testing.T, h *ce.Handler)
+		name  string
 	}{
 		{
 			name: "create_and_get",
@@ -386,8 +385,8 @@ func TestHandler_AnomalySubscriptionCRUD(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		setup func(t *testing.T, h *ce.Handler)
+		name  string
 	}{
 		{
 			name: "create_and_get",
@@ -447,8 +446,8 @@ func TestHandler_TagOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		setup func(t *testing.T, h *ce.Handler)
+		name  string
 	}{
 		{
 			name: "tag_and_untag_cost_category",
@@ -507,9 +506,9 @@ func TestHandler_CostQueryStubs(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body   any
 		name   string
 		action string
-		body   any
 	}{
 		{
 			name:   "get_cost_and_usage",

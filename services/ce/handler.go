@@ -1,4 +1,3 @@
-// Package ce provides an in-memory implementation of the AWS Cost Explorer (Ce) service.
 package ce
 
 import (
@@ -109,25 +108,25 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateCostCategoryDefinition":  service.WrapOp(h.handleCreateCostCategoryDefinition),
-		"DeleteCostCategoryDefinition":  service.WrapOp(h.handleDeleteCostCategoryDefinition),
+		"CreateCostCategoryDefinition":   service.WrapOp(h.handleCreateCostCategoryDefinition),
+		"DeleteCostCategoryDefinition":   service.WrapOp(h.handleDeleteCostCategoryDefinition),
 		"DescribeCostCategoryDefinition": service.WrapOp(h.handleDescribeCostCategoryDefinition),
-		"ListCostCategoryDefinitions":   service.WrapOp(h.handleListCostCategoryDefinitions),
-		"UpdateCostCategoryDefinition":  service.WrapOp(h.handleUpdateCostCategoryDefinition),
-		"CreateAnomalyMonitor":          service.WrapOp(h.handleCreateAnomalyMonitor),
-		"DeleteAnomalyMonitor":          service.WrapOp(h.handleDeleteAnomalyMonitor),
-		"GetAnomalyMonitors":            service.WrapOp(h.handleGetAnomalyMonitors),
-		"UpdateAnomalyMonitor":          service.WrapOp(h.handleUpdateAnomalyMonitor),
-		"CreateAnomalySubscription":     service.WrapOp(h.handleCreateAnomalySubscription),
-		"DeleteAnomalySubscription":     service.WrapOp(h.handleDeleteAnomalySubscription),
-		"GetAnomalySubscriptions":       service.WrapOp(h.handleGetAnomalySubscriptions),
-		"UpdateAnomalySubscription":     service.WrapOp(h.handleUpdateAnomalySubscription),
-		"GetCostAndUsage":               service.WrapOp(h.handleGetCostAndUsage),
-		"GetDimensionValues":            service.WrapOp(h.handleGetDimensionValues),
-		"GetTags":                       service.WrapOp(h.handleGetTags),
-		"ListTagsForResource":           service.WrapOp(h.handleListTagsForResource),
-		"TagResource":                   service.WrapOp(h.handleTagResource),
-		"UntagResource":                 service.WrapOp(h.handleUntagResource),
+		"ListCostCategoryDefinitions":    service.WrapOp(h.handleListCostCategoryDefinitions),
+		"UpdateCostCategoryDefinition":   service.WrapOp(h.handleUpdateCostCategoryDefinition),
+		"CreateAnomalyMonitor":           service.WrapOp(h.handleCreateAnomalyMonitor),
+		"DeleteAnomalyMonitor":           service.WrapOp(h.handleDeleteAnomalyMonitor),
+		"GetAnomalyMonitors":             service.WrapOp(h.handleGetAnomalyMonitors),
+		"UpdateAnomalyMonitor":           service.WrapOp(h.handleUpdateAnomalyMonitor),
+		"CreateAnomalySubscription":      service.WrapOp(h.handleCreateAnomalySubscription),
+		"DeleteAnomalySubscription":      service.WrapOp(h.handleDeleteAnomalySubscription),
+		"GetAnomalySubscriptions":        service.WrapOp(h.handleGetAnomalySubscriptions),
+		"UpdateAnomalySubscription":      service.WrapOp(h.handleUpdateAnomalySubscription),
+		"GetCostAndUsage":                service.WrapOp(h.handleGetCostAndUsage),
+		"GetDimensionValues":             service.WrapOp(h.handleGetDimensionValues),
+		"GetTags":                        service.WrapOp(h.handleGetTags),
+		"ListTagsForResource":            service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                    service.WrapOp(h.handleTagResource),
+		"UntagResource":                  service.WrapOp(h.handleUntagResource),
 	}
 }
 
@@ -190,8 +189,8 @@ type costCategoryRule struct {
 
 type splitChargeRule struct {
 	Source  string   `json:"Source"`
-	Targets []string `json:"Targets"`
 	Method  string   `json:"Method"`
+	Targets []string `json:"Targets"`
 }
 
 type createCostCategoryDefinitionOutput struct {
@@ -209,7 +208,7 @@ func (h *Handler) handleCreateCostCategoryDefinition(
 
 	rules := make([]CostCategoryRule, 0, len(in.Rules))
 	for _, r := range in.Rules {
-		rules = append(rules, CostCategoryRule{Value: r.Value})
+		rules = append(rules, CostCategoryRule(r))
 	}
 
 	cat, err := h.Backend.CreateCostCategoryDefinition(
@@ -287,7 +286,7 @@ func (h *Handler) handleDescribeCostCategoryDefinition(
 
 	rules := make([]costCategoryRule, 0, len(cat.Rules))
 	for _, r := range cat.Rules {
-		rules = append(rules, costCategoryRule{Value: r.Value})
+		rules = append(rules, costCategoryRule(r))
 	}
 
 	return &describeCostCategoryDefinitionOutput{
@@ -303,9 +302,9 @@ func (h *Handler) handleDescribeCostCategoryDefinition(
 }
 
 type listCostCategoryDefinitionsInput struct {
-	MaxResults   int    `json:"MaxResults"`
-	NextToken    string `json:"NextToken"`
-	EffectiveOn  string `json:"EffectiveOn"`
+	NextToken   string `json:"NextToken"`
+	EffectiveOn string `json:"EffectiveOn"`
+	MaxResults  int    `json:"MaxResults"`
 }
 
 type costCategoryReference struct {
@@ -315,8 +314,8 @@ type costCategoryReference struct {
 }
 
 type listCostCategoryDefinitionsOutput struct {
-	CostCategoryReferences []costCategoryReference `json:"CostCategoryReferences"`
 	NextPageToken          string                  `json:"NextPageToken,omitempty"`
+	CostCategoryReferences []costCategoryReference `json:"CostCategoryReferences"`
 }
 
 func (h *Handler) handleListCostCategoryDefinitions(
@@ -359,16 +358,12 @@ func (h *Handler) handleUpdateCostCategoryDefinition(
 
 	rules := make([]CostCategoryRule, 0, len(in.Rules))
 	for _, r := range in.Rules {
-		rules = append(rules, CostCategoryRule{Value: r.Value})
+		rules = append(rules, CostCategoryRule(r))
 	}
 
 	splitChargeRules := make([]SplitChargeRule, 0, len(in.SplitChargeRules))
 	for _, r := range in.SplitChargeRules {
-		splitChargeRules = append(splitChargeRules, SplitChargeRule{
-			Source:  r.Source,
-			Targets: r.Targets,
-			Method:  r.Method,
-		})
+		splitChargeRules = append(splitChargeRules, SplitChargeRule(r))
 	}
 
 	cat, err := h.Backend.UpdateCostCategoryDefinition(
@@ -394,8 +389,8 @@ type anomalyMonitorInput struct {
 }
 
 type createAnomalyMonitorInput struct {
-	AnomalyMonitor anomalyMonitorInput `json:"AnomalyMonitor"`
 	ResourceTags   map[string]string   `json:"ResourceTags"`
+	AnomalyMonitor anomalyMonitorInput `json:"AnomalyMonitor"`
 }
 
 type createAnomalyMonitorOutput struct {
@@ -445,8 +440,8 @@ func (h *Handler) handleDeleteAnomalyMonitor(
 }
 
 type getAnomalyMonitorsInput struct {
-	MonitorArnList []string `json:"MonitorArnList"`
 	NextPageToken  string   `json:"NextPageToken"`
+	MonitorArnList []string `json:"MonitorArnList"`
 	MaxResults     int      `json:"MaxResults"`
 }
 
@@ -458,8 +453,8 @@ type anomalyMonitorSummary struct {
 }
 
 type getAnomalyMonitorsOutput struct {
-	AnomalyMonitors []anomalyMonitorSummary `json:"AnomalyMonitors"`
 	NextPageToken   string                  `json:"NextPageToken,omitempty"`
+	AnomalyMonitors []anomalyMonitorSummary `json:"AnomalyMonitors"`
 }
 
 func (h *Handler) handleGetAnomalyMonitors(
@@ -497,6 +492,10 @@ func (h *Handler) handleUpdateAnomalyMonitor(
 		return nil, fmt.Errorf("%w: MonitorArn is required", errInvalidRequest)
 	}
 
+	if in.MonitorName == "" {
+		return nil, fmt.Errorf("%w: MonitorName is required", errInvalidRequest)
+	}
+
 	mon, err := h.Backend.UpdateAnomalyMonitor(in.MonitorArn, in.MonitorName)
 	if err != nil {
 		return nil, err
@@ -515,15 +514,15 @@ type subscriberInput struct {
 
 type anomalySubscriptionInput struct {
 	SubscriptionName string            `json:"SubscriptionName"`
+	Frequency        string            `json:"Frequency"`
 	MonitorArnList   []string          `json:"MonitorArnList"`
 	Subscribers      []subscriberInput `json:"Subscribers"`
-	Frequency        string            `json:"Frequency"`
 	Threshold        float64           `json:"Threshold"`
 }
 
 type createAnomalySubscriptionInput struct {
-	AnomalySubscription anomalySubscriptionInput `json:"AnomalySubscription"`
 	ResourceTags        map[string]string        `json:"ResourceTags"`
+	AnomalySubscription anomalySubscriptionInput `json:"AnomalySubscription"`
 }
 
 type createAnomalySubscriptionOutput struct {
@@ -540,11 +539,7 @@ func (h *Handler) handleCreateAnomalySubscription(
 
 	subs := make([]Subscriber, 0, len(in.AnomalySubscription.Subscribers))
 	for _, s := range in.AnomalySubscription.Subscribers {
-		subs = append(subs, Subscriber{
-			Address: s.Address,
-			Type:    s.Type,
-			Status:  s.Status,
-		})
+		subs = append(subs, Subscriber(s))
 	}
 
 	sub, err := h.Backend.CreateAnomalySubscription(
@@ -584,24 +579,24 @@ func (h *Handler) handleDeleteAnomalySubscription(
 }
 
 type getAnomalySubscriptionsInput struct {
-	SubscriptionArnList []string `json:"SubscriptionArnList"`
 	MonitorArn          string   `json:"MonitorArn"`
 	NextPageToken       string   `json:"NextPageToken"`
+	SubscriptionArnList []string `json:"SubscriptionArnList"`
 	MaxResults          int      `json:"MaxResults"`
 }
 
 type anomalySubscriptionSummary struct {
 	SubscriptionArn  string            `json:"SubscriptionArn"`
 	SubscriptionName string            `json:"SubscriptionName"`
-	MonitorArnList   []string          `json:"MonitorArnList"`
 	Frequency        string            `json:"Frequency"`
-	Threshold        float64           `json:"Threshold,omitempty"`
+	MonitorArnList   []string          `json:"MonitorArnList"`
 	Subscribers      []subscriberInput `json:"Subscribers"`
+	Threshold        float64           `json:"Threshold,omitempty"`
 }
 
 type getAnomalySubscriptionsOutput struct {
-	AnomalySubscriptions []anomalySubscriptionSummary `json:"AnomalySubscriptions"`
 	NextPageToken        string                       `json:"NextPageToken,omitempty"`
+	AnomalySubscriptions []anomalySubscriptionSummary `json:"AnomalySubscriptions"`
 }
 
 func (h *Handler) handleGetAnomalySubscriptions(
@@ -613,11 +608,7 @@ func (h *Handler) handleGetAnomalySubscriptions(
 	for _, sub := range subs {
 		subscribers := make([]subscriberInput, 0, len(sub.Subscribers))
 		for _, s := range sub.Subscribers {
-			subscribers = append(subscribers, subscriberInput{
-				Address: s.Address,
-				Type:    s.Type,
-				Status:  s.Status,
-			})
+			subscribers = append(subscribers, subscriberInput(s))
 		}
 
 		items = append(items, anomalySubscriptionSummary{
@@ -656,11 +647,7 @@ func (h *Handler) handleUpdateAnomalySubscription(
 
 	subs := make([]Subscriber, 0, len(in.Subscribers))
 	for _, s := range in.Subscribers {
-		subs = append(subs, Subscriber{
-			Address: s.Address,
-			Type:    s.Type,
-			Status:  s.Status,
-		})
+		subs = append(subs, Subscriber(s))
 	}
 
 	sub, err := h.Backend.UpdateAnomalySubscription(
@@ -677,13 +664,13 @@ func (h *Handler) handleUpdateAnomalySubscription(
 // --- Cost & Usage query stubs ---
 
 type getCostAndUsageInput struct {
-	TimePeriod map[string]string `json:"TimePeriod"`
-	Granularity string           `json:"Granularity"`
-	Metrics    []string          `json:"Metrics"`
+	TimePeriod  map[string]string `json:"TimePeriod"`
+	Granularity string            `json:"Granularity"`
+	Metrics     []string          `json:"Metrics"`
 }
 
 type getCostAndUsageOutput struct {
-	ResultsByTime          []any `json:"ResultsByTime"`
+	ResultsByTime            []any `json:"ResultsByTime"`
 	DimensionValueAttributes []any `json:"DimensionValueAttributes"`
 }
 
@@ -698,16 +685,16 @@ func (h *Handler) handleGetCostAndUsage(
 }
 
 type getDimensionValuesInput struct {
-	TimePeriod  map[string]string `json:"TimePeriod"`
-	Dimension   string            `json:"Dimension"`
-	SearchString string           `json:"SearchString"`
+	TimePeriod   map[string]string `json:"TimePeriod"`
+	Dimension    string            `json:"Dimension"`
+	SearchString string            `json:"SearchString"`
 }
 
 type getDimensionValuesOutput struct {
-	DimensionValues  []any  `json:"DimensionValues"`
-	ReturnSize       int    `json:"ReturnSize"`
-	TotalSize        int    `json:"TotalSize"`
-	NextPageToken    string `json:"NextPageToken,omitempty"`
+	NextPageToken   string `json:"NextPageToken,omitempty"`
+	DimensionValues []any  `json:"DimensionValues"`
+	ReturnSize      int    `json:"ReturnSize"`
+	TotalSize       int    `json:"TotalSize"`
 }
 
 func (h *Handler) handleGetDimensionValues(
@@ -722,16 +709,16 @@ func (h *Handler) handleGetDimensionValues(
 }
 
 type getTagsInput struct {
-	TimePeriod    map[string]string `json:"TimePeriod"`
-	TagKey        string            `json:"TagKey"`
-	SearchString  string            `json:"SearchString"`
+	TimePeriod   map[string]string `json:"TimePeriod"`
+	TagKey       string            `json:"TagKey"`
+	SearchString string            `json:"SearchString"`
 }
 
 type getTagsOutput struct {
+	NextPageToken string   `json:"NextPageToken,omitempty"`
 	Tags          []string `json:"Tags"`
 	ReturnSize    int      `json:"ReturnSize"`
 	TotalSize     int      `json:"TotalSize"`
-	NextPageToken string   `json:"NextPageToken,omitempty"`
 }
 
 func (h *Handler) handleGetTags(
