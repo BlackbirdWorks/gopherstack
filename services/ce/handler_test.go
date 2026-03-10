@@ -467,7 +467,7 @@ func TestHandler_TagOperations(t *testing.T) {
 				// Tag
 				rec2 := doRequest(t, h, "TagResource", map[string]any{
 					"ResourceArn":  arn,
-					"ResourceTags": map[string]string{"Env": "prod"},
+					"ResourceTags": []map[string]string{{"Key": "Env", "Value": "prod"}},
 				})
 				assert.Equal(t, http.StatusOK, rec2.Code)
 
@@ -479,8 +479,15 @@ func TestHandler_TagOperations(t *testing.T) {
 
 				var listOut map[string]any
 				require.NoError(t, json.NewDecoder(rec3.Body).Decode(&listOut))
-				tags, _ := listOut["ResourceTags"].(map[string]any)
-				assert.Equal(t, "prod", tags["Env"])
+				tags, _ := listOut["ResourceTags"].([]any)
+				var envVal string
+				for _, tagAny := range tags {
+					tag, _ := tagAny.(map[string]any)
+					if tag["Key"] == "Env" {
+						envVal, _ = tag["Value"].(string)
+					}
+				}
+				assert.Equal(t, "prod", envVal)
 
 				// Untag
 				rec4 := doRequest(t, h, "UntagResource", map[string]any{

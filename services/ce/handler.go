@@ -173,14 +173,51 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 // --- Cost Category operations ---
 
+// resourceTag represents a single AWS CE resource tag (Key+Value pair).
+// The Cost Explorer API serializes tags as a JSON array of {Key, Value} objects.
+type resourceTag struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+// resourceTagsToMap converts an array of resourceTag to map[string]string for backend storage.
+func resourceTagsToMap(tags []resourceTag) map[string]string {
+	if len(tags) == 0 {
+		return nil
+	}
+
+	m := make(map[string]string, len(tags))
+
+	for _, t := range tags {
+		m[t.Key] = t.Value
+	}
+
+	return m
+}
+
+// mapToResourceTags converts a map[string]string to an array of resourceTag for API responses.
+func mapToResourceTags(m map[string]string) []resourceTag {
+	if len(m) == 0 {
+		return nil
+	}
+
+	tags := make([]resourceTag, 0, len(m))
+
+	for k, v := range m {
+		tags = append(tags, resourceTag{Key: k, Value: v})
+	}
+
+	return tags
+}
+
 type createCostCategoryDefinitionInput struct {
-	ResourceTags     map[string]string  `json:"ResourceTags"`
 	Name             string             `json:"Name"`
 	RuleVersion      string             `json:"RuleVersion"`
 	DefaultValue     string             `json:"DefaultValue"`
 	EffectiveStart   string             `json:"EffectiveStart"`
 	Rules            []costCategoryRule `json:"Rules"`
 	SplitChargeRules []splitChargeRule  `json:"SplitChargeRules"`
+	ResourceTags     []resourceTag      `json:"ResourceTags"`
 }
 
 type costCategoryRule struct {
@@ -213,7 +250,7 @@ func (h *Handler) handleCreateCostCategoryDefinition(
 
 	cat, err := h.Backend.CreateCostCategoryDefinition(
 		in.Name, in.RuleVersion, in.DefaultValue,
-		rules, in.ResourceTags,
+		rules, resourceTagsToMap(in.ResourceTags),
 	)
 	if err != nil {
 		return nil, err
@@ -389,8 +426,8 @@ type anomalyMonitorInput struct {
 }
 
 type createAnomalyMonitorInput struct {
-	ResourceTags   map[string]string   `json:"ResourceTags"`
 	AnomalyMonitor anomalyMonitorInput `json:"AnomalyMonitor"`
+	ResourceTags   []resourceTag       `json:"ResourceTags"`
 }
 
 type createAnomalyMonitorOutput struct {
@@ -409,7 +446,7 @@ func (h *Handler) handleCreateAnomalyMonitor(
 		in.AnomalyMonitor.MonitorName,
 		in.AnomalyMonitor.MonitorType,
 		in.AnomalyMonitor.MonitorDimension,
-		in.ResourceTags,
+		resourceTagsToMap(in.ResourceTags),
 	)
 	if err != nil {
 		return nil, err
@@ -521,7 +558,7 @@ type anomalySubscriptionInput struct {
 }
 
 type createAnomalySubscriptionInput struct {
-	ResourceTags        map[string]string        `json:"ResourceTags"`
+	ResourceTags        []resourceTag            `json:"ResourceTags"`
 	AnomalySubscription anomalySubscriptionInput `json:"AnomalySubscription"`
 }
 
@@ -548,7 +585,7 @@ func (h *Handler) handleCreateAnomalySubscription(
 		in.AnomalySubscription.MonitorArnList,
 		subs,
 		in.AnomalySubscription.Threshold,
-		in.ResourceTags,
+		resourceTagsToMap(in.ResourceTags),
 	)
 	if err != nil {
 		return nil, err
@@ -739,7 +776,7 @@ type listTagsForResourceInput struct {
 }
 
 type listTagsForResourceOutput struct {
-	ResourceTags map[string]string `json:"ResourceTags"`
+	ResourceTags []resourceTag `json:"ResourceTags"`
 }
 
 func (h *Handler) handleListTagsForResource(
@@ -755,12 +792,12 @@ func (h *Handler) handleListTagsForResource(
 		return nil, err
 	}
 
-	return &listTagsForResourceOutput{ResourceTags: t}, nil
+	return &listTagsForResourceOutput{ResourceTags: mapToResourceTags(t)}, nil
 }
 
 type tagResourceInput struct {
-	ResourceTags map[string]string `json:"ResourceTags"`
-	ResourceArn  string            `json:"ResourceArn"`
+	ResourceArn  string        `json:"ResourceArn"`
+	ResourceTags []resourceTag `json:"ResourceTags"`
 }
 
 type tagResourceOutput struct{}
@@ -770,7 +807,7 @@ func (h *Handler) handleTagResource(_ context.Context, in *tagResourceInput) (*t
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.TagResource(in.ResourceArn, in.ResourceTags); err != nil {
+	if err := h.Backend.TagResource(in.ResourceArn, resourceTagsToMap(in.ResourceTags)); err != nil {
 		return nil, err
 	}
 
