@@ -41,7 +41,7 @@ This document tracks the implementation status of AWS services in Gopherstack, s
 | **SSM** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Step Functions** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **STS** | ✅ Yes | ✅ Yes | ❌ No |
-| **Support API** | ✅ Yes | ✅ Yes | ❌ No |
+| **Support API** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **SWF** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Transcribe** | ✅ Yes | ✅ Yes | ❌ No |
 
@@ -90,7 +90,6 @@ The Chaos API supports:
 - FIS (Pro)
 - IoT Data Plane (Pro)
 - STS (Free)
-- Support API (Free)
 - Transcribe (Free)
 
 ## Not Implemented Features (LocalStack Parity Gap)

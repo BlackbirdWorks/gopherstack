@@ -65,6 +65,7 @@ import (
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
+	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
 	"github.com/google/uuid"
@@ -171,6 +172,7 @@ provider "aws" {
     sns             = %[1]q
     sqs             = %[1]q
     ssm             = %[1]q
+    support         = %[1]q
     sts             = %[1]q
     swf             = %[1]q
   }
@@ -2509,6 +2511,64 @@ func TestTerraform_IoT(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeThing should succeed after terraform apply")
 				assert.Equal(t, vars["ThingName"].(string), aws.ToString(out.ThingName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Support applies a Terraform fixture and verifies Support API CreateCase,
+// DescribeCases, and ResolveCase operations via the AWS SDK.
+func TestTerraform_Support(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "support/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{"CaseName": "tf-support-" + id}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createSupportClient(t)
+
+				subject := vars["CaseName"].(string)
+
+				createOut, err := client.CreateCase(ctx, &supportsvc.CreateCaseInput{
+					Subject:           aws.String(subject),
+					CommunicationBody: aws.String("Terraform integration test case"),
+					ServiceCode:       aws.String("general-info"),
+					CategoryCode:      aws.String("other"),
+					SeverityCode:      aws.String("low"),
+				})
+				require.NoError(t, err, "CreateCase should succeed")
+				require.NotNil(t, createOut.CaseId, "CreateCase should return a caseId")
+
+				caseID := aws.ToString(createOut.CaseId)
+
+				describeOut, err := client.DescribeCases(ctx, &supportsvc.DescribeCasesInput{
+					CaseIdList: []string{caseID},
+				})
+				require.NoError(t, err, "DescribeCases should succeed")
+				require.Len(t, describeOut.Cases, 1, "DescribeCases should return the created case")
+				assert.Equal(t, subject, aws.ToString(describeOut.Cases[0].Subject))
+
+				resolveOut, err := client.ResolveCase(ctx, &supportsvc.ResolveCaseInput{
+					CaseId: aws.String(caseID),
+				})
+				require.NoError(t, err, "ResolveCase should succeed")
+				assert.Equal(t, "resolved", aws.ToString(resolveOut.FinalCaseStatus))
 			},
 		},
 	}
