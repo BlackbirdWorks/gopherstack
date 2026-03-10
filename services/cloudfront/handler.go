@@ -150,7 +150,7 @@ func parseCFPath(method, path, resourceParam string) (string, string) {
 		case http.MethodDelete:
 			return "DeleteOriginAccessIdentity", id
 		}
-	case suffix == "tagging" || strings.HasPrefix(suffix, "tagging?"):
+	case suffix == "tagging":
 		switch method {
 		case http.MethodGet:
 			return "ListTagsForResource", resourceParam
@@ -385,6 +385,17 @@ func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {
 		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "invalid DistributionConfig XML"))
 	}
 
+	current, getErr := h.Backend.GetDistribution(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current distribution config ETag"))
+	}
+
 	d, updateErr := h.Backend.UpdateDistribution(id, cfg.Comment, cfg.Enabled, body)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
@@ -396,6 +407,17 @@ func (h *Handler) handleUpdateDistribution(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleDeleteDistribution(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetDistribution(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current distribution ETag"))
+	}
+
 	if err := h.Backend.DeleteDistribution(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -540,6 +562,17 @@ func (h *Handler) handleListOAIs(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteOAI(c *echo.Context, id string) error {
+	current, getErr := h.Backend.GetOAI(id)
+	if getErr != nil {
+		return h.handleError(c, getErr)
+	}
+
+	ifMatch := c.Request().Header.Get("If-Match")
+	if ifMatch == "" || ifMatch != current.ETag {
+		return xmlResp(c, http.StatusPreconditionFailed,
+			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current OAI ETag"))
+	}
+
 	if err := h.Backend.DeleteOAI(id); err != nil {
 		return h.handleError(c, err)
 	}
@@ -632,7 +665,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 
 // --- Invalidation stubs ---
 
-func (h *Handler) handleCreateInvalidation(c *echo.Context, _ string) error {
+func (h *Handler) handleCreateInvalidation(c *echo.Context, distID string) error {
 	id := generateID()
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<Invalidation xmlns="%s">`+
@@ -642,7 +675,7 @@ func (h *Handler) handleCreateInvalidation(c *echo.Context, _ string) error {
 		`</Invalidation>`,
 		cfNS, id)
 
-	c.Response().Header().Set("Location", cfPathPrefix+"distribution/*/invalidation/"+id)
+	c.Response().Header().Set("Location", cfPathPrefix+"distribution/"+distID+"/invalidation/"+id)
 
 	return xmlResp(c, http.StatusCreated, resp)
 }

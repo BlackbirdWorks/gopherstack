@@ -168,6 +168,7 @@ provider "aws" {
     bedrock         = %[1]q
     ce              = %[1]q
     cloudformation  = %[1]q
+    cloudfront      = %[1]q
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
     cognitoidentity          = %[1]q

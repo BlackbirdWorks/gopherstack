@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -30,6 +31,18 @@ func doXML(
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
+	return doXMLWithHeaders(t, h, method, path, body, nil)
+}
+
+func doXMLWithHeaders(
+	t *testing.T,
+	h *cloudfront.Handler,
+	method, path string,
+	body []byte,
+	headers map[string]string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
 	var bodyReader *bytes.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
@@ -39,6 +52,11 @@ func doXML(
 
 	req := httptest.NewRequest(method, path, bodyReader)
 	req.Header.Set("Content-Type", "text/xml")
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
 	rec := httptest.NewRecorder()
 
 	e := echo.New()
@@ -75,6 +93,7 @@ func TestDistributionCRUD(t *testing.T) {
 	tests := []struct {
 		setup      func(*testing.T, *cloudfront.Handler) string
 		check      func(*testing.T, *httptest.ResponseRecorder, string)
+		headers    func(*testing.T, *cloudfront.Handler, string) map[string]string
 		name       string
 		method     string
 		path       string
@@ -169,6 +188,15 @@ func TestDistributionCRUD(t *testing.T) {
 
 				return "/2020-05-31/distribution/" + d.ID + "/config"
 			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				// path is "/2020-05-31/distribution/{ID}/config" — extract ID
+				parts := strings.Split(strings.TrimPrefix(path, "/2020-05-31/distribution/"), "/")
+				d, err := h.Backend.GetDistribution(parts[0])
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": d.ETag}
+			},
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
@@ -208,6 +236,14 @@ func TestDistributionCRUD(t *testing.T) {
 
 				return "/2020-05-31/distribution/" + d.ID
 			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(path, "/2020-05-31/distribution/")
+				d, err := h.Backend.GetDistribution(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": d.ETag}
+			},
 			wantStatus: http.StatusNoContent,
 			check:      func(t *testing.T, _ *httptest.ResponseRecorder, _ string) { t.Helper() },
 		},
@@ -227,6 +263,44 @@ func TestDistributionCRUD(t *testing.T) {
 				assert.Contains(t, rec.Body.String(), "NoSuchDistribution")
 			},
 		},
+		{
+			name:   "update_distribution_precondition_failed",
+			method: http.MethodPut,
+			path:   "", // set in setup
+			body:   minimalDistConfig("ref-007", "updated-dist", false),
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-007", "orig-dist", true,
+					minimalDistConfig("ref-007", "orig-dist", true))
+				require.NoError(t, err)
+
+				return "/2020-05-31/distribution/" + d.ID + "/config"
+			},
+			wantStatus: http.StatusPreconditionFailed,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "PreconditionFailed")
+			},
+		},
+		{
+			name:   "delete_distribution_precondition_failed",
+			method: http.MethodDelete,
+			path:   "", // set in setup
+			body:   nil,
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				d, err := h.Backend.CreateDistribution("ref-008", "del-dist-2", true,
+					minimalDistConfig("ref-008", "del-dist-2", true))
+				require.NoError(t, err)
+
+				return "/2020-05-31/distribution/" + d.ID
+			},
+			wantStatus: http.StatusPreconditionFailed,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "PreconditionFailed")
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -241,7 +315,12 @@ func TestDistributionCRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headers != nil {
+				hdrs = tt.headers(t, h, path)
+			}
+
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			tt.check(t, rec, path)
 		})
@@ -255,6 +334,7 @@ func TestOAICRUD(t *testing.T) {
 	tests := []struct {
 		setup      func(*testing.T, *cloudfront.Handler) string
 		check      func(*testing.T, *httptest.ResponseRecorder)
+		headers    func(*testing.T, *cloudfront.Handler, string) map[string]string
 		name       string
 		method     string
 		path       string
@@ -344,6 +424,14 @@ func TestOAICRUD(t *testing.T) {
 
 				return "/2020-05-31/origin-access-identity/cloudfront/" + oai.ID
 			},
+			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
+				t.Helper()
+				id := strings.TrimPrefix(path, "/2020-05-31/origin-access-identity/cloudfront/")
+				oai, err := h.Backend.GetOAI(id)
+				require.NoError(t, err)
+
+				return map[string]string{"If-Match": oai.ETag}
+			},
 			wantStatus: http.StatusNoContent,
 			check:      func(t *testing.T, _ *httptest.ResponseRecorder) { t.Helper() },
 		},
@@ -363,6 +451,25 @@ func TestOAICRUD(t *testing.T) {
 				assert.Contains(t, rec.Body.String(), "NoSuchCloudFrontOriginAccessIdentity")
 			},
 		},
+		{
+			name:   "delete_oai_precondition_failed",
+			method: http.MethodDelete,
+			path:   "", // set in setup
+			body:   nil,
+			setup: func(t *testing.T, h *cloudfront.Handler) string {
+				t.Helper()
+				oai, err := h.Backend.CreateOAI("oai-ref-005", "precond-oai")
+				require.NoError(t, err)
+
+				return "/2020-05-31/origin-access-identity/cloudfront/" + oai.ID
+			},
+			// No headers fn → If-Match is missing → PreconditionFailed
+			wantStatus: http.StatusPreconditionFailed,
+			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+				t.Helper()
+				assert.Contains(t, rec.Body.String(), "PreconditionFailed")
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -377,7 +484,12 @@ func TestOAICRUD(t *testing.T) {
 				}
 			}
 
-			rec := doXML(t, h, tt.method, path, tt.body)
+			var hdrs map[string]string
+			if tt.headers != nil {
+				hdrs = tt.headers(t, h, path)
+			}
+
+			rec := doXMLWithHeaders(t, h, tt.method, path, tt.body, hdrs)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			tt.check(t, rec)
 		})

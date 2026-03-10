@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"bytes"
+	"encoding/xml"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -101,9 +103,14 @@ func (h *DashboardHandler) cloudfrontCreateDistribution(c *echo.Context) error {
 
 	comment := c.Request().FormValue("comment")
 
+	var escapedComment bytes.Buffer
+	if escErr := xml.EscapeText(&escapedComment, []byte(comment)); escErr != nil {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
 	rawConfig := []byte(`<DistributionConfig>` +
 		`<CallerReference>dashboard-create</CallerReference>` +
-		`<Comment>` + comment + `</Comment>` +
+		`<Comment>` + escapedComment.String() + `</Comment>` +
 		`<Enabled>true</Enabled>` +
 		`<Origins><Quantity>0</Quantity></Origins>` +
 		`<DefaultCacheBehavior><ViewerProtocolPolicy>redirect-to-https</ViewerProtocolPolicy></DefaultCacheBehavior>` +
