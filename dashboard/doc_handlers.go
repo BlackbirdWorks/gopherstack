@@ -61,6 +61,7 @@ type docPageData struct {
 	BedrockRuntimeOps          []string
 	CognitoIDPOps              []string
 	CloudFrontOps              []string
+	CodeArtifactOps            []string
 }
 
 // docIndex renders the documentation page.
@@ -133,6 +134,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		BedrockRuntimeOps:          h.getSupportedOps(h.BedrockRuntimeOps),
 		CognitoIDPOps:              h.getSupportedOps(h.CognitoIDPOps),
 		CloudFrontOps:              h.getSupportedOps(h.CloudFrontOps),
+		CodeArtifactOps:            h.getSupportedOps(h.CodeArtifactOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)
