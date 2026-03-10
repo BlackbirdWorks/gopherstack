@@ -33,6 +33,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
@@ -170,6 +171,8 @@ type DashboardHandler struct {
 	AthenaOps                  *athenabackend.Handler
 	AutoscalingOps             *autoscalingbackend.Handler
 	BackupOps                  *backupbackend.Handler
+	// CloudTrailOps provides access to the CloudTrail backend.
+	CloudTrailOps              *cloudtrailbackend.Handler
 	AppConfigOps               *appconfigbackend.Handler
 	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
@@ -292,6 +295,8 @@ type Config struct {
 	AutoscalingOps *autoscalingbackend.Handler
 	// BackupOps provides access to the Backup backend.
 	BackupOps *backupbackend.Handler
+	// CloudTrailOps provides access to the CloudTrail backend.
+	CloudTrailOps *cloudtrailbackend.Handler
 	// AppConfigOps provides access to the AppConfig backend.
 	AppConfigOps *appconfigbackend.Handler
 	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
@@ -387,6 +392,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/autoscaling/*.html",
 		"templates/appconfig/*.html",
 		"templates/backup/*.html",
+		"templates/cloudtrail/*.html",
 		"templates/applicationautoscaling/*.html",
 		"templates/batch/*.html",
 		"templates/bedrock/*.html",
@@ -463,6 +469,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		AthenaOps:                  cfg.AthenaOps,
 		AutoscalingOps:             cfg.AutoscalingOps,
 		BackupOps:                  cfg.BackupOps,
+		CloudTrailOps:              cfg.CloudTrailOps,
 		AppConfigOps:               cfg.AppConfigOps,
 		ApplicationAutoscalingOps:  cfg.ApplicationAutoscalingOps,
 		BatchOps:                   cfg.BatchOps,
@@ -774,6 +781,12 @@ func (h *DashboardHandler) setupBackupRoutes() {
 	h.SubRouter.POST("/dashboard/backup/vault/delete", h.backupDeleteVault)
 }
 
+func (h *DashboardHandler) setupCloudTrailRoutes() {
+	h.SubRouter.GET("/dashboard/cloudtrail", h.cloudtrailIndex)
+	h.SubRouter.POST("/dashboard/cloudtrail/trail/create", h.cloudtrailCreateTrail)
+	h.SubRouter.POST("/dashboard/cloudtrail/trail/delete", h.cloudtrailDeleteTrail)
+}
+
 func (h *DashboardHandler) setupAppConfigRoutes() {
 	h.SubRouter.GET("/dashboard/appconfig", h.appConfigIndex)
 	h.SubRouter.POST("/dashboard/appconfig/application/create", h.appConfigCreateApplication)
@@ -889,6 +902,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupRecentServiceRoutes()
 	h.setupAthenaRoutes()
 	h.setupBackupRoutes()
+	h.setupCloudTrailRoutes()
 	h.setupBedrockRuntimeRoutes()
 }
 
@@ -1005,6 +1019,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/autoscaling", "Autoscaling"},
 	{"/appconfig", "AppConfig"},
 	{"/backup", "Backup"},
+	{"/cloudtrail", "CloudTrail"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

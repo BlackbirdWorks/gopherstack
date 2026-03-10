@@ -34,6 +34,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
@@ -144,6 +145,7 @@ type Stack struct {
 	AutoscalingHandler             *autoscalingbackend.Handler
 	ApplicationAutoscalingHandler  *applicationautoscalingbackend.Handler
 	BackupHandler                  *backupbackend.Handler
+	CloudTrailHandler              *cloudtrailbackend.Handler
 	BatchHandler                   *batchbackend.Handler
 	BedrockHandler                 *bedrockbackend.Handler
 	BedrockRuntimeHandler          *bedrockruntimebackend.Handler
@@ -324,11 +326,13 @@ func registerNewestServices(
 	appAutoScalingHndlr *applicationautoscalingbackend.Handler,
 	batchHndlr *batchbackend.Handler,
 	ceHndlr *cebackend.Handler,
+	cloudtrailHndlr *cloudtrailbackend.Handler,
 ) {
 	_ = registry.Register(autoscalingHndlr)
 	_ = registry.Register(appAutoScalingHndlr)
 	_ = registry.Register(batchHndlr)
 	_ = registry.Register(ceHndlr)
+	_ = registry.Register(cloudtrailHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -387,6 +391,7 @@ type handlers struct {
 	autoscaling     *autoscalingbackend.Handler
 	appAutoScaling  *applicationautoscalingbackend.Handler
 	backup          *backupbackend.Handler
+	cloudtrail      *cloudtrailbackend.Handler
 	batch           *batchbackend.Handler
 	bedrock         *bedrockbackend.Handler
 	bedrockruntime  *bedrockruntimebackend.Handler
@@ -526,6 +531,9 @@ func populateExtendedHandlers(h *handlers) {
 	h.backup = backupbackend.NewHandler(
 		backupbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.cloudtrail = cloudtrailbackend.NewHandler(
+		cloudtrailbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.batch = batchbackend.NewHandler(batchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	h.bedrock = bedrockbackend.NewHandler(
 		bedrockbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -626,6 +634,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		AutoscalingOps:             h.autoscaling,
 		ApplicationAutoscalingOps:  h.appAutoScaling,
 		BackupOps:                  h.backup,
+		CloudTrailOps:              h.cloudtrail,
 		BatchOps:                   h.batch,
 		BedrockOps:                 h.bedrock,
 		BedrockRuntimeOps:          h.bedrockruntime,
@@ -663,7 +672,7 @@ func New(t *testing.T) *Stack {
 		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData,
 		h.amplify, h.apigwv2, h.appConfig, h.athena, h.backup,
 	)
-	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch, h.ce)
+	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch, h.ce, h.cloudtrail)
 	_ = registry.Register(h.bedrock)
 	_ = registry.Register(h.bedrockruntime)
 
@@ -734,6 +743,7 @@ func New(t *testing.T) *Stack {
 		AutoscalingHandler:             h.autoscaling,
 		ApplicationAutoscalingHandler:  h.appAutoScaling,
 		BackupHandler:                  h.backup,
+		CloudTrailHandler:              h.cloudtrail,
 		BatchHandler:                   h.batch,
 		BedrockHandler:                 h.bedrock,
 		BedrockRuntimeHandler:          h.bedrockruntime,

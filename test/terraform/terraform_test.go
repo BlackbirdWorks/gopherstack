@@ -3514,3 +3514,43 @@ func TestTerraform_Ce(t *testing.T) {
 		})
 	}
 }
+
+// TestTerraform_CloudTrail provisions a CloudTrail trail via Terraform, then verifies
+// it is reachable via the CloudTrail SDK.
+func TestTerraform_CloudTrail(t *testing.T) {
+t.Parallel()
+
+tests := []tfTestCase{
+{
+name:    "success",
+fixture: "cloudtrail/trail",
+setup: func(t *testing.T, _ string) map[string]any {
+t.Helper()
+id := uuid.NewString()[:8]
+
+return map[string]any{
+"TrailName":  "tf-cloudtrail-" + id,
+"BucketName": "tf-cloudtrail-bucket-" + id,
+}
+},
+verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+t.Helper()
+client := createCloudTrailClient(t)
+trailName := vars["TrailName"].(string)
+out, err := client.DescribeTrails(ctx, &cloudtrailsvc.DescribeTrailsInput{
+TrailNameList: []string{trailName},
+})
+require.NoError(t, err, "DescribeTrails should succeed after terraform apply")
+require.NotEmpty(t, out.TrailList, "trail %q should be listed", trailName)
+assert.Equal(t, trailName, aws.ToString(out.TrailList[0].Name))
+},
+},
+}
+
+for _, tc := range tests {
+t.Run(tc.name, func(t *testing.T) {
+t.Parallel()
+runTFTest(t, tc)
+})
+}
+}
