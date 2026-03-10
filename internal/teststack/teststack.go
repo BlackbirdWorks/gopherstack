@@ -37,6 +37,7 @@ import (
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
+	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -150,6 +151,7 @@ type Stack struct {
 	BedrockHandler                 *bedrockbackend.Handler
 	BedrockRuntimeHandler          *bedrockruntimebackend.Handler
 	CeHandler                      *cebackend.Handler
+	CloudControlHandler            *cloudcontrolbackend.Handler
 	CloudFrontHandler              *cloudfrontbackend.Handler
 	CodeArtifactHandler            *codeartifactbackend.Handler
 	S3Client                       *s3.Client
@@ -400,6 +402,7 @@ type handlers struct {
 	bedrock         *bedrockbackend.Handler
 	bedrockruntime  *bedrockruntimebackend.Handler
 	ce              *cebackend.Handler
+	cloudcontrol    *cloudcontrolbackend.Handler
 	cloudFront      *cloudfrontbackend.Handler
 	codeArtifact    *codeartifactbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
@@ -545,6 +548,9 @@ func populateExtendedHandlers(h *handlers) {
 		bedrockruntimebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.ce = cebackend.NewHandler(cebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.cloudcontrol = cloudcontrolbackend.NewHandler(
+		cloudcontrolbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.cloudFront = cloudfrontbackend.NewHandler(
 		cloudfrontbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -647,6 +653,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		BedrockOps:                 h.bedrock,
 		BedrockRuntimeOps:          h.bedrockruntime,
 		CeOps:                      h.ce,
+		CloudControlOps:            h.cloudcontrol,
 		CloudFrontOps:              h.cloudFront,
 		CodeArtifactOps:            h.codeArtifact,
 		GlobalConfig: config.GlobalConfig{
@@ -685,6 +692,7 @@ func New(t *testing.T) *Stack {
 	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch, h.ce)
 	_ = registry.Register(h.bedrock)
 	_ = registry.Register(h.bedrockruntime)
+	_ = registry.Register(h.cloudcontrol)
 	registerCloudfrontService(registry, h.cloudFront)
 	_ = registry.Register(h.codeArtifact)
 
@@ -701,7 +709,8 @@ func New(t *testing.T) *Stack {
 	return buildStack(e, h, clients, faultStore, dashHndlr)
 }
 
-// buildStack assembles the Stack struct from the wired handlers and clients.
+// buildStack assembles the Stack struct from wired components.
+// It is extracted from New to satisfy the funlen limit on that function.
 func buildStack(
 	e *echo.Echo,
 	h handlers,
@@ -770,6 +779,7 @@ func buildStack(
 		BedrockHandler:                 h.bedrock,
 		BedrockRuntimeHandler:          h.bedrockruntime,
 		CeHandler:                      h.ce,
+		CloudControlHandler:            h.cloudcontrol,
 		CloudFrontHandler:              h.cloudFront,
 		CodeArtifactHandler:            h.codeArtifact,
 		S3Client:                       clients.S3,

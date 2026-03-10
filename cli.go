@@ -64,6 +64,7 @@ import (
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
+	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -180,6 +181,7 @@ type CLI struct {
 	bedrockHandler                service.Registerable
 	bedrockruntimeHandler         service.Registerable
 	ceHandler                     service.Registerable
+	cloudcontrolHandler           service.Registerable
 	cloudFrontHandler             service.Registerable
 	codeArtifactHandler           service.Registerable
 	ecrHandler                    service.Registerable
@@ -590,6 +592,11 @@ func (c *CLI) GetBedrockRuntimeHandler() service.Registerable { return c.bedrock
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCeHandler() service.Registerable { return c.ceHandler }
+
+// GetCloudControlHandler returns the CloudControl handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn,nolintlint // architecturally required to return interface
+func (c *CLI) GetCloudControlHandler() service.Registerable { return c.cloudcontrolHandler }
 
 // GetCloudFrontHandler returns the CloudFront handler (dashboard.AWSSDKProvider).
 //
@@ -1019,6 +1026,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.fisHandler = byName["FIS"]
 	cli.backupHandler = byName["Backup"]
 	cli.ceHandler = byName["Ce"]
+	cli.cloudcontrolHandler = byName["CloudControl"]
 	cli.cloudFrontHandler = byName["CloudFront"]
 	cli.codeArtifactHandler = byName["CodeArtifact"]
 }
@@ -1194,6 +1202,7 @@ func getServiceProviders() []service.Provider {
 		&bedrockbackend.Provider{},
 		&bedrockruntimebackend.Provider{},
 		&cebackend.Provider{},
+		&cloudcontrolbackend.Provider{},
 		&cloudfrontbackend.Provider{},
 		&codeartifactbackend.Provider{},
 	}
