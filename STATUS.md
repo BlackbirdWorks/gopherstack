@@ -106,7 +106,7 @@ The following services are supported by LocalStack (either Free or Pro tier) but
 | **Application Autoscaling** | ❌ No | ❌ No | ❌ No |
 | **Athena** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Autoscaling** | ❌ No | ❌ No | ❌ No |
-| **Backup** | ❌ No | ❌ No | ❌ No |
+| **Backup** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Batch** | ❌ No | ❌ No | ❌ No |
 | **Bedrock** | ❌ No | ❌ No | ❌ No |
 | **Bedrock Runtime** | ❌ No | ❌ No | ❌ No |

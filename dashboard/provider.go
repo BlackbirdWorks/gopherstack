@@ -16,6 +16,7 @@ import (
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -105,6 +106,7 @@ type AWSSDKProvider interface {
 	GetAmplifyHandler() service.Registerable
 	GetAPIGatewayV2Handler() service.Registerable
 	GetAthenaHandler() service.Registerable
+	GetBackupHandler() service.Registerable
 	GetAppConfigHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
@@ -173,6 +175,7 @@ type extractedConfig struct {
 	appConfigDataOps         *appconfigdatabackend.Handler
 	amplifyOps               *amplifybackend.Handler
 	athenaOps                *athenabackend.Handler
+	backupOps                *backupbackend.Handler
 	appConfigOps             *appconfigbackend.Handler
 	ecrOps                   *ecrbackend.Handler
 	ecsOps                   *ecsbackend.Handler
@@ -408,6 +411,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetAthenaHandler(); h != nil {
 		ec.athenaOps, _ = h.(*athenabackend.Handler)
 	}
+
+	if h := ap.GetBackupHandler(); h != nil {
+		ec.backupOps, _ = h.(*backupbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -460,6 +467,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		AppConfigDataOps:           ec.appConfigDataOps,
 		AmplifyOps:                 ec.amplifyOps,
 		AthenaOps:                  ec.athenaOps,
+		BackupOps:                  ec.backupOps,
 		AppConfigOps:               ec.appConfigOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,

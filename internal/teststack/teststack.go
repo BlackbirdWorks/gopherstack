@@ -30,6 +30,7 @@ import (
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -134,6 +135,7 @@ type Stack struct {
 	APIGatewayV2Handler            *apigwv2backend.Handler
 	AppConfigHandler               *appconfigbackend.Handler
 	AthenaHandler                  *athenabackend.Handler
+	BackupHandler                  *backupbackend.Handler
 	S3Client                       *s3.Client
 	DDBClient                      *dynamodb.Client
 	FaultStore                     *chaos.FaultStore
@@ -236,6 +238,7 @@ func registerServices(
 	apigwv2Hndlr *apigwv2backend.Handler,
 	appConfigHndlr *appconfigbackend.Handler,
 	athenaHndlr *athenabackend.Handler,
+	backupHndlr *backupbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -283,7 +286,7 @@ func registerServices(
 	_ = registry.Register(iotDataPlaneHndlr)
 	_ = registry.Register(apiGatewayMgmtHndlr)
 	_ = registry.Register(appConfigDataHndlr)
-	registerExtendedServices(registry, amplifyHndlr, apigwv2Hndlr, appConfigHndlr, athenaHndlr)
+	registerExtendedServices(registry, amplifyHndlr, apigwv2Hndlr, appConfigHndlr, athenaHndlr, backupHndlr)
 }
 
 // registerExtendedServices registers service handlers added after the initial set.
@@ -293,11 +296,13 @@ func registerExtendedServices(
 	apigwv2Hndlr *apigwv2backend.Handler,
 	appConfigHndlr *appconfigbackend.Handler,
 	athenaHndlr *athenabackend.Handler,
+	backupHndlr *backupbackend.Handler,
 ) {
 	_ = registry.Register(amplifyHndlr)
 	_ = registry.Register(apigwv2Hndlr)
 	_ = registry.Register(appConfigHndlr)
 	_ = registry.Register(athenaHndlr)
+	_ = registry.Register(backupHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -353,6 +358,7 @@ type handlers struct {
 	apigwv2         *apigwv2backend.Handler
 	appConfig       *appconfigbackend.Handler
 	athena          *athenabackend.Handler
+	backup          *backupbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -481,6 +487,9 @@ func populateExtendedHandlers(h *handlers) {
 	h.apigwv2 = apigwv2backend.NewHandler(apigwv2backend.NewInMemoryBackend())
 	h.appConfig = appconfigbackend.NewHandler(appconfigbackend.NewInMemoryBackend())
 	h.athena = athenabackend.NewHandler(athenabackend.NewInMemoryBackend())
+	h.backup = backupbackend.NewHandler(
+		backupbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -570,6 +579,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		APIGatewayV2Ops:            h.apigwv2,
 		AppConfigOps:               h.appConfig,
 		AthenaOps:                  h.athena,
+		BackupOps:                  h.backup,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -601,7 +611,7 @@ func New(t *testing.T) *Stack {
 		h.acm, h.acmpca, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
 		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData,
-		h.amplify, h.apigwv2, h.appConfig, h.athena,
+		h.amplify, h.apigwv2, h.appConfig, h.athena, h.backup,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -668,6 +678,7 @@ func New(t *testing.T) *Stack {
 		APIGatewayV2Handler:            h.apigwv2,
 		AppConfigHandler:               h.appConfig,
 		AthenaHandler:                  h.athena,
+		BackupHandler:                  h.backup,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,

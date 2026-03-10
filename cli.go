@@ -57,6 +57,7 @@ import (
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -163,6 +164,7 @@ type CLI struct {
 	amplifyHandler               service.Registerable
 	apiGatewayV2Handler          service.Registerable
 	athenaHandler                service.Registerable
+	backupHandler                service.Registerable
 	appConfigHandler             service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
@@ -530,6 +532,11 @@ func (c *CLI) GetAPIGatewayV2Handler() service.Registerable { return c.apiGatewa
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAthenaHandler() service.Registerable { return c.athenaHandler }
+
+// GetBackupHandler returns the Backup handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetBackupHandler() service.Registerable { return c.backupHandler }
 
 // GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
 //
@@ -935,6 +942,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cognitoIDPHandler = byName["CognitoIDP"]
 	cli.cognitoIdentityHandler = byName["CognitoIdentity"]
 	cli.fisHandler = byName["FIS"]
+	cli.backupHandler = byName["Backup"]
 }
 
 // initializeServices initializes all service providers.
@@ -1101,6 +1109,7 @@ func getServiceProviders() []service.Provider {
 		&apigwv2backend.Provider{},
 		&athenabackend.Provider{},
 		&appconfigbackend.Provider{},
+		&backupbackend.Provider{},
 	}
 }
 
