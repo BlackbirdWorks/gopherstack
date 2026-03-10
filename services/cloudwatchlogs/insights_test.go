@@ -292,8 +292,9 @@ func TestInsightsQuery_FilterOnTimestampField(t *testing.T) {
 	// correct field rather than always using @message.
 	b := makeInsightsBackend(t)
 
-	// @timestamp values are numeric strings — /[0-9]/ will match all since every timestamp
-	// is a decimal integer; /^9999999999999$/ should match none.
+	// @timestamp values are numeric strings — /[0-9]/ matches all since every
+	// timestamp is a decimal integer (guaranteed to contain at least one digit);
+	// /^9999999999999$/ should match none.
 	tests := []struct {
 		name    string
 		query   string

@@ -97,7 +97,7 @@ The following services are supported by LocalStack (either Free or Pro tier) but
 | --- | --- | --- | --- |
 | **Account** | ❌ No | ❌ No | ❌ No |
 | **Acm Pca** | ❌ No | ❌ No | ❌ No |
-| **Amplify** | ❌ No | ❌ No | ❌ No |
+| **Amplify** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **APIgatewaymanagementapi** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **APIgatewayv2** | ❌ No | ❌ No | ❌ No |
 | **Appconfig** | ❌ No | ❌ No | ❌ No |
