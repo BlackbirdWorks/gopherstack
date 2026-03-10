@@ -15,6 +15,7 @@ import (
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -104,6 +105,7 @@ type AWSSDKProvider interface {
 	GetIoTDataPlaneHandler() service.Registerable
 	GetAmplifyHandler() service.Registerable
 	GetAPIGatewayV2Handler() service.Registerable
+	GetAthenaHandler() service.Registerable
 	GetAppConfigHandler() service.Registerable
 	GetApplicationAutoscalingHandler() service.Registerable
 	GetECRHandler() service.Registerable
@@ -172,6 +174,7 @@ type extractedConfig struct {
 	apiGatewayV2Ops           *apigwv2backend.Handler
 	appConfigDataOps          *appconfigdatabackend.Handler
 	amplifyOps                *amplifybackend.Handler
+	athenaOps                 *athenabackend.Handler
 	appConfigOps              *appconfigbackend.Handler
 	applicationAutoscalingOps *applicationautoscalingbackend.Handler
 	ecrOps                    *ecrbackend.Handler
@@ -408,6 +411,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetApplicationAutoscalingHandler(); h != nil {
 		ec.applicationAutoscalingOps, _ = h.(*applicationautoscalingbackend.Handler)
 	}
+
+	if h := ap.GetAthenaHandler(); h != nil {
+		ec.athenaOps, _ = h.(*athenabackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -459,6 +466,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		APIGatewayV2Ops:            ec.apiGatewayV2Ops,
 		AppConfigDataOps:           ec.appConfigDataOps,
 		AmplifyOps:                 ec.amplifyOps,
+		AthenaOps:                  ec.athenaOps,
 		AppConfigOps:               ec.appConfigOps,
 		ApplicationAutoscalingOps:  ec.applicationAutoscalingOps,
 		ECROps:                     ec.ecrOps,
