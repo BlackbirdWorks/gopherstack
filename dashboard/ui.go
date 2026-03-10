@@ -164,12 +164,15 @@ type DashboardHandler struct {
 	AmplifyOps                 *amplifybackend.Handler
 	AthenaOps                  *athenabackend.Handler
 	AutoscalingOps             *autoscalingbackend.Handler
-	ddbProvider               *ddbbackend.DashboardProvider
-	s3Provider                *s3backend.DashboardProvider
-	FaultStore                *chaos.FaultStore
-	Logger                    *slog.Logger
-	layout                    *template.Template
-	GlobalConfig              config.GlobalConfig
+	AppConfigOps               *appconfigbackend.Handler
+	ApplicationAutoscalingOps  *applicationautoscalingbackend.Handler
+	SubRouter                  *echo.Echo
+	ddbProvider                *ddbbackend.DashboardProvider
+	s3Provider                 *s3backend.DashboardProvider
+	FaultStore                 *chaos.FaultStore
+	Logger                     *slog.Logger
+	layout                     *template.Template
+	GlobalConfig               config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.

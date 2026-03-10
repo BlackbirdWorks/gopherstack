@@ -27,8 +27,10 @@ import (
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
+	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
+	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -134,6 +136,8 @@ type Stack struct {
 	APIGatewayV2Handler            *apigwv2backend.Handler
 	AppConfigHandler               *appconfigbackend.Handler
 	AthenaHandler                  *athenabackend.Handler
+	AutoscalingHandler             *autoscalingbackend.Handler
+	ApplicationAutoscalingHandler  *applicationautoscalingbackend.Handler
 	S3Client                       *s3.Client
 	DDBClient                      *dynamodb.Client
 	FaultStore                     *chaos.FaultStore
@@ -300,6 +304,16 @@ func registerExtendedServices(
 	_ = registry.Register(athenaHndlr)
 }
 
+// registerNewestServices registers the most recently-added service handlers.
+func registerNewestServices(
+	registry *service.Registry,
+	autoscalingHndlr *autoscalingbackend.Handler,
+	appAutoScalingHndlr *applicationautoscalingbackend.Handler,
+) {
+	_ = registry.Register(autoscalingHndlr)
+	_ = registry.Register(appAutoScalingHndlr)
+}
+
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
 	s3              *s3backend.S3Handler
@@ -353,6 +367,8 @@ type handlers struct {
 	apigwv2         *apigwv2backend.Handler
 	appConfig       *appconfigbackend.Handler
 	athena          *athenabackend.Handler
+	autoscaling     *autoscalingbackend.Handler
+	appAutoScaling  *applicationautoscalingbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -481,6 +497,10 @@ func populateExtendedHandlers(h *handlers) {
 	h.apigwv2 = apigwv2backend.NewHandler(apigwv2backend.NewInMemoryBackend())
 	h.appConfig = appconfigbackend.NewHandler(appconfigbackend.NewInMemoryBackend())
 	h.athena = athenabackend.NewHandler(athenabackend.NewInMemoryBackend())
+	h.autoscaling = autoscalingbackend.NewHandler(autoscalingbackend.NewInMemoryBackend())
+	h.appAutoScaling = applicationautoscalingbackend.NewHandler(
+		applicationautoscalingbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -570,6 +590,8 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		APIGatewayV2Ops:            h.apigwv2,
 		AppConfigOps:               h.appConfig,
 		AthenaOps:                  h.athena,
+		AutoscalingOps:             h.autoscaling,
+		ApplicationAutoscalingOps:  h.appAutoScaling,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -603,6 +625,7 @@ func New(t *testing.T) *Stack {
 		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData,
 		h.amplify, h.apigwv2, h.appConfig, h.athena,
 	)
+	registerNewestServices(registry, h.autoscaling, h.appAutoScaling)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -668,6 +691,8 @@ func New(t *testing.T) *Stack {
 		APIGatewayV2Handler:            h.apigwv2,
 		AppConfigHandler:               h.appConfig,
 		AthenaHandler:                  h.athena,
+		AutoscalingHandler:             h.autoscaling,
+		ApplicationAutoscalingHandler:  h.appAutoScaling,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,

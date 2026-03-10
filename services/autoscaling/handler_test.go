@@ -189,6 +189,7 @@ func TestAutoscalingHandler_DescribeAutoScalingGroups(t *testing.T) {
 		{
 			name: "with_groups",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -285,6 +286,7 @@ func TestAutoscalingHandler_DeleteAutoScalingGroup(t *testing.T) {
 		{
 			name: "delete_existing",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -370,6 +372,7 @@ func TestAutoscalingHandler_DescribeLaunchConfigurationsWithData(t *testing.T) {
 		{
 			name: "with_lcs",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -390,6 +393,7 @@ func TestAutoscalingHandler_DescribeLaunchConfigurationsWithData(t *testing.T) {
 		{
 			name: "filter_by_name",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -445,6 +449,7 @@ func TestAutoscalingHandler_DescribeScalingActivities(t *testing.T) {
 		{
 			name: "with_group",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -494,6 +499,7 @@ func TestAutoscalingHandler_UpdateAutoScalingGroup(t *testing.T) {
 		{
 			name: "update_existing",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -537,6 +543,7 @@ func TestAutoscalingHandler_DeleteLaunchConfiguration(t *testing.T) {
 		{
 			name: "delete_existing_lc",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -738,6 +745,7 @@ func TestAutoscalingHandler_UpdateAllFields(t *testing.T) {
 		{
 			name: "update_all_optional_fields",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -757,6 +765,7 @@ func TestAutoscalingHandler_UpdateAllFields(t *testing.T) {
 		{
 			name: "update_invalid_min_size",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -770,6 +779,7 @@ func TestAutoscalingHandler_UpdateAllFields(t *testing.T) {
 		{
 			name: "update_invalid_max_size",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -783,6 +793,7 @@ func TestAutoscalingHandler_UpdateAllFields(t *testing.T) {
 		{
 			name: "update_invalid_desired",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -796,6 +807,7 @@ func TestAutoscalingHandler_UpdateAllFields(t *testing.T) {
 		{
 			name: "update_invalid_cooldown",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,
@@ -809,6 +821,7 @@ func TestAutoscalingHandler_UpdateAllFields(t *testing.T) {
 		{
 			name: "update_invalid_health_grace",
 			setup: func(t *testing.T, h *autoscaling.Handler) {
+				t.Helper()
 				postAutoscalingForm(
 					t,
 					h,

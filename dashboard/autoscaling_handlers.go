@@ -109,16 +109,11 @@ func (h *DashboardHandler) loadAutoscalingData() (
 		return groups, lcs
 	}
 
-	backend, ok := h.AutoscalingOps.Backend.(*autoscalingbackend.InMemoryBackend)
-	if !ok {
-		return groups, lcs
-	}
-
-	if g, _ := backend.DescribeAutoScalingGroups(nil); g != nil {
+	if g, _ := h.AutoscalingOps.Backend.DescribeAutoScalingGroups(nil); g != nil {
 		groups = g
 	}
 
-	if l, _ := backend.DescribeLaunchConfigurations(nil); l != nil {
+	if l, _ := h.AutoscalingOps.Backend.DescribeLaunchConfigurations(nil); l != nil {
 		lcs = l
 	}
 
