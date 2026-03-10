@@ -19,6 +19,7 @@ import (
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
+	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
@@ -135,6 +136,7 @@ type DashboardHandler struct {
 	FISOps                     *fisbackend.Handler
 	OpenSearchOps              *opensearchbackend.Handler
 	ACMOps                     *acmbackend.Handler
+	ACMPCAOps                  *acmpcabackend.Handler
 	RedshiftOps                *redshiftbackend.Handler
 	RDSOps                     *rdsbackend.Handler
 	AWSConfigOps               *awsconfigbackend.Handler
@@ -217,6 +219,8 @@ type Config struct {
 	OpenSearchOps *opensearchbackend.Handler
 	// ACMOps provides access to the ACM backend.
 	ACMOps *acmbackend.Handler
+	// ACMPCAOps provides access to the ACM PCA backend.
+	ACMPCAOps *acmpcabackend.Handler
 	// RedshiftOps provides access to the Redshift backend.
 	RedshiftOps *redshiftbackend.Handler
 	// RDSOps provides access to the RDS backend.
@@ -313,6 +317,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/fis/*.html",
 		"templates/opensearch/*.html",
 		"templates/acm/*.html",
+		"templates/acmpca/*.html",
 		"templates/redshift/*.html",
 		"templates/rds/*.html",
 		"templates/awsconfig/*.html",
@@ -379,6 +384,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		FISOps:                     cfg.FISOps,
 		OpenSearchOps:              cfg.OpenSearchOps,
 		ACMOps:                     cfg.ACMOps,
+		ACMPCAOps:                  cfg.ACMPCAOps,
 		RedshiftOps:                cfg.RedshiftOps,
 		RDSOps:                     cfg.RDSOps,
 		AWSConfigOps:               cfg.AWSConfigOps,
@@ -608,6 +614,12 @@ func (h *DashboardHandler) setupACMRoutes() {
 	h.SubRouter.POST("/dashboard/acm/delete", h.acmDeleteCertificate)
 }
 
+func (h *DashboardHandler) setupACMPCARoutes() {
+	h.SubRouter.GET("/dashboard/acmpca", h.acmpcaIndex)
+	h.SubRouter.POST("/dashboard/acmpca/create", h.acmpcaCreateCA)
+	h.SubRouter.POST("/dashboard/acmpca/delete", h.acmpcaDeleteCA)
+}
+
 func (h *DashboardHandler) setupRedshiftRoutes() {
 	h.SubRouter.GET("/dashboard/redshift", h.redshiftIndex)
 	h.SubRouter.POST("/dashboard/redshift/create", h.redshiftCreateCluster)
@@ -751,6 +763,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupFISRoutes()
 	h.setupOpenSearchRoutes()
 	h.setupACMRoutes()
+	h.setupACMPCARoutes()
 	h.setupRedshiftRoutes()
 	h.setupRDSRoutes()
 	h.setupAWSConfigRoutes()
@@ -845,6 +858,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/iot", "IoT"},
 	{"/fis", "FIS"},
 	{"/opensearch", "OpenSearch"},
+	{"/acmpca", "ACMPCA"},
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},
 	{"/rds", "RDS"},

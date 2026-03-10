@@ -10,6 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.11
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.20.34
 	github.com/aws/aws-sdk-go-v2/service/acm v1.37.21
+	github.com/aws/aws-sdk-go-v2/service/acmpca v1.46.10
 	github.com/aws/aws-sdk-go-v2/service/amplify v1.38.12
 	github.com/aws/aws-sdk-go-v2/service/apigateway v1.38.6
 	github.com/aws/aws-sdk-go-v2/service/appconfig v1.43.11

@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	amplifyAppsPrefix = "/apps"
-	amplifyTagsPrefix = "/tags/"
+	amplifyAppsPrefix        = "/apps"
+	amplifyTagsPrefix        = "/tags/"
+	amplifyServiceIdentifier = ":amplify"
 
 	// Path segment counts for Amplify routes.
 	pathSegsApps      = 1 // ["apps"]
@@ -76,7 +77,20 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, amplifyAppsPrefix) || strings.HasPrefix(path, amplifyTagsPrefix)
+		if strings.HasPrefix(path, amplifyAppsPrefix) {
+			return true
+		}
+
+		// Only claim /tags/{arn} when the ARN belongs to Amplify.
+		// Other services (e.g. FIS) also expose a /tags/{arn} endpoint at the
+		// same path prefix; we must not steal their requests.
+		if strings.HasPrefix(path, amplifyTagsPrefix) {
+			arn := path[len(amplifyTagsPrefix):]
+
+			return strings.Contains(arn, amplifyServiceIdentifier)
+		}
+
+		return false
 	}
 }
 

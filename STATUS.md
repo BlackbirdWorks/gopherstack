@@ -9,6 +9,7 @@ This document tracks the implementation status of AWS services in Gopherstack, s
 | Service | API Implemented | Has Dashboard UI | Has Terraform Tests |
 | --- | --- | --- | --- |
 | **ACM** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **ACM PCA** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **API Gateway** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **AWS Config** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **CloudFormation** | ✅ Yes | ✅ Yes | ✅ Yes |

@@ -23,6 +23,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	acmsvc "github.com/aws/aws-sdk-go-v2/service/acm"
+	acmpcasvc "github.com/aws/aws-sdk-go-v2/service/acmpca"
 	amplifysdkv2 "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
 	appconfigsvc "github.com/aws/aws-sdk-go-v2/service/appconfig"
@@ -140,6 +141,7 @@ provider "aws" {
   # Endpoints are listed alphabetically — keep them sorted when adding new ones.
   endpoints {
     acm             = %[1]q
+    acmpca          = %[1]q
     amplify         = %[1]q
     apigateway      = %[1]q
     appsync         = %[1]q
@@ -1353,6 +1355,52 @@ func TestTerraform_ACM(t *testing.T) {
 				}
 
 				assert.True(t, found, "certificate for %q should exist after terraform apply", domain)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ACMPCA provisions an ACM PCA certificate authority and verifies it appears in list output.
+func TestTerraform_ACMPCA(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "acmpca/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{"CommonName": "tf-test-root-ca-" + uuid.NewString()[:8]}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createACMPCAClient(t)
+				out, err := client.ListCertificateAuthorities(ctx, &acmpcasvc.ListCertificateAuthoritiesInput{})
+				require.NoError(t, err, "ListCertificateAuthorities should succeed after terraform apply")
+
+				commonName := vars["CommonName"].(string)
+				found := false
+
+				for _, ca := range out.CertificateAuthorities {
+					if ca.CertificateAuthorityConfiguration != nil &&
+						ca.CertificateAuthorityConfiguration.Subject != nil &&
+						aws.ToString(ca.CertificateAuthorityConfiguration.Subject.CommonName) == commonName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "CA with common name %q should exist after terraform apply", commonName)
 			},
 		},
 	}

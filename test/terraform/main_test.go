@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	acmsvc "github.com/aws/aws-sdk-go-v2/service/acm"
+	acmpcasvc "github.com/aws/aws-sdk-go-v2/service/acmpca"
 	amplifysdkv2 "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
 	appconfigsvc "github.com/aws/aws-sdk-go-v2/service/appconfig"
@@ -538,6 +539,26 @@ func createACMClient(t *testing.T) *acmsvc.Client {
 	}
 
 	return acmsvc.NewFromConfig(cfg, func(o *acmsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createACMPCAClient returns an ACM PCA client pointed at the shared test container.
+func createACMPCAClient(t *testing.T) *acmpcasvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return acmpcasvc.NewFromConfig(cfg, func(o *acmpcasvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
