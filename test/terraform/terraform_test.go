@@ -172,6 +172,7 @@ provider "aws" {
     cloudcontrol    = %[1]q
     cloudformation  = %[1]q
     cloudfront      = %[1]q
+    cloudtrail      = %[1]q
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
     cognitoidentity          = %[1]q
