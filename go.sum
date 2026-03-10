@@ -64,6 +64,8 @@ github.com/aws/aws-sdk-go-v2/service/athena v1.57.2 h1:rxrP6hget2gn77fo/w9/fw0AM
 github.com/aws/aws-sdk-go-v2/service/athena v1.57.2/go.mod h1:9+Y9vgcoZprTgdsgVHksxCPKVaJeocOBn8WizxZe6UY=
 github.com/aws/aws-sdk-go-v2/service/batch v1.61.1 h1:K6VFQxCxCK+87Jo3cahn5bwip0wJUM0lslVjMhXoaYg=
 github.com/aws/aws-sdk-go-v2/service/batch v1.61.1/go.mod h1:GTOUtEjw1HEaLG36CssllncaIxvN9zdHIVm9g7eG9Vw=
+github.com/aws/aws-sdk-go-v2/service/bedrock v1.56.0 h1:iP/efl5/XKqMjZEitjPpcY+P2QejCl0OIT3ERcveLJg=
+github.com/aws/aws-sdk-go-v2/service/bedrock v1.56.0/go.mod h1:ddmoTFfTBhiRIW1chqG7SsaufakItWqm0haE3cIXZFE=
 github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7 h1:QkM9aGnVnXrXpxXJMu7GO+E/eho+RfItwDp71aPa79o=
 github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7/go.mod h1:XluvzGQyrIEHZQOYM7QuO+ViUk3wPXF0VsI5+fum67s=
 github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.55.1 h1:s+ZS2lmYFeCISy20RkSerTmfMIzxlevj4LyWNuE3cfY=
