@@ -20,6 +20,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/appsync v1.53.3
 	github.com/aws/aws-sdk-go-v2/service/athena v1.57.2
 	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.64.2
+	github.com/aws/aws-sdk-go-v2/service/backup v1.54.8
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.55.1
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.64.0

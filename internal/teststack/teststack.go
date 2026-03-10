@@ -32,6 +32,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -139,6 +140,7 @@ type Stack struct {
 	AthenaHandler                  *athenabackend.Handler
 	AutoscalingHandler             *autoscalingbackend.Handler
 	ApplicationAutoscalingHandler  *applicationautoscalingbackend.Handler
+	BackupHandler                  *backupbackend.Handler
 	BatchHandler                   *batchbackend.Handler
 	S3Client                       *s3.Client
 	DDBClient                      *dynamodb.Client
@@ -242,6 +244,7 @@ func registerServices(
 	apigwv2Hndlr *apigwv2backend.Handler,
 	appConfigHndlr *appconfigbackend.Handler,
 	athenaHndlr *athenabackend.Handler,
+	backupHndlr *backupbackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -289,7 +292,7 @@ func registerServices(
 	_ = registry.Register(iotDataPlaneHndlr)
 	_ = registry.Register(apiGatewayMgmtHndlr)
 	_ = registry.Register(appConfigDataHndlr)
-	registerExtendedServices(registry, amplifyHndlr, apigwv2Hndlr, appConfigHndlr, athenaHndlr)
+	registerExtendedServices(registry, amplifyHndlr, apigwv2Hndlr, appConfigHndlr, athenaHndlr, backupHndlr)
 }
 
 // registerExtendedServices registers service handlers added after the initial set.
@@ -299,11 +302,13 @@ func registerExtendedServices(
 	apigwv2Hndlr *apigwv2backend.Handler,
 	appConfigHndlr *appconfigbackend.Handler,
 	athenaHndlr *athenabackend.Handler,
+	backupHndlr *backupbackend.Handler,
 ) {
 	_ = registry.Register(amplifyHndlr)
 	_ = registry.Register(apigwv2Hndlr)
 	_ = registry.Register(appConfigHndlr)
 	_ = registry.Register(athenaHndlr)
+	_ = registry.Register(backupHndlr)
 }
 
 // registerNewestServices registers the most recently-added service handlers.
@@ -373,6 +378,7 @@ type handlers struct {
 	athena          *athenabackend.Handler
 	autoscaling     *autoscalingbackend.Handler
 	appAutoScaling  *applicationautoscalingbackend.Handler
+	backup          *backupbackend.Handler
 	batch           *batchbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
@@ -506,6 +512,9 @@ func populateExtendedHandlers(h *handlers) {
 	h.appAutoScaling = applicationautoscalingbackend.NewHandler(
 		applicationautoscalingbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.backup = backupbackend.NewHandler(
+		backupbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.batch = batchbackend.NewHandler(batchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 }
 
@@ -598,6 +607,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		AthenaOps:                  h.athena,
 		AutoscalingOps:             h.autoscaling,
 		ApplicationAutoscalingOps:  h.appAutoScaling,
+		BackupOps:                  h.backup,
 		BatchOps:                   h.batch,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
@@ -630,7 +640,7 @@ func New(t *testing.T) *Stack {
 		h.acm, h.acmpca, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
 		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData,
-		h.amplify, h.apigwv2, h.appConfig, h.athena,
+		h.amplify, h.apigwv2, h.appConfig, h.athena, h.backup,
 	)
 	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch)
 
@@ -700,6 +710,7 @@ func New(t *testing.T) *Stack {
 		AthenaHandler:                  h.athena,
 		AutoscalingHandler:             h.autoscaling,
 		ApplicationAutoscalingHandler:  h.appAutoScaling,
+		BackupHandler:                  h.backup,
 		BatchHandler:                   h.batch,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,

@@ -59,6 +59,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -167,6 +168,7 @@ type CLI struct {
 	autoscalingHandler            service.Registerable
 	apiGatewayV2Handler           service.Registerable
 	athenaHandler                 service.Registerable
+	backupHandler                 service.Registerable
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
@@ -541,6 +543,11 @@ func (c *CLI) GetAPIGatewayV2Handler() service.Registerable { return c.apiGatewa
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAthenaHandler() service.Registerable { return c.athenaHandler }
+
+// GetBackupHandler returns the Backup handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetBackupHandler() service.Registerable { return c.backupHandler }
 
 // GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
 //
@@ -973,6 +980,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cognitoIDPHandler = byName["CognitoIDP"]
 	cli.cognitoIdentityHandler = byName["CognitoIdentity"]
 	cli.fisHandler = byName["FIS"]
+	cli.backupHandler = byName["Backup"]
 }
 
 // initializeServices initializes all service providers.
@@ -1140,6 +1148,7 @@ func getServiceProviders() []service.Provider {
 		&apigwv2backend.Provider{},
 		&athenabackend.Provider{},
 		&appconfigbackend.Provider{},
+		&backupbackend.Provider{},
 		&applicationautoscalingbackend.Provider{},
 		&batchbackend.Provider{},
 	}

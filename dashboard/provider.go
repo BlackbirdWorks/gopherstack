@@ -18,6 +18,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -109,6 +110,7 @@ type AWSSDKProvider interface {
 	GetAutoscalingHandler() service.Registerable
 	GetAPIGatewayV2Handler() service.Registerable
 	GetAthenaHandler() service.Registerable
+	GetBackupHandler() service.Registerable
 	GetAppConfigHandler() service.Registerable
 	GetApplicationAutoscalingHandler() service.Registerable
 	GetBatchHandler() service.Registerable
@@ -180,6 +182,7 @@ type extractedConfig struct {
 	amplifyOps                *amplifybackend.Handler
 	athenaOps                 *athenabackend.Handler
 	autoscalingOps            *autoscalingbackend.Handler
+	backupOps                 *backupbackend.Handler
 	appConfigOps              *appconfigbackend.Handler
 	applicationAutoscalingOps *applicationautoscalingbackend.Handler
 	batchOps                  *batchbackend.Handler
@@ -429,6 +432,15 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetAthenaHandler(); h != nil {
 		ec.athenaOps, _ = h.(*athenabackend.Handler)
 	}
+
+	extractLatestServiceHandlers(ap, ec)
+}
+
+// extractLatestServiceHandlers populates handlers for the most recently added services.
+func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+	if h := ap.GetBackupHandler(); h != nil {
+		ec.backupOps, _ = h.(*backupbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -482,6 +494,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		AmplifyOps:                 ec.amplifyOps,
 		AthenaOps:                  ec.athenaOps,
 		AutoscalingOps:             ec.autoscalingOps,
+		BackupOps:                  ec.backupOps,
 		AppConfigOps:               ec.appConfigOps,
 		ApplicationAutoscalingOps:  ec.applicationAutoscalingOps,
 		BatchOps:                   ec.batchOps,

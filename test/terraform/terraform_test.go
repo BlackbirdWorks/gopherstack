@@ -36,6 +36,7 @@ import (
 	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	athenasdkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
 	autoscalingsvc "github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	backupsvc "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
@@ -157,6 +158,7 @@ provider "aws" {
     athena          = %[1]q
     appsync         = %[1]q
     autoscaling     = %[1]q
+    backup          = %[1]q
     batch           = %[1]q
     cloudformation  = %[1]q
     cloudwatch      = %[1]q
@@ -3265,6 +3267,49 @@ func TestTerraform_Athena(t *testing.T) {
 					}
 				}
 				assert.True(t, found, "workgroup %q should be listed", vars["WorkGroupName"].(string))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Backup provisions an AWS Backup vault via Terraform, then verifies
+// it is listed via the Backup SDK.
+func TestTerraform_Backup(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "backup/vault",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"VaultName": "tf-backup-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createBackupClient(t)
+				out, err := client.ListBackupVaults(ctx, &backupsvc.ListBackupVaultsInput{})
+				require.NoError(t, err, "ListBackupVaults should succeed after terraform apply")
+				found := false
+				for _, v := range out.BackupVaultList {
+					if aws.ToString(v.BackupVaultName) == vars["VaultName"].(string) {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "vault %q should be listed", vars["VaultName"].(string))
 			},
 		},
 	}
