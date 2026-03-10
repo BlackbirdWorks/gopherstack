@@ -64,6 +64,7 @@ import (
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
+	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
 	"github.com/google/uuid"
@@ -2476,6 +2477,43 @@ func TestTerraform_IoT(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeThing should succeed after terraform apply")
 				assert.Equal(t, vars["ThingName"].(string), aws.ToString(out.ThingName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_STS verifies that the aws_caller_identity data source works via
+// the STS GetCallerIdentity operation.
+func TestTerraform_STS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "sts/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				client := createSTSClient(t)
+
+				out, err := client.GetCallerIdentity(ctx, &stssvc.GetCallerIdentityInput{})
+				require.NoError(t, err, "GetCallerIdentity should succeed after terraform apply")
+				require.NotNil(t, out)
+				assert.NotEmpty(t, aws.ToString(out.Account))
+				assert.NotEmpty(t, aws.ToString(out.Arn))
+				assert.NotEmpty(t, aws.ToString(out.UserId))
 			},
 		},
 	}
