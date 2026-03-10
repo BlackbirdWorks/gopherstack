@@ -143,6 +143,7 @@ provider "aws" {
     acm             = %[1]q
     acmpca          = %[1]q
     amplify         = %[1]q
+    appconfig       = %[1]q
     apigateway      = %[1]q
     appsync         = %[1]q
     cloudformation  = %[1]q
