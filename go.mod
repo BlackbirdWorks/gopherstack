@@ -18,6 +18,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.23.20
 	github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.41.12
 	github.com/aws/aws-sdk-go-v2/service/appsync v1.53.3
+	github.com/aws/aws-sdk-go-v2/service/athena v1.57.2
+	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.64.2
 	github.com/aws/aws-sdk-go-v2/service/backup v1.54.8
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.55.1
@@ -93,7 +95,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.19 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.5 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.20 // indirect
-	github.com/aws/aws-sdk-go-v2/service/athena v1.57.2
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.11 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.11.19 // indirect

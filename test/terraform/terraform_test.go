@@ -35,9 +35,11 @@ import (
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	athenasdkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
+	autoscalingsvc "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	backupsvc "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
 	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	bedrockruntimetypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
@@ -157,6 +159,7 @@ provider "aws" {
     applicationautoscaling = %[1]q
     athena          = %[1]q
     appsync         = %[1]q
+    autoscaling     = %[1]q
     backup          = %[1]q
     batch           = %[1]q
     cloudformation  = %[1]q
@@ -2312,6 +2315,64 @@ func TestTerraform_APIGatewayV2(t *testing.T) {
 	}
 }
 
+// TestTerraform_Autoscaling provisions a launch configuration and Auto Scaling group via Terraform,
+// then verifies both exist via the Autoscaling SDK.
+func TestTerraform_Autoscaling(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "autoscaling/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				suffix := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ASGName": "tf-asg-" + suffix,
+					"LCName":  "tf-lc-" + suffix,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createAutoscalingClient(t)
+
+				out, err := client.DescribeAutoScalingGroups(ctx, &autoscalingsvc.DescribeAutoScalingGroupsInput{
+					AutoScalingGroupNames: []string{vars["ASGName"].(string)},
+				})
+				require.NoError(t, err, "DescribeAutoScalingGroups should succeed after terraform apply")
+				require.Len(t, out.AutoScalingGroups, 1)
+				assert.Equal(t, vars["ASGName"].(string), aws.ToString(out.AutoScalingGroups[0].AutoScalingGroupName))
+				assert.Equal(t, int32(1), aws.ToInt32(out.AutoScalingGroups[0].MinSize))
+				assert.Equal(t, int32(5), aws.ToInt32(out.AutoScalingGroups[0].MaxSize))
+
+				lcOut, err := client.DescribeLaunchConfigurations(
+					ctx,
+					&autoscalingsvc.DescribeLaunchConfigurationsInput{
+						LaunchConfigurationNames: []string{vars["LCName"].(string)},
+					},
+				)
+				require.NoError(t, err, "DescribeLaunchConfigurations should succeed")
+				require.Len(t, lcOut.LaunchConfigurations, 1)
+				assert.Equal(
+					t,
+					vars["LCName"].(string),
+					aws.ToString(lcOut.LaunchConfigurations[0].LaunchConfigurationName),
+				)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_Amplify provisions an Amplify app and branch via Terraform,
 // then verifies both exist via the Amplify SDK.
 func TestTerraform_Amplify(t *testing.T) {
@@ -3336,11 +3397,11 @@ assert.NotEmpty(t, invokeOut.Body, "InvokeModel response body should not be empt
 
 converseOut, err := client.Converse(ctx, &bedrockruntimesvc.ConverseInput{
 ModelId: aws.String("anthropic.claude-3-sonnet-20240229-v1:0"),
-Messages: []bedrockruntimesvc.Message{
+Messages: []bedrockruntimetypes.Message{
 {
 Role: "user",
-Content: []bedrockruntimesvc.ContentBlock{
-&bedrockruntimesvc.ContentBlockMemberText{Value: "Hello!"},
+Content: []bedrockruntimetypes.ContentBlock{
+&bedrockruntimetypes.ContentBlockMemberText{Value: "Hello!"},
 },
 },
 },

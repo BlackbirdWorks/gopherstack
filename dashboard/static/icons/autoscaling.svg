@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64px" height="64px" viewBox="0 0 64 64" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>Icon-Architecture/48/Arch_Amazon-Auto-Scaling_48</title>
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect fill="#ED7100" x="0" y="0" width="64" height="64"></rect>
+        <path d="M32,10 L40,18 L36,18 L36,30 L46,30 L46,26 L54,34 L46,42 L46,38 L36,38 L36,50 L40,50 L32,58 L24,50 L28,50 L28,38 L18,38 L18,42 L10,34 L18,26 L18,30 L28,30 L28,18 L24,18 Z" fill="#FFFFFF"></path>
+    </g>
+</svg>
