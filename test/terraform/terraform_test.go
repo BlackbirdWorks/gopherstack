@@ -3144,11 +3144,11 @@ func TestTerraform_ApplicationAutoscaling(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeScalableTargets should succeed after terraform apply")
 
-				resourceID := "service/default/" + vars["ServiceName"].(string)
+				expectedResourceID := "service/default/" + vars["ServiceName"].(string)
 				found := false
 
 				for _, target := range out.ScalableTargets {
-					if aws.ToString(target.ResourceId) == resourceID {
+					if aws.ToString(target.ResourceId) == expectedResourceID {
 						found = true
 						assert.Equal(t, int32(1), aws.ToInt32(target.MinCapacity))
 						assert.Equal(t, int32(10), aws.ToInt32(target.MaxCapacity))
