@@ -40,6 +40,7 @@ import (
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -184,13 +185,15 @@ type DashboardHandler struct {
 	CeOps *cebackend.Handler
 	// CloudFrontOps provides access to the CloudFront backend.
 	CloudFrontOps *cloudfrontbackend.Handler
-	SubRouter     *echo.Echo
-	ddbProvider   *ddbbackend.DashboardProvider
-	s3Provider    *s3backend.DashboardProvider
-	FaultStore    *chaos.FaultStore
-	Logger        *slog.Logger
-	layout        *template.Template
-	GlobalConfig  config.GlobalConfig
+	// CodeArtifactOps provides access to the CodeArtifact backend.
+	CodeArtifactOps *codeartifactbackend.Handler
+	SubRouter       *echo.Echo
+	ddbProvider     *ddbbackend.DashboardProvider
+	s3Provider      *s3backend.DashboardProvider
+	FaultStore      *chaos.FaultStore
+	Logger          *slog.Logger
+	layout          *template.Template
+	GlobalConfig    config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -309,6 +312,8 @@ type Config struct {
 	CeOps *cebackend.Handler
 	// CloudFrontOps provides access to the CloudFront backend.
 	CloudFrontOps *cloudfrontbackend.Handler
+	// CodeArtifactOps provides access to the CodeArtifact backend.
+	CodeArtifactOps *codeartifactbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -398,6 +403,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/bedrockruntime/*.html",
 		"templates/ce/*.html",
 		"templates/cloudfront/*.html",
+		"templates/codeartifact/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -476,6 +482,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		BedrockRuntimeOps:          cfg.BedrockRuntimeOps,
 		CeOps:                      cfg.CeOps,
 		CloudFrontOps:              cfg.CloudFrontOps,
+		CodeArtifactOps:            cfg.CodeArtifactOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -787,6 +794,12 @@ func (h *DashboardHandler) setupCloudFrontRoutes() {
 	h.SubRouter.POST("/dashboard/cloudfront/distribution/delete", h.cloudfrontDeleteDistribution)
 }
 
+func (h *DashboardHandler) setupCodeArtifactRoutes() {
+	h.SubRouter.GET("/dashboard/codeartifact", h.codeartifactIndex)
+	h.SubRouter.POST("/dashboard/codeartifact/domain/create", h.codeartifactCreateDomain)
+	h.SubRouter.POST("/dashboard/codeartifact/domain/delete", h.codeartifactDeleteDomain)
+}
+
 func (h *DashboardHandler) setupAppConfigRoutes() {
 	h.SubRouter.GET("/dashboard/appconfig", h.appConfigIndex)
 	h.SubRouter.POST("/dashboard/appconfig/application/create", h.appConfigCreateApplication)
@@ -904,6 +917,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupBackupRoutes()
 	h.setupBedrockRuntimeRoutes()
 	h.setupCloudFrontRoutes()
+	h.setupNewestServiceRoutes()
 }
 
 // setupRecentServiceRoutes sets up dashboard routes for recently-added services.
@@ -916,6 +930,11 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupBatchRoutes()
 	h.setupBedrockRoutes()
 	h.setupCeRoutes()
+}
+
+// setupNewestServiceRoutes sets up dashboard routes for the most recently-added services.
+func (h *DashboardHandler) setupNewestServiceRoutes() {
+	h.setupCodeArtifactRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -1020,6 +1039,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/appconfig", "AppConfig"},
 	{"/backup", "Backup"},
 	{"/cloudfront", "CloudFront"},
+	{"/codeartifact", "CodeArtifact"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

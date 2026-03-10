@@ -27,6 +27,7 @@ import (
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
@@ -122,6 +123,7 @@ type AWSSDKProvider interface {
 	GetBedrockRuntimeHandler() service.Registerable
 	GetCeHandler() service.Registerable
 	GetCloudFrontHandler() service.Registerable
+	GetCodeArtifactHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -198,6 +200,7 @@ type extractedConfig struct {
 	bedrockRuntimeOps         *bedrockruntimebackend.Handler
 	ceOps                     *cebackend.Handler
 	cloudFrontOps             *cloudfrontbackend.Handler
+	codeArtifactOps           *codeartifactbackend.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
 	iotOps                    *iotbackend.Handler
@@ -469,6 +472,10 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCloudFrontHandler(); h != nil {
 		ec.cloudFrontOps, _ = h.(*cloudfrontbackend.Handler)
 	}
+
+	if h := ap.GetCodeArtifactHandler(); h != nil {
+		ec.codeArtifactOps, _ = h.(*codeartifactbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -530,6 +537,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		BedrockRuntimeOps:          ec.bedrockRuntimeOps,
 		CeOps:                      ec.ceOps,
 		CloudFrontOps:              ec.cloudFrontOps,
+		CodeArtifactOps:            ec.codeArtifactOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		IoTOps:                     ec.iotOps,

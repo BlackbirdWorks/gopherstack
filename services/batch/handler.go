@@ -17,9 +17,12 @@ import (
 )
 
 const (
-	v1Prefix        = "/v1/"
-	tagsPrefix      = "/v1/tags/"
-	appsyncV1Prefix = "/v1/apis"
+	v1Prefix              = "/v1/"
+	tagsPrefix            = "/v1/tags/"
+	appsyncV1Prefix       = "/v1/apis"
+	codeartifactDomain    = "/v1/domain"
+	codeartifactRepos     = "/v1/repositor"
+	codeartifactAuthToken = "/v1/authorization-token" //nolint:gosec // not a credential
 )
 
 // Handler is the Echo HTTP handler for AWS Batch operations.
@@ -72,12 +75,26 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 
 // RouteMatcher returns a function that matches Batch requests.
 // It matches /v1/ paths but explicitly excludes /v1/apis (AppSync)
-// to prevent routing conflicts when both services use PriorityPathVersioned.
+// and CodeArtifact paths to prevent routing conflicts when both services
+// use PriorityPathVersioned.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 		// Exclude AppSync paths (/v1/apis) which share the /v1/ prefix.
-		return strings.HasPrefix(path, v1Prefix) && !strings.HasPrefix(path, appsyncV1Prefix)
+		if strings.HasPrefix(path, appsyncV1Prefix) {
+			return false
+		}
+		// Exclude CodeArtifact paths which share the /v1/ prefix.
+		if strings.HasPrefix(path, codeartifactDomain) ||
+			strings.HasPrefix(path, codeartifactRepos) ||
+			strings.HasPrefix(path, codeartifactAuthToken) ||
+			path == "/v1/tags" ||
+			path == "/v1/tag" ||
+			path == "/v1/untag" {
+			return false
+		}
+
+		return strings.HasPrefix(path, v1Prefix) || strings.HasPrefix(path, tagsPrefix)
 	}
 }
 
