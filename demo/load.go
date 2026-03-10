@@ -7,6 +7,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
+	"github.com/aws/aws-sdk-go-v2/service/amplify"
+	amplifytypes "github.com/aws/aws-sdk-go-v2/service/amplify/types"
 	"github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsynctypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -49,6 +51,7 @@ type Clients struct {
 	SecretsManager *secretsmanager.Client
 	ECR            *ecr.Client
 	AppSync        *appsync.Client
+	Amplify        *amplify.Client
 	ECS            *ecs.Client
 	IoT            *iot.Client
 }
@@ -90,6 +93,10 @@ func LoadData(
 
 	if clients.AppSync != nil {
 		loadAppSync(ctx, clients.AppSync)
+	}
+
+	if clients.Amplify != nil {
+		loadAmplify(ctx, clients.Amplify)
 	}
 
 	if clients.ECS != nil {
@@ -527,5 +534,43 @@ func loadIoT(ctx context.Context, iotClient *iot.Client) {
 		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create IoT topic rule", "error", err)
 	} else {
 		pkgslogger.Load(ctx).InfoContext(ctx, "Created IoT topic rule", "name", "demo_sensor_rule")
+	}
+}
+
+func loadAmplify(ctx context.Context, amplifyClient *amplify.Client) {
+	apps := []struct {
+		name     string
+		platform amplifytypes.Platform
+	}{
+		{"my-web-app", amplifytypes.PlatformWeb},
+		{"my-nextjs-app", amplifytypes.PlatformWebCompute},
+	}
+
+	for _, a := range apps {
+		out, err := amplifyClient.CreateApp(ctx, &amplify.CreateAppInput{
+			Name:     aws.String(a.name),
+			Platform: a.platform,
+		})
+		if err != nil {
+			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create Amplify app", "name", a.name, "error", err)
+
+			continue
+		}
+
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created Amplify app", "name", a.name)
+
+		if out.App == nil {
+			continue
+		}
+
+		_, bErr := amplifyClient.CreateBranch(ctx, &amplify.CreateBranchInput{
+			AppId:      out.App.AppId,
+			BranchName: aws.String("main"),
+		})
+		if bErr != nil {
+			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create Amplify branch", "app", a.name, "error", bErr)
+		} else {
+			pkgslogger.Load(ctx).InfoContext(ctx, "Created Amplify branch", "app", a.name, "branch", "main")
+		}
 	}
 }

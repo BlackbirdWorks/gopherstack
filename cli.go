@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	amplifysdk "github.com/aws/aws-sdk-go-v2/service/amplify"
 	appsyncsdksvc "github.com/aws/aws-sdk-go-v2/service/appsync"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -47,6 +48,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
+	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -151,6 +153,7 @@ type CLI struct {
 	supportHandler               service.Registerable
 	appSyncHandler               service.Registerable
 	iotDataPlaneHandler          service.Registerable
+	amplifyHandler               service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
 	iotHandler                   service.Registerable
@@ -169,6 +172,7 @@ type CLI struct {
 	secretsManagerClient         *secretsmanager.Client
 	ecrClient                    *ecr.Client
 	appSyncSdkClient             *appsyncsdksvc.Client
+	amplifyClient                *amplifysdk.Client
 	ecsClient                    *ecs.Client
 	iotClient                    *iotsdk.Client
 	AccountID                    string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
@@ -488,6 +492,11 @@ func (c *CLI) GetAppSyncHandler() service.Registerable { return c.appSyncHandler
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetIoTDataPlaneHandler() service.Registerable { return c.iotDataPlaneHandler }
 
+// GetAmplifyHandler returns the Amplify handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAmplifyHandler() service.Registerable { return c.amplifyHandler }
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -798,6 +807,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
+	cli.amplifyClient = amplifysdk.NewFromConfig(
+		awsCfg,
+		func(o *amplifysdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
 	cli.ecsClient = ecs.NewFromConfig(
 		awsCfg,
 		func(o *ecs.Options) {
@@ -864,6 +879,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.supportHandler = byName["Support"]
 	cli.appSyncHandler = byName["AppSync"]
 	cli.iotDataPlaneHandler = byName["IoTDataPlane"]
+	cli.amplifyHandler = byName["Amplify"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
@@ -1030,6 +1046,7 @@ func getServiceProviders() []service.Provider {
 		&iotbackend.Provider{},
 		&iotdataplanebackend.Provider{},
 		&appsyncbackend.Provider{},
+		&amplifybackend.Provider{},
 	}
 }
 
@@ -2556,6 +2573,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		SecretsManager: cli.secretsManagerClient,
 		ECR:            cli.ecrClient,
 		AppSync:        cli.appSyncSdkClient,
+		Amplify:        cli.amplifyClient,
 		ECS:            cli.ecsClient,
 		IoT:            cli.iotClient,
 	})

@@ -7,6 +7,7 @@ import (
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
+	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -96,6 +97,7 @@ type AWSSDKProvider interface {
 	GetAppSyncHandler() service.Registerable
 	GetCognitoIDPHandler() service.Registerable
 	GetIoTDataPlaneHandler() service.Registerable
+	GetAmplifyHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -156,6 +158,7 @@ type extractedConfig struct {
 	appSyncOps               *appsyncbackend.Handler
 	cognitoIDPOps            *cognitoidpbackend.Handler
 	iotDataPlaneOps          *iotdataplanebackend.Handler
+	amplifyOps               *amplifybackend.Handler
 	ecrOps                   *ecrbackend.Handler
 	ecsOps                   *ecsbackend.Handler
 	iotOps                   *iotbackend.Handler
@@ -337,6 +340,10 @@ func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.iotDataPlaneOps, _ = h.(*iotdataplanebackend.Handler)
 	}
 
+	if h := ap.GetAmplifyHandler(); h != nil {
+		ec.amplifyOps, _ = h.(*amplifybackend.Handler)
+	}
+
 	if h := ap.GetSESv2Handler(); h != nil {
 		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
 	}
@@ -413,6 +420,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		AppSyncOps:               ec.appSyncOps,
 		CognitoIDPOps:            ec.cognitoIDPOps,
 		IoTDataPlaneOps:          ec.iotDataPlaneOps,
+		AmplifyOps:               ec.amplifyOps,
 		ECROps:                   ec.ecrOps,
 		ECSOps:                   ec.ecsOps,
 		IoTOps:                   ec.iotOps,

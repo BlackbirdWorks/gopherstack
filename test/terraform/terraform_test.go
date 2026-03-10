@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	acmsvc "github.com/aws/aws-sdk-go-v2/service/acm"
 	acmpcasvc "github.com/aws/aws-sdk-go-v2/service/acmpca"
+	amplifysdkv2 "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
@@ -139,8 +140,9 @@ provider "aws" {
   endpoints {
     acm             = %[1]q
     acmpca          = %[1]q
-    appsync         = %[1]q
+    amplify         = %[1]q
     apigateway      = %[1]q
+    appsync         = %[1]q
     cloudformation  = %[1]q
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
@@ -2239,6 +2241,60 @@ func TestTerraform_AppSync(t *testing.T) {
 				require.NoError(t, err, "GetDataSource should succeed")
 				assert.Equal(t, "NoneDS", aws.ToString(dsOut.DataSource.Name))
 				assert.Equal(t, appsyncsdktypes.DataSourceTypeNone, dsOut.DataSource.Type)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Amplify provisions an Amplify app and branch via Terraform,
+// then verifies both exist via the Amplify SDK.
+func TestTerraform_Amplify(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "app_and_branch",
+			fixture: "amplify/app_and_branch",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				randomSuffix := uuid.NewString()[:8]
+
+				return map[string]any{"AppName": "tf-amplify-" + randomSuffix}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createAmplifyClient(t)
+
+				// List apps and find ours by name.
+				listOut, err := client.ListApps(ctx, &amplifysdkv2.ListAppsInput{})
+				require.NoError(t, err, "ListApps should succeed")
+
+				var appID string
+				for _, a := range listOut.Apps {
+					if aws.ToString(a.Name) == vars["AppName"].(string) {
+						appID = aws.ToString(a.AppId)
+
+						break
+					}
+				}
+
+				require.NotEmpty(t, appID, "app %q should appear in list", vars["AppName"])
+
+				// Verify the branch exists.
+				branchOut, err := client.GetBranch(ctx, &amplifysdkv2.GetBranchInput{
+					AppId:      aws.String(appID),
+					BranchName: aws.String("main"),
+				})
+				require.NoError(t, err, "GetBranch should succeed")
+				assert.Equal(t, "main", aws.ToString(branchOut.Branch.BranchName))
 			},
 		},
 	}
