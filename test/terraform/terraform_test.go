@@ -27,6 +27,8 @@ import (
 	amplifysdkv2 "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
 	apigwv2svc "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
+	appconfigsvc "github.com/aws/aws-sdk-go-v2/service/appconfig"
+	appconfigtypes "github.com/aws/aws-sdk-go-v2/service/appconfig/types"
 	appconfigdatasvc "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
@@ -143,6 +145,7 @@ provider "aws" {
     acm             = %[1]q
     acmpca          = %[1]q
     amplify         = %[1]q
+    appconfig       = %[1]q
     apigateway      = %[1]q
     apigatewayv2    = %[1]q
     appsync         = %[1]q
@@ -2927,6 +2930,80 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 			runTFTest(t, tc)
 		})
 	}
+}
+
+// TestTerraform_AppConfig provisions an AppConfig application, environment, configuration profile,
+// and deployment strategy via Terraform, then verifies they are accessible via the AppConfig SDK.
+func TestTerraform_AppConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "app_env_profile_strategy",
+			fixture: "appconfig/app_env_profile_strategy",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				randomSuffix := uuid.NewString()[:8]
+
+				return map[string]any{"AppName": "tf-appconfig-" + randomSuffix}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createAppConfigClient(t)
+
+				listOut, err := client.ListApplications(ctx, &appconfigsvc.ListApplicationsInput{})
+				require.NoError(t, err, "ListApplications should succeed")
+
+				appID := findAppConfigApplicationID(listOut.Items, vars["AppName"].(string))
+				require.NotEmpty(t, appID, "application %q should appear in list", vars["AppName"])
+
+				getOut, err := client.GetApplication(ctx, &appconfigsvc.GetApplicationInput{
+					ApplicationId: aws.String(appID),
+				})
+				require.NoError(t, err, "GetApplication should succeed")
+				assert.Equal(t, vars["AppName"].(string), aws.ToString(getOut.Name))
+
+				envsOut, err := client.ListEnvironments(ctx, &appconfigsvc.ListEnvironmentsInput{
+					ApplicationId: aws.String(appID),
+				})
+				require.NoError(t, err, "ListEnvironments should succeed")
+				require.NotEmpty(t, envsOut.Items, "should have at least one environment")
+
+				profilesOut, err := client.ListConfigurationProfiles(ctx, &appconfigsvc.ListConfigurationProfilesInput{
+					ApplicationId: aws.String(appID),
+				})
+				require.NoError(t, err, "ListConfigurationProfiles should succeed")
+				require.NotEmpty(t, profilesOut.Items, "should have at least one configuration profile")
+
+				strategiesOut, err := client.ListDeploymentStrategies(
+					ctx,
+					&appconfigsvc.ListDeploymentStrategiesInput{},
+				)
+				require.NoError(t, err, "ListDeploymentStrategies should succeed")
+				require.NotEmpty(t, strategiesOut.Items, "should have at least one deployment strategy")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// findAppConfigApplicationID returns the ID of the AppConfig application with the given name
+// from the list output, or empty string if not found.
+func findAppConfigApplicationID(items []appconfigtypes.Application, name string) string {
+	for _, a := range items {
+		if aws.ToString(a.Name) == name {
+			return aws.ToString(a.Id)
+		}
+	}
+
+	return ""
 }
 
 // TestTerraform_AppConfigData verifies that the AppConfigData service endpoints work correctly.
