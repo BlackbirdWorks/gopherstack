@@ -6,6 +6,7 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
+	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
@@ -84,6 +85,7 @@ type AWSSDKProvider interface {
 	GetEC2Handler() service.Registerable
 	GetOpenSearchHandler() service.Registerable
 	GetACMHandler() service.Registerable
+	GetACMPCAHandler() service.Registerable
 	GetRedshiftHandler() service.Registerable
 	GetRDSHandler() service.Registerable
 	GetAWSConfigHandler() service.Registerable
@@ -145,6 +147,7 @@ type extractedConfig struct {
 	ec2Ops                   *ec2backend.Handler
 	opensearchOps            *opensearchbackend.Handler
 	acmOps                   *acmbackend.Handler
+	acmpcaOps                *acmpcabackend.Handler
 	redshiftOps              *redshiftbackend.Handler
 	rdsOps                   *rdsbackend.Handler
 	awsconfigOps             *awsconfigbackend.Handler
@@ -284,6 +287,10 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.acmOps, _ = h.(*acmbackend.Handler)
 	}
 
+	if h := ap.GetACMPCAHandler(); h != nil {
+		ec.acmpcaOps, _ = h.(*acmpcabackend.Handler)
+	}
+
 	if h := ap.GetRedshiftHandler(); h != nil {
 		ec.redshiftOps, _ = h.(*redshiftbackend.Handler)
 	}
@@ -407,6 +414,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		EC2Ops:                     ec.ec2Ops,
 		OpenSearchOps:              ec.opensearchOps,
 		ACMOps:                     ec.acmOps,
+		ACMPCAOps:                  ec.acmpcaOps,
 		RedshiftOps:                ec.redshiftOps,
 		RDSOps:                     ec.rdsOps,
 		AWSConfigOps:               ec.awsconfigOps,

@@ -30,6 +30,7 @@ type docPageData struct {
 	EC2Ops                     []string
 	OpenSearchOps              []string
 	ACMOps                     []string
+	ACMPCAOps                  []string
 	RedshiftOps                []string
 	RDSOps                     []string
 	AWSConfigOps               []string
@@ -89,6 +90,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		EC2Ops:                     h.getSupportedOps(h.EC2Ops),
 		OpenSearchOps:              h.getSupportedOps(h.OpenSearchOps),
 		ACMOps:                     h.getSupportedOps(h.ACMOps),
+		ACMPCAOps:                  h.getSupportedOps(h.ACMPCAOps),
 		RedshiftOps:                h.getSupportedOps(h.RedshiftOps),
 		RDSOps:                     h.getSupportedOps(h.RDSOps),
 		AWSConfigOps:               h.getSupportedOps(h.AWSConfigOps),
