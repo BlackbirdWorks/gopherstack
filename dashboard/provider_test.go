@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
+	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
@@ -39,6 +41,55 @@ func (m *mockAWSProvider) GetDynamoDBHandler() service.Registerable { return m.d
 func (m *mockAWSProvider) GetS3Handler() service.Registerable       { return m.s3Handler }
 func (m *mockAWSProvider) GetSSMHandler() service.Registerable      { return m.ssmHandler }
 func (m *mockAWSProvider) GetSTSHandler() service.Registerable      { return m.stsHandler }
+
+// Stub implementations for the remaining AWSSDKProvider methods.
+func (m *mockAWSProvider) GetIAMHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetSNSHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetSQSHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetKMSHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetSecretsManagerHandler() service.Registerable          { return nil }
+func (m *mockAWSProvider) GetLambdaHandler() service.Registerable                  { return nil }
+func (m *mockAWSProvider) GetEventBridgeHandler() service.Registerable             { return nil }
+func (m *mockAWSProvider) GetAPIGatewayHandler() service.Registerable              { return nil }
+func (m *mockAWSProvider) GetCloudWatchLogsHandler() service.Registerable          { return nil }
+func (m *mockAWSProvider) GetStepFunctionsHandler() service.Registerable           { return nil }
+func (m *mockAWSProvider) GetCloudWatchHandler() service.Registerable              { return nil }
+func (m *mockAWSProvider) GetCloudFormationHandler() service.Registerable          { return nil }
+func (m *mockAWSProvider) GetKinesisHandler() service.Registerable                 { return nil }
+func (m *mockAWSProvider) GetElastiCacheHandler() service.Registerable             { return nil }
+func (m *mockAWSProvider) GetRoute53Handler() service.Registerable                 { return nil }
+func (m *mockAWSProvider) GetSESHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetSESv2Handler() service.Registerable                   { return nil }
+func (m *mockAWSProvider) GetEC2Handler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetOpenSearchHandler() service.Registerable              { return nil }
+func (m *mockAWSProvider) GetACMHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetACMPCAHandler() service.Registerable                  { return nil }
+func (m *mockAWSProvider) GetRedshiftHandler() service.Registerable                { return nil }
+func (m *mockAWSProvider) GetRDSHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetAWSConfigHandler() service.Registerable               { return nil }
+func (m *mockAWSProvider) GetS3ControlHandler() service.Registerable               { return nil }
+func (m *mockAWSProvider) GetResourceGroupsHandler() service.Registerable          { return nil }
+func (m *mockAWSProvider) GetResourceGroupsTaggingHandler() service.Registerable   { return nil }
+func (m *mockAWSProvider) GetSWFHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetFirehoseHandler() service.Registerable                { return nil }
+func (m *mockAWSProvider) GetCognitoIdentityHandler() service.Registerable         { return nil }
+func (m *mockAWSProvider) GetAppSyncHandler() service.Registerable                 { return nil }
+func (m *mockAWSProvider) GetCognitoIDPHandler() service.Registerable              { return nil }
+func (m *mockAWSProvider) GetIoTDataPlaneHandler() service.Registerable            { return nil }
+func (m *mockAWSProvider) GetAmplifyHandler() service.Registerable                 { return nil }
+func (m *mockAWSProvider) GetAPIGatewayV2Handler() service.Registerable            { return nil }
+func (m *mockAWSProvider) GetAthenaHandler() service.Registerable                  { return nil }
+func (m *mockAWSProvider) GetAutoscalingHandler() service.Registerable             { return nil }
+func (m *mockAWSProvider) GetApplicationAutoscalingHandler() service.Registerable  { return nil }
+func (m *mockAWSProvider) GetAppConfigHandler() service.Registerable               { return nil }
+func (m *mockAWSProvider) GetECRHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetECSHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetIoTHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetFISHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetAPIGatewayManagementAPIHandler() service.Registerable { return nil }
+func (m *mockAWSProvider) GetAppConfigDataHandler() service.Registerable           { return nil }
+func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
+func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 
 func TestDashboardProvider_Name(t *testing.T) {
 	t.Parallel()

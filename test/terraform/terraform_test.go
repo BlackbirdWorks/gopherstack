@@ -30,8 +30,11 @@ import (
 	appconfigsvc "github.com/aws/aws-sdk-go-v2/service/appconfig"
 	appconfigtypes "github.com/aws/aws-sdk-go-v2/service/appconfig/types"
 	appconfigdatasvc "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
+	applicationautoscalingsvc "github.com/aws/aws-sdk-go-v2/service/applicationautoscaling"
+	applicationautoscalingtypes "github.com/aws/aws-sdk-go-v2/service/applicationautoscaling/types"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
+	athenasdkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
 	autoscalingsvc "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
@@ -146,9 +149,11 @@ provider "aws" {
     acm             = %[1]q
     acmpca          = %[1]q
     amplify         = %[1]q
-    appconfig       = %[1]q
     apigateway      = %[1]q
     apigatewayv2    = %[1]q
+    appconfig       = %[1]q
+    applicationautoscaling = %[1]q
+    athena          = %[1]q
     appsync         = %[1]q
     autoscaling     = %[1]q
     cloudformation  = %[1]q
@@ -3166,6 +3171,98 @@ func TestTerraform_AppConfigData(t *testing.T) {
 				require.NotNil(t, configOut2.NextPollConfigurationToken, "second next token should not be nil")
 				assert.NotEqual(t, *configOut.NextPollConfigurationToken, *configOut2.NextPollConfigurationToken,
 					"token should rotate on each successive poll")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ApplicationAutoscaling provisions a scalable target and verifies it exists.
+func TestTerraform_ApplicationAutoscaling(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "applicationautoscaling/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"ServiceName": "tf-svc-" + uuid.NewString()[:8],
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createApplicationAutoscalingClient(t)
+				out, err := client.DescribeScalableTargets(ctx, &applicationautoscalingsvc.DescribeScalableTargetsInput{
+					ServiceNamespace: applicationautoscalingtypes.ServiceNamespaceEcs,
+				})
+				require.NoError(t, err, "DescribeScalableTargets should succeed after terraform apply")
+
+				expectedResourceID := "service/default/" + vars["ServiceName"].(string)
+				found := false
+
+				for _, target := range out.ScalableTargets {
+					if aws.ToString(target.ResourceId) == expectedResourceID {
+						found = true
+						assert.Equal(t, int32(1), aws.ToInt32(target.MinCapacity))
+						assert.Equal(t, int32(10), aws.ToInt32(target.MaxCapacity))
+
+						break
+					}
+				}
+
+				assert.True(t, found, "scalable target should be registered")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Athena provisions an Athena workgroup via Terraform, then verifies
+// it is listed via the Athena SDK.
+func TestTerraform_Athena(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "athena/workgroup",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"WorkGroupName": "tf-athena-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createAthenaClient(t)
+				out, err := client.ListWorkGroups(ctx, &athenasdkv2.ListWorkGroupsInput{})
+				require.NoError(t, err, "ListWorkGroups should succeed after terraform apply")
+				found := false
+				for _, wg := range out.WorkGroups {
+					if aws.ToString(wg.Name) == vars["WorkGroupName"].(string) {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "workgroup %q should be listed", vars["WorkGroupName"].(string))
 			},
 		},
 	}

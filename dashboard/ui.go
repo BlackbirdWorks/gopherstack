@@ -26,7 +26,9 @@ import (
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
+	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -160,15 +162,14 @@ type DashboardHandler struct {
 	APIGatewayV2Ops            *apigwv2backend.Handler
 	AppConfigDataOps           *appconfigdatabackend.Handler
 	AmplifyOps                 *amplifybackend.Handler
+	AthenaOps                  *athenabackend.Handler
 	AutoscalingOps             *autoscalingbackend.Handler
-	AppConfigOps               *appconfigbackend.Handler
-	SubRouter                  *echo.Echo
-	ddbProvider                *ddbbackend.DashboardProvider
-	s3Provider                 *s3backend.DashboardProvider
-	FaultStore                 *chaos.FaultStore
-	Logger                     *slog.Logger
-	layout                     *template.Template
-	GlobalConfig               config.GlobalConfig
+	ddbProvider               *ddbbackend.DashboardProvider
+	s3Provider                *s3backend.DashboardProvider
+	FaultStore                *chaos.FaultStore
+	Logger                    *slog.Logger
+	layout                    *template.Template
+	GlobalConfig              config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -267,10 +268,14 @@ type Config struct {
 	AppConfigDataOps *appconfigdatabackend.Handler
 	// AmplifyOps provides access to the Amplify backend.
 	AmplifyOps *amplifybackend.Handler
+	// AthenaOps provides access to the Athena backend.
+	AthenaOps *athenabackend.Handler
 	// AutoscalingOps provides access to the Autoscaling backend.
 	AutoscalingOps *autoscalingbackend.Handler
 	// AppConfigOps provides access to the AppConfig backend.
 	AppConfigOps *appconfigbackend.Handler
+	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
+	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -350,8 +355,10 @@ func parseDashboardTemplates() *template.Template {
 		"templates/apigatewaymanagementapi/*.html",
 		"templates/appconfigdata/*.html",
 		"templates/amplify/*.html",
+		"templates/athena/*.html",
 		"templates/autoscaling/*.html",
 		"templates/appconfig/*.html",
+		"templates/applicationautoscaling/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -420,8 +427,10 @@ func NewHandler(cfg Config) *DashboardHandler {
 		APIGatewayV2Ops:            cfg.APIGatewayV2Ops,
 		AppConfigDataOps:           cfg.AppConfigDataOps,
 		AmplifyOps:                 cfg.AmplifyOps,
+		AthenaOps:                  cfg.AthenaOps,
 		AutoscalingOps:             cfg.AutoscalingOps,
 		AppConfigOps:               cfg.AppConfigOps,
+		ApplicationAutoscalingOps:  cfg.ApplicationAutoscalingOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -712,6 +721,11 @@ func (h *DashboardHandler) setupAmplifyRoutes() {
 	h.SubRouter.GET("/dashboard/amplify", h.amplifyIndex)
 }
 
+func (h *DashboardHandler) setupAthenaRoutes() {
+	h.SubRouter.GET("/dashboard/athena", h.athenaIndex)
+	h.SubRouter.GET("/dashboard/athena/workgroup", h.athenaDetail)
+}
+
 func (h *DashboardHandler) setupAutoscalingRoutes() {
 	h.SubRouter.GET("/dashboard/autoscaling", h.autoscalingIndex)
 }
@@ -720,6 +734,12 @@ func (h *DashboardHandler) setupAppConfigRoutes() {
 	h.SubRouter.GET("/dashboard/appconfig", h.appConfigIndex)
 	h.SubRouter.POST("/dashboard/appconfig/application/create", h.appConfigCreateApplication)
 	h.SubRouter.POST("/dashboard/appconfig/application/delete", h.appConfigDeleteApplication)
+}
+
+func (h *DashboardHandler) setupApplicationAutoscalingRoutes() {
+	h.SubRouter.GET("/dashboard/applicationautoscaling", h.applicationautoscalingIndex)
+	h.SubRouter.POST("/dashboard/applicationautoscaling/create", h.applicationautoscalingCreate)
+	h.SubRouter.POST("/dashboard/applicationautoscaling/delete", h.applicationautoscalingDelete)
 }
 
 func (h *DashboardHandler) setupAppSyncRoutes() {
@@ -809,6 +829,13 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupRoute53ResolverRoutes()
 	h.setupTranscribeRoutes()
 	h.setupSupportRoutes()
+	h.setupExtendedServiceRoutes()
+	h.setupChaosRoutes()
+	h.setupMetaRoutes()
+}
+
+// setupExtendedServiceRoutes registers routes for services added after the initial set.
+func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupCognitoIdentityRoutes()
 	h.setupAppSyncRoutes()
 	h.setupCognitoIDPRoutes()
@@ -816,8 +843,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupAPIGatewayManagementAPIRoutes()
 	h.setupAPIGatewayV2Routes()
 	h.setupRecentServiceRoutes()
-	h.setupChaosRoutes()
-	h.setupMetaRoutes()
+	h.setupAthenaRoutes()
 }
 
 // setupRecentServiceRoutes sets up dashboard routes for recently-added services.
@@ -826,6 +852,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupAmplifyRoutes()
 	h.setupAppConfigRoutes()
 	h.setupAutoscalingRoutes()
+	h.setupApplicationAutoscalingRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -920,6 +947,8 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/cognitoidp", "CognitoIDP"},
 	{"/iotdataplane", "IoTDataPlane"},
 	{"/amplify", "Amplify"},
+	{"/applicationautoscaling", "ApplicationAutoscaling"},
+	{"/athena", "Athena"},
 	{"/autoscaling", "Autoscaling"},
 	{"/appconfig", "AppConfig"},
 	{"/chaos", "Chaos"},

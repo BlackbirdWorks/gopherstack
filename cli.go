@@ -54,7 +54,9 @@ import (
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
+	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -112,100 +114,101 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	SSM                          struct{}            `embed:"" prefix:"ssm-"`
-	SecretsManager               struct{}            `embed:"" prefix:"secretsmanager-"`
-	KMS                          struct{}            `embed:"" prefix:"kms-"`
-	SQS                          sqsbackend.Settings `embed:"" prefix:"sqs-"`
-	SNS                          struct{}            `embed:"" prefix:"sns-"`
-	STS                          struct{}            `embed:"" prefix:"sts-"`
-	IAM                          struct{}            `embed:"" prefix:"iam-"`
-	kinesisHandler               service.Registerable
-	elasticacheHandler           service.Registerable
-	secretsManagerHandler        service.Registerable
-	ddbHandler                   service.Registerable
-	s3Handler                    service.Registerable
-	ssmHandler                   service.Registerable
-	iamHandler                   service.Registerable
-	stsHandler                   service.Registerable
-	snsHandler                   service.Registerable
-	sqsHandler                   service.Registerable
-	lambdaHandler                service.Registerable
-	eventBridgeHandler           service.Registerable
-	apiGatewayHandler            service.Registerable
-	cloudWatchLogsHandler        service.Registerable
-	stepFunctionsHandler         service.Registerable
-	cloudWatchHandler            service.Registerable
-	cloudFormationHandler        service.Registerable
-	kmsHandler                   service.Registerable
-	route53Handler               service.Registerable
-	sesHandler                   service.Registerable
-	sesv2Handler                 service.Registerable
-	ec2Handler                   service.Registerable
-	openSearchHandler            service.Registerable
-	acmHandler                   service.Registerable
-	acmpcaHandler                service.Registerable
-	redshiftHandler              service.Registerable
-	rdsHandler                   service.Registerable
-	awsconfigHandler             service.Registerable
-	s3controlHandler             service.Registerable
-	resourcegroupsHandler        service.Registerable
-	resourcegroupstaggingHandler service.Registerable
-	swfHandler                   service.Registerable
-	firehoseHandler              service.Registerable
-	schedulerHandler             service.Registerable
-	route53resolverHandler       service.Registerable
-	transcribeHandler            service.Registerable
-	supportHandler               service.Registerable
-	appSyncHandler               service.Registerable
-	iotDataPlaneHandler          service.Registerable
-	apiGatewayMgmtHandler        service.Registerable
-	appConfigDataHandler         service.Registerable
-	amplifyHandler               service.Registerable
-	autoscalingHandler           service.Registerable
-	apiGatewayV2Handler          service.Registerable
-	appConfigHandler             service.Registerable
-	ecrHandler                   service.Registerable
-	ecsHandler                   service.Registerable
-	iotHandler                   service.Registerable
-	cognitoIDPHandler            service.Registerable
-	cognitoIdentityHandler       service.Registerable
-	fisHandler                   service.Registerable
-	faultStore                   *chaos.FaultStore
-	snsClient                    *sns.Client
-	kmsClient                    *kms.Client
-	iamClient                    *iam.Client
-	s3Client                     *s3.Client
-	ssmClient                    *ssmsdk.Client
-	ddbClient                    *dynamodb.Client
-	stsClient                    *stssdk.Client
-	sqsClient                    *sqssdk.Client
-	secretsManagerClient         *secretsmanager.Client
-	ecrClient                    *ecr.Client
-	appSyncSdkClient             *appsyncsdksvc.Client
-	amplifyClient                *amplifysdk.Client
-	ecsClient                    *ecs.Client
-	iotClient                    *iotsdk.Client
-	AccountID                    string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
-	Port                         string                 `                                  name:"port"               env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
-	ElastiCacheEngine            string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine             string                 `                                  name:"opensearch-engine"  env:"OPENSEARCH_ENGINE"       default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                           //nolint:lll // config struct tags are intentionally verbose
-	Region                       string                 `                                  name:"region"             env:"REGION"                  default:"us-east-1"    help:"AWS region."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	LogLevel                     string                 `                                  name:"log-level"          env:"LOG_LEVEL"               default:"info"         help:"Log level (debug|info|warn|error)."`                                                           //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr                string                 `                                  name:"dns-addr"           env:"DNS_ADDR"                default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                             //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP                 string                 `                                  name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"          default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                   //nolint:lll // config struct tags are intentionally verbose
-	DataDir                      string                 `                                  name:"data-dir"           env:"GOPHERSTACK_DATA_DIR"    default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."` //nolint:lll // config struct tags are intentionally verbose
-	S3                           s3backend.Settings     `embed:"" prefix:"s3-"`
-	InitScripts                  []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                                   help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
-	Lambda                       lambdabackend.Settings `embed:"" prefix:"lambda-"`
-	DynamoDB                     ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
-	PortRangeStart               int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"        default:"10000"        help:"Start of the port range for resource endpoints."`                                                                            //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd                 int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"          default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`                                                                  //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout            time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"            default:"30s"          help:"Per-script timeout for init hooks."`                                                                                         //nolint:lll // config struct tags are intentionally verbose
-	Demo                         bool                   `                                  name:"demo"               env:"DEMO"                    default:"false"        help:"Load demo data on startup."`                                                                                                 //nolint:lll // config struct tags are intentionally verbose
-	Persist                      bool                   `                                  name:"persist"            env:"PERSIST"                 default:"false"        help:"Enable snapshot-based persistence across restarts."`                                                                         //nolint:lll // config struct tags are intentionally verbose
-	EnforceIAM                   bool                   `                                  name:"enforce-iam"        env:"GOPHERSTACK_ENFORCE_IAM" default:"false"        help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                //nolint:lll // config struct tags are intentionally verbose
-	LatencyMs                    int                    `                                  name:"latency-ms"         env:"LATENCY_MS"              default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."` //nolint:lll // config struct tags are intentionally verbose
-}
+	SSM                           struct{}            `embed:"" prefix:"ssm-"`
+	SecretsManager                struct{}            `embed:"" prefix:"secretsmanager-"`
+	KMS                           struct{}            `embed:"" prefix:"kms-"`
+	SQS                           sqsbackend.Settings `embed:"" prefix:"sqs-"`
+	SNS                           struct{}            `embed:"" prefix:"sns-"`
+	STS                           struct{}            `embed:"" prefix:"sts-"`
+	IAM                           struct{}            `embed:"" prefix:"iam-"`
+	kinesisHandler                service.Registerable
+	elasticacheHandler            service.Registerable
+	secretsManagerHandler         service.Registerable
+	ddbHandler                    service.Registerable
+	s3Handler                     service.Registerable
+	ssmHandler                    service.Registerable
+	iamHandler                    service.Registerable
+	stsHandler                    service.Registerable
+	snsHandler                    service.Registerable
+	sqsHandler                    service.Registerable
+	lambdaHandler                 service.Registerable
+	eventBridgeHandler            service.Registerable
+	apiGatewayHandler             service.Registerable
+	cloudWatchLogsHandler         service.Registerable
+	stepFunctionsHandler          service.Registerable
+	cloudWatchHandler             service.Registerable
+	cloudFormationHandler         service.Registerable
+	kmsHandler                    service.Registerable
+	route53Handler                service.Registerable
+	sesHandler                    service.Registerable
+	sesv2Handler                  service.Registerable
+	ec2Handler                    service.Registerable
+	openSearchHandler             service.Registerable
+	acmHandler                    service.Registerable
+	acmpcaHandler                 service.Registerable
+	redshiftHandler               service.Registerable
+	rdsHandler                    service.Registerable
+	awsconfigHandler              service.Registerable
+	s3controlHandler              service.Registerable
+	resourcegroupsHandler         service.Registerable
+	resourcegroupstaggingHandler  service.Registerable
+	swfHandler                    service.Registerable
+	firehoseHandler               service.Registerable
+	schedulerHandler              service.Registerable
+	route53resolverHandler        service.Registerable
+	transcribeHandler             service.Registerable
+	supportHandler                service.Registerable
+	appSyncHandler                service.Registerable
+	iotDataPlaneHandler           service.Registerable
+	apiGatewayMgmtHandler         service.Registerable
+	appConfigDataHandler          service.Registerable
+	amplifyHandler                service.Registerable
+	autoscalingHandler            service.Registerable
+	apiGatewayV2Handler           service.Registerable
+	athenaHandler                 service.Registerable
+	appConfigHandler              service.Registerable
+	applicationautoscalingHandler service.Registerable
+	ecrHandler                    service.Registerable
+	ecsHandler                    service.Registerable
+	iotHandler                    service.Registerable
+	cognitoIDPHandler             service.Registerable
+	cognitoIdentityHandler        service.Registerable
+	fisHandler                    service.Registerable
+	faultStore                    *chaos.FaultStore
+	snsClient                     *sns.Client
+	kmsClient                     *kms.Client
+	iamClient                     *iam.Client
+	s3Client                      *s3.Client
+	ssmClient                     *ssmsdk.Client
+	ddbClient                     *dynamodb.Client
+	stsClient                     *stssdk.Client
+	sqsClient                     *sqssdk.Client
+	secretsManagerClient          *secretsmanager.Client
+	ecrClient                     *ecr.Client
+	appSyncSdkClient              *appsyncsdksvc.Client
+	amplifyClient                 *amplifysdk.Client
+	ecsClient                     *ecs.Client
+	iotClient                     *iotsdk.Client
+	AccountID                     string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
+	Port                          string                 `                                  name:"port"               env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine             string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine              string                 `                                  name:"opensearch-engine"  env:"OPENSEARCH_ENGINE"       default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                           //nolint:lll // config struct tags are intentionally verbose
+	Region                        string                 `                                  name:"region"             env:"REGION"                  default:"us-east-1"    help:"AWS region."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	LogLevel                      string                 `                                  name:"log-level"          env:"LOG_LEVEL"               default:"info"         help:"Log level (debug|info|warn|error)."`                                                           //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr                 string                 `                                  name:"dns-addr"           env:"DNS_ADDR"                default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                             //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP                  string                 `                                  name:"dns-resolve-ip"     env:"DNS_RESOLVE_IP"          default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                   //nolint:lll // config struct tags are intentionally verbose
+	DataDir                       string                 `                                  name:"data-dir"           env:"GOPHERSTACK_DATA_DIR"    default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."` //nolint:lll // config struct tags are intentionally verbose
+	S3                            s3backend.Settings     `embed:"" prefix:"s3-"`
+	InitScripts                   []string               `                                  name:"init-script"        env:"INIT_SCRIPTS"                                   help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
+	Lambda                        lambdabackend.Settings `embed:"" prefix:"lambda-"`
+	DynamoDB                      ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
+	PortRangeStart                int                    `                                  name:"port-range-start"   env:"PORT_RANGE_START"        default:"10000"        help:"Start of the port range for resource endpoints."`                                                                            //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd                  int                    `                                  name:"port-range-end"     env:"PORT_RANGE_END"          default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`                                                                  //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout             time.Duration          `                                  name:"init-timeout"       env:"INIT_TIMEOUT"            default:"30s"          help:"Per-script timeout for init hooks."`                                                                                         //nolint:lll // config struct tags are intentionally verbose
+	Demo                          bool                   `                                  name:"demo"               env:"DEMO"                    default:"false"        help:"Load demo data on startup."`                                                                                                 //nolint:lll // config struct tags are intentionally verbose
+	Persist                       bool                   `                                  name:"persist"            env:"PERSIST"                 default:"false"        help:"Enable snapshot-based persistence across restarts."`                                                                         //nolint:lll // config struct tags are intentionally verbose
+	EnforceIAM                    bool                   `                                  name:"enforce-iam"        env:"GOPHERSTACK_ENFORCE_IAM" default:"false"        help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                //nolint:lll // config struct tags are intentionally verbose
+	LatencyMs                     int                    `                                  name:"latency-ms"         env:"LATENCY_MS"              default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."` //nolint:lll // config struct tags are intentionally verbose}
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
 func (c *CLI) GetGlobalConfig() config.GlobalConfig {
@@ -531,10 +534,22 @@ func (c *CLI) GetAutoscalingHandler() service.Registerable { return c.autoscalin
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAPIGatewayV2Handler() service.Registerable { return c.apiGatewayV2Handler }
 
+// GetAthenaHandler returns the Athena handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAthenaHandler() service.Registerable { return c.athenaHandler }
+
 // GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAppConfigHandler() service.Registerable { return c.appConfigHandler }
+
+// GetApplicationAutoscalingHandler returns the Application Auto Scaling handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetApplicationAutoscalingHandler() service.Registerable {
+	return c.applicationautoscalingHandler
+}
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -917,6 +932,12 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.transcribeHandler = byName["Transcribe"]
 	cli.supportHandler = byName["Support"]
 	cli.appSyncHandler = byName["AppSync"]
+
+	storeCLIRecentHandlers(cli, byName)
+}
+
+// storeCLIRecentHandlers assigns recently-added service handlers to the CLI fields.
+func storeCLIRecentHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.iotDataPlaneHandler = byName["IoTDataPlane"]
 	cli.apiGatewayMgmtHandler = byName["APIGatewayManagementAPI"]
 
@@ -929,7 +950,14 @@ func storeAdditionalCLIHandlers(cli *CLI, byName map[string]service.Registerable
 	cli.amplifyHandler = byName["Amplify"]
 	cli.autoscalingHandler = byName["Autoscaling"]
 	cli.apiGatewayV2Handler = byName["APIGatewayV2"]
+	storeCLIExtendedHandlers(cli, byName)
+}
+
+// storeCLIExtendedHandlers assigns handlers for services added after the initial set.
+func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) {
+	cli.athenaHandler = byName["Athena"]
 	cli.appConfigHandler = byName["AppConfig"]
+	cli.applicationautoscalingHandler = byName["ApplicationAutoscaling"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
@@ -1101,7 +1129,9 @@ func getServiceProviders() []service.Provider {
 		&amplifybackend.Provider{},
 		&autoscalingbackend.Provider{},
 		&apigwv2backend.Provider{},
+		&athenabackend.Provider{},
 		&appconfigbackend.Provider{},
+		&applicationautoscalingbackend.Provider{},
 	}
 }
 

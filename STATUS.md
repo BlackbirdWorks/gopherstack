@@ -103,8 +103,8 @@ The following services are supported by LocalStack (either Free or Pro tier) but
 | **APIgatewayv2** | ❌ No | ❌ No | ❌ No |
 | **Appconfig** | ❌ No | ❌ No | ❌ No |
 | **Appconfigdata** | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Application Autoscaling** | ❌ No | ❌ No | ❌ No |
-| **Athena** | ❌ No | ❌ No | ❌ No |
+| **Application Autoscaling** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Athena** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Autoscaling** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Backup** | ❌ No | ❌ No | ❌ No |
 | **Batch** | ❌ No | ❌ No | ❌ No |
