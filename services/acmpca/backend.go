@@ -134,7 +134,7 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 	b.mu.Lock("CreateCertificateAuthority")
 	defer b.mu.Unlock()
 
-	id := fmt.Sprintf("%x", time.Now().UnixNano())
+	id := newRandomID()
 	caARN := arn.Build("acm-pca", b.region, b.accountID, caResourceIDPrefix+id)
 
 	if cfg.KeyAlgorithm == "" {
@@ -324,7 +324,7 @@ func (b *InMemoryBackend) IssueCertificate(caARN, csrPEM string, validityDays in
 		return nil, fmt.Errorf("sign CSR: %w", err)
 	}
 
-	id := fmt.Sprintf("%x", time.Now().UnixNano())
+	id := newRandomID()
 	certARN := arn.Build("acm-pca", b.region, b.accountID,
 		caResourceIDPrefix+extractCAID(caARN)+"/"+certResourceIDPrefix+id)
 
@@ -555,6 +555,14 @@ func extractCAID(caARN string) string {
 	}
 
 	return last
+}
+
+// newRandomID generates a 16-byte cryptographically-random hex ID for ARN resource segments.
+func newRandomID() string {
+	buf := make([]byte, 16) //nolint:mnd // 16-byte random ID
+	_, _ = cryptorand.Read(buf)
+
+	return hex.EncodeToString(buf)
 }
 
 func splitARN(a string) []string {
