@@ -66,6 +66,7 @@ import (
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
+	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
 	"github.com/google/uuid"
@@ -2486,6 +2487,57 @@ func TestTerraform_CognitoIDP(t *testing.T) {
 	}
 }
 
+// TestTerraform_IoTDataPlane provisions an IoT thing via Terraform and verifies
+// that the IoT Data Plane can publish a message to the thing's shadow topic.
+func TestTerraform_IoTDataPlane(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "publish",
+			fixture: "iotdataplane/publish",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{"ThingName": "tf-iot-thing-" + id}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				thingName := vars["ThingName"].(string)
+				topic := "things/" + thingName + "/shadow/update"
+				url := endpoint + "/topics/" + topic
+
+				payload := []byte(`{"state":{"reported":{"connected":true}}}`)
+
+				req, err := http.NewRequestWithContext(
+					ctx,
+					http.MethodPost,
+					url,
+					bytes.NewReader(payload),
+				)
+				require.NoError(t, err, "creating publish request should succeed")
+				req.Header.Set("Content-Type", "application/json")
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "publish request should succeed")
+				defer resp.Body.Close()
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode,
+					"IoT Data Plane publish to topic %q should return 200", topic)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_IoT provisions an IoT Thing via Terraform and verifies it exists via the IoT SDK.
 func TestTerraform_IoT(t *testing.T) {
 	t.Parallel()
@@ -2557,6 +2609,64 @@ func TestTerraform_STS(t *testing.T) {
 					"mock STS ARN should be a root identity for static credentials",
 				)
 				assert.NotEmpty(t, aws.ToString(out.UserId), "mock STS user ID should not be empty")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Support applies a Terraform fixture and verifies Support API CreateCase,
+// DescribeCases, and ResolveCase operations via the AWS SDK.
+func TestTerraform_Support(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "support/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{"CaseName": "tf-support-" + id}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createSupportClient(t)
+
+				subject := vars["CaseName"].(string)
+
+				createOut, err := client.CreateCase(ctx, &supportsvc.CreateCaseInput{
+					Subject:           aws.String(subject),
+					CommunicationBody: aws.String("Terraform integration test case"),
+					ServiceCode:       aws.String("general-info"),
+					CategoryCode:      aws.String("other"),
+					SeverityCode:      aws.String("low"),
+				})
+				require.NoError(t, err, "CreateCase should succeed")
+				require.NotNil(t, createOut.CaseId, "CreateCase should return a caseId")
+
+				caseID := aws.ToString(createOut.CaseId)
+
+				describeOut, err := client.DescribeCases(ctx, &supportsvc.DescribeCasesInput{
+					CaseIdList: []string{caseID},
+				})
+				require.NoError(t, err, "DescribeCases should succeed")
+				require.Len(t, describeOut.Cases, 1, "DescribeCases should return the created case")
+				assert.Equal(t, subject, aws.ToString(describeOut.Cases[0].Subject))
+
+				resolveOut, err := client.ResolveCase(ctx, &supportsvc.ResolveCaseInput{
+					CaseId: aws.String(caseID),
+				})
+				require.NoError(t, err, "ResolveCase should succeed")
+				assert.Equal(t, "resolved", aws.ToString(resolveOut.FinalCaseStatus))
 			},
 		},
 	}

@@ -44,6 +44,7 @@ type docPageData struct {
 	CognitoIdentityOps       []string
 	IoTOps                   []string
 	AppSyncOps               []string
+	IoTDataPlaneOps          []string
 	ResourceGroupsTaggingOps []string
 }
 
@@ -100,6 +101,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		CognitoIdentityOps:       h.getSupportedOps(h.CognitoIdentityOps),
 		IoTOps:                   h.getSupportedOps(h.IoTOps),
 		AppSyncOps:               h.getSupportedOps(h.AppSyncOps),
+		IoTDataPlaneOps:          h.getSupportedOps(h.IoTDataPlaneOps),
 		ResourceGroupsTaggingOps: h.getSupportedOps(h.ResourceGroupsTaggingOps),
 	}
 

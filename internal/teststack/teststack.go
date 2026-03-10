@@ -38,6 +38,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -118,6 +119,7 @@ type Stack struct {
 	CognitoIdentityHandler       *cognitoidentitybackend.Handler
 	AppSyncHandler               *appsyncbackend.Handler
 	CognitoIDPHandler            *cognitoidpbackend.Handler
+	IoTDataPlaneHandler          *iotdataplanebackend.Handler
 	S3Client                     *s3.Client
 	DDBClient                    *dynamodb.Client
 	FaultStore                   *chaos.FaultStore
@@ -212,6 +214,7 @@ func registerServices(
 	cognitoIdentityHndlr *cognitoidentitybackend.Handler,
 	appSyncHndlr *appsyncbackend.Handler,
 	cognitoIDPHndlr *cognitoidpbackend.Handler,
+	iotDataPlaneHndlr *iotdataplanebackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
 	_ = registry.Register(s3Hndlr)
@@ -255,6 +258,7 @@ func registerServices(
 	_ = registry.Register(cognitoIdentityHndlr)
 	_ = registry.Register(appSyncHndlr)
 	_ = registry.Register(cognitoIDPHndlr)
+	_ = registry.Register(iotDataPlaneHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -302,6 +306,7 @@ type handlers struct {
 	cognitoIdentity *cognitoidentitybackend.Handler
 	appSync         *appsyncbackend.Handler
 	cognitoIDP      *cognitoidpbackend.Handler
+	iotDataPlane    *iotdataplanebackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -418,6 +423,7 @@ func populateExtendedHandlers(h *handlers) {
 		),
 		config.DefaultRegion,
 	)
+	h.iotDataPlane = iotdataplanebackend.NewHandler(iotdataplanebackend.NewInMemoryBackend())
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -499,6 +505,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CognitoIdentityOps:       h.cognitoIdentity,
 		AppSyncOps:               h.appSync,
 		CognitoIDPOps:            h.cognitoIDP,
+		IoTDataPlaneOps:          h.iotDataPlane,
 		GlobalConfig:             config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion},
 		FaultStore:               fs,
 		Logger:                   slog.Default(),
@@ -526,7 +533,7 @@ func New(t *testing.T) *Stack {
 		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.iot, h.opensearch,
 		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
-		h.appSync, h.cognitoIDP,
+		h.appSync, h.cognitoIDP, h.iotDataPlane,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -585,6 +592,7 @@ func New(t *testing.T) *Stack {
 		CognitoIdentityHandler:       h.cognitoIdentity,
 		AppSyncHandler:               h.appSync,
 		CognitoIDPHandler:            h.cognitoIDP,
+		IoTDataPlaneHandler:          h.iotDataPlane,
 		S3Client:                     clients.S3,
 		DDBClient:                    clients.DDB,
 		FaultStore:                   faultStore,

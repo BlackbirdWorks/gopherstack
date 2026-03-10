@@ -41,7 +41,7 @@ This document tracks the implementation status of AWS services in Gopherstack, s
 | **SSM** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Step Functions** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **STS** | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Support API** | ✅ Yes | ✅ Yes | ❌ No |
+| **Support API** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **SWF** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Transcribe** | ✅ Yes | ✅ Yes | ❌ No |
 
@@ -57,7 +57,7 @@ LocalStack locks these services behind a paid tier. Gopherstack offers them nati
 | **ElastiCache** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **FIS** | ✅ Yes | ✅ Yes | ❌ No |
 | **IoT** | ✅ Yes | ✅ Yes | ✅ Yes |
-| **IoT Data Plane** | ✅ Yes | ❌ No | ❌ No |
+| **IoT Data Plane** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **RDS** | ✅ Yes | ✅ Yes | ✅ Yes |
 
 ## LocalStack Enterprise Features in Gopherstack Free
@@ -83,13 +83,10 @@ The Chaos API supports:
 - ECR (Pro)
 - ECS (Pro)
 - FIS (Pro)
-- IoT Data Plane (Pro)
 
 ### Missing Terraform Tests (`test/terraform/fixtures/`)
 - Cognito IDP (Free)
 - FIS (Pro)
-- IoT Data Plane (Pro)
-- Support API (Free)
 - Transcribe (Free)
 
 ## Not Implemented Features (LocalStack Parity Gap)

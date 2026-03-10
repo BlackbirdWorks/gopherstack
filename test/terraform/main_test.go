@@ -55,6 +55,7 @@ import (
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
+	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	"github.com/docker/docker/api/types/build"
 	"github.com/stretchr/testify/require"
@@ -1079,6 +1080,24 @@ func createSTSClient(t *testing.T) *stssvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return stssvc.NewFromConfig(cfg, func(o *stssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSupportClient returns a Support client pointed at the shared test container.
+func createSupportClient(t *testing.T) *supportsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return supportsvc.NewFromConfig(cfg, func(o *supportsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
