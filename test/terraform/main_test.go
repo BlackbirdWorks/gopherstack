@@ -54,6 +54,7 @@ import (
 	snssvc "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
+	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	"github.com/docker/docker/api/types/build"
@@ -1061,6 +1062,24 @@ func createIoTClient(t *testing.T) *iotsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return iotsvc.NewFromConfig(cfg, func(o *iotsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSTSClient returns an STS client pointed at the shared test container.
+func createSTSClient(t *testing.T) *stssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return stssvc.NewFromConfig(cfg, func(o *stssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
