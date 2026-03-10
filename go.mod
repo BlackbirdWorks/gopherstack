@@ -86,7 +86,10 @@ require github.com/aws/aws-sdk-go-v2/service/bedrock v1.56.0
 
 require github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.1
 
-require github.com/aws/aws-sdk-go-v2/service/costexplorer v1.63.4
+require (
+	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.60.2
+	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.63.4
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
