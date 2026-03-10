@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"sort"
 	"time"
@@ -44,7 +45,7 @@ const (
 	certStatusActive     = "ACTIVE"
 	certStatusRevoked    = "REVOKED"
 	defaultKeyAlgorithm  = "EC_prime256v1"
-	defaultSignAlgorithm = "SHA256WITHRSA"
+	defaultSignAlgorithm = "SHA256WITHECDSA"
 	caResourceIDPrefix   = "certificate-authority/"
 	certResourceIDPrefix = "certificate/"
 
@@ -80,6 +81,7 @@ type CertificateAuthority struct {
 	Type                              string                            `json:"type"`
 	Status                            string                            `json:"status"`
 	CertificateBody                   string                            `json:"certificateBody,omitempty"`
+	CertificateChain                  string                            `json:"certificateChain,omitempty"`
 	CSR                               string                            `json:"csr,omitempty"`
 }
 
@@ -134,7 +136,11 @@ func (b *InMemoryBackend) CreateCertificateAuthority(
 	b.mu.Lock("CreateCertificateAuthority")
 	defer b.mu.Unlock()
 
-	id := newRandomID()
+	id, err := newRandomID()
+	if err != nil {
+		return nil, err
+	}
+
 	caARN := arn.Build("acm-pca", b.region, b.accountID, caResourceIDPrefix+id)
 
 	if cfg.KeyAlgorithm == "" {
@@ -273,7 +279,8 @@ func (b *InMemoryBackend) GetCertificateAuthorityCsr(caARN string) (string, erro
 }
 
 // ImportCertificateAuthorityCertificate imports a signed certificate for the CA, activating it.
-func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(caARN, certPEM string) error {
+// It parses the certificate to extract NotBefore/NotAfter and stores the optional chain.
+func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(caARN, certPEM, chainPEM string) error {
 	b.mu.Lock("ImportCertificateAuthorityCertificate")
 	defer b.mu.Unlock()
 
@@ -282,23 +289,37 @@ func (b *InMemoryBackend) ImportCertificateAuthorityCertificate(caARN, certPEM s
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		return fmt.Errorf("%w: failed to decode certificate PEM for CA %s", ErrInvalidParameter, caARN)
+	}
+
+	parsedCert, parseErr := x509.ParseCertificate(block.Bytes)
+	if parseErr != nil {
+		return fmt.Errorf("%w: failed to parse certificate for CA %s: %w", ErrInvalidParameter, caARN, parseErr)
+	}
+
+	ca.NotBefore = parsedCert.NotBefore
+	ca.NotAfter = parsedCert.NotAfter
+
 	ca.CertificateBody = certPEM
+	ca.CertificateChain = chainPEM
 	ca.Status = caStatusActive
 
 	return nil
 }
 
-// GetCertificateAuthorityCertificate returns the certificate PEM for the given CA.
-func (b *InMemoryBackend) GetCertificateAuthorityCertificate(caARN string) (string, error) {
+// GetCertificateAuthorityCertificate returns the certificate body and chain PEM for the given CA.
+func (b *InMemoryBackend) GetCertificateAuthorityCertificate(caARN string) (string, string, error) {
 	b.mu.RLock("GetCertificateAuthorityCertificate")
 	defer b.mu.RUnlock()
 
 	ca, ok := b.cas[caARN]
 	if !ok {
-		return "", fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+		return "", "", fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	return ca.CertificateBody, nil
+	return ca.CertificateBody, ca.CertificateChain, nil
 }
 
 // IssueCertificate issues a new certificate signed by the given CA.
@@ -324,7 +345,11 @@ func (b *InMemoryBackend) IssueCertificate(caARN, csrPEM string, validityDays in
 		return nil, fmt.Errorf("sign CSR: %w", err)
 	}
 
-	id := newRandomID()
+	id, err := newRandomID()
+	if err != nil {
+		return nil, err
+	}
+
 	certARN := arn.Build("acm-pca", b.region, b.accountID,
 		caResourceIDPrefix+extractCAID(caARN)+"/"+certResourceIDPrefix+id)
 
@@ -347,14 +372,19 @@ func (b *InMemoryBackend) IssueCertificate(caARN, csrPEM string, validityDays in
 	return &cp, nil
 }
 
-// GetCertificate returns the certificate PEM for the given certificate ARN.
-func (b *InMemoryBackend) GetCertificate(certARN string) (*IssuedCertificate, error) {
+// GetCertificate returns the certificate for the given CA and certificate ARN.
+// It validates that the certificate belongs to the specified CA.
+func (b *InMemoryBackend) GetCertificate(caARN, certARN string) (*IssuedCertificate, error) {
 	b.mu.RLock("GetCertificate")
 	defer b.mu.RUnlock()
 
 	cert, ok := b.certs[certARN]
 	if !ok {
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
+	}
+
+	if cert.CAARN != caARN {
+		return nil, fmt.Errorf("%w: certificate %s does not belong to CA %s", ErrCANotFound, certARN, caARN)
 	}
 
 	cp := *cert
@@ -558,11 +588,13 @@ func extractCAID(caARN string) string {
 }
 
 // newRandomID generates a 16-byte cryptographically-random hex ID for ARN resource segments.
-func newRandomID() string {
+func newRandomID() (string, error) {
 	buf := make([]byte, 16) //nolint:mnd // 16-byte random ID
-	_, _ = cryptorand.Read(buf)
+	if _, err := io.ReadFull(cryptorand.Reader, buf); err != nil {
+		return "", fmt.Errorf("generate random ID: %w", err)
+	}
 
-	return hex.EncodeToString(buf)
+	return hex.EncodeToString(buf), nil
 }
 
 func splitARN(a string) []string {

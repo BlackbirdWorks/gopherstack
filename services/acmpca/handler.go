@@ -258,7 +258,7 @@ type revocationConfigOutput struct{}
 type certAuthorityOutput struct {
 	CertificateAuthorityConfiguration caConfigOutput         `json:"CertificateAuthorityConfiguration"`
 	RevocationConfiguration           revocationConfigOutput `json:"RevocationConfiguration"`
-	CertificateAuthorityArn           string                 `json:"CertificateAuthorityArn"`
+	Arn                               string                 `json:"Arn"`
 	Type                              string                 `json:"Type"`
 	Status                            string                 `json:"Status"`
 	CreatedAt                         int64                  `json:"CreatedAt"`
@@ -550,6 +550,7 @@ func (h *Handler) jsonImportCACert(body []byte) (any, error) {
 	if err := h.Backend.ImportCertificateAuthorityCertificate(
 		input.CertificateAuthorityArn,
 		input.Certificate,
+		input.CertificateChain,
 	); err != nil {
 		return nil, err
 	}
@@ -563,12 +564,12 @@ func (h *Handler) jsonGetCACert(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
-	cert, err := h.Backend.GetCertificateAuthorityCertificate(input.CertificateAuthorityArn)
+	certPEM, chainPEM, err := h.Backend.GetCertificateAuthorityCertificate(input.CertificateAuthorityArn)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getCertificateAuthorityCertificateOutput{Certificate: cert}, nil
+	return &getCertificateAuthorityCertificateOutput{Certificate: certPEM, CertificateChain: chainPEM}, nil
 }
 
 func (h *Handler) jsonIssueCert(body []byte) (any, error) {
@@ -596,7 +597,7 @@ func (h *Handler) jsonGetCert(body []byte) (any, error) {
 		return nil, ErrInvalidParameter
 	}
 
-	cert, err := h.Backend.GetCertificate(input.CertificateArn)
+	cert, err := h.Backend.GetCertificate(input.CertificateAuthorityArn, input.CertificateArn)
 	if err != nil {
 		return nil, err
 	}
@@ -702,10 +703,10 @@ func (h *Handler) writeJSONError(c *echo.Context, statusCode int, code, message 
 
 func toCAOutput(ca *CertificateAuthority) certAuthorityOutput {
 	out := certAuthorityOutput{
-		CertificateAuthorityArn: ca.ARN,
-		Type:                    ca.Type,
-		Status:                  ca.Status,
-		CreatedAt:               ca.CreatedAt.Unix(),
+		Arn:       ca.ARN,
+		Type:      ca.Type,
+		Status:    ca.Status,
+		CreatedAt: ca.CreatedAt.Unix(),
 		CertificateAuthorityConfiguration: caConfigOutput{
 			Subject: caConfigSubjectOutput{
 				CommonName:         ca.CertificateAuthorityConfiguration.Subject.CommonName,

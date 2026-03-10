@@ -1363,7 +1363,7 @@ func TestTerraform_ACM(t *testing.T) {
 	}
 }
 
-// TestTerraform_CloudFormation provisions a CloudFormation stack and verifies it exists.
+// TestTerraform_ACMPCA provisions an ACM PCA certificate authority and verifies it appears in list output.
 func TestTerraform_ACMPCA(t *testing.T) {
 	t.Parallel()
 
