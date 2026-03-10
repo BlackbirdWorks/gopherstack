@@ -42,6 +42,7 @@ type docPageData struct {
 	TranscribeOps      []string
 	SupportOps         []string
 	CognitoIdentityOps []string
+	IoTOps             []string
 	AppSyncOps         []string
 }
 
@@ -96,6 +97,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		TranscribeOps:      h.getSupportedOps(h.TranscribeOps),
 		SupportOps:         h.getSupportedOps(h.SupportOps),
 		CognitoIdentityOps: h.getSupportedOps(h.CognitoIdentityOps),
+		IoTOps:             h.getSupportedOps(h.IoTOps),
 		AppSyncOps:         h.getSupportedOps(h.AppSyncOps),
 	}
 
