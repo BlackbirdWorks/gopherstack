@@ -50,6 +50,7 @@ import (
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
+	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -154,6 +155,7 @@ type CLI struct {
 	iotDataPlaneHandler          service.Registerable
 	apiGatewayMgmtHandler        service.Registerable
 	amplifyHandler               service.Registerable
+	appConfigHandler             service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
 	iotHandler                   service.Registerable
@@ -498,6 +500,11 @@ func (c *CLI) GetAPIGatewayManagementAPIHandler() service.Registerable {
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAmplifyHandler() service.Registerable { return c.amplifyHandler }
+
+// GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAppConfigHandler() service.Registerable { return c.appConfigHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -882,6 +889,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.iotDataPlaneHandler = byName["IoTDataPlane"]
 	cli.apiGatewayMgmtHandler = byName["APIGatewayManagementAPI"]
 	cli.amplifyHandler = byName["Amplify"]
+	cli.appConfigHandler = byName["AppConfig"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
@@ -1049,6 +1057,7 @@ func getServiceProviders() []service.Provider {
 		&appsyncbackend.Provider{},
 		&apigwmgmtbackend.Provider{},
 		&amplifybackend.Provider{},
+		&appconfigbackend.Provider{},
 	}
 }
 
