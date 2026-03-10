@@ -91,8 +91,10 @@ func TestAPIGatewayManagementAPIDashboard_CreateConnection(t *testing.T) {
 	err = page.Locator("button[type='submit']:has-text('Create')").Last().Click()
 	require.NoError(t, err)
 
-	// Wait for redirect back to page.
-	err = page.Locator("h1:has-text('API Gateway Management API')").WaitFor(playwright.LocatorWaitForOptions{
+	// Wait for the connection row to appear in the table after the form submit and redirect.
+	connRow := page.Locator("td:has-text('e2e-conn-001')")
+	err = connRow.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

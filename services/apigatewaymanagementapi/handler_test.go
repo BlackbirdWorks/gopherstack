@@ -160,6 +160,13 @@ func TestHandler_PostToConnection(t *testing.T) {
 			payload:      []byte(`{"message":"hello"}`),
 			wantStatus:   http.StatusGone,
 		},
+		{
+			name:         "oversized payload returns 413",
+			connectionID: "conn-large",
+			preCreate:    true,
+			payload:      make([]byte, 129*1024),
+			wantStatus:   http.StatusRequestEntityTooLarge,
+		},
 	}
 
 	for _, tt := range tests {

@@ -108,8 +108,17 @@ func (h *Handler) Handler() echo.HandlerFunc {
 func (h *Handler) handlePostToConnection(c *echo.Context, connectionID string) error {
 	log := logger.Load(c.Request().Context())
 
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxPayloadBytes)
+
 	body, readErr := io.ReadAll(c.Request().Body)
 	if readErr != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(readErr, &maxBytesErr) {
+			return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{
+				"message": "payload too large: exceeds maximum allowed size",
+			})
+		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": "failed to read request body"})
 	}
 
