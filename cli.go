@@ -55,6 +55,7 @@ import (
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -161,6 +162,7 @@ type CLI struct {
 	appConfigDataHandler         service.Registerable
 	amplifyHandler               service.Registerable
 	apiGatewayV2Handler          service.Registerable
+	athenaHandler                service.Registerable
 	appConfigHandler             service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
@@ -523,6 +525,11 @@ func (c *CLI) GetAmplifyHandler() service.Registerable { return c.amplifyHandler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAPIGatewayV2Handler() service.Registerable { return c.apiGatewayV2Handler }
+
+// GetAthenaHandler returns the Athena handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAthenaHandler() service.Registerable { return c.athenaHandler }
 
 // GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
 //
@@ -915,6 +922,12 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.appConfigDataHandler = byName["AppConfigData"]
 	cli.amplifyHandler = byName["Amplify"]
 	cli.apiGatewayV2Handler = byName["APIGatewayV2"]
+	storeCLIExtendedHandlers(cli, byName)
+}
+
+// storeCLIExtendedHandlers assigns handlers for services added after the initial set.
+func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) {
+	cli.athenaHandler = byName["Athena"]
 	cli.appConfigHandler = byName["AppConfig"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
@@ -1086,6 +1099,7 @@ func getServiceProviders() []service.Provider {
 		&appconfigdatabackend.Provider{},
 		&amplifybackend.Provider{},
 		&apigwv2backend.Provider{},
+		&athenabackend.Provider{},
 		&appconfigbackend.Provider{},
 	}
 }
