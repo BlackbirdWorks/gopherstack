@@ -164,6 +164,7 @@ provider "aws" {
     autoscaling     = %[1]q
     backup          = %[1]q
     batch           = %[1]q
+    bedrock         = %[1]q
     ce              = %[1]q
     cloudformation  = %[1]q
     cloudwatch      = %[1]q
