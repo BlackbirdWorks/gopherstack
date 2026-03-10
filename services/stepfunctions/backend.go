@@ -426,6 +426,12 @@ func (b *InMemoryBackend) runParsedExecution(
 		return
 	}
 
+	// If the execution was already moved to a terminal state (e.g., ABORTED via
+	// StopExecution) while the background runner was in flight, do not overwrite it.
+	if exec.Status != "RUNNING" {
+		return
+	}
+
 	now := float64(time.Now().Unix())
 	exec.StopDate = &now
 	events := b.history[execARN]

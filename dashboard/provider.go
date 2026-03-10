@@ -11,6 +11,7 @@ import (
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -106,6 +107,7 @@ type AWSSDKProvider interface {
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
 	GetAPIGatewayManagementAPIHandler() service.Registerable
+	GetAppConfigDataHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -164,6 +166,7 @@ type extractedConfig struct {
 	iotDataPlaneOps          *iotdataplanebackend.Handler
 	apiGatewayMgmtOps        *apigwmgmtbackend.Handler
 	apiGatewayV2Ops          *apigwv2backend.Handler
+	appConfigDataOps         *appconfigdatabackend.Handler
 	amplifyOps               *amplifybackend.Handler
 	ecrOps                   *ecrbackend.Handler
 	ecsOps                   *ecsbackend.Handler
@@ -387,6 +390,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetAPIGatewayManagementAPIHandler(); h != nil {
 		ec.apiGatewayMgmtOps, _ = h.(*apigwmgmtbackend.Handler)
 	}
+
+	if h := ap.GetAppConfigDataHandler(); h != nil {
+		ec.appConfigDataOps, _ = h.(*appconfigdatabackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -436,6 +443,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IoTDataPlaneOps:            ec.iotDataPlaneOps,
 		APIGatewayManagementAPIOps: ec.apiGatewayMgmtOps,
 		APIGatewayV2Ops:            ec.apiGatewayV2Ops,
+		AppConfigDataOps:           ec.appConfigDataOps,
 		AmplifyOps:                 ec.amplifyOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,

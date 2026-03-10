@@ -25,6 +25,7 @@ import (
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -126,6 +127,7 @@ type Stack struct {
 	CognitoIDPHandler              *cognitoidpbackend.Handler
 	IoTDataPlaneHandler            *iotdataplanebackend.Handler
 	APIGatewayManagementAPIHandler *apigwmgmtbackend.Handler
+	AppConfigDataHandler           *appconfigdatabackend.Handler
 	AmplifyHandler                 *amplifybackend.Handler
 	APIGatewayV2Handler            *apigwv2backend.Handler
 	S3Client                       *s3.Client
@@ -225,6 +227,7 @@ func registerServices(
 	cognitoIDPHndlr *cognitoidpbackend.Handler,
 	iotDataPlaneHndlr *iotdataplanebackend.Handler,
 	apiGatewayMgmtHndlr *apigwmgmtbackend.Handler,
+	appConfigDataHndlr *appconfigdatabackend.Handler,
 	amplifyHndlr *amplifybackend.Handler,
 	apigwv2Hndlr *apigwv2backend.Handler,
 ) {
@@ -273,6 +276,7 @@ func registerServices(
 	_ = registry.Register(cognitoIDPHndlr)
 	_ = registry.Register(iotDataPlaneHndlr)
 	_ = registry.Register(apiGatewayMgmtHndlr)
+	_ = registry.Register(appConfigDataHndlr)
 	_ = registry.Register(amplifyHndlr)
 	_ = registry.Register(apigwv2Hndlr)
 }
@@ -325,6 +329,7 @@ type handlers struct {
 	cognitoIDP      *cognitoidpbackend.Handler
 	iotDataPlane    *iotdataplanebackend.Handler
 	apiGatewayMgmt  *apigwmgmtbackend.Handler
+	appConfigData   *appconfigdatabackend.Handler
 	amplify         *amplifybackend.Handler
 	apigwv2         *apigwv2backend.Handler
 	iamBk           *iambackend.InMemoryBackend
@@ -448,6 +453,7 @@ func populateExtendedHandlers(h *handlers) {
 	)
 	h.iotDataPlane = iotdataplanebackend.NewHandler(iotdataplanebackend.NewInMemoryBackend())
 	h.apiGatewayMgmt = apigwmgmtbackend.NewHandler(apigwmgmtbackend.NewInMemoryBackend())
+	h.appConfigData = appconfigdatabackend.NewHandler(appconfigdatabackend.NewInMemoryBackend())
 	h.amplify = amplifybackend.NewHandler(
 		amplifybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -536,6 +542,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CognitoIDPOps:              h.cognitoIDP,
 		IoTDataPlaneOps:            h.iotDataPlane,
 		APIGatewayManagementAPIOps: h.apiGatewayMgmt,
+		AppConfigDataOps:           h.appConfigData,
 		AmplifyOps:                 h.amplify,
 		APIGatewayV2Ops:            h.apigwv2,
 		GlobalConfig: config.GlobalConfig{
@@ -568,7 +575,7 @@ func New(t *testing.T) *Stack {
 		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.iot, h.opensearch,
 		h.acm, h.acmpca, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
-		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.amplify, h.apigwv2,
+		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData, h.amplify, h.apigwv2,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -630,6 +637,7 @@ func New(t *testing.T) *Stack {
 		CognitoIDPHandler:              h.cognitoIDP,
 		IoTDataPlaneHandler:            h.iotDataPlane,
 		APIGatewayManagementAPIHandler: h.apiGatewayMgmt,
+		AppConfigDataHandler:           h.appConfigData,
 		AmplifyHandler:                 h.amplify,
 		APIGatewayV2Handler:            h.apigwv2,
 		S3Client:                       clients.S3,

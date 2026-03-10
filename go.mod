@@ -14,6 +14,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/amplify v1.38.12
 	github.com/aws/aws-sdk-go-v2/service/apigateway v1.38.6
 	github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.33.7
+	github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.23.20
 	github.com/aws/aws-sdk-go-v2/service/appsync v1.53.3
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.55.1
