@@ -1,0 +1,84 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <img src="/dashboard/static/icons/bedrockruntime.svg" class="w-8 h-8 rounded-md shadow-sm" alt="bedrockruntime" />
+                AWS Bedrock Runtime
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory AWS Bedrock Runtime model invocations. Use InvokeModel or Converse to interact with foundation models.</p>
+        </div>
+    </div>
+
+    <!-- Invocations Table -->
+    <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+        Recent Invocations
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300">
+            {{len .Invocations}}
+        </span>
+    </h2>
+    <div
+        class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Operation</th>
+                    <th scope="col" class="px-6 py-3">Model ID</th>
+                    <th scope="col" class="px-6 py-3">Input</th>
+                    <th scope="col" class="px-6 py-3">Output</th>
+                    <th scope="col" class="px-6 py-3">Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Invocations}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300">
+                            {{.Operation}}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white font-mono text-xs">{{.ModelID}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.Input}}">{{.Input}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.Output}}">{{.Output}}</td>
+                    <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">{{.CreatedAt}}</td>
+                </tr>
+                {{else}}
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No model invocations recorded yet. Call InvokeModel or Converse to get started.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- API reference -->
+    <div class="mt-8 glass-panel rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+        <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-4">Supported Operations</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                <p class="font-mono text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-1">POST /model/{modelId}/invoke</p>
+                <p class="text-sm text-slate-600 dark:text-slate-400">InvokeModel — invoke a foundation model with a raw request body.</p>
+            </div>
+            <div class="p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                <p class="font-mono text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-1">POST /model/{modelId}/invoke-with-response-stream</p>
+                <p class="text-sm text-slate-600 dark:text-slate-400">InvokeModelWithResponseStream — invoke a model and receive a streaming response.</p>
+            </div>
+            <div class="p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                <p class="font-mono text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-1">POST /model/{modelId}/converse</p>
+                <p class="text-sm text-slate-600 dark:text-slate-400">Converse — send a multi-turn conversation and get a structured response.</p>
+            </div>
+            <div class="p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                <p class="font-mono text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-1">POST /model/{modelId}/converse-stream</p>
+                <p class="text-sm text-slate-600 dark:text-slate-400">ConverseStream — send a conversation and receive a streaming response.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{{end}}

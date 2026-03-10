@@ -127,6 +127,23 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		healthCheckType = "EC2"
 	}
 
+	az := "us-east-1a"
+	if len(input.AvailabilityZones) > 0 {
+		az = input.AvailabilityZones[0]
+	}
+
+	instances := make([]Instance, 0, desired)
+	for range desired {
+		instances = append(instances, Instance{
+			InstanceID:              "i-" + uuid.NewString()[:8],
+			AvailabilityZone:        az,
+			LifecycleState:          "InService",
+			HealthStatus:            "Healthy",
+			LaunchConfigurationName: input.LaunchConfigurationName,
+			InstanceType:            "t2.micro",
+		})
+	}
+
 	group := &AutoScalingGroup{
 		AutoScalingGroupName: input.AutoScalingGroupName,
 		AutoScalingGroupARN: "arn:aws:autoscaling:us-east-1:000000000000:autoScalingGroup:" +
@@ -142,7 +159,7 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		LoadBalancerNames:       input.LoadBalancerNames,
 		TargetGroupARNs:         input.TargetGroupARNs,
 		Tags:                    input.Tags,
-		Instances:               []Instance{},
+		Instances:               instances,
 		CreatedTime:             time.Now(),
 		Status:                  "Active",
 	}
