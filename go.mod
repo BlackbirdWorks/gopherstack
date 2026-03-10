@@ -77,7 +77,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/aws/aws-sdk-go-v2/service/batch v1.61.1 // indirect
+require github.com/aws/aws-sdk-go-v2/service/batch v1.61.1
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

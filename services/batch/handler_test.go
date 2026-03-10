@@ -978,3 +978,184 @@ func TestHandler_JobQueueWithComputeEnvironmentOrder(t *testing.T) {
 	ceOrder := jq["computeEnvironmentOrder"].([]any)
 	assert.Len(t, ceOrder, 2)
 }
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "tags_arn",
+			path: "/v1/tags/arn:aws:batch:us-east-1:000000000000:compute-environment/my-ce",
+			want: "arn:aws:batch:us-east-1:000000000000:compute-environment/my-ce",
+		},
+		{
+			name: "non_tags_path",
+			path: "/v1/createcomputeenvironment",
+			want: "",
+		},
+		{
+			name: "tags_empty",
+			path: "/v1/tags/",
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			h := newTestHandler(t)
+			got := h.ExtractResource(c)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestHandler_Tags_InvalidBody(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create a CE so we have a valid ARN to tag.
+	rec := post(t, h, "/v1/createcomputeenvironment", map[string]any{
+		"computeEnvironmentName": "body-ce",
+		"type":                   "MANAGED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]string
+	mustUnmarshal(t, rec, &out)
+	ceARN := out["computeEnvironmentArn"]
+
+	// Send invalid JSON as tag body — expect 400.
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/v1/tags/"+ceARN, strings.NewReader("not-json"))
+	req.Header.Set("Content-Type", "application/json")
+	recW := httptest.NewRecorder()
+	c := e.NewContext(req, recW)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, recW.Code)
+}
+
+func TestHandler_Tags_UntagNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	nonExistentARN := "arn:aws:batch:us-east-1:000000000000:compute-environment/ghost"
+	path := "/v1/tags/" + nonExistentARN + "?tagKeys=k1"
+
+	rec := doRequest(t, h, http.MethodDelete, path, nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_Tags_TagNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	nonExistentARN := "arn:aws:batch:us-east-1:000000000000:compute-environment/ghost"
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/v1/tags/"+nonExistentARN, strings.NewReader(`{"tags":{"k":"v"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	recW := httptest.NewRecorder()
+	c := e.NewContext(req, recW)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, recW.Code)
+}
+
+func TestHandler_ComputeEnvironmentByARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/createcomputeenvironment", map[string]any{
+		"computeEnvironmentName": "arn-lookup-ce",
+		"type":                   "MANAGED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]string
+	mustUnmarshal(t, rec, &out)
+	ceARN := out["computeEnvironmentArn"]
+
+	// Update using ARN instead of name.
+	rec = post(t, h, "/v1/updatecomputeenvironment", map[string]any{
+		"computeEnvironment": ceARN,
+		"state":              "DISABLED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Describe by ARN.
+	rec = post(t, h, "/v1/describecomputeenvironments", map[string]any{
+		"computeEnvironments": []string{ceARN},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descOut map[string]any
+	mustUnmarshal(t, rec, &descOut)
+	ces := descOut["computeEnvironments"].([]any)
+	require.Len(t, ces, 1)
+	assert.Equal(t, "DISABLED", ces[0].(map[string]any)["state"])
+}
+
+func TestHandler_JobQueueByARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/createjobqueue", map[string]any{
+		"jobQueueName": "arn-lookup-jq",
+		"priority":     1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]string
+	mustUnmarshal(t, rec, &out)
+	jqARN := out["jobQueueArn"]
+
+	// Update by ARN.
+	rec = post(t, h, "/v1/updatejobqueue", map[string]any{
+		"jobQueue": jqARN,
+		"state":    "DISABLED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Delete by ARN.
+	rec = post(t, h, "/v1/deletejobqueue", map[string]any{
+		"jobQueue": jqARN,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_DeregisterJobDefinition_ByNameRevision(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/registerjobdefinition", map[string]any{
+		"jobDefinitionName": "namerev-jd",
+		"type":              "container",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Deregister by name:revision.
+	rec = post(t, h, "/v1/deregisterjobdefinition", map[string]any{
+		"jobDefinition": "namerev-jd:1",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
