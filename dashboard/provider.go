@@ -10,6 +10,7 @@ import (
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
+	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -100,6 +101,7 @@ type AWSSDKProvider interface {
 	GetCognitoIDPHandler() service.Registerable
 	GetIoTDataPlaneHandler() service.Registerable
 	GetAmplifyHandler() service.Registerable
+	GetAPIGatewayV2Handler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -163,6 +165,7 @@ type extractedConfig struct {
 	cognitoIDPOps            *cognitoidpbackend.Handler
 	iotDataPlaneOps          *iotdataplanebackend.Handler
 	apiGatewayMgmtOps        *apigwmgmtbackend.Handler
+	apiGatewayV2Ops          *apigwv2backend.Handler
 	appConfigDataOps         *appconfigdatabackend.Handler
 	amplifyOps               *amplifybackend.Handler
 	ecrOps                   *ecrbackend.Handler
@@ -350,6 +353,10 @@ func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.amplifyOps, _ = h.(*amplifybackend.Handler)
 	}
 
+	if h := ap.GetAPIGatewayV2Handler(); h != nil {
+		ec.apiGatewayV2Ops, _ = h.(*apigwv2backend.Handler)
+	}
+
 	if h := ap.GetSESv2Handler(); h != nil {
 		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
 	}
@@ -435,6 +442,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CognitoIDPOps:              ec.cognitoIDPOps,
 		IoTDataPlaneOps:            ec.iotDataPlaneOps,
 		APIGatewayManagementAPIOps: ec.apiGatewayMgmtOps,
+		APIGatewayV2Ops:            ec.apiGatewayV2Ops,
 		AppConfigDataOps:           ec.appConfigDataOps,
 		AmplifyOps:                 ec.amplifyOps,
 		ECROps:                     ec.ecrOps,

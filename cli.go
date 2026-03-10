@@ -51,6 +51,7 @@ import (
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
+	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -158,6 +159,7 @@ type CLI struct {
 	apiGatewayMgmtHandler        service.Registerable
 	appConfigDataHandler         service.Registerable
 	amplifyHandler               service.Registerable
+	apiGatewayV2Handler          service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
 	iotHandler                   service.Registerable
@@ -514,6 +516,11 @@ func (c *CLI) GetAppConfigDataHandler() service.Registerable {
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAmplifyHandler() service.Registerable { return c.amplifyHandler }
+
+// GetAPIGatewayV2Handler returns the API Gateway V2 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAPIGatewayV2Handler() service.Registerable { return c.apiGatewayV2Handler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -900,6 +907,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.apiGatewayMgmtHandler = byName["APIGatewayManagementAPI"]
 	cli.appConfigDataHandler = byName["AppConfigData"]
 	cli.amplifyHandler = byName["Amplify"]
+	cli.apiGatewayV2Handler = byName["APIGatewayV2"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
@@ -1069,6 +1077,7 @@ func getServiceProviders() []service.Provider {
 		&apigwmgmtbackend.Provider{},
 		&appconfigdatabackend.Provider{},
 		&amplifybackend.Provider{},
+		&apigwv2backend.Provider{},
 	}
 }
 

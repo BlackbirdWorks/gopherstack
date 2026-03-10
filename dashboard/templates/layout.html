@@ -522,6 +522,20 @@
                             </div>
                         </li>
                         <li>
+                            <a href="/dashboard/apigatewayv2"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "apigatewayv2"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-apigatewayv2" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/apigatewayv2.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="apigatewayv2" /> <span
+                                    class="sidebar-text truncate" title="API Gateway V2">API Gateway V2</span>
+                            </a>
+                            <div id="tooltip-apigatewayv2" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                API Gateway V2
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
                             <a href="/dashboard/apigateway"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "apigateway"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-apigateway" data-tooltip-placement="right">
