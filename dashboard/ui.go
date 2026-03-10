@@ -31,6 +31,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -165,14 +166,17 @@ type DashboardHandler struct {
 	AthenaOps                  *athenabackend.Handler
 	AutoscalingOps             *autoscalingbackend.Handler
 	AppConfigOps               *appconfigbackend.Handler
-	ApplicationAutoscalingOps  *applicationautoscalingbackend.Handler
-	SubRouter                  *echo.Echo
-	ddbProvider                *ddbbackend.DashboardProvider
-	s3Provider                 *s3backend.DashboardProvider
-	FaultStore                 *chaos.FaultStore
-	Logger                     *slog.Logger
-	layout                     *template.Template
-	GlobalConfig               config.GlobalConfig
+	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
+	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
+	// BatchOps provides access to the Batch backend.
+	BatchOps     *batchbackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -279,6 +283,8 @@ type Config struct {
 	AppConfigOps *appconfigbackend.Handler
 	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
+	// BatchOps provides access to the Batch backend.
+	BatchOps *batchbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -362,6 +368,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/autoscaling/*.html",
 		"templates/appconfig/*.html",
 		"templates/applicationautoscaling/*.html",
+		"templates/batch/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -434,6 +441,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		AutoscalingOps:             cfg.AutoscalingOps,
 		AppConfigOps:               cfg.AppConfigOps,
 		ApplicationAutoscalingOps:  cfg.ApplicationAutoscalingOps,
+		BatchOps:                   cfg.BatchOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -856,6 +864,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupAppConfigRoutes()
 	h.setupAutoscalingRoutes()
 	h.setupApplicationAutoscalingRoutes()
+	h.setupBatchRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -951,6 +960,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/iotdataplane", "IoTDataPlane"},
 	{"/amplify", "Amplify"},
 	{"/applicationautoscaling", "ApplicationAutoscaling"},
+	{"/batch", "Batch"},
 	{"/athena", "Athena"},
 	{"/autoscaling", "Autoscaling"},
 	{"/appconfig", "AppConfig"},

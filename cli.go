@@ -59,6 +59,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -168,6 +169,7 @@ type CLI struct {
 	athenaHandler                 service.Registerable
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
+	batchHandler                  service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -551,6 +553,11 @@ func (c *CLI) GetAppConfigHandler() service.Registerable { return c.appConfigHan
 func (c *CLI) GetApplicationAutoscalingHandler() service.Registerable {
 	return c.applicationautoscalingHandler
 }
+
+// GetBatchHandler returns the Batch handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetBatchHandler() service.Registerable { return c.batchHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -959,6 +966,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.athenaHandler = byName["Athena"]
 	cli.appConfigHandler = byName["AppConfig"]
 	cli.applicationautoscalingHandler = byName["ApplicationAutoscaling"]
+	cli.batchHandler = byName["Batch"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
@@ -1133,6 +1141,7 @@ func getServiceProviders() []service.Provider {
 		&athenabackend.Provider{},
 		&appconfigbackend.Provider{},
 		&applicationautoscalingbackend.Provider{},
+		&batchbackend.Provider{},
 	}
 }
 

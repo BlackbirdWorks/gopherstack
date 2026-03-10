@@ -32,6 +32,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -138,6 +139,7 @@ type Stack struct {
 	AthenaHandler                  *athenabackend.Handler
 	AutoscalingHandler             *autoscalingbackend.Handler
 	ApplicationAutoscalingHandler  *applicationautoscalingbackend.Handler
+	BatchHandler                   *batchbackend.Handler
 	S3Client                       *s3.Client
 	DDBClient                      *dynamodb.Client
 	FaultStore                     *chaos.FaultStore
@@ -309,9 +311,11 @@ func registerNewestServices(
 	registry *service.Registry,
 	autoscalingHndlr *autoscalingbackend.Handler,
 	appAutoScalingHndlr *applicationautoscalingbackend.Handler,
+	batchHndlr *batchbackend.Handler,
 ) {
 	_ = registry.Register(autoscalingHndlr)
 	_ = registry.Register(appAutoScalingHndlr)
+	_ = registry.Register(batchHndlr)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -369,6 +373,7 @@ type handlers struct {
 	athena          *athenabackend.Handler
 	autoscaling     *autoscalingbackend.Handler
 	appAutoScaling  *applicationautoscalingbackend.Handler
+	batch           *batchbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -501,6 +506,7 @@ func populateExtendedHandlers(h *handlers) {
 	h.appAutoScaling = applicationautoscalingbackend.NewHandler(
 		applicationautoscalingbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.batch = batchbackend.NewHandler(batchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -592,6 +598,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		AthenaOps:                  h.athena,
 		AutoscalingOps:             h.autoscaling,
 		ApplicationAutoscalingOps:  h.appAutoScaling,
+		BatchOps:                   h.batch,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -625,7 +632,7 @@ func New(t *testing.T) *Stack {
 		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData,
 		h.amplify, h.apigwv2, h.appConfig, h.athena,
 	)
-	registerNewestServices(registry, h.autoscaling, h.appAutoScaling)
+	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -693,6 +700,7 @@ func New(t *testing.T) *Stack {
 		AthenaHandler:                  h.athena,
 		AutoscalingHandler:             h.autoscaling,
 		ApplicationAutoscalingHandler:  h.appAutoScaling,
+		BatchHandler:                   h.batch,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
