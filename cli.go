@@ -49,6 +49,7 @@ import (
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -151,6 +152,7 @@ type CLI struct {
 	supportHandler               service.Registerable
 	appSyncHandler               service.Registerable
 	iotDataPlaneHandler          service.Registerable
+	apiGatewayMgmtHandler        service.Registerable
 	amplifyHandler               service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
@@ -484,6 +486,13 @@ func (c *CLI) GetAppSyncHandler() service.Registerable { return c.appSyncHandler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetIoTDataPlaneHandler() service.Registerable { return c.iotDataPlaneHandler }
+
+// GetAPIGatewayManagementAPIHandler returns the API Gateway Management API handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAPIGatewayManagementAPIHandler() service.Registerable {
+	return c.apiGatewayMgmtHandler
+}
 
 // GetAmplifyHandler returns the Amplify handler (dashboard.AWSSDKProvider).
 //
@@ -871,6 +880,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.supportHandler = byName["Support"]
 	cli.appSyncHandler = byName["AppSync"]
 	cli.iotDataPlaneHandler = byName["IoTDataPlane"]
+	cli.apiGatewayMgmtHandler = byName["APIGatewayManagementAPI"]
 	cli.amplifyHandler = byName["Amplify"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
@@ -1037,6 +1047,7 @@ func getServiceProviders() []service.Provider {
 		&iotbackend.Provider{},
 		&iotdataplanebackend.Provider{},
 		&appsyncbackend.Provider{},
+		&apigwmgmtbackend.Provider{},
 		&amplifybackend.Provider{},
 	}
 }

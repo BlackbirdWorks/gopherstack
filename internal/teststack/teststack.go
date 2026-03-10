@@ -22,6 +22,7 @@ import (
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -75,57 +76,58 @@ const (
 // Stack holds a fully wired in-memory test stack with all services,
 // the Echo router (correctly mounted), AWS SDK clients, and the dashboard handler.
 type Stack struct {
-	Echo                         *echo.Echo
-	S3Backend                    *s3backend.InMemoryBackend
-	S3Handler                    *s3backend.S3Handler
-	DDBHandler                   *ddbbackend.DynamoDBHandler
-	IAMBackend                   *iambackend.InMemoryBackend
-	IAMHandler                   *iambackend.Handler
-	STSHandler                   *stsbackend.Handler
-	SNSHandler                   *snsbackend.Handler
-	SQSHandler                   *sqsbackend.Handler
-	KMSHandler                   *kmsbackend.Handler
-	SecretsManagerHandler        *smbackend.Handler
-	LambdaHandler                *lambdabackend.Handler
-	EventBridgeHandler           *ebbackend.Handler
-	APIGatewayHandler            *apigwbackend.Handler
-	CloudWatchLogsHandler        *cwlogsbackend.Handler
-	StepFunctionsHandler         *sfnbackend.Handler
-	CloudWatchHandler            *cwbackend.Handler
-	CloudFormationHandler        *cfnbackend.Handler
-	KinesisHandler               *kinesisbackend.Handler
-	ElastiCacheHandler           *elasticachebackend.Handler
-	Route53Handler               *route53backend.Handler
-	SESHandler                   *sesbackend.Handler
-	SESv2Handler                 *sesv2backend.Handler
-	EC2Handler                   *ec2backend.Handler
-	ECRHandler                   *ecrbackend.Handler
-	ECSHandler                   *ecsbackend.Handler
-	IoTHandler                   *iotbackend.Handler
-	FISHandler                   *fisbackend.Handler
-	OpenSearchHandler            *opensearchbackend.Handler
-	ACMHandler                   *acmbackend.Handler
-	RedshiftHandler              *redshiftbackend.Handler
-	RDSHandler                   *rdsbackend.Handler
-	AWSConfigHandler             *awsconfigbackend.Handler
-	S3ControlHandler             *s3controlbackend.Handler
-	ResourceGroupsHandler        *resourcegroupsbackend.Handler
-	ResourceGroupsTaggingHandler *rgtabackend.Handler
-	SWFHandler                   *swfbackend.Handler
-	FirehoseHandler              *firehosebackend.Handler
-	SchedulerHandler             *schedulerbackend.Handler
-	Route53ResolverHandler       *route53resolverbackend.Handler
-	TranscribeHandler            *transcribebackend.Handler
-	SupportHandler               *supportbackend.Handler
-	CognitoIdentityHandler       *cognitoidentitybackend.Handler
-	AppSyncHandler               *appsyncbackend.Handler
-	CognitoIDPHandler            *cognitoidpbackend.Handler
-	IoTDataPlaneHandler          *iotdataplanebackend.Handler
-	AmplifyHandler               *amplifybackend.Handler
-	S3Client                     *s3.Client
-	DDBClient                    *dynamodb.Client
-	FaultStore                   *chaos.FaultStore
-	Dashboard                    *dashboard.DashboardHandler
+	Echo                           *echo.Echo
+	S3Backend                      *s3backend.InMemoryBackend
+	S3Handler                      *s3backend.S3Handler
+	DDBHandler                     *ddbbackend.DynamoDBHandler
+	IAMBackend                     *iambackend.InMemoryBackend
+	IAMHandler                     *iambackend.Handler
+	STSHandler                     *stsbackend.Handler
+	SNSHandler                     *snsbackend.Handler
+	SQSHandler                     *sqsbackend.Handler
+	KMSHandler                     *kmsbackend.Handler
+	SecretsManagerHandler          *smbackend.Handler
+	LambdaHandler                  *lambdabackend.Handler
+	EventBridgeHandler             *ebbackend.Handler
+	APIGatewayHandler              *apigwbackend.Handler
+	CloudWatchLogsHandler          *cwlogsbackend.Handler
+	StepFunctionsHandler           *sfnbackend.Handler
+	CloudWatchHandler              *cwbackend.Handler
+	CloudFormationHandler          *cfnbackend.Handler
+	KinesisHandler                 *kinesisbackend.Handler
+	ElastiCacheHandler             *elasticachebackend.Handler
+	Route53Handler                 *route53backend.Handler
+	SESHandler                     *sesbackend.Handler
+	SESv2Handler                   *sesv2backend.Handler
+	EC2Handler                     *ec2backend.Handler
+	ECRHandler                     *ecrbackend.Handler
+	ECSHandler                     *ecsbackend.Handler
+	IoTHandler                     *iotbackend.Handler
+	FISHandler                     *fisbackend.Handler
+	OpenSearchHandler              *opensearchbackend.Handler
+	ACMHandler                     *acmbackend.Handler
+	RedshiftHandler                *redshiftbackend.Handler
+	RDSHandler                     *rdsbackend.Handler
+	AWSConfigHandler               *awsconfigbackend.Handler
+	S3ControlHandler               *s3controlbackend.Handler
+	ResourceGroupsHandler          *resourcegroupsbackend.Handler
+	ResourceGroupsTaggingHandler   *rgtabackend.Handler
+	SWFHandler                     *swfbackend.Handler
+	FirehoseHandler                *firehosebackend.Handler
+	SchedulerHandler               *schedulerbackend.Handler
+	Route53ResolverHandler         *route53resolverbackend.Handler
+	TranscribeHandler              *transcribebackend.Handler
+	SupportHandler                 *supportbackend.Handler
+	CognitoIdentityHandler         *cognitoidentitybackend.Handler
+	AppSyncHandler                 *appsyncbackend.Handler
+	CognitoIDPHandler              *cognitoidpbackend.Handler
+	IoTDataPlaneHandler            *iotdataplanebackend.Handler
+	APIGatewayManagementAPIHandler *apigwmgmtbackend.Handler
+	AmplifyHandler                 *amplifybackend.Handler
+	S3Client                       *s3.Client
+	DDBClient                      *dynamodb.Client
+	FaultStore                     *chaos.FaultStore
+	Dashboard                      *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -217,6 +219,7 @@ func registerServices(
 	appSyncHndlr *appsyncbackend.Handler,
 	cognitoIDPHndlr *cognitoidpbackend.Handler,
 	iotDataPlaneHndlr *iotdataplanebackend.Handler,
+	apiGatewayMgmtHndlr *apigwmgmtbackend.Handler,
 	amplifyHndlr *amplifybackend.Handler,
 ) {
 	_ = registry.Register(ddbHndlr)
@@ -262,6 +265,7 @@ func registerServices(
 	_ = registry.Register(appSyncHndlr)
 	_ = registry.Register(cognitoIDPHndlr)
 	_ = registry.Register(iotDataPlaneHndlr)
+	_ = registry.Register(apiGatewayMgmtHndlr)
 	_ = registry.Register(amplifyHndlr)
 }
 
@@ -311,6 +315,7 @@ type handlers struct {
 	appSync         *appsyncbackend.Handler
 	cognitoIDP      *cognitoidpbackend.Handler
 	iotDataPlane    *iotdataplanebackend.Handler
+	apiGatewayMgmt  *apigwmgmtbackend.Handler
 	amplify         *amplifybackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
@@ -429,6 +434,7 @@ func populateExtendedHandlers(h *handlers) {
 		config.DefaultRegion,
 	)
 	h.iotDataPlane = iotdataplanebackend.NewHandler(iotdataplanebackend.NewInMemoryBackend())
+	h.apiGatewayMgmt = apigwmgmtbackend.NewHandler(apigwmgmtbackend.NewInMemoryBackend())
 	h.amplify = amplifybackend.NewHandler(
 		amplifybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -467,57 +473,61 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 	fs := chaos.NewFaultStore()
 
 	return dashboard.Config{
-		DDBClient:                clients.DDB,
-		S3Client:                 clients.S3,
-		SSMClient:                clients.SSM,
-		DDBOps:                   h.ddb,
-		S3Ops:                    h.s3,
-		SSMOps:                   h.ssm,
-		IAMOps:                   h.iam,
-		STSOps:                   h.sts,
-		SNSOps:                   h.sns,
-		SQSOps:                   h.sqs,
-		KMSOps:                   h.kms,
-		SecretsManagerOps:        h.sm,
-		LambdaOps:                h.lambda,
-		EventBridgeOps:           h.eb,
-		APIGatewayOps:            h.apigw,
-		CloudWatchLogsOps:        h.cwlogs,
-		StepFunctionsOps:         h.sfn,
-		CloudWatchOps:            h.cw,
-		CloudFormationOps:        h.cfn,
-		KinesisOps:               h.kinesis,
-		ElastiCacheOps:           h.elasticache,
-		Route53Ops:               h.route53,
-		SESOps:                   h.ses,
-		SESv2Ops:                 h.sesv2,
-		EC2Ops:                   h.ec2,
-		ECROps:                   h.ecr,
-		ECSOps:                   h.ecs,
-		IoTOps:                   h.iot,
-		FISOps:                   h.fis,
-		OpenSearchOps:            h.opensearch,
-		ACMOps:                   h.acm,
-		RedshiftOps:              h.redshift,
-		RDSOps:                   h.rds,
-		AWSConfigOps:             h.awsconfig,
-		S3ControlOps:             h.s3control,
-		ResourceGroupsOps:        h.resourcegroups,
-		ResourceGroupsTaggingOps: h.rgtagging,
-		SWFOps:                   h.swf,
-		FirehoseOps:              h.firehose,
-		SchedulerOps:             h.scheduler,
-		Route53ResolverOps:       h.route53resolver,
-		TranscribeOps:            h.transcribe,
-		SupportOps:               h.support,
-		CognitoIdentityOps:       h.cognitoIdentity,
-		AppSyncOps:               h.appSync,
-		CognitoIDPOps:            h.cognitoIDP,
-		IoTDataPlaneOps:          h.iotDataPlane,
-		AmplifyOps:               h.amplify,
-		GlobalConfig:             config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion},
-		FaultStore:               fs,
-		Logger:                   slog.Default(),
+		DDBClient:                  clients.DDB,
+		S3Client:                   clients.S3,
+		SSMClient:                  clients.SSM,
+		DDBOps:                     h.ddb,
+		S3Ops:                      h.s3,
+		SSMOps:                     h.ssm,
+		IAMOps:                     h.iam,
+		STSOps:                     h.sts,
+		SNSOps:                     h.sns,
+		SQSOps:                     h.sqs,
+		KMSOps:                     h.kms,
+		SecretsManagerOps:          h.sm,
+		LambdaOps:                  h.lambda,
+		EventBridgeOps:             h.eb,
+		APIGatewayOps:              h.apigw,
+		CloudWatchLogsOps:          h.cwlogs,
+		StepFunctionsOps:           h.sfn,
+		CloudWatchOps:              h.cw,
+		CloudFormationOps:          h.cfn,
+		KinesisOps:                 h.kinesis,
+		ElastiCacheOps:             h.elasticache,
+		Route53Ops:                 h.route53,
+		SESOps:                     h.ses,
+		SESv2Ops:                   h.sesv2,
+		EC2Ops:                     h.ec2,
+		ECROps:                     h.ecr,
+		ECSOps:                     h.ecs,
+		IoTOps:                     h.iot,
+		FISOps:                     h.fis,
+		OpenSearchOps:              h.opensearch,
+		ACMOps:                     h.acm,
+		RedshiftOps:                h.redshift,
+		RDSOps:                     h.rds,
+		AWSConfigOps:               h.awsconfig,
+		S3ControlOps:               h.s3control,
+		ResourceGroupsOps:          h.resourcegroups,
+		ResourceGroupsTaggingOps:   h.rgtagging,
+		SWFOps:                     h.swf,
+		FirehoseOps:                h.firehose,
+		SchedulerOps:               h.scheduler,
+		Route53ResolverOps:         h.route53resolver,
+		TranscribeOps:              h.transcribe,
+		SupportOps:                 h.support,
+		CognitoIdentityOps:         h.cognitoIdentity,
+		AppSyncOps:                 h.appSync,
+		CognitoIDPOps:              h.cognitoIDP,
+		IoTDataPlaneOps:            h.iotDataPlane,
+		APIGatewayManagementAPIOps: h.apiGatewayMgmt,
+		AmplifyOps:                 h.amplify,
+		GlobalConfig: config.GlobalConfig{
+			AccountID: config.DefaultAccountID,
+			Region:    config.DefaultRegion,
+		},
+		FaultStore: fs,
+		Logger:     slog.Default(),
 	}, fs
 }
 
@@ -542,7 +552,7 @@ func New(t *testing.T) *Stack {
 		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.iot, h.opensearch,
 		h.acm, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
-		h.appSync, h.cognitoIDP, h.iotDataPlane, h.amplify,
+		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.amplify,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -556,57 +566,58 @@ func New(t *testing.T) *Stack {
 	e.Use(router.RouteHandler())
 
 	return &Stack{
-		Echo:                         e,
-		S3Backend:                    h.s3Bk,
-		S3Handler:                    h.s3,
-		DDBHandler:                   h.ddb,
-		IAMBackend:                   h.iamBk,
-		IAMHandler:                   h.iam,
-		STSHandler:                   h.sts,
-		SNSHandler:                   h.sns,
-		SQSHandler:                   h.sqs,
-		KMSHandler:                   h.kms,
-		SecretsManagerHandler:        h.sm,
-		LambdaHandler:                h.lambda,
-		EventBridgeHandler:           h.eb,
-		APIGatewayHandler:            h.apigw,
-		CloudWatchLogsHandler:        h.cwlogs,
-		StepFunctionsHandler:         h.sfn,
-		CloudWatchHandler:            h.cw,
-		CloudFormationHandler:        h.cfn,
-		KinesisHandler:               h.kinesis,
-		ElastiCacheHandler:           h.elasticache,
-		Route53Handler:               h.route53,
-		SESHandler:                   h.ses,
-		SESv2Handler:                 h.sesv2,
-		EC2Handler:                   h.ec2,
-		ECRHandler:                   h.ecr,
-		ECSHandler:                   h.ecs,
-		IoTHandler:                   h.iot,
-		FISHandler:                   h.fis,
-		OpenSearchHandler:            h.opensearch,
-		ACMHandler:                   h.acm,
-		RedshiftHandler:              h.redshift,
-		RDSHandler:                   h.rds,
-		AWSConfigHandler:             h.awsconfig,
-		S3ControlHandler:             h.s3control,
-		ResourceGroupsHandler:        h.resourcegroups,
-		ResourceGroupsTaggingHandler: h.rgtagging,
-		SWFHandler:                   h.swf,
-		FirehoseHandler:              h.firehose,
-		SchedulerHandler:             h.scheduler,
-		Route53ResolverHandler:       h.route53resolver,
-		TranscribeHandler:            h.transcribe,
-		SupportHandler:               h.support,
-		CognitoIdentityHandler:       h.cognitoIdentity,
-		AppSyncHandler:               h.appSync,
-		CognitoIDPHandler:            h.cognitoIDP,
-		IoTDataPlaneHandler:          h.iotDataPlane,
-		AmplifyHandler:               h.amplify,
-		S3Client:                     clients.S3,
-		DDBClient:                    clients.DDB,
-		FaultStore:                   faultStore,
-		Dashboard:                    dashHndlr,
+		Echo:                           e,
+		S3Backend:                      h.s3Bk,
+		S3Handler:                      h.s3,
+		DDBHandler:                     h.ddb,
+		IAMBackend:                     h.iamBk,
+		IAMHandler:                     h.iam,
+		STSHandler:                     h.sts,
+		SNSHandler:                     h.sns,
+		SQSHandler:                     h.sqs,
+		KMSHandler:                     h.kms,
+		SecretsManagerHandler:          h.sm,
+		LambdaHandler:                  h.lambda,
+		EventBridgeHandler:             h.eb,
+		APIGatewayHandler:              h.apigw,
+		CloudWatchLogsHandler:          h.cwlogs,
+		StepFunctionsHandler:           h.sfn,
+		CloudWatchHandler:              h.cw,
+		CloudFormationHandler:          h.cfn,
+		KinesisHandler:                 h.kinesis,
+		ElastiCacheHandler:             h.elasticache,
+		Route53Handler:                 h.route53,
+		SESHandler:                     h.ses,
+		SESv2Handler:                   h.sesv2,
+		EC2Handler:                     h.ec2,
+		ECRHandler:                     h.ecr,
+		ECSHandler:                     h.ecs,
+		IoTHandler:                     h.iot,
+		FISHandler:                     h.fis,
+		OpenSearchHandler:              h.opensearch,
+		ACMHandler:                     h.acm,
+		RedshiftHandler:                h.redshift,
+		RDSHandler:                     h.rds,
+		AWSConfigHandler:               h.awsconfig,
+		S3ControlHandler:               h.s3control,
+		ResourceGroupsHandler:          h.resourcegroups,
+		ResourceGroupsTaggingHandler:   h.rgtagging,
+		SWFHandler:                     h.swf,
+		FirehoseHandler:                h.firehose,
+		SchedulerHandler:               h.scheduler,
+		Route53ResolverHandler:         h.route53resolver,
+		TranscribeHandler:              h.transcribe,
+		SupportHandler:                 h.support,
+		CognitoIdentityHandler:         h.cognitoIdentity,
+		AppSyncHandler:                 h.appSync,
+		CognitoIDPHandler:              h.cognitoIDP,
+		IoTDataPlaneHandler:            h.iotDataPlane,
+		APIGatewayManagementAPIHandler: h.apiGatewayMgmt,
+		AmplifyHandler:                 h.amplify,
+		S3Client:                       clients.S3,
+		DDBClient:                      clients.DDB,
+		FaultStore:                     faultStore,
+		Dashboard:                      dashHndlr,
 	}
 }
 
