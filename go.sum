@@ -56,6 +56,8 @@ github.com/aws/aws-sdk-go-v2/service/appconfig v1.43.11 h1:hpHzUl5Vq8c2gCdVVJdwm
 github.com/aws/aws-sdk-go-v2/service/appconfig v1.43.11/go.mod h1:zfUJXzy0muApUbhzu0pomCnsTh28zPoETAtIDgtl/64=
 github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.23.20 h1:28H3ASZzvR5hY7FMu+yM35lqYVR3/09N42MGnsUSMxI=
 github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.23.20/go.mod h1:GsRz8ACYFQ+UD7TPyQKbQV+8ukxQhOcx8n10htQ4P14=
+github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.41.12 h1:l8nLdmOlFJzl0wGpZ0hlaFyuYz9anE5nWn165EFfXzE=
+github.com/aws/aws-sdk-go-v2/service/applicationautoscaling v1.41.12/go.mod h1:57t2hFtz4rmQin/p8xRQlUJXwO/EcKUwZEfK1YruIco=
 github.com/aws/aws-sdk-go-v2/service/appsync v1.53.3 h1:WJ/KdDXNJ6ZApdx3gsA7ZBjbyox2btDLZbfS4HnsqVg=
 github.com/aws/aws-sdk-go-v2/service/appsync v1.53.3/go.mod h1:z/KufhKCQ6MvaGsZ154094dPeKsJuybZ5OLbZv7Kxuw=
 github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7 h1:QkM9aGnVnXrXpxXJMu7GO+E/eho+RfItwDp71aPa79o=
