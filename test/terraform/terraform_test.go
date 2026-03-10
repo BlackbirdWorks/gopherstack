@@ -32,6 +32,7 @@ import (
 	appconfigdatasvc "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
+	autoscalingsvc "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
@@ -149,6 +150,7 @@ provider "aws" {
     apigateway      = %[1]q
     apigatewayv2    = %[1]q
     appsync         = %[1]q
+    autoscaling     = %[1]q
     cloudformation  = %[1]q
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
@@ -2290,6 +2292,64 @@ func TestTerraform_APIGatewayV2(t *testing.T) {
 					}
 				}
 				assert.True(t, found, "HTTP API %q should be listed", vars["APIName"].(string))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Autoscaling provisions a launch configuration and Auto Scaling group via Terraform,
+// then verifies both exist via the Autoscaling SDK.
+func TestTerraform_Autoscaling(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "autoscaling/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				suffix := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ASGName": "tf-asg-" + suffix,
+					"LCName":  "tf-lc-" + suffix,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createAutoscalingClient(t)
+
+				out, err := client.DescribeAutoScalingGroups(ctx, &autoscalingsvc.DescribeAutoScalingGroupsInput{
+					AutoScalingGroupNames: []string{vars["ASGName"].(string)},
+				})
+				require.NoError(t, err, "DescribeAutoScalingGroups should succeed after terraform apply")
+				require.Len(t, out.AutoScalingGroups, 1)
+				assert.Equal(t, vars["ASGName"].(string), aws.ToString(out.AutoScalingGroups[0].AutoScalingGroupName))
+				assert.Equal(t, int32(1), aws.ToInt32(out.AutoScalingGroups[0].MinSize))
+				assert.Equal(t, int32(5), aws.ToInt32(out.AutoScalingGroups[0].MaxSize))
+
+				lcOut, err := client.DescribeLaunchConfigurations(
+					ctx,
+					&autoscalingsvc.DescribeLaunchConfigurationsInput{
+						LaunchConfigurationNames: []string{vars["LCName"].(string)},
+					},
+				)
+				require.NoError(t, err, "DescribeLaunchConfigurations should succeed")
+				require.Len(t, lcOut.LaunchConfigurations, 1)
+				assert.Equal(
+					t,
+					vars["LCName"].(string),
+					aws.ToString(lcOut.LaunchConfigurations[0].LaunchConfigurationName),
+				)
 			},
 		},
 	}

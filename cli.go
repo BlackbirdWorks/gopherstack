@@ -55,6 +55,7 @@ import (
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -160,6 +161,7 @@ type CLI struct {
 	apiGatewayMgmtHandler        service.Registerable
 	appConfigDataHandler         service.Registerable
 	amplifyHandler               service.Registerable
+	autoscalingHandler           service.Registerable
 	apiGatewayV2Handler          service.Registerable
 	appConfigHandler             service.Registerable
 	ecrHandler                   service.Registerable
@@ -518,6 +520,11 @@ func (c *CLI) GetAppConfigDataHandler() service.Registerable {
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAmplifyHandler() service.Registerable { return c.amplifyHandler }
+
+// GetAutoscalingHandler returns the Autoscaling handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAutoscalingHandler() service.Registerable { return c.autoscalingHandler }
 
 // GetAPIGatewayV2Handler returns the API Gateway V2 handler (dashboard.AWSSDKProvider).
 //
@@ -912,8 +919,15 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.appSyncHandler = byName["AppSync"]
 	cli.iotDataPlaneHandler = byName["IoTDataPlane"]
 	cli.apiGatewayMgmtHandler = byName["APIGatewayManagementAPI"]
+
+	storeAdditionalCLIHandlers(cli, byName)
+}
+
+// storeAdditionalCLIHandlers stores recently-added service handlers into the CLI struct.
+func storeAdditionalCLIHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.appConfigDataHandler = byName["AppConfigData"]
 	cli.amplifyHandler = byName["Amplify"]
+	cli.autoscalingHandler = byName["Autoscaling"]
 	cli.apiGatewayV2Handler = byName["APIGatewayV2"]
 	cli.appConfigHandler = byName["AppConfig"]
 	cli.ecrHandler = byName["ECR"]
@@ -1085,6 +1099,7 @@ func getServiceProviders() []service.Provider {
 		&apigwmgmtbackend.Provider{},
 		&appconfigdatabackend.Provider{},
 		&amplifybackend.Provider{},
+		&autoscalingbackend.Provider{},
 		&apigwv2backend.Provider{},
 		&appconfigbackend.Provider{},
 	}

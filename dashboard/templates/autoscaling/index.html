@@ -1,0 +1,98 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <img src="/dashboard/static/icons/autoscaling.svg" class="w-8 h-8 rounded-md shadow-sm" alt="autoscaling" />
+                Auto Scaling
+                <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300">
+                    {{len .Groups}} groups
+                </span>
+
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory Auto Scaling groups and launch configurations for testing.</p>
+        </div>
+    </div>
+
+    <div class="mb-8">
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Auto Scaling Groups</h2>
+        <div class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+            <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Name</th>
+                        <th scope="col" class="px-6 py-3">Min</th>
+                        <th scope="col" class="px-6 py-3">Max</th>
+                        <th scope="col" class="px-6 py-3">Desired</th>
+                        <th scope="col" class="px-6 py-3">Health Check</th>
+                        <th scope="col" class="px-6 py-3">Launch Config</th>
+                        <th scope="col" class="px-6 py-3">Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Groups}}
+                    <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                        <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.AutoScalingGroupName}}</td>
+                        <td class="px-6 py-4">{{.MinSize}}</td>
+                        <td class="px-6 py-4">{{.MaxSize}}</td>
+                        <td class="px-6 py-4">{{.DesiredCapacity}}</td>
+                        <td class="px-6 py-4">
+                            <span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-blue-900 dark:text-blue-300">{{.HealthCheckType}}</span>
+                        </td>
+                        <td class="px-6 py-4 font-mono text-xs text-slate-500 dark:text-slate-400">{{.LaunchConfigurationName}}</td>
+                        <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">{{.CreatedTime.Format "2006-01-02 15:04:05"}}</td>
+                    </tr>
+                    {{else}}
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                        <td colspan="7" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No Auto Scaling groups. Create one to get started.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div>
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">Launch Configurations
+            <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-300">
+                {{len .LaunchConfigurations}}
+            </span>
+        </h2>
+        <div class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+            <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Name</th>
+                        <th scope="col" class="px-6 py-3">Image ID</th>
+                        <th scope="col" class="px-6 py-3">Instance Type</th>
+                        <th scope="col" class="px-6 py-3">Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .LaunchConfigurations}}
+                    <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                        <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.LaunchConfigurationName}}</td>
+                        <td class="px-6 py-4 font-mono text-xs">{{.ImageID}}</td>
+                        <td class="px-6 py-4">
+                            <span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.InstanceType}}</span>
+                        </td>
+                        <td class="px-6 py-4 text-xs text-slate-500 dark:text-slate-400">{{.CreatedTime.Format "2006-01-02 15:04:05"}}</td>
+                    </tr>
+                    {{else}}
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                        <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No launch configurations. Create one to get started.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{{end}}
