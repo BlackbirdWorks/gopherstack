@@ -52,6 +52,7 @@ import (
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
@@ -162,6 +163,7 @@ type CLI struct {
 	amplifyHandler               service.Registerable
 	apiGatewayV2Handler          service.Registerable
 	athenaHandler                service.Registerable
+	appConfigHandler             service.Registerable
 	ecrHandler                   service.Registerable
 	ecsHandler                   service.Registerable
 	iotHandler                   service.Registerable
@@ -528,6 +530,11 @@ func (c *CLI) GetAPIGatewayV2Handler() service.Registerable { return c.apiGatewa
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAthenaHandler() service.Registerable { return c.athenaHandler }
+
+// GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAppConfigHandler() service.Registerable { return c.appConfigHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -916,6 +923,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.amplifyHandler = byName["Amplify"]
 	cli.apiGatewayV2Handler = byName["APIGatewayV2"]
 	cli.athenaHandler = byName["Athena"]
+	cli.appConfigHandler = byName["AppConfig"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
@@ -1087,6 +1095,7 @@ func getServiceProviders() []service.Provider {
 		&amplifybackend.Provider{},
 		&apigwv2backend.Provider{},
 		&athenabackend.Provider{},
+		&appconfigbackend.Provider{},
 	}
 }
 

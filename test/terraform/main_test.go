@@ -22,6 +22,7 @@ import (
 	amplifysdkv2 "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
 	apigwv2svc "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
+	appconfigsvc "github.com/aws/aws-sdk-go-v2/service/appconfig"
 	appconfigdatasvc "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	athenadkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
@@ -1159,6 +1160,24 @@ func createAmplifyClient(t *testing.T) *amplifysdkv2.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return amplifysdkv2.NewFromConfig(cfg, func(o *amplifysdkv2.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createAppConfigClient returns an AppConfig client pointed at the shared test container.
+func createAppConfigClient(t *testing.T) *appconfigsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return appconfigsvc.NewFromConfig(cfg, func(o *appconfigsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
