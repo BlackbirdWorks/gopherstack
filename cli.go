@@ -52,6 +52,7 @@ import (
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
+	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -156,6 +157,7 @@ type CLI struct {
 	appSyncHandler               service.Registerable
 	iotDataPlaneHandler          service.Registerable
 	apiGatewayMgmtHandler        service.Registerable
+	appConfigDataHandler         service.Registerable
 	amplifyHandler               service.Registerable
 	appConfigHandler             service.Registerable
 	ecrHandler                   service.Registerable
@@ -501,6 +503,13 @@ func (c *CLI) GetIoTDataPlaneHandler() service.Registerable { return c.iotDataPl
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetAPIGatewayManagementAPIHandler() service.Registerable {
 	return c.apiGatewayMgmtHandler
+}
+
+// GetAppConfigDataHandler returns the AppConfigData handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetAppConfigDataHandler() service.Registerable {
+	return c.appConfigDataHandler
 }
 
 // GetAmplifyHandler returns the Amplify handler (dashboard.AWSSDKProvider).
@@ -896,6 +905,7 @@ func storeCLIHandlers(cli *CLI, services []service.Registerable) {
 	cli.appSyncHandler = byName["AppSync"]
 	cli.iotDataPlaneHandler = byName["IoTDataPlane"]
 	cli.apiGatewayMgmtHandler = byName["APIGatewayManagementAPI"]
+	cli.appConfigDataHandler = byName["AppConfigData"]
 	cli.amplifyHandler = byName["Amplify"]
 	cli.appConfigHandler = byName["AppConfig"]
 	cli.ecrHandler = byName["ECR"]
@@ -1065,6 +1075,7 @@ func getServiceProviders() []service.Provider {
 		&iotdataplanebackend.Provider{},
 		&appsyncbackend.Provider{},
 		&apigwmgmtbackend.Provider{},
+		&appconfigdatabackend.Provider{},
 		&amplifybackend.Provider{},
 		&appconfigbackend.Provider{},
 	}
@@ -2600,6 +2611,45 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load demo data", "error", err)
 	}
+
+	seedAppConfigDataDemoProfiles(ctx, cli.appConfigDataHandler, log)
+}
+
+// seedAppConfigDataDemoProfiles seeds demo configuration profiles for visual dashboard inspection.
+// AppConfigData has no AWS SDK write API, so profiles are seeded directly via the backend.
+func seedAppConfigDataDemoProfiles(ctx context.Context, h service.Registerable, log *slog.Logger) {
+	acdHandler, ok := h.(*appconfigdatabackend.Handler)
+	if !ok || acdHandler == nil {
+		log.DebugContext(ctx, "AppConfigData handler not available; skipping demo profile seeding")
+
+		return
+	}
+
+	profiles := []struct {
+		app, env, profile, content, contentType string
+	}{
+		{
+			app: "demo-app", env: "production", profile: "feature-flags",
+			content:     `{"featureFlagX":true,"enableNewUI":false,"maxRetries":3}`,
+			contentType: "application/json",
+		},
+		{
+			app: "demo-app", env: "production", profile: "rate-limits",
+			content:     `{"requestsPerMinute":100,"burstLimit":200}`,
+			contentType: "application/json",
+		},
+		{
+			app: "demo-app", env: "staging", profile: "feature-flags",
+			content:     `{"featureFlagX":true,"enableNewUI":true,"maxRetries":5}`,
+			contentType: "application/json",
+		},
+	}
+
+	for _, p := range profiles {
+		acdHandler.Backend.SetConfiguration(p.app, p.env, p.profile, p.content, p.contentType)
+	}
+
+	log.InfoContext(ctx, "Seeded AppConfigData demo profiles", "count", len(profiles))
 }
 
 // persistenceMiddleware returns an Echo middleware that schedules a debounced snapshot

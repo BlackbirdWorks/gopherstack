@@ -11,6 +11,7 @@ import (
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigwmgmtbackend "github.com/blackbirdworks/gopherstack/services/apigatewaymanagementapi"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
+	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -106,6 +107,7 @@ type AWSSDKProvider interface {
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
 	GetAPIGatewayManagementAPIHandler() service.Registerable
+	GetAppConfigDataHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -163,6 +165,7 @@ type extractedConfig struct {
 	cognitoIDPOps            *cognitoidpbackend.Handler
 	iotDataPlaneOps          *iotdataplanebackend.Handler
 	apiGatewayMgmtOps        *apigwmgmtbackend.Handler
+	appConfigDataOps         *appconfigdatabackend.Handler
 	amplifyOps               *amplifybackend.Handler
 	appConfigOps             *appconfigbackend.Handler
 	ecrOps                   *ecrbackend.Handler
@@ -387,6 +390,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetAppConfigHandler(); h != nil {
 		ec.appConfigOps, _ = h.(*appconfigbackend.Handler)
 	}
+
+	if h := ap.GetAppConfigDataHandler(); h != nil {
+		ec.appConfigDataOps, _ = h.(*appconfigdatabackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -435,6 +442,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CognitoIDPOps:              ec.cognitoIDPOps,
 		IoTDataPlaneOps:            ec.iotDataPlaneOps,
 		APIGatewayManagementAPIOps: ec.apiGatewayMgmtOps,
+		AppConfigDataOps:           ec.appConfigDataOps,
 		AmplifyOps:                 ec.amplifyOps,
 		AppConfigOps:               ec.appConfigOps,
 		ECROps:                     ec.ecrOps,
