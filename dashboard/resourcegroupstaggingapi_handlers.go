@@ -27,7 +27,6 @@ type resourcegroupstaggingapiIndexData struct {
 
 // resourcegroupstaggingapiIndex renders the Resource Groups Tagging API dashboard index,
 // displaying all tagged resources discovered by registered resource providers.
-
 func (h *DashboardHandler) resourcegroupstaggingapiIndex(c *echo.Context) error {
 	w := c.Response()
 

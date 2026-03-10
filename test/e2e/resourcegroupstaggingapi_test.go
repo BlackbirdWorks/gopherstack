@@ -10,11 +10,26 @@ import (
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 )
 
-// TestResourceGroupsTaggingAPIDashboard verifies the Resource Groups Tagging API dashboard renders.
+const testTaggingARN = "arn:aws:s3:::e2e-tagged-bucket"
+
+// TestResourceGroupsTaggingAPIDashboard verifies the Resource Groups Tagging API dashboard
+// renders tagged resources seeded via a registered resource provider.
 func TestResourceGroupsTaggingAPIDashboard(t *testing.T) {
 	stack := newStack(t)
+
+	stack.ResourceGroupsTaggingHandler.Backend.RegisterProvider(func() []taggingbackend.TaggedResource {
+		return []taggingbackend.TaggedResource{
+			{
+				ResourceARN:  testTaggingARN,
+				ResourceType: "s3:bucket",
+				Tags:         map[string]string{"env": "e2e"},
+			},
+		}
+	})
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()
@@ -43,7 +58,8 @@ func TestResourceGroupsTaggingAPIDashboard(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Resource Groups Tagging API")
+	assert.Contains(t, content, testTaggingARN)
+	assert.Contains(t, content, "env=e2e")
 }
 
 // TestResourceGroupsTaggingAPIDashboard_Empty verifies the empty state renders correctly.
