@@ -1297,18 +1297,18 @@ func createBatchClient(t *testing.T) *batchsvc.Client {
 
 // createBedrockClient returns a Bedrock client pointed at the shared test container.
 func createBedrockClient(t *testing.T) *bedrocksvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-require.NoError(t, err, "unable to load SDK config")
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
 
-return bedrocksvc.NewFromConfig(cfg, func(o *bedrocksvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return bedrocksvc.NewFromConfig(cfg, func(o *bedrocksvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }

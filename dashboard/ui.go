@@ -172,7 +172,7 @@ type DashboardHandler struct {
 	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
 	// BatchOps provides access to the Batch backend.
-	BatchOps     *batchbackend.Handler
+	BatchOps *batchbackend.Handler
 	// BedrockOps provides access to the Bedrock backend.
 	BedrockOps   *bedrockbackend.Handler
 	SubRouter    *echo.Echo

@@ -519,7 +519,9 @@ func populateExtendedHandlers(h *handlers) {
 		backupbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.batch = batchbackend.NewHandler(batchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
-	h.bedrock = bedrockbackend.NewHandler(bedrockbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.bedrock = bedrockbackend.NewHandler(
+		bedrockbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends

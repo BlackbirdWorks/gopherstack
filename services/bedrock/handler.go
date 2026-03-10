@@ -25,7 +25,7 @@ const (
 	untagResourcePath           = "/untagResource"
 )
 
-// isoTime is a time.Time that marshals as RFC3339.
+// isoTime is a [time.Time] that marshals as RFC3339.
 type isoTime struct {
 	time.Time
 }
@@ -96,6 +96,8 @@ func (h *Handler) RouteMatcher() service.Matcher {
 func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 
 // ExtractOperation returns the operation name from the request.
+//
+//nolint:cyclop // dispatch function enumerates all operations
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 	method := c.Request().Method
@@ -156,6 +158,8 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 }
 
 // Handler returns the Echo handler function for Bedrock requests.
+//
+//nolint:gocognit,gocyclo,cyclop // dispatch function enumerates all operations
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
@@ -180,25 +184,48 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case path == guardrailsPrefix && method == http.MethodGet:
 			return h.handleListGuardrails(c)
 		case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodGet:
-			return h.handleGetGuardrail(c, decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")))
+			return h.handleGetGuardrail(
+				c,
+				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
+			)
 		case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodPut:
-			return h.handleUpdateGuardrail(c, decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")), body)
+			return h.handleUpdateGuardrail(
+				c,
+				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
+				body,
+			)
 		case strings.HasPrefix(path, guardrailsPrefix+"/") && method == http.MethodDelete:
-			return h.handleDeleteGuardrail(c, decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")))
+			return h.handleDeleteGuardrail(
+				c,
+				decodePath(strings.TrimPrefix(path, guardrailsPrefix+"/")),
+			)
 		case path == foundationModelsPrefix && method == http.MethodGet:
 			return h.handleListFoundationModels(c)
 		case strings.HasPrefix(path, foundationModelsPrefix+"/") && method == http.MethodGet:
-			return h.handleGetFoundationModel(c, decodePath(strings.TrimPrefix(path, foundationModelsPrefix+"/")))
+			return h.handleGetFoundationModel(
+				c,
+				decodePath(strings.TrimPrefix(path, foundationModelsPrefix+"/")),
+			)
 		case path == provisionedModelThroughput && method == http.MethodPost:
 			return h.handleCreateProvisionedModelThroughput(c, body)
 		case path == provisionedModelThroughputs && method == http.MethodGet:
 			return h.handleListProvisionedModelThroughputs(c)
 		case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodGet:
-			return h.handleGetProvisionedModelThroughput(c, decodePath(strings.TrimPrefix(path, provisionedModelThroughput+"/")))
+			return h.handleGetProvisionedModelThroughput(
+				c,
+				decodePath(strings.TrimPrefix(path, provisionedModelThroughput+"/")),
+			)
 		case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodPut:
-			return h.handleUpdateProvisionedModelThroughput(c, decodePath(strings.TrimPrefix(path, provisionedModelThroughput+"/")), body)
+			return h.handleUpdateProvisionedModelThroughput(
+				c,
+				decodePath(strings.TrimPrefix(path, provisionedModelThroughput+"/")),
+				body,
+			)
 		case strings.HasPrefix(path, provisionedModelThroughput+"/") && method == http.MethodDelete:
-			return h.handleDeleteProvisionedModelThroughput(c, decodePath(strings.TrimPrefix(path, provisionedModelThroughput+"/")))
+			return h.handleDeleteProvisionedModelThroughput(
+				c,
+				decodePath(strings.TrimPrefix(path, provisionedModelThroughput+"/")),
+			)
 		case path == listTagsForResourcePath && method == http.MethodPost:
 			return h.handleListTagsForResource(c, body)
 		case path == tagResourcePath && method == http.MethodPost:
@@ -253,18 +280,18 @@ func decodePath(s string) string {
 // --- Guardrail handlers ---
 
 type createGuardrailInput struct {
-	Tags                    []Tag  `json:"tags"`
 	Name                    string `json:"name"`
 	Description             string `json:"description"`
 	BlockedInputMessaging   string `json:"blockedInputMessaging"`
 	BlockedOutputsMessaging string `json:"blockedOutputsMessaging"`
+	Tags                    []Tag  `json:"tags"`
 }
 
 type createGuardrailOutput struct {
-	GuardrailArn string  `json:"guardrailArn"`
-	GuardrailId  string  `json:"guardrailId"`
-	Version      string  `json:"version"`
 	CreatedAt    isoTime `json:"createdAt"`
+	GuardrailArn string  `json:"guardrailArn"`
+	GuardrailID  string  `json:"guardrailId"`
+	Version      string  `json:"version"`
 }
 
 func (h *Handler) handleCreateGuardrail(c *echo.Context, body []byte) error {
@@ -282,14 +309,16 @@ func (h *Handler) handleCreateGuardrail(c *echo.Context, body []byte) error {
 
 	return c.JSON(http.StatusOK, createGuardrailOutput{
 		GuardrailArn: g.GuardrailArn,
-		GuardrailId:  g.GuardrailID,
+		GuardrailID:  g.GuardrailID,
 		Version:      g.Version,
 		CreatedAt:    isoTime{g.CreatedAt},
 	})
 }
 
 type guardrailDetailOutput struct {
-	GuardrailId             string  `json:"guardrailId"`
+	CreatedAt               isoTime `json:"createdAt"`
+	UpdatedAt               isoTime `json:"updatedAt"`
+	GuardrailID             string  `json:"guardrailId"`
 	GuardrailArn            string  `json:"guardrailArn"`
 	Name                    string  `json:"name"`
 	Description             string  `json:"description,omitempty"`
@@ -297,8 +326,6 @@ type guardrailDetailOutput struct {
 	Version                 string  `json:"version"`
 	BlockedInputMessaging   string  `json:"blockedInputMessaging,omitempty"`
 	BlockedOutputsMessaging string  `json:"blockedOutputsMessaging,omitempty"`
-	CreatedAt               isoTime `json:"createdAt"`
-	UpdatedAt               isoTime `json:"updatedAt"`
 }
 
 func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
@@ -308,7 +335,7 @@ func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
 	}
 
 	return c.JSON(http.StatusOK, guardrailDetailOutput{
-		GuardrailId:             g.GuardrailID,
+		GuardrailID:             g.GuardrailID,
 		GuardrailArn:            g.GuardrailArn,
 		Name:                    g.Name,
 		Description:             g.Description,
@@ -322,14 +349,14 @@ func (h *Handler) handleGetGuardrail(c *echo.Context, id string) error {
 }
 
 type guardrailSummaryOutput struct {
-	Id          string  `json:"id"`
+	CreatedAt   isoTime `json:"createdAt"`
+	UpdatedAt   isoTime `json:"updatedAt"`
+	ID          string  `json:"id"`
 	Arn         string  `json:"arn"`
 	Name        string  `json:"name"`
 	Description string  `json:"description,omitempty"`
 	Status      string  `json:"status"`
 	Version     string  `json:"version"`
-	CreatedAt   isoTime `json:"createdAt"`
-	UpdatedAt   isoTime `json:"updatedAt"`
 }
 
 type listGuardrailsOutput struct {
@@ -342,7 +369,7 @@ func (h *Handler) handleListGuardrails(c *echo.Context) error {
 
 	for _, g := range guardrails {
 		summaries = append(summaries, guardrailSummaryOutput{
-			Id:          g.GuardrailID,
+			ID:          g.GuardrailID,
 			Arn:         g.Arn,
 			Name:        g.Name,
 			Description: g.Description,
@@ -364,10 +391,10 @@ type updateGuardrailInput struct {
 }
 
 type updateGuardrailOutput struct {
-	GuardrailArn string  `json:"guardrailArn"`
-	GuardrailId  string  `json:"guardrailId"`
-	Version      string  `json:"version"`
 	UpdatedAt    isoTime `json:"updatedAt"`
+	GuardrailArn string  `json:"guardrailArn"`
+	GuardrailID  string  `json:"guardrailId"`
+	Version      string  `json:"version"`
 }
 
 func (h *Handler) handleUpdateGuardrail(c *echo.Context, id string, body []byte) error {
@@ -383,7 +410,7 @@ func (h *Handler) handleUpdateGuardrail(c *echo.Context, id string, body []byte)
 
 	return c.JSON(http.StatusOK, updateGuardrailOutput{
 		GuardrailArn: g.GuardrailArn,
-		GuardrailId:  g.GuardrailID,
+		GuardrailID:  g.GuardrailID,
 		Version:      g.Version,
 		UpdatedAt:    isoTime{g.UpdatedAt},
 	})
@@ -401,7 +428,7 @@ func (h *Handler) handleDeleteGuardrail(c *echo.Context, id string) error {
 
 type foundationModelSummaryOutput struct {
 	ModelArn         string   `json:"modelArn"`
-	ModelId          string   `json:"modelId"`
+	ModelID          string   `json:"modelId"`
 	ModelName        string   `json:"modelName"`
 	ProviderName     string   `json:"providerName"`
 	InputModalities  []string `json:"inputModalities,omitempty"`
@@ -419,7 +446,7 @@ func (h *Handler) handleListFoundationModels(c *echo.Context) error {
 	for _, m := range models {
 		summaries = append(summaries, foundationModelSummaryOutput{
 			ModelArn:         m.ModelArn,
-			ModelId:          m.ModelID,
+			ModelID:          m.ModelID,
 			ModelName:        m.ModelName,
 			ProviderName:     m.ProviderName,
 			InputModalities:  m.InputModalities,
@@ -443,7 +470,7 @@ func (h *Handler) handleGetFoundationModel(c *echo.Context, modelID string) erro
 	return c.JSON(http.StatusOK, getFoundationModelOutput{
 		ModelDetails: foundationModelSummaryOutput{
 			ModelArn:         m.ModelArn,
-			ModelId:          m.ModelID,
+			ModelID:          m.ModelID,
 			ModelName:        m.ModelName,
 			ProviderName:     m.ProviderName,
 			InputModalities:  m.InputModalities,
@@ -455,10 +482,10 @@ func (h *Handler) handleGetFoundationModel(c *echo.Context, modelID string) erro
 // --- Provisioned model throughput handlers ---
 
 type createProvisionedModelThroughputInput struct {
-	Tags                 []Tag  `json:"tags"`
 	ProvisionedModelName string `json:"provisionedModelName"`
-	ModelId              string `json:"modelId"`
+	ModelID              string `json:"modelId"`
 	CommitmentDuration   string `json:"commitmentDuration,omitempty"`
+	Tags                 []Tag  `json:"tags"`
 	ModelUnits           int32  `json:"modelUnits"`
 }
 
@@ -474,7 +501,7 @@ func (h *Handler) handleCreateProvisionedModelThroughput(c *echo.Context, body [
 
 	pmt, opErr := h.Backend.CreateProvisionedModelThroughput(
 		in.ProvisionedModelName,
-		in.ModelId,
+		in.ModelID,
 		in.ModelUnits,
 		in.CommitmentDuration,
 		in.Tags,
@@ -489,17 +516,17 @@ func (h *Handler) handleCreateProvisionedModelThroughput(c *echo.Context, body [
 }
 
 type provisionedModelSummaryOutput struct {
+	CreationTime         isoTime `json:"creationTime"`
+	LastModifiedTime     isoTime `json:"lastModifiedTime"`
 	ProvisionedModelArn  string  `json:"provisionedModelArn"`
 	ProvisionedModelName string  `json:"provisionedModelName"`
 	ModelArn             string  `json:"modelArn"`
 	DesiredModelArn      string  `json:"desiredModelArn"`
 	FoundationModelArn   string  `json:"foundationModelArn"`
 	Status               string  `json:"status"`
+	CommitmentDuration   string  `json:"commitmentDuration,omitempty"`
 	ModelUnits           int32   `json:"modelUnits"`
 	DesiredModelUnits    int32   `json:"desiredModelUnits"`
-	CommitmentDuration   string  `json:"commitmentDuration,omitempty"`
-	CreationTime         isoTime `json:"creationTime"`
-	LastModifiedTime     isoTime `json:"lastModifiedTime"`
 }
 
 func pmtToOutput(pmt *ProvisionedModelThroughput) provisionedModelSummaryOutput {
@@ -543,8 +570,8 @@ func (h *Handler) handleListProvisionedModelThroughputs(c *echo.Context) error {
 }
 
 type updateProvisionedModelThroughputInput struct {
-	ModelId    string `json:"modelId"`
 	ModelUnits *int32 `json:"modelUnits,omitempty"`
+	ModelID    string `json:"modelId"`
 }
 
 func (h *Handler) handleUpdateProvisionedModelThroughput(c *echo.Context, id string, body []byte) error {
@@ -553,7 +580,7 @@ func (h *Handler) handleUpdateProvisionedModelThroughput(c *echo.Context, id str
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	_, opErr := h.Backend.UpdateProvisionedModelThroughput(id, in.ModelId, in.ModelUnits)
+	_, opErr := h.Backend.UpdateProvisionedModelThroughput(id, in.ModelID, in.ModelUnits)
 	if opErr != nil {
 		return h.writeError(c, opErr)
 	}

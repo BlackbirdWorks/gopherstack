@@ -175,12 +175,42 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{"UpdateGuardrail", http.MethodPut, "/guardrails/abc123", "UpdateGuardrail"},
 		{"DeleteGuardrail", http.MethodDelete, "/guardrails/abc123", "DeleteGuardrail"},
 		{"ListFoundationModels", http.MethodGet, "/foundation-models", "ListFoundationModels"},
-		{"GetFoundationModel", http.MethodGet, "/foundation-models/amazon.titan-text-express-v1", "GetFoundationModel"},
-		{"CreateProvisionedModelThroughput", http.MethodPost, "/provisioned-model-throughput", "CreateProvisionedModelThroughput"},
-		{"ListProvisionedModelThroughputs", http.MethodGet, "/provisioned-model-throughputs", "ListProvisionedModelThroughputs"},
-		{"GetProvisionedModelThroughput", http.MethodGet, "/provisioned-model-throughput/pmt-123", "GetProvisionedModelThroughput"},
-		{"UpdateProvisionedModelThroughput", http.MethodPut, "/provisioned-model-throughput/pmt-123", "UpdateProvisionedModelThroughput"},
-		{"DeleteProvisionedModelThroughput", http.MethodDelete, "/provisioned-model-throughput/pmt-123", "DeleteProvisionedModelThroughput"},
+		{
+			"GetFoundationModel",
+			http.MethodGet,
+			"/foundation-models/amazon.titan-text-express-v1",
+			"GetFoundationModel",
+		},
+		{
+			"CreateProvisionedModelThroughput",
+			http.MethodPost,
+			"/provisioned-model-throughput",
+			"CreateProvisionedModelThroughput",
+		},
+		{
+			"ListProvisionedModelThroughputs",
+			http.MethodGet,
+			"/provisioned-model-throughputs",
+			"ListProvisionedModelThroughputs",
+		},
+		{
+			"GetProvisionedModelThroughput",
+			http.MethodGet,
+			"/provisioned-model-throughput/pmt-123",
+			"GetProvisionedModelThroughput",
+		},
+		{
+			"UpdateProvisionedModelThroughput",
+			http.MethodPut,
+			"/provisioned-model-throughput/pmt-123",
+			"UpdateProvisionedModelThroughput",
+		},
+		{
+			"DeleteProvisionedModelThroughput",
+			http.MethodDelete,
+			"/provisioned-model-throughput/pmt-123",
+			"DeleteProvisionedModelThroughput",
+		},
 		{"ListTagsForResource", http.MethodPost, "/listTagsForResource", "ListTagsForResource"},
 		{"TagResource", http.MethodPost, "/tagResource", "TagResource"},
 		{"UntagResource", http.MethodPost, "/untagResource", "UntagResource"},
@@ -235,10 +265,10 @@ func TestHandler_CreateGuardrail(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		input      map[string]any
-		wantStatus int
 		wantFields map[string]string
+		name       string
+		wantStatus int
 	}{
 		{
 			name: "valid guardrail",
@@ -299,9 +329,9 @@ func TestHandler_GetGuardrail(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*bedrock.Handler) string
 		name       string
 		id         string
-		setup      func(*bedrock.Handler) string
 		wantStatus int
 	}{
 		{
@@ -351,8 +381,8 @@ func TestHandler_ListGuardrails(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
 		setup func(*bedrock.Handler)
+		name  string
 		want  int
 	}{
 		{
@@ -394,10 +424,10 @@ func TestHandler_UpdateGuardrail(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		id         string
 		setup      func(*bedrock.Handler) string
 		input      map[string]any
+		name       string
+		id         string
 		wantStatus int
 	}{
 		{
@@ -445,9 +475,9 @@ func TestHandler_DeleteGuardrail(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*bedrock.Handler) string
 		name       string
 		id         string
-		setup      func(*bedrock.Handler) string
 		wantStatus int
 	}{
 		{
@@ -544,8 +574,9 @@ func TestHandler_CreateProvisionedModelThroughput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
+		setup      func(*testing.T, *bedrock.Handler)
 		input      map[string]any
+		name       string
 		wantStatus int
 	}{
 		{
@@ -559,8 +590,16 @@ func TestHandler_CreateProvisionedModelThroughput(t *testing.T) {
 		},
 		{
 			name: "duplicate name",
+			setup: func(t *testing.T, h *bedrock.Handler) {
+				t.Helper()
+
+				_, err := h.Backend.CreateProvisionedModelThroughput(
+					"dup-throughput", "amazon.titan-text-express-v1", 1, "", nil,
+				)
+				require.NoError(t, err)
+			},
 			input: map[string]any{
-				"provisionedModelName": "my-throughput",
+				"provisionedModelName": "dup-throughput",
 				"modelId":              "amazon.titan-text-express-v1",
 				"modelUnits":           1,
 			},
@@ -568,10 +607,16 @@ func TestHandler_CreateProvisionedModelThroughput(t *testing.T) {
 		},
 	}
 
-	h := newTestHandler(t)
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
 			rec := doRequest(t, h, http.MethodPost, "/provisioned-model-throughput", tt.input)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
@@ -596,7 +641,13 @@ func TestHandler_GetProvisionedModelThroughput(t *testing.T) {
 		{
 			name: "existing pmt by arn",
 			setup: func(h *bedrock.Handler) string {
-				pmt, err := h.Backend.CreateProvisionedModelThroughput("my-pmt", "amazon.titan-text-express-v1", 1, "", nil)
+				pmt, err := h.Backend.CreateProvisionedModelThroughput(
+					"my-pmt",
+					"amazon.titan-text-express-v1",
+					1,
+					"",
+					nil,
+				)
 				if err != nil {
 					panic(err)
 				}
@@ -608,7 +659,13 @@ func TestHandler_GetProvisionedModelThroughput(t *testing.T) {
 		{
 			name: "existing pmt by name",
 			setup: func(h *bedrock.Handler) string {
-				_, err := h.Backend.CreateProvisionedModelThroughput("named-pmt", "amazon.titan-text-express-v1", 1, "", nil)
+				_, err := h.Backend.CreateProvisionedModelThroughput(
+					"named-pmt",
+					"amazon.titan-text-express-v1",
+					1,
+					"",
+					nil,
+				)
 				if err != nil {
 					panic(err)
 				}
@@ -670,7 +727,13 @@ func TestHandler_DeleteProvisionedModelThroughput(t *testing.T) {
 		{
 			name: "delete existing",
 			setup: func(h *bedrock.Handler) string {
-				pmt, err := h.Backend.CreateProvisionedModelThroughput("my-pmt", "amazon.titan-text-express-v1", 1, "", nil)
+				pmt, err := h.Backend.CreateProvisionedModelThroughput(
+					"my-pmt",
+					"amazon.titan-text-express-v1",
+					1,
+					"",
+					nil,
+				)
 				if err != nil {
 					panic(err)
 				}
@@ -704,8 +767,9 @@ func TestHandler_DeleteProvisionedModelThroughput(t *testing.T) {
 	}
 }
 
-// --- Tag tests ---
-
+// TestHandler_Tags tests tag operations in sequence using a single shared handler state.
+//
+//nolint:tparallel,paralleltest // subtests are intentionally sequential — each depends on the previous state
 func TestHandler_Tags(t *testing.T) {
 	t.Parallel()
 
@@ -776,6 +840,8 @@ func TestHandler_Tags_NotFound(t *testing.T) {
 	h := newTestHandler(t)
 
 	t.Run("list tags for nonexistent resource", func(t *testing.T) {
+		t.Parallel()
+
 		rec := doRequest(t, h, http.MethodPost, "/listTagsForResource", map[string]any{
 			"resourceARN": "arn:aws:bedrock:us-east-1:000000000000:guardrail/nonexistent",
 		})
@@ -783,6 +849,8 @@ func TestHandler_Tags_NotFound(t *testing.T) {
 	})
 
 	t.Run("tag nonexistent resource", func(t *testing.T) {
+		t.Parallel()
+
 		rec := doRequest(t, h, http.MethodPost, "/tagResource", map[string]any{
 			"resourceARN": "arn:aws:bedrock:us-east-1:000000000000:guardrail/nonexistent",
 			"tags": []map[string]string{
@@ -805,16 +873,22 @@ func TestHandler_UpdateProvisionedModelThroughput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*bedrock.Handler) string
-		id         string
 		input      map[string]any
+		name       string
+		id         string
 		wantStatus int
 	}{
 		{
 			name: "update existing",
 			setup: func(h *bedrock.Handler) string {
-				pmt, err := h.Backend.CreateProvisionedModelThroughput("upd-pmt", "amazon.titan-text-express-v1", 1, "", nil)
+				pmt, err := h.Backend.CreateProvisionedModelThroughput(
+					"upd-pmt",
+					"amazon.titan-text-express-v1",
+					1,
+					"",
+					nil,
+				)
 				if err != nil {
 					panic(err)
 				}
@@ -852,7 +926,11 @@ func TestHandler_UpdateProvisionedModelThroughput(t *testing.T) {
 
 			if tt.input == nil {
 				e := echo.New()
-				req := httptest.NewRequest(http.MethodPut, "/provisioned-model-throughput/"+url.PathEscape(id), bytes.NewReader([]byte("bad json")))
+				req := httptest.NewRequest(
+					http.MethodPut,
+					"/provisioned-model-throughput/"+url.PathEscape(id),
+					bytes.NewReader([]byte("bad json")),
+				)
 				req.Header.Set("Content-Type", "application/json")
 				recRaw := httptest.NewRecorder()
 				c := e.NewContext(req, recRaw)
@@ -912,5 +990,3 @@ func TestHandler_InvalidJSON(t *testing.T) {
 		})
 	}
 }
-
-

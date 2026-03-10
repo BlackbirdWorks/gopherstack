@@ -17,8 +17,8 @@ func TestIntegration_Bedrock_Guardrail_CRUD(t *testing.T) {
 	ctx := t.Context()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "create_and_get",
@@ -27,7 +27,7 @@ func TestIntegration_Bedrock_Guardrail_CRUD(t *testing.T) {
 
 				createOut, err := client.CreateGuardrail(ctx, &bedrocksvc.CreateGuardrailInput{
 					Name:                    aws.String("integration-guardrail"),
-					BlockedInputMessaging:  aws.String("Input blocked."),
+					BlockedInputMessaging:   aws.String("Input blocked."),
 					BlockedOutputsMessaging: aws.String("Output blocked."),
 				})
 				require.NoError(t, err, "CreateGuardrail should succeed")
@@ -50,7 +50,7 @@ func TestIntegration_Bedrock_Guardrail_CRUD(t *testing.T) {
 
 				_, err := client.CreateGuardrail(ctx, &bedrocksvc.CreateGuardrailInput{
 					Name:                    aws.String("list-guardrail"),
-					BlockedInputMessaging:  aws.String("Blocked."),
+					BlockedInputMessaging:   aws.String("Blocked."),
 					BlockedOutputsMessaging: aws.String("Blocked."),
 				})
 				require.NoError(t, err)
@@ -67,7 +67,7 @@ func TestIntegration_Bedrock_Guardrail_CRUD(t *testing.T) {
 
 				createOut, err := client.CreateGuardrail(ctx, &bedrocksvc.CreateGuardrailInput{
 					Name:                    aws.String("to-delete-guardrail"),
-					BlockedInputMessaging:  aws.String("Blocked."),
+					BlockedInputMessaging:   aws.String("Blocked."),
 					BlockedOutputsMessaging: aws.String("Blocked."),
 				})
 				require.NoError(t, err)
@@ -98,8 +98,8 @@ func TestIntegration_Bedrock_FoundationModels(t *testing.T) {
 	ctx := t.Context()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "list",
@@ -154,19 +154,22 @@ func TestIntegration_Bedrock_ProvisionedModelThroughput(t *testing.T) {
 	ctx := t.Context()
 
 	tests := []struct {
-		name string
 		run  func(t *testing.T)
+		name string
 	}{
 		{
 			name: "create_and_get",
 			run: func(t *testing.T) {
 				t.Helper()
 
-				createOut, err := client.CreateProvisionedModelThroughput(ctx, &bedrocksvc.CreateProvisionedModelThroughputInput{
-					ProvisionedModelName: aws.String("integration-pmt"),
-					ModelId:              aws.String("amazon.titan-text-express-v1"),
-					ModelUnits:           aws.Int32(1),
-				})
+				createOut, err := client.CreateProvisionedModelThroughput(
+					ctx,
+					&bedrocksvc.CreateProvisionedModelThroughputInput{
+						ProvisionedModelName: aws.String("integration-pmt"),
+						ModelId:              aws.String("amazon.titan-text-express-v1"),
+						ModelUnits:           aws.Int32(1),
+					},
+				)
 				require.NoError(t, err, "CreateProvisionedModelThroughput should succeed")
 				require.NotNil(t, createOut.ProvisionedModelArn)
 				pmtARN := aws.ToString(createOut.ProvisionedModelArn)
@@ -185,14 +188,20 @@ func TestIntegration_Bedrock_ProvisionedModelThroughput(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				_, err := client.CreateProvisionedModelThroughput(ctx, &bedrocksvc.CreateProvisionedModelThroughputInput{
-					ProvisionedModelName: aws.String("list-pmt"),
-					ModelId:              aws.String("amazon.titan-text-express-v1"),
-					ModelUnits:           aws.Int32(1),
-				})
+				_, err := client.CreateProvisionedModelThroughput(
+					ctx,
+					&bedrocksvc.CreateProvisionedModelThroughputInput{
+						ProvisionedModelName: aws.String("list-pmt"),
+						ModelId:              aws.String("amazon.titan-text-express-v1"),
+						ModelUnits:           aws.Int32(1),
+					},
+				)
 				require.NoError(t, err)
 
-				listOut, err := client.ListProvisionedModelThroughputs(ctx, &bedrocksvc.ListProvisionedModelThroughputsInput{})
+				listOut, err := client.ListProvisionedModelThroughputs(
+					ctx,
+					&bedrocksvc.ListProvisionedModelThroughputsInput{},
+				)
 				require.NoError(t, err, "ListProvisionedModelThroughputs should succeed")
 				assert.NotEmpty(t, listOut.ProvisionedModelSummaries)
 			},
@@ -202,11 +211,14 @@ func TestIntegration_Bedrock_ProvisionedModelThroughput(t *testing.T) {
 			run: func(t *testing.T) {
 				t.Helper()
 
-				createOut, err := client.CreateProvisionedModelThroughput(ctx, &bedrocksvc.CreateProvisionedModelThroughputInput{
-					ProvisionedModelName: aws.String("delete-pmt"),
-					ModelId:              aws.String("amazon.titan-text-express-v1"),
-					ModelUnits:           aws.Int32(1),
-				})
+				createOut, err := client.CreateProvisionedModelThroughput(
+					ctx,
+					&bedrocksvc.CreateProvisionedModelThroughputInput{
+						ProvisionedModelName: aws.String("delete-pmt"),
+						ModelId:              aws.String("amazon.titan-text-express-v1"),
+						ModelUnits:           aws.Int32(1),
+					},
+				)
 				require.NoError(t, err)
 
 				pmtARN := aws.ToString(createOut.ProvisionedModelArn)

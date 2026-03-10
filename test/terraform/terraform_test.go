@@ -3371,47 +3371,47 @@ func TestTerraform_Batch(t *testing.T) {
 
 // TestTerraform_Bedrock provisions Bedrock guardrail via Terraform and verifies it exists.
 func TestTerraform_Bedrock(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "bedrock/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "bedrock/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"Suffix": id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createBedrockClient(t)
-suffix := vars["Suffix"].(string)
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createBedrockClient(t)
+				suffix := vars["Suffix"].(string)
 
-out, err := client.ListGuardrails(ctx, &bedrocksvc.ListGuardrailsInput{})
-require.NoError(t, err, "ListGuardrails should succeed")
+				out, err := client.ListGuardrails(ctx, &bedrocksvc.ListGuardrailsInput{})
+				require.NoError(t, err, "ListGuardrails should succeed")
 
-var found bool
+				var found bool
 
-for _, g := range out.Guardrails {
-if g.Name != nil && *g.Name == "tf-guardrail-"+suffix {
-found = true
+				for _, g := range out.Guardrails {
+					if g.Name != nil && *g.Name == "tf-guardrail-"+suffix {
+						found = true
 
-break
-}
-}
+						break
+					}
+				}
 
-assert.True(t, found, "guardrail tf-guardrail-%s should exist", suffix)
-},
-},
-}
+				assert.True(t, found, "guardrail tf-guardrail-%s should exist", suffix)
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }

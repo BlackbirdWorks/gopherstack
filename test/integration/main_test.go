@@ -883,20 +883,20 @@ func createCognitoIdentityClient(t *testing.T) *cognitoidentitysdk.Client {
 
 // createBedrockClient returns a Bedrock client pointed at the shared test container.
 func createBedrockClient(t *testing.T) *bedrocksdk.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-if err != nil {
-require.NoError(t, err, "unable to load SDK config")
-}
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
 
-return bedrocksdk.NewFromConfig(cfg, func(o *bedrocksdk.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return bedrocksdk.NewFromConfig(cfg, func(o *bedrocksdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }

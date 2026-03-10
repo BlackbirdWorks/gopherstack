@@ -4,16 +4,14 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
-
-	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
 // bedrockGuardrailView is the view model for a single Bedrock guardrail.
 type bedrockGuardrailView struct {
-	ID     string
-	Name   string
-	ARN    string
-	Status string
+	ID      string
+	Name    string
+	ARN     string
+	Status  string
 	Version string
 }
 
@@ -37,8 +35,8 @@ type bedrockProvisionedThroughputView struct {
 type bedrockIndexData struct {
 	PageData
 
-	Guardrails            []bedrockGuardrailView
-	FoundationModels      []bedrockFoundationModelView
+	Guardrails             []bedrockGuardrailView
+	FoundationModels       []bedrockFoundationModelView
 	ProvisionedThroughputs []bedrockProvisionedThroughputView
 }
 
@@ -216,19 +214,4 @@ func (h *DashboardHandler) setupBedrockRoutes() {
 	h.SubRouter.POST("/dashboard/bedrock/guardrails/create", h.bedrockCreateGuardrail)
 	h.SubRouter.POST("/dashboard/bedrock/guardrails/delete", h.bedrockDeleteGuardrail)
 	h.SubRouter.POST("/dashboard/bedrock/provisioned-throughputs/delete", h.bedrockDeleteProvisionedThroughput)
-}
-
-// bedrockProviderInitDemoData pre-populates Bedrock with a demo guardrail for visual inspection.
-func (h *DashboardHandler) bedrockProviderInitDemoData() {
-	if h.BedrockOps == nil {
-		return
-	}
-
-	_, _ = h.BedrockOps.Backend.CreateGuardrail(
-		"demo-guardrail",
-		"A demo guardrail for visual inspection",
-		"This content is blocked.",
-		"This response is blocked.",
-		[]bedrockbackend.Tag{{Key: "env", Value: "demo"}},
-	)
 }

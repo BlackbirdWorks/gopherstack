@@ -24,76 +24,77 @@ type Tag struct {
 
 // Guardrail represents an Amazon Bedrock guardrail.
 type Guardrail struct {
-	Tags                 []Tag     `json:"tags,omitempty"`
-	GuardrailID          string    `json:"guardrailId"`
-	GuardrailArn         string    `json:"guardrailArn"`
-	Name                 string    `json:"name"`
-	Description          string    `json:"description,omitempty"`
-	Status               string    `json:"status"`
-	Version              string    `json:"version"`
-	BlockedInputMessaging  string  `json:"blockedInputMessaging,omitempty"`
-	BlockedOutputsMessaging string `json:"blockedOutputsMessaging,omitempty"`
-	CreatedAt            time.Time `json:"createdAt"`
-	UpdatedAt            time.Time `json:"updatedAt"`
+	CreatedAt               time.Time `json:"createdAt"`
+	UpdatedAt               time.Time `json:"updatedAt"`
+	GuardrailID             string    `json:"guardrailId"`
+	GuardrailArn            string    `json:"guardrailArn"`
+	Name                    string    `json:"name"`
+	Description             string    `json:"description,omitempty"`
+	Status                  string    `json:"status"`
+	Version                 string    `json:"version"`
+	BlockedInputMessaging   string    `json:"blockedInputMessaging,omitempty"`
+	BlockedOutputsMessaging string    `json:"blockedOutputsMessaging,omitempty"`
+	Tags                    []Tag     `json:"tags,omitempty"`
 }
 
 // GuardrailSummary is used in list operations.
 type GuardrailSummary struct {
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 	GuardrailID string    `json:"id"`
 	Arn         string    `json:"arn"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
 	Status      string    `json:"status"`
 	Version     string    `json:"version"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // ProvisionedModelThroughput represents a provisioned model throughput resource.
 type ProvisionedModelThroughput struct {
+	CreationTime         time.Time `json:"creationTime"`
+	LastModifiedTime     time.Time `json:"lastModifiedTime"`
 	ProvisionedModelArn  string    `json:"provisionedModelArn"`
 	ProvisionedModelName string    `json:"provisionedModelName"`
 	ModelArn             string    `json:"modelArn"`
 	DesiredModelArn      string    `json:"desiredModelArn"`
 	FoundationModelArn   string    `json:"foundationModelArn"`
 	Status               string    `json:"status"`
+	CommitmentDuration   string    `json:"commitmentDuration,omitempty"`
+	Tags                 []Tag     `json:"tags,omitempty"`
 	ModelUnits           int32     `json:"modelUnits"`
 	DesiredModelUnits    int32     `json:"desiredModelUnits"`
-	CommitmentDuration   string    `json:"commitmentDuration,omitempty"`
-	CreationTime         time.Time `json:"creationTime"`
-	LastModifiedTime     time.Time `json:"lastModifiedTime"`
 }
 
 // FoundationModelSummary represents a foundation model.
 type FoundationModelSummary struct {
-	ModelArn    string   `json:"modelArn"`
-	ModelID     string   `json:"modelId"`
-	ModelName   string   `json:"modelName"`
-	ProviderName string  `json:"providerName"`
+	ModelArn         string   `json:"modelArn"`
+	ModelID          string   `json:"modelId"`
+	ModelName        string   `json:"modelName"`
+	ProviderName     string   `json:"providerName"`
 	InputModalities  []string `json:"inputModalities,omitempty"`
 	OutputModalities []string `json:"outputModalities,omitempty"`
 }
 
 // InMemoryBackend stores Amazon Bedrock state in memory.
 type InMemoryBackend struct {
-	guardrails               map[string]*Guardrail
+	guardrails                  map[string]*Guardrail
 	provisionedModelThroughputs map[string]*ProvisionedModelThroughput
-	foundationModels         []*FoundationModelSummary
-	mu                       *lockmetrics.RWMutex
-	accountID                string
-	region                   string
-	guardrailCounter         int
-	provisionedCounter       int
+	mu                          *lockmetrics.RWMutex
+	accountID                   string
+	region                      string
+	foundationModels            []*FoundationModelSummary
+	guardrailCounter            int
+	provisionedCounter          int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend pre-seeded with foundation models.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		guardrails:               make(map[string]*Guardrail),
+		guardrails:                  make(map[string]*Guardrail),
 		provisionedModelThroughputs: make(map[string]*ProvisionedModelThroughput),
-		accountID:                accountID,
-		region:                   region,
-		mu:                       lockmetrics.New("bedrock"),
+		accountID:                   accountID,
+		region:                      region,
+		mu:                          lockmetrics.New("bedrock"),
 	}
 	b.seedFoundationModels()
 
@@ -109,42 +110,42 @@ func (b *InMemoryBackend) seedFoundationModels() {
 
 	b.foundationModels = []*FoundationModelSummary{
 		{
-			ModelID:      "amazon.titan-text-express-v1",
-			ModelName:    "Titan Text G1 - Express",
-			ProviderName: "Amazon",
-			ModelArn:     prefix + "amazon.titan-text-express-v1",
+			ModelID:          "amazon.titan-text-express-v1",
+			ModelName:        "Titan Text G1 - Express",
+			ProviderName:     "Amazon",
+			ModelArn:         prefix + "amazon.titan-text-express-v1",
 			InputModalities:  []string{"TEXT"},
 			OutputModalities: []string{"TEXT"},
 		},
 		{
-			ModelID:      "amazon.titan-embed-text-v1",
-			ModelName:    "Titan Embeddings G1 - Text",
-			ProviderName: "Amazon",
-			ModelArn:     prefix + "amazon.titan-embed-text-v1",
+			ModelID:          "amazon.titan-embed-text-v1",
+			ModelName:        "Titan Embeddings G1 - Text",
+			ProviderName:     "Amazon",
+			ModelArn:         prefix + "amazon.titan-embed-text-v1",
 			InputModalities:  []string{"TEXT"},
 			OutputModalities: []string{"EMBEDDING"},
 		},
 		{
-			ModelID:      "anthropic.claude-v2",
-			ModelName:    "Claude",
-			ProviderName: "Anthropic",
-			ModelArn:     prefix + "anthropic.claude-v2",
+			ModelID:          "anthropic.claude-v2",
+			ModelName:        "Claude",
+			ProviderName:     "Anthropic",
+			ModelArn:         prefix + "anthropic.claude-v2",
 			InputModalities:  []string{"TEXT"},
 			OutputModalities: []string{"TEXT"},
 		},
 		{
-			ModelID:      "anthropic.claude-3-sonnet-20240229-v1:0",
-			ModelName:    "Claude 3 Sonnet",
-			ProviderName: "Anthropic",
-			ModelArn:     prefix + "anthropic.claude-3-sonnet-20240229-v1:0",
+			ModelID:          "anthropic.claude-3-sonnet-20240229-v1:0",
+			ModelName:        "Claude 3 Sonnet",
+			ProviderName:     "Anthropic",
+			ModelArn:         prefix + "anthropic.claude-3-sonnet-20240229-v1:0",
 			InputModalities:  []string{"TEXT", "IMAGE"},
 			OutputModalities: []string{"TEXT"},
 		},
 		{
-			ModelID:      "meta.llama3-8b-instruct-v1:0",
-			ModelName:    "Llama 3 8B Instruct",
-			ProviderName: "Meta",
-			ModelArn:     prefix + "meta.llama3-8b-instruct-v1:0",
+			ModelID:          "meta.llama3-8b-instruct-v1:0",
+			ModelName:        "Llama 3 8B Instruct",
+			ProviderName:     "Meta",
+			ModelArn:         prefix + "meta.llama3-8b-instruct-v1:0",
 			InputModalities:  []string{"TEXT"},
 			OutputModalities: []string{"TEXT"},
 		},
@@ -352,6 +353,9 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 	modelARN := arn.Build("bedrock", b.region, b.accountID, "foundation-model/"+modelID)
 	now := time.Now().UTC()
 
+	tagsCopy := make([]Tag, len(tags))
+	copy(tagsCopy, tags)
+
 	pmt := &ProvisionedModelThroughput{
 		ProvisionedModelArn:  pmtARN,
 		ProvisionedModelName: name,
@@ -364,6 +368,7 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 		CommitmentDuration:   commitmentDuration,
 		CreationTime:         now,
 		LastModifiedTime:     now,
+		Tags:                 tagsCopy,
 	}
 	b.provisionedModelThroughputs[pmtARN] = pmt
 	cp := *pmt
@@ -402,7 +407,10 @@ func (b *InMemoryBackend) ListProvisionedModelThroughputs() []*ProvisionedModelT
 }
 
 // UpdateProvisionedModelThroughput updates a provisioned model throughput.
-func (b *InMemoryBackend) UpdateProvisionedModelThroughput(idOrARN, modelID string, modelUnits *int32) (*ProvisionedModelThroughput, error) {
+func (b *InMemoryBackend) UpdateProvisionedModelThroughput(
+	idOrARN, modelID string,
+	modelUnits *int32,
+) (*ProvisionedModelThroughput, error) {
 	b.mu.Lock("UpdateProvisionedModelThroughput")
 	defer b.mu.Unlock()
 
@@ -543,7 +551,10 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) ([]Tag, bool) {
 
 	for _, pmt := range b.provisionedModelThroughputs {
 		if pmt.ProvisionedModelArn == resourceARN {
-			return []Tag{}, true
+			result := make([]Tag, len(pmt.Tags))
+			copy(result, pmt.Tags)
+
+			return result, true
 		}
 	}
 
@@ -556,6 +567,12 @@ func (b *InMemoryBackend) findTagsByARNPointer(resourceARN string) (*[]Tag, bool
 	for _, g := range b.guardrails {
 		if g.GuardrailArn == resourceARN {
 			return &g.Tags, true
+		}
+	}
+
+	for _, pmt := range b.provisionedModelThroughputs {
+		if pmt.ProvisionedModelArn == resourceARN {
+			return &pmt.Tags, true
 		}
 	}
 
