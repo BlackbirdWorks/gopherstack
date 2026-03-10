@@ -5,30 +5,35 @@ import (
 	"time"
 )
 
-// unixEpochTime wraps [time.Time] and marshals to/from a JSON number (Unix seconds),
-// which is the format expected by the AWS SDK v2 API Gateway v2 client.
-type unixEpochTime struct {
+// isoTime wraps [time.Time] and marshals to/from a JSON string in RFC3339 format,
+// which is the __timestampIso8601 format expected by the AWS SDK v2 API Gateway V2 client.
+type isoTime struct {
 	time.Time
 }
 
-func (t unixEpochTime) MarshalJSON() ([]byte, error) {
-	return json.Marshal(t.Unix())
+func (t isoTime) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.UTC().Format(time.RFC3339))
 }
 
-func (t *unixEpochTime) UnmarshalJSON(b []byte) error {
-	var epoch int64
-	if err := json.Unmarshal(b, &epoch); err != nil {
+func (t *isoTime) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
 		return err
 	}
 
-	t.Time = time.Unix(epoch, 0)
+	parsed, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return err
+	}
+
+	t.Time = parsed
 
 	return nil
 }
 
 // API represents an HTTP API (API Gateway v2).
 type API struct {
-	CreatedDate              unixEpochTime     `json:"createdDate"`
+	CreatedDate              isoTime           `json:"createdDate"`
 	Tags                     map[string]string `json:"tags,omitempty"`
 	APIID                    string            `json:"apiId"`
 	Name                     string            `json:"name"`
@@ -41,8 +46,8 @@ type API struct {
 
 // Stage represents a deployment stage for an HTTP API.
 type Stage struct {
-	CreatedDate     unixEpochTime     `json:"createdDate"`
-	LastUpdatedDate unixEpochTime     `json:"lastUpdatedDate"`
+	CreatedDate     isoTime           `json:"createdDate"`
+	LastUpdatedDate isoTime           `json:"lastUpdatedDate"`
 	StageVariables  map[string]string `json:"stageVariables,omitempty"`
 	StageName       string            `json:"stageName"`
 	APIID           string            `json:"-"`
@@ -78,11 +83,11 @@ type Integration struct {
 
 // Deployment represents an API deployment.
 type Deployment struct {
-	CreatedDate      unixEpochTime `json:"createdDate"`
-	DeploymentID     string        `json:"deploymentId"`
-	APIID            string        `json:"-"`
-	Description      string        `json:"description,omitempty"`
-	DeploymentStatus string        `json:"deploymentStatus"`
+	CreatedDate      isoTime `json:"createdDate"`
+	DeploymentID     string  `json:"deploymentId"`
+	APIID            string  `json:"-"`
+	Description      string  `json:"description,omitempty"`
+	DeploymentStatus string  `json:"deploymentStatus"`
 }
 
 // Authorizer represents an authorizer for an HTTP API.

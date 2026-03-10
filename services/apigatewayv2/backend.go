@@ -130,7 +130,7 @@ func (b *InMemoryBackend) CreateAPI(input CreateAPIInput) (*API, error) {
 		Version:                  input.Version,
 		Tags:                     input.Tags,
 		APIEndpoint:              "https://" + id + ".execute-api.us-east-1.amazonaws.com",
-		CreatedDate:              unixEpochTime{time.Now()},
+		CreatedDate:              isoTime{time.Now()},
 	}
 
 	b.apis[id] = &apiData{
@@ -238,7 +238,7 @@ func (b *InMemoryBackend) CreateStage(apiID string, input CreateStageInput) (*St
 		return nil, ErrAPINotFound
 	}
 
-	now := unixEpochTime{time.Now()}
+	now := isoTime{time.Now()}
 	stage := &Stage{
 		StageName:       input.StageName,
 		APIID:           apiID,
@@ -349,7 +349,7 @@ func (b *InMemoryBackend) UpdateStage(apiID, stageName string, input UpdateStage
 		s.StageVariables = input.StageVariables
 	}
 
-	s.LastUpdatedDate = unixEpochTime{time.Now()}
+	s.LastUpdatedDate = isoTime{time.Now()}
 
 	cp := *s
 
@@ -654,7 +654,7 @@ func (b *InMemoryBackend) CreateDeployment(apiID string, input CreateDeploymentI
 		APIID:            apiID,
 		Description:      input.Description,
 		DeploymentStatus: "DEPLOYED",
-		CreatedDate:      unixEpochTime{time.Now()},
+		CreatedDate:      isoTime{time.Now()},
 	}
 
 	d.deployments[id] = deployment
