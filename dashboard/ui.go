@@ -33,6 +33,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -173,6 +174,8 @@ type DashboardHandler struct {
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
 	// BatchOps provides access to the Batch backend.
 	BatchOps *batchbackend.Handler
+	// BedrockRuntimeOps provides access to the Bedrock Runtime backend.
+	BedrockRuntimeOps *bedrockruntimebackend.Handler
 	// CeOps provides access to the Cost Explorer backend.
 	CeOps        *cebackend.Handler
 	SubRouter    *echo.Echo
@@ -292,6 +295,8 @@ type Config struct {
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
 	// BatchOps provides access to the Batch backend.
 	BatchOps *batchbackend.Handler
+	// BedrockRuntimeOps provides access to the Bedrock Runtime backend.
+	BedrockRuntimeOps *bedrockruntimebackend.Handler
 	// CeOps provides access to the Cost Explorer backend.
 	CeOps *cebackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -379,6 +384,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/backup/*.html",
 		"templates/applicationautoscaling/*.html",
 		"templates/batch/*.html",
+		"templates/bedrockruntime/*.html",
 		"templates/ce/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -454,6 +460,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		AppConfigOps:               cfg.AppConfigOps,
 		ApplicationAutoscalingOps:  cfg.ApplicationAutoscalingOps,
 		BatchOps:                   cfg.BatchOps,
+		BedrockRuntimeOps:          cfg.BedrockRuntimeOps,
 		CeOps:                      cfg.CeOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
@@ -875,6 +882,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupRecentServiceRoutes()
 	h.setupAthenaRoutes()
 	h.setupBackupRoutes()
+	h.setupBedrockRuntimeRoutes()
 }
 
 // setupRecentServiceRoutes sets up dashboard routes for recently-added services.
@@ -982,6 +990,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/amplify", "Amplify"},
 	{"/applicationautoscaling", "ApplicationAutoscaling"},
 	{"/batch", "Batch"},
+	{"/bedrockruntime", "BedrockRuntime"},
 	{"/ce", "Ce"},
 	{"/athena", "Athena"},
 	{"/autoscaling", "Autoscaling"},

@@ -61,6 +61,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -173,6 +174,7 @@ type CLI struct {
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
+	bedrockruntimeHandler         service.Registerable
 	ceHandler                     service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
@@ -567,6 +569,11 @@ func (c *CLI) GetApplicationAutoscalingHandler() service.Registerable {
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetBatchHandler() service.Registerable { return c.batchHandler }
+
+// GetBedrockRuntimeHandler returns the Bedrock Runtime handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetBedrockRuntimeHandler() service.Registerable { return c.bedrockruntimeHandler }
 
 // GetCeHandler returns the Cost Explorer handler (dashboard.AWSSDKProvider).
 //
@@ -981,6 +988,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.appConfigHandler = byName["AppConfig"]
 	cli.applicationautoscalingHandler = byName["ApplicationAutoscaling"]
 	cli.batchHandler = byName["Batch"]
+	cli.bedrockruntimeHandler = byName["BedrockRuntime"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
 	cli.iotHandler = byName["IoT"]
@@ -1159,6 +1167,7 @@ func getServiceProviders() []service.Provider {
 		&backupbackend.Provider{},
 		&applicationautoscalingbackend.Provider{},
 		&batchbackend.Provider{},
+		&bedrockruntimebackend.Provider{},
 		&cebackend.Provider{},
 	}
 }
@@ -2695,6 +2704,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 	}
 
 	seedAppConfigDataDemoProfiles(ctx, cli.appConfigDataHandler, log)
+	seedBedrockRuntimeDemoInvocations(ctx, cli.bedrockruntimeHandler, log)
 }
 
 // seedAppConfigDataDemoProfiles seeds demo configuration profiles for visual dashboard inspection.
@@ -2732,6 +2742,34 @@ func seedAppConfigDataDemoProfiles(ctx context.Context, h service.Registerable, 
 	}
 
 	log.InfoContext(ctx, "Seeded AppConfigData demo profiles", "count", len(profiles))
+}
+
+// seedBedrockRuntimeDemoInvocations seeds demo invocations for visual dashboard inspection.
+// BedrockRuntime has no AWS SDK write API, so invocations are seeded directly via the backend.
+func seedBedrockRuntimeDemoInvocations(ctx context.Context, h service.Registerable, log *slog.Logger) {
+	brtHandler, ok := h.(*bedrockruntimebackend.Handler)
+	if !ok || brtHandler == nil {
+		log.DebugContext(ctx, "BedrockRuntime handler not available; skipping demo invocation seeding")
+
+		return
+	}
+
+	brtHandler.Backend.RecordInvocation(
+		"InvokeModel",
+		"anthropic.claude-v2",
+		`{"prompt": "Human: What is the capital of France?\n\nAssistant:"}`,
+		`{"completion": " Paris is the capital of France.", "stop_reason": "end_turn"}`,
+	)
+	converseOutput := `{"output": {"message": {"role": "assistant", ` +
+		`"content": [{"text": "Hello! How can I help you today?"}]}}, "stopReason": "end_turn"}`
+	brtHandler.Backend.RecordInvocation(
+		"Converse",
+		"anthropic.claude-3-sonnet-20240229-v1:0",
+		`{"messages": [{"role": "user", "content": [{"text": "Hello!"}]}]}`,
+		converseOutput,
+	)
+
+	log.InfoContext(ctx, "Seeded BedrockRuntime demo invocations")
 }
 
 // persistenceMiddleware returns an Echo middleware that schedules a debounced snapshot

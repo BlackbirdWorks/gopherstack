@@ -30,6 +30,7 @@ import (
 	autoscalingsvc "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	backupsvc "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
+	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -1291,6 +1292,24 @@ func createBatchClient(t *testing.T) *batchsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return batchsvc.NewFromConfig(cfg, func(o *batchsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createBedrockRuntimeClient returns a Bedrock Runtime client pointed at the shared test container.
+func createBedrockRuntimeClient(t *testing.T) *bedrockruntimesvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return bedrockruntimesvc.NewFromConfig(cfg, func(o *bedrockruntimesvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
