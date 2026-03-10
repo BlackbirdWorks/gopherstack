@@ -21,6 +21,7 @@ import (
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
+	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -116,6 +117,7 @@ type AWSSDKProvider interface {
 	GetApplicationAutoscalingHandler() service.Registerable
 	GetBatchHandler() service.Registerable
 	GetBedrockHandler() service.Registerable
+	GetBedrockRuntimeHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -189,6 +191,7 @@ type extractedConfig struct {
 	applicationAutoscalingOps *applicationautoscalingbackend.Handler
 	batchOps                  *batchbackend.Handler
 	bedrockOps                *bedrockbackend.Handler
+	bedrockRuntimeOps         *bedrockruntimebackend.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
 	iotOps                    *iotbackend.Handler
@@ -382,6 +385,10 @@ func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
 	}
 
+	if h := ap.GetBedrockRuntimeHandler(); h != nil {
+		ec.bedrockRuntimeOps, _ = h.(*bedrockruntimebackend.Handler)
+	}
+
 	extractECRECSAndIoTHandlers(ap, ec)
 }
 
@@ -506,6 +513,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ApplicationAutoscalingOps:  ec.applicationAutoscalingOps,
 		BatchOps:                   ec.batchOps,
 		BedrockOps:                 ec.bedrockOps,
+		BedrockRuntimeOps:          ec.bedrockRuntimeOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		IoTOps:                     ec.iotOps,

@@ -35,6 +35,7 @@ import (
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
+	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -144,6 +145,7 @@ type Stack struct {
 	BackupHandler                  *backupbackend.Handler
 	BatchHandler                   *batchbackend.Handler
 	BedrockHandler                 *bedrockbackend.Handler
+	BedrockRuntimeHandler          *bedrockruntimebackend.Handler
 	S3Client                       *s3.Client
 	DDBClient                      *dynamodb.Client
 	FaultStore                     *chaos.FaultStore
@@ -383,6 +385,7 @@ type handlers struct {
 	backup          *backupbackend.Handler
 	batch           *batchbackend.Handler
 	bedrock         *bedrockbackend.Handler
+	bedrockruntime  *bedrockruntimebackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -522,6 +525,9 @@ func populateExtendedHandlers(h *handlers) {
 	h.bedrock = bedrockbackend.NewHandler(
 		bedrockbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.bedrockruntime = bedrockruntimebackend.NewHandler(
+		bedrockruntimebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -616,6 +622,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		BackupOps:                  h.backup,
 		BatchOps:                   h.batch,
 		BedrockOps:                 h.bedrock,
+		BedrockRuntimeOps:          h.bedrockruntime,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -651,6 +658,7 @@ func New(t *testing.T) *Stack {
 	)
 	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch)
 	_ = registry.Register(h.bedrock)
+	_ = registry.Register(h.bedrockruntime)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -721,6 +729,7 @@ func New(t *testing.T) *Stack {
 		BackupHandler:                  h.backup,
 		BatchHandler:                   h.batch,
 		BedrockHandler:                 h.bedrock,
+		BedrockRuntimeHandler:          h.bedrockruntime,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
