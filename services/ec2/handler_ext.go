@@ -48,12 +48,13 @@ type describeInstanceStatusResponse struct {
 }
 
 type amiItem struct {
-	ImageID      string `xml:"imageId"`
-	Name         string `xml:"name"`
-	Description  string `xml:"description,omitempty"`
-	Architecture string `xml:"architecture"`
-	Platform     string `xml:"platform,omitempty"`
-	State        string `xml:"imageState"`
+	ImageID        string `xml:"imageId"`
+	Name           string `xml:"name"`
+	Description    string `xml:"description,omitempty"`
+	Architecture   string `xml:"architecture"`
+	Platform       string `xml:"platform,omitempty"`
+	State          string `xml:"imageState"`
+	RootDeviceName string `xml:"rootDeviceName,omitempty"`
 }
 
 type amiItemSet struct {
@@ -581,12 +582,13 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 		}
 
 		items = append(items, amiItem{
-			ImageID:      a.ImageID,
-			Name:         a.Name,
-			Description:  a.Description,
-			Architecture: a.Architecture,
-			Platform:     a.Platform,
-			State:        "available",
+			ImageID:        a.ImageID,
+			Name:           a.Name,
+			Description:    a.Description,
+			Architecture:   a.Architecture,
+			Platform:       a.Platform,
+			State:          "available",
+			RootDeviceName: a.RootDeviceName,
 		})
 	}
 
