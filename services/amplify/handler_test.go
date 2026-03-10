@@ -31,7 +31,8 @@ func doRequest(
 	var buf *bytes.Buffer
 
 	if body != nil {
-		b, _ := json.Marshal(body)
+		b, err := json.Marshal(body)
+		require.NoError(t, err)
 		buf = bytes.NewBuffer(b)
 	} else {
 		buf = bytes.NewBuffer(nil)
@@ -80,7 +81,7 @@ func TestHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newTestHandler()
-	assert.Greater(t, h.MatchPriority(), 0)
+	assert.Positive(t, h.MatchPriority())
 }
 
 func TestHandler_ChaosServiceName(t *testing.T) {
@@ -127,10 +128,10 @@ func TestHandler_ExtractOperation(t *testing.T) {
 	e := echo.New()
 
 	tests := []struct {
-		name      string
-		method    string
-		path      string
-		wantOp    string
+		name   string
+		method string
+		path   string
+		wantOp string
 	}{
 		{method: http.MethodPost, path: "/apps", wantOp: "CreateApp", name: "create_app"},
 		{method: http.MethodGet, path: "/apps", wantOp: "ListApps", name: "list_apps"},
@@ -163,9 +164,9 @@ func TestHandler_ExtractResource(t *testing.T) {
 	e := echo.New()
 
 	tests := []struct {
-		name     string
-		path     string
-		wantRes  string
+		name    string
+		path    string
+		wantRes string
 	}{
 		{name: "extracts_app_id", path: "/apps/abc123", wantRes: "abc123"},
 		{name: "extracts_app_id_from_branches", path: "/apps/abc123/branches/main", wantRes: "abc123"},
@@ -190,10 +191,10 @@ func TestHandler_CreateApp(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       any
-		wantStatus int
+		name       string
 		wantName   string
+		wantStatus int
 	}{
 		{
 			name:       "creates_app",
@@ -236,8 +237,8 @@ func TestHandler_GetApp(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*amplify.InMemoryBackend) string
+		name       string
 		wantStatus int
 	}{
 		{
@@ -275,8 +276,8 @@ func TestHandler_ListApps(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*amplify.InMemoryBackend)
+		name       string
 		wantStatus int
 		wantCount  int
 	}{
@@ -319,8 +320,8 @@ func TestHandler_DeleteApp(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*amplify.InMemoryBackend) string
+		name       string
 		wantStatus int
 	}{
 		{
@@ -360,9 +361,9 @@ func TestHandler_CreateBranch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		setup      func(*amplify.InMemoryBackend) string
 		body       any
+		setup      func(*amplify.InMemoryBackend) string
+		name       string
 		wantStatus int
 	}{
 		{
@@ -425,8 +426,8 @@ func TestHandler_GetBranch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*amplify.InMemoryBackend) (string, string)
+		name       string
 		wantStatus int
 	}{
 		{
@@ -467,8 +468,8 @@ func TestHandler_ListBranches(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*amplify.InMemoryBackend) string
+		name       string
 		wantStatus int
 	}{
 		{
@@ -507,8 +508,8 @@ func TestHandler_DeleteBranch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*amplify.InMemoryBackend) (string, string)
+		name       string
 		wantStatus int
 	}{
 		{
@@ -551,9 +552,9 @@ func TestHandler_TagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		setup      func(*amplify.InMemoryBackend) string
 		body       any
+		setup      func(*amplify.InMemoryBackend) string
+		name       string
 		wantStatus int
 	}{
 		{
@@ -604,8 +605,8 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(*amplify.InMemoryBackend) string
+		name       string
 		wantStatus int
 	}{
 		{

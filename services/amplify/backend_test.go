@@ -19,15 +19,15 @@ func TestInMemoryBackend_CreateApp(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		appName     string
-		description string
-		repository  string
-		platform    string
-		tags        map[string]string
-		wantName    string
+		name         string
+		appName      string
+		description  string
+		repository   string
+		platform     string
+		tags         map[string]string
+		wantName     string
 		wantPlatform amplify.Platform
-		wantErr     bool
+		wantErr      bool
 	}{
 		{
 			name:         "creates_app_with_all_fields",
@@ -84,11 +84,11 @@ func TestInMemoryBackend_GetApp(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
+		errIs   error
 		setup   func(*amplify.InMemoryBackend) string
+		name    string
 		appID   string
 		wantErr bool
-		errIs   error
 	}{
 		{
 			name: "returns_existing_app",
@@ -125,7 +125,7 @@ func TestInMemoryBackend_GetApp(t *testing.T) {
 				require.Error(t, err)
 
 				if tt.errIs != nil {
-					assert.ErrorIs(t, err, tt.errIs)
+					require.ErrorIs(t, err, tt.errIs)
 				}
 
 				return
@@ -141,8 +141,8 @@ func TestInMemoryBackend_ListApps(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
 		setup     func(*amplify.InMemoryBackend)
+		name      string
 		wantCount int
 	}{
 		{
@@ -178,10 +178,10 @@ func TestInMemoryBackend_DeleteApp(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		setup   func(*amplify.InMemoryBackend) string
-		wantErr bool
 		errIs   error
+		setup   func(*amplify.InMemoryBackend) string
+		name    string
+		wantErr bool
 	}{
 		{
 			name: "deletes_existing_app",
@@ -222,7 +222,7 @@ func TestInMemoryBackend_DeleteApp(t *testing.T) {
 				require.Error(t, err)
 
 				if tt.errIs != nil {
-					assert.ErrorIs(t, err, tt.errIs)
+					require.ErrorIs(t, err, tt.errIs)
 				}
 
 				return
@@ -242,15 +242,15 @@ func TestInMemoryBackend_CreateBranch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
+		errIs           error
 		setup           func(*amplify.InMemoryBackend) string
+		tags            map[string]string
+		name            string
 		branchName      string
 		description     string
 		stage           string
 		enableAutoBuild bool
-		tags            map[string]string
 		wantErr         bool
-		errIs           error
 	}{
 		{
 			name: "creates_branch_for_existing_app",
@@ -300,7 +300,7 @@ func TestInMemoryBackend_CreateBranch(t *testing.T) {
 				require.Error(t, err)
 
 				if tt.errIs != nil {
-					assert.ErrorIs(t, err, tt.errIs)
+					require.ErrorIs(t, err, tt.errIs)
 				}
 
 				return
@@ -323,10 +323,10 @@ func TestInMemoryBackend_GetBranch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		setup      func(*amplify.InMemoryBackend) (string, string)
-		wantErr    bool
-		errIs      error
+		errIs   error
+		setup   func(*amplify.InMemoryBackend) (string, string)
+		name    string
+		wantErr bool
 	}{
 		{
 			name: "returns_existing_branch",
@@ -369,7 +369,7 @@ func TestInMemoryBackend_GetBranch(t *testing.T) {
 				require.Error(t, err)
 
 				if tt.errIs != nil {
-					assert.ErrorIs(t, err, tt.errIs)
+					require.ErrorIs(t, err, tt.errIs)
 				}
 
 				return
@@ -386,11 +386,11 @@ func TestInMemoryBackend_ListBranches(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
+		errIs     error
 		setup     func(*amplify.InMemoryBackend) string
+		name      string
 		wantCount int
 		wantErr   bool
-		errIs     error
 	}{
 		{
 			name: "returns_empty_list_for_new_app",
@@ -434,7 +434,7 @@ func TestInMemoryBackend_ListBranches(t *testing.T) {
 				require.Error(t, err)
 
 				if tt.errIs != nil {
-					assert.ErrorIs(t, err, tt.errIs)
+					require.ErrorIs(t, err, tt.errIs)
 				}
 
 				return
@@ -450,10 +450,10 @@ func TestInMemoryBackend_DeleteBranch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		setup   func(*amplify.InMemoryBackend) (string, string)
-		wantErr bool
 		errIs   error
+		setup   func(*amplify.InMemoryBackend) (string, string)
+		name    string
+		wantErr bool
 	}{
 		{
 			name: "deletes_existing_branch",
@@ -496,7 +496,7 @@ func TestInMemoryBackend_DeleteBranch(t *testing.T) {
 				require.Error(t, err)
 
 				if tt.errIs != nil {
-					assert.ErrorIs(t, err, tt.errIs)
+					require.ErrorIs(t, err, tt.errIs)
 				}
 
 				return
@@ -516,11 +516,11 @@ func TestInMemoryBackend_TagResource_App(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
+		errIs   error
 		setup   func(*amplify.InMemoryBackend) string
 		tagMap  map[string]string
+		name    string
 		wantErr bool
-		errIs   error
 	}{
 		{
 			name: "tags_existing_app",
@@ -563,7 +563,7 @@ func TestInMemoryBackend_TagResource_App(t *testing.T) {
 				require.Error(t, err)
 
 				if tt.errIs != nil {
-					assert.ErrorIs(t, err, tt.errIs)
+					require.ErrorIs(t, err, tt.errIs)
 				}
 
 				return
@@ -585,10 +585,10 @@ func TestInMemoryBackend_TagResource_Branch(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		setup   func(*amplify.InMemoryBackend) string
-		wantErr bool
 		errIs   error
+		setup   func(*amplify.InMemoryBackend) string
+		name    string
+		wantErr bool
 	}{
 		{
 			name: "tags_existing_branch",
@@ -623,7 +623,7 @@ func TestInMemoryBackend_TagResource_Branch(t *testing.T) {
 				require.Error(t, err)
 
 				if tt.errIs != nil {
-					assert.ErrorIs(t, err, tt.errIs)
+					require.ErrorIs(t, err, tt.errIs)
 				}
 
 				return
@@ -638,11 +638,11 @@ func TestInMemoryBackend_UntagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
+		errIs   error
 		setup   func(*amplify.InMemoryBackend) string
+		name    string
 		tagKeys []string
 		wantErr bool
-		errIs   error
 	}{
 		{
 			name: "removes_specified_tags",
@@ -679,7 +679,7 @@ func TestInMemoryBackend_UntagResource(t *testing.T) {
 				require.Error(t, err)
 
 				if tt.errIs != nil {
-					assert.ErrorIs(t, err, tt.errIs)
+					require.ErrorIs(t, err, tt.errIs)
 				}
 
 				return
@@ -702,11 +702,11 @@ func TestInMemoryBackend_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
+		errIs    error
 		setup    func(*amplify.InMemoryBackend) string
 		wantTags map[string]string
+		name     string
 		wantErr  bool
-		errIs    error
 	}{
 		{
 			name: "returns_tags_for_app",
@@ -756,7 +756,7 @@ func TestInMemoryBackend_ListTagsForResource(t *testing.T) {
 				require.Error(t, err)
 
 				if tt.errIs != nil {
-					assert.ErrorIs(t, err, tt.errIs)
+					require.ErrorIs(t, err, tt.errIs)
 				}
 
 				return

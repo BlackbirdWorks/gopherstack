@@ -19,6 +19,7 @@ import (
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
+	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
@@ -148,6 +149,7 @@ type DashboardHandler struct {
 	AppSyncOps               *appsyncbackend.Handler
 	CognitoIDPOps            *cognitoidpbackend.Handler
 	IoTDataPlaneOps          *iotdataplanebackend.Handler
+	AmplifyOps               *amplifybackend.Handler
 	SubRouter                *echo.Echo
 	ddbProvider              *ddbbackend.DashboardProvider
 	s3Provider               *s3backend.DashboardProvider
@@ -243,6 +245,8 @@ type Config struct {
 	CognitoIDPOps *cognitoidpbackend.Handler
 	// IoTDataPlaneOps provides access to the IoT Data Plane backend.
 	IoTDataPlaneOps *iotdataplanebackend.Handler
+	// AmplifyOps provides access to the Amplify backend.
+	AmplifyOps *amplifybackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -317,6 +321,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/appsync/*.html",
 		"templates/cognitoidp/*.html",
 		"templates/iotdataplane/*.html",
+		"templates/amplify/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -380,6 +385,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		AppSyncOps:               cfg.AppSyncOps,
 		CognitoIDPOps:            cfg.CognitoIDPOps,
 		IoTDataPlaneOps:          cfg.IoTDataPlaneOps,
+		AmplifyOps:               cfg.AmplifyOps,
 		GlobalConfig:             cfg.GlobalConfig,
 		Logger:                   cfg.Logger,
 		FaultStore:               cfg.FaultStore,
@@ -660,6 +666,10 @@ func (h *DashboardHandler) setupCognitoIdentityRoutes() {
 	h.SubRouter.GET("/dashboard/cognitoidentity", h.cognitoIdentityIndex)
 }
 
+func (h *DashboardHandler) setupAmplifyRoutes() {
+	h.SubRouter.GET("/dashboard/amplify", h.amplifyIndex)
+}
+
 func (h *DashboardHandler) setupAppSyncRoutes() {
 	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
 }
@@ -733,6 +743,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupAppSyncRoutes()
 	h.setupCognitoIDPRoutes()
 	h.setupIoTDataPlaneRoutes()
+	h.setupAmplifyRoutes()
 	h.setupChaosRoutes()
 	h.setupMetaRoutes()
 }
@@ -824,6 +835,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/appsync", "AppSync"},
 	{"/cognitoidp", "CognitoIDP"},
 	{"/iotdataplane", "IoTDataPlane"},
+	{"/amplify", "Amplify"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

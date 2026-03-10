@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64px" height="64px" viewBox="0 0 64 64" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>Icon-Architecture/48/Arch_AWS-Amplify_48</title>
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect fill="#FF9900" x="0" y="0" width="64" height="64" rx="8"/>
+        <g transform="translate(10, 10)" fill="#FFFFFF">
+            <polygon points="22,4 44,40 0,40" opacity="0.9"/>
+            <polygon points="22,14 38,40 6,40" fill="#FF9900" opacity="0.6"/>
+            <rect x="18" y="42" width="8" height="2" rx="1"/>
+        </g>
+    </g>
+</svg>
