@@ -3538,31 +3538,43 @@ func TestTerraform_CloudControl(t *testing.T) {
 				t.Helper()
 
 				client := createCloudControlClient(t)
+				expectedName := "tf-cloudcontrol-" + vars["Suffix"].(string)
+
 				out, err := client.ListResources(ctx, &cloudcontrolsvc.ListResourcesInput{
 					TypeName: aws.String("AWS::Logs::LogGroup"),
 				})
 				require.NoError(t, err, "ListResources should succeed after terraform apply")
 
-				expectedName := "tf-cloudcontrol-" + vars["Suffix"].(string)
-				found := false
+				var foundIdentifier string
 
 				for _, rd := range out.ResourceDescriptions {
 					var props map[string]any
 					propsJSON := []byte(aws.ToString(rd.Properties))
 					if unmarshalErr := json.Unmarshal(propsJSON, &props); unmarshalErr == nil {
 						if props["LogGroupName"] == expectedName {
-							found = true
+							foundIdentifier = aws.ToString(rd.Identifier)
 
 							break
 						}
 					}
+
 					if aws.ToString(rd.Identifier) == expectedName {
-						found = true
+						foundIdentifier = expectedName
 
 						break
 					}
 				}
-				assert.True(t, found, "cloudcontrol resource %q should be listed", expectedName)
+
+				assert.NotEmpty(t, foundIdentifier, "cloudcontrol resource %q should be listed", expectedName)
+
+				if foundIdentifier != "" {
+					getOut, getErr := client.GetResource(ctx, &cloudcontrolsvc.GetResourceInput{
+						TypeName:   aws.String("AWS::Logs::LogGroup"),
+						Identifier: aws.String(foundIdentifier),
+					})
+					require.NoError(t, getErr, "GetResource should succeed after terraform apply")
+					require.NotNil(t, getOut.ResourceDescription, "resource description should not be nil")
+				}
 			},
 		},
 	}

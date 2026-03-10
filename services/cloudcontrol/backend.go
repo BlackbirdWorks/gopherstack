@@ -239,6 +239,15 @@ func resourceKey(typeName, identifier string) string {
 // identifier from a CloudControl desiredState document. Keys are checked in order;
 // the first non-empty string value is used as the resource identifier.
 //
+// Key mappings to common AWS resource types:
+//   - "Id"            — generic identifier (many types)
+//   - "Name"          — generic name (e.g. AWS::IAM::Role)
+//   - "LogGroupName"  — AWS::Logs::LogGroup
+//   - "BucketName"    — AWS::S3::Bucket
+//   - "FunctionName"  — AWS::Lambda::Function
+//   - "TopicName"     — AWS::SNS::Topic
+//   - "QueueName"     — AWS::SQS::Queue
+//
 //nolint:gochecknoglobals // lookup table
 var identifierKeys = []string{
 	"Id", "Name", "LogGroupName", "BucketName", "FunctionName", "TopicName", "QueueName",
