@@ -54,6 +54,7 @@ import (
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
@@ -1078,6 +1079,7 @@ func getServiceProviders() []service.Provider {
 		&appconfigdatabackend.Provider{},
 		&amplifybackend.Provider{},
 		&apigwv2backend.Provider{},
+		&athenabackend.Provider{},
 	}
 }
 
