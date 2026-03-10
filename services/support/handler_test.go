@@ -31,7 +31,7 @@ func doSupportRequest(t *testing.T, h *support.Handler, action string, body any)
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-	req.Header.Set("X-Amz-Target", "AmazonSupport."+action)
+	req.Header.Set("X-Amz-Target", "AWSSupport_20130415."+action)
 
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
@@ -76,7 +76,7 @@ func TestSupport_RouteMatcher(t *testing.T) {
 	}{
 		{
 			name:      "matching target",
-			target:    "AmazonSupport.CreateCase",
+			target:    "AWSSupport_20130415.CreateCase",
 			wantMatch: true,
 		},
 		{
@@ -108,7 +108,7 @@ func TestSupport_ExtractOperation(t *testing.T) {
 	e := echo.New()
 
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.Header.Set("X-Amz-Target", "AmazonSupport.CreateCase")
+	req.Header.Set("X-Amz-Target", "AWSSupport_20130415.CreateCase")
 	c := e.NewContext(req, httptest.NewRecorder())
 	assert.Equal(t, "CreateCase", h.ExtractOperation(c))
 }
@@ -121,7 +121,7 @@ func TestSupport_ExtractResource(t *testing.T) {
 
 	body := `{"subject":"my ticket"}`
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(body)))
-	req.Header.Set("X-Amz-Target", "AmazonSupport.CreateCase")
+	req.Header.Set("X-Amz-Target", "AWSSupport_20130415.CreateCase")
 	c := e.NewContext(req, httptest.NewRecorder())
 	assert.Equal(t, "my ticket", h.ExtractResource(c))
 }
