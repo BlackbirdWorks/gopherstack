@@ -575,7 +575,7 @@ func New(t *testing.T) *Stack {
 		h.elasticache, h.route53, h.ses, h.sesv2, h.ec2, h.ecr, h.ecs, h.iot, h.opensearch,
 		h.acm, h.acmpca, h.redshift, h.rds, h.awsconfig, h.s3control, h.resourcegroups, h.rgtagging, h.swf, h.firehose,
 		h.scheduler, h.route53resolver, h.transcribe, h.support, h.cognitoIdentity,
-	h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.amplify, h.appConfig, h.appConfigData,
+		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData, h.amplify, h.appConfig,
 	)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
