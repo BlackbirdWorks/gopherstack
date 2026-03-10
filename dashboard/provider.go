@@ -18,6 +18,7 @@ import (
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
+	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -110,6 +111,7 @@ type AWSSDKProvider interface {
 	GetBackupHandler() service.Registerable
 	GetAppConfigHandler() service.Registerable
 	GetApplicationAutoscalingHandler() service.Registerable
+	GetBatchHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -180,6 +182,7 @@ type extractedConfig struct {
 	backupOps                 *backupbackend.Handler
 	appConfigOps              *appconfigbackend.Handler
 	applicationAutoscalingOps *applicationautoscalingbackend.Handler
+	batchOps                  *batchbackend.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
 	iotOps                    *iotbackend.Handler
@@ -373,6 +376,10 @@ func extractRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.sesv2Ops, _ = h.(*sesv2backend.Handler)
 	}
 
+	if h := ap.GetBatchHandler(); h != nil {
+		ec.batchOps, _ = h.(*batchbackend.Handler)
+	}
+
 	extractECRECSAndIoTHandlers(ap, ec)
 }
 
@@ -482,6 +489,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		BackupOps:                  ec.backupOps,
 		AppConfigOps:               ec.appConfigOps,
 		ApplicationAutoscalingOps:  ec.applicationAutoscalingOps,
+		BatchOps:                   ec.batchOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		IoTOps:                     ec.iotOps,

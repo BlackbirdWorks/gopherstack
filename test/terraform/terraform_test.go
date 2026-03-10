@@ -36,6 +36,7 @@ import (
 	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	athenasdkv2 "github.com/aws/aws-sdk-go-v2/service/athena"
 	backupsvc "github.com/aws/aws-sdk-go-v2/service/backup"
+	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
@@ -156,6 +157,7 @@ provider "aws" {
     athena          = %[1]q
     appsync         = %[1]q
     backup          = %[1]q
+    batch           = %[1]q
     cloudformation  = %[1]q
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
@@ -3248,6 +3250,52 @@ func TestTerraform_Backup(t *testing.T) {
 					}
 				}
 				assert.True(t, found, "vault %q should be listed", vars["VaultName"].(string))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Batch provisions Batch resources via Terraform and verifies they exist.
+func TestTerraform_Batch(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "batch/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createBatchClient(t)
+				suffix := vars["Suffix"].(string)
+
+				ceOut, err := client.DescribeComputeEnvironments(ctx, &batchsvc.DescribeComputeEnvironmentsInput{
+					ComputeEnvironments: []string{"tf-ce-" + suffix},
+				})
+				require.NoError(t, err, "DescribeComputeEnvironments should succeed")
+				require.Len(t, ceOut.ComputeEnvironments, 1, "compute environment should exist")
+				assert.Equal(t, "tf-ce-"+suffix, *ceOut.ComputeEnvironments[0].ComputeEnvironmentName)
+
+				jqOut, err := client.DescribeJobQueues(ctx, &batchsvc.DescribeJobQueuesInput{
+					JobQueues: []string{"tf-jq-" + suffix},
+				})
+				require.NoError(t, err, "DescribeJobQueues should succeed")
+				require.Len(t, jqOut.JobQueues, 1, "job queue should exist")
+				assert.Equal(t, "tf-jq-"+suffix, *jqOut.JobQueues[0].JobQueueName)
 			},
 		},
 	}
