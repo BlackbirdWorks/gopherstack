@@ -172,7 +172,6 @@ provider "aws" {
     sns             = %[1]q
     sqs             = %[1]q
     ssm             = %[1]q
-    support         = %[1]q
     sts             = %[1]q
     swf             = %[1]q
   }
