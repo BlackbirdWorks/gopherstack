@@ -70,9 +70,13 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches Batch requests.
+// It matches /v1/ paths but explicitly excludes /v1/apis (AppSync)
+// to prevent routing conflicts when both services use PriorityPathVersioned.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().URL.Path, v1Prefix)
+		path := c.Request().URL.Path
+
+		return strings.HasPrefix(path, v1Prefix) && !strings.HasPrefix(path, "/v1/apis")
 	}
 }
 

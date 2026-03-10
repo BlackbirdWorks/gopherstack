@@ -122,6 +122,8 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	}{
 		{name: "batch_path", path: "/v1/createcomputeenvironment", wantMatch: true},
 		{name: "tags_path", path: "/v1/tags/some-arn", wantMatch: true},
+		{name: "appsync_path_excluded", path: "/v1/apis", wantMatch: false},
+		{name: "appsync_path_excluded_with_id", path: "/v1/apis/abc123/datasources", wantMatch: false},
 		{name: "other_prefix", path: "/v2/apis", wantMatch: false},
 		{name: "root", path: "/", wantMatch: false},
 	}
