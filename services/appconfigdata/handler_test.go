@@ -148,13 +148,57 @@ func TestHandler_ExtractOperation(t *testing.T) {
 func TestHandler_ExtractResource(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodGet, "/configuration?configuration_token=my-token-123", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
+	tests := []struct {
+		name   string
+		path   string
+		method string
+		setup  func(h *appconfigdata.Handler) string
+		want   string
+	}{
+		{
+			name:   "start_session_returns_fixed_label",
+			path:   "/configurationsessions",
+			method: http.MethodPost,
+			want:   "configurationsession",
+		},
+		{
+			name:   "get_latest_with_known_token_returns_profile",
+			method: http.MethodGet,
+			setup: func(h *appconfigdata.Handler) string {
+				h.Backend.SetConfiguration("my-app", "prod", "my-profile", `{}`, "application/json")
+				token, _ := h.Backend.StartSession("my-app", "prod", "my-profile")
 
-	assert.Equal(t, "my-token-123", h.ExtractResource(c))
+				return "/configuration?configuration_token=" + token
+			},
+			want: "my-app/prod/my-profile",
+		},
+		{
+			name:   "get_latest_with_unknown_token_returns_fallback",
+			path:   "/configuration?configuration_token=unknown-token",
+			method: http.MethodGet,
+			want:   "unknown-session",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			path := tt.path
+			if tt.setup != nil {
+				path = tt.setup(h)
+			}
+
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, path, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, h.ExtractResource(c))
+		})
+	}
 }
 
 func TestHandler_StartConfigurationSession(t *testing.T) {

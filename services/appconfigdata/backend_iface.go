@@ -8,6 +8,8 @@ type StorageBackend interface {
 	StartSession(app, env, profile string) (string, error)
 	// GetLatestConfiguration retrieves configuration data for the given token and returns a new token.
 	GetLatestConfiguration(token string) (content []byte, contentType string, nextToken string, err error)
+	// LookupSession returns the session for the given token, or nil if not found.
+	LookupSession(token string) *Session
 	// ListProfiles returns all stored configuration profiles.
 	ListProfiles() []ConfigurationProfile
 	// ListSessions returns all active sessions.

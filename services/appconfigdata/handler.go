@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 
@@ -74,9 +75,20 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	}
 }
 
-// ExtractResource extracts the configuration token from the query string, if any.
+// ExtractResource returns a stable, non-sensitive resource label for telemetry.
+// For GetLatestConfiguration, it resolves the session to return app/env/profile;
+// for other operations it returns a fixed label to avoid high-cardinality metrics.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	return c.Request().URL.Query().Get(configurationTokenQueryParam)
+	if c.Request().URL.Path == configurationPath && c.Request().Method == http.MethodGet {
+		token := c.Request().URL.Query().Get(configurationTokenQueryParam)
+		if sess := h.Backend.LookupSession(token); sess != nil {
+			return sess.ApplicationIdentifier + "/" + sess.EnvironmentIdentifier + "/" + sess.ConfigurationProfileIdentifier
+		}
+
+		return "unknown-session"
+	}
+
+	return "configurationsession"
 }
 
 // Handler returns the Echo handler function for AppConfigData operations.
@@ -139,7 +151,12 @@ func (h *Handler) handleGetLatestConfiguration(c *echo.Context, token string) er
 
 	content, contentType, nextToken, err := h.Backend.GetLatestConfiguration(token)
 	if err != nil {
-		log.Error("appconfigdata: GetLatestConfiguration failed", "token", token, "error", err)
+		const redactLen = 8
+		redacted := token
+		if len(token) > redactLen {
+			redacted = token[:redactLen] + "..."
+		}
+		log.Error("appconfigdata: GetLatestConfiguration failed", "token_prefix", redacted, "error", err)
 
 		if errors.Is(err, ErrSessionNotFound) {
 			return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
@@ -149,7 +166,7 @@ func (h *Handler) handleGetLatestConfiguration(c *echo.Context, token string) er
 	}
 
 	c.Response().Header().Set(nextPollTokenHeader, nextToken)
-	c.Response().Header().Set(nextPollIntervalHeader, "30")
+	c.Response().Header().Set(nextPollIntervalHeader, strconv.Itoa(defaultPollIntervalInSeconds))
 	c.Response().Header().Set("Content-Type", contentType)
 
 	if len(content) == 0 {

@@ -114,6 +114,22 @@ func (b *InMemoryBackend) ListProfiles() []ConfigurationProfile {
 	return out
 }
 
+// LookupSession returns the session for the given token, or nil if not found.
+// This is a read-only lookup; it does not rotate the token.
+func (b *InMemoryBackend) LookupSession(token string) *Session {
+	b.mu.RLock("LookupSession")
+	defer b.mu.RUnlock()
+
+	sess := b.sessions[token]
+	if sess == nil {
+		return nil
+	}
+
+	snap := *sess
+
+	return &snap
+}
+
 // ListSessions returns all active sessions.
 func (b *InMemoryBackend) ListSessions() []Session {
 	b.mu.RLock("ListSessions")

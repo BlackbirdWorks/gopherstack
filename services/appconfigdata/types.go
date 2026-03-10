@@ -7,7 +7,7 @@ import "errors"
 
 var (
 	// ErrSessionNotFound is returned when the requested session token does not exist.
-	ErrSessionNotFound = errors.New("bad request: invalid next token")
+	ErrSessionNotFound = errors.New("bad request: invalid configuration token")
 	// ErrProfileNotFound is returned when no configuration has been stored for a profile.
 	ErrProfileNotFound = errors.New("resource not found: configuration profile not found")
 )
