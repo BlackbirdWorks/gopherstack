@@ -34,6 +34,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -145,6 +146,7 @@ type Stack struct {
 	ApplicationAutoscalingHandler  *applicationautoscalingbackend.Handler
 	BackupHandler                  *backupbackend.Handler
 	BatchHandler                   *batchbackend.Handler
+	BedrockHandler                 *bedrockbackend.Handler
 	BedrockRuntimeHandler          *bedrockruntimebackend.Handler
 	CeHandler                      *cebackend.Handler
 	CloudFrontHandler              *cloudfrontbackend.Handler
@@ -393,6 +395,7 @@ type handlers struct {
 	appAutoScaling  *applicationautoscalingbackend.Handler
 	backup          *backupbackend.Handler
 	batch           *batchbackend.Handler
+	bedrock         *bedrockbackend.Handler
 	bedrockruntime  *bedrockruntimebackend.Handler
 	ce              *cebackend.Handler
 	cloudFront      *cloudfrontbackend.Handler
@@ -532,6 +535,9 @@ func populateExtendedHandlers(h *handlers) {
 		backupbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.batch = batchbackend.NewHandler(batchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.bedrock = bedrockbackend.NewHandler(
+		bedrockbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.bedrockruntime = bedrockruntimebackend.NewHandler(
 		bedrockruntimebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -632,6 +638,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ApplicationAutoscalingOps:  h.appAutoScaling,
 		BackupOps:                  h.backup,
 		BatchOps:                   h.batch,
+		BedrockOps:                 h.bedrock,
 		BedrockRuntimeOps:          h.bedrockruntime,
 		CeOps:                      h.ce,
 		CloudFrontOps:              h.cloudFront,
@@ -669,6 +676,7 @@ func New(t *testing.T) *Stack {
 		h.amplify, h.apigwv2, h.appConfig, h.athena, h.backup,
 	)
 	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch, h.ce)
+	_ = registry.Register(h.bedrock)
 	_ = registry.Register(h.bedrockruntime)
 	registerCloudfrontService(registry, h.cloudFront)
 
@@ -740,6 +748,7 @@ func New(t *testing.T) *Stack {
 		ApplicationAutoscalingHandler:  h.appAutoScaling,
 		BackupHandler:                  h.backup,
 		BatchHandler:                   h.batch,
+		BedrockHandler:                 h.bedrock,
 		BedrockRuntimeHandler:          h.bedrockruntime,
 		CeHandler:                      h.ce,
 		CloudFrontHandler:              h.cloudFront,

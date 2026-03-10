@@ -38,6 +38,7 @@ import (
 	autoscalingsvc "github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	backupsvc "github.com/aws/aws-sdk-go-v2/service/backup"
 	batchsvc "github.com/aws/aws-sdk-go-v2/service/batch"
+	bedrocksvc "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	bedrockruntimesvc "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	bedrockruntimetypes "github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
@@ -164,6 +165,7 @@ provider "aws" {
     autoscaling     = %[1]q
     backup          = %[1]q
     batch           = %[1]q
+    bedrock         = %[1]q
     ce              = %[1]q
     cloudformation  = %[1]q
     cloudwatch      = %[1]q
@@ -3361,6 +3363,53 @@ func TestTerraform_Batch(t *testing.T) {
 				require.NoError(t, err, "DescribeJobQueues should succeed")
 				require.Len(t, jqOut.JobQueues, 1, "job queue should exist")
 				assert.Equal(t, "tf-jq-"+suffix, *jqOut.JobQueues[0].JobQueueName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Bedrock provisions Bedrock guardrail via Terraform and verifies it exists.
+func TestTerraform_Bedrock(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "bedrock/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createBedrockClient(t)
+				suffix := vars["Suffix"].(string)
+
+				out, err := client.ListGuardrails(ctx, &bedrocksvc.ListGuardrailsInput{})
+				require.NoError(t, err, "ListGuardrails should succeed")
+
+				var found bool
+
+				for _, g := range out.Guardrails {
+					if g.Name != nil && *g.Name == "tf-guardrail-"+suffix {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "guardrail tf-guardrail-%s should exist", suffix)
 			},
 		},
 	}

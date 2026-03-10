@@ -33,6 +33,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -175,6 +176,8 @@ type DashboardHandler struct {
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
 	// BatchOps provides access to the Batch backend.
 	BatchOps *batchbackend.Handler
+	// BedrockOps provides access to the Bedrock backend.
+	BedrockOps *bedrockbackend.Handler
 	// BedrockRuntimeOps provides access to the Bedrock Runtime backend.
 	BedrockRuntimeOps *bedrockruntimebackend.Handler
 	// CeOps provides access to the Cost Explorer backend.
@@ -298,6 +301,8 @@ type Config struct {
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
 	// BatchOps provides access to the Batch backend.
 	BatchOps *batchbackend.Handler
+	// BedrockOps provides access to the Bedrock backend.
+	BedrockOps *bedrockbackend.Handler
 	// BedrockRuntimeOps provides access to the Bedrock Runtime backend.
 	BedrockRuntimeOps *bedrockruntimebackend.Handler
 	// CeOps provides access to the Cost Explorer backend.
@@ -389,6 +394,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/backup/*.html",
 		"templates/applicationautoscaling/*.html",
 		"templates/batch/*.html",
+		"templates/bedrock/*.html",
 		"templates/bedrockruntime/*.html",
 		"templates/ce/*.html",
 		"templates/cloudfront/*.html",
@@ -466,6 +472,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		AppConfigOps:               cfg.AppConfigOps,
 		ApplicationAutoscalingOps:  cfg.ApplicationAutoscalingOps,
 		BatchOps:                   cfg.BatchOps,
+		BedrockOps:                 cfg.BedrockOps,
 		BedrockRuntimeOps:          cfg.BedrockRuntimeOps,
 		CeOps:                      cfg.CeOps,
 		CloudFrontOps:              cfg.CloudFrontOps,
@@ -907,6 +914,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupAutoscalingRoutes()
 	h.setupApplicationAutoscalingRoutes()
 	h.setupBatchRoutes()
+	h.setupBedrockRoutes()
 	h.setupCeRoutes()
 }
 
@@ -1004,6 +1012,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/amplify", "Amplify"},
 	{"/applicationautoscaling", "ApplicationAutoscaling"},
 	{"/batch", "Batch"},
+	{"/bedrock", "Bedrock"},
 	{"/bedrockruntime", "BedrockRuntime"},
 	{"/ce", "Ce"},
 	{"/athena", "Athena"},

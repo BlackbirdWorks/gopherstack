@@ -61,6 +61,7 @@ import (
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	bedrockbackend "github.com/blackbirdworks/gopherstack/services/bedrock"
 	bedrockruntimebackend "github.com/blackbirdworks/gopherstack/services/bedrockruntime"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
@@ -175,6 +176,7 @@ type CLI struct {
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
+	bedrockHandler                service.Registerable
 	bedrockruntimeHandler         service.Registerable
 	ceHandler                     service.Registerable
 	cloudFrontHandler             service.Registerable
@@ -571,6 +573,11 @@ func (c *CLI) GetApplicationAutoscalingHandler() service.Registerable {
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetBatchHandler() service.Registerable { return c.batchHandler }
+
+// GetBedrockHandler returns the Bedrock handler.
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetBedrockHandler() service.Registerable { return c.bedrockHandler }
 
 // GetBedrockRuntimeHandler returns the Bedrock Runtime handler.
 //
@@ -995,6 +1002,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.appConfigHandler = byName["AppConfig"]
 	cli.applicationautoscalingHandler = byName["ApplicationAutoscaling"]
 	cli.batchHandler = byName["Batch"]
+	cli.bedrockHandler = byName["Bedrock"]
 	cli.bedrockruntimeHandler = byName["BedrockRuntime"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
@@ -1175,6 +1183,7 @@ func getServiceProviders() []service.Provider {
 		&backupbackend.Provider{},
 		&applicationautoscalingbackend.Provider{},
 		&batchbackend.Provider{},
+		&bedrockbackend.Provider{},
 		&bedrockruntimebackend.Provider{},
 		&cebackend.Provider{},
 		&cloudfrontbackend.Provider{},

@@ -90,6 +90,7 @@ func (m *mockAWSProvider) GetAPIGatewayManagementAPIHandler() service.Registerab
 func (m *mockAWSProvider) GetAppConfigDataHandler() service.Registerable           { return nil }
 func (m *mockAWSProvider) GetBackupHandler() service.Registerable                  { return nil }
 func (m *mockAWSProvider) GetBatchHandler() service.Registerable                   { return nil }
+func (m *mockAWSProvider) GetBedrockHandler() service.Registerable                 { return nil }
 func (m *mockAWSProvider) GetBedrockRuntimeHandler() service.Registerable          { return nil }
 func (m *mockAWSProvider) GetCeHandler() service.Registerable                      { return nil }
 func (m *mockAWSProvider) GetCloudFrontHandler() service.Registerable              { return nil }
