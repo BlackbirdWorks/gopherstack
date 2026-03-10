@@ -1,6 +1,6 @@
 resource "aws_bedrock_guardrail" "this" {
   name                      = "tf-guardrail-{{.Suffix}}"
-  blocked_inputs_messaging  = "Sorry, I cannot help with that."
+  blocked_input_messaging   = "Sorry, I cannot help with that."
   blocked_outputs_messaging = "I cannot provide that information."
 
   lifecycle {
