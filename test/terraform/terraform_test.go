@@ -139,8 +139,8 @@ provider "aws" {
   endpoints {
     acm             = %[1]q
     amplify         = %[1]q
-    appsync         = %[1]q
     apigateway      = %[1]q
+    appsync         = %[1]q
     cloudformation  = %[1]q
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q

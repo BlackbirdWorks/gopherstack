@@ -352,7 +352,7 @@ func (h *Handler) createApp(ctx context.Context, c *echo.Context) error {
 		return h.handleBackendError(ctx, c, "CreateApp", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"app": app})
+	return c.JSON(http.StatusCreated, map[string]any{"app": toAppView(app)})
 }
 
 // getApp handles GET /apps/{appId}.
@@ -362,7 +362,7 @@ func (h *Handler) getApp(ctx context.Context, c *echo.Context, appID string) err
 		return h.handleBackendError(ctx, c, "GetApp", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"app": app})
+	return c.JSON(http.StatusOK, map[string]any{"app": toAppView(app)})
 }
 
 // listApps handles GET /apps.
@@ -372,7 +372,7 @@ func (h *Handler) listApps(ctx context.Context, c *echo.Context) error {
 		return h.handleBackendError(ctx, c, "ListApps", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"apps": apps})
+	return c.JSON(http.StatusOK, map[string]any{"apps": toAppViews(apps)})
 }
 
 // deleteApp handles DELETE /apps/{appId}.
@@ -419,7 +419,7 @@ func (h *Handler) createBranch(ctx context.Context, c *echo.Context, appID strin
 		return h.handleBackendError(ctx, c, "CreateBranch", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{"branch": branch})
+	return c.JSON(http.StatusCreated, map[string]any{"branch": toBranchView(branch)})
 }
 
 // getBranch handles GET /apps/{appId}/branches/{branchName}.
@@ -429,7 +429,7 @@ func (h *Handler) getBranch(ctx context.Context, c *echo.Context, appID, branchN
 		return h.handleBackendError(ctx, c, "GetBranch", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"branch": branch})
+	return c.JSON(http.StatusOK, map[string]any{"branch": toBranchView(branch)})
 }
 
 // listBranches handles GET /apps/{appId}/branches.
@@ -439,7 +439,7 @@ func (h *Handler) listBranches(ctx context.Context, c *echo.Context, appID strin
 		return h.handleBackendError(ctx, c, "ListBranches", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"branches": branches})
+	return c.JSON(http.StatusOK, map[string]any{"branches": toBranchViews(branches)})
 }
 
 // deleteBranch handles DELETE /apps/{appId}/branches/{branchName}.
@@ -483,7 +483,7 @@ func (h *Handler) tagResource(ctx context.Context, c *echo.Context, resourceARN 
 	return c.NoContent(http.StatusOK)
 }
 
-// untagResource handles DELETE /tags/{resourceArn}?tagKeys=key1,key2.
+// untagResource handles DELETE /tags/{resourceArn}?tagKeys=key1&tagKeys=key2.
 func (h *Handler) untagResource(ctx context.Context, c *echo.Context, resourceARN string) error {
 	tagKeys := c.Request().URL.Query()["tagKeys"]
 
@@ -508,6 +508,92 @@ func (h *Handler) handleBackendError(ctx context.Context, c *echo.Context, op st
 	}
 
 	return c.JSON(http.StatusInternalServerError, amplifyError(fmt.Sprintf("internal error: %s", err.Error())))
+}
+
+// appView is the JSON representation of an App with timestamps as Unix epoch
+// float64 values, as required by the AWS SDK v2 deserialiser.
+type appView struct {
+	Tags          map[string]string `json:"tags,omitempty"`
+	AppID         string            `json:"appId"`
+	ARN           string            `json:"appArn"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description,omitempty"`
+	Repository    string            `json:"repository,omitempty"`
+	DefaultDomain string            `json:"defaultDomain,omitempty"`
+	Platform      Platform          `json:"platform"`
+	CreateTime    float64           `json:"createTime"`
+	UpdateTime    float64           `json:"updateTime"`
+}
+
+// branchView is the JSON representation of a Branch with timestamps as Unix
+// epoch float64 values, as required by the AWS SDK v2 deserialiser.
+type branchView struct {
+	Tags            map[string]string `json:"tags,omitempty"`
+	AppID           string            `json:"appId"`
+	BranchARN       string            `json:"branchArn"`
+	BranchName      string            `json:"branchName"`
+	Description     string            `json:"description,omitempty"`
+	Stage           Stage             `json:"stage,omitempty"`
+	CreateTime      float64           `json:"createTime"`
+	UpdateTime      float64           `json:"updateTime"`
+	EnableAutoBuild bool              `json:"enableAutoBuild"`
+}
+
+func toAppView(a *App) appView {
+	var tagMap map[string]string
+	if a.Tags != nil {
+		tagMap = a.Tags.Clone()
+	}
+
+	return appView{
+		Tags:          tagMap,
+		CreateTime:    float64(a.CreateTime.Unix()),
+		UpdateTime:    float64(a.UpdateTime.Unix()),
+		AppID:         a.AppID,
+		ARN:           a.ARN,
+		Name:          a.Name,
+		Description:   a.Description,
+		Repository:    a.Repository,
+		DefaultDomain: a.DefaultDomain,
+		Platform:      a.Platform,
+	}
+}
+
+func toBranchView(b *Branch) branchView {
+	var tagMap map[string]string
+	if b.Tags != nil {
+		tagMap = b.Tags.Clone()
+	}
+
+	return branchView{
+		Tags:            tagMap,
+		CreateTime:      float64(b.CreateTime.Unix()),
+		UpdateTime:      float64(b.UpdateTime.Unix()),
+		AppID:           b.AppID,
+		BranchARN:       b.BranchARN,
+		BranchName:      b.BranchName,
+		Description:     b.Description,
+		Stage:           b.Stage,
+		EnableAutoBuild: b.EnableAutoBuild,
+	}
+}
+
+func toAppViews(apps []*App) []appView {
+	views := make([]appView, len(apps))
+	for i, a := range apps {
+		views[i] = toAppView(a)
+	}
+
+	return views
+}
+
+func toBranchViews(branches []*Branch) []branchView {
+	views := make([]branchView, len(branches))
+	for i, b := range branches {
+		views[i] = toBranchView(b)
+	}
+
+	return views
 }
 
 // amplifyError builds a standard Amplify error response body.
