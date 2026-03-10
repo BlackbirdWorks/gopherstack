@@ -530,7 +530,7 @@ func (h *Handler) handleGetApplication(c *echo.Context, applicationID string) er
 func (h *Handler) handleListApplications(c *echo.Context) error {
 	apps := h.Backend.ListApplications()
 
-	return c.JSON(http.StatusOK, map[string]any{"items": apps})
+	return c.JSON(http.StatusOK, map[string]any{"Items": apps})
 }
 
 func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string) error {
@@ -610,7 +610,7 @@ func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) 
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"items": envs})
+	return c.JSON(http.StatusOK, map[string]any{"Items": envs})
 }
 
 func (h *Handler) handleUpdateEnvironment(c *echo.Context, applicationID, environmentID string) error {
@@ -698,7 +698,7 @@ func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"items": profiles})
+	return c.JSON(http.StatusOK, map[string]any{"Items": profiles})
 }
 
 func (h *Handler) handleUpdateConfigurationProfile(c *echo.Context, applicationID, profileID string) error {
@@ -789,7 +789,7 @@ func (h *Handler) handleListHostedConfigurationVersions(c *echo.Context, applica
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"items": versions})
+	return c.JSON(http.StatusOK, map[string]any{"Items": versions})
 }
 
 func (h *Handler) handleDeleteHostedConfigurationVersion(
@@ -850,7 +850,7 @@ func (h *Handler) handleGetDeploymentStrategy(c *echo.Context, strategyID string
 func (h *Handler) handleListDeploymentStrategies(c *echo.Context) error {
 	strategies := h.Backend.ListDeploymentStrategies()
 
-	return c.JSON(http.StatusOK, map[string]any{"items": strategies})
+	return c.JSON(http.StatusOK, map[string]any{"Items": strategies})
 }
 
 func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID string) error {
@@ -971,7 +971,7 @@ func (h *Handler) handleListDeployments(c *echo.Context, applicationID, environm
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"items": deployments})
+	return c.JSON(http.StatusOK, map[string]any{"Items": deployments})
 }
 
 func (h *Handler) handleStopDeployment(
