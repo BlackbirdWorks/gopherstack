@@ -8,7 +8,8 @@ import (
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 )
 
-// batchComputeEnvironmentView is the view model for a single Batch compute environment.
+const defaultJobQueuePriority = 10
+
 type batchComputeEnvironmentView struct {
 	Name   string
 	ARN    string
@@ -205,7 +206,13 @@ func (h *DashboardHandler) batchCreateJobQueue(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	_, err := h.BatchOps.Backend.CreateJobQueue(name, 10, "ENABLED", []batchbackend.ComputeEnvironmentOrder{}, nil)
+	_, err := h.BatchOps.Backend.CreateJobQueue(
+		name,
+		defaultJobQueuePriority,
+		"ENABLED",
+		[]batchbackend.ComputeEnvironmentOrder{},
+		nil,
+	)
 	if err != nil {
 		h.Logger.Error("failed to create job queue", "name", name, "error", err)
 

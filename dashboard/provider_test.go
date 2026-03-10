@@ -87,7 +87,7 @@ func (m *mockAWSProvider) GetFISHandler() service.Registerable                  
 func (m *mockAWSProvider) GetAPIGatewayManagementAPIHandler() service.Registerable { return nil }
 func (m *mockAWSProvider) GetAppConfigDataHandler() service.Registerable           { return nil }
 func (m *mockAWSProvider) GetApplicationAutoscalingHandler() service.Registerable  { return nil }
-func (m *mockAWSProvider) GetBatchHandler() service.Registerable                    { return nil }
+func (m *mockAWSProvider) GetBatchHandler() service.Registerable                   { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 

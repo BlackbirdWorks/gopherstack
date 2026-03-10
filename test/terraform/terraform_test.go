@@ -3219,46 +3219,46 @@ func TestTerraform_Athena(t *testing.T) {
 
 // TestTerraform_Batch provisions Batch resources via Terraform and verifies they exist.
 func TestTerraform_Batch(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "batch/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "batch/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"Suffix": id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createBatchClient(t)
-suffix := vars["Suffix"].(string)
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createBatchClient(t)
+				suffix := vars["Suffix"].(string)
 
-ceOut, err := client.DescribeComputeEnvironments(ctx, &batchsvc.DescribeComputeEnvironmentsInput{
-ComputeEnvironments: []string{"tf-ce-" + suffix},
-})
-require.NoError(t, err, "DescribeComputeEnvironments should succeed")
-require.Len(t, ceOut.ComputeEnvironments, 1, "compute environment should exist")
-assert.Equal(t, "tf-ce-"+suffix, *ceOut.ComputeEnvironments[0].ComputeEnvironmentName)
+				ceOut, err := client.DescribeComputeEnvironments(ctx, &batchsvc.DescribeComputeEnvironmentsInput{
+					ComputeEnvironments: []string{"tf-ce-" + suffix},
+				})
+				require.NoError(t, err, "DescribeComputeEnvironments should succeed")
+				require.Len(t, ceOut.ComputeEnvironments, 1, "compute environment should exist")
+				assert.Equal(t, "tf-ce-"+suffix, *ceOut.ComputeEnvironments[0].ComputeEnvironmentName)
 
-jqOut, err := client.DescribeJobQueues(ctx, &batchsvc.DescribeJobQueuesInput{
-JobQueues: []string{"tf-jq-" + suffix},
-})
-require.NoError(t, err, "DescribeJobQueues should succeed")
-require.Len(t, jqOut.JobQueues, 1, "job queue should exist")
-assert.Equal(t, "tf-jq-"+suffix, *jqOut.JobQueues[0].JobQueueName)
-},
-},
-}
+				jqOut, err := client.DescribeJobQueues(ctx, &batchsvc.DescribeJobQueuesInput{
+					JobQueues: []string{"tf-jq-" + suffix},
+				})
+				require.NoError(t, err, "DescribeJobQueues should succeed")
+				require.Len(t, jqOut.JobQueues, 1, "job queue should exist")
+				assert.Equal(t, "tf-jq-"+suffix, *jqOut.JobQueues[0].JobQueueName)
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }

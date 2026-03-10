@@ -1240,18 +1240,18 @@ func createAthenaClient(t *testing.T) *athenasdkv2.Client {
 
 // createBatchClient returns a Batch client pointed at the shared test container.
 func createBatchClient(t *testing.T) *batchsvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-require.NoError(t, err, "unable to load SDK config")
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
 
-return batchsvc.NewFromConfig(cfg, func(o *batchsvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return batchsvc.NewFromConfig(cfg, func(o *batchsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }

@@ -102,7 +102,12 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	path := c.Request().URL.Path
 	if after, ok := strings.CutPrefix(path, tagsPrefix); ok {
-		return after
+		decoded, err := url.PathUnescape(after)
+		if err != nil {
+			return after
+		}
+
+		return decoded
 	}
 
 	return ""
@@ -120,19 +125,22 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		if r.Method != http.MethodPost {
-			return c.JSON(http.StatusMethodNotAllowed, errorResponse("method not allowed"))
+			return c.JSON(http.StatusMethodNotAllowed, errorResponse("ValidationException", "method not allowed"))
 		}
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
 			log.ErrorContext(r.Context(), "batch: failed to read request body", "error", err)
 
-			return c.JSON(http.StatusInternalServerError, errorResponse("internal server error"))
+			return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 		}
 
 		fn, ok := h.dispatchTable()[path]
 		if !ok {
-			return c.JSON(http.StatusNotFound, errorResponse("unknown operation for path: "+path))
+			return c.JSON(
+				http.StatusNotFound,
+				errorResponse("UnknownOperationException", "unknown operation for path: "+path),
+			)
 		}
 
 		result, opErr := fn(r.Context(), body)
@@ -144,7 +152,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if marshalErr != nil {
 			log.ErrorContext(r.Context(), "batch: failed to marshal response", "error", marshalErr)
 
-			return c.JSON(http.StatusInternalServerError, errorResponse("internal server error"))
+			return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 		}
 
 		return c.JSONBlob(http.StatusOK, out)
@@ -177,7 +185,7 @@ func (h *Handler) handleTags(c *echo.Context, log *slog.Logger) error {
 	resourceARN, err := url.PathUnescape(strings.TrimPrefix(r.URL.Path, tagsPrefix))
 
 	if err != nil || resourceARN == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("invalid resource ARN in path"))
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid resource ARN in path"))
 	}
 
 	switch r.Method {
@@ -188,28 +196,28 @@ func (h *Handler) handleTags(c *echo.Context, log *slog.Logger) error {
 		if readErr != nil {
 			log.ErrorContext(r.Context(), "batch: failed to read tags body", "error", readErr)
 
-			return c.JSON(http.StatusInternalServerError, errorResponse("internal server error"))
+			return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", "internal server error"))
 		}
 
 		return h.handleTagResource(c, resourceARN, body)
 	case http.MethodDelete:
 		return h.handleUntagResource(c, resourceARN, r.URL.Query())
 	default:
-		return c.JSON(http.StatusMethodNotAllowed, errorResponse("method not allowed"))
+		return c.JSON(http.StatusMethodNotAllowed, errorResponse("ValidationException", "method not allowed"))
 	}
 }
 
 func (h *Handler) writeError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrAlreadyExists):
-		return c.JSON(http.StatusBadRequest, errorResponse(err.Error()))
+		return c.JSON(http.StatusBadRequest, errorResponse("ClientException", err.Error()))
 	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse(err.Error()))
+		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
 	}
 }
 
-func errorResponse(msg string) map[string]string {
-	return map[string]string{"message": msg}
+func errorResponse(code, msg string) map[string]string {
+	return map[string]string{"__type": code, "message": msg}
 }
 
 func pathToOperation(path string) string {
@@ -572,7 +580,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []
 	var in tagResourceInput
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
-			return c.JSON(http.StatusBadRequest, errorResponse("invalid request body"))
+			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 		}
 	}
 

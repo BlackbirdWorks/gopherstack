@@ -28,9 +28,9 @@ import (
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
 	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
-	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
+	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
@@ -167,14 +167,14 @@ type DashboardHandler struct {
 	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
 	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
 	// BatchOps provides access to the Batch backend.
-	BatchOps  *batchbackend.Handler
-	SubRouter *echo.Echo
-	ddbProvider               *ddbbackend.DashboardProvider
-	s3Provider                *s3backend.DashboardProvider
-	FaultStore                *chaos.FaultStore
-	Logger                    *slog.Logger
-	layout                    *template.Template
-	GlobalConfig              config.GlobalConfig
+	BatchOps     *batchbackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -435,7 +435,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		AthenaOps:                  cfg.AthenaOps,
 		AppConfigOps:               cfg.AppConfigOps,
 		ApplicationAutoscalingOps:  cfg.ApplicationAutoscalingOps,
-		BatchOps:                    cfg.BatchOps,
+		BatchOps:                   cfg.BatchOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,

@@ -181,7 +181,10 @@ func (b *InMemoryBackend) UpdateComputeEnvironment(nameOrARN, state string) (*Co
 		return nil, fmt.Errorf("%w: compute environment %s not found", ErrNotFound, nameOrARN)
 	}
 
-	ce.State = state
+	if state != "" {
+		ce.State = state
+	}
+
 	cp := *ce
 
 	return &cp, nil
@@ -379,19 +382,29 @@ func (b *InMemoryBackend) DescribeJobDefinitions(names []string) []*JobDefinitio
 	return list
 }
 
-// DeregisterJobDefinition marks a job definition as INACTIVE by ARN.
-func (b *InMemoryBackend) DeregisterJobDefinition(arnStr string) error {
+// DeregisterJobDefinition marks a job definition as INACTIVE by ARN or name:revision.
+func (b *InMemoryBackend) DeregisterJobDefinition(arnOrNameRev string) error {
 	b.mu.Lock("DeregisterJobDefinition")
 	defer b.mu.Unlock()
 
-	jd, ok := b.jobDefinitions[arnStr]
-	if !ok {
-		return fmt.Errorf("%w: job definition %s not found", ErrNotFound, arnStr)
+	// Try direct ARN lookup first.
+	if jd, ok := b.jobDefinitions[arnOrNameRev]; ok {
+		jd.Status = "INACTIVE"
+
+		return nil
 	}
 
-	jd.Status = "INACTIVE"
+	// Fall back to name:revision lookup (e.g. "my-job:3").
+	for _, jd := range b.jobDefinitions {
+		nameRev := fmt.Sprintf("%s:%d", jd.JobDefinitionName, jd.Revision)
+		if nameRev == arnOrNameRev {
+			jd.Status = "INACTIVE"
 
-	return nil
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: job definition %s not found", ErrNotFound, arnOrNameRev)
 }
 
 // ListTagsForResource returns the tags for a resource identified by ARN.

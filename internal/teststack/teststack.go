@@ -574,7 +574,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		APIGatewayV2Ops:            h.apigwv2,
 		AppConfigOps:               h.appConfig,
 		AthenaOps:                  h.athena,
-		BatchOps:                    h.batch,
+		BatchOps:                   h.batch,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
