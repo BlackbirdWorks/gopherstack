@@ -35,6 +35,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/rds v1.116.2
 	github.com/aws/aws-sdk-go-v2/service/redshift v1.62.3
 	github.com/aws/aws-sdk-go-v2/service/resourcegroups v1.33.22
+	github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.31.8
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.62.3
 	github.com/aws/aws-sdk-go-v2/service/route53resolver v1.42.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.4

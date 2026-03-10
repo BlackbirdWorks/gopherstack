@@ -45,6 +45,7 @@ import (
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
+	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
@@ -100,59 +101,60 @@ type PageData struct {
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DashboardHandler struct {
-	SNSOps             *snsbackend.Handler
-	KMSOps             *kmsbackend.Handler
-	SSM                *ssmsdk.Client
-	DDBOps             *ddbbackend.DynamoDBHandler
-	S3Ops              *s3backend.S3Handler
-	SSMOps             *ssmbackend.Handler
-	IAMOps             *iambackend.Handler
-	STSOps             *stsbackend.Handler
-	S3                 *s3.Client
-	DynamoDB           *dynamodb.Client
-	SQSOps             *sqsbackend.Handler
-	SecretsManagerOps  *secretsmanagerbackend.Handler
-	LambdaOps          *lambdabackend.Handler
-	EventBridgeOps     *ebbackend.Handler
-	APIGatewayOps      *apigwbackend.Handler
-	CloudWatchLogsOps  *cwlogsbackend.Handler
-	StepFunctionsOps   *sfnbackend.Handler
-	CloudWatchOps      *cwbackend.Handler
-	CloudFormationOps  *cfnbackend.Handler
-	KinesisOps         *kinesisbackend.Handler
-	ElastiCacheOps     *elasticachebackend.Handler
-	Route53Ops         *route53backend.Handler
-	SESOps             *sesbackend.Handler
-	SESv2Ops           *sesv2backend.Handler
-	EC2Ops             *ec2backend.Handler
-	ECROps             *ecrbackend.Handler
-	ECSOps             *ecsbackend.Handler
-	IoTOps             *iotbackend.Handler
-	FISOps             *fisbackend.Handler
-	OpenSearchOps      *opensearchbackend.Handler
-	ACMOps             *acmbackend.Handler
-	RedshiftOps        *redshiftbackend.Handler
-	RDSOps             *rdsbackend.Handler
-	AWSConfigOps       *awsconfigbackend.Handler
-	S3ControlOps       *s3controlbackend.Handler
-	ResourceGroupsOps  *resourcegroupsbackend.Handler
-	SWFOps             *swfbackend.Handler
-	FirehoseOps        *firehosebackend.Handler
-	SchedulerOps       *schedulerbackend.Handler
-	Route53ResolverOps *route53resolverbackend.Handler
-	TranscribeOps      *transcribebackend.Handler
-	SupportOps         *supportbackend.Handler
-	CognitoIdentityOps *cognitoidentitybackend.Handler
-	AppSyncOps         *appsyncbackend.Handler
-	CognitoIDPOps      *cognitoidpbackend.Handler
-	IoTDataPlaneOps    *iotdataplanebackend.Handler
-	SubRouter          *echo.Echo
-	ddbProvider        *ddbbackend.DashboardProvider
-	s3Provider         *s3backend.DashboardProvider
-	FaultStore         *chaos.FaultStore
-	Logger             *slog.Logger
-	layout             *template.Template
-	GlobalConfig       config.GlobalConfig
+	SNSOps                   *snsbackend.Handler
+	KMSOps                   *kmsbackend.Handler
+	SSM                      *ssmsdk.Client
+	DDBOps                   *ddbbackend.DynamoDBHandler
+	S3Ops                    *s3backend.S3Handler
+	SSMOps                   *ssmbackend.Handler
+	IAMOps                   *iambackend.Handler
+	STSOps                   *stsbackend.Handler
+	S3                       *s3.Client
+	DynamoDB                 *dynamodb.Client
+	SQSOps                   *sqsbackend.Handler
+	SecretsManagerOps        *secretsmanagerbackend.Handler
+	LambdaOps                *lambdabackend.Handler
+	EventBridgeOps           *ebbackend.Handler
+	APIGatewayOps            *apigwbackend.Handler
+	CloudWatchLogsOps        *cwlogsbackend.Handler
+	StepFunctionsOps         *sfnbackend.Handler
+	CloudWatchOps            *cwbackend.Handler
+	CloudFormationOps        *cfnbackend.Handler
+	KinesisOps               *kinesisbackend.Handler
+	ElastiCacheOps           *elasticachebackend.Handler
+	Route53Ops               *route53backend.Handler
+	SESOps                   *sesbackend.Handler
+	SESv2Ops                 *sesv2backend.Handler
+	EC2Ops                   *ec2backend.Handler
+	ECROps                   *ecrbackend.Handler
+	ECSOps                   *ecsbackend.Handler
+	IoTOps                   *iotbackend.Handler
+	FISOps                   *fisbackend.Handler
+	OpenSearchOps            *opensearchbackend.Handler
+	ACMOps                   *acmbackend.Handler
+	RedshiftOps              *redshiftbackend.Handler
+	RDSOps                   *rdsbackend.Handler
+	AWSConfigOps             *awsconfigbackend.Handler
+	S3ControlOps             *s3controlbackend.Handler
+	ResourceGroupsOps        *resourcegroupsbackend.Handler
+	ResourceGroupsTaggingOps *taggingbackend.Handler
+	SWFOps                   *swfbackend.Handler
+	FirehoseOps              *firehosebackend.Handler
+	SchedulerOps             *schedulerbackend.Handler
+	Route53ResolverOps       *route53resolverbackend.Handler
+	TranscribeOps            *transcribebackend.Handler
+	SupportOps               *supportbackend.Handler
+	CognitoIdentityOps       *cognitoidentitybackend.Handler
+	AppSyncOps               *appsyncbackend.Handler
+	CognitoIDPOps            *cognitoidpbackend.Handler
+	IoTDataPlaneOps          *iotdataplanebackend.Handler
+	SubRouter                *echo.Echo
+	ddbProvider              *ddbbackend.DashboardProvider
+	s3Provider               *s3backend.DashboardProvider
+	FaultStore               *chaos.FaultStore
+	Logger                   *slog.Logger
+	layout                   *template.Template
+	GlobalConfig             config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -219,6 +221,8 @@ type Config struct {
 	S3ControlOps *s3controlbackend.Handler
 	// ResourceGroupsOps provides access to the Resource Groups backend.
 	ResourceGroupsOps *resourcegroupsbackend.Handler
+	// ResourceGroupsTaggingOps provides access to the Resource Groups Tagging API backend.
+	ResourceGroupsTaggingOps *taggingbackend.Handler
 	// SWFOps provides access to the SWF backend.
 	SWFOps *swfbackend.Handler
 	// FirehoseOps provides access to the Firehose backend.
@@ -302,6 +306,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/awsconfig/*.html",
 		"templates/s3control/*.html",
 		"templates/resourcegroups/*.html",
+		"templates/resourcegroupstaggingapi/*.html",
 		"templates/swf/*.html",
 		"templates/firehose/*.html",
 		"templates/scheduler/*.html",
@@ -328,59 +333,60 @@ func NewHandler(cfg Config) *DashboardHandler {
 	s3Provider := s3backend.NewDashboardProvider()
 
 	h := &DashboardHandler{
-		DynamoDB:           cfg.DDBClient,
-		S3:                 cfg.S3Client,
-		SSM:                cfg.SSMClient,
-		DDBOps:             cfg.DDBOps,
-		S3Ops:              cfg.S3Ops,
-		SSMOps:             cfg.SSMOps,
-		IAMOps:             cfg.IAMOps,
-		STSOps:             cfg.STSOps,
-		SNSOps:             cfg.SNSOps,
-		SQSOps:             cfg.SQSOps,
-		KMSOps:             cfg.KMSOps,
-		SecretsManagerOps:  cfg.SecretsManagerOps,
-		LambdaOps:          cfg.LambdaOps,
-		EventBridgeOps:     cfg.EventBridgeOps,
-		APIGatewayOps:      cfg.APIGatewayOps,
-		CloudWatchLogsOps:  cfg.CloudWatchLogsOps,
-		StepFunctionsOps:   cfg.StepFunctionsOps,
-		CloudWatchOps:      cfg.CloudWatchOps,
-		CloudFormationOps:  cfg.CloudFormationOps,
-		KinesisOps:         cfg.KinesisOps,
-		ElastiCacheOps:     cfg.ElastiCacheOps,
-		Route53Ops:         cfg.Route53Ops,
-		SESOps:             cfg.SESOps,
-		SESv2Ops:           cfg.SESv2Ops,
-		EC2Ops:             cfg.EC2Ops,
-		ECROps:             cfg.ECROps,
-		ECSOps:             cfg.ECSOps,
-		IoTOps:             cfg.IoTOps,
-		FISOps:             cfg.FISOps,
-		OpenSearchOps:      cfg.OpenSearchOps,
-		ACMOps:             cfg.ACMOps,
-		RedshiftOps:        cfg.RedshiftOps,
-		RDSOps:             cfg.RDSOps,
-		AWSConfigOps:       cfg.AWSConfigOps,
-		S3ControlOps:       cfg.S3ControlOps,
-		ResourceGroupsOps:  cfg.ResourceGroupsOps,
-		SWFOps:             cfg.SWFOps,
-		FirehoseOps:        cfg.FirehoseOps,
-		SchedulerOps:       cfg.SchedulerOps,
-		Route53ResolverOps: cfg.Route53ResolverOps,
-		TranscribeOps:      cfg.TranscribeOps,
-		SupportOps:         cfg.SupportOps,
-		CognitoIdentityOps: cfg.CognitoIdentityOps,
-		AppSyncOps:         cfg.AppSyncOps,
-		CognitoIDPOps:      cfg.CognitoIDPOps,
-		IoTDataPlaneOps:    cfg.IoTDataPlaneOps,
-		GlobalConfig:       cfg.GlobalConfig,
-		Logger:             cfg.Logger,
-		FaultStore:         cfg.FaultStore,
-		layout:             tmpl,
-		ddbProvider:        ddbProvider,
-		s3Provider:         s3Provider,
-		SubRouter:          echo.New(),
+		DynamoDB:                 cfg.DDBClient,
+		S3:                       cfg.S3Client,
+		SSM:                      cfg.SSMClient,
+		DDBOps:                   cfg.DDBOps,
+		S3Ops:                    cfg.S3Ops,
+		SSMOps:                   cfg.SSMOps,
+		IAMOps:                   cfg.IAMOps,
+		STSOps:                   cfg.STSOps,
+		SNSOps:                   cfg.SNSOps,
+		SQSOps:                   cfg.SQSOps,
+		KMSOps:                   cfg.KMSOps,
+		SecretsManagerOps:        cfg.SecretsManagerOps,
+		LambdaOps:                cfg.LambdaOps,
+		EventBridgeOps:           cfg.EventBridgeOps,
+		APIGatewayOps:            cfg.APIGatewayOps,
+		CloudWatchLogsOps:        cfg.CloudWatchLogsOps,
+		StepFunctionsOps:         cfg.StepFunctionsOps,
+		CloudWatchOps:            cfg.CloudWatchOps,
+		CloudFormationOps:        cfg.CloudFormationOps,
+		KinesisOps:               cfg.KinesisOps,
+		ElastiCacheOps:           cfg.ElastiCacheOps,
+		Route53Ops:               cfg.Route53Ops,
+		SESOps:                   cfg.SESOps,
+		SESv2Ops:                 cfg.SESv2Ops,
+		EC2Ops:                   cfg.EC2Ops,
+		ECROps:                   cfg.ECROps,
+		ECSOps:                   cfg.ECSOps,
+		IoTOps:                   cfg.IoTOps,
+		FISOps:                   cfg.FISOps,
+		OpenSearchOps:            cfg.OpenSearchOps,
+		ACMOps:                   cfg.ACMOps,
+		RedshiftOps:              cfg.RedshiftOps,
+		RDSOps:                   cfg.RDSOps,
+		AWSConfigOps:             cfg.AWSConfigOps,
+		S3ControlOps:             cfg.S3ControlOps,
+		ResourceGroupsOps:        cfg.ResourceGroupsOps,
+		ResourceGroupsTaggingOps: cfg.ResourceGroupsTaggingOps,
+		SWFOps:                   cfg.SWFOps,
+		FirehoseOps:              cfg.FirehoseOps,
+		SchedulerOps:             cfg.SchedulerOps,
+		Route53ResolverOps:       cfg.Route53ResolverOps,
+		TranscribeOps:            cfg.TranscribeOps,
+		SupportOps:               cfg.SupportOps,
+		CognitoIdentityOps:       cfg.CognitoIdentityOps,
+		AppSyncOps:               cfg.AppSyncOps,
+		CognitoIDPOps:            cfg.CognitoIDPOps,
+		IoTDataPlaneOps:          cfg.IoTDataPlaneOps,
+		GlobalConfig:             cfg.GlobalConfig,
+		Logger:                   cfg.Logger,
+		FaultStore:               cfg.FaultStore,
+		layout:                   tmpl,
+		ddbProvider:              ddbProvider,
+		s3Provider:               s3Provider,
+		SubRouter:                echo.New(),
 	}
 
 	h.SubRouter.Pre(pkgslogger.EchoMiddleware(cfg.Logger))
@@ -613,6 +619,10 @@ func (h *DashboardHandler) setupResourceGroupsRoutes() {
 	h.SubRouter.POST("/dashboard/resourcegroups/delete", h.resourcegroupsDelete)
 }
 
+func (h *DashboardHandler) setupResourceGroupsTaggingRoutes() {
+	h.SubRouter.GET("/dashboard/resourcegroupstaggingapi", h.resourcegroupstaggingapiIndex)
+}
+
 func (h *DashboardHandler) setupSWFRoutes() {
 	h.SubRouter.GET("/dashboard/swf", h.swfIndex)
 	h.SubRouter.POST("/dashboard/swf/register", h.swfRegisterDomain)
@@ -712,6 +722,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupAWSConfigRoutes()
 	h.setupS3ControlRoutes()
 	h.setupResourceGroupsRoutes()
+	h.setupResourceGroupsTaggingRoutes()
 	h.setupSWFRoutes()
 	h.setupFirehoseRoutes()
 	h.setupSchedulerRoutes()
@@ -801,6 +812,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/rds", "RDS"},
 	{"/awsconfig", "AWSConfig"},
 	{"/s3control", "S3Control"},
+	{"/resourcegroupstaggingapi", "ResourceGroupsTaggingAPI"},
 	{"/resourcegroups", "ResourceGroups"},
 	{"/swf", "SWF"},
 	{"/firehose", "Firehose"},

@@ -37,6 +37,7 @@ import (
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
+	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
@@ -86,6 +87,7 @@ type AWSSDKProvider interface {
 	GetAWSConfigHandler() service.Registerable
 	GetS3ControlHandler() service.Registerable
 	GetResourceGroupsHandler() service.Registerable
+	GetResourceGroupsTaggingHandler() service.Registerable
 	GetSWFHandler() service.Registerable
 	GetFirehoseHandler() service.Registerable
 	GetCognitoIdentityHandler() service.Registerable
@@ -112,50 +114,51 @@ func (p *Provider) Name() string {
 //
 // extractedConfig holds all concrete service types extracted from a AWSSDKProvider.
 type extractedConfig struct {
-	stepFunctionsOps   *sfnbackend.Handler
-	cloudWatchOps      *cwbackend.Handler
-	ssmClient          *ssmsdk.Client
-	ddb                *dynamodb.DynamoDBHandler
-	s3h                *s3.S3Handler
-	ssmOps             *ssm.Handler
-	iamOps             *iambackend.Handler
-	stsOps             *stsbackend.Handler
-	snsOps             *sns.Handler
-	sqsOps             *sqsbackend.Handler
-	kmsOps             *kmsbackend.Handler
-	secretsManagerOps  *secretsmanagerbackend.Handler
-	lambdaOps          *lambdabackend.Handler
-	eventBridgeOps     *ebbackend.Handler
-	apiGatewayOps      *apigwbackend.Handler
-	cloudWatchLogsOps  *cwlogsbackend.Handler
-	s3Client           *s3sdk.Client
-	ddbClient          *ddbsdk.Client
-	cloudFormationOps  *cfnbackend.Handler
-	kinesisOps         *kinesisbackend.Handler
-	elasticacheOps     *elasticachebackend.Handler
-	route53Ops         *route53backend.Handler
-	sesOps             *sesbackend.Handler
-	sesv2Ops           *sesv2backend.Handler
-	ec2Ops             *ec2backend.Handler
-	opensearchOps      *opensearchbackend.Handler
-	acmOps             *acmbackend.Handler
-	redshiftOps        *redshiftbackend.Handler
-	rdsOps             *rdsbackend.Handler
-	awsconfigOps       *awsconfigbackend.Handler
-	s3controlOps       *s3controlbackend.Handler
-	resourcegroupsOps  *resourcegroupsbackend.Handler
-	swfOps             *swfbackend.Handler
-	firehoseOps        *firehosebackend.Handler
-	cognitoIdentityOps *cognitoidentitybackend.Handler
-	appSyncOps         *appsyncbackend.Handler
-	cognitoIDPOps      *cognitoidpbackend.Handler
-	iotDataPlaneOps    *iotdataplanebackend.Handler
-	ecrOps             *ecrbackend.Handler
-	ecsOps             *ecsbackend.Handler
-	iotOps             *iotbackend.Handler
-	fisOps             *fisbackend.Handler
-	faultStore         *chaos.FaultStore
-	gCfg               globalcfg.GlobalConfig
+	stepFunctionsOps         *sfnbackend.Handler
+	cloudWatchOps            *cwbackend.Handler
+	ssmClient                *ssmsdk.Client
+	ddb                      *dynamodb.DynamoDBHandler
+	s3h                      *s3.S3Handler
+	ssmOps                   *ssm.Handler
+	iamOps                   *iambackend.Handler
+	stsOps                   *stsbackend.Handler
+	snsOps                   *sns.Handler
+	sqsOps                   *sqsbackend.Handler
+	kmsOps                   *kmsbackend.Handler
+	secretsManagerOps        *secretsmanagerbackend.Handler
+	lambdaOps                *lambdabackend.Handler
+	eventBridgeOps           *ebbackend.Handler
+	apiGatewayOps            *apigwbackend.Handler
+	cloudWatchLogsOps        *cwlogsbackend.Handler
+	s3Client                 *s3sdk.Client
+	ddbClient                *ddbsdk.Client
+	cloudFormationOps        *cfnbackend.Handler
+	kinesisOps               *kinesisbackend.Handler
+	elasticacheOps           *elasticachebackend.Handler
+	route53Ops               *route53backend.Handler
+	sesOps                   *sesbackend.Handler
+	sesv2Ops                 *sesv2backend.Handler
+	ec2Ops                   *ec2backend.Handler
+	opensearchOps            *opensearchbackend.Handler
+	acmOps                   *acmbackend.Handler
+	redshiftOps              *redshiftbackend.Handler
+	rdsOps                   *rdsbackend.Handler
+	awsconfigOps             *awsconfigbackend.Handler
+	s3controlOps             *s3controlbackend.Handler
+	resourcegroupsOps        *resourcegroupsbackend.Handler
+	resourcegroupstaggingOps *taggingbackend.Handler
+	swfOps                   *swfbackend.Handler
+	firehoseOps              *firehosebackend.Handler
+	cognitoIdentityOps       *cognitoidentitybackend.Handler
+	appSyncOps               *appsyncbackend.Handler
+	cognitoIDPOps            *cognitoidpbackend.Handler
+	iotDataPlaneOps          *iotdataplanebackend.Handler
+	ecrOps                   *ecrbackend.Handler
+	ecsOps                   *ecsbackend.Handler
+	iotOps                   *iotbackend.Handler
+	fisOps                   *fisbackend.Handler
+	faultStore               *chaos.FaultStore
+	gCfg                     globalcfg.GlobalConfig
 }
 
 // extractFromProvider tries to extract all service types from the AppContext.Config.
@@ -295,6 +298,10 @@ func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.resourcegroupsOps, _ = h.(*resourcegroupsbackend.Handler)
 	}
 
+	if h := ap.GetResourceGroupsTaggingHandler(); h != nil {
+		ec.resourcegroupstaggingOps, _ = h.(*taggingbackend.Handler)
+	}
+
 	if h := ap.GetSWFHandler(); h != nil {
 		ec.swfOps, _ = h.(*swfbackend.Handler)
 	}
@@ -359,51 +366,52 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	ec := extractFromProvider(ctx)
 
 	handler := NewHandler(Config{
-		DDBClient:          ec.ddbClient,
-		S3Client:           ec.s3Client,
-		SSMClient:          ec.ssmClient,
-		DDBOps:             ec.ddb,
-		S3Ops:              ec.s3h,
-		SSMOps:             ec.ssmOps,
-		IAMOps:             ec.iamOps,
-		STSOps:             ec.stsOps,
-		SNSOps:             ec.snsOps,
-		SQSOps:             ec.sqsOps,
-		KMSOps:             ec.kmsOps,
-		SecretsManagerOps:  ec.secretsManagerOps,
-		LambdaOps:          ec.lambdaOps,
-		EventBridgeOps:     ec.eventBridgeOps,
-		APIGatewayOps:      ec.apiGatewayOps,
-		CloudWatchLogsOps:  ec.cloudWatchLogsOps,
-		StepFunctionsOps:   ec.stepFunctionsOps,
-		CloudWatchOps:      ec.cloudWatchOps,
-		CloudFormationOps:  ec.cloudFormationOps,
-		KinesisOps:         ec.kinesisOps,
-		ElastiCacheOps:     ec.elasticacheOps,
-		Route53Ops:         ec.route53Ops,
-		SESOps:             ec.sesOps,
-		SESv2Ops:           ec.sesv2Ops,
-		EC2Ops:             ec.ec2Ops,
-		OpenSearchOps:      ec.opensearchOps,
-		ACMOps:             ec.acmOps,
-		RedshiftOps:        ec.redshiftOps,
-		RDSOps:             ec.rdsOps,
-		AWSConfigOps:       ec.awsconfigOps,
-		S3ControlOps:       ec.s3controlOps,
-		ResourceGroupsOps:  ec.resourcegroupsOps,
-		SWFOps:             ec.swfOps,
-		FirehoseOps:        ec.firehoseOps,
-		CognitoIdentityOps: ec.cognitoIdentityOps,
-		AppSyncOps:         ec.appSyncOps,
-		CognitoIDPOps:      ec.cognitoIDPOps,
-		IoTDataPlaneOps:    ec.iotDataPlaneOps,
-		ECROps:             ec.ecrOps,
-		ECSOps:             ec.ecsOps,
-		IoTOps:             ec.iotOps,
-		FISOps:             ec.fisOps,
-		GlobalConfig:       ec.gCfg,
-		FaultStore:         ec.faultStore,
-		Logger:             ctx.Logger,
+		DDBClient:                ec.ddbClient,
+		S3Client:                 ec.s3Client,
+		SSMClient:                ec.ssmClient,
+		DDBOps:                   ec.ddb,
+		S3Ops:                    ec.s3h,
+		SSMOps:                   ec.ssmOps,
+		IAMOps:                   ec.iamOps,
+		STSOps:                   ec.stsOps,
+		SNSOps:                   ec.snsOps,
+		SQSOps:                   ec.sqsOps,
+		KMSOps:                   ec.kmsOps,
+		SecretsManagerOps:        ec.secretsManagerOps,
+		LambdaOps:                ec.lambdaOps,
+		EventBridgeOps:           ec.eventBridgeOps,
+		APIGatewayOps:            ec.apiGatewayOps,
+		CloudWatchLogsOps:        ec.cloudWatchLogsOps,
+		StepFunctionsOps:         ec.stepFunctionsOps,
+		CloudWatchOps:            ec.cloudWatchOps,
+		CloudFormationOps:        ec.cloudFormationOps,
+		KinesisOps:               ec.kinesisOps,
+		ElastiCacheOps:           ec.elasticacheOps,
+		Route53Ops:               ec.route53Ops,
+		SESOps:                   ec.sesOps,
+		SESv2Ops:                 ec.sesv2Ops,
+		EC2Ops:                   ec.ec2Ops,
+		OpenSearchOps:            ec.opensearchOps,
+		ACMOps:                   ec.acmOps,
+		RedshiftOps:              ec.redshiftOps,
+		RDSOps:                   ec.rdsOps,
+		AWSConfigOps:             ec.awsconfigOps,
+		S3ControlOps:             ec.s3controlOps,
+		ResourceGroupsOps:        ec.resourcegroupsOps,
+		ResourceGroupsTaggingOps: ec.resourcegroupstaggingOps,
+		SWFOps:                   ec.swfOps,
+		FirehoseOps:              ec.firehoseOps,
+		CognitoIdentityOps:       ec.cognitoIdentityOps,
+		AppSyncOps:               ec.appSyncOps,
+		CognitoIDPOps:            ec.cognitoIDPOps,
+		IoTDataPlaneOps:          ec.iotDataPlaneOps,
+		ECROps:                   ec.ecrOps,
+		ECSOps:                   ec.ecsOps,
+		IoTOps:                   ec.iotOps,
+		FISOps:                   ec.fisOps,
+		GlobalConfig:             ec.gCfg,
+		FaultStore:               ec.faultStore,
+		Logger:                   ctx.Logger,
 	})
 
 	return handler, nil
