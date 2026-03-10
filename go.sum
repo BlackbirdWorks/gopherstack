@@ -50,6 +50,8 @@ github.com/aws/aws-sdk-go-v2/service/amplify v1.38.12 h1:dpGGcMaAVQC7+zFM7kWXguQ
 github.com/aws/aws-sdk-go-v2/service/amplify v1.38.12/go.mod h1:O5tpSxzUKwyjguOAQneWJc6X+RrO+PZ3ejS3cyMQ5a8=
 github.com/aws/aws-sdk-go-v2/service/apigateway v1.38.6 h1:dzd86UudvxJ1c6z/o+hHh7ZhkoBrh81XYz/M11zwQYI=
 github.com/aws/aws-sdk-go-v2/service/apigateway v1.38.6/go.mod h1:jWmyEnBPJdt+RaHSRzZDKp3HyyzjOofGp4+xXY503Do=
+github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.23.20 h1:28H3ASZzvR5hY7FMu+yM35lqYVR3/09N42MGnsUSMxI=
+github.com/aws/aws-sdk-go-v2/service/appconfigdata v1.23.20/go.mod h1:GsRz8ACYFQ+UD7TPyQKbQV+8ukxQhOcx8n10htQ4P14=
 github.com/aws/aws-sdk-go-v2/service/appsync v1.53.3 h1:WJ/KdDXNJ6ZApdx3gsA7ZBjbyox2btDLZbfS4HnsqVg=
 github.com/aws/aws-sdk-go-v2/service/appsync v1.53.3/go.mod h1:z/KufhKCQ6MvaGsZ154094dPeKsJuybZ5OLbZv7Kxuw=
 github.com/aws/aws-sdk-go-v2/service/cloudformation v1.71.7 h1:QkM9aGnVnXrXpxXJMu7GO+E/eho+RfItwDp71aPa79o=

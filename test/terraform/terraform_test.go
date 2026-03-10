@@ -26,6 +26,7 @@ import (
 	acmpcasvc "github.com/aws/aws-sdk-go-v2/service/acmpca"
 	amplifysdkv2 "github.com/aws/aws-sdk-go-v2/service/amplify"
 	apigwsvc "github.com/aws/aws-sdk-go-v2/service/apigateway"
+	appconfigdatasvc "github.com/aws/aws-sdk-go-v2/service/appconfigdata"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsyncsdktypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
@@ -2871,6 +2872,118 @@ func TestTerraform_APIGatewayManagementAPI(t *testing.T) {
 				require.NoError(t, err, "GetConnection after delete should not error")
 				defer getResp2.Body.Close()
 				assert.Equal(t, http.StatusGone, getResp2.StatusCode, "GetConnection after delete should return 410")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_AppConfigData verifies that the AppConfigData service endpoints work correctly.
+func TestTerraform_AppConfigData(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "session",
+			fixture: "appconfigdata/session",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"AppName": "tf-app-" + id,
+					"EnvName": "prod",
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				appID := vars["AppName"].(string)
+				envID := vars["EnvName"].(string)
+				profileID := "my-profile"
+				configContent := `{"featureFlag":true,"version":"1.0"}`
+
+				// Seed configuration via dashboard.
+				setURL := endpoint + "/dashboard/appconfigdata/configuration/set"
+				formData := strings.Join([]string{
+					"applicationIdentifier=" + appID,
+					"environmentIdentifier=" + envID,
+					"configurationProfileIdentifier=" + profileID,
+					"contentType=application%2Fjson",
+					"content=" + strings.ReplaceAll(configContent, "\"", "%22"),
+				}, "&")
+
+				setReq, err := http.NewRequestWithContext(
+					ctx,
+					http.MethodPost,
+					setURL,
+					strings.NewReader(formData),
+				)
+				require.NoError(t, err, "creating set configuration request should succeed")
+				setReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+				setClient := &http.Client{
+					CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+						return http.ErrUseLastResponse
+					},
+				}
+				setResp, err := setClient.Do(setReq)
+				require.NoError(t, err, "set configuration request should succeed")
+				defer setResp.Body.Close()
+				assert.Equal(t, http.StatusFound, setResp.StatusCode, "set configuration should redirect")
+
+				// Start a configuration session via the AppConfigData API.
+				client := createAppConfigDataClient(t)
+
+				sessionOut, err := client.StartConfigurationSession(ctx,
+					&appconfigdatasvc.StartConfigurationSessionInput{
+						ApplicationIdentifier:          aws.String(appID),
+						EnvironmentIdentifier:          aws.String(envID),
+						ConfigurationProfileIdentifier: aws.String(profileID),
+					},
+				)
+				require.NoError(t, err, "StartConfigurationSession should succeed")
+				require.NotNil(t, sessionOut.InitialConfigurationToken, "initial token should not be nil")
+				assert.NotEmpty(t, *sessionOut.InitialConfigurationToken, "initial token should not be empty")
+
+				// Get latest configuration.
+				configOut, err := client.GetLatestConfiguration(ctx,
+					&appconfigdatasvc.GetLatestConfigurationInput{
+						ConfigurationToken: sessionOut.InitialConfigurationToken,
+					},
+				)
+				require.NoError(t, err, "GetLatestConfiguration should succeed")
+				require.NotNil(t, configOut, "config output should not be nil")
+
+				assert.Contains(
+					t,
+					string(configOut.Configuration),
+					"featureFlag",
+					"configuration should contain expected content",
+				)
+
+				// Next token should rotate.
+				assert.NotNil(t, configOut.NextPollConfigurationToken, "next token should not be nil")
+				assert.NotEqual(t, *sessionOut.InitialConfigurationToken, *configOut.NextPollConfigurationToken,
+					"next token should differ from initial token")
+
+				// Poll again with the new token to verify token rotation.
+				configOut2, err := client.GetLatestConfiguration(ctx,
+					&appconfigdatasvc.GetLatestConfigurationInput{
+						ConfigurationToken: configOut.NextPollConfigurationToken,
+					},
+				)
+				require.NoError(t, err, "second GetLatestConfiguration should succeed")
+				require.NotNil(t, configOut2, "second config output should not be nil")
+				require.NotNil(t, configOut2.NextPollConfigurationToken, "second next token should not be nil")
+				assert.NotEqual(t, *configOut.NextPollConfigurationToken, *configOut2.NextPollConfigurationToken,
+					"token should rotate on each successive poll")
 			},
 		},
 	}
