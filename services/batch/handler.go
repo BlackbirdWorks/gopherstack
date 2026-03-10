@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	v1Prefix   = "/v1/"
-	tagsPrefix = "/v1/tags/"
+	v1Prefix        = "/v1/"
+	tagsPrefix      = "/v1/tags/"
+	appsyncV1Prefix = "/v1/apis"
 )
 
 // Handler is the Echo HTTP handler for AWS Batch operations.
@@ -75,8 +76,8 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
-
-		return strings.HasPrefix(path, v1Prefix) && !strings.HasPrefix(path, "/v1/apis")
+		// Exclude AppSync paths (/v1/apis) which share the /v1/ prefix.
+		return strings.HasPrefix(path, v1Prefix) && !strings.HasPrefix(path, appsyncV1Prefix)
 	}
 }
 

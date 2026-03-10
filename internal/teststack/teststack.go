@@ -27,8 +27,10 @@ import (
 	apigwv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	appconfigdatabackend "github.com/blackbirdworks/gopherstack/services/appconfigdata"
+	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
+	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
 	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
@@ -136,6 +138,8 @@ type Stack struct {
 	APIGatewayV2Handler            *apigwv2backend.Handler
 	AppConfigHandler               *appconfigbackend.Handler
 	AthenaHandler                  *athenabackend.Handler
+	AutoscalingHandler             *autoscalingbackend.Handler
+	ApplicationAutoscalingHandler  *applicationautoscalingbackend.Handler
 	BackupHandler                  *backupbackend.Handler
 	BatchHandler                   *batchbackend.Handler
 	S3Client                       *s3.Client
@@ -307,6 +311,18 @@ func registerExtendedServices(
 	_ = registry.Register(backupHndlr)
 }
 
+// registerNewestServices registers the most recently-added service handlers.
+func registerNewestServices(
+	registry *service.Registry,
+	autoscalingHndlr *autoscalingbackend.Handler,
+	appAutoScalingHndlr *applicationautoscalingbackend.Handler,
+	batchHndlr *batchbackend.Handler,
+) {
+	_ = registry.Register(autoscalingHndlr)
+	_ = registry.Register(appAutoScalingHndlr)
+	_ = registry.Register(batchHndlr)
+}
+
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
 	s3              *s3backend.S3Handler
@@ -360,6 +376,8 @@ type handlers struct {
 	apigwv2         *apigwv2backend.Handler
 	appConfig       *appconfigbackend.Handler
 	athena          *athenabackend.Handler
+	autoscaling     *autoscalingbackend.Handler
+	appAutoScaling  *applicationautoscalingbackend.Handler
 	backup          *backupbackend.Handler
 	batch           *batchbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
@@ -490,6 +508,10 @@ func populateExtendedHandlers(h *handlers) {
 	h.apigwv2 = apigwv2backend.NewHandler(apigwv2backend.NewInMemoryBackend())
 	h.appConfig = appconfigbackend.NewHandler(appconfigbackend.NewInMemoryBackend())
 	h.athena = athenabackend.NewHandler(athenabackend.NewInMemoryBackend())
+	h.autoscaling = autoscalingbackend.NewHandler(autoscalingbackend.NewInMemoryBackend())
+	h.appAutoScaling = applicationautoscalingbackend.NewHandler(
+		applicationautoscalingbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.backup = backupbackend.NewHandler(
 		backupbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -583,6 +605,8 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		APIGatewayV2Ops:            h.apigwv2,
 		AppConfigOps:               h.appConfig,
 		AthenaOps:                  h.athena,
+		AutoscalingOps:             h.autoscaling,
+		ApplicationAutoscalingOps:  h.appAutoScaling,
 		BackupOps:                  h.backup,
 		BatchOps:                   h.batch,
 		GlobalConfig: config.GlobalConfig{
@@ -618,7 +642,7 @@ func New(t *testing.T) *Stack {
 		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData,
 		h.amplify, h.apigwv2, h.appConfig, h.athena, h.backup,
 	)
-	_ = registry.Register(h.batch)
+	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -684,6 +708,8 @@ func New(t *testing.T) *Stack {
 		APIGatewayV2Handler:            h.apigwv2,
 		AppConfigHandler:               h.appConfig,
 		AthenaHandler:                  h.athena,
+		AutoscalingHandler:             h.autoscaling,
+		ApplicationAutoscalingHandler:  h.appAutoScaling,
 		BackupHandler:                  h.backup,
 		BatchHandler:                   h.batch,
 		S3Client:                       clients.S3,

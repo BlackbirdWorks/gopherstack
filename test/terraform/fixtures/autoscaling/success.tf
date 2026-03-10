@@ -1,0 +1,16 @@
+resource "aws_launch_configuration" "this" {
+  name          = "{{.LCName}}"
+  image_id      = "ami-0c55b159cbfafe1f0"
+  instance_type = "t2.micro"
+}
+
+resource "aws_autoscaling_group" "this" {
+  name                      = "{{.ASGName}}"
+  min_size                  = 1
+  max_size                  = 5
+  desired_capacity          = 2
+  launch_configuration      = aws_launch_configuration.this.name
+  availability_zones        = ["us-east-1a"]
+  health_check_type         = "EC2"
+  health_check_grace_period = 300
+}

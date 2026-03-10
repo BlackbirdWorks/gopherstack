@@ -105,7 +105,7 @@ The following services are supported by LocalStack (either Free or Pro tier) but
 | **Appconfigdata** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Application Autoscaling** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Athena** | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Autoscaling** | ❌ No | ❌ No | ❌ No |
+| **Autoscaling** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Backup** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Batch** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Bedrock** | ❌ No | ❌ No | ❌ No |
