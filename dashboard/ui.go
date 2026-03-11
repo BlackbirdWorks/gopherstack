@@ -219,14 +219,14 @@ type DashboardHandler struct {
 	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
 	ElasticTranscoderOps *elastictranscoderbackend.Handler
 	// ELBOps provides access to the Classic ELB backend.
-	ELBOps               *elbbackend.Handler
-	SubRouter            *echo.Echo
-	ddbProvider          *ddbbackend.DashboardProvider
-	s3Provider           *s3backend.DashboardProvider
-	FaultStore           *chaos.FaultStore
-	Logger               *slog.Logger
-	layout               *template.Template
-	GlobalConfig         config.GlobalConfig
+	ELBOps       *elbbackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -580,15 +580,17 @@ func NewHandler(cfg Config) *DashboardHandler {
 		SubRouter:                  echo.New(),
 	}
 
-	h.SubRouter.Pre(pkgslogger.EchoMiddleware(cfg.Logger))
-
-	// Set up handler functions for providers
-	h.ddbProvider.Handlers.HandleDynamoDB = h.handleDynamoDB
-	h.s3Provider.Handlers.HandleS3 = h.handleS3
-
-	h.setupSubRouter()
+	h.initHandlers(cfg.Logger)
 
 	return h
+}
+
+// initHandlers wires provider callbacks and sets up the subrouter.
+func (h *DashboardHandler) initHandlers(logger *slog.Logger) {
+	h.SubRouter.Pre(pkgslogger.EchoMiddleware(logger))
+	h.ddbProvider.Handlers.HandleDynamoDB = h.handleDynamoDB
+	h.s3Provider.Handlers.HandleS3 = h.handleS3
+	h.setupSubRouter()
 }
 
 func (h *DashboardHandler) setupStaticAndRootRoutes() {
