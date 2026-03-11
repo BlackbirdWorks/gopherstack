@@ -87,6 +87,7 @@ func (m *mockAWSProvider) GetECSHandler() service.Registerable                  
 func (m *mockAWSProvider) GetEFSHandler() service.Registerable                     { return nil }
 func (m *mockAWSProvider) GetEKSHandler() service.Registerable                     { return nil }
 func (m *mockAWSProvider) GetELBHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetELBv2Handler() service.Registerable                   { return nil }
 func (m *mockAWSProvider) GetIoTHandler() service.Registerable                     { return nil }
 func (m *mockAWSProvider) GetFISHandler() service.Registerable                     { return nil }
 func (m *mockAWSProvider) GetAPIGatewayManagementAPIHandler() service.Registerable { return nil }

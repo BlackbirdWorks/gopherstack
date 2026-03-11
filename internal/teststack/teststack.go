@@ -65,6 +65,7 @@ import (
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
+	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -198,10 +199,12 @@ type Stack struct {
 	ElasticTranscoderHandler *elastictranscoderbackend.Handler
 	// ELBHandler provides access to the Classic ELB backend.
 	ELBHandler *elbbackend.Handler
-	S3Client   *s3.Client
-	DDBClient  *dynamodb.Client
-	FaultStore *chaos.FaultStore
-	Dashboard  *dashboard.DashboardHandler
+	// ELBv2Handler provides access to the ELBv2 (ALB/NLB) backend.
+	ELBv2Handler *elbv2backend.Handler
+	S3Client     *s3.Client
+	DDBClient    *dynamodb.Client
+	FaultStore   *chaos.FaultStore
+	Dashboard    *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -466,6 +469,7 @@ type handlers struct {
 	efs               *efsbackend.Handler
 	eks               *eksbackend.Handler
 	elb               *elbbackend.Handler
+	elbv2             *elbv2backend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
 }
@@ -675,6 +679,10 @@ func populateNewestHandlers(h *handlers) {
 	h.elb = elbbackend.NewHandler(
 		elbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+
+	h.elbv2 = elbv2backend.NewHandler(
+		elbv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -789,6 +797,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		EKSOps:                     h.eks,
 		ElasticTranscoderOps:       h.elastictranscoder,
 		ELBOps:                     h.elb,
+		ELBv2Ops:                   h.elbv2,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -846,6 +855,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.eks)
 	_ = registry.Register(h.elastictranscoder)
 	_ = registry.Register(h.elb)
+	_ = registry.Register(h.elbv2)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -948,6 +958,7 @@ func buildStack(
 		EKSHandler:                     h.eks,
 		ElasticTranscoderHandler:       h.elastictranscoder,
 		ELBHandler:                     h.elb,
+		ELBv2Handler:                   h.elbv2,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
