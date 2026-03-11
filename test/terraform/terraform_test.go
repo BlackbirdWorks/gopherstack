@@ -211,6 +211,7 @@ provider "aws" {
     efs             = %[1]q
     eks             = %[1]q
     elb             = %[1]q
+    elbv2           = %[1]q
     elasticache     = %[1]q
     elasticbeanstalk = %[1]q
     elastictranscoder = %[1]q
@@ -4315,7 +4316,7 @@ func TestTerraform_ElasticTranscoder(t *testing.T) {
 				found := false
 
 				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated the SDK but service still works
-					name := aws.ToString(p.Name) //nolint:staticcheck // deprecated service
+					name := aws.ToString(p.Name)
 					if name == pipelineName {
 						found = true
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -61,7 +62,10 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // RouteMatcher returns a function that matches SES requests.
-// SES requests are form-encoded POSTs containing the SES API version.
+// SES requests are form-encoded POSTs containing Version=2010-12-01 and an
+// action from the SES supported operations list. We check both the version and
+// action to avoid routing conflicts with Elastic Beanstalk, which also uses
+// Version=2010-12-01 but with a disjoint set of action names.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		r := c.Request()
@@ -88,7 +92,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		return vals.Get("Version") == sesVersion
+		return vals.Get("Version") == sesVersion && slices.Contains(h.GetSupportedOperations(), vals.Get("Action"))
 	}
 }
 
