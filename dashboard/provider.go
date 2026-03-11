@@ -40,6 +40,7 @@ import (
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
@@ -144,6 +145,7 @@ type AWSSDKProvider interface {
 	GetDynamoDBStreamsHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
+	GetEFSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
 	GetAPIGatewayManagementAPIHandler() service.Registerable
@@ -230,6 +232,7 @@ type extractedConfig struct {
 	dynamodbStreamsOps        *dynamodbstreams.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
+	efsOps                    *efsbackend.Handler
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
 	faultStore                *chaos.FaultStore
@@ -434,6 +437,10 @@ func extractECRECSAndIoTHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.ecrOps, _ = h.(*ecrbackend.Handler)
 	}
 
+	if h := ap.GetEFSHandler(); h != nil {
+		ec.efsOps, _ = h.(*efsbackend.Handler)
+	}
+
 	extractContainerAndFaultHandlers(ap, ec)
 }
 
@@ -628,6 +635,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		DynamoDBStreamsOps:         ec.dynamodbStreamsOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
+		EFSOps:                     ec.efsOps,
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,
 		GlobalConfig:               ec.gCfg,

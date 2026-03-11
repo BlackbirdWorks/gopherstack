@@ -66,6 +66,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
+	efssvc "github.com/aws/aws-sdk-go-v2/service/efs"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -4018,6 +4019,49 @@ func TestTerraform_CodeStarConnections(t *testing.T) {
 				}
 
 				assert.True(t, found, "connection should exist")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_EFS provisions an EFS file system via Terraform and verifies it exists.
+func TestTerraform_EFS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "efs/filesystem",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"CreationToken": "tf-efs-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEFSClient(t)
+				token := vars["CreationToken"].(string)
+				out, err := client.DescribeFileSystems(ctx, &efssvc.DescribeFileSystemsInput{})
+				require.NoError(t, err, "DescribeFileSystems should succeed after terraform apply")
+				found := false
+				for _, fs := range out.FileSystems {
+					if aws.ToString(fs.CreationToken) == token {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "file system with token %q should be listed", token)
 			},
 		},
 	}

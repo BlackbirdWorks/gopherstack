@@ -87,6 +87,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -204,6 +205,7 @@ type CLI struct {
 	dynamodbStreamsHandler        service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
+	efsHandler                    service.Registerable
 	iotHandler                    service.Registerable
 	cognitoIDPHandler             service.Registerable
 	cognitoIdentityHandler        service.Registerable
@@ -526,6 +528,11 @@ func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECSHandler() service.Registerable { return c.ecsHandler }
+
+// GetEFSHandler returns the EFS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetEFSHandler() service.Registerable { return c.efsHandler }
 
 // GetIoTHandler returns the IoT handler (dashboard.AWSSDKProvider).
 //
@@ -1113,6 +1120,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.codeDeployHandler = byName["CodeDeploy"]
 	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 	cli.dynamodbStreamsHandler = byName["DynamoDBStreams"]
+	cli.efsHandler = byName["EFS"]
 }
 
 // initializeServices initializes all service providers.
@@ -1300,6 +1308,7 @@ func getServiceProviders() []service.Provider {
 		&codedeploybackend.Provider{},
 		&codestarconnectionsbackend.Provider{},
 		&dynamodbstreamsbackend.Provider{},
+		&efsbackend.Provider{},
 	}
 }
 
