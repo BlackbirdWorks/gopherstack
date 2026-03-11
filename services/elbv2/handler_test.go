@@ -1841,3 +1841,136 @@ func TestDescribeTargetGroupAttributes(t *testing.T) {
 		})
 	}
 }
+
+func mustCreateListener(t *testing.T, h *elbv2.Handler, lbArn, tgArn string) string {
+	t.Helper()
+
+	rec := doELBv2(t, h, url.Values{
+		"Action":                                 {"CreateListener"},
+		"Version":                                {"2015-12-01"},
+		"LoadBalancerArn":                        {lbArn},
+		"Protocol":                               {"HTTP"},
+		"Port":                                   {"80"},
+		"DefaultActions.member.1.Type":           {"forward"},
+		"DefaultActions.member.1.TargetGroupArn": {tgArn},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		XMLName xml.Name `xml:"CreateListenerResponse"`
+		Result  struct {
+			Listeners struct {
+				Members []struct {
+					ListenerArn string `xml:"ListenerArn"`
+				} `xml:"member"`
+			} `xml:"Listeners"`
+		} `xml:"CreateListenerResult"`
+	}
+
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Result.Listeners.Members, 1)
+
+	return resp.Result.Listeners.Members[0].ListenerArn
+}
+
+// TestModifyListenerAttributes tests listener attribute modification.
+func TestModifyListenerAttributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "ml-attrs-lb")
+	tgArn := mustCreateTG(t, h, "ml-attrs-tg")
+	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+	tests := []struct {
+		vals       url.Values
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			vals: url.Values{
+				"Action":      {"ModifyListenerAttributes"},
+				"Version":     {"2015-12-01"},
+				"ListenerArn": {listenerArn},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_arn",
+			vals: url.Values{
+				"Action":  {"ModifyListenerAttributes"},
+				"Version": {"2015-12-01"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			vals: url.Values{
+				"Action":      {"ModifyListenerAttributes"},
+				"Version":     {"2015-12-01"},
+				"ListenerArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/no-such/0/80"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := doELBv2(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestDescribeListenerAttributes tests listener attribute retrieval.
+func TestDescribeListenerAttributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "dl-attrs-lb")
+	tgArn := mustCreateTG(t, h, "dl-attrs-tg")
+	listenerArn := mustCreateListener(t, h, lbArn, tgArn)
+
+	tests := []struct {
+		vals       url.Values
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			vals: url.Values{
+				"Action":      {"DescribeListenerAttributes"},
+				"Version":     {"2015-12-01"},
+				"ListenerArn": {listenerArn},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_arn",
+			vals: url.Values{
+				"Action":  {"DescribeListenerAttributes"},
+				"Version": {"2015-12-01"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			vals: url.Values{
+				"Action":      {"DescribeListenerAttributes"},
+				"Version":     {"2015-12-01"},
+				"ListenerArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/no-such/0/80"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := doELBv2(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}

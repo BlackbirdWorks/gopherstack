@@ -58,6 +58,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteListener",
 		"DescribeListeners",
 		"ModifyListener",
+		"ModifyListenerAttributes",
+		"DescribeListenerAttributes",
 		"CreateRule",
 		"DeleteRule",
 		"DescribeRules",
@@ -201,6 +203,8 @@ func (h *Handler) buildDispatchTable() map[string]dispatchFunc {
 		"DeleteListener":                 h.handleDeleteListener,
 		"DescribeListeners":              h.handleDescribeListeners,
 		"ModifyListener":                 h.handleModifyListener,
+		"ModifyListenerAttributes":       h.handleModifyListenerAttributes,
+		"DescribeListenerAttributes":     h.handleDescribeListenerAttributes,
 		"CreateRule":                     h.handleCreateRule,
 		"DeleteRule":                     h.handleDeleteRule,
 		"DescribeRules":                  h.handleDescribeRules,
@@ -723,6 +727,60 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 			},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-listener"},
+	}, nil
+}
+
+func (h *Handler) handleModifyListenerAttributes(vals url.Values) (any, error) {
+	listenerArn := vals.Get("ListenerArn")
+	if listenerArn == "" {
+		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
+	}
+
+	listeners, err := h.Backend.DescribeListeners("", []string{listenerArn})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(listeners) == 0 {
+		return nil, ErrListenerNotFound
+	}
+
+	return &modifyListenerAttributesResponse{
+		Xmlns: elbv2XMLNS,
+		Result: modifyListenerAttributesResult{
+			Attributes: xmlListenerAttributeList{Members: []xmlListenerAttribute{}},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-listener-attrs"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeListenerAttributes(vals url.Values) (any, error) {
+	listenerArn := vals.Get("ListenerArn")
+	if listenerArn == "" {
+		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
+	}
+
+	listeners, err := h.Backend.DescribeListeners("", []string{listenerArn})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(listeners) == 0 {
+		return nil, ErrListenerNotFound
+	}
+
+	return &describeListenerAttributesResponse{
+		Xmlns: elbv2XMLNS,
+		Result: describeListenerAttributesResult{
+			Attributes: xmlListenerAttributeList{
+				Members: []xmlListenerAttribute{
+					{Key: "routing.http.desync_mitigation_mode", Value: "defensive"},
+					{Key: "routing.http2.enabled", Value: "true"},
+					{Key: "idle_timeout.timeout_seconds", Value: "60"},
+				},
+			},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-listener-attrs"},
 	}, nil
 }
 
@@ -1584,4 +1642,37 @@ type describeTargetGroupAttributesResponse struct {
 	Xmlns            string                              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata                 `xml:"ResponseMetadata"`
 	Result           describeTargetGroupAttributesResult `xml:"DescribeTargetGroupAttributesResult"`
+}
+
+// --- listener attributes XML types ---
+
+type xmlListenerAttribute struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
+type xmlListenerAttributeList struct {
+	Members []xmlListenerAttribute `xml:"member"`
+}
+
+type modifyListenerAttributesResult struct {
+	Attributes xmlListenerAttributeList `xml:"Attributes"`
+}
+
+type modifyListenerAttributesResponse struct {
+	XMLName          xml.Name                       `xml:"ModifyListenerAttributesResponse"`
+	Xmlns            string                         `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata            `xml:"ResponseMetadata"`
+	Result           modifyListenerAttributesResult `xml:"ModifyListenerAttributesResult"`
+}
+
+type describeListenerAttributesResult struct {
+	Attributes xmlListenerAttributeList `xml:"Attributes"`
+}
+
+type describeListenerAttributesResponse struct {
+	XMLName          xml.Name                         `xml:"DescribeListenerAttributesResponse"`
+	Xmlns            string                           `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata              `xml:"ResponseMetadata"`
+	Result           describeListenerAttributesResult `xml:"DescribeListenerAttributesResult"`
 }
