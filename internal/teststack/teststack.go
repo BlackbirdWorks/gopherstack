@@ -166,13 +166,13 @@ type Stack struct {
 	// CodeCommitHandler provides access to the CodeCommit backend.
 	CodeCommitHandler *codecommitbackend.Handler
 	// CodeConnectionsHandler provides access to the CodeConnections backend.
-	CodeConnectionsHandler         *codeconnectionsbackend.Handler
+	CodeConnectionsHandler *codeconnectionsbackend.Handler
 	// CodeDeployHandler provides access to the CodeDeploy backend.
-	CodeDeployHandler              *codedeploybackend.Handler
-	S3Client                       *s3.Client
-	DDBClient                      *dynamodb.Client
-	FaultStore                     *chaos.FaultStore
-	Dashboard                      *dashboard.DashboardHandler
+	CodeDeployHandler *codedeploybackend.Handler
+	S3Client          *s3.Client
+	DDBClient         *dynamodb.Client
+	FaultStore        *chaos.FaultStore
+	Dashboard         *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
