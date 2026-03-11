@@ -722,7 +722,7 @@ type environmentResourceDescType struct {
 }
 
 type describeEnvironmentResourcesResult struct {
-	EnvironmentInfo environmentResourceDescType `xml:"EnvironmentInfo"`
+	EnvironmentResources environmentResourceDescType `xml:"EnvironmentResources"`
 }
 
 type describeEnvironmentResourcesResponse struct {
@@ -740,7 +740,7 @@ func (h *Handler) handleDescribeEnvironmentResources(vals url.Values) (any, erro
 	return &describeEnvironmentResourcesResponse{
 		Xmlns: ebXMLNS,
 		DescribeEnvironmentResourcesResult: describeEnvironmentResourcesResult{
-			EnvironmentInfo: environmentResourceDescType{
+			EnvironmentResources: environmentResourceDescType{
 				EnvironmentName: envName,
 			},
 		},
