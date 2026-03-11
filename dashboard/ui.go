@@ -510,6 +510,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CodeArtifactOps:            cfg.CodeArtifactOps,
 		CodeCommitOps:              cfg.CodeCommitOps,
 		CodeDeployOps:              cfg.CodeDeployOps,
+		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
 		layout:                     tmpl,

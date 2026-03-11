@@ -12,6 +12,9 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// simulatedDeployDuration is the simulated time for a deployment to complete.
+const simulatedDeployDuration = 5 * time.Second
+
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
 	ErrNotFound = awserr.New("ApplicationDoesNotExistException", awserr.ErrNotFound)
@@ -344,7 +347,7 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName, description, creator
 	// Use a shortened UUID for the deployment ID in the expected format.
 	deployID := "d-" + uuid.NewString()[:9]
 	now := time.Now().UTC()
-	completed := now.Add(5 * time.Second) //nolint:mnd // Simulate immediate completion.
+	completed := now.Add(simulatedDeployDuration)
 
 	d := &Deployment{
 		DeploymentID:        deployID,
