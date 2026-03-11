@@ -48,6 +48,7 @@ import (
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -159,20 +160,16 @@ type Stack struct {
 	CeHandler                      *cebackend.Handler
 	CloudControlHandler            *cloudcontrolbackend.Handler
 	CloudFrontHandler              *cloudfrontbackend.Handler
-	// CodeArtifactHandler provides access to the CodeArtifact backend.
-	CodeArtifactHandler *codeartifactbackend.Handler
-	// CodeBuildHandler provides access to the CodeBuild backend.
-	CodeBuildHandler *codebuildbackend.Handler
-	// CodeCommitHandler provides access to the CodeCommit backend.
-	CodeCommitHandler *codecommitbackend.Handler
-	// CodeConnectionsHandler provides access to the CodeConnections backend.
-	CodeConnectionsHandler *codeconnectionsbackend.Handler
-	// CodeDeployHandler provides access to the CodeDeploy backend.
-	CodeDeployHandler *codedeploybackend.Handler
-	S3Client          *s3.Client
-	DDBClient         *dynamodb.Client
-	FaultStore        *chaos.FaultStore
-	Dashboard         *dashboard.DashboardHandler
+	CodeArtifactHandler            *codeartifactbackend.Handler
+	CodeBuildHandler               *codebuildbackend.Handler
+	CodeCommitHandler              *codecommitbackend.Handler
+	CodeConnectionsHandler         *codeconnectionsbackend.Handler
+	CodeDeployHandler              *codedeploybackend.Handler
+	CodeStarConnectionsHandler     *codestarconnectionsbackend.Handler
+	S3Client                       *s3.Client
+	DDBClient                      *dynamodb.Client
+	FaultStore                     *chaos.FaultStore
+	Dashboard                      *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -427,6 +424,7 @@ type handlers struct {
 	codeCommit      *codecommitbackend.Handler
 	codeConnections *codeconnectionsbackend.Handler
 	codeDeploy      *codedeploybackend.Handler
+	codeStarConn    *codestarconnectionsbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -601,6 +599,9 @@ func populateNewestHandlers(h *handlers) {
 	h.codeDeploy = codedeploybackend.NewHandler(
 		codedeploybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.codeStarConn = codestarconnectionsbackend.NewHandler(
+		codestarconnectionsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -705,6 +706,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CodeCommitOps:              h.codeCommit,
 		CodeConnectionsOps:         h.codeConnections,
 		CodeDeployOps:              h.codeDeploy,
+		CodeStarConnectionsOps:     h.codeStarConn,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -748,6 +750,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.codeCommit)
 	_ = registry.Register(h.codeConnections)
 	_ = registry.Register(h.codeDeploy)
+	_ = registry.Register(h.codeStarConn)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -840,6 +843,7 @@ func buildStack(
 		CodeCommitHandler:              h.codeCommit,
 		CodeConnectionsHandler:         h.codeConnections,
 		CodeDeployHandler:              h.codeDeploy,
+		CodeStarConnectionsHandler:     h.codeStarConn,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
