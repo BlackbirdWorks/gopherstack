@@ -157,13 +157,13 @@ type Stack struct {
 	CloudControlHandler            *cloudcontrolbackend.Handler
 	CloudFrontHandler              *cloudfrontbackend.Handler
 	// CodeArtifactHandler provides access to the CodeArtifact backend.
-	CodeArtifactHandler            *codeartifactbackend.Handler
+	CodeArtifactHandler *codeartifactbackend.Handler
 	// CodeBuildHandler provides access to the CodeBuild backend.
-	CodeBuildHandler               *codebuildbackend.Handler
-	S3Client                       *s3.Client
-	DDBClient                      *dynamodb.Client
-	FaultStore                     *chaos.FaultStore
-	Dashboard                      *dashboard.DashboardHandler
+	CodeBuildHandler *codebuildbackend.Handler
+	S3Client         *s3.Client
+	DDBClient        *dynamodb.Client
+	FaultStore       *chaos.FaultStore
+	Dashboard        *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.

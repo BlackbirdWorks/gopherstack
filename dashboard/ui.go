@@ -195,14 +195,14 @@ type DashboardHandler struct {
 	// CodeArtifactOps provides access to the CodeArtifact backend.
 	CodeArtifactOps *codeartifactbackend.Handler
 	// CodeBuildOps provides access to the CodeBuild backend.
-	CodeBuildOps    *codebuildbackend.Handler
-	SubRouter       *echo.Echo
-	ddbProvider     *ddbbackend.DashboardProvider
-	s3Provider      *s3backend.DashboardProvider
-	FaultStore      *chaos.FaultStore
-	Logger          *slog.Logger
-	layout          *template.Template
-	GlobalConfig    config.GlobalConfig
+	CodeBuildOps *codebuildbackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.

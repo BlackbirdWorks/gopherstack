@@ -871,111 +871,284 @@ func TestHandler_UnknownAction(t *testing.T) {
 }
 
 func TestHandler_ChaosOperations(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-ops := h.ChaosOperations()
-assert.Equal(t, h.GetSupportedOperations(), ops)
+	tests := []struct {
+		name    string
+		wantOps []string
+		wantLen int
+	}{
+		{
+			name:    "returns all supported operations",
+			wantLen: 12,
+			wantOps: []string{"CreateProject", "BatchGetProjects", "StartBuild", "StopBuild"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			ops := h.ChaosOperations()
+			assert.Len(t, ops, tt.wantLen)
+			for _, op := range tt.wantOps {
+				assert.Contains(t, ops, op)
+			}
+		})
+	}
 }
 
 func TestHandler_ChaosRegions(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-regions := h.ChaosRegions()
-assert.Equal(t, []string{"us-east-1"}, regions)
+	tests := []struct {
+		name        string
+		wantRegions []string
+	}{
+		{
+			name:        "returns configured region",
+			wantRegions: []string{"us-east-1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			regions := h.ChaosRegions()
+			assert.Equal(t, tt.wantRegions, regions)
+		})
+	}
 }
 
 func TestHandler_Region(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-assert.Equal(t, "us-east-1", h.Backend.Region())
+	tests := []struct {
+		name       string
+		wantRegion string
+	}{
+		{
+			name:       "returns backend region",
+			wantRegion: "us-east-1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			assert.Equal(t, tt.wantRegion, h.Backend.Region())
+		})
+	}
 }
 
 func TestHandler_ExtractOperation(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name       string
-target     string
-wantOp     string
-}{
-{
-name:   "create project",
-target: "CodeBuild_20161006.CreateProject",
-wantOp: "CreateProject",
-},
-{
-name:   "batch get projects",
-target: "CodeBuild_20161006.BatchGetProjects",
-wantOp: "BatchGetProjects",
-},
-{
-name:   "empty target",
-target: "",
-wantOp: "",
-},
-}
+	tests := []struct {
+		name   string
+		target string
+		wantOp string
+	}{
+		{
+			name:   "create project",
+			target: "CodeBuild_20161006.CreateProject",
+			wantOp: "CreateProject",
+		},
+		{
+			name:   "batch get projects",
+			target: "CodeBuild_20161006.BatchGetProjects",
+			wantOp: "BatchGetProjects",
+		},
+		{
+			name:   "empty target",
+			target: "",
+			wantOp: "",
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-e := echo.New()
-req := httptest.NewRequest(http.MethodPost, "/", nil)
-req.Header.Set("X-Amz-Target", tt.target)
-rec := httptest.NewRecorder()
-c := e.NewContext(req, rec)
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
-op := h.ExtractOperation(c)
-assert.Equal(t, tt.wantOp, op)
-})
-}
+			op := h.ExtractOperation(c)
+			assert.Equal(t, tt.wantOp, op)
+		})
+	}
 }
 
 func TestHandler_ExtractResource(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-e := echo.New()
-req := httptest.NewRequest(http.MethodPost, "/", nil)
-rec := httptest.NewRecorder()
-c := e.NewContext(req, rec)
+	tests := []struct {
+		name         string
+		path         string
+		wantResource string
+	}{
+		{
+			name:         "always empty regardless of path",
+			path:         "/",
+			wantResource: "",
+		},
+		{
+			name:         "empty for specific project path",
+			path:         "/projects/my-project",
+			wantResource: "",
+		},
+	}
 
-resource := h.ExtractResource(c)
-assert.Equal(t, "", resource)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			resource := h.ExtractResource(c)
+			assert.Equal(t, tt.wantResource, resource)
+		})
+	}
 }
 
 func TestHandler_TagResource_NotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-rec := doRequest(t, h, "TagResource", map[string]any{
-"resourceArn": "arn:aws:codebuild:us-east-1:000000000000:project/nonexistent",
-"tags":        map[string]string{"key": "value"},
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
+	tests := []struct {
+		name        string
+		resourceArn string
+		wantStatus  int
+	}{
+		{
+			name:        "nonexistent project",
+			resourceArn: "arn:aws:codebuild:us-east-1:000000000000:project/nonexistent",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "invalid arn format",
+			resourceArn: "not-a-valid-arn",
+			wantStatus:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "TagResource", map[string]any{
+				"resourceArn": tt.resourceArn,
+				"tags":        []map[string]string{{"key": "k", "value": "v"}},
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
 
 func TestHandler_UntagResource_NotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-rec := doRequest(t, h, "UntagResource", map[string]any{
-"resourceArn": "arn:aws:codebuild:us-east-1:000000000000:project/nonexistent",
-"tagKeys":     []string{"key"},
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
+	tests := []struct {
+		name        string
+		resourceArn string
+		wantStatus  int
+	}{
+		{
+			name:        "nonexistent project",
+			resourceArn: "arn:aws:codebuild:us-east-1:000000000000:project/nonexistent",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "invalid arn format",
+			resourceArn: "not-a-valid-arn",
+			wantStatus:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "UntagResource", map[string]any{
+				"resourceArn": tt.resourceArn,
+				"tagKeys":     []string{"key"},
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
 
 func TestHandler_ListBuildsForProject_NotFound(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-h := newTestHandler(t)
-rec := doRequest(t, h, "ListBuildsForProject", map[string]any{
-"projectName": "nonexistent-project",
-})
-assert.Equal(t, http.StatusBadRequest, rec.Code)
+	tests := []struct {
+		name        string
+		projectName string
+		wantStatus  int
+	}{
+		{
+			name:        "nonexistent project",
+			projectName: "nonexistent-project",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "empty project name",
+			projectName: "",
+			wantStatus:  http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "ListBuildsForProject", map[string]any{
+				"projectName": tt.projectName,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestProvider(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		wantName string
+	}{
+		{
+			name:     "init and name",
+			wantName: "CodeBuild",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &codebuild.Provider{}
+			assert.Equal(t, tt.wantName, p.Name())
+
+			ctx := &service.AppContext{}
+			svc, err := p.Init(ctx)
+			require.NoError(t, err)
+			assert.NotNil(t, svc)
+		})
+	}
 }
