@@ -48,6 +48,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateApplicationVersion",
 		"DescribeApplicationVersions",
 		"DeleteApplicationVersion",
+		"DescribeEvents",
 		"ListTagsForResource",
 		"UpdateTagsForResource",
 	}
@@ -162,36 +163,30 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 // dispatch routes the Elastic Beanstalk action to the appropriate handler.
 func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
-	switch action {
-	case "CreateApplication":
-		return h.handleCreateApplication(vals)
-	case "DescribeApplications":
-		return h.handleDescribeApplications(vals)
-	case "UpdateApplication":
-		return h.handleUpdateApplication(vals)
-	case "DeleteApplication":
-		return h.handleDeleteApplication(vals)
-	case "CreateEnvironment":
-		return h.handleCreateEnvironment(vals)
-	case "DescribeEnvironments":
-		return h.handleDescribeEnvironments(vals)
-	case "UpdateEnvironment":
-		return h.handleUpdateEnvironment(vals)
-	case "TerminateEnvironment":
-		return h.handleTerminateEnvironment(vals)
-	case "CreateApplicationVersion":
-		return h.handleCreateApplicationVersion(vals)
-	case "DescribeApplicationVersions":
-		return h.handleDescribeApplicationVersions(vals)
-	case "DeleteApplicationVersion":
-		return h.handleDeleteApplicationVersion(vals)
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(vals)
-	case "UpdateTagsForResource":
-		return h.handleUpdateTagsForResource(vals)
-	default:
-		return nil, fmt.Errorf("%w: %s", ErrUnknownAction, action)
+	type handlerFn func(url.Values) (any, error)
+
+	handlers := map[string]handlerFn{
+		"CreateApplication":           h.handleCreateApplication,
+		"DescribeApplications":        h.handleDescribeApplications,
+		"UpdateApplication":           h.handleUpdateApplication,
+		"DeleteApplication":           h.handleDeleteApplication,
+		"CreateEnvironment":           h.handleCreateEnvironment,
+		"DescribeEnvironments":        h.handleDescribeEnvironments,
+		"UpdateEnvironment":           h.handleUpdateEnvironment,
+		"TerminateEnvironment":        h.handleTerminateEnvironment,
+		"CreateApplicationVersion":    h.handleCreateApplicationVersion,
+		"DescribeApplicationVersions": h.handleDescribeApplicationVersions,
+		"DeleteApplicationVersion":    h.handleDeleteApplicationVersion,
+		"ListTagsForResource":         h.handleListTagsForResource,
+		"UpdateTagsForResource":       h.handleUpdateTagsForResource,
+		"DescribeEvents":              h.handleDescribeEvents,
 	}
+
+	if fn, ok := handlers[action]; ok {
+		return fn(vals)
+	}
+
+	return nil, fmt.Errorf("%w: %s", ErrUnknownAction, action)
 }
 
 // --- Application operations ---
@@ -675,6 +670,37 @@ func (h *Handler) handleUpdateTagsForResource(vals url.Values) (any, error) {
 	return &updateTagsForResourceResponse{
 		Xmlns:            ebXMLNS,
 		ResponseMetadata: responseMetadata{RequestID: "eb-update-tags"},
+	}, nil
+}
+
+// --- Events ---
+
+type eventDescType struct {
+	ApplicationName string `xml:"ApplicationName,omitempty"`
+	EnvironmentName string `xml:"EnvironmentName,omitempty"`
+	EventDate       string `xml:"EventDate,omitempty"`
+	Message         string `xml:"Message,omitempty"`
+	Severity        string `xml:"Severity,omitempty"`
+}
+
+type describeEventsResult struct {
+	Events []eventDescType `xml:"Events>member"`
+}
+
+type describeEventsResponse struct {
+	XMLName              xml.Name             `xml:"DescribeEventsResponse"`
+	ResponseMetadata     responseMetadata     `xml:"ResponseMetadata"`
+	Xmlns                string               `xml:"xmlns,attr"`
+	DescribeEventsResult describeEventsResult `xml:"DescribeEventsResult"`
+}
+
+// handleDescribeEvents returns an empty events list.
+// The Terraform provider calls DescribeEvents to poll environment creation status.
+func (h *Handler) handleDescribeEvents(_ url.Values) (any, error) {
+	return &describeEventsResponse{
+		Xmlns:                ebXMLNS,
+		DescribeEventsResult: describeEventsResult{},
+		ResponseMetadata:     responseMetadata{RequestID: "eb-describe-events"},
 	}, nil
 }
 
