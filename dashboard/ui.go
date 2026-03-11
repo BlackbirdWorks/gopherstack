@@ -62,6 +62,7 @@ import (
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
+	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -218,6 +219,8 @@ type DashboardHandler struct {
 	ElasticbeanstalkOps *elasticbeanstalkbackend.Handler
 	// EKSOps provides access to the EKS backend.
 	EKSOps *eksbackend.Handler
+	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
+	ElasticTranscoderOps *elastictranscoderbackend.Handler
 	// ELBOps provides access to the Classic ELB backend.
 	ELBOps       *elbbackend.Handler
 	SubRouter    *echo.Echo
@@ -374,6 +377,8 @@ type Config struct {
 	ElasticbeanstalkOps *elasticbeanstalkbackend.Handler
 	// EKSOps provides access to the EKS backend.
 	EKSOps *eksbackend.Handler
+	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
+	ElasticTranscoderOps *elastictranscoderbackend.Handler
 	// ELBOps provides access to the Classic ELB backend.
 	ELBOps *elbbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -476,6 +481,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/codestarconnections/*.html",
 		"templates/dynamodbstreams/*.html",
 		"templates/elasticbeanstalk/*.html",
+		"templates/elastictranscoder/*.html",
 		"templates/elb/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -570,6 +576,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		DynamoDBStreamsOps:         cfg.DynamoDBStreamsOps,
 		ElasticbeanstalkOps:        cfg.ElasticbeanstalkOps,
 		EKSOps:                     cfg.EKSOps,
+		ElasticTranscoderOps:       cfg.ElasticTranscoderOps,
 		ELBOps:                     cfg.ELBOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
@@ -580,16 +587,17 @@ func NewHandler(cfg Config) *DashboardHandler {
 		SubRouter:                  echo.New(),
 	}
 
-	h.setupProviderHandlers()
-	h.setupSubRouter()
+	h.initHandlers(cfg.Logger)
 
 	return h
 }
 
-func (h *DashboardHandler) setupProviderHandlers() {
-	h.SubRouter.Pre(pkgslogger.EchoMiddleware(h.Logger))
+// initHandlers wires provider callbacks and sets up the subrouter.
+func (h *DashboardHandler) initHandlers(logger *slog.Logger) {
+	h.SubRouter.Pre(pkgslogger.EchoMiddleware(logger))
 	h.ddbProvider.Handlers.HandleDynamoDB = h.handleDynamoDB
 	h.s3Provider.Handlers.HandleS3 = h.handleS3
+	h.setupSubRouter()
 }
 
 func (h *DashboardHandler) setupStaticAndRootRoutes() {
@@ -1057,6 +1065,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupElasticbeanstalkRoutes()
 	h.setupEFSRoutes()
 	h.setupEKSRoutes()
+	h.setupElasticTranscoderRoutes()
 	h.setupELBRoutes()
 }
 
@@ -1175,6 +1184,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/dynamodbstreams", "DynamoDBStreams"},
 	{"/elasticbeanstalk", "Elasticbeanstalk"},
 	{"/efs", "EFS"},
+	{"/elastictranscoder", "ElasticTranscoder"},
 	{"/elb", "ELB"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
