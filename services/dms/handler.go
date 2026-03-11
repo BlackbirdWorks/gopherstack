@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -105,13 +105,12 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	return ""
 }
 
-// extractField reads the request body and returns the first non-empty value for the given JSON keys.
+// extractField reads the request body (re-seeding it for subsequent reads) and
+// returns the first non-empty string value found for the given JSON keys.
+// Returns an empty string if the body cannot be read, is not valid JSON,
+// or none of the given keys has a non-empty string value.
 func extractField(c *echo.Context, keys ...string) string {
-	if c.Request().Body == nil {
-		return ""
-	}
-
-	bodyBytes, readErr := io.ReadAll(c.Request().Body)
+	bodyBytes, readErr := httputils.ReadBody(c.Request())
 	if readErr != nil || len(bodyBytes) == 0 {
 		return ""
 	}
@@ -191,6 +190,11 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			Type:    "InvalidResourceStateFault",
 			Message: err.Error(),
 		})
+	case errors.Is(err, errUnknownAction):
+		return c.JSON(http.StatusBadRequest, service.JSONErrorResponse{
+			Type:    "UnknownOperationException",
+			Message: err.Error(),
+		})
 	default:
 		return c.JSON(http.StatusInternalServerError, service.JSONErrorResponse{
 			Type:    "InternalFailure",
@@ -222,6 +226,14 @@ func (h *Handler) handleCreateReplicationInstance(
 ) (*createReplicationInstanceOutput, error) {
 	identifier := ptrStr(in.ReplicationInstanceIdentifier)
 	class := ptrStr(in.ReplicationInstanceClass)
+
+	if identifier == "" {
+		return nil, fmt.Errorf("%w: ReplicationInstanceIdentifier is required", ErrInvalidState)
+	}
+
+	if class == "" {
+		return nil, fmt.Errorf("%w: ReplicationInstanceClass is required", ErrInvalidState)
+	}
 
 	kv := tagsToMap(in.Tags)
 	ri, err := h.Backend.CreateReplicationInstance(
@@ -256,7 +268,15 @@ func (h *Handler) handleDescribeReplicationInstances(
 	_ context.Context, in *describeReplicationInstancesInput,
 ) (*describeReplicationInstancesOutput, error) {
 	identifier := extractFilterValue(in.Filters, "replication-instance-id")
-	list, err := h.Backend.DescribeReplicationInstances(identifier)
+	arnFilter := extractFilterValue(in.Filters, "replication-instance-arn")
+
+	// ARN filter takes precedence when present.
+	lookup := identifier
+	if arnFilter != "" {
+		lookup = arnFilter
+	}
+
+	list, err := h.Backend.DescribeReplicationInstances(lookup)
 
 	if err != nil {
 		return nil, err
@@ -325,11 +345,27 @@ type createEndpointOutput struct {
 func (h *Handler) handleCreateEndpoint(
 	_ context.Context, in *createEndpointInput,
 ) (*createEndpointOutput, error) {
+	identifier := ptrStr(in.EndpointIdentifier)
+	endpointType := ptrStr(in.EndpointType)
+	engineName := ptrStr(in.EngineName)
+
+	if identifier == "" {
+		return nil, fmt.Errorf("%w: EndpointIdentifier is required", ErrInvalidState)
+	}
+
+	if endpointType == "" {
+		return nil, fmt.Errorf("%w: EndpointType is required", ErrInvalidState)
+	}
+
+	if engineName == "" {
+		return nil, fmt.Errorf("%w: EngineName is required", ErrInvalidState)
+	}
+
 	kv := tagsToMap(in.Tags)
 	ep, err := h.Backend.CreateEndpoint(
-		ptrStr(in.EndpointIdentifier),
-		ptrStr(in.EndpointType),
-		ptrStr(in.EngineName),
+		identifier,
+		endpointType,
+		engineName,
 		ptrStr(in.ServerName),
 		ptrStr(in.DatabaseName),
 		ptrStr(in.Username),
@@ -356,7 +392,14 @@ func (h *Handler) handleDescribeEndpoints(
 	_ context.Context, in *describeEndpointsInput,
 ) (*describeEndpointsOutput, error) {
 	identifier := extractFilterValue(in.Filters, "endpoint-id")
-	list, err := h.Backend.DescribeEndpoints(identifier)
+	arnFilter := extractFilterValue(in.Filters, "endpoint-arn")
+
+	lookup := identifier
+	if arnFilter != "" {
+		lookup = arnFilter
+	}
+
+	list, err := h.Backend.DescribeEndpoints(lookup)
 
 	if err != nil {
 		return nil, err
@@ -409,13 +452,39 @@ type createReplicationTaskOutput struct {
 func (h *Handler) handleCreateReplicationTask(
 	_ context.Context, in *createReplicationTaskInput,
 ) (*createReplicationTaskOutput, error) {
+	identifier := ptrStr(in.ReplicationTaskIdentifier)
+	sourceEndpointArn := ptrStr(in.SourceEndpointArn)
+	targetEndpointArn := ptrStr(in.TargetEndpointArn)
+	replicationInstanceArn := ptrStr(in.ReplicationInstanceArn)
+	migrationType := ptrStr(in.MigrationType)
+
+	if identifier == "" {
+		return nil, fmt.Errorf("%w: ReplicationTaskIdentifier is required", ErrInvalidState)
+	}
+
+	if sourceEndpointArn == "" {
+		return nil, fmt.Errorf("%w: SourceEndpointArn is required", ErrInvalidState)
+	}
+
+	if targetEndpointArn == "" {
+		return nil, fmt.Errorf("%w: TargetEndpointArn is required", ErrInvalidState)
+	}
+
+	if replicationInstanceArn == "" {
+		return nil, fmt.Errorf("%w: ReplicationInstanceArn is required", ErrInvalidState)
+	}
+
+	if migrationType == "" {
+		return nil, fmt.Errorf("%w: MigrationType is required", ErrInvalidState)
+	}
+
 	kv := tagsToMap(in.Tags)
 	rt, err := h.Backend.CreateReplicationTask(
-		ptrStr(in.ReplicationTaskIdentifier),
-		ptrStr(in.SourceEndpointArn),
-		ptrStr(in.TargetEndpointArn),
-		ptrStr(in.ReplicationInstanceArn),
-		ptrStr(in.MigrationType),
+		identifier,
+		sourceEndpointArn,
+		targetEndpointArn,
+		replicationInstanceArn,
+		migrationType,
 		ptrStr(in.TableMappings),
 		ptrStr(in.ReplicationTaskSettings),
 		kv,

@@ -255,6 +255,61 @@ func TestHandler_ReplicationInstanceCRUD(t *testing.T) {
 				assert.Empty(t, list)
 			},
 		},
+		{
+			name: "create_missing_identifier",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+					"ReplicationInstanceClass": "dms.t3.medium",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_missing_class",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+					"ReplicationInstanceIdentifier": "inst-no-class",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "describe_by_arn_filter",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				create := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+					"ReplicationInstanceIdentifier": "arn-filter-inst",
+					"ReplicationInstanceClass":      "dms.t3.medium",
+				})
+				require.Equal(t, http.StatusOK, create.Code)
+				createResp := parseJSON(t, create)
+				ri := createResp["ReplicationInstance"].(map[string]any)
+				arn := ri["ReplicationInstanceArn"].(string)
+
+				rec := doDMS(t, h, "DescribeReplicationInstances", map[string]any{
+					"Filters": []map[string]any{
+						{"Name": "replication-instance-arn", "Values": []string{arn}},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				list, ok := resp["ReplicationInstances"].([]any)
+				require.True(t, ok)
+				assert.Len(t, list, 1)
+			},
+		},
+		{
+			name: "delete_not_found",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DeleteReplicationInstance", map[string]any{
+					"ReplicationInstanceArn": "arn:aws:dms:us-east-1:000000000000:rep:missing",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -363,6 +418,54 @@ func TestHandler_EndpointCRUD(t *testing.T) {
 					"EndpointArn": "arn:aws:dms:us-east-1:123:endpoint:nonexistent",
 				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "create_missing_identifier",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointType": "SOURCE",
+					"EngineName":   "mysql",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_missing_engine",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "ep-no-engine",
+					"EndpointType":       "SOURCE",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "describe_by_arn_filter",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				create := doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "arn-ep",
+					"EndpointType":       "SOURCE",
+					"EngineName":         "mysql",
+				})
+				require.Equal(t, http.StatusOK, create.Code)
+				createResp := parseJSON(t, create)
+				ep := createResp["Endpoint"].(map[string]any)
+				arnVal := ep["EndpointArn"].(string)
+
+				rec := doDMS(t, h, "DescribeEndpoints", map[string]any{
+					"Filters": []map[string]any{
+						{"Name": "endpoint-arn", "Values": []string{arnVal}},
+					},
+				})
+				assert.Equal(t, http.StatusOK, rec.Code)
+				resp := parseJSON(t, rec)
+				list, ok := resp["Endpoints"].([]any)
+				require.True(t, ok)
+				assert.Len(t, list, 1)
 			},
 		},
 	}
@@ -532,6 +635,54 @@ func TestHandler_ReplicationTaskCRUD(t *testing.T) {
 				assert.Equal(t, http.StatusOK, rec.Code)
 			},
 		},
+		{
+			name: "create_missing_identifier",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				srcArn, dstArn, instArn := createTaskEnv(t, h)
+				rec := doDMS(t, h, "CreateReplicationTask", map[string]any{
+					"SourceEndpointArn":      srcArn,
+					"TargetEndpointArn":      dstArn,
+					"ReplicationInstanceArn": instArn,
+					"MigrationType":          "full-load",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "create_missing_migration_type",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				srcArn, dstArn, instArn := createTaskEnv(t, h)
+				rec := doDMS(t, h, "CreateReplicationTask", map[string]any{
+					"ReplicationTaskIdentifier": "no-type-task",
+					"SourceEndpointArn":         srcArn,
+					"TargetEndpointArn":         dstArn,
+					"ReplicationInstanceArn":    instArn,
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "stop_not_found",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "StopReplicationTask", map[string]any{
+					"ReplicationTaskArn": "arn:aws:dms:us-east-1:000000000000:task:nonexistent",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "delete_not_found",
+			run: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				rec := doDMS(t, h, "DeleteReplicationTask", map[string]any{
+					"ReplicationTaskArn": "arn:aws:dms:us-east-1:000000000000:task:nonexistent",
+				})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -609,7 +760,7 @@ func TestHandler_UnknownAction(t *testing.T) {
 
 	h := newTestDMSHandler()
 	rec := doDMS(t, h, "UnknownAction", map[string]any{})
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestHandler_MissingTarget(t *testing.T) {

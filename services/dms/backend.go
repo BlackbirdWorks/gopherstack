@@ -157,19 +157,28 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 	return &cp, nil
 }
 
-// DescribeReplicationInstances returns replication instances, optionally filtered by identifier.
-func (b *InMemoryBackend) DescribeReplicationInstances(identifier string) ([]*ReplicationInstance, error) {
+// DescribeReplicationInstances returns replication instances, optionally filtered by identifier or ARN.
+func (b *InMemoryBackend) DescribeReplicationInstances(identifierOrArn string) ([]*ReplicationInstance, error) {
 	b.mu.RLock("DescribeReplicationInstances")
 	defer b.mu.RUnlock()
 
-	if identifier != "" {
-		ri, ok := b.replicationInstances[identifier]
-		if !ok {
-			return nil, fmt.Errorf("%w: replication instance %s not found", ErrNotFound, identifier)
-		}
-		cp := *ri
+	if identifierOrArn != "" {
+		// Try by identifier first.
+		if ri, ok := b.replicationInstances[identifierOrArn]; ok {
+			cp := *ri
 
-		return []*ReplicationInstance{&cp}, nil
+			return []*ReplicationInstance{&cp}, nil
+		}
+		// Try by ARN.
+		for _, ri := range b.replicationInstances {
+			if ri.ReplicationInstanceArn == identifierOrArn {
+				cp := *ri
+
+				return []*ReplicationInstance{&cp}, nil
+			}
+		}
+
+		return nil, fmt.Errorf("%w: replication instance %s not found", ErrNotFound, identifierOrArn)
 	}
 
 	list := make([]*ReplicationInstance, 0, len(b.replicationInstances))
@@ -245,19 +254,28 @@ func (b *InMemoryBackend) CreateEndpoint(
 	return &cp, nil
 }
 
-// DescribeEndpoints returns endpoints, optionally filtered by identifier.
-func (b *InMemoryBackend) DescribeEndpoints(identifier string) ([]*Endpoint, error) {
+// DescribeEndpoints returns endpoints, optionally filtered by identifier or ARN.
+func (b *InMemoryBackend) DescribeEndpoints(identifierOrArn string) ([]*Endpoint, error) {
 	b.mu.RLock("DescribeEndpoints")
 	defer b.mu.RUnlock()
 
-	if identifier != "" {
-		ep, ok := b.endpoints[identifier]
-		if !ok {
-			return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, identifier)
-		}
-		cp := *ep
+	if identifierOrArn != "" {
+		// Try by identifier first.
+		if ep, ok := b.endpoints[identifierOrArn]; ok {
+			cp := *ep
 
-		return []*Endpoint{&cp}, nil
+			return []*Endpoint{&cp}, nil
+		}
+		// Try by ARN.
+		for _, ep := range b.endpoints {
+			if ep.EndpointArn == identifierOrArn {
+				cp := *ep
+
+				return []*Endpoint{&cp}, nil
+			}
+		}
+
+		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, identifierOrArn)
 	}
 
 	list := make([]*Endpoint, 0, len(b.endpoints))
