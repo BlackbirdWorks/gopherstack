@@ -411,24 +411,12 @@ func TestE2E_S3_FolderNavigation(t *testing.T) {
 	// need manual hidden-class removal.
 	clickFolder := func(label string) {
 		t.Helper()
-		btn := page.Locator("button[data-accordion-target]:has-text('" + label + "')")
+		btn := page.Locator(fmt.Sprintf("button[hx-get*='tree?prefix=']:has-text('%s')", label))
 		require.NoError(t, btn.WaitFor(playwright.LocatorWaitForOptions{
 			State:   playwright.WaitForSelectorStateVisible,
 			Timeout: playwright.Float(30000),
 		}))
 		require.NoError(t, btn.Click())
-		// Remove 'hidden' from the accordion target div in case Flowbite didn't init it.
-		// Use getElementById instead of querySelector because the IDs contain URL-encoded chars (%).
-		_, err2 := page.Evaluate(`(label) => {
-			const btn = [...document.querySelectorAll('button[data-accordion-target]')]
-				.find(b => b.textContent.includes(label));
-			if (btn) {
-				const targetId = btn.getAttribute('data-accordion-target').replace(/^#/, '');
-				const target = document.getElementById(targetId);
-				if (target) target.classList.remove('hidden');
-			}
-		}`, label)
-		require.NoError(t, err2)
 		// Wait for HTMX to load sub-folder contents by polling for network idle.
 		_ = page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
 			State:   playwright.LoadStateNetworkidle,
