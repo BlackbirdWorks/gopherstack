@@ -17,7 +17,7 @@ import (
 func TestEMRDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.EMRHandler.Backend.RunJobFlow("e2e-test-cluster", "emr-6.0.0", []emr.Tag{})
+	_, err := stack.EMRHandler.Backend.RunJobFlow("e2e-test-cluster", "emr-6.0.0", []emr.Tag{}, nil)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)
