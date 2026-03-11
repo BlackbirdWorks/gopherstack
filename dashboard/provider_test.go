@@ -97,6 +97,7 @@ func (m *mockAWSProvider) GetCeHandler() service.Registerable                   
 func (m *mockAWSProvider) GetCloudControlHandler() service.Registerable            { return nil }
 func (m *mockAWSProvider) GetCloudFrontHandler() service.Registerable              { return nil }
 func (m *mockAWSProvider) GetCodeArtifactHandler() service.Registerable            { return nil }
+func (m *mockAWSProvider) GetCodeCommitHandler() service.Registerable              { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 

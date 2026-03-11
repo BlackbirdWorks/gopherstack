@@ -49,6 +49,7 @@ import (
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	codeartifactsvc "github.com/aws/aws-sdk-go-v2/service/codeartifact"
+	codecommitsvc "github.com/aws/aws-sdk-go-v2/service/codecommit"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
@@ -177,6 +178,7 @@ provider "aws" {
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
     codeartifact    = %[1]q
+    codecommit      = %[1]q
     cognitoidentity          = %[1]q
     cognitoidentityprovider  = %[1]q
     configservice   = %[1]q
@@ -3718,6 +3720,46 @@ func TestTerraform_CodeArtifact(t *testing.T) {
 				require.NoError(t, err, "DescribeRepository should succeed after terraform apply")
 				require.NotNil(t, repoOut.Repository, "repository should be returned")
 				assert.Equal(t, repoName, aws.ToString(repoOut.Repository.Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CodeCommit provisions a CodeCommit repository via Terraform
+// and verifies it exists using the CodeCommit SDK.
+func TestTerraform_CodeCommit(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "codecommit/repository",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"RepositoryName": "tf-repo-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCodeCommitClient(t)
+				repoName := vars["RepositoryName"].(string)
+
+				out, err := client.GetRepository(ctx, &codecommitsvc.GetRepositoryInput{
+					RepositoryName: aws.String(repoName),
+				})
+				require.NoError(t, err, "GetRepository should succeed after terraform apply")
+				require.NotNil(t, out.RepositoryMetadata, "repository metadata should be returned")
+				assert.Equal(t, repoName, aws.ToString(out.RepositoryMetadata.RepositoryName))
 			},
 		},
 	}

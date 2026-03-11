@@ -91,6 +91,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.60.2
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.55.7
 	github.com/aws/aws-sdk-go-v2/service/codeartifact v1.38.19
+	github.com/aws/aws-sdk-go-v2/service/codecommit v1.33.10
 	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.63.4
 )
 
