@@ -58,6 +58,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -209,13 +210,15 @@ type DashboardHandler struct {
 	CodeStarConnectionsOps *codestarconnectionsbackend.Handler
 	// DynamoDBStreamsOps provides access to the DynamoDB Streams backend.
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
-	SubRouter          *echo.Echo
-	ddbProvider        *ddbbackend.DashboardProvider
-	s3Provider         *s3backend.DashboardProvider
-	FaultStore         *chaos.FaultStore
-	Logger             *slog.Logger
-	layout             *template.Template
-	GlobalConfig       config.GlobalConfig
+	// EKSOps provides access to the EKS backend.
+	EKSOps       *eksbackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -357,6 +360,8 @@ type Config struct {
 	CodeStarConnectionsOps *codestarconnectionsbackend.Handler
 	// DynamoDBStreamsOps provides access to the DynamoDB Streams backend.
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
+	// EKSOps provides access to the EKS backend.
+	EKSOps *eksbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -546,6 +551,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		DMSOps:                     cfg.DMSOps,
 		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
 		DynamoDBStreamsOps:         cfg.DynamoDBStreamsOps,
+		EKSOps:                     cfg.EKSOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1016,6 +1022,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupCodeBuildRoutes()
 	h.setupCodePipelineRoutes()
 	h.setupDynamoDBStreamsRoutes()
+	h.setupEKSRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.

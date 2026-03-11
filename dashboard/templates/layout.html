@@ -706,6 +706,20 @@
                             </div>
                         </li>
                         <li>
+                            <a href="/dashboard/eks"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "eks"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-eks" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/eks.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="eks" /> <span
+                                    class="sidebar-text truncate" title="EKS">EKS</span>
+                            </a>
+                            <div id="tooltip-eks" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                EKS
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
                             <a href="/dashboard/iot"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "iot"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-iot" data-tooltip-placement="right">
