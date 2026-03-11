@@ -50,6 +50,7 @@ import (
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 	cesvc "github.com/aws/aws-sdk-go-v2/service/costexplorer"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	dynamodbstreamssvc "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -1537,6 +1538,24 @@ func createCodeStarConnectionsClient(t *testing.T) *codestarconnectionssvc.Clien
 	require.NoError(t, err, "unable to load SDK config")
 
 	return codestarconnectionssvc.NewFromConfig(cfg, func(o *codestarconnectionssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createDynamoDBStreamsClient returns a DynamoDB Streams client pointed at the shared test container.
+func createDynamoDBStreamsClient(t *testing.T) *dynamodbstreamssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return dynamodbstreamssvc.NewFromConfig(cfg, func(o *dynamodbstreamssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
