@@ -70,6 +70,7 @@ import (
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	elasticbeanstalksvc "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -3494,6 +3495,54 @@ func TestTerraform_Batch(t *testing.T) {
 				require.NoError(t, err, "DescribeJobQueues should succeed")
 				require.Len(t, jqOut.JobQueues, 1, "job queue should exist")
 				assert.Equal(t, "tf-jq-"+suffix, *jqOut.JobQueues[0].JobQueueName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Elasticbeanstalk provisions Elastic Beanstalk resources via Terraform and verifies they exist.
+func TestTerraform_Elasticbeanstalk(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "elasticbeanstalk/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createElasticbeanstalkClient(t)
+				suffix := vars["Suffix"].(string)
+				appName := "tf-app-" + suffix
+				envName := "tf-env-" + suffix
+
+				appOut, err := client.DescribeApplications(ctx, &elasticbeanstalksvc.DescribeApplicationsInput{
+					ApplicationNames: []string{appName},
+				})
+				require.NoError(t, err, "DescribeApplications should succeed")
+				require.Len(t, appOut.Applications, 1, "application should exist")
+				assert.Equal(t, appName, *appOut.Applications[0].ApplicationName)
+
+				envOut, err := client.DescribeEnvironments(ctx, &elasticbeanstalksvc.DescribeEnvironmentsInput{
+					EnvironmentNames: []string{envName},
+				})
+				require.NoError(t, err, "DescribeEnvironments should succeed")
+				require.Len(t, envOut.Environments, 1, "environment should exist")
+				assert.Equal(t, envName, *envOut.Environments[0].EnvironmentName)
 			},
 		},
 	}

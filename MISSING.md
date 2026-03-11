@@ -34,7 +34,7 @@ The following services are supported by Localstack (either Free or Pro tier) but
 | **Dynamodbstreams** | ❌ No | ❌ No | ❌ No |
 | **Efs** | ❌ No | ❌ No | ❌ No |
 | **Eks** | ❌ No | ❌ No | ❌ No |
-| **Elasticbeanstalk** | ❌ No | ❌ No | ❌ No |
+| **Elasticbeanstalk** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Elastictranscoder** | ❌ No | ❌ No | ❌ No |
 | **Elb** | ❌ No | ❌ No | ❌ No |
 | **Elbv2** | ❌ No | ❌ No | ❌ No |

@@ -90,6 +90,7 @@ import (
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -206,6 +207,7 @@ type CLI struct {
 	codeStarConnectionsHandler    service.Registerable
 	dynamodbStreamsHandler        service.Registerable
 	docdbHandler                  service.Registerable
+	elasticbeanstalkHandler       service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -681,6 +683,11 @@ func (c *CLI) GetDynamoDBStreamsHandler() service.Registerable {
 	return c.dynamodbStreamsHandler
 }
 
+// GetElasticbeanstalkHandler returns the Elastic Beanstalk handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetElasticbeanstalkHandler() service.Registerable { return c.elasticbeanstalkHandler }
+
 // GetDocDBHandler returns the DocDB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1128,6 +1135,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.dmsHandler = byName["DMS"]
 	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 	cli.dynamodbStreamsHandler = byName["DynamoDBStreams"]
+	cli.elasticbeanstalkHandler = byName["Elasticbeanstalk"]
 	cli.docdbHandler = byName["DocDB"]
 }
 
@@ -1317,6 +1325,7 @@ func getServiceProviders() []service.Provider {
 		&dmsbackend.Provider{},
 		&codestarconnectionsbackend.Provider{},
 		&dynamodbstreamsbackend.Provider{},
+		&elasticbeanstalkbackend.Provider{},
 		&docdbbackend.Provider{},
 	}
 }

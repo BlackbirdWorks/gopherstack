@@ -57,6 +57,7 @@ import (
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	elasticbeanstalksvc "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -1597,6 +1598,24 @@ func createDynamoDBStreamsClient(t *testing.T) *dynamodbstreamssvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return dynamodbstreamssvc.NewFromConfig(cfg, func(o *dynamodbstreamssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createElasticbeanstalkClient returns an Elastic Beanstalk client pointed at the shared test container.
+func createElasticbeanstalkClient(t *testing.T) *elasticbeanstalksvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return elasticbeanstalksvc.NewFromConfig(cfg, func(o *elasticbeanstalksvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
