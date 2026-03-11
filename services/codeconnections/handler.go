@@ -1,27 +1,27 @@
 package codeconnections
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
-	codeconnectionsMatchPriority = service.PriorityPathVersioned
-
-	pathConnections = "/connections"
-	pathTagsCC      = "/tags/arn:aws:codeconnections:"
-	pathTagsCS      = "/tags/arn:aws:codestar-connections:"
+	codeconnectionsMatchPriority = service.PriorityHeaderExact
+	ccTargetPrefix               = "CodeConnections_20231201."
+	ccContentType                = "application/x-amz-json-1.0"
 )
 
-// Handler is the Echo HTTP handler for AWS CodeConnections operations (REST-JSON protocol).
+// Handler is the Echo HTTP handler for AWS CodeConnections operations (JSON 1.0 protocol).
 type Handler struct {
 	Backend *InMemoryBackend
 }
@@ -56,148 +56,106 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions returns all regions this CodeConnections instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
-// RouteMatcher returns a function that matches AWS CodeConnections REST requests.
+// RouteMatcher returns a function that matches AWS CodeConnections JSON 1.0 requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		path := c.Request().URL.Path
-
-		return path == pathConnections ||
-			strings.HasPrefix(path, pathConnections+"/") ||
-			strings.HasPrefix(path, pathTagsCC) ||
-			strings.HasPrefix(path, pathTagsCS)
+		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), ccTargetPrefix)
 	}
 }
 
 // MatchPriority returns the routing priority.
 func (h *Handler) MatchPriority() int { return codeconnectionsMatchPriority }
 
-// ccRoute holds the parsed information from a CodeConnections REST request path.
-type ccRoute struct {
-	resource  string
-	operation string
-}
-
-// parseRoute maps HTTP method + path to an operation name and resource identifier.
-func parseRoute(method, rawPath string) ccRoute {
-	path, err := url.PathUnescape(rawPath)
-	if err != nil {
-		path = rawPath
-	}
-	switch {
-	case strings.HasPrefix(path, pathTagsCC):
-		return parseTagRoute(method, strings.TrimPrefix(path, "/tags/"))
-	case strings.HasPrefix(path, pathTagsCS):
-		return parseTagRoute(method, strings.TrimPrefix(path, "/tags/"))
-	case strings.HasPrefix(path, pathConnections):
-		return parseConnectionRoute(method, strings.TrimPrefix(path, pathConnections))
-	}
-
-	return ccRoute{operation: "Unknown"}
-}
-
-func parseConnectionRoute(method, suffix string) ccRoute {
-	// Connection ARNs may contain "/" so we cannot use it to detect nesting.
-	// The API only has two levels: collection (/connections) and item (/connections/{arn}).
-	id := strings.TrimPrefix(suffix, "/")
-	if id == "" {
-		switch method {
-		case http.MethodPost:
-			return ccRoute{operation: "CreateConnection"}
-		case http.MethodGet:
-			return ccRoute{operation: "ListConnections"}
-		}
-	} else {
-		switch method {
-		case http.MethodGet:
-			return ccRoute{operation: "GetConnection", resource: id}
-		case http.MethodDelete:
-			return ccRoute{operation: "DeleteConnection", resource: id}
-		}
-	}
-
-	return ccRoute{operation: "Unknown"}
-}
-
-func parseTagRoute(method, resourceArn string) ccRoute {
-	switch method {
-	case http.MethodPost:
-		return ccRoute{operation: "TagResource", resource: resourceArn}
-	case http.MethodDelete:
-		return ccRoute{operation: "UntagResource", resource: resourceArn}
-	case http.MethodGet:
-		return ccRoute{operation: "ListTagsForResource", resource: resourceArn}
-	}
-
-	return ccRoute{operation: "Unknown"}
-}
-
-// ExtractOperation extracts the CodeConnections operation name from the REST path.
+// ExtractOperation extracts the CodeConnections operation name from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	r := parseRoute(c.Request().Method, c.Request().URL.Path)
+	target := c.Request().Header.Get("X-Amz-Target")
 
-	return r.operation
+	return strings.TrimPrefix(target, ccTargetPrefix)
 }
 
-// ExtractResource extracts the primary resource identifier from the URL path.
+// ExtractResource extracts the primary resource identifier from the JSON request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	r := parseRoute(c.Request().Method, c.Request().URL.Path)
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return ""
+	}
 
-	return r.resource
+	var req struct {
+		ConnectionArn string `json:"ConnectionArn"`
+		ResourceArn   string `json:"ResourceArn"`
+	}
+
+	_ = json.Unmarshal(body, &req)
+
+	if req.ConnectionArn != "" {
+		return req.ConnectionArn
+	}
+
+	return req.ResourceArn
 }
 
 // Handler returns the Echo handler function for CodeConnections requests.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		log := logger.Load(c.Request().Context())
-		route := parseRoute(c.Request().Method, c.Request().URL.Path)
-
-		log.Debug("codeconnections request", "operation", route.operation, "resource", route.resource)
-
-		var body []byte
-		if c.Request().Body != nil {
-			decoder := json.NewDecoder(c.Request().Body)
-			var raw json.RawMessage
-			if err := decoder.Decode(&raw); err == nil {
-				body = raw
-			}
-		}
-
-		return h.dispatch(c, route, body)
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"CodeConnections", ccContentType,
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleEchoError,
+		)
 	}
 }
 
-func (h *Handler) dispatch(c *echo.Context, route ccRoute, body []byte) error {
-	switch route.operation {
-	case "CreateConnection":
-		return h.handleCreateConnection(c, body)
-	case "GetConnection":
-		return h.handleGetConnection(c, route.resource)
-	case "ListConnections":
-		return h.handleListConnections(c)
-	case "DeleteConnection":
-		return h.handleDeleteConnection(c, route.resource)
-	case "TagResource":
-		return h.handleTagResource(c, route.resource, body)
-	case "UntagResource":
-		return h.handleUntagResource(c, route.resource)
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(c, route.resource)
-	default:
-		return c.JSON(http.StatusNotFound, errResp("ResourceNotFoundException", "unknown operation: "+route.operation))
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	table := map[string]service.JSONOpFunc{
+		"CreateConnection":    service.WrapOp(h.handleCreateConnection),
+		"GetConnection":       service.WrapOp(h.handleGetConnection),
+		"ListConnections":     service.WrapOp(h.handleListConnections),
+		"DeleteConnection":    service.WrapOp(h.handleDeleteConnection),
+		"TagResource":         service.WrapOp(h.handleTagResource),
+		"UntagResource":       service.WrapOp(h.handleUntagResource),
+		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
 	}
+
+	fn, ok := table[action]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
+	}
+
+	result, err := fn(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
 }
 
-func (h *Handler) handleError(c *echo.Context, err error) error {
+var (
+	errUnknownAction = errors.New("UnknownOperationException")
+	errValidation    = errors.New("ValidationException")
+)
+
+func (h *Handler) handleEchoError(_ context.Context, c *echo.Context, _ string, err error) error {
+	errType, statusCode := resolveErrorType(err)
+
+	return c.JSON(statusCode, service.JSONErrorResponse{
+		Type:    errType,
+		Message: err.Error(),
+	})
+}
+
+func resolveErrorType(err error) (string, int) {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusBadRequest, errResp("ResourceNotFoundException", err.Error()))
+		return "ResourceNotFoundException", http.StatusBadRequest
+	case errors.Is(err, errValidation):
+		return "ValidationException", http.StatusBadRequest
+	case errors.Is(err, errUnknownAction):
+		return "UnknownOperationException", http.StatusBadRequest
 	default:
-		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
+		return "InternalFailure", http.StatusInternalServerError
 	}
-}
-
-func errResp(code, msg string) map[string]string {
-	return map[string]string{"__type": code, "message": msg}
 }
 
 // tag is the JSON representation of a CodeConnections tag (array format).
@@ -226,117 +184,146 @@ func tagsFromArray(tags []tag) map[string]string {
 
 // --- Connection handlers ---
 
-type createConnectionBody struct {
+type createConnectionInput struct {
 	ConnectionName string `json:"ConnectionName"`
 	ProviderType   string `json:"ProviderType"`
 	Tags           []tag  `json:"Tags"`
 }
 
-func (h *Handler) handleCreateConnection(c *echo.Context, body []byte) error {
-	var in createConnectionBody
-	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-	}
+type createConnectionOutput struct {
+	ConnectionArn string `json:"ConnectionArn"`
+}
 
+func (h *Handler) handleCreateConnection(
+	_ context.Context,
+	in *createConnectionInput,
+) (*createConnectionOutput, error) {
 	if in.ConnectionName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "ConnectionName is required"))
+		return nil, fmt.Errorf("%w: ConnectionName is required", errValidation)
 	}
 
-	tags := tagsFromArray(in.Tags)
-
-	conn, err := h.Backend.CreateConnection(in.ConnectionName, in.ProviderType, tags)
+	conn, err := h.Backend.CreateConnection(in.ConnectionName, in.ProviderType, tagsFromArray(in.Tags))
 	if err != nil {
-		return h.handleError(c, err)
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"ConnectionArn": conn.ConnectionArn,
-	})
+	return &createConnectionOutput{ConnectionArn: conn.ConnectionArn}, nil
 }
 
-func (h *Handler) handleGetConnection(c *echo.Context, connectionArn string) error {
-	conn, err := h.Backend.GetConnection(connectionArn)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"Connection": map[string]any{
-			"ConnectionName":   conn.ConnectionName,
-			"ConnectionArn":    conn.ConnectionArn,
-			"ProviderType":     conn.ProviderType,
-			"ConnectionStatus": conn.Status,
-			"OwnerAccountId":   conn.OwnerAccountID,
-		},
-	})
+type getConnectionInput struct {
+	ConnectionArn string `json:"ConnectionArn"`
 }
 
-func (h *Handler) handleListConnections(c *echo.Context) error {
-	providerTypeFilter := c.Request().URL.Query().Get("providerType")
-	conns := h.Backend.ListConnections(providerTypeFilter)
+type connectionItem struct {
+	ConnectionName   string `json:"ConnectionName"`
+	ConnectionArn    string `json:"ConnectionArn"`
+	ProviderType     string `json:"ProviderType"`
+	ConnectionStatus string `json:"ConnectionStatus"`
+	OwnerAccountID   string `json:"OwnerAccountId"`
+}
 
-	items := make([]map[string]any, 0, len(conns))
+type getConnectionOutput struct {
+	Connection connectionItem `json:"Connection"`
+}
+
+func (h *Handler) handleGetConnection(_ context.Context, in *getConnectionInput) (*getConnectionOutput, error) {
+	conn, err := h.Backend.GetConnection(in.ConnectionArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getConnectionOutput{Connection: connectionItem{
+		ConnectionName:   conn.ConnectionName,
+		ConnectionArn:    conn.ConnectionArn,
+		ProviderType:     conn.ProviderType,
+		ConnectionStatus: conn.Status,
+		OwnerAccountID:   conn.OwnerAccountID,
+	}}, nil
+}
+
+type listConnectionsInput struct {
+	ProviderTypeFilter string `json:"ProviderTypeFilter"`
+}
+
+type listConnectionsOutput struct {
+	Connections []connectionItem `json:"Connections"`
+}
+
+func (h *Handler) handleListConnections(_ context.Context, in *listConnectionsInput) (*listConnectionsOutput, error) {
+	conns := h.Backend.ListConnections(in.ProviderTypeFilter)
+
+	items := make([]connectionItem, 0, len(conns))
 	for _, conn := range conns {
-		items = append(items, map[string]any{
-			"ConnectionName":   conn.ConnectionName,
-			"ConnectionArn":    conn.ConnectionArn,
-			"ProviderType":     conn.ProviderType,
-			"ConnectionStatus": conn.Status,
-			"OwnerAccountId":   conn.OwnerAccountID,
+		items = append(items, connectionItem{
+			ConnectionName:   conn.ConnectionName,
+			ConnectionArn:    conn.ConnectionArn,
+			ProviderType:     conn.ProviderType,
+			ConnectionStatus: conn.Status,
+			OwnerAccountID:   conn.OwnerAccountID,
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"Connections": items,
-	})
+	return &listConnectionsOutput{Connections: items}, nil
 }
 
-func (h *Handler) handleDeleteConnection(c *echo.Context, connectionArn string) error {
-	if err := h.Backend.DeleteConnection(connectionArn); err != nil {
-		return h.handleError(c, err)
+type deleteConnectionInput struct {
+	ConnectionArn string `json:"ConnectionArn"`
+}
+
+type emptyOutput struct{}
+
+func (h *Handler) handleDeleteConnection(_ context.Context, in *deleteConnectionInput) (*emptyOutput, error) {
+	if err := h.Backend.DeleteConnection(in.ConnectionArn); err != nil {
+		return nil, err
 	}
 
-	return c.NoContent(http.StatusOK)
+	return &emptyOutput{}, nil
 }
 
 // --- Tag handlers ---
 
-type tagResourceBody struct {
+type tagResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+	Tags        []tag  `json:"Tags"`
+}
+
+func (h *Handler) handleTagResource(_ context.Context, in *tagResourceInput) (*emptyOutput, error) {
+	if err := h.Backend.TagResource(in.ResourceArn, tagsFromArray(in.Tags)); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+type untagResourceInput struct {
+	ResourceArn string   `json:"ResourceArn"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+func (h *Handler) handleUntagResource(_ context.Context, in *untagResourceInput) (*emptyOutput, error) {
+	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return &emptyOutput{}, nil
+}
+
+type listTagsForResourceInput struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+type listTagsForResourceOutput struct {
 	Tags []tag `json:"Tags"`
 }
 
-func (h *Handler) handleTagResource(c *echo.Context, resourceArn string, body []byte) error {
-	var in tagResourceBody
-	if err := json.Unmarshal(body, &in); err != nil {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
-	}
-
-	tags := tagsFromArray(in.Tags)
-
-	if err := h.Backend.TagResource(resourceArn, tags); err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.NoContent(http.StatusOK)
-}
-
-func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string) error {
-	tagKeys := c.Request().URL.Query()["tagKeys"]
-
-	if err := h.Backend.UntagResource(resourceArn, tagKeys); err != nil {
-		return h.handleError(c, err)
-	}
-
-	return c.NoContent(http.StatusOK)
-}
-
-func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string) error {
-	tags, err := h.Backend.ListTagsForResource(resourceArn)
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	in *listTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
+	tags, err := h.Backend.ListTagsForResource(in.ResourceArn)
 	if err != nil {
-		return h.handleError(c, err)
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"Tags": tagsToArray(tags),
-	})
+	return &listTagsForResourceOutput{Tags: tagsToArray(tags)}, nil
 }

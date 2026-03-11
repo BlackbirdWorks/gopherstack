@@ -15,16 +15,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/codeconnections"
 )
 
+const ccTargetPrefix = "CodeConnections_20231201."
+
 func newTestHandler() *codeconnections.Handler {
 	backend := codeconnections.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
 	return codeconnections.NewHandler(backend)
 }
 
-func doREST(
+// doJSON sends a POST / request with the X-Amz-Target header set to action and
+// the given body marshalled as JSON. This simulates the JSON 1.0 protocol used
+// by the AWS CodeConnections SDK.
+func doJSON(
 	t *testing.T,
 	h *codeconnections.Handler,
-	method, path string,
+	action string,
 	body map[string]any,
 ) *httptest.ResponseRecorder {
 	t.Helper()
@@ -37,8 +42,9 @@ func doREST(
 		require.NoError(t, err)
 	}
 
-	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.0")
+	req.Header.Set("X-Amz-Target", ccTargetPrefix+action)
 	rec := httptest.NewRecorder()
 
 	e := echo.New()
@@ -62,7 +68,7 @@ func parseResp(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 func createConn(t *testing.T, h *codeconnections.Handler, name, providerType string) string {
 	t.Helper()
 
-	rec := doREST(t, h, http.MethodPost, "/connections", map[string]any{
+	rec := doJSON(t, h, "CreateConnection", map[string]any{
 		"ConnectionName": name,
 		"ProviderType":   providerType,
 	})
@@ -162,7 +168,8 @@ func TestMatchPriority(t *testing.T) {
 	}
 }
 
-// TestRouteMatcher verifies that the RouteMatcher correctly identifies CodeConnections requests.
+// TestRouteMatcher verifies that the RouteMatcher correctly identifies CodeConnections requests
+// via the X-Amz-Target header.
 func TestRouteMatcher(t *testing.T) {
 	t.Parallel()
 
@@ -170,36 +177,52 @@ func TestRouteMatcher(t *testing.T) {
 	matcher := h.RouteMatcher()
 
 	tests := []struct {
-		name string
-		path string
-		want bool
+		name   string
+		target string
+		want   bool
 	}{
-		{name: "connections_collection", path: "/connections", want: true},
 		{
-			name: "connections_item",
-			path: "/connections/arn:aws:codeconnections:us-east-1:123:connection/abc",
-			want: true,
+			name:   "create_connection_target",
+			target: "CodeConnections_20231201.CreateConnection",
+			want:   true,
 		},
 		{
-			name: "tags_codeconnections_arn",
-			path: "/tags/arn:aws:codeconnections:us-east-1:123:connection/abc",
-			want: true,
+			name:   "list_connections_target",
+			target: "CodeConnections_20231201.ListConnections",
+			want:   true,
 		},
 		{
-			name: "tags_codestar_connections_arn",
-			path: "/tags/arn:aws:codestar-connections:us-east-1:123:connection/abc",
-			want: true,
+			name:   "tag_resource_target",
+			target: "CodeConnections_20231201.TagResource",
+			want:   true,
 		},
-		{name: "unrelated_path", path: "/applications", want: false},
-		{name: "backup_path", path: "/backup-vaults", want: false},
-		{name: "tags_other_arn", path: "/tags/arn:aws:backup:us-east-1:123:vault:v", want: false},
+		{
+			name:   "other_service_target",
+			target: "AWSCognitoIdentityProviderService.CreateUserPool",
+			want:   false,
+		},
+		{
+			name:   "empty_target",
+			target: "",
+			want:   false,
+		},
+		{
+			name:   "partial_prefix",
+			target: "CodeConnections.",
+			want:   false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+
 			e := echo.New()
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
@@ -209,7 +232,8 @@ func TestRouteMatcher(t *testing.T) {
 	}
 }
 
-// TestExtractOperationAndResource verifies ExtractOperation and ExtractResource for various REST paths.
+// TestExtractOperationAndResource verifies ExtractOperation and ExtractResource
+// for various X-Amz-Target values and JSON bodies.
 func TestExtractOperationAndResource(t *testing.T) {
 	t.Parallel()
 
@@ -217,70 +241,55 @@ func TestExtractOperationAndResource(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		method  string
-		path    string
+		target  string
+		body    map[string]any
 		wantOp  string
 		wantRes string
 	}{
 		{
 			name:   "create_connection",
-			method: http.MethodPost,
-			path:   "/connections",
+			target: ccTargetPrefix + "CreateConnection",
 			wantOp: "CreateConnection",
 		},
 		{
 			name:   "list_connections",
-			method: http.MethodGet,
-			path:   "/connections",
+			target: ccTargetPrefix + "ListConnections",
 			wantOp: "ListConnections",
 		},
 		{
 			name:    "get_connection",
-			method:  http.MethodGet,
-			path:    "/connections/arn:aws:codeconnections:us-east-1:123:connection/abc",
+			target:  ccTargetPrefix + "GetConnection",
+			body:    map[string]any{"ConnectionArn": "arn:aws:codeconnections:us-east-1:123:connection/abc"},
 			wantOp:  "GetConnection",
 			wantRes: "arn:aws:codeconnections:us-east-1:123:connection/abc",
 		},
 		{
 			name:    "delete_connection",
-			method:  http.MethodDelete,
-			path:    "/connections/arn:aws:codeconnections:us-east-1:123:connection/abc",
+			target:  ccTargetPrefix + "DeleteConnection",
+			body:    map[string]any{"ConnectionArn": "arn:aws:codeconnections:us-east-1:123:connection/abc"},
 			wantOp:  "DeleteConnection",
 			wantRes: "arn:aws:codeconnections:us-east-1:123:connection/abc",
 		},
 		{
-			name:    "tag_resource_codeconnections",
-			method:  http.MethodPost,
-			path:    "/tags/arn:aws:codeconnections:us-east-1:123:connection/abc",
+			name:    "tag_resource",
+			target:  ccTargetPrefix + "TagResource",
+			body:    map[string]any{"ResourceArn": "arn:aws:codeconnections:us-east-1:123:connection/abc"},
 			wantOp:  "TagResource",
 			wantRes: "arn:aws:codeconnections:us-east-1:123:connection/abc",
 		},
 		{
-			name:    "tag_resource_codestar",
-			method:  http.MethodPost,
-			path:    "/tags/arn:aws:codestar-connections:us-east-1:123:connection/abc",
-			wantOp:  "TagResource",
-			wantRes: "arn:aws:codestar-connections:us-east-1:123:connection/abc",
-		},
-		{
 			name:    "untag_resource",
-			method:  http.MethodDelete,
-			path:    "/tags/arn:aws:codeconnections:us-east-1:123:connection/abc",
+			target:  ccTargetPrefix + "UntagResource",
+			body:    map[string]any{"ResourceArn": "arn:aws:codeconnections:us-east-1:123:connection/abc"},
 			wantOp:  "UntagResource",
 			wantRes: "arn:aws:codeconnections:us-east-1:123:connection/abc",
 		},
 		{
 			name:    "list_tags_for_resource",
-			method:  http.MethodGet,
-			path:    "/tags/arn:aws:codeconnections:us-east-1:123:connection/abc",
+			target:  ccTargetPrefix + "ListTagsForResource",
+			body:    map[string]any{"ResourceArn": "arn:aws:codeconnections:us-east-1:123:connection/abc"},
 			wantOp:  "ListTagsForResource",
 			wantRes: "arn:aws:codeconnections:us-east-1:123:connection/abc",
-		},
-		{
-			name:   "unknown_operation",
-			method: http.MethodPatch,
-			path:   "/connections",
-			wantOp: "Unknown",
 		},
 	}
 
@@ -288,7 +297,16 @@ func TestExtractOperationAndResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := httptest.NewRequest(tt.method, tt.path, nil)
+			var bodyBytes []byte
+
+			if tt.body != nil {
+				var err error
+				bodyBytes, err = json.Marshal(tt.body)
+				require.NoError(t, err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+			req.Header.Set("X-Amz-Target", tt.target)
 			e := echo.New()
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
@@ -335,7 +353,7 @@ func TestCreateConnection(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			rec := doREST(t, h, http.MethodPost, "/connections", tt.body)
+			rec := doJSON(t, h, "CreateConnection", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantArn {
@@ -385,7 +403,7 @@ func TestGetConnection(t *testing.T) {
 
 			h := newTestHandler()
 			connArn := tt.setup(t, h)
-			rec := doREST(t, h, http.MethodGet, "/connections/"+connArn, nil)
+			rec := doJSON(t, h, "GetConnection", map[string]any{"ConnectionArn": connArn})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
@@ -408,15 +426,15 @@ func TestListConnections(t *testing.T) {
 
 	tests := []struct {
 		setup      func(t *testing.T, h *codeconnections.Handler)
+		body       map[string]any
 		name       string
-		path       string
 		wantStatus int
 		wantCount  int
 	}{
 		{
 			name:       "empty_list",
 			setup:      func(_ *testing.T, _ *codeconnections.Handler) {},
-			path:       "/connections",
+			body:       map[string]any{},
 			wantStatus: http.StatusOK,
 			wantCount:  0,
 		},
@@ -427,7 +445,7 @@ func TestListConnections(t *testing.T) {
 				createConn(t, h, "conn1", "GitHub")
 				createConn(t, h, "conn2", "GitLab")
 			},
-			path:       "/connections",
+			body:       map[string]any{},
 			wantStatus: http.StatusOK,
 			wantCount:  2,
 		},
@@ -438,7 +456,7 @@ func TestListConnections(t *testing.T) {
 				createConn(t, h, "conn1", "GitHub")
 				createConn(t, h, "conn2", "GitLab")
 			},
-			path:       "/connections?providerType=GitHub",
+			body:       map[string]any{"ProviderTypeFilter": "GitHub"},
 			wantStatus: http.StatusOK,
 			wantCount:  1,
 		},
@@ -451,12 +469,7 @@ func TestListConnections(t *testing.T) {
 			h := newTestHandler()
 			tt.setup(t, h)
 
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			rec := httptest.NewRecorder()
-			e := echo.New()
-			c := e.NewContext(req, rec)
-			err := h.Handler()(c)
-			require.NoError(t, err)
+			rec := doJSON(t, h, "ListConnections", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			resp := parseResp(t, rec)
@@ -500,11 +513,11 @@ func TestDeleteConnection(t *testing.T) {
 
 			h := newTestHandler()
 			connArn := tt.setup(t, h)
-			rec := doREST(t, h, http.MethodDelete, "/connections/"+connArn, nil)
+			rec := doJSON(t, h, "DeleteConnection", map[string]any{"ConnectionArn": connArn})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				getRec := doREST(t, h, http.MethodGet, "/connections/"+connArn, nil)
+				getRec := doJSON(t, h, "GetConnection", map[string]any{"ConnectionArn": connArn})
 				assert.Equal(t, http.StatusBadRequest, getRec.Code)
 			}
 		})
@@ -539,16 +552,6 @@ func TestTagResource(t *testing.T) {
 			inputTags:  []map[string]string{{"Key": "k", "Value": "v"}},
 			wantStatus: http.StatusBadRequest,
 		},
-		{
-			name: "bad_body",
-			setup: func(t *testing.T, h *codeconnections.Handler) string {
-				t.Helper()
-
-				return createConn(t, h, "conn", "GitHub")
-			},
-			inputTags:  nil, // signals bad body test
-			wantStatus: http.StatusBadRequest,
-		},
 	}
 
 	for _, tt := range tests {
@@ -558,21 +561,10 @@ func TestTagResource(t *testing.T) {
 			h := newTestHandler()
 			connArn := tt.setup(t, h)
 
-			var rec *httptest.ResponseRecorder
-			if tt.inputTags == nil {
-				req := httptest.NewRequest(http.MethodPost, "/tags/"+connArn, bytes.NewBufferString("notjson"))
-				req.Header.Set("Content-Type", "application/json")
-				rec2 := httptest.NewRecorder()
-				e := echo.New()
-				c := e.NewContext(req, rec2)
-				err := h.Handler()(c)
-				require.NoError(t, err)
-				rec = rec2
-			} else {
-				rec = doREST(t, h, http.MethodPost, "/tags/"+connArn, map[string]any{
-					"Tags": tt.inputTags,
-				})
-			}
+			rec := doJSON(t, h, "TagResource", map[string]any{
+				"ResourceArn": connArn,
+				"Tags":        tt.inputTags,
+			})
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
@@ -621,31 +613,21 @@ func TestUntagResource(t *testing.T) {
 			connArn := tt.setup(t, h)
 
 			if len(tt.tagsBefore) > 0 {
-				tagRec := doREST(t, h, http.MethodPost, "/tags/"+connArn, map[string]any{
-					"Tags": tt.tagsBefore,
+				tagRec := doJSON(t, h, "TagResource", map[string]any{
+					"ResourceArn": connArn,
+					"Tags":        tt.tagsBefore,
 				})
 				require.Equal(t, http.StatusOK, tagRec.Code)
 			}
 
-			query := ""
-			for _, k := range tt.keysToRemove {
-				if query == "" {
-					query = "?tagKeys=" + k
-				} else {
-					query += "&tagKeys=" + k
-				}
-			}
-
-			req := httptest.NewRequest(http.MethodDelete, "/tags/"+connArn+query, nil)
-			rec := httptest.NewRecorder()
-			e := echo.New()
-			c := e.NewContext(req, rec)
-			err := h.Handler()(c)
-			require.NoError(t, err)
+			rec := doJSON(t, h, "UntagResource", map[string]any{
+				"ResourceArn": connArn,
+				"TagKeys":     tt.keysToRemove,
+			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
-				listRec := doREST(t, h, http.MethodGet, "/tags/"+connArn, nil)
+				listRec := doJSON(t, h, "ListTagsForResource", map[string]any{"ResourceArn": connArn})
 				resp := parseResp(t, listRec)
 				tags, ok := resp["Tags"].([]any)
 				require.True(t, ok)
@@ -662,7 +644,6 @@ func TestListTagsForResource(t *testing.T) {
 	tests := []struct {
 		setup      func(t *testing.T, h *codeconnections.Handler) string
 		name       string
-		arnPrefix  string
 		tagsToAdd  []map[string]string
 		wantStatus int
 		wantCount  int
@@ -685,13 +666,6 @@ func TestListTagsForResource(t *testing.T) {
 			},
 			wantStatus: http.StatusBadRequest,
 		},
-		{
-			name: "codestar_connections_prefix_not_found",
-			setup: func(_ *testing.T, _ *codeconnections.Handler) string {
-				return "arn:aws:codestar-connections:us-east-1:123:connection/missing"
-			},
-			wantStatus: http.StatusBadRequest,
-		},
 	}
 
 	for _, tt := range tests {
@@ -702,13 +676,14 @@ func TestListTagsForResource(t *testing.T) {
 			connArn := tt.setup(t, h)
 
 			if len(tt.tagsToAdd) > 0 {
-				tagRec := doREST(t, h, http.MethodPost, "/tags/"+connArn, map[string]any{
-					"Tags": tt.tagsToAdd,
+				tagRec := doJSON(t, h, "TagResource", map[string]any{
+					"ResourceArn": connArn,
+					"Tags":        tt.tagsToAdd,
 				})
 				require.Equal(t, http.StatusOK, tagRec.Code)
 			}
 
-			rec := doREST(t, h, http.MethodGet, "/tags/"+connArn, nil)
+			rec := doJSON(t, h, "ListTagsForResource", map[string]any{"ResourceArn": connArn})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {
@@ -721,16 +696,15 @@ func TestListTagsForResource(t *testing.T) {
 	}
 }
 
-// TestCreateConnectionBadBody verifies bad JSON body handling.
-func TestCreateConnectionBadBody(t *testing.T) {
+// TestMissingTarget verifies that requests with no X-Amz-Target return 400.
+func TestMissingTarget(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
-		rawBody    string
 		wantStatus int
 	}{
-		{name: "not_json", rawBody: "notjson", wantStatus: http.StatusBadRequest},
+		{name: "no_target_header", wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -738,8 +712,8 @@ func TestCreateConnectionBadBody(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			req := httptest.NewRequest(http.MethodPost, "/connections", bytes.NewBufferString(tt.rawBody))
-			req.Header.Set("Content-Type", "application/json")
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`{"ConnectionName":"test-conn"}`))
+			req.Header.Set("Content-Type", "application/x-amz-json-1.0")
 			rec := httptest.NewRecorder()
 			e := echo.New()
 			c := e.NewContext(req, rec)
@@ -750,17 +724,20 @@ func TestCreateConnectionBadBody(t *testing.T) {
 	}
 }
 
-// TestUnknownOperation verifies that unknown operations return 404.
+// TestUnknownOperation verifies that unknown operations return 400.
 func TestUnknownOperation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
-		method     string
-		path       string
+		target     string
 		wantStatus int
 	}{
-		{name: "patch_connections", method: http.MethodPatch, path: "/connections", wantStatus: http.StatusNotFound},
+		{
+			name:       "unknown_action",
+			target:     ccTargetPrefix + "DescribeNonExistent",
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -768,7 +745,8 @@ func TestUnknownOperation(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
 			rec := httptest.NewRecorder()
 			e := echo.New()
 			c := e.NewContext(req, rec)
