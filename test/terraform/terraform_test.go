@@ -62,6 +62,7 @@ import (
 	docdbsvc "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	dynamodbstreamssvc "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -680,6 +681,45 @@ func TestTerraform_DynamoDB(t *testing.T) {
 				require.Len(t, out.Table.KeySchema, 1)
 				assert.Equal(t, "pk", aws.ToString(out.Table.KeySchema[0].AttributeName))
 				assert.Equal(t, ddbtypes.KeyTypeHash, out.Table.KeySchema[0].KeyType)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_DynamoDBStreams provisions a DynamoDB table with streams enabled via Terraform
+// and verifies the stream is visible via the DynamoDB Streams SDK.
+func TestTerraform_DynamoDBStreams(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "streams_enabled",
+			fixture: "dynamodbstreams/streams_enabled",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{"TableName": "tf-ddbstreams-" + uuid.NewString()[:8]}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createDynamoDBStreamsClient(t)
+				tableName := vars["TableName"].(string)
+
+				out, err := client.ListStreams(ctx, &dynamodbstreamssvc.ListStreamsInput{
+					TableName: aws.String(tableName),
+				})
+				require.NoError(t, err, "ListStreams should succeed after terraform apply")
+				require.NotEmpty(t, out.Streams, "stream should be listed for table %q", tableName)
+				assert.Equal(t, tableName, aws.ToString(out.Streams[0].TableName))
+				assert.NotEmpty(t, aws.ToString(out.Streams[0].StreamArn), "stream ARN should be non-empty")
 			},
 		},
 	}

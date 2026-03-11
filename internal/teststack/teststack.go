@@ -54,6 +54,7 @@ import (
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
+	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
@@ -177,10 +178,12 @@ type Stack struct {
 	CodeDeployHandler *codedeploybackend.Handler
 	// CodeStarConnectionsHandler provides access to the CodeStar Connections backend.
 	CodeStarConnectionsHandler *codestarconnectionsbackend.Handler
-	S3Client                   *s3.Client
-	DDBClient                  *dynamodb.Client
-	FaultStore                 *chaos.FaultStore
-	Dashboard                  *dashboard.DashboardHandler
+	// DynamoDBStreamsHandler provides access to the DynamoDB Streams backend.
+	DynamoDBStreamsHandler *dynamodbstreamsbackend.Handler
+	S3Client               *s3.Client
+	DDBClient              *dynamodb.Client
+	FaultStore             *chaos.FaultStore
+	Dashboard              *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -438,6 +441,7 @@ type handlers struct {
 	codeConnections *codeconnectionsbackend.Handler
 	codeDeploy      *codedeploybackend.Handler
 	codeStarConn    *codestarconnectionsbackend.Handler
+	dynamodbStreams *dynamodbstreamsbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -621,6 +625,10 @@ func populateNewestHandlers(h *handlers) {
 	h.codeStarConn = codestarconnectionsbackend.NewHandler(
 		codestarconnectionsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+
+	if ddbBk, ok := h.ddb.Backend.(ddbbackend.StreamsBackend); ok {
+		h.dynamodbStreams = dynamodbstreamsbackend.NewHandler(ddbBk)
+	}
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -728,6 +736,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CodeConnectionsOps:         h.codeConnections,
 		CodeDeployOps:              h.codeDeploy,
 		CodeStarConnectionsOps:     h.codeStarConn,
+		DynamoDBStreamsOps:         h.dynamodbStreams,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -774,6 +783,10 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.codeConnections)
 	_ = registry.Register(h.codeDeploy)
 	_ = registry.Register(h.codeStarConn)
+
+	if h.dynamodbStreams != nil {
+		_ = registry.Register(h.dynamodbStreams)
+	}
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -869,6 +882,7 @@ func buildStack(
 		CodeConnectionsHandler:         h.codeConnections,
 		CodeDeployHandler:              h.codeDeploy,
 		CodeStarConnectionsHandler:     h.codeStarConn,
+		DynamoDBStreamsHandler:         h.dynamodbStreams,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
