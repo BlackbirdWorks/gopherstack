@@ -71,23 +71,32 @@ type AccessPoint struct {
 
 // InMemoryBackend is the in-memory store for EFS resources.
 type InMemoryBackend struct {
-	fileSystems  map[string]*FileSystem
-	mountTargets map[string]*MountTarget
-	accessPoints map[string]*AccessPoint
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	fileSystems       map[string]*FileSystem
+	mountTargets      map[string]*MountTarget
+	accessPoints      map[string]*AccessPoint
+	lifecyclePolicies map[string][]LifecyclePolicy
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
+}
+
+// LifecyclePolicy represents an EFS lifecycle management policy.
+type LifecyclePolicy struct {
+	TransitionToIA                  string `json:"TransitionToIA,omitempty"`
+	TransitionToPrimaryStorageClass string `json:"TransitionToPrimaryStorageClass,omitempty"`
+	TransitionToArchive             string `json:"TransitionToArchive,omitempty"`
 }
 
 // NewInMemoryBackend creates a new in-memory EFS backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		fileSystems:  make(map[string]*FileSystem),
-		mountTargets: make(map[string]*MountTarget),
-		accessPoints: make(map[string]*AccessPoint),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("efs"),
+		fileSystems:       make(map[string]*FileSystem),
+		mountTargets:      make(map[string]*MountTarget),
+		accessPoints:      make(map[string]*AccessPoint),
+		lifecyclePolicies: make(map[string][]LifecyclePolicy),
+		accountID:         accountID,
+		region:            region,
+		mu:                lockmetrics.New("efs"),
 	}
 }
 
@@ -387,4 +396,46 @@ func (b *InMemoryBackend) DeleteAccessPoint(accessPointID string) error {
 	delete(b.accessPoints, accessPointID)
 
 	return nil
+}
+
+// DescribeLifecycleConfiguration returns lifecycle policies for a file system.
+func (b *InMemoryBackend) DescribeLifecycleConfiguration(fileSystemID string) ([]LifecyclePolicy, error) {
+	b.mu.RLock("DescribeLifecycleConfiguration")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.fileSystems[fileSystemID]; !ok {
+		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+
+	policies := b.lifecyclePolicies[fileSystemID]
+	if policies == nil {
+		return []LifecyclePolicy{}, nil
+	}
+
+	result := make([]LifecyclePolicy, len(policies))
+	copy(result, policies)
+
+	return result, nil
+}
+
+// PutLifecycleConfiguration sets lifecycle policies for a file system.
+func (b *InMemoryBackend) PutLifecycleConfiguration(
+	fileSystemID string,
+	policies []LifecyclePolicy,
+) ([]LifecyclePolicy, error) {
+	b.mu.Lock("PutLifecycleConfiguration")
+	defer b.mu.Unlock()
+
+	if _, ok := b.fileSystems[fileSystemID]; !ok {
+		return nil, fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
+	}
+
+	stored := make([]LifecyclePolicy, len(policies))
+	copy(stored, policies)
+	b.lifecyclePolicies[fileSystemID] = stored
+
+	result := make([]LifecyclePolicy, len(stored))
+	copy(result, stored)
+
+	return result, nil
 }

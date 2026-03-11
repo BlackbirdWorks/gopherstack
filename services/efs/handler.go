@@ -20,6 +20,9 @@ const (
 	pathMountTargets = "/2015-02-01/mount-targets"
 	pathAccessPoints = "/2015-02-01/access-points"
 	pathTags         = "/2015-02-01/tags"
+
+	// subresourcePathParts is the number of segments when splitting a path with a sub-resource.
+	subresourcePathParts = 2
 )
 
 // Handler is the Echo HTTP handler for AWS EFS operations (REST-JSON protocol).
@@ -49,6 +52,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteAccessPoint",
 		"TagResource",
 		"ListTagsForResource",
+		"DescribeLifecycleConfiguration",
+		"PutLifecycleConfiguration",
 	}
 }
 
@@ -105,19 +110,37 @@ func parseEFSPath(method, rawPath string) efsRoute {
 
 func parseFileSystemRoute(method, suffix string) efsRoute {
 	id := strings.TrimPrefix(suffix, "/")
-	if id == "" {
+
+	switch {
+	case id == "":
 		switch method {
 		case http.MethodPost:
 			return efsRoute{operation: "CreateFileSystem"}
 		case http.MethodGet:
 			return efsRoute{operation: "DescribeFileSystems"}
 		}
-	} else if !strings.Contains(id, "/") {
+	case !strings.Contains(id, "/"):
 		switch method {
 		case http.MethodGet:
 			return efsRoute{operation: "DescribeFileSystems", resource: id}
 		case http.MethodDelete:
 			return efsRoute{operation: "DeleteFileSystem", resource: id}
+		}
+	default:
+		// Sub-resource paths: /{fileSystemId}/{subresource}
+		parts := strings.SplitN(id, "/", subresourcePathParts)
+		if len(parts) < subresourcePathParts {
+			break
+		}
+
+		fsID := parts[0]
+		sub := parts[1]
+
+		switch {
+		case sub == "lifecycle-configuration" && method == http.MethodGet:
+			return efsRoute{operation: "DescribeLifecycleConfiguration", resource: fsID}
+		case sub == "lifecycle-configuration" && method == http.MethodPut:
+			return efsRoute{operation: "PutLifecycleConfiguration", resource: fsID}
 		}
 	}
 
@@ -236,6 +259,10 @@ func (h *Handler) dispatch(c *echo.Context, route efsRoute, body []byte) error {
 		return h.handleTagResource(c, route.resource, body)
 	case "ListTagsForResource":
 		return h.handleListTagsForResource(c, route.resource)
+	case "DescribeLifecycleConfiguration":
+		return h.handleDescribeLifecycleConfiguration(c, route.resource)
+	case "PutLifecycleConfiguration":
+		return h.handlePutLifecycleConfiguration(c, route.resource, body)
 	default:
 		return c.JSON(http.StatusNotFound, errResp("UnsupportedOperation", "unknown operation: "+route.operation))
 	}
@@ -536,5 +563,38 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceID string) 
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"Tags": tagsToEntries(t),
+	})
+}
+
+// --- Lifecycle Configuration handlers ---
+
+type putLifecycleConfigBody struct {
+	LifecyclePolicies []LifecyclePolicy `json:"LifecyclePolicies"`
+}
+
+func (h *Handler) handleDescribeLifecycleConfiguration(c *echo.Context, fileSystemID string) error {
+	policies, err := h.Backend.DescribeLifecycleConfiguration(fileSystemID)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"LifecyclePolicies": policies,
+	})
+}
+
+func (h *Handler) handlePutLifecycleConfiguration(c *echo.Context, fileSystemID string, body []byte) error {
+	var in putLifecycleConfigBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
+	}
+
+	stored, err := h.Backend.PutLifecycleConfiguration(fileSystemID, in.LifecyclePolicies)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"LifecyclePolicies": stored,
 	})
 }

@@ -793,3 +793,85 @@ func TestListTagsForAccessPointByARN(t *testing.T) {
 	assert.True(t, ok)
 	assert.NotEmpty(t, tagsRaw)
 }
+
+// TestLifecycleConfiguration tests DescribeLifecycleConfiguration and PutLifecycleConfiguration.
+func TestLifecycleConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEFSHandler()
+
+	tests := []struct {
+		setup           func(t *testing.T) string
+		body            map[string]any
+		name            string
+		method          string
+		pathSuffix      string
+		wantCode        int
+		wantPoliciesLen int
+	}{
+		{
+			name: "describe_empty",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "lc-empty-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+
+				return parseResp(t, rec)["FileSystemId"].(string)
+			},
+			method:          http.MethodGet,
+			wantCode:        http.StatusOK,
+			wantPoliciesLen: 0,
+		},
+		{
+			name: "put_and_describe",
+			setup: func(t *testing.T) string {
+				t.Helper()
+				rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+					"CreationToken": "lc-put-token",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+
+				return parseResp(t, rec)["FileSystemId"].(string)
+			},
+			method: http.MethodPut,
+			body: map[string]any{
+				"LifecyclePolicies": []map[string]string{
+					{"TransitionToIA": "AFTER_30_DAYS"},
+				},
+			},
+			wantCode:        http.StatusOK,
+			wantPoliciesLen: 1,
+		},
+		{
+			name: "describe_not_found",
+			setup: func(t *testing.T) string {
+				t.Helper()
+
+				return "fs-nonexistent"
+			},
+			method:   http.MethodGet,
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fsID := tt.setup(t)
+			path := "/2015-02-01/file-systems/" + fsID + "/lifecycle-configuration"
+			rec := doREST(t, h, tt.method, path, tt.body)
+
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				resp := parseResp(t, rec)
+				policiesRaw, ok := resp["LifecyclePolicies"].([]any)
+				require.True(t, ok)
+				assert.Len(t, policiesRaw, tt.wantPoliciesLen)
+			}
+		})
+	}
+}
