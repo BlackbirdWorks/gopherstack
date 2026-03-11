@@ -39,6 +39,7 @@ import (
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -144,6 +145,7 @@ type AWSSDKProvider interface {
 	GetDMSHandler() service.Registerable
 	GetCodeStarConnectionsHandler() service.Registerable
 	GetDynamoDBStreamsHandler() service.Registerable
+	GetDocDBHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -231,6 +233,7 @@ type extractedConfig struct {
 	dmsOps                    *dmsbackend.Handler
 	codeStarConnectionsOps    *codestarconnectionsbackend.Handler
 	dynamodbStreamsOps        *dynamodbstreams.Handler
+	docdbOps                  *docdbbackend.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
 	iotOps                    *iotbackend.Handler
@@ -562,6 +565,10 @@ func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetDynamoDBStreamsHandler(); h != nil {
 		ec.dynamodbStreamsOps, _ = h.(*dynamodbstreams.Handler)
 	}
+
+	if h := ap.GetDocDBHandler(); h != nil {
+		ec.docdbOps, _ = h.(*docdbbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -634,6 +641,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		DMSOps:                     ec.dmsOps,
 		CodeStarConnectionsOps:     ec.codeStarConnectionsOps,
 		DynamoDBStreamsOps:         ec.dynamodbStreamsOps,
+		DocDBOps:                   ec.docdbOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		IoTOps:                     ec.iotOps,
