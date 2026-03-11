@@ -542,3 +542,147 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		body     string
+		wantName string
+	}{
+		{
+			name:     "with_repository_name",
+			body:     `{"repositoryName":"my-repo"}`,
+			wantName: "my-repo",
+		},
+		{
+			name:     "empty_repository_name",
+			body:     `{"repositoryName":""}`,
+			wantName: "",
+		},
+		{
+			name:     "invalid_json",
+			body:     `not-json`,
+			wantName: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tt.body))
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			got := h.ExtractResource(c)
+			assert.Equal(t, tt.wantName, got)
+		})
+	}
+}
+
+func TestHandler_ChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.ChaosOperations()
+	assert.Equal(t, h.GetSupportedOperations(), ops)
+}
+
+func TestHandler_ChaosRegions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	regions := h.ChaosRegions()
+	require.Len(t, regions, 1)
+	assert.NotEmpty(t, regions[0])
+}
+
+func TestBackend_Region(t *testing.T) {
+	t.Parallel()
+
+	b := codecommit.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
+	assert.Equal(t, config.DefaultRegion, b.Region())
+}
+
+func TestHandler_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		action string
+	}{
+		{name: "create_repository_invalid_json", action: "CreateRepository"},
+		{name: "get_repository_invalid_json", action: "GetRepository"},
+		{name: "delete_repository_invalid_json", action: "DeleteRepository"},
+		{name: "tag_resource_invalid_json", action: "TagResource"},
+		{name: "untag_resource_invalid_json", action: "UntagResource"},
+		{name: "list_tags_invalid_json", action: "ListTagsForResource"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString("not-valid-json{"))
+			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+			req.Header.Set("X-Amz-Target", "CodeCommit_20150413."+tt.action)
+
+			rec := httptest.NewRecorder()
+			e := echo.New()
+			c := e.NewContext(req, rec)
+
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
+}
+
+func TestHandler_NotFoundErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		action string
+	}{
+		{
+			name:   "tag_nonexistent_resource",
+			action: "TagResource",
+			body: map[string]any{
+				"resourceArn": "arn:aws:codecommit:us-east-1:123456789012:nonexistent",
+				"tags":        map[string]string{"key": "val"},
+			},
+		},
+		{
+			name:   "untag_nonexistent_resource",
+			action: "UntagResource",
+			body: map[string]any{
+				"resourceArn": "arn:aws:codecommit:us-east-1:123456789012:nonexistent",
+				"tagKeys":     []string{"key"},
+			},
+		},
+		{
+			name:   "list_tags_nonexistent_resource",
+			action: "ListTagsForResource",
+			body: map[string]any{
+				"resourceArn": "arn:aws:codecommit:us-east-1:123456789012:nonexistent",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
