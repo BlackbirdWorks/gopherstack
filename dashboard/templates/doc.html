@@ -251,6 +251,20 @@
             </ul>
         </div>
 
+        <!-- CodeArtifact -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-orange-600 dark:text-orange-400 flex items-center gap-2 mb-4">
+                <span>📦</span> CodeArtifact
+            </h3>
+            <ul class="space-y-1">
+                {{range .CodeArtifactOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
         <!-- CodeBuild -->
         <div
             class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">

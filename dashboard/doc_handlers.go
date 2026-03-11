@@ -61,6 +61,7 @@ type docPageData struct {
 	BedrockRuntimeOps          []string
 	CognitoIDPOps              []string
 	CloudFrontOps              []string
+	CodeArtifactOps            []string
 	CodeBuildOps               []string
 }
 
@@ -134,6 +135,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		BedrockRuntimeOps:          h.getSupportedOps(h.BedrockRuntimeOps),
 		CognitoIDPOps:              h.getSupportedOps(h.CognitoIDPOps),
 		CloudFrontOps:              h.getSupportedOps(h.CloudFrontOps),
+		CodeArtifactOps:            h.getSupportedOps(h.CodeArtifactOps),
 		CodeBuildOps:               h.getSupportedOps(h.CodeBuildOps),
 	}
 

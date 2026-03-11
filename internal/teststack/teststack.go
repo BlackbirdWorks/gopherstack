@@ -40,8 +40,10 @@ import (
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
@@ -147,12 +149,16 @@ type Stack struct {
 	AutoscalingHandler             *autoscalingbackend.Handler
 	ApplicationAutoscalingHandler  *applicationautoscalingbackend.Handler
 	BackupHandler                  *backupbackend.Handler
+	CloudTrailHandler              *cloudtrailbackend.Handler
 	BatchHandler                   *batchbackend.Handler
 	BedrockHandler                 *bedrockbackend.Handler
 	BedrockRuntimeHandler          *bedrockruntimebackend.Handler
 	CeHandler                      *cebackend.Handler
 	CloudControlHandler            *cloudcontrolbackend.Handler
 	CloudFrontHandler              *cloudfrontbackend.Handler
+	// CodeArtifactHandler provides access to the CodeArtifact backend.
+	CodeArtifactHandler            *codeartifactbackend.Handler
+	// CodeBuildHandler provides access to the CodeBuild backend.
 	CodeBuildHandler               *codebuildbackend.Handler
 	S3Client                       *s3.Client
 	DDBClient                      *dynamodb.Client
@@ -330,11 +336,13 @@ func registerNewestServices(
 	appAutoScalingHndlr *applicationautoscalingbackend.Handler,
 	batchHndlr *batchbackend.Handler,
 	ceHndlr *cebackend.Handler,
+	cloudtrailHndlr *cloudtrailbackend.Handler,
 ) {
 	_ = registry.Register(autoscalingHndlr)
 	_ = registry.Register(appAutoScalingHndlr)
 	_ = registry.Register(batchHndlr)
 	_ = registry.Register(ceHndlr)
+	_ = registry.Register(cloudtrailHndlr)
 }
 
 // registerCloudfrontService registers the CloudFront service handler.
@@ -398,12 +406,14 @@ type handlers struct {
 	autoscaling     *autoscalingbackend.Handler
 	appAutoScaling  *applicationautoscalingbackend.Handler
 	backup          *backupbackend.Handler
+	cloudtrail      *cloudtrailbackend.Handler
 	batch           *batchbackend.Handler
 	bedrock         *bedrockbackend.Handler
 	bedrockruntime  *bedrockruntimebackend.Handler
 	ce              *cebackend.Handler
 	cloudcontrol    *cloudcontrolbackend.Handler
 	cloudFront      *cloudfrontbackend.Handler
+	codeArtifact    *codeartifactbackend.Handler
 	codebuild       *codebuildbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
@@ -509,6 +519,13 @@ func populateExtendedHandlers(h *handlers) {
 	)
 	h.transcribe = transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend())
 	h.support = supportbackend.NewHandler(supportbackend.NewInMemoryBackend())
+
+	populateNewestHandlers(h)
+}
+
+// populateNewestHandlers fills in the most recently added service handlers that would push
+// populateExtendedHandlers past the funlen limit.
+func populateNewestHandlers(h *handlers) {
 	h.cognitoIdentity = cognitoidentitybackend.NewHandler(
 		cognitoidentitybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 		config.DefaultRegion,
@@ -540,6 +557,9 @@ func populateExtendedHandlers(h *handlers) {
 	h.backup = backupbackend.NewHandler(
 		backupbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.cloudtrail = cloudtrailbackend.NewHandler(
+		cloudtrailbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.batch = batchbackend.NewHandler(batchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	h.bedrock = bedrockbackend.NewHandler(
 		bedrockbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -553,6 +573,9 @@ func populateExtendedHandlers(h *handlers) {
 	)
 	h.cloudFront = cloudfrontbackend.NewHandler(
 		cloudfrontbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.codeArtifact = codeartifactbackend.NewHandler(
+		codeartifactbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.codebuild = codebuildbackend.NewHandler(
 		codebuildbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -649,12 +672,14 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		AutoscalingOps:             h.autoscaling,
 		ApplicationAutoscalingOps:  h.appAutoScaling,
 		BackupOps:                  h.backup,
+		CloudTrailOps:              h.cloudtrail,
 		BatchOps:                   h.batch,
 		BedrockOps:                 h.bedrock,
 		BedrockRuntimeOps:          h.bedrockruntime,
 		CeOps:                      h.ce,
 		CloudControlOps:            h.cloudcontrol,
 		CloudFrontOps:              h.cloudFront,
+		CodeArtifactOps:            h.codeArtifact,
 		CodeBuildOps:               h.codebuild,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
@@ -689,11 +714,12 @@ func New(t *testing.T) *Stack {
 		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData,
 		h.amplify, h.apigwv2, h.appConfig, h.athena, h.backup,
 	)
-	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch, h.ce)
+	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch, h.ce, h.cloudtrail)
 	_ = registry.Register(h.bedrock)
 	_ = registry.Register(h.bedrockruntime)
 	_ = registry.Register(h.cloudcontrol)
 	registerCloudfrontService(registry, h.cloudFront)
+	_ = registry.Register(h.codeArtifact)
 	_ = registry.Register(h.codebuild)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -706,17 +732,17 @@ func New(t *testing.T) *Stack {
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
 
-	return buildStack(h, e, clients, faultStore, dashHndlr)
+	return buildStack(e, h, clients, faultStore, dashHndlr)
 }
 
 // buildStack assembles the Stack struct from wired components.
 // It is extracted from New to satisfy the funlen limit on that function.
 func buildStack(
-	h handlers,
 	e *echo.Echo,
+	h handlers,
 	clients sdkClients,
 	faultStore *chaos.FaultStore,
-	dashHndlr *dashboard.DashboardHandler,
+	dashboardHandler *dashboard.DashboardHandler,
 ) *Stack {
 	return &Stack{
 		Echo:                           e,
@@ -775,17 +801,19 @@ func buildStack(
 		AutoscalingHandler:             h.autoscaling,
 		ApplicationAutoscalingHandler:  h.appAutoScaling,
 		BackupHandler:                  h.backup,
+		CloudTrailHandler:              h.cloudtrail,
 		BatchHandler:                   h.batch,
 		BedrockHandler:                 h.bedrock,
 		BedrockRuntimeHandler:          h.bedrockruntime,
 		CeHandler:                      h.ce,
 		CloudControlHandler:            h.cloudcontrol,
 		CloudFrontHandler:              h.cloudFront,
+		CodeArtifactHandler:            h.codeArtifact,
 		CodeBuildHandler:               h.codebuild,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
-		Dashboard:                      dashHndlr,
+		Dashboard:                      dashboardHandler,
 	}
 }
 

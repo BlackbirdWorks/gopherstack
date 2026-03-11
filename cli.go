@@ -67,8 +67,10 @@ import (
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -174,6 +176,7 @@ type CLI struct {
 	apiGatewayV2Handler           service.Registerable
 	athenaHandler                 service.Registerable
 	backupHandler                 service.Registerable
+	cloudtrailHandler             service.Registerable
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
@@ -182,6 +185,7 @@ type CLI struct {
 	ceHandler                     service.Registerable
 	cloudcontrolHandler           service.Registerable
 	cloudFrontHandler             service.Registerable
+	codeArtifactHandler           service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -559,6 +563,11 @@ func (c *CLI) GetAthenaHandler() service.Registerable { return c.athenaHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetBackupHandler() service.Registerable { return c.backupHandler }
 
+// GetCloudTrailHandler returns the CloudTrail handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCloudTrailHandler() service.Registerable { return c.cloudtrailHandler }
+
 // GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -600,6 +609,11 @@ func (c *CLI) GetCloudControlHandler() service.Registerable { return c.cloudcont
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCloudFrontHandler() service.Registerable { return c.cloudFrontHandler }
+
+// GetCodeArtifactHandler returns the CodeArtifact handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeArtifactHandler() service.Registerable { return c.codeArtifactHandler }
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -1018,9 +1032,11 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cognitoIdentityHandler = byName["CognitoIdentity"]
 	cli.fisHandler = byName["FIS"]
 	cli.backupHandler = byName["Backup"]
+	cli.cloudtrailHandler = byName["CloudTrail"]
 	cli.ceHandler = byName["Ce"]
 	cli.cloudcontrolHandler = byName["CloudControl"]
 	cli.cloudFrontHandler = byName["CloudFront"]
+	cli.codeArtifactHandler = byName["CodeArtifact"]
 }
 
 // initializeServices initializes all service providers.
@@ -1189,6 +1205,7 @@ func getServiceProviders() []service.Provider {
 		&athenabackend.Provider{},
 		&appconfigbackend.Provider{},
 		&backupbackend.Provider{},
+		&cloudtrailbackend.Provider{},
 		&applicationautoscalingbackend.Provider{},
 		&batchbackend.Provider{},
 		&bedrockbackend.Provider{},
@@ -1196,6 +1213,7 @@ func getServiceProviders() []service.Provider {
 		&cebackend.Provider{},
 		&cloudcontrolbackend.Provider{},
 		&cloudfrontbackend.Provider{},
+		&codeartifactbackend.Provider{},
 	}
 }
 

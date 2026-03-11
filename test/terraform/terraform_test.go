@@ -44,9 +44,11 @@ import (
 	cloudcontrolsvc "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudfrontsvc "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	cloudtrailsvc "github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	codeartifactsvc "github.com/aws/aws-sdk-go-v2/service/codeartifact"
 	codebuildsvc "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
@@ -172,8 +174,10 @@ provider "aws" {
     cloudcontrol    = %[1]q
     cloudformation  = %[1]q
     cloudfront      = %[1]q
+    cloudtrail      = %[1]q
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
+    codeartifact    = %[1]q
     cognitoidentity          = %[1]q
     cognitoidentityprovider  = %[1]q
     configservice   = %[1]q
@@ -3520,6 +3524,46 @@ func TestTerraform_Ce(t *testing.T) {
 	}
 }
 
+// TestTerraform_CloudTrail provisions a CloudTrail trail via Terraform, then verifies
+// it is reachable via the CloudTrail SDK.
+func TestTerraform_CloudTrail(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "cloudtrail/trail",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"TrailName":  "tf-cloudtrail-" + id,
+					"BucketName": "tf-cloudtrail-bucket-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCloudTrailClient(t)
+				trailName := vars["TrailName"].(string)
+				out, err := client.DescribeTrails(ctx, &cloudtrailsvc.DescribeTrailsInput{
+					TrailNameList: []string{trailName},
+				})
+				require.NoError(t, err, "DescribeTrails should succeed after terraform apply")
+				require.NotEmpty(t, out.TrailList, "trail %q should be listed", trailName)
+				assert.Equal(t, trailName, aws.ToString(out.TrailList[0].Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_CloudControl provisions a CloudControl API resource via Terraform,
 // then verifies it is listed via the CloudControl SDK.
 func TestTerraform_CloudControl(t *testing.T) {
@@ -3660,6 +3704,58 @@ func TestTerraform_CodeBuild(t *testing.T) {
 				require.NoError(t, err, "BatchGetProjects should succeed")
 				require.Len(t, out.Projects, 1, "project should exist")
 				assert.Equal(t, "tf-project-"+suffix, aws.ToString(out.Projects[0].Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CodeArtifact provisions a CodeArtifact domain and repository via Terraform
+// and verifies they exist using the CodeArtifact SDK.
+func TestTerraform_CodeArtifact(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "codeartifact/domain",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"DomainName":     "tf-domain-" + id,
+					"RepositoryName": "tf-repo-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCodeArtifactClient(t)
+				domainName := vars["DomainName"].(string)
+				repoName := vars["RepositoryName"].(string)
+
+				// Verify the domain was created.
+				domainOut, err := client.DescribeDomain(ctx, &codeartifactsvc.DescribeDomainInput{
+					Domain: aws.String(domainName),
+				})
+				require.NoError(t, err, "DescribeDomain should succeed after terraform apply")
+				require.NotNil(t, domainOut.Domain, "domain should be returned")
+				assert.Equal(t, domainName, aws.ToString(domainOut.Domain.Name))
+
+				// Verify the repository was created.
+				repoOut, err := client.DescribeRepository(ctx, &codeartifactsvc.DescribeRepositoryInput{
+					Domain:     aws.String(domainName),
+					Repository: aws.String(repoName),
+				})
+				require.NoError(t, err, "DescribeRepository should succeed after terraform apply")
+				require.NotNil(t, repoOut.Repository, "repository should be returned")
+				assert.Equal(t, repoName, aws.ToString(repoOut.Repository.Name))
 			},
 		},
 	}
