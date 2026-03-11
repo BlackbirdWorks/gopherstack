@@ -513,13 +513,11 @@ func TestInMemoryBackend_DeleteIdentityPool_CleansIdentities(t *testing.T) {
 
 	// Pool should be gone.
 	_, err = b.DescribeIdentityPool(pool.IdentityPoolID)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
+	require.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
 
 	// Identity from the deleted pool should no longer be usable.
 	_, err = b.GetCredentialsForIdentity(identity.IdentityID, nil)
-	require.Error(t, err)
-	assert.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
+	require.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
 }
 
 func TestInMemoryBackend_GetIdentityPoolRoles_NotFound(t *testing.T) {
