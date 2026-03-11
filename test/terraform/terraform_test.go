@@ -207,6 +207,7 @@ provider "aws" {
     ecs             = %[1]q
     efs             = %[1]q
     eks             = %[1]q
+    elb             = %[1]q
     elasticache     = %[1]q
     events          = %[1]q
     firehose        = %[1]q
