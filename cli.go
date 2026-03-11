@@ -94,6 +94,7 @@ import (
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
+	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -214,6 +215,7 @@ type CLI struct {
 	ecsHandler                    service.Registerable
 	efsHandler                    service.Registerable
 	eksHandler                    service.Registerable
+	elbHandler                    service.Registerable
 	iotHandler                    service.Registerable
 	cognitoIDPHandler             service.Registerable
 	cognitoIdentityHandler        service.Registerable
@@ -553,6 +555,11 @@ func (c *CLI) GetEKSHandler() service.Registerable { return c.eksHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetElasticTranscoderHandler() service.Registerable { return c.elastictranscoderHandler }
+
+// GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetELBHandler() service.Registerable { return c.elbHandler }
 
 // GetIoTHandler returns the IoT handler (dashboard.AWSSDKProvider).
 //
@@ -1164,6 +1171,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.dynamodbStreamsHandler = byName["DynamoDBStreams"]
 	cli.efsHandler = byName["EFS"]
 	cli.eksHandler = byName["EKS"]
+	cli.elbHandler = byName["ELB"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1356,6 +1364,7 @@ func getServiceProviders() []service.Provider {
 		&dynamodbstreamsbackend.Provider{},
 		&efsbackend.Provider{},
 		&eksbackend.Provider{},
+		&elbbackend.Provider{},
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
 	}

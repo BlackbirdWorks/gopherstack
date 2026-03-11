@@ -3,6 +3,7 @@
 <div class="mb-2">
     <button type="button"
         class="flex items-center justify-between w-full p-2 font-medium text-left text-gray-700 border border-gray-200 rounded-lg focus:ring-4 focus:ring-gray-200 dark:focus:ring-gray-800 dark:border-gray-700 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+        data-accordion-target="#folder-{{.FullPath | safeID}}" aria-expanded="false"
         onclick="document.getElementById('folder-{{.FullPath | safeID}}').classList.toggle('hidden'); this.querySelector('svg').classList.toggle('rotate-180');"
         hx-get="/dashboard/s3/bucket/{{.BucketName}}/tree?prefix={{.FullPath}}" hx-trigger="click once"
         hx-target="#folder-content-{{.FullPath | safeID}}">
