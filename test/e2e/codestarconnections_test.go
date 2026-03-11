@@ -118,7 +118,7 @@ func TestCodeStarConnectionsDashboard_CreateConnection(t *testing.T) {
 	err = page.Locator("#conn-name").Fill("e2e-new-connection")
 	require.NoError(t, err)
 
-	err = page.Locator("button:has-text('Create')").Last().Click()
+	err = page.Locator("#create-connection-modal button[type='submit']").Click()
 	require.NoError(t, err)
 
 	err = page.Locator("h1:has-text('AWS CodeStar Connections')").WaitFor(playwright.LocatorWaitForOptions{
@@ -169,7 +169,7 @@ func TestCodeStarConnectionsDashboard_CreateHost(t *testing.T) {
 	err = page.Locator("#host-endpoint").Fill("https://github.example.com")
 	require.NoError(t, err)
 
-	err = page.Locator("button:has-text('Create')").Last().Click()
+	err = page.Locator("#create-host-modal button[type='submit']").Click()
 	require.NoError(t, err)
 
 	err = page.Locator("h1:has-text('AWS CodeStar Connections')").WaitFor(playwright.LocatorWaitForOptions{
