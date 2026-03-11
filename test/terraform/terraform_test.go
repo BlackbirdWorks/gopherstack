@@ -3511,7 +3511,6 @@ func TestTerraform_Batch(t *testing.T) {
 	}
 }
 
-
 // TestTerraform_Elasticbeanstalk provisions Elastic Beanstalk resources via Terraform and verifies they exist.
 func TestTerraform_Elasticbeanstalk(t *testing.T) {
 	t.Parallel()

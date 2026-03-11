@@ -418,8 +418,12 @@ type updateEnvironmentResponse struct {
 }
 
 func (h *Handler) handleUpdateEnvironment(vals url.Values) (any, error) {
-	appName := vals.Get("ApplicationName")
 	envName := vals.Get("EnvironmentName")
+	if envName == "" {
+		return nil, fmt.Errorf("%w: EnvironmentName is required", ErrInvalidParameter)
+	}
+
+	appName := vals.Get("ApplicationName")
 	description := vals.Get("Description")
 	solutionStack := vals.Get("SolutionStackName")
 
@@ -450,11 +454,20 @@ func (h *Handler) handleTerminateEnvironment(vals url.Values) (any, error) {
 
 	appName := vals.Get("ApplicationName")
 
-	// If no app name provided, search across all environments.
+	// If no app name provided, search across all environments for this name.
 	if appName == "" {
 		envs := h.Backend.DescribeEnvironments("", []string{envName})
-		if len(envs) > 0 {
+		switch len(envs) {
+		case 0:
+			// No matching environments; let the backend handle the not-found case.
+		case 1:
 			appName = envs[0].ApplicationName
+		default:
+			return nil, fmt.Errorf(
+				"%w: multiple environments named %s; please specify ApplicationName",
+				ErrInvalidParameter,
+				envName,
+			)
 		}
 	}
 

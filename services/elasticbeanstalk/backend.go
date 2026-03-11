@@ -71,6 +71,30 @@ func copyTags(tags map[string]string) map[string]string {
 	return out
 }
 
+// cloneApplication returns a deep copy of the given Application (including Tags).
+func cloneApplication(app *Application) *Application {
+	cp := *app
+	cp.Tags = copyTags(app.Tags)
+
+	return &cp
+}
+
+// cloneEnvironment returns a deep copy of the given Environment (including Tags).
+func cloneEnvironment(env *Environment) *Environment {
+	cp := *env
+	cp.Tags = copyTags(env.Tags)
+
+	return &cp
+}
+
+// cloneApplicationVersion returns a deep copy of the given ApplicationVersion (including Tags).
+func cloneApplicationVersion(ver *ApplicationVersion) *ApplicationVersion {
+	cp := *ver
+	cp.Tags = copyTags(ver.Tags)
+
+	return &cp
+}
+
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
@@ -117,9 +141,8 @@ func (b *InMemoryBackend) CreateApplication(
 		Tags:            copyTags(tags),
 	}
 	b.applications[name] = app
-	cp := *app
 
-	return &cp, nil
+	return cloneApplication(app), nil
 }
 
 // DescribeApplications returns applications, optionally filtered by names.
@@ -131,8 +154,7 @@ func (b *InMemoryBackend) DescribeApplications(names []string) []*Application {
 		list := make([]*Application, 0, len(b.applications))
 
 		for _, app := range b.applications {
-			cp := *app
-			list = append(list, &cp)
+			list = append(list, cloneApplication(app))
 		}
 
 		return list
@@ -142,8 +164,7 @@ func (b *InMemoryBackend) DescribeApplications(names []string) []*Application {
 
 	for _, name := range names {
 		if app, ok := b.applications[name]; ok {
-			cp := *app
-			list = append(list, &cp)
+			list = append(list, cloneApplication(app))
 		}
 	}
 
@@ -161,9 +182,8 @@ func (b *InMemoryBackend) UpdateApplication(name, description string) (*Applicat
 	}
 
 	app.Description = description
-	cp := *app
 
-	return &cp, nil
+	return cloneApplication(app), nil
 }
 
 // DeleteApplication removes an application.
@@ -209,9 +229,8 @@ func (b *InMemoryBackend) CreateEnvironment(
 		Tags:              copyTags(tags),
 	}
 	b.environments[key] = env
-	cp := *env
 
-	return &cp, nil
+	return cloneEnvironment(env), nil
 }
 
 // DescribeEnvironments returns environments, optionally filtered by app/environment names.
@@ -234,8 +253,7 @@ func (b *InMemoryBackend) DescribeEnvironments(appName string, envNames []string
 			}
 		}
 
-		cp := *env
-		list = append(list, &cp)
+		list = append(list, cloneEnvironment(env))
 	}
 
 	return list
@@ -261,12 +279,10 @@ func (b *InMemoryBackend) UpdateEnvironment(appName, envName, description, solut
 		env.SolutionStackName = solutionStack
 	}
 
-	cp := *env
-
-	return &cp, nil
+	return cloneEnvironment(env), nil
 }
 
-// TerminateEnvironment marks an environment as Terminated.
+// TerminateEnvironment marks an environment as Terminated and removes it from storage.
 func (b *InMemoryBackend) TerminateEnvironment(appName, envName string) (*Environment, error) {
 	b.mu.Lock("TerminateEnvironment")
 	defer b.mu.Unlock()
@@ -279,10 +295,10 @@ func (b *InMemoryBackend) TerminateEnvironment(appName, envName string) (*Enviro
 	}
 
 	env.Status = "Terminated"
-	cp := *env
+	out := cloneEnvironment(env)
 	delete(b.environments, key)
 
-	return &cp, nil
+	return out, nil
 }
 
 // CreateApplicationVersion creates a new application version.
@@ -310,9 +326,8 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 		Tags:                  copyTags(tags),
 	}
 	b.appVersions[key] = ver
-	cp := *ver
 
-	return &cp, nil
+	return cloneApplicationVersion(ver), nil
 }
 
 // DescribeApplicationVersions returns application versions, optionally filtered.
@@ -335,8 +350,7 @@ func (b *InMemoryBackend) DescribeApplicationVersions(appName string, versionLab
 			}
 		}
 
-		cp := *ver
-		list = append(list, &cp)
+		list = append(list, cloneApplicationVersion(ver))
 	}
 
 	return list

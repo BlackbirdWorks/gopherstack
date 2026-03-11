@@ -216,14 +216,14 @@ type DashboardHandler struct {
 	// ElasticbeanstalkOps provides access to the Elastic Beanstalk backend.
 	ElasticbeanstalkOps *elasticbeanstalkbackend.Handler
 	// EKSOps provides access to the EKS backend.
-	EKSOps              *eksbackend.Handler
-	SubRouter           *echo.Echo
-	ddbProvider         *ddbbackend.DashboardProvider
-	s3Provider          *s3backend.DashboardProvider
-	FaultStore          *chaos.FaultStore
-	Logger              *slog.Logger
-	layout              *template.Template
-	GlobalConfig        config.GlobalConfig
+	EKSOps       *eksbackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.

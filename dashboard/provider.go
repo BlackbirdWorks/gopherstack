@@ -550,6 +550,10 @@ func extractCodeServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.codebuildOps, _ = h.(*codebuildbackend.Handler)
 	}
 
+	if h := ap.GetElasticbeanstalkHandler(); h != nil {
+		ec.elasticbeanstalkOps, _ = h.(*elasticbeanstalkbackend.Handler)
+	}
+
 	extractCodeHandlers(ap, ec)
 }
 
@@ -585,10 +589,6 @@ func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetDocDBHandler(); h != nil {
 		ec.docdbOps, _ = h.(*docdbbackend.Handler)
-	}
-
-	if h := ap.GetElasticbeanstalkHandler(); h != nil {
-		ec.elasticbeanstalkOps, _ = h.(*elasticbeanstalkbackend.Handler)
 	}
 }
 
