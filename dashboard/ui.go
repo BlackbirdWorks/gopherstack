@@ -203,12 +203,12 @@ type DashboardHandler struct {
 	// CodeConnectionsOps provides access to the CodeConnections backend.
 	CodeConnectionsOps *codeconnectionsbackend.Handler
 	SubRouter          *echo.Echo
-	ddbProvider     *ddbbackend.DashboardProvider
-	s3Provider      *s3backend.DashboardProvider
-	FaultStore      *chaos.FaultStore
-	Logger          *slog.Logger
-	layout          *template.Template
-	GlobalConfig    config.GlobalConfig
+	ddbProvider        *ddbbackend.DashboardProvider
+	s3Provider         *s3backend.DashboardProvider
+	FaultStore         *chaos.FaultStore
+	Logger             *slog.Logger
+	layout             *template.Template
+	GlobalConfig       config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.

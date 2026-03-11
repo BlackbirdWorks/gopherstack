@@ -79,8 +79,10 @@ type ccRoute struct {
 
 // parseRoute maps HTTP method + path to an operation name and resource identifier.
 func parseRoute(method, rawPath string) ccRoute {
-	path, _ := url.PathUnescape(rawPath)
-
+	path, err := url.PathUnescape(rawPath)
+	if err != nil {
+		path = rawPath
+	}
 	switch {
 	case strings.HasPrefix(path, pathTagsCC):
 		return parseTagRoute(method, strings.TrimPrefix(path, "/tags/"))
