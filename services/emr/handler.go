@@ -51,6 +51,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListInstanceGroups",
 		"ListInstanceFleets",
 		"ListBootstrapActions",
+		"GetAutoTerminationPolicy",
+		"GetManagedScalingPolicy",
 	}
 }
 
@@ -141,6 +143,8 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"ListInstanceGroups":   service.WrapOp(h.handleListInstanceGroups),
 		"ListInstanceFleets":   service.WrapOp(h.handleListInstanceFleets),
 		"ListBootstrapActions": service.WrapOp(h.handleListBootstrapActions),
+		"GetAutoTerminationPolicy": service.WrapOp(h.handleGetAutoTerminationPolicy),
+		"GetManagedScalingPolicy":  service.WrapOp(h.handleGetManagedScalingPolicy),
 	}
 }
 
@@ -377,4 +381,40 @@ func (h *Handler) handleListBootstrapActions(
 	_ *listBootstrapActionsInput,
 ) (*listBootstrapActionsOutput, error) {
 	return &listBootstrapActionsOutput{BootstrapActions: []any{}}, nil
+}
+
+type getAutoTerminationPolicyInput struct {
+	ClusterID string `json:"ClusterId"`
+}
+
+type autoTerminationPolicy struct {
+	IdleTimeout int64 `json:"IdleTimeout"`
+}
+
+type getAutoTerminationPolicyOutput struct {
+	AutoTerminationPolicy autoTerminationPolicy `json:"AutoTerminationPolicy"`
+}
+
+func (h *Handler) handleGetAutoTerminationPolicy(
+	_ context.Context,
+	_ *getAutoTerminationPolicyInput,
+) (*getAutoTerminationPolicyOutput, error) {
+	return &getAutoTerminationPolicyOutput{AutoTerminationPolicy: autoTerminationPolicy{}}, nil
+}
+
+type getManagedScalingPolicyInput struct {
+	ClusterID string `json:"ClusterId"`
+}
+
+type managedScalingPolicy struct{}
+
+type getManagedScalingPolicyOutput struct {
+	ManagedScalingPolicy managedScalingPolicy `json:"ManagedScalingPolicy"`
+}
+
+func (h *Handler) handleGetManagedScalingPolicy(
+	_ context.Context,
+	_ *getManagedScalingPolicyInput,
+) (*getManagedScalingPolicyOutput, error) {
+	return &getManagedScalingPolicyOutput{ManagedScalingPolicy: managedScalingPolicy{}}, nil
 }
