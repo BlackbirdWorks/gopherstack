@@ -1,8 +1,10 @@
 package codedeploy
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -14,6 +16,11 @@ import (
 )
 
 const codedeployTargetPrefix = "CodeDeploy_20141006."
+
+var (
+	errUnknownAction  = errors.New("unknown action")
+	errInvalidRequest = errors.New("invalid request")
+)
 
 // Handler is the Echo HTTP handler for AWS CodeDeploy operations.
 type Handler struct {
@@ -71,6 +78,7 @@ func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	target := c.Request().Header.Get("X-Amz-Target")
 	action := strings.TrimPrefix(target, codedeployTargetPrefix)
+
 	if action == "" || action == target {
 		return "Unknown"
 	}
@@ -98,374 +106,461 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		r := c.Request()
-		log := logger.Load(r.Context())
-		action := strings.TrimPrefix(r.Header.Get("X-Amz-Target"), codedeployTargetPrefix)
-
-		body, err := httputils.ReadBody(r)
-		if err != nil {
-			log.Error("failed to read body", "error", err)
-
-			return c.JSON(
-				http.StatusBadRequest,
-				errorResponse("InvalidRequestException", "failed to read request body"),
-			)
-		}
-
-		if handled, result := h.handleApplicationAction(c, action, body); handled {
-			return result
-		}
-
-		if handled, result := h.handleDeploymentAction(c, action, body); handled {
-			return result
-		}
-
-		if handled, result := h.handleTagAction(c, action, body); handled {
-			return result
-		}
-
-		log.Warn("unknown CodeDeploy action", "action", action)
-
-		return c.JSON(http.StatusBadRequest, errorResponse("UnknownOperationException", "unknown action: "+action))
-	}
-}
-
-// handleApplicationAction routes application and deployment group operations.
-func (h *Handler) handleApplicationAction(c *echo.Context, action string, body []byte) (bool, error) {
-	switch action {
-	case "CreateApplication":
-		return true, h.handleCreateApplication(c, body)
-	case "GetApplication":
-		return true, h.handleGetApplication(c, body)
-	case "ListApplications":
-		return true, h.handleListApplications(c, body)
-	case "DeleteApplication":
-		return true, h.handleDeleteApplication(c, body)
-	case "CreateDeploymentGroup":
-		return true, h.handleCreateDeploymentGroup(c, body)
-	case "GetDeploymentGroup":
-		return true, h.handleGetDeploymentGroup(c, body)
-	case "ListDeploymentGroups":
-		return true, h.handleListDeploymentGroups(c, body)
-	case "DeleteDeploymentGroup":
-		return true, h.handleDeleteDeploymentGroup(c, body)
-	}
-
-	return false, nil
-}
-
-// handleDeploymentAction routes deployment operations.
-func (h *Handler) handleDeploymentAction(c *echo.Context, action string, body []byte) (bool, error) {
-	switch action {
-	case "CreateDeployment":
-		return true, h.handleCreateDeployment(c, body)
-	case "GetDeployment":
-		return true, h.handleGetDeployment(c, body)
-	case "ListDeployments":
-		return true, h.handleListDeployments(c, body)
-	}
-
-	return false, nil
-}
-
-// handleTagAction routes tagging operations.
-func (h *Handler) handleTagAction(c *echo.Context, action string, body []byte) (bool, error) {
-	switch action {
-	case "TagResource":
-		return true, h.handleTagResource(c, body)
-	case "UntagResource":
-		return true, h.handleUntagResource(c, body)
-	case "ListTagsForResource":
-		return true, h.handleListTagsForResource(c, body)
-	}
-
-	return false, nil
-}
-
-func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
-	var input struct {
-		ApplicationName string     `json:"applicationName"`
-		ComputePlatform string     `json:"computePlatform"`
-		Tags            []tagEntry `json:"tags"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil || input.ApplicationName == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "applicationName is required"))
-	}
-
-	if input.ComputePlatform == "" {
-		input.ComputePlatform = "Server"
-	}
-
-	app, err := h.Backend.CreateApplication(input.ApplicationName, input.ComputePlatform, tagEntriesToMap(input.Tags))
-	if err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]string{
-		"applicationId": app.ApplicationID,
-	})
-}
-
-func (h *Handler) handleGetApplication(c *echo.Context, body []byte) error {
-	var input struct {
-		ApplicationName string `json:"applicationName"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil || input.ApplicationName == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "applicationName is required"))
-	}
-
-	app, err := h.Backend.GetApplication(input.ApplicationName)
-	if err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"application": map[string]any{
-			"applicationId":   app.ApplicationID,
-			"applicationName": app.ApplicationName,
-			"computePlatform": app.ComputePlatform,
-			"createTime":      app.CreationTime.UnixMilli(),
-		},
-	})
-}
-
-func (h *Handler) handleListApplications(c *echo.Context, _ []byte) error {
-	names := h.Backend.ListApplications()
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"applications": names,
-	})
-}
-
-func (h *Handler) handleDeleteApplication(c *echo.Context, body []byte) error {
-	var input struct {
-		ApplicationName string `json:"applicationName"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil || input.ApplicationName == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "applicationName is required"))
-	}
-
-	if err := h.Backend.DeleteApplication(input.ApplicationName); err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
-}
-
-func (h *Handler) handleCreateDeploymentGroup(c *echo.Context, body []byte) error {
-	var input struct {
-		ApplicationName      string     `json:"applicationName"`
-		DeploymentGroupName  string     `json:"deploymentGroupName"`
-		ServiceRoleArn       string     `json:"serviceRoleArn"`
-		DeploymentConfigName string     `json:"deploymentConfigName"`
-		Tags                 []tagEntry `json:"tags"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "invalid request"))
-	}
-
-	if input.ApplicationName == "" || input.DeploymentGroupName == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			errorResponse("InvalidRequestException", "applicationName and deploymentGroupName are required"),
+		return service.HandleTarget(
+			c, logger.Load(c.Request().Context()),
+			"CodeDeploy", "application/x-amz-json-1.1",
+			h.GetSupportedOperations(),
+			h.dispatch,
+			h.handleError,
 		)
+	}
+}
+
+func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
+	return map[string]service.JSONOpFunc{
+		"CreateApplication":     service.WrapOp(h.handleCreateApplication),
+		"GetApplication":        service.WrapOp(h.handleGetApplication),
+		"ListApplications":      service.WrapOp(h.handleListApplications),
+		"DeleteApplication":     service.WrapOp(h.handleDeleteApplication),
+		"CreateDeploymentGroup": service.WrapOp(h.handleCreateDeploymentGroup),
+		"GetDeploymentGroup":    service.WrapOp(h.handleGetDeploymentGroup),
+		"ListDeploymentGroups":  service.WrapOp(h.handleListDeploymentGroups),
+		"DeleteDeploymentGroup": service.WrapOp(h.handleDeleteDeploymentGroup),
+		"CreateDeployment":      service.WrapOp(h.handleCreateDeployment),
+		"GetDeployment":         service.WrapOp(h.handleGetDeployment),
+		"ListDeployments":       service.WrapOp(h.handleListDeployments),
+		"TagResource":           service.WrapOp(h.handleTagResource),
+		"UntagResource":         service.WrapOp(h.handleUntagResource),
+		"ListTagsForResource":   service.WrapOp(h.handleListTagsForResource),
+	}
+}
+
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	fn, ok := h.dispatchTable()[action]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
+	}
+
+	result, err := fn(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(result)
+}
+
+func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+
+	makePayload := func(code, msg string) []byte {
+		b, _ := json.Marshal(service.JSONErrorResponse{Type: code, Message: msg})
+
+		return b
+	}
+
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return c.JSONBlob(http.StatusNotFound,
+			makePayload("ApplicationDoesNotExistException", err.Error()))
+	case errors.Is(err, ErrDeploymentGroupNotFound):
+		return c.JSONBlob(http.StatusNotFound,
+			makePayload("DeploymentGroupDoesNotExistException", err.Error()))
+	case errors.Is(err, ErrDeploymentNotFound):
+		return c.JSONBlob(http.StatusNotFound,
+			makePayload("DeploymentDoesNotExistException", err.Error()))
+	case errors.Is(err, ErrAlreadyExists):
+		return c.JSONBlob(http.StatusConflict,
+			makePayload("ApplicationAlreadyExistsException", err.Error()))
+	case errors.Is(err, ErrDeploymentGroupAlreadyExists):
+		return c.JSONBlob(http.StatusConflict,
+			makePayload("DeploymentGroupAlreadyExistsException", err.Error()))
+	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
+		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		return c.JSONBlob(http.StatusBadRequest,
+			makePayload("InvalidRequestException", err.Error()))
+	default:
+		return c.JSONBlob(http.StatusInternalServerError,
+			makePayload("ServiceException", err.Error()))
+	}
+}
+
+// --- Input/Output types and handlers ---
+
+type createApplicationInput struct {
+	ApplicationName string     `json:"applicationName"`
+	ComputePlatform string     `json:"computePlatform"`
+	Tags            []tagEntry `json:"tags"`
+}
+
+type createApplicationOutput struct {
+	ApplicationID string `json:"applicationId"`
+}
+
+func (h *Handler) handleCreateApplication(
+	_ context.Context,
+	in *createApplicationInput,
+) (*createApplicationOutput, error) {
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+	}
+
+	if in.ComputePlatform == "" {
+		in.ComputePlatform = "Server"
+	}
+
+	app, err := h.Backend.CreateApplication(in.ApplicationName, in.ComputePlatform, tagEntriesToMap(in.Tags))
+	if err != nil {
+		return nil, err
+	}
+
+	return &createApplicationOutput{ApplicationID: app.ApplicationID}, nil
+}
+
+type getApplicationInput struct {
+	ApplicationName string `json:"applicationName"`
+}
+
+type applicationInfo struct {
+	ApplicationID   string `json:"applicationId"`
+	ApplicationName string `json:"applicationName"`
+	ComputePlatform string `json:"computePlatform"`
+	CreateTime      int64  `json:"createTime"`
+}
+
+type getApplicationOutput struct {
+	Application applicationInfo `json:"application"`
+}
+
+func (h *Handler) handleGetApplication(
+	_ context.Context,
+	in *getApplicationInput,
+) (*getApplicationOutput, error) {
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+	}
+
+	app, err := h.Backend.GetApplication(in.ApplicationName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getApplicationOutput{
+		Application: applicationInfo{
+			ApplicationID:   app.ApplicationID,
+			ApplicationName: app.ApplicationName,
+			ComputePlatform: app.ComputePlatform,
+			CreateTime:      app.CreationTime.UnixMilli(),
+		},
+	}, nil
+}
+
+type listApplicationsInput struct{}
+
+type listApplicationsOutput struct {
+	Applications []string `json:"applications"`
+}
+
+func (h *Handler) handleListApplications(
+	_ context.Context,
+	_ *listApplicationsInput,
+) (*listApplicationsOutput, error) {
+	return &listApplicationsOutput{Applications: h.Backend.ListApplications()}, nil
+}
+
+type deleteApplicationInput struct {
+	ApplicationName string `json:"applicationName"`
+}
+
+type deleteApplicationOutput struct{}
+
+func (h *Handler) handleDeleteApplication(
+	_ context.Context,
+	in *deleteApplicationInput,
+) (*deleteApplicationOutput, error) {
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DeleteApplication(in.ApplicationName); err != nil {
+		return nil, err
+	}
+
+	return &deleteApplicationOutput{}, nil
+}
+
+type createDeploymentGroupInput struct {
+	ApplicationName      string     `json:"applicationName"`
+	DeploymentGroupName  string     `json:"deploymentGroupName"`
+	ServiceRoleArn       string     `json:"serviceRoleArn"`
+	DeploymentConfigName string     `json:"deploymentConfigName"`
+	Tags                 []tagEntry `json:"tags"`
+}
+
+type createDeploymentGroupOutput struct {
+	DeploymentGroupID string `json:"deploymentGroupId"`
+}
+
+func (h *Handler) handleCreateDeploymentGroup(
+	_ context.Context,
+	in *createDeploymentGroupInput,
+) (*createDeploymentGroupOutput, error) {
+	if in.ApplicationName == "" || in.DeploymentGroupName == "" {
+		return nil, fmt.Errorf("%w: applicationName and deploymentGroupName are required", errInvalidRequest)
 	}
 
 	dg, err := h.Backend.CreateDeploymentGroup(
-		input.ApplicationName,
-		input.DeploymentGroupName,
-		input.ServiceRoleArn,
-		input.DeploymentConfigName,
-		tagEntriesToMap(input.Tags),
+		in.ApplicationName, in.DeploymentGroupName,
+		in.ServiceRoleArn, in.DeploymentConfigName,
+		tagEntriesToMap(in.Tags),
 	)
 	if err != nil {
-		return handleBackendError(c, err)
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
-		"deploymentGroupId": dg.DeploymentGroupID,
-	})
+	return &createDeploymentGroupOutput{DeploymentGroupID: dg.DeploymentGroupID}, nil
 }
 
-func (h *Handler) handleGetDeploymentGroup(c *echo.Context, body []byte) error {
-	var input struct {
-		ApplicationName     string `json:"applicationName"`
-		DeploymentGroupName string `json:"deploymentGroupName"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "invalid request"))
-	}
+type getDeploymentGroupInput struct {
+	ApplicationName     string `json:"applicationName"`
+	DeploymentGroupName string `json:"deploymentGroupName"`
+}
 
-	dg, err := h.Backend.GetDeploymentGroup(input.ApplicationName, input.DeploymentGroupName)
+type deploymentGroupInfo struct {
+	ApplicationName      string `json:"applicationName"`
+	DeploymentGroupID    string `json:"deploymentGroupId"`
+	DeploymentGroupName  string `json:"deploymentGroupName"`
+	ServiceRoleArn       string `json:"serviceRoleArn"`
+	DeploymentConfigName string `json:"deploymentConfigName"`
+}
+
+type getDeploymentGroupOutput struct {
+	DeploymentGroupInfo deploymentGroupInfo `json:"deploymentGroupInfo"`
+}
+
+func (h *Handler) handleGetDeploymentGroup(
+	_ context.Context,
+	in *getDeploymentGroupInput,
+) (*getDeploymentGroupOutput, error) {
+	dg, err := h.Backend.GetDeploymentGroup(in.ApplicationName, in.DeploymentGroupName)
 	if err != nil {
-		return handleBackendError(c, err)
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"deploymentGroupInfo": map[string]any{
-			"applicationName":      dg.ApplicationName,
-			"deploymentGroupId":    dg.DeploymentGroupID,
-			"deploymentGroupName":  dg.DeploymentGroupName,
-			"serviceRoleArn":       dg.ServiceRoleArn,
-			"deploymentConfigName": dg.DeploymentConfigName,
+	return &getDeploymentGroupOutput{
+		DeploymentGroupInfo: deploymentGroupInfo{
+			ApplicationName:      dg.ApplicationName,
+			DeploymentGroupID:    dg.DeploymentGroupID,
+			DeploymentGroupName:  dg.DeploymentGroupName,
+			ServiceRoleArn:       dg.ServiceRoleArn,
+			DeploymentConfigName: dg.DeploymentConfigName,
 		},
-	})
+	}, nil
 }
 
-func (h *Handler) handleListDeploymentGroups(c *echo.Context, body []byte) error {
-	var input struct {
-		ApplicationName string `json:"applicationName"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil || input.ApplicationName == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "applicationName is required"))
+type listDeploymentGroupsInput struct {
+	ApplicationName string `json:"applicationName"`
+}
+
+type listDeploymentGroupsOutput struct {
+	ApplicationName  string   `json:"applicationName"`
+	DeploymentGroups []string `json:"deploymentGroups"`
+}
+
+func (h *Handler) handleListDeploymentGroups(
+	_ context.Context,
+	in *listDeploymentGroupsInput,
+) (*listDeploymentGroupsOutput, error) {
+	if in.ApplicationName == "" {
+		return nil, fmt.Errorf("%w: applicationName is required", errInvalidRequest)
 	}
 
-	names, err := h.Backend.ListDeploymentGroups(input.ApplicationName)
+	names, err := h.Backend.ListDeploymentGroups(in.ApplicationName)
 	if err != nil {
-		return handleBackendError(c, err)
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"applicationName":  input.ApplicationName,
-		"deploymentGroups": names,
-	})
+	return &listDeploymentGroupsOutput{
+		ApplicationName:  in.ApplicationName,
+		DeploymentGroups: names,
+	}, nil
 }
 
-func (h *Handler) handleDeleteDeploymentGroup(c *echo.Context, body []byte) error {
-	var input struct {
-		ApplicationName     string `json:"applicationName"`
-		DeploymentGroupName string `json:"deploymentGroupName"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "invalid request"))
-	}
-
-	if err := h.Backend.DeleteDeploymentGroup(input.ApplicationName, input.DeploymentGroupName); err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+type deleteDeploymentGroupInput struct {
+	ApplicationName     string `json:"applicationName"`
+	DeploymentGroupName string `json:"deploymentGroupName"`
 }
 
-func (h *Handler) handleCreateDeployment(c *echo.Context, body []byte) error {
-	var input struct {
-		ApplicationName     string `json:"applicationName"`
-		DeploymentGroupName string `json:"deploymentGroupName"`
-		Description         string `json:"description"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "invalid request"))
+type deleteDeploymentGroupOutput struct{}
+
+func (h *Handler) handleDeleteDeploymentGroup(
+	_ context.Context,
+	in *deleteDeploymentGroupInput,
+) (*deleteDeploymentGroupOutput, error) {
+	if err := h.Backend.DeleteDeploymentGroup(in.ApplicationName, in.DeploymentGroupName); err != nil {
+		return nil, err
 	}
 
-	if input.ApplicationName == "" || input.DeploymentGroupName == "" {
-		return c.JSON(
-			http.StatusBadRequest,
-			errorResponse("InvalidRequestException", "applicationName and deploymentGroupName are required"),
-		)
+	return &deleteDeploymentGroupOutput{}, nil
+}
+
+type createDeploymentInput struct {
+	ApplicationName     string `json:"applicationName"`
+	DeploymentGroupName string `json:"deploymentGroupName"`
+	Description         string `json:"description"`
+}
+
+type createDeploymentOutput struct {
+	DeploymentID string `json:"deploymentId"`
+}
+
+func (h *Handler) handleCreateDeployment(
+	_ context.Context,
+	in *createDeploymentInput,
+) (*createDeploymentOutput, error) {
+	if in.ApplicationName == "" || in.DeploymentGroupName == "" {
+		return nil, fmt.Errorf("%w: applicationName and deploymentGroupName are required", errInvalidRequest)
 	}
 
-	d, err := h.Backend.CreateDeployment(input.ApplicationName, input.DeploymentGroupName, input.Description, "user")
+	d, err := h.Backend.CreateDeployment(in.ApplicationName, in.DeploymentGroupName, in.Description, "user")
 	if err != nil {
-		return handleBackendError(c, err)
+		return nil, err
 	}
 
-	return c.JSON(http.StatusOK, map[string]string{
-		"deploymentId": d.DeploymentID,
-	})
+	return &createDeploymentOutput{DeploymentID: d.DeploymentID}, nil
 }
 
-func (h *Handler) handleGetDeployment(c *echo.Context, body []byte) error {
-	var input struct {
-		DeploymentID string `json:"deploymentId"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil || input.DeploymentID == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "deploymentId is required"))
+type getDeploymentInput struct {
+	DeploymentID string `json:"deploymentId"`
+}
+
+type deploymentInfo struct {
+	CompleteTime        *int64 `json:"completeTime,omitempty"`
+	DeploymentID        string `json:"deploymentId"`
+	ApplicationName     string `json:"applicationName"`
+	DeploymentGroupName string `json:"deploymentGroupName"`
+	Status              string `json:"status"`
+	Creator             string `json:"creator"`
+	Description         string `json:"description,omitempty"`
+	CreateTime          int64  `json:"createTime"`
+}
+
+type getDeploymentOutput struct {
+	DeploymentInfo deploymentInfo `json:"deploymentInfo"`
+}
+
+func (h *Handler) handleGetDeployment(
+	_ context.Context,
+	in *getDeploymentInput,
+) (*getDeploymentOutput, error) {
+	if in.DeploymentID == "" {
+		return nil, fmt.Errorf("%w: deploymentId is required", errInvalidRequest)
 	}
 
-	d, err := h.Backend.GetDeployment(input.DeploymentID)
+	d, err := h.Backend.GetDeployment(in.DeploymentID)
 	if err != nil {
-		return handleBackendError(c, err)
+		return nil, err
 	}
 
-	deployInfo := map[string]any{
-		"deploymentId":        d.DeploymentID,
-		"applicationName":     d.ApplicationName,
-		"deploymentGroupName": d.DeploymentGroupName,
-		"status":              d.Status,
-		"creator":             d.Creator,
-		"createTime":          d.CreateTime.UnixMilli(),
+	info := deploymentInfo{
+		DeploymentID:        d.DeploymentID,
+		ApplicationName:     d.ApplicationName,
+		DeploymentGroupName: d.DeploymentGroupName,
+		Status:              d.Status,
+		Creator:             d.Creator,
+		CreateTime:          d.CreateTime.UnixMilli(),
+		Description:         d.Description,
 	}
-	if d.Description != "" {
-		deployInfo["description"] = d.Description
-	}
+
 	if d.CompleteTime != nil {
-		deployInfo["completeTime"] = d.CompleteTime.UnixMilli()
+		ms := d.CompleteTime.UnixMilli()
+		info.CompleteTime = &ms
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"deploymentInfo": deployInfo,
-	})
+	return &getDeploymentOutput{DeploymentInfo: info}, nil
 }
 
-func (h *Handler) handleListDeployments(c *echo.Context, body []byte) error {
-	var input struct {
-		ApplicationName     string `json:"applicationName"`
-		DeploymentGroupName string `json:"deploymentGroupName"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "invalid request"))
-	}
-
-	ids := h.Backend.ListDeployments(input.ApplicationName, input.DeploymentGroupName)
-
-	return c.JSON(http.StatusOK, map[string]any{
-		"deployments": ids,
-	})
+type listDeploymentsInput struct {
+	ApplicationName     string `json:"applicationName"`
+	DeploymentGroupName string `json:"deploymentGroupName"`
 }
 
-func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
-	var input struct {
-		ResourceArn string     `json:"resourceArn"`
-		Tags        []tagEntry `json:"tags"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil || input.ResourceArn == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "resourceArn is required"))
-	}
-
-	if err := h.Backend.TagResource(input.ResourceArn, tagEntriesToMap(input.Tags)); err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+type listDeploymentsOutput struct {
+	Deployments []string `json:"deployments"`
 }
 
-func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
-	var input struct {
-		ResourceArn string   `json:"resourceArn"`
-		TagKeys     []string `json:"tagKeys"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil || input.ResourceArn == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "resourceArn is required"))
-	}
-
-	if err := h.Backend.UntagResource(input.ResourceArn, input.TagKeys); err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{})
+func (h *Handler) handleListDeployments(
+	_ context.Context,
+	in *listDeploymentsInput,
+) (*listDeploymentsOutput, error) {
+	return &listDeploymentsOutput{
+		Deployments: h.Backend.ListDeployments(in.ApplicationName, in.DeploymentGroupName),
+	}, nil
 }
 
-func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error {
-	var input struct {
-		ResourceArn string `json:"resourceArn"`
-	}
-	if err := json.Unmarshal(body, &input); err != nil || input.ResourceArn == "" {
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", "resourceArn is required"))
+type tagResourceInput struct {
+	ResourceArn string     `json:"resourceArn"`
+	Tags        []tagEntry `json:"tags"`
+}
+
+type tagResourceOutput struct{}
+
+func (h *Handler) handleTagResource(
+	_ context.Context,
+	in *tagResourceInput,
+) (*tagResourceOutput, error) {
+	if in.ResourceArn == "" {
+		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
 	}
 
-	kv, err := h.Backend.ListTagsForResource(input.ResourceArn)
+	if err := h.Backend.TagResource(in.ResourceArn, tagEntriesToMap(in.Tags)); err != nil {
+		return nil, err
+	}
+
+	return &tagResourceOutput{}, nil
+}
+
+type untagResourceInput struct {
+	ResourceArn string   `json:"resourceArn"`
+	TagKeys     []string `json:"tagKeys"`
+}
+
+type untagResourceOutput struct{}
+
+func (h *Handler) handleUntagResource(
+	_ context.Context,
+	in *untagResourceInput,
+) (*untagResourceOutput, error) {
+	if in.ResourceArn == "" {
+		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return &untagResourceOutput{}, nil
+}
+
+type listTagsForResourceInput struct {
+	ResourceArn string `json:"resourceArn"`
+}
+
+type listTagsForResourceOutput struct {
+	Tags []tagEntry `json:"tags"`
+}
+
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	in *listTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
+	if in.ResourceArn == "" {
+		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
+	}
+
+	kv, err := h.Backend.ListTagsForResource(in.ResourceArn)
 	if err != nil {
-		return handleBackendError(c, err)
+		return nil, err
 	}
 
 	entries := make([]tagEntry, 0, len(kv))
@@ -473,9 +568,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 		entries = append(entries, tagEntry{Key: k, Value: v})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"tags": entries,
-	})
+	return &listTagsForResourceOutput{Tags: entries}, nil
 }
 
 // tagEntry is a key-value tag pair for JSON (de)serialization.
@@ -496,30 +589,4 @@ func tagEntriesToMap(entries []tagEntry) map[string]string {
 	}
 
 	return m
-}
-
-// errorResponse builds a CodeDeploy JSON error body.
-func errorResponse(code, message string) map[string]string {
-	return map[string]string{
-		"__type":  code,
-		"message": message,
-	}
-}
-
-// handleBackendError maps a backend error to an HTTP response.
-func handleBackendError(c *echo.Context, err error) error {
-	switch {
-	case errors.Is(err, ErrNotFound):
-		return c.JSON(http.StatusNotFound, errorResponse("ApplicationDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrDeploymentGroupNotFound):
-		return c.JSON(http.StatusNotFound, errorResponse("DeploymentGroupDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrDeploymentNotFound):
-		return c.JSON(http.StatusNotFound, errorResponse("DeploymentDoesNotExistException", err.Error()))
-	case errors.Is(err, ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, errorResponse("ApplicationAlreadyExistsException", err.Error()))
-	case errors.Is(err, ErrDeploymentGroupAlreadyExists):
-		return c.JSON(http.StatusConflict, errorResponse("DeploymentGroupAlreadyExistsException", err.Error()))
-	default:
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidRequestException", err.Error()))
-	}
 }

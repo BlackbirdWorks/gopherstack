@@ -2,6 +2,7 @@ package codedeploy
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -410,15 +411,16 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, app := range b.applications {
-		if b.ApplicationARN(app.ApplicationName) == resourceARN {
-			app.Tags.Merge(kv)
+	name := appNameFromARN(resourceARN)
+	app, ok := b.applications[name]
 
-			return nil
-		}
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	app.Tags.Merge(kv)
+
+	return nil
 }
 
 // UntagResource removes tags from an application by ARN.
@@ -426,15 +428,16 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, app := range b.applications {
-		if b.ApplicationARN(app.ApplicationName) == resourceARN {
-			app.Tags.DeleteKeys(keys)
+	name := appNameFromARN(resourceARN)
+	app, ok := b.applications[name]
 
-			return nil
-		}
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	app.Tags.DeleteKeys(keys)
+
+	return nil
 }
 
 // ListTagsForResource returns the tags for an application by ARN.
@@ -442,16 +445,34 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, app := range b.applications {
-		if b.ApplicationARN(app.ApplicationName) == resourceARN {
-			return app.Tags.Clone(), nil
-		}
+	name := appNameFromARN(resourceARN)
+	app, ok := b.applications[name]
+
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	return app.Tags.Clone(), nil
 }
 
 // ApplicationARN builds an ARN for a CodeDeploy application.
 func (b *InMemoryBackend) ApplicationARN(name string) string {
 	return arn.Build("codedeploy", b.region, b.accountID, "application:"+name)
+}
+
+// appNameFromARN extracts the application name from a CodeDeploy application ARN.
+// It tolerates mismatched account IDs (e.g. empty vs 000000000000 when
+// the Terraform provider is configured with skip_requesting_account_id=true).
+// ARN format: arn:aws:codedeploy:{region}:{account}:application:{name}.
+func appNameFromARN(resourceARN string) string {
+	// Split on ":" with a max of 7 parts:
+	// ["arn","aws","codedeploy","{region}","{account}","application","{name}"]
+	const arnParts = 7
+	parts := strings.SplitN(resourceARN, ":", arnParts)
+
+	if len(parts) == arnParts && parts[5] == "application" {
+		return parts[6]
+	}
+
+	return ""
 }
