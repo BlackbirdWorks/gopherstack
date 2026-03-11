@@ -48,9 +48,9 @@ type Project struct {
 	Arn          string             `json:"arn"`
 	Description  string             `json:"description,omitempty"`
 	ServiceRole  string             `json:"serviceRole,omitempty"`
-	Created      string             `json:"created,omitempty"`
-	LastModified string             `json:"lastModified,omitempty"`
 	Environment  ProjectEnvironment `json:"environment"`
+	Created      float64            `json:"created,omitempty"`
+	LastModified float64            `json:"lastModified,omitempty"`
 }
 
 // Build represents an in-memory AWS CodeBuild build execution.
@@ -60,9 +60,9 @@ type Build struct {
 	Arn          string            `json:"arn"`
 	ProjectName  string            `json:"projectName"`
 	BuildStatus  string            `json:"buildStatus"`
-	StartTime    string            `json:"startTime,omitempty"`
-	EndTime      string            `json:"endTime,omitempty"`
 	CurrentPhase string            `json:"currentPhase,omitempty"`
+	StartTime    float64           `json:"startTime,omitempty"`
+	EndTime      float64           `json:"endTime,omitempty"`
 }
 
 // InMemoryBackend is a thread-safe in-memory store for CodeBuild resources.
@@ -134,7 +134,7 @@ func (b *InMemoryBackend) CreateProject(
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
 
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := float64(time.Now().Unix())
 	p := &Project{
 		Name:         name,
 		Arn:          b.buildProjectARN(name),
@@ -210,7 +210,7 @@ func (b *InMemoryBackend) UpdateProject(
 		p.ServiceRole = serviceRole
 	}
 
-	p.LastModified = time.Now().UTC().Format(time.RFC3339)
+	p.LastModified = float64(time.Now().Unix())
 
 	out := *p
 
@@ -260,7 +260,7 @@ func (b *InMemoryBackend) StartBuild(projectName string) (*Build, error) {
 		Arn:          b.buildBuildARN(projectName, buildID),
 		ProjectName:  projectName,
 		BuildStatus:  "IN_PROGRESS",
-		StartTime:    time.Now().UTC().Format(time.RFC3339),
+		StartTime:    float64(time.Now().Unix()),
 		CurrentPhase: "SUBMITTED",
 	}
 	b.builds[fullID] = build
@@ -301,7 +301,7 @@ func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 	}
 
 	build.BuildStatus = "SUCCEEDED"
-	build.EndTime = time.Now().UTC().Format(time.RFC3339)
+	build.EndTime = float64(time.Now().Unix())
 	build.CurrentPhase = "COMPLETED"
 
 	out := *build

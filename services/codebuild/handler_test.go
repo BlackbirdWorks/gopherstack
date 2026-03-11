@@ -191,6 +191,81 @@ func TestHandler_CreateProject(t *testing.T) {
 	}
 }
 
+func TestHandler_CreateProject_TimestampsAreNumbers(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRequest(t, h, "CreateProject", map[string]any{
+		"name":      "ts-project",
+		"source":    map[string]any{"type": "NO_SOURCE"},
+		"artifacts": map[string]any{"type": "NO_ARTIFACTS"},
+		"environment": map[string]any{
+			"type":        "LINUX_CONTAINER",
+			"image":       "aws/codebuild/standard:5.0",
+			"computeType": "BUILD_GENERAL1_SMALL",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+
+	project, ok := out["project"].(map[string]any)
+	require.True(t, ok, "response should contain 'project' object")
+
+	_, createdIsNumber := project["created"].(float64)
+	assert.True(t, createdIsNumber, "created should be a JSON number (Unix epoch), not a string")
+
+	_, lastModifiedIsNumber := project["lastModified"].(float64)
+	assert.True(t, lastModifiedIsNumber, "lastModified should be a JSON number (Unix epoch), not a string")
+}
+
+func TestHandler_StartBuild_TimestampsAreNumbers(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	env := map[string]any{
+		"type":        "LINUX_CONTAINER",
+		"image":       "aws/codebuild/standard:5.0",
+		"computeType": "BUILD_GENERAL1_SMALL",
+	}
+	createRec := doRequest(t, h, "CreateProject", map[string]any{
+		"name":        "ts-build-project",
+		"source":      map[string]any{"type": "NO_SOURCE"},
+		"artifacts":   map[string]any{"type": "NO_ARTIFACTS"},
+		"environment": env,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	startRec := doRequest(t, h, "StartBuild", map[string]any{"projectName": "ts-build-project"})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startOut map[string]any
+	require.NoError(t, json.NewDecoder(startRec.Body).Decode(&startOut))
+
+	build, ok := startOut["build"].(map[string]any)
+	require.True(t, ok, "response should contain 'build' object")
+
+	_, startTimeIsNumber := build["startTime"].(float64)
+	assert.True(t, startTimeIsNumber, "startTime should be a JSON number (Unix epoch), not a string")
+
+	buildID, _ := build["id"].(string)
+	require.NotEmpty(t, buildID)
+
+	stopRec := doRequest(t, h, "StopBuild", map[string]any{"id": buildID})
+	require.Equal(t, http.StatusOK, stopRec.Code)
+
+	var stopOut map[string]any
+	require.NoError(t, json.NewDecoder(stopRec.Body).Decode(&stopOut))
+
+	stoppedBuild, ok := stopOut["build"].(map[string]any)
+	require.True(t, ok, "stop response should contain 'build' object")
+
+	_, endTimeIsNumber := stoppedBuild["endTime"].(float64)
+	assert.True(t, endTimeIsNumber, "endTime should be a JSON number (Unix epoch), not a string")
+}
+
 func TestHandler_BatchGetProjects(t *testing.T) {
 	t.Parallel()
 
