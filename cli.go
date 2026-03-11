@@ -72,6 +72,7 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
+	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -188,6 +189,7 @@ type CLI struct {
 	cloudFrontHandler             service.Registerable
 	codeArtifactHandler           service.Registerable
 	codeCommitHandler             service.Registerable
+	codeDeployHandler             service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -622,6 +624,11 @@ func (c *CLI) GetCodeArtifactHandler() service.Registerable { return c.codeArtif
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCodeCommitHandler() service.Registerable { return c.codeCommitHandler }
 
+// GetCodeDeployHandler returns the CodeDeploy handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeDeployHandler() service.Registerable { return c.codeDeployHandler }
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1045,6 +1052,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cloudFrontHandler = byName["CloudFront"]
 	cli.codeArtifactHandler = byName["CodeArtifact"]
 	cli.codeCommitHandler = byName["CodeCommit"]
+	cli.codeDeployHandler = byName["CodeDeploy"]
 }
 
 // initializeServices initializes all service providers.
@@ -1223,6 +1231,7 @@ func getServiceProviders() []service.Provider {
 		&cloudfrontbackend.Provider{},
 		&codeartifactbackend.Provider{},
 		&codecommitbackend.Provider{},
+		&codedeploybackend.Provider{},
 	}
 }
 

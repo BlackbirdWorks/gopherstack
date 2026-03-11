@@ -44,6 +44,7 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
+	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -196,6 +197,8 @@ type DashboardHandler struct {
 	CodeArtifactOps *codeartifactbackend.Handler
 	// CodeCommitOps provides access to the CodeCommit backend.
 	CodeCommitOps *codecommitbackend.Handler
+	// CodeDeployOps provides access to the CodeDeploy backend.
+	CodeDeployOps *codedeploybackend.Handler
 	SubRouter     *echo.Echo
 	ddbProvider   *ddbbackend.DashboardProvider
 	s3Provider    *s3backend.DashboardProvider
@@ -329,6 +332,8 @@ type Config struct {
 	CodeArtifactOps *codeartifactbackend.Handler
 	// CodeCommitOps provides access to the CodeCommit backend.
 	CodeCommitOps *codecommitbackend.Handler
+	// CodeDeployOps provides access to the CodeDeploy backend.
+	CodeDeployOps *codedeploybackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -504,7 +509,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CloudFrontOps:              cfg.CloudFrontOps,
 		CodeArtifactOps:            cfg.CodeArtifactOps,
 		CodeCommitOps:              cfg.CodeCommitOps,
-		GlobalConfig:               cfg.GlobalConfig,
+		CodeDeployOps:              cfg.CodeDeployOps,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
 		layout:                     tmpl,
@@ -947,6 +952,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupCloudFrontRoutes()
 	h.setupCodeArtifactRoutes()
 	h.setupCodeCommitRoutes()
+	h.setupCodeDeployRoutes()
 }
 
 // setupRecentServiceRoutes sets up dashboard routes for recently-added services.
@@ -1068,6 +1074,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/cloudfront", "CloudFront"},
 	{"/codeartifact", "CodeArtifact"},
 	{"/codecommit", "CodeCommit"},
+	{"/codedeploy", "CodeDeploy"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
