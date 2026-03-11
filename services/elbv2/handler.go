@@ -49,6 +49,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteTargetGroup",
 		"DescribeTargetGroups",
 		"ModifyTargetGroup",
+		"ModifyTargetGroupAttributes",
+		"DescribeTargetGroupAttributes",
 		"RegisterTargets",
 		"DeregisterTargets",
 		"DescribeTargetHealth",
@@ -190,6 +192,8 @@ func (h *Handler) buildDispatchTable() map[string]dispatchFunc {
 		"DeleteTargetGroup":              h.handleDeleteTargetGroup,
 		"DescribeTargetGroups":           h.handleDescribeTargetGroups,
 		"ModifyTargetGroup":              h.handleModifyTargetGroup,
+		"ModifyTargetGroupAttributes":    h.handleModifyTargetGroupAttributes,
+		"DescribeTargetGroupAttributes":  h.handleDescribeTargetGroupAttributes,
 		"RegisterTargets":                h.handleRegisterTargets,
 		"DeregisterTargets":              h.handleDeregisterTargets,
 		"DescribeTargetHealth":           h.handleDescribeTargetHealth,
@@ -484,6 +488,60 @@ func (h *Handler) handleModifyTargetGroup(vals url.Values) (any, error) {
 			},
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-tg"},
+	}, nil
+}
+
+func (h *Handler) handleModifyTargetGroupAttributes(vals url.Values) (any, error) {
+	tgArn := vals.Get("TargetGroupArn")
+	if tgArn == "" {
+		return nil, fmt.Errorf("%w: TargetGroupArn is required", ErrInvalidParameter)
+	}
+
+	tgs, err := h.Backend.DescribeTargetGroups([]string{tgArn}, nil, "")
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tgs) == 0 {
+		return nil, ErrTargetGroupNotFound
+	}
+
+	return &modifyTargetGroupAttributesResponse{
+		Xmlns: elbv2XMLNS,
+		Result: modifyTargetGroupAttributesResult{
+			Attributes: xmlTGAttributeList{Members: []xmlTGAttribute{}},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-tg-attrs"},
+	}, nil
+}
+
+func (h *Handler) handleDescribeTargetGroupAttributes(vals url.Values) (any, error) {
+	tgArn := vals.Get("TargetGroupArn")
+	if tgArn == "" {
+		return nil, fmt.Errorf("%w: TargetGroupArn is required", ErrInvalidParameter)
+	}
+
+	tgs, err := h.Backend.DescribeTargetGroups([]string{tgArn}, nil, "")
+	if err != nil {
+		return nil, err
+	}
+
+	if len(tgs) == 0 {
+		return nil, ErrTargetGroupNotFound
+	}
+
+	return &describeTargetGroupAttributesResponse{
+		Xmlns: elbv2XMLNS,
+		Result: describeTargetGroupAttributesResult{
+			Attributes: xmlTGAttributeList{
+				Members: []xmlTGAttribute{
+					{Key: "deregistration_delay.timeout_seconds", Value: "300"},
+					{Key: "stickiness.enabled", Value: "false"},
+					{Key: "load_balancing.algorithm.type", Value: "round_robin"},
+				},
+			},
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-describe-tg-attrs"},
 	}, nil
 }
 
@@ -1493,4 +1551,37 @@ type describeTagsResponse struct {
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
 	Result           describeTagsResult  `xml:"DescribeTagsResult"`
+}
+
+// --- target group attributes XML types ---
+
+type xmlTGAttribute struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
+type xmlTGAttributeList struct {
+	Members []xmlTGAttribute `xml:"member"`
+}
+
+type modifyTargetGroupAttributesResult struct {
+	Attributes xmlTGAttributeList `xml:"Attributes"`
+}
+
+type modifyTargetGroupAttributesResponse struct {
+	XMLName          xml.Name                          `xml:"ModifyTargetGroupAttributesResponse"`
+	Xmlns            string                            `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata               `xml:"ResponseMetadata"`
+	Result           modifyTargetGroupAttributesResult `xml:"ModifyTargetGroupAttributesResult"`
+}
+
+type describeTargetGroupAttributesResult struct {
+	Attributes xmlTGAttributeList `xml:"Attributes"`
+}
+
+type describeTargetGroupAttributesResponse struct {
+	XMLName          xml.Name                            `xml:"DescribeTargetGroupAttributesResponse"`
+	Xmlns            string                              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                 `xml:"ResponseMetadata"`
+	Result           describeTargetGroupAttributesResult `xml:"DescribeTargetGroupAttributesResult"`
 }

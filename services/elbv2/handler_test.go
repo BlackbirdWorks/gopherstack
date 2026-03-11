@@ -1752,3 +1752,92 @@ func TestDescribeLoadBalancerAttributesMissing(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+// TestModifyTargetGroupAttributes tests target group attribute modification.
+func TestModifyTargetGroupAttributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	tgArn := mustCreateTG(t, h, "attrs-tg")
+
+	tests := []struct {
+		vals       url.Values
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			vals: url.Values{
+				"Action":         {"ModifyTargetGroupAttributes"},
+				"Version":        {"2015-12-01"},
+				"TargetGroupArn": {tgArn},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_arn",
+			vals: url.Values{
+				"Action":  {"ModifyTargetGroupAttributes"},
+				"Version": {"2015-12-01"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "not_found",
+			vals: url.Values{
+				"Action":         {"ModifyTargetGroupAttributes"},
+				"Version":        {"2015-12-01"},
+				"TargetGroupArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/no-such/0"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := doELBv2(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestDescribeTargetGroupAttributes tests target group attribute retrieval.
+func TestDescribeTargetGroupAttributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	tgArn := mustCreateTG(t, h, "desc-attrs-tg")
+
+	tests := []struct {
+		vals       url.Values
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			vals: url.Values{
+				"Action":         {"DescribeTargetGroupAttributes"},
+				"Version":        {"2015-12-01"},
+				"TargetGroupArn": {tgArn},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing_arn",
+			vals: url.Values{
+				"Action":  {"DescribeTargetGroupAttributes"},
+				"Version": {"2015-12-01"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := doELBv2(t, h, tt.vals)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
