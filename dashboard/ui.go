@@ -58,6 +58,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
@@ -156,6 +157,7 @@ type DashboardHandler struct {
 	EC2Ops            *ec2backend.Handler
 	ECROps            *ecrbackend.Handler
 	ECSOps            *ecsbackend.Handler
+	EFSOps            *efsbackend.Handler
 	IoTOps            *iotbackend.Handler
 	FISOps            *fisbackend.Handler
 	OpenSearchOps     *opensearchbackend.Handler
@@ -267,6 +269,8 @@ type Config struct {
 	ECROps *ecrbackend.Handler
 	// ECSOps provides access to the ECS backend.
 	ECSOps *ecsbackend.Handler
+	// EFSOps provides access to the EFS backend.
+	EFSOps *efsbackend.Handler
 	// IoTOps provides access to the IoT backend.
 	IoTOps *iotbackend.Handler
 	// FISOps provides access to the FIS backend.
@@ -504,6 +508,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EC2Ops:                     cfg.EC2Ops,
 		ECROps:                     cfg.ECROps,
 		ECSOps:                     cfg.ECSOps,
+		EFSOps:                     cfg.EFSOps,
 		IoTOps:                     cfg.IoTOps,
 		FISOps:                     cfg.FISOps,
 		OpenSearchOps:              cfg.OpenSearchOps,
@@ -893,6 +898,12 @@ func (h *DashboardHandler) setupApplicationAutoscalingRoutes() {
 	h.SubRouter.POST("/dashboard/applicationautoscaling/delete", h.applicationautoscalingDelete)
 }
 
+func (h *DashboardHandler) setupEFSRoutes() {
+	h.SubRouter.GET("/dashboard/efs", h.efsIndex)
+	h.SubRouter.POST("/dashboard/efs/filesystem/create", h.efsCreateFileSystem)
+	h.SubRouter.POST("/dashboard/efs/filesystem/delete", h.efsDeleteFileSystem)
+}
+
 func (h *DashboardHandler) setupAppSyncRoutes() {
 	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
 }
@@ -1022,6 +1033,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupCodeBuildRoutes()
 	h.setupCodePipelineRoutes()
 	h.setupDynamoDBStreamsRoutes()
+	h.setupEFSRoutes()
 	h.setupEKSRoutes()
 }
 
@@ -1138,6 +1150,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/dms", "DMS"},
 	{"/codestarconnections", "CodeStarConnections"},
 	{"/dynamodbstreams", "DynamoDBStreams"},
+	{"/efs", "EFS"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
