@@ -47,6 +47,7 @@ import (
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -162,6 +163,7 @@ type Stack struct {
 	CodeBuildHandler               *codebuildbackend.Handler
 	CodeCommitHandler              *codecommitbackend.Handler
 	CodeDeployHandler              *codedeploybackend.Handler
+	CodeStarConnectionsHandler     *codestarconnectionsbackend.Handler
 	S3Client                       *s3.Client
 	DDBClient                      *dynamodb.Client
 	FaultStore                     *chaos.FaultStore
@@ -419,6 +421,7 @@ type handlers struct {
 	codebuild       *codebuildbackend.Handler
 	codeCommit      *codecommitbackend.Handler
 	codeDeploy      *codedeploybackend.Handler
+	codeStarConn    *codestarconnectionsbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -590,6 +593,9 @@ func populateNewestHandlers(h *handlers) {
 	h.codeDeploy = codedeploybackend.NewHandler(
 		codedeploybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.codeStarConn = codestarconnectionsbackend.NewHandler(
+		codestarconnectionsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -693,6 +699,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CodeBuildOps:               h.codebuild,
 		CodeCommitOps:              h.codeCommit,
 		CodeDeployOps:              h.codeDeploy,
+		CodeStarConnectionsOps:     h.codeStarConn,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -735,6 +742,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.codebuild)
 	_ = registry.Register(h.codeCommit)
 	_ = registry.Register(h.codeDeploy)
+	_ = registry.Register(h.codeStarConn)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -826,6 +834,7 @@ func buildStack(
 		CodeBuildHandler:               h.codebuild,
 		CodeCommitHandler:              h.codeCommit,
 		CodeDeployHandler:              h.codeDeploy,
+		CodeStarConnectionsHandler:     h.codeStarConn,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,

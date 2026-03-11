@@ -63,6 +63,7 @@ type docPageData struct {
 	CloudFrontOps              []string
 	CodeArtifactOps            []string
 	CodeBuildOps               []string
+	CodeStarConnectionsOps     []string
 }
 
 // docIndex renders the documentation page.
@@ -137,6 +138,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		CloudFrontOps:              h.getSupportedOps(h.CloudFrontOps),
 		CodeArtifactOps:            h.getSupportedOps(h.CodeArtifactOps),
 		CodeBuildOps:               h.getSupportedOps(h.CodeBuildOps),
+		CodeStarConnectionsOps:     h.getSupportedOps(h.CodeStarConnectionsOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)

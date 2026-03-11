@@ -52,6 +52,7 @@ import (
 	codebuildsvc "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	codecommitsvc "github.com/aws/aws-sdk-go-v2/service/codecommit"
 	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
+	codestarconnectionssvc "github.com/aws/aws-sdk-go-v2/service/codestarconnections"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
@@ -3841,6 +3842,53 @@ func TestTerraform_CodeDeploy(t *testing.T) {
 				require.NoError(t, err, "GetApplication should succeed after terraform apply")
 				require.NotNil(t, out.Application, "application should be returned")
 				assert.Equal(t, appName, aws.ToString(out.Application.ApplicationName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CodeStarConnections provisions a CodeStar connection via Terraform
+// and verifies it exists using the CodeStar Connections SDK.
+func TestTerraform_CodeStarConnections(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "codestarconnections/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{"Suffix": id}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCodeStarConnectionsClient(t)
+				suffix := vars["Suffix"].(string)
+
+				out, err := client.ListConnections(ctx, &codestarconnectionssvc.ListConnectionsInput{})
+				require.NoError(t, err)
+
+				found := false
+
+				for _, conn := range out.Connections {
+					if aws.ToString(conn.ConnectionName) == "tf-conn-"+suffix {
+						found = true
+						assert.Equal(t, "GitHub", string(conn.ProviderType))
+
+						break
+					}
+				}
+
+				assert.True(t, found, "connection should exist")
 			},
 		},
 	}

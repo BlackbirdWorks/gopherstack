@@ -193,6 +193,7 @@ type CLI struct {
 	codebuildHandler              service.Registerable
 	codeCommitHandler             service.Registerable
 	codeDeployHandler             service.Registerable
+	codeStarConnectionsHandler    service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -638,6 +639,13 @@ func (c *CLI) GetCodeCommitHandler() service.Registerable { return c.codeCommitH
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCodeDeployHandler() service.Registerable { return c.codeDeployHandler }
 
+// GetCodeStarConnectionsHandler returns the CodeStar Connections handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeStarConnectionsHandler() service.Registerable {
+	return c.codeStarConnectionsHandler
+}
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1069,6 +1077,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.codebuildHandler = byName["CodeBuild"]
 	cli.codeCommitHandler = byName["CodeCommit"]
 	cli.codeDeployHandler = byName["CodeDeploy"]
+	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 }
 
 // initializeServices initializes all service providers.

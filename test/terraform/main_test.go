@@ -42,6 +42,7 @@ import (
 	codebuildsvc "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	codecommitsvc "github.com/aws/aws-sdk-go-v2/service/codecommit"
 	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
+	codestarconnectionssvc "github.com/aws/aws-sdk-go-v2/service/codestarconnections"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
@@ -1480,6 +1481,24 @@ func createCodeDeployClient(t *testing.T) *codedeploysvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return codedeploysvc.NewFromConfig(cfg, func(o *codedeploysvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeStarConnectionsClient returns a CodeStar Connections client pointed at the shared test container.
+func createCodeStarConnectionsClient(t *testing.T) *codestarconnectionssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return codestarconnectionssvc.NewFromConfig(cfg, func(o *codestarconnectionssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
