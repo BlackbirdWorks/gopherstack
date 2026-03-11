@@ -178,6 +178,7 @@ provider "aws" {
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
     codeartifact    = %[1]q
+    codebuild       = %[1]q
     cognitoidentity          = %[1]q
     cognitoidentityprovider  = %[1]q
     configservice   = %[1]q
