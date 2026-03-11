@@ -78,6 +78,7 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
+	emrserverlessbackend "github.com/blackbirdworks/gopherstack/services/emrserverless"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
@@ -222,8 +223,10 @@ type DashboardHandler struct {
 	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
 	ElasticTranscoderOps *elastictranscoderbackend.Handler
 	// ELBOps provides access to the Classic ELB backend.
-	ELBOps       *elbbackend.Handler
-	SubRouter    *echo.Echo
+	ELBOps *elbbackend.Handler
+	// EmrServerlessOps provides access to the EMR Serverless backend.
+	EmrServerlessOps *emrserverlessbackend.Handler
+	SubRouter        *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
 	FaultStore   *chaos.FaultStore
@@ -381,6 +384,8 @@ type Config struct {
 	ElasticTranscoderOps *elastictranscoderbackend.Handler
 	// ELBOps provides access to the Classic ELB backend.
 	ELBOps *elbbackend.Handler
+	// EmrServerlessOps provides access to the EMR Serverless backend.
+	EmrServerlessOps *emrserverlessbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -483,6 +488,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/elasticbeanstalk/*.html",
 		"templates/elastictranscoder/*.html",
 		"templates/elb/*.html",
+		"templates/emrserverless/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -578,6 +584,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EKSOps:                     cfg.EKSOps,
 		ElasticTranscoderOps:       cfg.ElasticTranscoderOps,
 		ELBOps:                     cfg.ELBOps,
+		EmrServerlessOps:           cfg.EmrServerlessOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1067,6 +1074,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEKSRoutes()
 	h.setupElasticTranscoderRoutes()
 	h.setupELBRoutes()
+	h.setupEmrServerlessRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -1186,6 +1194,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/efs", "EFS"},
 	{"/elastictranscoder", "ElasticTranscoder"},
 	{"/elb", "ELB"},
+	{"/emrserverless", "EmrServerless"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

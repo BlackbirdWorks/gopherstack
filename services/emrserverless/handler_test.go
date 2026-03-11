@@ -898,34 +898,55 @@ func TestHandler_UntagResource(t *testing.T) {
 func TestHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
+	const emrAuth = "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/emr-serverless/aws4_request, SignedHeaders=host, Signature=abc"
+	const appConfigAuth = "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/appconfig/aws4_request, SignedHeaders=host, Signature=abc"
+
 	tests := []struct {
 		name      string
 		path      string
+		authHdr   string
 		wantMatch bool
 	}{
 		{
-			name:      "applications_exact",
+			name:      "applications_exact_with_emr_auth",
 			path:      "/applications",
+			authHdr:   emrAuth,
 			wantMatch: true,
 		},
 		{
-			name:      "applications_with_id",
+			name:      "applications_with_id_with_emr_auth",
 			path:      "/applications/abc123",
+			authHdr:   emrAuth,
 			wantMatch: true,
+		},
+		{
+			name:      "applications_with_appconfig_auth_no_match",
+			path:      "/applications",
+			authHdr:   appConfigAuth,
+			wantMatch: false,
+		},
+		{
+			name:      "applications_no_auth_no_match",
+			path:      "/applications",
+			authHdr:   "",
+			wantMatch: false,
 		},
 		{
 			name:      "emr_tags",
 			path:      "/tags/arn:aws:emr-serverless:us-east-1:000000000000:/applications/xyz",
+			authHdr:   "",
 			wantMatch: true,
 		},
 		{
 			name:      "backup_tags_no_match",
 			path:      "/tags/arn:aws:backup:us-east-1:000000000000:backup-vault/my-vault",
+			authHdr:   "",
 			wantMatch: false,
 		},
 		{
 			name:      "other_path",
 			path:      "/v1/createcomputeenvironment",
+			authHdr:   "",
 			wantMatch: false,
 		},
 	}
@@ -938,6 +959,9 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			matcher := h.RouteMatcher()
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.authHdr != "" {
+				req.Header.Set("Authorization", tt.authHdr)
+			}
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 

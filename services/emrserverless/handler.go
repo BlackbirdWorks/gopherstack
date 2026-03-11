@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	pathApplications = "/applications"
-	pathTags         = "/tags/"
+	pathApplications       = "/applications"
+	pathTags               = "/tags/"
+	emrServerlessService   = "emr-serverless"
+	emrMatchPriority       = 87
 )
 
 // Handler is the Echo HTTP handler for EMR Serverless operations (REST-JSON protocol).
@@ -62,18 +64,27 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches EMR Serverless requests.
+// For /applications paths, it additionally checks the Authorization header
+// service name to distinguish from AppConfig (which also uses /applications).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return path == pathApplications ||
-			strings.HasPrefix(path, pathApplications+"/") ||
-			strings.HasPrefix(path, pathTags+"arn:aws:emr-serverless:")
+		if strings.HasPrefix(path, pathTags+"arn:aws:emr-serverless:") {
+			return true
+		}
+
+		if path == pathApplications || strings.HasPrefix(path, pathApplications+"/") {
+			return httputils.ExtractServiceFromRequest(c.Request()) == emrServerlessService
+		}
+
+		return false
 	}
 }
 
 // MatchPriority returns the routing priority.
-func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
+// Uses 87 to be evaluated before AppConfig (priority 86) which also uses /applications paths.
+func (h *Handler) MatchPriority() int { return emrMatchPriority }
 
 const (
 	pathPartsApplication = 1

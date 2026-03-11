@@ -62,6 +62,7 @@ import (
 	elasticbeanstalksvc "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	emrserverlesssvc "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -1697,4 +1698,22 @@ func createELBClient(t *testing.T) *elbsvc.Client {
 	return elbsvc.NewFromConfig(cfg, func(o *elbsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+// createEmrServerlessClient returns an EMR Serverless client pointed at the shared test container.
+func createEmrServerlessClient(t *testing.T) *emrserverlesssvc.Client {
+t.Helper()
+
+cfg, err := config.LoadDefaultConfig(
+t.Context(),
+config.WithRegion("us-east-1"),
+config.WithCredentialsProvider(
+credentials.NewStaticCredentialsProvider("test", "test", ""),
+),
+)
+require.NoError(t, err, "unable to load SDK config")
+
+return emrserverlesssvc.NewFromConfig(cfg, func(o *emrserverlesssvc.Options) {
+o.BaseEndpoint = aws.String(endpoint)
+})
 }

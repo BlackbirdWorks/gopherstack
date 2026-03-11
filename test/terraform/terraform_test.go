@@ -4375,3 +4375,51 @@ func TestTerraform_ELB(t *testing.T) {
 		})
 	}
 }
+
+// TestTerraform_EmrServerless provisions an EMR Serverless application via Terraform, then
+// verifies it is listed via the EMR Serverless SDK.
+func TestTerraform_EmrServerless(t *testing.T) {
+t.Parallel()
+
+tests := []tfTestCase{
+{
+name:    "success",
+fixture: "emrserverless/success",
+setup: func(t *testing.T, _ string) map[string]any {
+t.Helper()
+id := uuid.NewString()[:8]
+
+return map[string]any{
+"Suffix": id,
+}
+},
+verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+t.Helper()
+client := createEmrServerlessClient(t)
+suffix := vars["Suffix"].(string)
+name := "tf-emr-" + suffix
+
+out, err := client.ListApplications(ctx, &emrserverlesssvc.ListApplicationsInput{})
+require.NoError(t, err, "ListApplications should succeed after terraform apply")
+found := false
+
+for _, app := range out.Applications {
+if aws.ToString(app.Name) == name {
+found = true
+
+break
+}
+}
+
+assert.True(t, found, "application %q should be listed", name)
+},
+},
+}
+
+for _, tc := range tests {
+t.Run(tc.name, func(t *testing.T) {
+t.Parallel()
+runTFTest(t, tc)
+})
+}
+}

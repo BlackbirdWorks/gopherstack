@@ -70,6 +70,7 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
+	emrserverlessbackend "github.com/blackbirdworks/gopherstack/services/emrserverless"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	"github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
@@ -157,6 +158,7 @@ type AWSSDKProvider interface {
 	GetEFSHandler() service.Registerable
 	GetEKSHandler() service.Registerable
 	GetELBHandler() service.Registerable
+	GetEmrServerlessHandler() service.Registerable
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
 	GetAPIGatewayManagementAPIHandler() service.Registerable
@@ -250,6 +252,7 @@ type extractedConfig struct {
 	efsOps                    *efsbackend.Handler
 	eksOps                    *eksbackend.Handler
 	elbOps                    *elbbackend.Handler
+	emrServerlessOps          *emrserverlessbackend.Handler
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
 	elasticTranscoderOps      *elastictranscoderbackend.Handler
@@ -476,6 +479,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.elbOps, _ = h.(*elbbackend.Handler)
 	}
 
+	if h := ap.GetEmrServerlessHandler(); h != nil {
+		ec.emrServerlessOps, _ = h.(*emrserverlessbackend.Handler)
+	}
+
 	if h := ap.GetIoTHandler(); h != nil {
 		ec.iotOps, _ = h.(*iotbackend.Handler)
 	}
@@ -683,6 +690,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		EFSOps:                     ec.efsOps,
 		EKSOps:                     ec.eksOps,
 		ELBOps:                     ec.elbOps,
+		EmrServerlessOps:           ec.emrServerlessOps,
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,
 		ElasticTranscoderOps:       ec.elasticTranscoderOps,
