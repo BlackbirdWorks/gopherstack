@@ -77,6 +77,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeOrderableDBInstanceOptions",
 		"DescribeDBLogFiles",
 		"DownloadDBLogFilePortion",
+		"DescribeGlobalClusters",
 	}
 }
 
@@ -275,6 +276,17 @@ func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error)
 		return h.handleDescribeDBLogFiles(vals)
 	case "DownloadDBLogFilePortion":
 		return h.handleDownloadDBLogFilePortion(vals)
+	default:
+		return h.dispatchExtended3(action, vals)
+	}
+}
+
+// dispatchExtended3 routes the final set of extended RDS actions. Split from dispatchExtended2 to
+// keep cyclomatic complexity within limits.
+func (h *Handler) dispatchExtended3(action string, vals url.Values) (any, error) {
+	switch action {
+	case "DescribeGlobalClusters":
+		return h.handleDescribeGlobalClusters(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
 	}
@@ -1260,6 +1272,13 @@ func (h *Handler) handleDownloadDBLogFilePortion(vals url.Values) (any, error) {
 	}, nil
 }
 
+func (h *Handler) handleDescribeGlobalClusters(_ url.Values) (any, error) {
+	return &describeGlobalClustersResponse{
+		Xmlns:          rdsXMLNS,
+		GlobalClusters: xmlGlobalClusterList{},
+	}, nil
+}
+
 func toXMLParameterGroup(pg *DBParameterGroup) xmlDBParameterGroup {
 	return xmlDBParameterGroup{
 		DBParameterGroupName:   pg.DBParameterGroupName,
@@ -1578,4 +1597,14 @@ type downloadDBLogFilePortionResponse struct {
 	LogFileData           string   `xml:"DownloadDBLogFilePortionResult>LogFileData"`
 	Marker                string   `xml:"DownloadDBLogFilePortionResult>Marker,omitempty"`
 	AdditionalDataPending bool     `xml:"DownloadDBLogFilePortionResult>AdditionalDataPending"`
+}
+
+type xmlGlobalClusterList struct {
+	Members []struct{} `xml:"GlobalCluster"`
+}
+
+type describeGlobalClustersResponse struct {
+	XMLName        xml.Name             `xml:"DescribeGlobalClustersResponse"`
+	Xmlns          string               `xml:"xmlns,attr"`
+	GlobalClusters xmlGlobalClusterList `xml:"DescribeGlobalClustersResult>GlobalClusters"`
 }

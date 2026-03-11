@@ -83,6 +83,7 @@ import (
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
@@ -206,6 +207,7 @@ type CLI struct {
 	dmsHandler                    service.Registerable
 	codeStarConnectionsHandler    service.Registerable
 	dynamodbStreamsHandler        service.Registerable
+	docdbHandler                  service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	eksHandler                    service.Registerable
@@ -688,6 +690,11 @@ func (c *CLI) GetDynamoDBStreamsHandler() service.Registerable {
 	return c.dynamodbStreamsHandler
 }
 
+// GetDocDBHandler returns the DocDB handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDocDBHandler() service.Registerable { return c.docdbHandler }
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1142,6 +1149,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 	cli.dynamodbStreamsHandler = byName["DynamoDBStreams"]
 	cli.eksHandler = byName["EKS"]
+	cli.docdbHandler = byName["DocDB"]
 }
 
 // initializeServices initializes all service providers.
@@ -1331,6 +1339,7 @@ func getServiceProviders() []service.Provider {
 		&codestarconnectionsbackend.Provider{},
 		&dynamodbstreamsbackend.Provider{},
 		&eksbackend.Provider{},
+		&docdbbackend.Provider{},
 	}
 }
 
