@@ -45,6 +45,7 @@ import (
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
+	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
@@ -201,6 +202,8 @@ type DashboardHandler struct {
 	CodeBuildOps *codebuildbackend.Handler
 	// CodeCommitOps provides access to the CodeCommit backend.
 	CodeCommitOps *codecommitbackend.Handler
+	// CodeConnectionsOps provides access to the CodeConnections backend.
+	CodeConnectionsOps *codeconnectionsbackend.Handler
 	// CodeDeployOps provides access to the CodeDeploy backend.
 	CodeDeployOps *codedeploybackend.Handler
 	// CodeStarConnectionsOps provides access to the CodeStar Connections backend.
@@ -340,6 +343,8 @@ type Config struct {
 	CodeBuildOps *codebuildbackend.Handler
 	// CodeCommitOps provides access to the CodeCommit backend.
 	CodeCommitOps *codecommitbackend.Handler
+	// CodeConnectionsOps provides access to the CodeConnections backend.
+	CodeConnectionsOps *codeconnectionsbackend.Handler
 	// CodeDeployOps provides access to the CodeDeploy backend.
 	CodeDeployOps *codedeploybackend.Handler
 	// CodeStarConnectionsOps provides access to the CodeStar Connections backend.
@@ -522,6 +527,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CodeArtifactOps:            cfg.CodeArtifactOps,
 		CodeBuildOps:               cfg.CodeBuildOps,
 		CodeCommitOps:              cfg.CodeCommitOps,
+		CodeConnectionsOps:         cfg.CodeConnectionsOps,
 		CodeDeployOps:              cfg.CodeDeployOps,
 		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
 		GlobalConfig:               cfg.GlobalConfig,
@@ -966,6 +972,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupBedrockRuntimeRoutes()
 	h.setupCloudFrontRoutes()
 	h.setupCodeArtifactRoutes()
+	h.setupCodeConnectionsRoutes()
 	h.setupCodeCommitRoutes()
 	h.setupCodeDeployRoutes()
 	h.setupCodeStarConnectionsRoutes()

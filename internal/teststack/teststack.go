@@ -46,6 +46,7 @@ import (
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
+	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
@@ -162,6 +163,7 @@ type Stack struct {
 	CodeArtifactHandler            *codeartifactbackend.Handler
 	CodeBuildHandler               *codebuildbackend.Handler
 	CodeCommitHandler              *codecommitbackend.Handler
+	CodeConnectionsHandler         *codeconnectionsbackend.Handler
 	CodeDeployHandler              *codedeploybackend.Handler
 	CodeStarConnectionsHandler     *codestarconnectionsbackend.Handler
 	S3Client                       *s3.Client
@@ -420,6 +422,7 @@ type handlers struct {
 	codeArtifact    *codeartifactbackend.Handler
 	codebuild       *codebuildbackend.Handler
 	codeCommit      *codecommitbackend.Handler
+	codeConnections *codeconnectionsbackend.Handler
 	codeDeploy      *codedeploybackend.Handler
 	codeStarConn    *codestarconnectionsbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
@@ -590,6 +593,9 @@ func populateNewestHandlers(h *handlers) {
 	h.codeCommit = codecommitbackend.NewHandler(
 		codecommitbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.codeConnections = codeconnectionsbackend.NewHandler(
+		codeconnectionsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.codeDeploy = codedeploybackend.NewHandler(
 		codedeploybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -698,6 +704,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CodeArtifactOps:            h.codeArtifact,
 		CodeBuildOps:               h.codebuild,
 		CodeCommitOps:              h.codeCommit,
+		CodeConnectionsOps:         h.codeConnections,
 		CodeDeployOps:              h.codeDeploy,
 		CodeStarConnectionsOps:     h.codeStarConn,
 		GlobalConfig: config.GlobalConfig{
@@ -741,6 +748,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.codeArtifact)
 	_ = registry.Register(h.codebuild)
 	_ = registry.Register(h.codeCommit)
+	_ = registry.Register(h.codeConnections)
 	_ = registry.Register(h.codeDeploy)
 	_ = registry.Register(h.codeStarConn)
 
@@ -833,6 +841,7 @@ func buildStack(
 		CodeArtifactHandler:            h.codeArtifact,
 		CodeBuildHandler:               h.codebuild,
 		CodeCommitHandler:              h.codeCommit,
+		CodeConnectionsHandler:         h.codeConnections,
 		CodeDeployHandler:              h.codeDeploy,
 		CodeStarConnectionsHandler:     h.codeStarConn,
 		S3Client:                       clients.S3,

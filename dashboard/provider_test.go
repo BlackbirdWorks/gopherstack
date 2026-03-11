@@ -99,6 +99,7 @@ func (m *mockAWSProvider) GetCloudFrontHandler() service.Registerable           
 func (m *mockAWSProvider) GetCodeArtifactHandler() service.Registerable            { return nil }
 func (m *mockAWSProvider) GetCodeBuildHandler() service.Registerable               { return nil }
 func (m *mockAWSProvider) GetCodeCommitHandler() service.Registerable              { return nil }
+func (m *mockAWSProvider) GetCodeConnectionsHandler() service.Registerable         { return nil }
 func (m *mockAWSProvider) GetCodeDeployHandler() service.Registerable              { return nil }
 func (m *mockAWSProvider) GetCodeStarConnectionsHandler() service.Registerable     { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
