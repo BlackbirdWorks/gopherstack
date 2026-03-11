@@ -46,6 +46,7 @@ import (
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
+	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -157,16 +158,14 @@ type Stack struct {
 	CeHandler                      *cebackend.Handler
 	CloudControlHandler            *cloudcontrolbackend.Handler
 	CloudFrontHandler              *cloudfrontbackend.Handler
-	// CodeArtifactHandler provides access to the CodeArtifact backend.
-	CodeArtifactHandler *codeartifactbackend.Handler
-	// CodeBuildHandler provides access to the CodeBuild backend.
-	CodeBuildHandler *codebuildbackend.Handler
-	// CodeCommitHandler provides access to the CodeCommit backend.
-	CodeCommitHandler *codecommitbackend.Handler
-	S3Client          *s3.Client
-	DDBClient         *dynamodb.Client
-	FaultStore        *chaos.FaultStore
-	Dashboard         *dashboard.DashboardHandler
+	CodeArtifactHandler            *codeartifactbackend.Handler
+	CodeBuildHandler               *codebuildbackend.Handler
+	CodeCommitHandler              *codecommitbackend.Handler
+	CodeDeployHandler              *codedeploybackend.Handler
+	S3Client                       *s3.Client
+	DDBClient                      *dynamodb.Client
+	FaultStore                     *chaos.FaultStore
+	Dashboard                      *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -419,6 +418,7 @@ type handlers struct {
 	codeArtifact    *codeartifactbackend.Handler
 	codebuild       *codebuildbackend.Handler
 	codeCommit      *codecommitbackend.Handler
+	codeDeploy      *codedeploybackend.Handler
 	iamBk           *iambackend.InMemoryBackend
 	s3Bk            *s3backend.InMemoryBackend
 }
@@ -587,6 +587,9 @@ func populateNewestHandlers(h *handlers) {
 	h.codeCommit = codecommitbackend.NewHandler(
 		codecommitbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.codeDeploy = codedeploybackend.NewHandler(
+		codedeploybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -689,6 +692,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CodeArtifactOps:            h.codeArtifact,
 		CodeBuildOps:               h.codebuild,
 		CodeCommitOps:              h.codeCommit,
+		CodeDeployOps:              h.codeDeploy,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -730,6 +734,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.codeArtifact)
 	_ = registry.Register(h.codebuild)
 	_ = registry.Register(h.codeCommit)
+	_ = registry.Register(h.codeDeploy)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -820,6 +825,7 @@ func buildStack(
 		CodeArtifactHandler:            h.codeArtifact,
 		CodeBuildHandler:               h.codebuild,
 		CodeCommitHandler:              h.codeCommit,
+		CodeDeployHandler:              h.codeDeploy,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,

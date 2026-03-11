@@ -41,6 +41,7 @@ import (
 	codeartifactsvc "github.com/aws/aws-sdk-go-v2/service/codeartifact"
 	codebuildsvc "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	codecommitsvc "github.com/aws/aws-sdk-go-v2/service/codecommit"
+	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
@@ -1461,6 +1462,24 @@ func createCodeCommitClient(t *testing.T) *codecommitsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return codecommitsvc.NewFromConfig(cfg, func(o *codecommitsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeDeployClient returns a CodeDeploy client pointed at the shared test container.
+func createCodeDeployClient(t *testing.T) *codedeploysvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return codedeploysvc.NewFromConfig(cfg, func(o *codedeploysvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

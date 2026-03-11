@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	amplifysdk "github.com/aws/aws-sdk-go-v2/service/amplify"
 	appsyncsdksvc "github.com/aws/aws-sdk-go-v2/service/appsync"
+	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -73,6 +74,7 @@ import (
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
+	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -190,6 +192,7 @@ type CLI struct {
 	codeArtifactHandler           service.Registerable
 	codebuildHandler              service.Registerable
 	codeCommitHandler             service.Registerable
+	codeDeployHandler             service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -211,6 +214,7 @@ type CLI struct {
 	amplifyClient                 *amplifysdk.Client
 	ecsClient                     *ecs.Client
 	iotClient                     *iotsdk.Client
+	codeDeployClient              *codedeploysdk.Client
 	AccountID                     string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
 	Port                          string                 `                                  name:"port"               env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
 	ElastiCacheEngine             string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
@@ -629,6 +633,11 @@ func (c *CLI) GetCodeBuildHandler() service.Registerable { return c.codebuildHan
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCodeCommitHandler() service.Registerable { return c.codeCommitHandler }
 
+// GetCodeDeployHandler returns the CodeDeploy handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeDeployHandler() service.Registerable { return c.codeDeployHandler }
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -957,6 +966,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
+	cli.codeDeployClient = codedeploysdk.NewFromConfig(
+		awsCfg,
+		func(o *codedeploysdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
 }
 
 // serviceByName builds a lookup map from service Name() to the service instance.
@@ -1053,6 +1068,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.codeArtifactHandler = byName["CodeArtifact"]
 	cli.codebuildHandler = byName["CodeBuild"]
 	cli.codeCommitHandler = byName["CodeCommit"]
+	cli.codeDeployHandler = byName["CodeDeploy"]
 }
 
 // initializeServices initializes all service providers.
@@ -1232,6 +1248,7 @@ func getServiceProviders() []service.Provider {
 		&codeartifactbackend.Provider{},
 		&codebuildbackend.Provider{},
 		&codecommitbackend.Provider{},
+		&codedeploybackend.Provider{},
 	}
 }
 
@@ -2761,6 +2778,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		Amplify:        cli.amplifyClient,
 		ECS:            cli.ecsClient,
 		IoT:            cli.iotClient,
+		CodeDeploy:     cli.codeDeployClient,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load demo data", "error", err)
