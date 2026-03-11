@@ -102,6 +102,7 @@ func (m *mockAWSProvider) GetCodeCommitHandler() service.Registerable           
 func (m *mockAWSProvider) GetCodePipelineHandler() service.Registerable            { return nil }
 func (m *mockAWSProvider) GetCodeConnectionsHandler() service.Registerable         { return nil }
 func (m *mockAWSProvider) GetCodeDeployHandler() service.Registerable              { return nil }
+func (m *mockAWSProvider) GetCodeStarConnectionsHandler() service.Registerable     { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 

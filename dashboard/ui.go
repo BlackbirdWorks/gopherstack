@@ -48,6 +48,7 @@ import (
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -197,13 +198,15 @@ type DashboardHandler struct {
 	CodeDeployOps *codedeploybackend.Handler
 	// CodePipelineOps provides access to the CodePipeline backend.
 	CodePipelineOps *codepipelinebackend.Handler
-	SubRouter       *echo.Echo
-	ddbProvider     *ddbbackend.DashboardProvider
-	s3Provider      *s3backend.DashboardProvider
-	FaultStore      *chaos.FaultStore
-	Logger          *slog.Logger
-	layout          *template.Template
-	GlobalConfig    config.GlobalConfig
+	// CodeStarConnectionsOps provides access to the CodeStar Connections backend.
+	CodeStarConnectionsOps *codestarconnectionsbackend.Handler
+	SubRouter              *echo.Echo
+	ddbProvider            *ddbbackend.DashboardProvider
+	s3Provider             *s3backend.DashboardProvider
+	FaultStore             *chaos.FaultStore
+	Logger                 *slog.Logger
+	layout                 *template.Template
+	GlobalConfig           config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -338,6 +341,8 @@ type Config struct {
 	CodeConnectionsOps *codeconnectionsbackend.Handler
 	// CodeDeployOps provides access to the CodeDeploy backend.
 	CodeDeployOps *codedeploybackend.Handler
+	// CodeStarConnectionsOps provides access to the CodeStar Connections backend.
+	CodeStarConnectionsOps *codestarconnectionsbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -433,6 +438,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/codebuild/*.html",
 		"templates/codecommit/*.html",
 		"templates/codepipeline/*.html",
+		"templates/codestarconnections/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -519,6 +525,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CodePipelineOps:            cfg.CodePipelineOps,
 		CodeConnectionsOps:         cfg.CodeConnectionsOps,
 		CodeDeployOps:              cfg.CodeDeployOps,
+		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -964,6 +971,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupCodeConnectionsRoutes()
 	h.setupCodeCommitRoutes()
 	h.setupCodeDeployRoutes()
+	h.setupCodeStarConnectionsRoutes()
 }
 
 // setupRecentServiceRoutes sets up dashboard routes for recently-added services.
@@ -1090,6 +1098,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/codecommit", "CodeCommit"},
 	{"/codepipeline", "CodePipeline"},
 	{"/codedeploy", "CodeDeploy"},
+	{"/codestarconnections", "CodeStarConnections"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

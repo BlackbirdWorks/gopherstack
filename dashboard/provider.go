@@ -35,6 +35,7 @@ import (
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
@@ -138,6 +139,7 @@ type AWSSDKProvider interface {
 	GetCodePipelineHandler() service.Registerable
 	GetCodeConnectionsHandler() service.Registerable
 	GetCodeDeployHandler() service.Registerable
+	GetCodeStarConnectionsHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -222,6 +224,7 @@ type extractedConfig struct {
 	codePipelineOps           *codepipelinebackend.Handler
 	codeConnectionsOps        *codeconnectionsbackend.Handler
 	codeDeployOps             *codedeploybackend.Handler
+	codeStarConnectionsOps    *codestarconnectionsbackend.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
 	iotOps                    *iotbackend.Handler
@@ -521,6 +524,11 @@ func extractCodeServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.codebuildOps, _ = h.(*codebuildbackend.Handler)
 	}
 
+	extractCodeHandlers(ap, ec)
+}
+
+// extractCodeHandlers populates Code* service handlers on ec.
+func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCodeCommitHandler(); h != nil {
 		ec.codeCommitOps, _ = h.(*codecommitbackend.Handler)
 	}
@@ -535,6 +543,10 @@ func extractCodeServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetCodeDeployHandler(); h != nil {
 		ec.codeDeployOps, _ = h.(*codedeploybackend.Handler)
+	}
+
+	if h := ap.GetCodeStarConnectionsHandler(); h != nil {
+		ec.codeStarConnectionsOps, _ = h.(*codestarconnectionsbackend.Handler)
 	}
 }
 
@@ -605,6 +617,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CodePipelineOps:            ec.codePipelineOps,
 		CodeConnectionsOps:         ec.codeConnectionsOps,
 		CodeDeployOps:              ec.codeDeployOps,
+		CodeStarConnectionsOps:     ec.codeStarConnectionsOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		IoTOps:                     ec.iotOps,

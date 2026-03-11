@@ -78,6 +78,7 @@ import (
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -198,6 +199,7 @@ type CLI struct {
 	codePipelineHandler           service.Registerable
 	codeConnectionsHandler        service.Registerable
 	codeDeployHandler             service.Registerable
+	codeStarConnectionsHandler    service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -654,6 +656,13 @@ func (c *CLI) GetCodePipelineHandler() service.Registerable { return c.codePipel
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCodeDeployHandler() service.Registerable { return c.codeDeployHandler }
 
+// GetCodeStarConnectionsHandler returns the CodeStar Connections handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeStarConnectionsHandler() service.Registerable {
+	return c.codeStarConnectionsHandler
+}
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1093,6 +1102,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.codeCommitHandler = byName["CodeCommit"]
 	cli.codePipelineHandler = byName["CodePipeline"]
 	cli.codeDeployHandler = byName["CodeDeploy"]
+	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 }
 
 // initializeServices initializes all service providers.
@@ -1275,6 +1285,7 @@ func getServiceProviders() []service.Provider {
 		&codepipelinebackend.Provider{},
 		&codeconnectionsbackend.Provider{},
 		&codedeploybackend.Provider{},
+		&codestarconnectionsbackend.Provider{},
 	}
 }
 
