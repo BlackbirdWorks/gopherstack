@@ -189,13 +189,13 @@ type DashboardHandler struct {
 	CodeArtifactOps            *codeartifactbackend.Handler
 	CodeBuildOps               *codebuildbackend.Handler
 	CodeCommitOps              *codecommitbackend.Handler
+	CodePipelineOps            *codepipelinebackend.Handler
 	SubRouter                  *echo.Echo
 	ddbProvider                *ddbbackend.DashboardProvider
 	s3Provider                 *s3backend.DashboardProvider
 	FaultStore                 *chaos.FaultStore
 	Logger                     *slog.Logger
 	layout                     *template.Template
-	CodePipelineOps            *codepipelinebackend.Handler
 	GlobalConfig               config.GlobalConfig
 }
 

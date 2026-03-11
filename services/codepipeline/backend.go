@@ -5,8 +5,6 @@ import (
 	"maps"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -116,10 +114,6 @@ func (b *InMemoryBackend) buildPipelineARN(name string) string {
 	return arn.Build("codepipeline", b.region, b.accountID, name)
 }
 
-func randomID() string {
-	return uuid.NewString()[:8]
-}
-
 // CreatePipeline creates a new CodePipeline pipeline.
 func (b *InMemoryBackend) CreatePipeline(decl PipelineDeclaration, tags map[string]string) (*Pipeline, error) {
 	b.mu.Lock("CreatePipeline")
@@ -128,8 +122,6 @@ func (b *InMemoryBackend) CreatePipeline(decl PipelineDeclaration, tags map[stri
 	if _, exists := b.pipelines[decl.Name]; exists {
 		return nil, ErrAlreadyExists
 	}
-
-	_ = randomID()
 
 	tagsCopy := make(map[string]string, len(tags))
 	maps.Copy(tagsCopy, tags)
