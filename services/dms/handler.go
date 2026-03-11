@@ -632,21 +632,33 @@ func (h *Handler) handleListTagsForResource(
 
 // --- JSON response types ---
 
+// replicationSubnetGroupJSON is a minimal representation of a DMS replication
+// subnet group. The Terraform AWS provider accesses ReplicationSubnetGroup.ReplicationSubnetGroupIdentifier
+// unconditionally in its Read function, so we must always return a non-null object.
+type replicationSubnetGroupJSON struct {
+	ReplicationSubnetGroupIdentifier *string `json:"ReplicationSubnetGroupIdentifier"`
+}
+
 type replicationInstanceJSON struct {
-	ReplicationInstanceIdentifier string `json:"ReplicationInstanceIdentifier"`
-	ReplicationInstanceArn        string `json:"ReplicationInstanceArn"`
-	ReplicationInstanceClass      string `json:"ReplicationInstanceClass"`
-	EngineVersion                 string `json:"EngineVersion"`
-	AvailabilityZone              string `json:"AvailabilityZone"`
-	ReplicationInstanceStatus     string `json:"ReplicationInstanceStatus"`
-	AllocatedStorage              int32  `json:"AllocatedStorage"`
-	MultiAZ                       bool   `json:"MultiAZ"`
-	AutoMinorVersionUpgrade       bool   `json:"AutoMinorVersionUpgrade"`
-	PubliclyAccessible            bool   `json:"PubliclyAccessible"`
+	ReplicationSubnetGroup        replicationSubnetGroupJSON `json:"ReplicationSubnetGroup"`
+	ReplicationInstanceIdentifier string                     `json:"ReplicationInstanceIdentifier"`
+	ReplicationInstanceArn        string                     `json:"ReplicationInstanceArn"`
+	ReplicationInstanceClass      string                     `json:"ReplicationInstanceClass"`
+	EngineVersion                 string                     `json:"EngineVersion"`
+	AvailabilityZone              string                     `json:"AvailabilityZone"`
+	ReplicationInstanceStatus     string                     `json:"ReplicationInstanceStatus"`
+	AllocatedStorage              int32                      `json:"AllocatedStorage"`
+	MultiAZ                       bool                       `json:"MultiAZ"`
+	AutoMinorVersionUpgrade       bool                       `json:"AutoMinorVersionUpgrade"`
+	PubliclyAccessible            bool                       `json:"PubliclyAccessible"`
 }
 
 func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
 	return replicationInstanceJSON{
+		// ReplicationSubnetGroup must always be present and non-null.
+		// The Terraform AWS provider accesses ReplicationSubnetGroup.ReplicationSubnetGroupIdentifier
+		// directly (no nil check), so a missing field causes a nil pointer dereference panic.
+		ReplicationSubnetGroup:        replicationSubnetGroupJSON{ReplicationSubnetGroupIdentifier: nil},
 		ReplicationInstanceIdentifier: ri.ReplicationInstanceIdentifier,
 		ReplicationInstanceArn:        ri.ReplicationInstanceArn,
 		ReplicationInstanceClass:      ri.ReplicationInstanceClass,
