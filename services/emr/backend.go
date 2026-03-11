@@ -17,6 +17,15 @@ var (
 	ErrAlreadyExists = awserr.New("ClientException", awserr.ErrAlreadyExists)
 )
 
+const (
+	// StateWaiting is the initial cluster state after creation.
+	StateWaiting = "WAITING"
+	// StateTerminated is the final cluster state after termination.
+	StateTerminated = "TERMINATED"
+	// StateTerminatedWithErrors is the final cluster state for a failed termination.
+	StateTerminatedWithErrors = "TERMINATED_WITH_ERRORS"
+)
+
 // ClusterStatus holds the status fields for a Cluster.
 type ClusterStatus struct {
 	StateChangeReason map[string]any `json:"StateChangeReason,omitempty"`
@@ -94,14 +103,14 @@ func (b *InMemoryBackend) RunJobFlow(name, releaseLabel string, tags []Tag) (*Cl
 		ReleaseLabel: releaseLabel,
 		ARN:          clusterARN,
 		Status: ClusterStatus{
-			State:             "WAITING",
+			State:             StateWaiting,
 			StateChangeReason: map[string]any{"Code": "USER_REQUEST", "Message": ""},
 			Timeline:          map[string]any{"CreationDateTime": 0},
 		},
 		Tags: tagsCopy,
 	}
 	b.clusters[id] = cluster
-	cp := *cluster
+	cp := cluster.clone()
 
 	return &cp, nil
 }
@@ -116,12 +125,27 @@ func (b *InMemoryBackend) DescribeCluster(id string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
 	}
 
-	cp := *cluster
+	cp := cluster.clone()
 
 	return &cp, nil
 }
 
-// ListClusters returns all clusters as summaries.
+// clone returns a deep copy of the Cluster.
+func (c Cluster) clone() Cluster {
+	cp := c
+
+	if c.Tags != nil {
+		cp.Tags = make([]Tag, len(c.Tags))
+		copy(cp.Tags, c.Tags)
+	}
+
+	cp.Status.StateChangeReason = maps.Clone(c.Status.StateChangeReason)
+	cp.Status.Timeline = maps.Clone(c.Status.Timeline)
+
+	return cp
+}
+
+// ListClusters returns all active (non-terminated) clusters as summaries.
 func (b *InMemoryBackend) ListClusters() []ClusterSummary {
 	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
@@ -129,6 +153,10 @@ func (b *InMemoryBackend) ListClusters() []ClusterSummary {
 	list := make([]ClusterSummary, 0, len(b.clusters))
 
 	for _, c := range b.clusters {
+		if c.Status.State == StateTerminated || c.Status.State == StateTerminatedWithErrors {
+			continue
+		}
+
 		list = append(list, ClusterSummary{
 			ID:           c.ID,
 			Name:         c.Name,
@@ -141,7 +169,7 @@ func (b *InMemoryBackend) ListClusters() []ClusterSummary {
 	return list
 }
 
-// TerminateJobFlows marks the specified clusters as TERMINATING.
+// TerminateJobFlows marks the specified clusters as TERMINATED and removes them from active listing.
 func (b *InMemoryBackend) TerminateJobFlows(ids []string) error {
 	b.mu.Lock("TerminateJobFlows")
 	defer b.mu.Unlock()
@@ -152,7 +180,7 @@ func (b *InMemoryBackend) TerminateJobFlows(ids []string) error {
 			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
 		}
 
-		cluster.Status.State = "TERMINATING"
+		cluster.Status.State = StateTerminated
 	}
 
 	return nil

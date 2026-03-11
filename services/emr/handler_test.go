@@ -352,10 +352,12 @@ func TestEMR_TerminateJobFlows(t *testing.T) {
 			name: "terminates existing cluster",
 			setup: func(h *emr.Handler) []string {
 				rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "to-terminate"})
+				require.Equal(t, http.StatusOK, rec.Code)
+
 				var out struct {
 					JobFlowID string `json:"JobFlowId"`
 				}
-				_ = json.Unmarshal(rec.Body.Bytes(), &out)
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 
 				return []string{out.JobFlowID}
 			},
@@ -439,6 +441,88 @@ func TestEMR_ListSteps(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Empty(t, out.Steps)
+}
+
+func TestEMR_ListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup     func(*emr.Handler) string
+		checkTags func(*testing.T, map[string]string)
+		name      string
+		wantCode  int
+	}{
+		{
+			name: "lists tags on existing cluster",
+			setup: func(h *emr.Handler) string {
+				rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{
+					"Name": "list-tags-cluster",
+					"Tags": []map[string]any{{"Key": "env", "Value": "prod"}},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var createOut struct {
+					JobFlowID string `json:"JobFlowId"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+
+				return createOut.JobFlowID
+			},
+			wantCode: http.StatusOK,
+			checkTags: func(t *testing.T, tags map[string]string) {
+				t.Helper()
+				assert.Equal(t, "prod", tags["env"])
+			},
+		},
+		{
+			name: "lists empty tags on cluster without tags",
+			setup: func(h *emr.Handler) string {
+				rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "no-tag-cluster"})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var createOut struct {
+					JobFlowID string `json:"JobFlowId"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
+
+				return createOut.JobFlowID
+			},
+			wantCode: http.StatusOK,
+			checkTags: func(t *testing.T, tags map[string]string) {
+				t.Helper()
+				assert.Empty(t, tags)
+			},
+		},
+		{
+			name: "returns error for non-existent resource",
+			setup: func(_ *emr.Handler) string {
+				return "j-NOTEXIST"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			resourceID := tt.setup(h)
+
+			listRec := doEMRRequest(t, h, "ListTagsForResource", map[string]any{
+				"ResourceId": resourceID,
+			})
+			require.Equal(t, tt.wantCode, listRec.Code)
+
+			if tt.checkTags != nil {
+				var tagOut struct {
+					Tags map[string]string `json:"Tags"`
+				}
+				require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &tagOut))
+				tt.checkTags(t, tagOut.Tags)
+			}
+		})
+	}
 }
 
 func TestEMR_AddJobFlowSteps(t *testing.T) {

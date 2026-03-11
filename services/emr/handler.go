@@ -45,6 +45,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TerminateJobFlows",
 		"AddTags",
 		"RemoveTags",
+		"ListTagsForResource",
 		"ListSteps",
 		"AddJobFlowSteps",
 	}
@@ -125,14 +126,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"RunJobFlow":        service.WrapOp(h.handleRunJobFlow),
-		"DescribeCluster":   service.WrapOp(h.handleDescribeCluster),
-		"ListClusters":      service.WrapOp(h.handleListClusters),
-		"TerminateJobFlows": service.WrapOp(h.handleTerminateJobFlows),
-		"AddTags":           service.WrapOp(h.handleAddTags),
-		"RemoveTags":        service.WrapOp(h.handleRemoveTags),
-		"ListSteps":         service.WrapOp(h.handleListSteps),
-		"AddJobFlowSteps":   service.WrapOp(h.handleAddJobFlowSteps),
+		"RunJobFlow":          service.WrapOp(h.handleRunJobFlow),
+		"DescribeCluster":     service.WrapOp(h.handleDescribeCluster),
+		"ListClusters":        service.WrapOp(h.handleListClusters),
+		"TerminateJobFlows":   service.WrapOp(h.handleTerminateJobFlows),
+		"AddTags":             service.WrapOp(h.handleAddTags),
+		"RemoveTags":          service.WrapOp(h.handleRemoveTags),
+		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
+		"ListSteps":           service.WrapOp(h.handleListSteps),
+		"AddJobFlowSteps":     service.WrapOp(h.handleAddJobFlowSteps),
 	}
 }
 
@@ -268,7 +270,25 @@ func (h *Handler) handleRemoveTags(_ context.Context, in *removeTagsInput) (*emp
 	return &emptyOutput{}, nil
 }
 
-// --- Stub handlers ---
+type listTagsForResourceInput struct {
+	ResourceID string `json:"ResourceId"`
+}
+
+type listTagsForResourceOutput struct {
+	Tags map[string]string `json:"Tags"`
+}
+
+func (h *Handler) handleListTagsForResource(
+	_ context.Context,
+	in *listTagsForResourceInput,
+) (*listTagsForResourceOutput, error) {
+	tags, err := h.Backend.ListTagsForResource(in.ResourceID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listTagsForResourceOutput{Tags: tags}, nil
+}
 
 type listStepsInput struct {
 	ClusterID string `json:"ClusterId"`

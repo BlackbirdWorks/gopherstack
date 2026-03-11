@@ -212,6 +212,7 @@ provider "aws" {
     elb             = %[1]q
     elasticache     = %[1]q
     elastictranscoder = %[1]q
+    emr             = %[1]q
     events          = %[1]q
     firehose        = %[1]q
     iam             = %[1]q
