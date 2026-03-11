@@ -208,7 +208,7 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 	}
 
 	return &createLoadBalancerResponse{
-		Xmlns:            elbXMLNS,
+		Xmlns: elbXMLNS,
 		Result: createLoadBalancerResult{
 			DNSName: lb.DNSName,
 		},
@@ -444,6 +444,7 @@ func elbErrorCode(opErr error) (string, int) {
 	mappings := []errorMapping{
 		{awserr.ErrNotFound, "LoadBalancerNotFound", http.StatusNotFound},
 		{awserr.ErrAlreadyExists, "DuplicateLoadBalancerName", http.StatusConflict},
+		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
 		{awserr.ErrInvalidParameter, "ValidationError", http.StatusBadRequest},
 	}
 
@@ -497,7 +498,7 @@ func parseInt32(s string) (int32, error) {
 
 // parseMembers extracts indexed form values (e.g. "LoadBalancerNames.member.1").
 func parseMembers(vals url.Values, prefix string) []string {
-	result := make([]string, 0, 4)
+	result := make([]string, 0)
 
 	for i := 1; ; i++ {
 		key := fmt.Sprintf("%s.%d", prefix, i)
@@ -515,7 +516,7 @@ func parseMembers(vals url.Values, prefix string) []string {
 
 // parseListeners extracts listener definitions from Listeners.member.N.* form values.
 func parseListeners(vals url.Values) ([]Listener, error) {
-	result := make([]Listener, 0, 2)
+	result := make([]Listener, 0)
 
 	for i := 1; ; i++ {
 		proto := vals.Get(fmt.Sprintf("Listeners.member.%d.Protocol", i))
@@ -551,7 +552,7 @@ func parseListeners(vals url.Values) ([]Listener, error) {
 
 // parseInstances extracts instance IDs from Instances.member.N.InstanceId form values.
 func parseInstances(vals url.Values) []Instance {
-	result := make([]Instance, 0, 4)
+	result := make([]Instance, 0)
 
 	for i := 1; ; i++ {
 		id := vals.Get(fmt.Sprintf("Instances.member.%d.InstanceId", i))
@@ -567,7 +568,7 @@ func parseInstances(vals url.Values) []Instance {
 
 // parseTagKVs extracts key-value tag pairs from Tags.member.N.Key/Value form values.
 func parseTagKVs(vals url.Values, prefix string) []tags.KV {
-	result := make([]tags.KV, 0, 4)
+	result := make([]tags.KV, 0)
 
 	for i := 1; ; i++ {
 		k := vals.Get(fmt.Sprintf("%s.%d.Key", prefix, i))
@@ -583,7 +584,7 @@ func parseTagKVs(vals url.Values, prefix string) []tags.KV {
 
 // parseTagKeys extracts tag keys from Tags.member.N.Key form values (for RemoveTags).
 func parseTagKeys(vals url.Values, prefix string) []string {
-	result := make([]string, 0, 4)
+	result := make([]string, 0)
 
 	for i := 1; ; i++ {
 		k := vals.Get(fmt.Sprintf("%s.%d.Key", prefix, i))

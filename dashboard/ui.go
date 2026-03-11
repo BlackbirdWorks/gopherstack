@@ -60,8 +60,8 @@ import (
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
-	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -214,10 +214,10 @@ type DashboardHandler struct {
 	// DynamoDBStreamsOps provides access to the DynamoDB Streams backend.
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
 	// EKSOps provides access to the EKS backend.
-	EKSOps       *eksbackend.Handler
+	EKSOps *eksbackend.Handler
 	// ELBOps provides access to the Classic ELB backend.
-	ELBOps    *elbbackend.Handler
-	SubRouter *echo.Echo
+	ELBOps       *elbbackend.Handler
+	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
 	FaultStore   *chaos.FaultStore
