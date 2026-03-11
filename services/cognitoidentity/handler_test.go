@@ -436,3 +436,252 @@ func TestHandler_UnknownAction(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{
+			name:   "valid_action",
+			target: "AWSCognitoIdentityService.CreateIdentityPool",
+			want:   "CreateIdentityPool",
+		},
+		{
+			name:   "empty_target",
+			target: "",
+			want:   "Unknown",
+		},
+		{
+			name:   "no_prefix",
+			target: "SomeOtherService.SomeAction",
+			want:   "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			got := h.ExtractOperation(c)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "with_identity_pool_id",
+			body: `{"IdentityPoolId":"us-east-1:abc123"}`,
+			want: "us-east-1:abc123",
+		},
+		{
+			name: "with_identity_id",
+			body: `{"IdentityId":"us-east-1:ident456"}`,
+			want: "us-east-1:ident456",
+		},
+		{
+			name: "empty_body",
+			body: `{}`,
+			want: "",
+		},
+		{
+			name: "invalid_json",
+			body: `not-json`,
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(tt.body))
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			got := h.ExtractResource(c)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestHandler_DescribeIdentityPool_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "DescribeIdentityPool", map[string]any{
+		"IdentityPoolId": "us-east-1:nonexistent",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_UpdateIdentityPool_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "UpdateIdentityPool", map[string]any{
+		"IdentityPoolId":                 "us-east-1:nonexistent",
+		"IdentityPoolName":               "new-name",
+		"AllowUnauthenticatedIdentities": false,
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GetID_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "GetId", map[string]any{
+		"AccountId":      "000000000000",
+		"IdentityPoolId": "us-east-1:nonexistent",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GetCredentialsForIdentity_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "GetCredentialsForIdentity", map[string]any{
+		"IdentityId": "us-east-1:nonexistent",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_GetOpenIDToken_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "GetOpenIdToken", map[string]any{
+		"IdentityId": "us-east-1:nonexistent",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_SetIdentityPoolRoles_ErrorCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "empty_pool_id",
+			body: map[string]any{
+				"IdentityPoolId": "",
+				"Roles": map[string]string{
+					"authenticated": "arn:aws:iam::000000000000:role/Auth",
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "no_roles",
+			body: map[string]any{
+				"IdentityPoolId": "us-east-1:some-pool-id",
+				"Roles":          map[string]string{},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "pool_not_found",
+			body: map[string]any{
+				"IdentityPoolId": "us-east-1:nonexistent",
+				"Roles": map[string]string{
+					"authenticated": "arn:aws:iam::000000000000:role/Auth",
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doCognitoIdentityRequest(t, h, "SetIdentityPoolRoles", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetIdentityPoolRoles_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "GetIdentityPoolRoles", map[string]any{
+		"IdentityPoolId": "us-east-1:nonexistent",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(`not-valid-json`))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "AWSCognitoIdentityService.CreateIdentityPool")
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	handlerErr := h.Handler()(c)
+	require.NoError(t, handlerErr)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_WithProviders(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doCognitoIdentityRequest(t, h, "CreateIdentityPool", map[string]any{
+		"IdentityPoolName":               "provider-pool",
+		"AllowUnauthenticatedIdentities": false,
+		"CognitoIdentityProviders": []map[string]any{
+			{
+				"ProviderName":         "cognito-idp.us-east-1.amazonaws.com/us-east-1_xxx",
+				"ClientId":             "client123",
+				"ServerSideTokenCheck": true,
+			},
+		},
+	})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "provider-pool", out["IdentityPoolName"])
+
+	providers, ok := out["CognitoIdentityProviders"].([]any)
+	require.True(t, ok)
+	assert.Len(t, providers, 1)
+}
