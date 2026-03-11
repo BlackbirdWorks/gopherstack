@@ -61,6 +61,7 @@ import (
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
@@ -215,6 +216,8 @@ type DashboardHandler struct {
 	CodeStarConnectionsOps *codestarconnectionsbackend.Handler
 	// DynamoDBStreamsOps provides access to the DynamoDB Streams backend.
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
+	// ElasticbeanstalkOps provides access to the Elastic Beanstalk backend.
+	ElasticbeanstalkOps *elasticbeanstalkbackend.Handler
 	// EKSOps provides access to the EKS backend.
 	EKSOps *eksbackend.Handler
 	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
@@ -373,6 +376,8 @@ type Config struct {
 	CodeStarConnectionsOps *codestarconnectionsbackend.Handler
 	// DynamoDBStreamsOps provides access to the DynamoDB Streams backend.
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
+	// ElasticbeanstalkOps provides access to the Elastic Beanstalk backend.
+	ElasticbeanstalkOps *elasticbeanstalkbackend.Handler
 	// EKSOps provides access to the EKS backend.
 	EKSOps *eksbackend.Handler
 	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
@@ -480,6 +485,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/codepipeline/*.html",
 		"templates/codestarconnections/*.html",
 		"templates/dynamodbstreams/*.html",
+		"templates/elasticbeanstalk/*.html",
 		"templates/elastictranscoder/*.html",
 		"templates/elb/*.html",
 		"templates/emr/*.html",
@@ -574,6 +580,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		DMSOps:                     cfg.DMSOps,
 		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
 		DynamoDBStreamsOps:         cfg.DynamoDBStreamsOps,
+		ElasticbeanstalkOps:        cfg.ElasticbeanstalkOps,
 		EKSOps:                     cfg.EKSOps,
 		ElasticTranscoderOps:       cfg.ElasticTranscoderOps,
 		ELBOps:                     cfg.ELBOps,
@@ -1062,6 +1069,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupCodeBuildRoutes()
 	h.setupCodePipelineRoutes()
 	h.setupDynamoDBStreamsRoutes()
+	h.setupElasticbeanstalkRoutes()
 	h.setupEFSRoutes()
 	h.setupEKSRoutes()
 	h.setupElasticTranscoderRoutes()
@@ -1182,6 +1190,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/dms", "DMS"},
 	{"/codestarconnections", "CodeStarConnections"},
 	{"/dynamodbstreams", "DynamoDBStreams"},
+	{"/elasticbeanstalk", "Elasticbeanstalk"},
 	{"/efs", "EFS"},
 	{"/elastictranscoder", "ElasticTranscoder"},
 	{"/elb", "ELB"},
