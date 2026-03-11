@@ -30,6 +30,7 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
+	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
@@ -130,6 +131,7 @@ type AWSSDKProvider interface {
 	GetCloudControlHandler() service.Registerable
 	GetCloudFrontHandler() service.Registerable
 	GetCodeArtifactHandler() service.Registerable
+	GetCodeBuildHandler() service.Registerable
 	GetCodeCommitHandler() service.Registerable
 	GetCodeDeployHandler() service.Registerable
 	GetECRHandler() service.Registerable
@@ -211,6 +213,7 @@ type extractedConfig struct {
 	cloudcontrolOps           *cloudcontrolbackend.Handler
 	cloudFrontOps             *cloudfrontbackend.Handler
 	codeArtifactOps           *codeartifactbackend.Handler
+	codebuildOps              *codebuildbackend.Handler
 	codeCommitOps             *codecommitbackend.Handler
 	codeDeployOps             *codedeploybackend.Handler
 	ecrOps                    *ecrbackend.Handler
@@ -502,6 +505,10 @@ func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.codeArtifactOps, _ = h.(*codeartifactbackend.Handler)
 	}
 
+	if h := ap.GetCodeBuildHandler(); h != nil {
+		ec.codebuildOps, _ = h.(*codebuildbackend.Handler)
+	}
+
 	if h := ap.GetCodeCommitHandler(); h != nil {
 		ec.codeCommitOps, _ = h.(*codecommitbackend.Handler)
 	}
@@ -573,6 +580,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CloudControlOps:            ec.cloudcontrolOps,
 		CloudFrontOps:              ec.cloudFrontOps,
 		CodeArtifactOps:            ec.codeArtifactOps,
+		CodeBuildOps:               ec.codebuildOps,
 		CodeCommitOps:              ec.codeCommitOps,
 		CodeDeployOps:              ec.codeDeployOps,
 		ECROps:                     ec.ecrOps,

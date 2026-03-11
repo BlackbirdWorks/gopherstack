@@ -44,6 +44,7 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
+	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
@@ -158,6 +159,7 @@ type Stack struct {
 	CloudControlHandler            *cloudcontrolbackend.Handler
 	CloudFrontHandler              *cloudfrontbackend.Handler
 	CodeArtifactHandler            *codeartifactbackend.Handler
+	CodeBuildHandler               *codebuildbackend.Handler
 	CodeCommitHandler              *codecommitbackend.Handler
 	CodeDeployHandler              *codedeploybackend.Handler
 	S3Client                       *s3.Client
@@ -414,6 +416,7 @@ type handlers struct {
 	cloudcontrol    *cloudcontrolbackend.Handler
 	cloudFront      *cloudfrontbackend.Handler
 	codeArtifact    *codeartifactbackend.Handler
+	codebuild       *codebuildbackend.Handler
 	codeCommit      *codecommitbackend.Handler
 	codeDeploy      *codedeploybackend.Handler
 	iamBk           *iambackend.InMemoryBackend
@@ -578,6 +581,9 @@ func populateNewestHandlers(h *handlers) {
 	h.codeArtifact = codeartifactbackend.NewHandler(
 		codeartifactbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.codebuild = codebuildbackend.NewHandler(
+		codebuildbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.codeCommit = codecommitbackend.NewHandler(
 		codecommitbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -684,6 +690,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CloudControlOps:            h.cloudcontrol,
 		CloudFrontOps:              h.cloudFront,
 		CodeArtifactOps:            h.codeArtifact,
+		CodeBuildOps:               h.codebuild,
 		CodeCommitOps:              h.codeCommit,
 		CodeDeployOps:              h.codeDeploy,
 		GlobalConfig: config.GlobalConfig{
@@ -725,6 +732,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.cloudcontrol)
 	registerCloudfrontService(registry, h.cloudFront)
 	_ = registry.Register(h.codeArtifact)
+	_ = registry.Register(h.codebuild)
 	_ = registry.Register(h.codeCommit)
 	_ = registry.Register(h.codeDeploy)
 
@@ -815,6 +823,7 @@ func buildStack(
 		CloudControlHandler:            h.cloudcontrol,
 		CloudFrontHandler:              h.cloudFront,
 		CodeArtifactHandler:            h.codeArtifact,
+		CodeBuildHandler:               h.codebuild,
 		CodeCommitHandler:              h.codeCommit,
 		CodeDeployHandler:              h.codeDeploy,
 		S3Client:                       clients.S3,

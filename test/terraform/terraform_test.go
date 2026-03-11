@@ -49,6 +49,7 @@ import (
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	codeartifactsvc "github.com/aws/aws-sdk-go-v2/service/codeartifact"
+	codebuildsvc "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	codecommitsvc "github.com/aws/aws-sdk-go-v2/service/codecommit"
 	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
@@ -179,6 +180,7 @@ provider "aws" {
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
     codeartifact    = %[1]q
+    codebuild       = %[1]q
     codecommit      = %[1]q
     codedeploy      = %[1]q
     cognitoidentity          = %[1]q
@@ -3670,6 +3672,43 @@ func TestTerraform_CloudFront(t *testing.T) {
 				}
 
 				assert.True(t, found, "OAI should be listed after apply")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CodeBuild provisions a CodeBuild project via Terraform and verifies it exists.
+func TestTerraform_CodeBuild(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "codebuild/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{"Suffix": id}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCodeBuildClient(t)
+				suffix := vars["Suffix"].(string)
+
+				out, err := client.BatchGetProjects(ctx, &codebuildsvc.BatchGetProjectsInput{
+					Names: []string{"tf-project-" + suffix},
+				})
+				require.NoError(t, err, "BatchGetProjects should succeed")
+				require.Len(t, out.Projects, 1, "project should exist")
+				assert.Equal(t, "tf-project-"+suffix, aws.ToString(out.Projects[0].Name))
 			},
 		},
 	}
