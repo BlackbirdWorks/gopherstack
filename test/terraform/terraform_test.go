@@ -51,6 +51,8 @@ import (
 	codeartifactsvc "github.com/aws/aws-sdk-go-v2/service/codeartifact"
 	codebuildsvc "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	codecommitsvc "github.com/aws/aws-sdk-go-v2/service/codecommit"
+	codeconnectionssvc "github.com/aws/aws-sdk-go-v2/service/codeconnections"
+	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	codepipelinesvc "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
@@ -183,6 +185,8 @@ provider "aws" {
     codebuild       = %[1]q
     codecommit      = %[1]q
     codepipeline    = %[1]q
+    codeconnections = %[1]q
+    codedeploy      = %[1]q
     cognitoidentity          = %[1]q
     cognitoidentityprovider  = %[1]q
     configservice   = %[1]q
@@ -3773,6 +3777,53 @@ func TestTerraform_CodeArtifact(t *testing.T) {
 	}
 }
 
+// TestTerraform_CodeConnections provisions a CodeConnections connection via Terraform and verifies it exists.
+func TestTerraform_CodeConnections(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "codeconnections/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCodeConnectionsClient(t)
+				suffix := vars["Suffix"].(string)
+
+				out, err := client.ListConnections(ctx, &codeconnectionssvc.ListConnectionsInput{})
+				require.NoError(t, err, "ListConnections should succeed")
+
+				var found bool
+
+				for _, conn := range out.Connections {
+					if conn.ConnectionName != nil && *conn.ConnectionName == "tf-conn-"+suffix {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "connection tf-conn-%s should exist", suffix)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_CodeCommit provisions a CodeCommit repository via Terraform
 // and verifies it exists using the CodeCommit SDK.
 func TestTerraform_CodeCommit(t *testing.T) {
@@ -3838,6 +3889,46 @@ func TestTerraform_CodePipeline(t *testing.T) {
 				require.NoError(t, err, "GetPipeline should succeed after terraform apply")
 				require.NotNil(t, out.Pipeline, "pipeline should be returned")
 				assert.Equal(t, "tf-pipeline-"+suffix, aws.ToString(out.Pipeline.Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CodeDeploy provisions a CodeDeploy application via Terraform
+// and verifies it exists using the CodeDeploy SDK.
+func TestTerraform_CodeDeploy(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "codedeploy/app",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"AppName": "tf-app-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCodeDeployClient(t)
+				appName := vars["AppName"].(string)
+
+				out, err := client.GetApplication(ctx, &codedeploysvc.GetApplicationInput{
+					ApplicationName: aws.String(appName),
+				})
+				require.NoError(t, err, "GetApplication should succeed after terraform apply")
+				require.NotNil(t, out.Application, "application should be returned")
+				assert.Equal(t, appName, aws.ToString(out.Application.ApplicationName))
 			},
 		},
 	}
