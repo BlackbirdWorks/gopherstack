@@ -90,6 +90,8 @@ github.com/aws/aws-sdk-go-v2/service/codebuild v1.68.11 h1:5q8IdYMFVQXRt8wLjy4gv
 github.com/aws/aws-sdk-go-v2/service/codebuild v1.68.11/go.mod h1:Xuf0gMz8IDvDMR1ln8bvtXGzZHovfLaml6OcDOO1cLM=
 github.com/aws/aws-sdk-go-v2/service/codecommit v1.33.10 h1:hAK/gb7zTE3zIU3tKuG1+62NHyQ+03Ew1YiJZVNmd04=
 github.com/aws/aws-sdk-go-v2/service/codecommit v1.33.10/go.mod h1:UgLONgXRd26X5Zz/RG29duwo+mK5ZbqSRGOs/sVl6Uw=
+github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.19 h1:Nkr+8F5q8WPEoBGpAgVvOobDeHhdB6r+nfCYvmAAQ4M=
+github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.19/go.mod h1:m8Ej+XRaEkXMndgQ4KoSY3OQY1R9Hvi0ku6ysQ28byA=
 github.com/aws/aws-sdk-go-v2/service/cognitoidentity v1.33.20 h1:ZEijcC7Fpm0X+CeecuHD7t62ZbV6XSRDyR1ceUylJdc=
 github.com/aws/aws-sdk-go-v2/service/cognitoidentity v1.33.20/go.mod h1:43TnVpni4CD4UNkAXlKGre9l33QrZUL876YXYBHJ5bE=
 github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.59.1 h1:JF83VL8nhIzxb2QpGZAPXpiEyiufpcz2ItU8+PIUvaU=
