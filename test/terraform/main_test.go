@@ -39,6 +39,7 @@ import (
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	codeartifactsvc "github.com/aws/aws-sdk-go-v2/service/codeartifact"
+	codebuildsvc "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	codecommitsvc "github.com/aws/aws-sdk-go-v2/service/codecommit"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
@@ -1352,6 +1353,24 @@ func createBedrockRuntimeClient(t *testing.T) *bedrockruntimesvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return bedrockruntimesvc.NewFromConfig(cfg, func(o *bedrockruntimesvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeBuildClient returns a CodeBuild client pointed at the shared test container.
+func createCodeBuildClient(t *testing.T) *codebuildsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return codebuildsvc.NewFromConfig(cfg, func(o *codebuildsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
