@@ -49,6 +49,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeApplicationVersions",
 		"DeleteApplicationVersion",
 		"DescribeEvents",
+		"DescribeEnvironmentResources",
 		"ListTagsForResource",
 		"UpdateTagsForResource",
 	}
@@ -166,20 +167,21 @@ func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
 	type handlerFn func(url.Values) (any, error)
 
 	handlers := map[string]handlerFn{
-		"CreateApplication":           h.handleCreateApplication,
-		"DescribeApplications":        h.handleDescribeApplications,
-		"UpdateApplication":           h.handleUpdateApplication,
-		"DeleteApplication":           h.handleDeleteApplication,
-		"CreateEnvironment":           h.handleCreateEnvironment,
-		"DescribeEnvironments":        h.handleDescribeEnvironments,
-		"UpdateEnvironment":           h.handleUpdateEnvironment,
-		"TerminateEnvironment":        h.handleTerminateEnvironment,
-		"CreateApplicationVersion":    h.handleCreateApplicationVersion,
-		"DescribeApplicationVersions": h.handleDescribeApplicationVersions,
-		"DeleteApplicationVersion":    h.handleDeleteApplicationVersion,
-		"ListTagsForResource":         h.handleListTagsForResource,
-		"UpdateTagsForResource":       h.handleUpdateTagsForResource,
-		"DescribeEvents":              h.handleDescribeEvents,
+		"CreateApplication":            h.handleCreateApplication,
+		"DescribeApplications":         h.handleDescribeApplications,
+		"UpdateApplication":            h.handleUpdateApplication,
+		"DeleteApplication":            h.handleDeleteApplication,
+		"CreateEnvironment":            h.handleCreateEnvironment,
+		"DescribeEnvironments":         h.handleDescribeEnvironments,
+		"UpdateEnvironment":            h.handleUpdateEnvironment,
+		"TerminateEnvironment":         h.handleTerminateEnvironment,
+		"CreateApplicationVersion":     h.handleCreateApplicationVersion,
+		"DescribeApplicationVersions":  h.handleDescribeApplicationVersions,
+		"DeleteApplicationVersion":     h.handleDeleteApplicationVersion,
+		"ListTagsForResource":          h.handleListTagsForResource,
+		"UpdateTagsForResource":        h.handleUpdateTagsForResource,
+		"DescribeEvents":               h.handleDescribeEvents,
+		"DescribeEnvironmentResources": h.handleDescribeEnvironmentResources,
 	}
 
 	if fn, ok := handlers[action]; ok {
@@ -701,6 +703,46 @@ func (h *Handler) handleDescribeEvents(_ url.Values) (any, error) {
 		Xmlns:                ebXMLNS,
 		DescribeEventsResult: describeEventsResult{},
 		ResponseMetadata:     responseMetadata{RequestID: "eb-describe-events"},
+	}, nil
+}
+
+// --- Environment Resources ---
+
+type environmentResourceDescType struct {
+	EnvironmentName      string   `xml:"EnvironmentName"`
+	AutoScalingGroups    []string `xml:"AutoScalingGroups>member>Name"`
+	Instances            []string `xml:"Instances>member>Id"`
+	LaunchConfigurations []string `xml:"LaunchConfigurations>member>Name"`
+	LaunchTemplates      []string `xml:"LaunchTemplates>member>Id"`
+	LoadBalancers        []string `xml:"LoadBalancers>member>Name"`
+	Queues               []string `xml:"Queues>member>URL"`
+	Triggers             []string `xml:"Triggers>member>Name"`
+}
+
+type describeEnvironmentResourcesResult struct {
+	EnvironmentInfo environmentResourceDescType `xml:"EnvironmentInfo"`
+}
+
+type describeEnvironmentResourcesResponse struct {
+	XMLName                            xml.Name                           `xml:"DescribeEnvironmentResourcesResponse"`
+	ResponseMetadata                   responseMetadata                   `xml:"ResponseMetadata"`
+	Xmlns                              string                             `xml:"xmlns,attr"`
+	DescribeEnvironmentResourcesResult describeEnvironmentResourcesResult `xml:"DescribeEnvironmentResourcesResult"`
+}
+
+// handleDescribeEnvironmentResources returns an empty environment resources list.
+// The Terraform provider calls this after environment creation to read resource details.
+func (h *Handler) handleDescribeEnvironmentResources(vals url.Values) (any, error) {
+	envName := vals.Get("EnvironmentName")
+
+	return &describeEnvironmentResourcesResponse{
+		Xmlns: ebXMLNS,
+		DescribeEnvironmentResourcesResult: describeEnvironmentResourcesResult{
+			EnvironmentInfo: environmentResourceDescType{
+				EnvironmentName: envName,
+			},
+		},
+		ResponseMetadata: responseMetadata{RequestID: "eb-describe-env-resources"},
 	}, nil
 }
 
