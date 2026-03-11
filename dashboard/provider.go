@@ -515,6 +515,11 @@ func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.codebuildOps, _ = h.(*codebuildbackend.Handler)
 	}
 
+	extractCodeHandlers(ap, ec)
+}
+
+// extractCodeHandlers populates Code* service handlers on ec.
+func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCodeCommitHandler(); h != nil {
 		ec.codeCommitOps, _ = h.(*codecommitbackend.Handler)
 	}

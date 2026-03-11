@@ -76,6 +76,7 @@ import (
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -1267,6 +1268,7 @@ func getServiceProviders() []service.Provider {
 		&codecommitbackend.Provider{},
 		&codeconnectionsbackend.Provider{},
 		&codedeploybackend.Provider{},
+		&codestarconnectionsbackend.Provider{},
 	}
 }
 
