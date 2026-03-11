@@ -62,7 +62,10 @@ func (h *DashboardHandler) elbv2Index(c *echo.Context) error {
 		return nil
 	}
 
-	lbs, _ := h.ELBv2Ops.Backend.DescribeLoadBalancers(nil, nil)
+	lbs, err := h.ELBv2Ops.Backend.DescribeLoadBalancers(nil, nil)
+	if err != nil {
+		return err
+	}
 	views := make([]elbv2LoadBalancerView, 0, len(lbs))
 
 	for _, lb := range lbs {

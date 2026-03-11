@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -205,7 +206,18 @@ func (b *InMemoryBackend) listenerARN(lbName string, port int32) string {
 }
 
 func (b *InMemoryBackend) ruleARN(listenerArn, idx string) string {
-	return arn.Build("elasticloadbalancing", b.region, b.accountID, "listener-rule/app/rule/"+listenerArn+"/"+idx)
+	// Extract the load-balancer/listener path from the listener ARN resource to build
+	// a rule ARN in the standard form: listener-rule/app/<lb-name>/<lb-id>/<listener-id>/<rule-id>.
+	// The listener ARN resource looks like: listener/app/<lb-name>/<lb-id>/<listener-port>.
+	resource := "listener-rule/app/lb/0123456789abcdef/0000000000000000/" + idx
+	if listenerArn != "" {
+		if i := strings.Index(listenerArn, ":listener/"); i >= 0 {
+			path := listenerArn[i+len(":"):]
+			resource = "listener-rule/" + strings.TrimPrefix(path, "listener/") + "/" + idx
+		}
+	}
+
+	return arn.Build("elasticloadbalancing", b.region, b.accountID, resource)
 }
 
 // CreateLoadBalancer creates a new load balancer.
@@ -272,6 +284,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 }
 
 // DescribeLoadBalancers returns load balancers filtered by ARNs and/or names.
+// The returned LoadBalancer values contain a Tags pointer that is backend-owned; callers must treat it as read-only.
 func (b *InMemoryBackend) DescribeLoadBalancers(arns []string, names []string) ([]LoadBalancer, error) {
 	b.mu.RLock("DescribeLoadBalancers")
 	defer b.mu.RUnlock()
@@ -391,6 +404,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 }
 
 // DescribeTargetGroups returns target groups filtered by ARNs, names, or load balancer ARN.
+// The returned TargetGroup values contain a Tags pointer that is backend-owned; callers must treat it as read-only.
 func (b *InMemoryBackend) DescribeTargetGroups(arns []string, names []string, _ string) ([]TargetGroup, error) {
 	b.mu.RLock("DescribeTargetGroups")
 	defer b.mu.RUnlock()
@@ -542,6 +556,7 @@ func (b *InMemoryBackend) CreateListener(input CreateListenerInput) (*Listener, 
 }
 
 // DescribeListeners returns listeners filtered by load balancer ARN and/or listener ARNs.
+// The returned Listener values contain a Tags pointer that is backend-owned; callers must treat it as read-only.
 func (b *InMemoryBackend) DescribeListeners(lbArn string, listenerArns []string) ([]Listener, error) {
 	b.mu.RLock("DescribeListeners")
 	defer b.mu.RUnlock()

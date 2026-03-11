@@ -386,8 +386,13 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
 	}
 
-	port, err := parseInt32(vals.Get("Port"))
-	if err != nil {
+	portStr := vals.Get("Port")
+	if portStr == "" {
+		return nil, fmt.Errorf("%w: Port is required", ErrInvalidParameter)
+	}
+
+	port, err := parseInt32(portStr)
+	if err != nil || port <= 0 {
 		return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
 	}
 
@@ -558,9 +563,19 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
-	port, err := parseInt32(vals.Get("Port"))
-	if err != nil {
+	portStr := vals.Get("Port")
+	if portStr == "" {
+		return nil, fmt.Errorf("%w: Port is required", ErrInvalidParameter)
+	}
+
+	port, err := parseInt32(portStr)
+	if err != nil || port <= 0 {
 		return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
+	}
+
+	protocol := vals.Get("Protocol")
+	if protocol == "" {
+		return nil, fmt.Errorf("%w: Protocol is required", ErrInvalidParameter)
 	}
 
 	actions := parseActions(vals, "DefaultActions.member")
@@ -568,7 +583,7 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 
 	listener, createErr := h.Backend.CreateListener(CreateListenerInput{
 		LoadBalancerArn: lbArn,
-		Protocol:        vals.Get("Protocol"),
+		Protocol:        protocol,
 		Port:            port,
 		DefaultActions:  actions,
 		Tags:            tagKVs,
