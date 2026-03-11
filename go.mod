@@ -95,6 +95,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/codecommit v1.33.10
 	github.com/aws/aws-sdk-go-v2/service/codeconnections v1.10.18
 	github.com/aws/aws-sdk-go-v2/service/codedeploy v1.35.11
+	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.19
 	github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.11
 	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.63.4
 )
