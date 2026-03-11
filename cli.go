@@ -21,6 +21,7 @@ import (
 	amplifysdk "github.com/aws/aws-sdk-go-v2/service/amplify"
 	appsyncsdksvc "github.com/aws/aws-sdk-go-v2/service/appsync"
 	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
+	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -219,6 +220,7 @@ type CLI struct {
 	ecsClient                     *ecs.Client
 	iotClient                     *iotsdk.Client
 	codeDeployClient              *codedeploysdk.Client
+	codePipelineSDKClient         *codepipelinesdk.Client
 	AccountID                     string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
 	Port                          string                 `                                  name:"port"               env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
 	ElastiCacheEngine             string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
@@ -983,6 +985,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 	cli.codeDeployClient = codedeploysdk.NewFromConfig(
 		awsCfg,
 		func(o *codedeploysdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.codePipelineSDKClient = codepipelinesdk.NewFromConfig(
+		awsCfg,
+		func(o *codepipelinesdk.Options) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
@@ -2797,6 +2805,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		ECS:            cli.ecsClient,
 		IoT:            cli.iotClient,
 		CodeDeploy:     cli.codeDeployClient,
+		CodePipeline:   cli.codePipelineSDKClient,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load demo data", "error", err)
