@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -17,8 +18,7 @@ import (
 )
 
 const (
-	ebVersion = "2010-12-01"
-	ebXMLNS   = "https://elasticbeanstalk.amazonaws.com/docs/2010-12-01/"
+	ebXMLNS = "https://elasticbeanstalk.amazonaws.com/docs/2010-12-01/"
 )
 
 // Handler is the Echo HTTP handler for Elastic Beanstalk operations.
@@ -63,7 +63,8 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // RouteMatcher returns a function that matches Elastic Beanstalk requests.
-// Elastic Beanstalk requests are form-encoded POSTs with Version=2010-12-01.
+// Elastic Beanstalk uses the same Version=2010-12-01 as SES, so we disambiguate
+// by matching on the Action field against the list of supported EB operations.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		r := c.Request()
@@ -90,7 +91,9 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
-		return vals.Get("Version") == ebVersion
+		action := vals.Get("Action")
+
+		return slices.Contains(h.GetSupportedOperations(), action)
 	}
 }
 

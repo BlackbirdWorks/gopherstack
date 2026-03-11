@@ -208,6 +208,7 @@ provider "aws" {
     efs             = %[1]q
     eks             = %[1]q
     elasticache     = %[1]q
+    elasticbeanstalk = %[1]q
     events          = %[1]q
     firehose        = %[1]q
     iam             = %[1]q

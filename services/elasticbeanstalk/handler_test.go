@@ -83,10 +83,10 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			want:   true,
 		},
 		{
-			name:   "wrong version",
+			name:   "non-EB action",
 			method: http.MethodPost,
 			path:   "/",
-			body:   "Version=2011-01-01&Action=DescribeApplications",
+			body:   "Version=2010-12-01&Action=VerifyEmailIdentity",
 			want:   false,
 		},
 		{
