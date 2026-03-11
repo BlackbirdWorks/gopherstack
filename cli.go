@@ -26,6 +26,7 @@ import (
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -88,6 +89,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -206,6 +208,7 @@ type CLI struct {
 	dynamodbStreamsHandler        service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
+	eksHandler                    service.Registerable
 	iotHandler                    service.Registerable
 	cognitoIDPHandler             service.Registerable
 	cognitoIdentityHandler        service.Registerable
@@ -224,6 +227,7 @@ type CLI struct {
 	appSyncSdkClient              *appsyncsdksvc.Client
 	amplifyClient                 *amplifysdk.Client
 	ecsClient                     *ecs.Client
+	eksClient                     *ekssdk.Client
 	iotClient                     *iotsdk.Client
 	codeDeployClient              *codedeploysdk.Client
 	codePipelineSDKClient         *codepipelinesdk.Client
@@ -528,6 +532,11 @@ func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECSHandler() service.Registerable { return c.ecsHandler }
+
+// GetEKSHandler returns the EKS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetEKSHandler() service.Registerable { return c.eksHandler }
 
 // GetIoTHandler returns the IoT handler (dashboard.AWSSDKProvider).
 //
@@ -1001,6 +1010,17 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
+	cli.eksClient = ekssdk.NewFromConfig(
+		awsCfg,
+		func(o *ekssdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	initializeIoTAndCodeClients(cli, awsCfg)
+}
+
+// initializeIoTAndCodeClients configures IoT, CodeDeploy and CodePipeline SDK clients.
+func initializeIoTAndCodeClients(cli *CLI, awsCfg aws.Config) {
 	cli.iotClient = iotsdk.NewFromConfig(
 		awsCfg,
 		func(o *iotsdk.Options) {
@@ -1121,6 +1141,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.dmsHandler = byName["DMS"]
 	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 	cli.dynamodbStreamsHandler = byName["DynamoDBStreams"]
+	cli.eksHandler = byName["EKS"]
 }
 
 // initializeServices initializes all service providers.
@@ -1309,6 +1330,7 @@ func getServiceProviders() []service.Provider {
 		&dmsbackend.Provider{},
 		&codestarconnectionsbackend.Provider{},
 		&dynamodbstreamsbackend.Provider{},
+		&eksbackend.Provider{},
 	}
 }
 
@@ -2837,6 +2859,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		AppSync:        cli.appSyncSdkClient,
 		Amplify:        cli.amplifyClient,
 		ECS:            cli.ecsClient,
+		EKS:            cli.eksClient,
 		IoT:            cli.iotClient,
 		CodeDeploy:     cli.codeDeployClient,
 		CodePipeline:   cli.codePipelineSDKClient,

@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
+	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/iot"
 	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
@@ -57,6 +58,7 @@ type Clients struct {
 	AppSync        *appsync.Client
 	Amplify        *amplify.Client
 	ECS            *ecs.Client
+	EKS            *ekssdk.Client
 	IoT            *iot.Client
 	CodeDeploy     *codedeploysvc.Client
 	CodePipeline   *codepipelinesvc.Client
@@ -107,6 +109,10 @@ func LoadData(
 
 	if clients.ECS != nil {
 		loadECS(ctx, clients.ECS)
+	}
+
+	if clients.EKS != nil {
+		loadEKS(ctx, clients.EKS)
 	}
 
 	if clients.IoT != nil {
@@ -519,6 +525,25 @@ func loadECS(ctx context.Context, ecsClient *ecs.Client) {
 		pkgslogger.Load(ctx).WarnContext(ctx, "Failed to register ECS task definition", "error", err)
 	} else {
 		pkgslogger.Load(ctx).InfoContext(ctx, "Registered ECS task definition", "family", "demo-web")
+	}
+}
+
+func loadEKS(ctx context.Context, eksClient *ekssdk.Client) {
+	clusters := []string{
+		"demo-cluster",
+		"production-cluster",
+	}
+
+	for _, name := range clusters {
+		_, err := eksClient.CreateCluster(ctx, &ekssdk.CreateClusterInput{
+			Name:    aws.String(name),
+			Version: aws.String("1.32"),
+		})
+		if err != nil {
+			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create EKS cluster", "name", name, "error", err)
+		} else {
+			pkgslogger.Load(ctx).InfoContext(ctx, "Created EKS cluster", "name", name)
+		}
 	}
 }
 

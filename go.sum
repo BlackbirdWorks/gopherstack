@@ -90,12 +90,12 @@ github.com/aws/aws-sdk-go-v2/service/codebuild v1.68.11 h1:5q8IdYMFVQXRt8wLjy4gv
 github.com/aws/aws-sdk-go-v2/service/codebuild v1.68.11/go.mod h1:Xuf0gMz8IDvDMR1ln8bvtXGzZHovfLaml6OcDOO1cLM=
 github.com/aws/aws-sdk-go-v2/service/codecommit v1.33.10 h1:hAK/gb7zTE3zIU3tKuG1+62NHyQ+03Ew1YiJZVNmd04=
 github.com/aws/aws-sdk-go-v2/service/codecommit v1.33.10/go.mod h1:UgLONgXRd26X5Zz/RG29duwo+mK5ZbqSRGOs/sVl6Uw=
-github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.19 h1:Nkr+8F5q8WPEoBGpAgVvOobDeHhdB6r+nfCYvmAAQ4M=
-github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.19/go.mod h1:m8Ej+XRaEkXMndgQ4KoSY3OQY1R9Hvi0ku6ysQ28byA=
 github.com/aws/aws-sdk-go-v2/service/codeconnections v1.10.18 h1:mHczTe5mzhJ8Uruqm0T8j1lTOy2rm65bldoBQoz+YYg=
 github.com/aws/aws-sdk-go-v2/service/codeconnections v1.10.18/go.mod h1:LKQMry9rYPM0LdsYEVf8BqQqJXZmup4I8Qib4fPtejw=
 github.com/aws/aws-sdk-go-v2/service/codedeploy v1.35.11 h1:nlQWDwu1yjBQ1mL5kct1plIU8dLyHNuQJYwbxPB0Tpw=
 github.com/aws/aws-sdk-go-v2/service/codedeploy v1.35.11/go.mod h1:AhLG9JvHGfDI398YE3AensfwvDzhdT9Y9NSR1E9kQ/M=
+github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.19 h1:Nkr+8F5q8WPEoBGpAgVvOobDeHhdB6r+nfCYvmAAQ4M=
+github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.19/go.mod h1:m8Ej+XRaEkXMndgQ4KoSY3OQY1R9Hvi0ku6ysQ28byA=
 github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.11 h1:rN8QX+vv4xJ8JS/iCXxN7ae+94xfgtvFcrB4P0/DaWA=
 github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.11/go.mod h1:ERqxDw9uDPuICBvfy7n48JuHG2sZS4kVvcHl71Ue+Ro=
 github.com/aws/aws-sdk-go-v2/service/cognitoidentity v1.33.20 h1:ZEijcC7Fpm0X+CeecuHD7t62ZbV6XSRDyR1ceUylJdc=
@@ -118,6 +118,8 @@ github.com/aws/aws-sdk-go-v2/service/ecr v1.55.4 h1:BpSZ3fLXb8HLI/zhiiCOQj10bEsX
 github.com/aws/aws-sdk-go-v2/service/ecr v1.55.4/go.mod h1:T+Tz2Xp1gnvtlgvP7OyRHlr84KtI3fZW5Ax/e+s9b64=
 github.com/aws/aws-sdk-go-v2/service/ecs v1.73.1 h1:TSmcWx+RzhGJrPNoFkuqANafJQ7xY3W2UBg6ShN3ae8=
 github.com/aws/aws-sdk-go-v2/service/ecs v1.73.1/go.mod h1:KWILGx+bRowcGyJU/va2Ift48c658blP5e1qvldnIRE=
+github.com/aws/aws-sdk-go-v2/service/eks v1.80.2 h1:+FLU7+D9AW9ZMQIg4YjIN/nTJV0A2TIB2f+ovZXqAdU=
+github.com/aws/aws-sdk-go-v2/service/eks v1.80.2/go.mod h1:nx52u/3RVDWkOcrAchYgt7CXkrd03A6Gvzi0trtMFjQ=
 github.com/aws/aws-sdk-go-v2/service/elasticache v1.51.11 h1:wnE+6xW2TIVxjalZ/7V7sqFQZdKiNJQIJ5hp9MNlQ3U=
 github.com/aws/aws-sdk-go-v2/service/elasticache v1.51.11/go.mod h1:WZitdEv46MSo81s7dEd5UV7cejTCukLVzOFm3xE/pTY=
 github.com/aws/aws-sdk-go-v2/service/eventbridge v1.45.21 h1:V1p6rPBunVWfaXeBRlLh7RqvoFUGTtcvd3EfF0KGBlQ=
