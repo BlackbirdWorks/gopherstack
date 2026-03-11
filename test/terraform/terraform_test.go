@@ -52,6 +52,7 @@ import (
 	codebuildsvc "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	codecommitsvc "github.com/aws/aws-sdk-go-v2/service/codecommit"
 	codeconnectionssvc "github.com/aws/aws-sdk-go-v2/service/codeconnections"
+	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
@@ -183,6 +184,7 @@ provider "aws" {
     codebuild       = %[1]q
     codecommit      = %[1]q
     codeconnections = %[1]q
+    codedeploy      = %[1]q
     cognitoidentity          = %[1]q
     cognitoidentityprovider  = %[1]q
     configservice   = %[1]q
@@ -3848,6 +3850,46 @@ func TestTerraform_CodeCommit(t *testing.T) {
 				require.NoError(t, err, "GetRepository should succeed after terraform apply")
 				require.NotNil(t, out.RepositoryMetadata, "repository metadata should be returned")
 				assert.Equal(t, repoName, aws.ToString(out.RepositoryMetadata.RepositoryName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CodeDeploy provisions a CodeDeploy application via Terraform
+// and verifies it exists using the CodeDeploy SDK.
+func TestTerraform_CodeDeploy(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "codedeploy/app",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"AppName": "tf-app-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCodeDeployClient(t)
+				appName := vars["AppName"].(string)
+
+				out, err := client.GetApplication(ctx, &codedeploysvc.GetApplicationInput{
+					ApplicationName: aws.String(appName),
+				})
+				require.NoError(t, err, "GetApplication should succeed after terraform apply")
+				require.NotNil(t, out.Application, "application should be returned")
+				assert.Equal(t, appName, aws.ToString(out.Application.ApplicationName))
 			},
 		},
 	}

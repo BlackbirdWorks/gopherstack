@@ -33,6 +33,7 @@ import (
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
+	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
@@ -134,6 +135,7 @@ type AWSSDKProvider interface {
 	GetCodeBuildHandler() service.Registerable
 	GetCodeCommitHandler() service.Registerable
 	GetCodeConnectionsHandler() service.Registerable
+	GetCodeDeployHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -216,6 +218,7 @@ type extractedConfig struct {
 	codebuildOps              *codebuildbackend.Handler
 	codeCommitOps             *codecommitbackend.Handler
 	codeConnectionsOps        *codeconnectionsbackend.Handler
+	codeDeployOps             *codedeploybackend.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
 	iotOps                    *iotbackend.Handler
@@ -516,6 +519,10 @@ func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCodeConnectionsHandler(); h != nil {
 		ec.codeConnectionsOps, _ = h.(*codeconnectionsbackend.Handler)
 	}
+
+	if h := ap.GetCodeDeployHandler(); h != nil {
+		ec.codeDeployOps, _ = h.(*codedeploybackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -583,6 +590,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CodeBuildOps:               ec.codebuildOps,
 		CodeCommitOps:              ec.codeCommitOps,
 		CodeConnectionsOps:         ec.codeConnectionsOps,
+		CodeDeployOps:              ec.codeDeployOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		IoTOps:                     ec.iotOps,
