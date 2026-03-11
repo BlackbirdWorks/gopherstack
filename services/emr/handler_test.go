@@ -547,27 +547,90 @@ func TestEMR_AddJobFlowSteps(t *testing.T) {
 func TestEMR_ListInstanceGroups(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	rec := doEMRRequest(t, h, "ListInstanceGroups", map[string]any{
-		"ClusterId": "j-0000000000001",
-	})
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out struct {
-		InstanceGroups []any `json:"InstanceGroups"`
+	tests := []struct {
+		name      string
+		wantCode  int
+		wantCount int
+	}{
+		{
+			name:      "returns instance groups for cluster with groups",
+			wantCode:  http.StatusOK,
+			wantCount: 2,
+		},
 	}
 
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Empty(t, out.InstanceGroups)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doEMRRequest(t, h, "RunJobFlow", map[string]any{
+				"Name":         "ig-cluster",
+				"ReleaseLabel": "emr-6.0.0",
+				"Instances": map[string]any{
+					"InstanceGroups": []map[string]any{
+						{"InstanceRole": "MASTER", "InstanceType": "m4.large", "InstanceCount": 1},
+						{"InstanceRole": "CORE", "InstanceType": "m4.large", "InstanceCount": 2},
+					},
+				},
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createOut struct {
+				JobFlowID string `json:"JobFlowId"`
+			}
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+
+			rec := doEMRRequest(t, h, "ListInstanceGroups", map[string]any{
+				"ClusterId": createOut.JobFlowID,
+			})
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			var out struct {
+				InstanceGroups []struct {
+					InstanceGroupType string `json:"InstanceGroupType"`
+					Status            struct {
+						State string `json:"State"`
+					} `json:"Status"`
+				} `json:"InstanceGroups"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out.InstanceGroups, tt.wantCount)
+
+			for _, g := range out.InstanceGroups {
+				assert.Equal(t, "RUNNING", g.Status.State)
+			}
+		})
+	}
+}
+
+func TestEMR_ListInstanceGroups_NotFound(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doEMRRequest(t, h, "ListInstanceGroups", map[string]any{
+		"ClusterId": "j-NOTEXIST",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestEMR_ListInstanceFleets(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+
+	createRec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "fleet-cluster"})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut struct {
+		JobFlowID string `json:"JobFlowId"`
+	}
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+
 	rec := doEMRRequest(t, h, "ListInstanceFleets", map[string]any{
-		"ClusterId": "j-0000000000001",
+		"ClusterId": createOut.JobFlowID,
 	})
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -578,6 +641,33 @@ func TestEMR_ListInstanceFleets(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Empty(t, out.InstanceFleets)
+}
+
+func TestEMR_ListBootstrapActions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "bootstrap-cluster"})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut struct {
+		JobFlowID string `json:"JobFlowId"`
+	}
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+
+	rec := doEMRRequest(t, h, "ListBootstrapActions", map[string]any{
+		"ClusterId": createOut.JobFlowID,
+	})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		BootstrapActions []any `json:"BootstrapActions"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Empty(t, out.BootstrapActions)
 }
 
 func TestEMR_UnknownOperation(t *testing.T) {
@@ -719,7 +809,7 @@ func TestEMR_Backend_ListTagsForResource(t *testing.T) {
 			t.Parallel()
 
 			b := emr.NewInMemoryBackend(testAccountID, testRegion)
-			cluster, err := b.RunJobFlow("test-cluster", "emr-6.0.0", []emr.Tag{{Key: "env", Value: "test"}})
+			cluster, err := b.RunJobFlow("test-cluster", "emr-6.0.0", []emr.Tag{{Key: "env", Value: "test"}}, nil)
 			require.NoError(t, err)
 
 			resourceID := tt.resourceID
@@ -744,7 +834,7 @@ func TestEMR_Backend_ListTagsForResourceByARN(t *testing.T) {
 	t.Parallel()
 
 	b := emr.NewInMemoryBackend(testAccountID, testRegion)
-	cluster, err := b.RunJobFlow("test-cluster", "emr-6.0.0", []emr.Tag{{Key: "key", Value: "val"}})
+	cluster, err := b.RunJobFlow("test-cluster", "emr-6.0.0", []emr.Tag{{Key: "key", Value: "val"}}, nil)
 	require.NoError(t, err)
 
 	tags, err := b.ListTagsForResource(cluster.ARN)

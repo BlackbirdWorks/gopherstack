@@ -39,14 +39,41 @@ type Tag struct {
 	Value string `json:"Value"`
 }
 
+// InstanceGroupStatus is the status of an EMR instance group.
+type InstanceGroupStatus struct {
+	State string `json:"State"`
+}
+
+// InstanceGroupSpec is the input specification for an instance group from RunJobFlow.
+type InstanceGroupSpec struct {
+	Name          string `json:"Name"`
+	Market        string `json:"Market"`
+	InstanceRole  string `json:"InstanceRole"`
+	InstanceType  string `json:"InstanceType"`
+	InstanceCount int    `json:"InstanceCount"`
+}
+
+// InstanceGroup represents an EMR instance group returned by ListInstanceGroups.
+type InstanceGroup struct {
+	Status                 InstanceGroupStatus `json:"Status"`
+	ID                     string              `json:"Id"`
+	Name                   string              `json:"Name"`
+	Market                 string              `json:"Market"`
+	InstanceGroupType      string              `json:"InstanceGroupType"`
+	InstanceType           string              `json:"InstanceType"`
+	RequestedInstanceCount int                 `json:"RequestedInstanceCount"`
+	RunningInstanceCount   int                 `json:"RunningInstanceCount"`
+}
+
 // Cluster represents an EMR cluster.
 type Cluster struct {
-	Status       ClusterStatus `json:"Status"`
-	ID           string        `json:"Id"`
-	Name         string        `json:"Name"`
-	ARN          string        `json:"ClusterArn"`
-	ReleaseLabel string        `json:"ReleaseLabel"`
-	Tags         []Tag         `json:"Tags,omitempty"`
+	Status         ClusterStatus   `json:"Status"`
+	ID             string          `json:"Id"`
+	Name           string          `json:"Name"`
+	ARN            string          `json:"ClusterArn"`
+	ReleaseLabel   string          `json:"ReleaseLabel"`
+	Tags           []Tag           `json:"Tags,omitempty"`
+	instanceGroups []InstanceGroup // not serialized — returned only by ListInstanceGroups
 }
 
 // ClusterSummary is a trimmed-down view used for ListClusters.
@@ -87,15 +114,39 @@ func (b *InMemoryBackend) nextID() string {
 }
 
 // RunJobFlow creates a new EMR cluster.
-func (b *InMemoryBackend) RunJobFlow(name, releaseLabel string, tags []Tag) (*Cluster, error) {
+func (b *InMemoryBackend) RunJobFlow(
+	name, releaseLabel string,
+	tags []Tag,
+	specs []InstanceGroupSpec,
+) (*Cluster, error) {
 	b.mu.Lock("RunJobFlow")
 	defer b.mu.Unlock()
 
 	id := b.nextID()
+	clusterNum := b.counter.Load()
 	clusterARN := arn.Build("elasticmapreduce", b.region, b.accountID, "cluster/"+id)
 
 	tagsCopy := make([]Tag, len(tags))
 	copy(tagsCopy, tags)
+
+	groups := make([]InstanceGroup, 0, len(specs))
+	for i, spec := range specs {
+		market := spec.Market
+		if market == "" {
+			market = "ON_DEMAND"
+		}
+
+		groups = append(groups, InstanceGroup{
+			ID:                     fmt.Sprintf("ig-%013d%d", clusterNum, i),
+			Name:                   spec.Name,
+			Market:                 market,
+			InstanceGroupType:      spec.InstanceRole,
+			InstanceType:           spec.InstanceType,
+			RequestedInstanceCount: spec.InstanceCount,
+			RunningInstanceCount:   spec.InstanceCount,
+			Status:                 InstanceGroupStatus{State: "RUNNING"},
+		})
+	}
 
 	cluster := &Cluster{
 		ID:           id,
@@ -107,7 +158,8 @@ func (b *InMemoryBackend) RunJobFlow(name, releaseLabel string, tags []Tag) (*Cl
 			StateChangeReason: map[string]any{"Code": "USER_REQUEST", "Message": ""},
 			Timeline:          map[string]any{"CreationDateTime": 0},
 		},
-		Tags: tagsCopy,
+		Tags:           tagsCopy,
+		instanceGroups: groups,
 	}
 	b.clusters[id] = cluster
 	cp := cluster.clone()
@@ -137,6 +189,11 @@ func (c Cluster) clone() Cluster {
 	if c.Tags != nil {
 		cp.Tags = make([]Tag, len(c.Tags))
 		copy(cp.Tags, c.Tags)
+	}
+
+	if c.instanceGroups != nil {
+		cp.instanceGroups = make([]InstanceGroup, len(c.instanceGroups))
+		copy(cp.instanceGroups, c.instanceGroups)
 	}
 
 	cp.Status.StateChangeReason = maps.Clone(c.Status.StateChangeReason)
@@ -184,6 +241,22 @@ func (b *InMemoryBackend) TerminateJobFlows(ids []string) error {
 	}
 
 	return nil
+}
+
+// ListInstanceGroups returns the instance groups for a cluster by its ID.
+func (b *InMemoryBackend) ListInstanceGroups(clusterID string) ([]InstanceGroup, error) {
+	b.mu.RLock("ListInstanceGroups")
+	defer b.mu.RUnlock()
+
+	cluster, ok := b.clusters[clusterID]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterID)
+	}
+
+	groups := make([]InstanceGroup, len(cluster.instanceGroups))
+	copy(groups, cluster.instanceGroups)
+
+	return groups, nil
 }
 
 // AddTags adds or updates tags on a cluster identified by ARN or ID.

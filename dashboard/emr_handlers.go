@@ -109,7 +109,7 @@ func (h *DashboardHandler) emrCreateCluster(c *echo.Context) error {
 		releaseLabel = "emr-6.0.0"
 	}
 
-	_, err := h.EMROps.Backend.RunJobFlow(name, releaseLabel, []emrbackend.Tag{})
+	_, err := h.EMROps.Backend.RunJobFlow(name, releaseLabel, []emrbackend.Tag{}, nil)
 	if err != nil {
 		h.Logger.Error("failed to create EMR cluster", "name", name, "error", err)
 

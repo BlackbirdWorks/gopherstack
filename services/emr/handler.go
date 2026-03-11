@@ -50,6 +50,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AddJobFlowSteps",
 		"ListInstanceGroups",
 		"ListInstanceFleets",
+		"ListBootstrapActions",
 	}
 }
 
@@ -128,17 +129,18 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"RunJobFlow":          service.WrapOp(h.handleRunJobFlow),
-		"DescribeCluster":     service.WrapOp(h.handleDescribeCluster),
-		"ListClusters":        service.WrapOp(h.handleListClusters),
-		"TerminateJobFlows":   service.WrapOp(h.handleTerminateJobFlows),
-		"AddTags":             service.WrapOp(h.handleAddTags),
-		"RemoveTags":          service.WrapOp(h.handleRemoveTags),
-		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
-		"ListSteps":           service.WrapOp(h.handleListSteps),
-		"AddJobFlowSteps":     service.WrapOp(h.handleAddJobFlowSteps),
-		"ListInstanceGroups":  service.WrapOp(h.handleListInstanceGroups),
-		"ListInstanceFleets":  service.WrapOp(h.handleListInstanceFleets),
+		"RunJobFlow":           service.WrapOp(h.handleRunJobFlow),
+		"DescribeCluster":      service.WrapOp(h.handleDescribeCluster),
+		"ListClusters":         service.WrapOp(h.handleListClusters),
+		"TerminateJobFlows":    service.WrapOp(h.handleTerminateJobFlows),
+		"AddTags":              service.WrapOp(h.handleAddTags),
+		"RemoveTags":           service.WrapOp(h.handleRemoveTags),
+		"ListTagsForResource":  service.WrapOp(h.handleListTagsForResource),
+		"ListSteps":            service.WrapOp(h.handleListSteps),
+		"AddJobFlowSteps":      service.WrapOp(h.handleAddJobFlowSteps),
+		"ListInstanceGroups":   service.WrapOp(h.handleListInstanceGroups),
+		"ListInstanceFleets":   service.WrapOp(h.handleListInstanceFleets),
+		"ListBootstrapActions": service.WrapOp(h.handleListBootstrapActions),
 	}
 }
 
@@ -175,10 +177,15 @@ func errorResponse(code, msg string) map[string]string {
 
 // --- Input / Output types ---
 
+type runJobFlowInstances struct {
+	InstanceGroups []InstanceGroupSpec `json:"InstanceGroups"`
+}
+
 type runJobFlowInput struct {
-	Name         string `json:"Name"`
-	ReleaseLabel string `json:"ReleaseLabel"`
-	Tags         []Tag  `json:"Tags"`
+	Name         string              `json:"Name"`
+	ReleaseLabel string              `json:"ReleaseLabel"`
+	Tags         []Tag               `json:"Tags"`
+	Instances    runJobFlowInstances `json:"Instances"`
 }
 
 type runJobFlowOutput struct {
@@ -191,7 +198,7 @@ func (h *Handler) handleRunJobFlow(_ context.Context, in *runJobFlowInput) (*run
 		in.ReleaseLabel = "emr-6.0.0"
 	}
 
-	cluster, err := h.Backend.RunJobFlow(in.Name, in.ReleaseLabel, in.Tags)
+	cluster, err := h.Backend.RunJobFlow(in.Name, in.ReleaseLabel, in.Tags, in.Instances.InstanceGroups)
 	if err != nil {
 		return nil, err
 	}
@@ -327,14 +334,19 @@ type listInstanceGroupsInput struct {
 }
 
 type listInstanceGroupsOutput struct {
-	InstanceGroups []any `json:"InstanceGroups"`
+	InstanceGroups []InstanceGroup `json:"InstanceGroups"`
 }
 
 func (h *Handler) handleListInstanceGroups(
 	_ context.Context,
-	_ *listInstanceGroupsInput,
+	in *listInstanceGroupsInput,
 ) (*listInstanceGroupsOutput, error) {
-	return &listInstanceGroupsOutput{InstanceGroups: []any{}}, nil
+	groups, err := h.Backend.ListInstanceGroups(in.ClusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listInstanceGroupsOutput{InstanceGroups: groups}, nil
 }
 
 type listInstanceFleetsInput struct {
@@ -350,4 +362,19 @@ func (h *Handler) handleListInstanceFleets(
 	_ *listInstanceFleetsInput,
 ) (*listInstanceFleetsOutput, error) {
 	return &listInstanceFleetsOutput{InstanceFleets: []any{}}, nil
+}
+
+type listBootstrapActionsInput struct {
+	ClusterID string `json:"ClusterId"`
+}
+
+type listBootstrapActionsOutput struct {
+	BootstrapActions []any `json:"BootstrapActions"`
+}
+
+func (h *Handler) handleListBootstrapActions(
+	_ context.Context,
+	_ *listBootstrapActionsInput,
+) (*listBootstrapActionsOutput, error) {
+	return &listBootstrapActionsOutput{BootstrapActions: []any{}}, nil
 }
