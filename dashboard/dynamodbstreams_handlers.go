@@ -57,7 +57,18 @@ func (h *DashboardHandler) dynamodbStreamsIndex(c *echo.Context) error {
 				ActiveTab: "dynamodbstreams",
 				Snippet:   dynamodbStreamsSnippet(),
 			},
-			Streams: []dynamodbStreamsStreamView{},
+			Streams: []dynamodbStreamsStreamView{
+				{
+					TableName:   "demo-orders-table",
+					StreamARN:   "arn:aws:dynamodb:us-east-1:000000000000:table/demo-orders-table/stream/2024-01-01T00:00:00.000",
+					StreamLabel: "2024-01-01T00:00:00.000",
+				},
+				{
+					TableName:   "demo-events-table",
+					StreamARN:   "arn:aws:dynamodb:us-east-1:000000000000:table/demo-events-table/stream/2024-01-02T12:00:00.000",
+					StreamLabel: "2024-01-02T12:00:00.000",
+				},
+			},
 		})
 
 		return nil
