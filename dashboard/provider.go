@@ -54,6 +54,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
@@ -154,6 +155,7 @@ type AWSSDKProvider interface {
 	GetFISHandler() service.Registerable
 	GetAPIGatewayManagementAPIHandler() service.Registerable
 	GetAppConfigDataHandler() service.Registerable
+	GetElasticTranscoderHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -241,6 +243,7 @@ type extractedConfig struct {
 	eksOps                    *eksbackend.Handler
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
+	elasticTranscoderOps      *elastictranscoderbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -576,6 +579,10 @@ func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetDocDBHandler(); h != nil {
 		ec.docdbOps, _ = h.(*docdbbackend.Handler)
 	}
+
+	if h := ap.GetElasticTranscoderHandler(); h != nil {
+		ec.elasticTranscoderOps, _ = h.(*elastictranscoderbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -654,6 +661,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		EKSOps:                     ec.eksOps,
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,
+		ElasticTranscoderOps:       ec.elasticTranscoderOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,

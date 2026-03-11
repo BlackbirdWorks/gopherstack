@@ -61,6 +61,7 @@ import (
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -186,10 +187,12 @@ type Stack struct {
 	DynamoDBStreamsHandler *dynamodbstreamsbackend.Handler
 	// EKSHandler provides access to the EKS backend.
 	EKSHandler *eksbackend.Handler
-	S3Client   *s3.Client
-	DDBClient  *dynamodb.Client
-	FaultStore *chaos.FaultStore
-	Dashboard  *dashboard.DashboardHandler
+	// ElasticTranscoderHandler provides access to the Elastic Transcoder backend.
+	ElasticTranscoderHandler *elastictranscoderbackend.Handler
+	S3Client                 *s3.Client
+	DDBClient                *dynamodb.Client
+	FaultStore               *chaos.FaultStore
+	Dashboard                *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -378,80 +381,81 @@ func registerCloudfrontService(registry *service.Registry, cloudFrontHndlr *clou
 
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
-	s3              *s3backend.S3Handler
-	ddb             *ddbbackend.DynamoDBHandler
-	ssm             *ssmbackend.Handler
-	iam             *iambackend.Handler
-	sts             *stsbackend.Handler
-	sns             *snsbackend.Handler
-	sqs             *sqsbackend.Handler
-	kms             *kmsbackend.Handler
-	sm              *smbackend.Handler
-	lambda          *lambdabackend.Handler
-	eb              *ebbackend.Handler
-	apigw           *apigwbackend.Handler
-	cwlogs          *cwlogsbackend.Handler
-	sfn             *sfnbackend.Handler
-	cw              *cwbackend.Handler
-	cfn             *cfnbackend.Handler
-	kinesis         *kinesisbackend.Handler
-	elasticache     *elasticachebackend.Handler
-	route53         *route53backend.Handler
-	ses             *sesbackend.Handler
-	sesv2           *sesv2backend.Handler
-	ec2             *ec2backend.Handler
-	ecr             *ecrbackend.Handler
-	ecs             *ecsbackend.Handler
-	iot             *iotbackend.Handler
-	fis             *fisbackend.Handler
-	opensearch      *opensearchbackend.Handler
-	acm             *acmbackend.Handler
-	acmpca          *acmpcabackend.Handler
-	redshift        *redshiftbackend.Handler
-	rds             *rdsbackend.Handler
-	docdb           *docdbbackend.Handler
-	awsconfig       *awsconfigbackend.Handler
-	s3control       *s3controlbackend.Handler
-	resourcegroups  *resourcegroupsbackend.Handler
-	rgtagging       *rgtabackend.Handler
-	swf             *swfbackend.Handler
-	firehose        *firehosebackend.Handler
-	scheduler       *schedulerbackend.Handler
-	route53resolver *route53resolverbackend.Handler
-	transcribe      *transcribebackend.Handler
-	support         *supportbackend.Handler
-	cognitoIdentity *cognitoidentitybackend.Handler
-	appSync         *appsyncbackend.Handler
-	cognitoIDP      *cognitoidpbackend.Handler
-	iotDataPlane    *iotdataplanebackend.Handler
-	apiGatewayMgmt  *apigwmgmtbackend.Handler
-	appConfigData   *appconfigdatabackend.Handler
-	amplify         *amplifybackend.Handler
-	apigwv2         *apigwv2backend.Handler
-	appConfig       *appconfigbackend.Handler
-	athena          *athenabackend.Handler
-	autoscaling     *autoscalingbackend.Handler
-	appAutoScaling  *applicationautoscalingbackend.Handler
-	backup          *backupbackend.Handler
-	cloudtrail      *cloudtrailbackend.Handler
-	batch           *batchbackend.Handler
-	bedrock         *bedrockbackend.Handler
-	bedrockruntime  *bedrockruntimebackend.Handler
-	ce              *cebackend.Handler
-	cloudcontrol    *cloudcontrolbackend.Handler
-	cloudFront      *cloudfrontbackend.Handler
-	codeArtifact    *codeartifactbackend.Handler
-	codebuild       *codebuildbackend.Handler
-	codeCommit      *codecommitbackend.Handler
-	codePipeline    *codepipelinebackend.Handler
-	codeConnections *codeconnectionsbackend.Handler
-	codeDeploy      *codedeploybackend.Handler
-	dms             *dmsbackend.Handler
-	codeStarConn    *codestarconnectionsbackend.Handler
-	dynamodbStreams *dynamodbstreamsbackend.Handler
-	eks             *eksbackend.Handler
-	iamBk           *iambackend.InMemoryBackend
-	s3Bk            *s3backend.InMemoryBackend
+	s3                *s3backend.S3Handler
+	ddb               *ddbbackend.DynamoDBHandler
+	ssm               *ssmbackend.Handler
+	iam               *iambackend.Handler
+	sts               *stsbackend.Handler
+	sns               *snsbackend.Handler
+	sqs               *sqsbackend.Handler
+	kms               *kmsbackend.Handler
+	sm                *smbackend.Handler
+	lambda            *lambdabackend.Handler
+	eb                *ebbackend.Handler
+	apigw             *apigwbackend.Handler
+	cwlogs            *cwlogsbackend.Handler
+	sfn               *sfnbackend.Handler
+	cw                *cwbackend.Handler
+	cfn               *cfnbackend.Handler
+	kinesis           *kinesisbackend.Handler
+	elasticache       *elasticachebackend.Handler
+	route53           *route53backend.Handler
+	ses               *sesbackend.Handler
+	sesv2             *sesv2backend.Handler
+	ec2               *ec2backend.Handler
+	ecr               *ecrbackend.Handler
+	ecs               *ecsbackend.Handler
+	iot               *iotbackend.Handler
+	fis               *fisbackend.Handler
+	opensearch        *opensearchbackend.Handler
+	acm               *acmbackend.Handler
+	acmpca            *acmpcabackend.Handler
+	redshift          *redshiftbackend.Handler
+	rds               *rdsbackend.Handler
+	docdb             *docdbbackend.Handler
+	awsconfig         *awsconfigbackend.Handler
+	s3control         *s3controlbackend.Handler
+	resourcegroups    *resourcegroupsbackend.Handler
+	rgtagging         *rgtabackend.Handler
+	swf               *swfbackend.Handler
+	firehose          *firehosebackend.Handler
+	scheduler         *schedulerbackend.Handler
+	route53resolver   *route53resolverbackend.Handler
+	transcribe        *transcribebackend.Handler
+	support           *supportbackend.Handler
+	cognitoIdentity   *cognitoidentitybackend.Handler
+	appSync           *appsyncbackend.Handler
+	cognitoIDP        *cognitoidpbackend.Handler
+	iotDataPlane      *iotdataplanebackend.Handler
+	apiGatewayMgmt    *apigwmgmtbackend.Handler
+	appConfigData     *appconfigdatabackend.Handler
+	amplify           *amplifybackend.Handler
+	apigwv2           *apigwv2backend.Handler
+	appConfig         *appconfigbackend.Handler
+	athena            *athenabackend.Handler
+	autoscaling       *autoscalingbackend.Handler
+	appAutoScaling    *applicationautoscalingbackend.Handler
+	backup            *backupbackend.Handler
+	cloudtrail        *cloudtrailbackend.Handler
+	batch             *batchbackend.Handler
+	bedrock           *bedrockbackend.Handler
+	bedrockruntime    *bedrockruntimebackend.Handler
+	ce                *cebackend.Handler
+	cloudcontrol      *cloudcontrolbackend.Handler
+	cloudFront        *cloudfrontbackend.Handler
+	codeArtifact      *codeartifactbackend.Handler
+	codebuild         *codebuildbackend.Handler
+	codeCommit        *codecommitbackend.Handler
+	codePipeline      *codepipelinebackend.Handler
+	codeConnections   *codeconnectionsbackend.Handler
+	codeDeploy        *codedeploybackend.Handler
+	dms               *dmsbackend.Handler
+	codeStarConn      *codestarconnectionsbackend.Handler
+	dynamodbStreams   *dynamodbstreamsbackend.Handler
+	eks               *eksbackend.Handler
+	elastictranscoder *elastictranscoderbackend.Handler
+	iamBk             *iambackend.InMemoryBackend
+	s3Bk              *s3backend.InMemoryBackend
 }
 
 // newHandlers creates in-memory backends and handlers for all services.
@@ -644,6 +648,9 @@ func populateNewestHandlers(h *handlers) {
 	h.eks = eksbackend.NewHandler(
 		eksbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.elastictranscoder = elastictranscoderbackend.NewHandler(
+		elastictranscoderbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -754,6 +761,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CodeStarConnectionsOps:     h.codeStarConn,
 		DynamoDBStreamsOps:         h.dynamodbStreams,
 		EKSOps:                     h.eks,
+		ElasticTranscoderOps:       h.elastictranscoder,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -807,6 +815,7 @@ func New(t *testing.T) *Stack {
 	}
 
 	_ = registry.Register(h.eks)
+	_ = registry.Register(h.elastictranscoder)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -905,6 +914,7 @@ func buildStack(
 		CodeStarConnectionsHandler:     h.codeStarConn,
 		DynamoDBStreamsHandler:         h.dynamodbStreams,
 		EKSHandler:                     h.eks,
+		ElasticTranscoderHandler:       h.elastictranscoder,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,

@@ -58,6 +58,7 @@ import (
 	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
 	ekssvc "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -1618,4 +1619,25 @@ func createDynamoDBStreamsClient(t *testing.T) *dynamodbstreamssvc.Client {
 	return dynamodbstreamssvc.NewFromConfig(cfg, func(o *dynamodbstreamssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+// createElasticTranscoderClient returns an Elastic Transcoder client pointed at the shared test container.
+func createElasticTranscoderClient(t *testing.T) *elastictranscodersvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return elastictranscodersvc.NewFromConfig(
+		cfg,
+		func(o *elastictranscodersvc.Options) {
+			o.BaseEndpoint = aws.String(endpoint)
+		},
+	)
 }

@@ -71,6 +71,7 @@ import (
 	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
 	ekssvc "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -4172,6 +4173,57 @@ func TestTerraform_CodeStarConnections(t *testing.T) {
 				}
 
 				assert.True(t, found, "connection should exist")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ElasticTranscoder provisions an Elastic Transcoder pipeline via Terraform
+// and verifies it exists using the Elastic Transcoder SDK.
+func TestTerraform_ElasticTranscoder(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "elastictranscoder/pipeline",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"PipelineName": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createElasticTranscoderClient(t)
+				pipelineName := "tf-et-pipeline-" + vars["PipelineName"].(string)
+
+				out, err := client.ListPipelines( //nolint:staticcheck // AWS deprecated the SDK but service still works
+					ctx,
+					&elastictranscodersvc.ListPipelinesInput{},
+				)
+				require.NoError(t, err, "ListPipelines should succeed after terraform apply")
+
+				found := false
+
+				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated the SDK but service still works
+					if aws.ToString(p.Name) == pipelineName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "pipeline %q should be listed", pipelineName)
 			},
 		},
 	}

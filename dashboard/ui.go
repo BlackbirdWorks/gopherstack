@@ -60,6 +60,7 @@ import (
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -211,14 +212,16 @@ type DashboardHandler struct {
 	// DynamoDBStreamsOps provides access to the DynamoDB Streams backend.
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
 	// EKSOps provides access to the EKS backend.
-	EKSOps       *eksbackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	EKSOps *eksbackend.Handler
+	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
+	ElasticTranscoderOps *elastictranscoderbackend.Handler
+	SubRouter            *echo.Echo
+	ddbProvider          *ddbbackend.DashboardProvider
+	s3Provider           *s3backend.DashboardProvider
+	FaultStore           *chaos.FaultStore
+	Logger               *slog.Logger
+	layout               *template.Template
+	GlobalConfig         config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -362,6 +365,8 @@ type Config struct {
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
 	// EKSOps provides access to the EKS backend.
 	EKSOps *eksbackend.Handler
+	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
+	ElasticTranscoderOps *elastictranscoderbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -461,6 +466,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/codepipeline/*.html",
 		"templates/codestarconnections/*.html",
 		"templates/dynamodbstreams/*.html",
+		"templates/elastictranscoder/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -552,6 +558,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
 		DynamoDBStreamsOps:         cfg.DynamoDBStreamsOps,
 		EKSOps:                     cfg.EKSOps,
+		ElasticTranscoderOps:       cfg.ElasticTranscoderOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1023,6 +1030,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupCodePipelineRoutes()
 	h.setupDynamoDBStreamsRoutes()
 	h.setupEKSRoutes()
+	h.setupElasticTranscoderRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -1138,6 +1146,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/dms", "DMS"},
 	{"/codestarconnections", "CodeStarConnections"},
 	{"/dynamodbstreams", "DynamoDBStreams"},
+	{"/elastictranscoder", "ElasticTranscoder"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
