@@ -203,6 +203,7 @@ provider "aws" {
     ec2             = %[1]q
     ecr             = %[1]q
     ecs             = %[1]q
+    eks             = %[1]q
     elasticache     = %[1]q
     events          = %[1]q
     firehose        = %[1]q
