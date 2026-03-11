@@ -793,6 +793,12 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			wantContains: []string{"DBInstanceNotFound"},
 		},
 		{
+			name:         "DescribeGlobalClusters",
+			body:         "Action=DescribeGlobalClusters&Version=2014-10-31",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeGlobalClustersResponse"},
+		},
+		{
 			name:         "DescribeOptionGroupOptions",
 			body:         "Action=DescribeOptionGroupOptions&Version=2014-10-31&EngineName=mysql",
 			wantCode:     http.StatusOK,
