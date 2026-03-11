@@ -71,6 +71,8 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
+	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
+	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
@@ -187,6 +189,8 @@ type CLI struct {
 	cloudcontrolHandler           service.Registerable
 	cloudFrontHandler             service.Registerable
 	codeArtifactHandler           service.Registerable
+	codebuildHandler              service.Registerable
+	codeCommitHandler             service.Registerable
 	codeConnectionsHandler        service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
@@ -622,6 +626,16 @@ func (c *CLI) GetCodeArtifactHandler() service.Registerable { return c.codeArtif
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCodeConnectionsHandler() service.Registerable { return c.codeConnectionsHandler }
 
+// GetCodeBuildHandler returns the CodeBuild handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeBuildHandler() service.Registerable { return c.codebuildHandler }
+
+// GetCodeCommitHandler returns the CodeCommit handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeCommitHandler() service.Registerable { return c.codeCommitHandler }
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1045,6 +1059,8 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cloudFrontHandler = byName["CloudFront"]
 	cli.codeArtifactHandler = byName["CodeArtifact"]
 	cli.codeConnectionsHandler = byName["CodeConnections"]
+	cli.codebuildHandler = byName["CodeBuild"]
+	cli.codeCommitHandler = byName["CodeCommit"]
 }
 
 // initializeServices initializes all service providers.
@@ -1222,6 +1238,8 @@ func getServiceProviders() []service.Provider {
 		&cloudcontrolbackend.Provider{},
 		&cloudfrontbackend.Provider{},
 		&codeartifactbackend.Provider{},
+		&codebuildbackend.Provider{},
+		&codecommitbackend.Provider{},
 		&codeconnectionsbackend.Provider{},
 	}
 }

@@ -43,6 +43,8 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
+	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
+	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
@@ -194,6 +196,10 @@ type DashboardHandler struct {
 	CloudFrontOps *cloudfrontbackend.Handler
 	// CodeArtifactOps provides access to the CodeArtifact backend.
 	CodeArtifactOps *codeartifactbackend.Handler
+	// CodeBuildOps provides access to the CodeBuild backend.
+	CodeBuildOps *codebuildbackend.Handler
+	// CodeCommitOps provides access to the CodeCommit backend.
+	CodeCommitOps *codecommitbackend.Handler
 	// CodeConnectionsOps provides access to the CodeConnections backend.
 	CodeConnectionsOps *codeconnectionsbackend.Handler
 	SubRouter          *echo.Echo
@@ -327,6 +333,10 @@ type Config struct {
 	CloudFrontOps *cloudfrontbackend.Handler
 	// CodeArtifactOps provides access to the CodeArtifact backend.
 	CodeArtifactOps *codeartifactbackend.Handler
+	// CodeBuildOps provides access to the CodeBuild backend.
+	CodeBuildOps *codebuildbackend.Handler
+	// CodeCommitOps provides access to the CodeCommit backend.
+	CodeCommitOps *codecommitbackend.Handler
 	// CodeConnectionsOps provides access to the CodeConnections backend.
 	CodeConnectionsOps *codeconnectionsbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -421,6 +431,8 @@ func parseDashboardTemplates() *template.Template {
 		"templates/cloudcontrol/*.html",
 		"templates/cloudfront/*.html",
 		"templates/codeartifact/*.html",
+		"templates/codebuild/*.html",
+		"templates/codecommit/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -502,6 +514,8 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CloudControlOps:            cfg.CloudControlOps,
 		CloudFrontOps:              cfg.CloudFrontOps,
 		CodeArtifactOps:            cfg.CodeArtifactOps,
+		CodeBuildOps:               cfg.CodeBuildOps,
+		CodeCommitOps:              cfg.CodeCommitOps,
 		CodeConnectionsOps:         cfg.CodeConnectionsOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
@@ -946,6 +960,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupCloudFrontRoutes()
 	h.setupCodeArtifactRoutes()
 	h.setupCodeConnectionsRoutes()
+	h.setupCodeCommitRoutes()
 }
 
 // setupRecentServiceRoutes sets up dashboard routes for recently-added services.
@@ -959,6 +974,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupBedrockRoutes()
 	h.setupCeRoutes()
 	h.setupCloudControlRoutes()
+	h.setupCodeBuildRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -1066,6 +1082,8 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/cloudtrail", "CloudTrail"},
 	{"/cloudfront", "CloudFront"},
 	{"/codeartifact", "CodeArtifact"},
+	{"/codebuild", "CodeBuild"},
+	{"/codecommit", "CodeCommit"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

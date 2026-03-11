@@ -39,6 +39,8 @@ import (
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	codeartifactsvc "github.com/aws/aws-sdk-go-v2/service/codeartifact"
+	codebuildsvc "github.com/aws/aws-sdk-go-v2/service/codebuild"
+	codecommitsvc "github.com/aws/aws-sdk-go-v2/service/codecommit"
 	codeconnectionssvc "github.com/aws/aws-sdk-go-v2/service/codeconnections"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
@@ -1356,6 +1358,24 @@ func createBedrockRuntimeClient(t *testing.T) *bedrockruntimesvc.Client {
 	})
 }
 
+// createCodeBuildClient returns a CodeBuild client pointed at the shared test container.
+func createCodeBuildClient(t *testing.T) *codebuildsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return codebuildsvc.NewFromConfig(cfg, func(o *codebuildsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
 // createCeClient returns a Cost Explorer client pointed at the shared test container.
 func createCeClient(t *testing.T) *cesvc.Client {
 	t.Helper()
@@ -1430,18 +1450,36 @@ func createCodeArtifactClient(t *testing.T) *codeartifactsvc.Client {
 
 // createCodeConnectionsClient returns a CodeConnections client pointed at the shared test container.
 func createCodeConnectionsClient(t *testing.T) *codeconnectionssvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-require.NoError(t, err, "unable to load SDK config")
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
 
-return codeconnectionssvc.NewFromConfig(cfg, func(o *codeconnectionssvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return codeconnectionssvc.NewFromConfig(cfg, func(o *codeconnectionssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeCommitClient returns a CodeCommit client pointed at the shared test container.
+func createCodeCommitClient(t *testing.T) *codecommitsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return codecommitsvc.NewFromConfig(cfg, func(o *codecommitsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }
