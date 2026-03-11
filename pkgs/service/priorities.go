@@ -9,6 +9,7 @@ package service
 //     (e.g. Lambda by path + method, KMS/SecretsManager by target prefix).
 //   - 90 (FormEncoded):    STS – form-encoded POST to the root path.
 //   - 85 (PathVersioned):  Services matched by a versioned path prefix (S3Control).
+//   - 85 (FormDocDB):      DocDB – form-encoded, versioned query protocol (intercepted before RDS).
 //   - 84 (FormRDS):        RDS – form-encoded, versioned query protocol.
 //   - 83 (FormRedshift):   Redshift – form-encoded, version 2012-12-01.
 //   - 82 (PathSubdomain):  OpenSearch / ElastiCache – path-prefix matchers that
@@ -32,6 +33,9 @@ const (
 
 	// PriorityFormRDS is for RDS form-encoded query protocol (version 2014-10-31).
 	PriorityFormRDS = 84
+
+	// PriorityFormDocDB is for DocDB form-encoded query protocol. Higher than RDS (84) to intercept DocDB requests first.
+	PriorityFormDocDB = 85
 
 	// PriorityFormRedshift is for Redshift form-encoded query protocol (version 2012-12-01).
 	PriorityFormRedshift = 83

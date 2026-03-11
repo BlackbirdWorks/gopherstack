@@ -53,6 +53,7 @@ import (
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
@@ -133,6 +134,7 @@ type Stack struct {
 	ACMPCAHandler                  *acmpcabackend.Handler
 	RedshiftHandler                *redshiftbackend.Handler
 	RDSHandler                     *rdsbackend.Handler
+	DocDBHandler                   *docdbbackend.Handler
 	AWSConfigHandler               *awsconfigbackend.Handler
 	S3ControlHandler               *s3controlbackend.Handler
 	ResourceGroupsHandler          *resourcegroupsbackend.Handler
@@ -404,6 +406,7 @@ type handlers struct {
 	acmpca          *acmpcabackend.Handler
 	redshift        *redshiftbackend.Handler
 	rds             *rdsbackend.Handler
+	docdb           *docdbbackend.Handler
 	awsconfig       *awsconfigbackend.Handler
 	s3control       *s3controlbackend.Handler
 	resourcegroups  *resourcegroupsbackend.Handler
@@ -526,6 +529,9 @@ func populateExtendedHandlers(h *handlers) {
 	)
 	h.rds = rdsbackend.NewHandler(
 		rdsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.docdb = docdbbackend.NewHandler(
+		docdbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.awsconfig = awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend())
 	h.s3control = s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend())
@@ -699,6 +705,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ACMPCAOps:                  h.acmpca,
 		RedshiftOps:                h.redshift,
 		RDSOps:                     h.rds,
+		DocDBOps:                   h.docdb,
 		AWSConfigOps:               h.awsconfig,
 		S3ControlOps:               h.s3control,
 		ResourceGroupsOps:          h.resourcegroups,
@@ -772,6 +779,7 @@ func New(t *testing.T) *Stack {
 		h.amplify, h.apigwv2, h.appConfig, h.athena, h.backup,
 	)
 	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch, h.ce, h.cloudtrail)
+	_ = registry.Register(h.docdb)
 	_ = registry.Register(h.bedrock)
 	_ = registry.Register(h.bedrockruntime)
 	_ = registry.Register(h.cloudcontrol)
@@ -845,6 +853,7 @@ func buildStack(
 		ACMPCAHandler:                  h.acmpca,
 		RedshiftHandler:                h.redshift,
 		RDSHandler:                     h.rds,
+		DocDBHandler:                   h.docdb,
 		AWSConfigHandler:               h.awsconfig,
 		S3ControlHandler:               h.s3control,
 		ResourceGroupsHandler:          h.resourcegroups,

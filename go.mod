@@ -99,6 +99,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.11
 	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.63.4
 	github.com/aws/aws-sdk-go-v2/service/databasemigrationservice v1.61.8
+	github.com/aws/aws-sdk-go-v2/service/docdb v1.48.11
 )
 
 require (

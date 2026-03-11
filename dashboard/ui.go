@@ -52,6 +52,7 @@ import (
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
@@ -127,40 +128,42 @@ type PageData struct {
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DashboardHandler struct {
-	SNSOps                     *snsbackend.Handler
-	KMSOps                     *kmsbackend.Handler
-	SSM                        *ssmsdk.Client
-	DDBOps                     *ddbbackend.DynamoDBHandler
-	S3Ops                      *s3backend.S3Handler
-	SSMOps                     *ssmbackend.Handler
-	IAMOps                     *iambackend.Handler
-	STSOps                     *stsbackend.Handler
-	S3                         *s3.Client
-	DynamoDB                   *dynamodb.Client
-	SQSOps                     *sqsbackend.Handler
-	SecretsManagerOps          *secretsmanagerbackend.Handler
-	LambdaOps                  *lambdabackend.Handler
-	EventBridgeOps             *ebbackend.Handler
-	APIGatewayOps              *apigwbackend.Handler
-	CloudWatchLogsOps          *cwlogsbackend.Handler
-	StepFunctionsOps           *sfnbackend.Handler
-	CloudWatchOps              *cwbackend.Handler
-	CloudFormationOps          *cfnbackend.Handler
-	KinesisOps                 *kinesisbackend.Handler
-	ElastiCacheOps             *elasticachebackend.Handler
-	Route53Ops                 *route53backend.Handler
-	SESOps                     *sesbackend.Handler
-	SESv2Ops                   *sesv2backend.Handler
-	EC2Ops                     *ec2backend.Handler
-	ECROps                     *ecrbackend.Handler
-	ECSOps                     *ecsbackend.Handler
-	IoTOps                     *iotbackend.Handler
-	FISOps                     *fisbackend.Handler
-	OpenSearchOps              *opensearchbackend.Handler
-	ACMOps                     *acmbackend.Handler
-	ACMPCAOps                  *acmpcabackend.Handler
-	RedshiftOps                *redshiftbackend.Handler
-	RDSOps                     *rdsbackend.Handler
+	SNSOps            *snsbackend.Handler
+	KMSOps            *kmsbackend.Handler
+	SSM               *ssmsdk.Client
+	DDBOps            *ddbbackend.DynamoDBHandler
+	S3Ops             *s3backend.S3Handler
+	SSMOps            *ssmbackend.Handler
+	IAMOps            *iambackend.Handler
+	STSOps            *stsbackend.Handler
+	S3                *s3.Client
+	DynamoDB          *dynamodb.Client
+	SQSOps            *sqsbackend.Handler
+	SecretsManagerOps *secretsmanagerbackend.Handler
+	LambdaOps         *lambdabackend.Handler
+	EventBridgeOps    *ebbackend.Handler
+	APIGatewayOps     *apigwbackend.Handler
+	CloudWatchLogsOps *cwlogsbackend.Handler
+	StepFunctionsOps  *sfnbackend.Handler
+	CloudWatchOps     *cwbackend.Handler
+	CloudFormationOps *cfnbackend.Handler
+	KinesisOps        *kinesisbackend.Handler
+	ElastiCacheOps    *elasticachebackend.Handler
+	Route53Ops        *route53backend.Handler
+	SESOps            *sesbackend.Handler
+	SESv2Ops          *sesv2backend.Handler
+	EC2Ops            *ec2backend.Handler
+	ECROps            *ecrbackend.Handler
+	ECSOps            *ecsbackend.Handler
+	IoTOps            *iotbackend.Handler
+	FISOps            *fisbackend.Handler
+	OpenSearchOps     *opensearchbackend.Handler
+	ACMOps            *acmbackend.Handler
+	ACMPCAOps         *acmpcabackend.Handler
+	RedshiftOps       *redshiftbackend.Handler
+	RDSOps            *rdsbackend.Handler
+	// DocDBOps provides access to the DocDB backend.
+	DocDBOps                   *docdbbackend.Handler
 	AWSConfigOps               *awsconfigbackend.Handler
 	S3ControlOps               *s3controlbackend.Handler
 	ResourceGroupsOps          *resourcegroupsbackend.Handler
@@ -275,7 +278,8 @@ type Config struct {
 	RedshiftOps *redshiftbackend.Handler
 	// RDSOps provides access to the RDS backend.
 	RDSOps *rdsbackend.Handler
-	// AWSConfigOps provides access to the AWS Config backend.
+	// DocDBOps provides access to the DocDB backend.
+	DocDBOps     *docdbbackend.Handler
 	AWSConfigOps *awsconfigbackend.Handler
 	// S3ControlOps provides access to the S3 Control backend.
 	S3ControlOps *s3controlbackend.Handler
@@ -415,6 +419,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/acmpca/*.html",
 		"templates/redshift/*.html",
 		"templates/rds/*.html",
+		"templates/docdb/*.html",
 		"templates/awsconfig/*.html",
 		"templates/s3control/*.html",
 		"templates/resourcegroups/*.html",
@@ -501,6 +506,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		ACMPCAOps:                  cfg.ACMPCAOps,
 		RedshiftOps:                cfg.RedshiftOps,
 		RDSOps:                     cfg.RDSOps,
+		DocDBOps:                   cfg.DocDBOps,
 		AWSConfigOps:               cfg.AWSConfigOps,
 		S3ControlOps:               cfg.S3ControlOps,
 		ResourceGroupsOps:          cfg.ResourceGroupsOps,
@@ -769,6 +775,12 @@ func (h *DashboardHandler) setupRDSRoutes() {
 	h.SubRouter.POST("/dashboard/rds/delete", h.rdsDeleteInstance)
 }
 
+func (h *DashboardHandler) setupDocDBRoutes() {
+	h.SubRouter.GET("/dashboard/docdb", h.docdbIndex)
+	h.SubRouter.POST("/dashboard/docdb/create", h.docdbCreateCluster)
+	h.SubRouter.POST("/dashboard/docdb/delete", h.docdbDeleteCluster)
+}
+
 func (h *DashboardHandler) setupAWSConfigRoutes() {
 	h.SubRouter.GET("/dashboard/awsconfig", h.awsconfigIndex)
 	h.SubRouter.POST("/dashboard/awsconfig/recorder", h.awsconfigPutRecorder)
@@ -952,6 +964,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupACMPCARoutes()
 	h.setupRedshiftRoutes()
 	h.setupRDSRoutes()
+	h.setupDocDBRoutes()
 	h.setupAWSConfigRoutes()
 	h.setupS3ControlRoutes()
 	h.setupResourceGroupsRoutes()
@@ -1082,6 +1095,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},
 	{"/rds", "RDS"},
+	{"/docdb", "DocDB"},
 	{"/awsconfig", "AWSConfig"},
 	{"/s3control", "S3Control"},
 	{"/resourcegroupstaggingapi", "ResourceGroupsTaggingAPI"},
