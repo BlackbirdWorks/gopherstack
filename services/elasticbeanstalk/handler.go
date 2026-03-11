@@ -50,6 +50,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteApplicationVersion",
 		"DescribeEvents",
 		"DescribeEnvironmentResources",
+		"DescribeConfigurationSettings",
 		"ListTagsForResource",
 		"UpdateTagsForResource",
 	}
@@ -167,21 +168,22 @@ func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
 	type handlerFn func(url.Values) (any, error)
 
 	handlers := map[string]handlerFn{
-		"CreateApplication":            h.handleCreateApplication,
-		"DescribeApplications":         h.handleDescribeApplications,
-		"UpdateApplication":            h.handleUpdateApplication,
-		"DeleteApplication":            h.handleDeleteApplication,
-		"CreateEnvironment":            h.handleCreateEnvironment,
-		"DescribeEnvironments":         h.handleDescribeEnvironments,
-		"UpdateEnvironment":            h.handleUpdateEnvironment,
-		"TerminateEnvironment":         h.handleTerminateEnvironment,
-		"CreateApplicationVersion":     h.handleCreateApplicationVersion,
-		"DescribeApplicationVersions":  h.handleDescribeApplicationVersions,
-		"DeleteApplicationVersion":     h.handleDeleteApplicationVersion,
-		"ListTagsForResource":          h.handleListTagsForResource,
-		"UpdateTagsForResource":        h.handleUpdateTagsForResource,
-		"DescribeEvents":               h.handleDescribeEvents,
-		"DescribeEnvironmentResources": h.handleDescribeEnvironmentResources,
+		"CreateApplication":             h.handleCreateApplication,
+		"DescribeApplications":          h.handleDescribeApplications,
+		"UpdateApplication":             h.handleUpdateApplication,
+		"DeleteApplication":             h.handleDeleteApplication,
+		"CreateEnvironment":             h.handleCreateEnvironment,
+		"DescribeEnvironments":          h.handleDescribeEnvironments,
+		"UpdateEnvironment":             h.handleUpdateEnvironment,
+		"TerminateEnvironment":          h.handleTerminateEnvironment,
+		"CreateApplicationVersion":      h.handleCreateApplicationVersion,
+		"DescribeApplicationVersions":   h.handleDescribeApplicationVersions,
+		"DeleteApplicationVersion":      h.handleDeleteApplicationVersion,
+		"ListTagsForResource":           h.handleListTagsForResource,
+		"UpdateTagsForResource":         h.handleUpdateTagsForResource,
+		"DescribeEvents":                h.handleDescribeEvents,
+		"DescribeEnvironmentResources":  h.handleDescribeEnvironmentResources,
+		"DescribeConfigurationSettings": h.handleDescribeConfigurationSettings,
 	}
 
 	if fn, ok := handlers[action]; ok {
@@ -743,6 +745,52 @@ func (h *Handler) handleDescribeEnvironmentResources(vals url.Values) (any, erro
 			},
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-describe-env-resources"},
+	}, nil
+}
+
+// --- Configuration Settings ---
+
+type configurationOptionSettingType struct {
+	Namespace  string `xml:"Namespace"`
+	OptionName string `xml:"OptionName"`
+	Value      string `xml:"Value"`
+}
+
+type configurationSettingsDescType struct {
+	ApplicationName   string                           `xml:"ApplicationName"`
+	EnvironmentName   string                           `xml:"EnvironmentName"`
+	SolutionStackName string                           `xml:"SolutionStackName,omitempty"`
+	OptionSettings    []configurationOptionSettingType `xml:"OptionSettings>member"`
+}
+
+type describeConfigurationSettingsResult struct {
+	ConfigurationSettings []configurationSettingsDescType `xml:"ConfigurationSettings>member"`
+}
+
+type describeConfigurationSettingsResponse struct {
+	XMLName                             xml.Name                            `xml:"DescribeConfigurationSettingsResponse"`
+	ResponseMetadata                    responseMetadata                    `xml:"ResponseMetadata"`
+	Xmlns                               string                              `xml:"xmlns,attr"`
+	DescribeConfigurationSettingsResult describeConfigurationSettingsResult `xml:"DescribeConfigurationSettingsResult"`
+}
+
+// handleDescribeConfigurationSettings returns an empty configuration settings list.
+// The Terraform provider calls this after environment creation to populate all_settings.
+func (h *Handler) handleDescribeConfigurationSettings(vals url.Values) (any, error) {
+	appName := vals.Get("ApplicationName")
+	envName := vals.Get("EnvironmentName")
+
+	return &describeConfigurationSettingsResponse{
+		Xmlns: ebXMLNS,
+		DescribeConfigurationSettingsResult: describeConfigurationSettingsResult{
+			ConfigurationSettings: []configurationSettingsDescType{
+				{
+					ApplicationName: appName,
+					EnvironmentName: envName,
+				},
+			},
+		},
+		ResponseMetadata: responseMetadata{RequestID: "eb-describe-config-settings"},
 	}, nil
 }
 
