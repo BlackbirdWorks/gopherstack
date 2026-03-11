@@ -580,15 +580,16 @@ func NewHandler(cfg Config) *DashboardHandler {
 		SubRouter:                  echo.New(),
 	}
 
-	h.SubRouter.Pre(pkgslogger.EchoMiddleware(cfg.Logger))
-
-	// Set up handler functions for providers
-	h.ddbProvider.Handlers.HandleDynamoDB = h.handleDynamoDB
-	h.s3Provider.Handlers.HandleS3 = h.handleS3
-
+	h.setupProviderHandlers()
 	h.setupSubRouter()
 
 	return h
+}
+
+func (h *DashboardHandler) setupProviderHandlers() {
+	h.SubRouter.Pre(pkgslogger.EchoMiddleware(h.Logger))
+	h.ddbProvider.Handlers.HandleDynamoDB = h.handleDynamoDB
+	h.s3Provider.Handlers.HandleS3 = h.handleS3
 }
 
 func (h *DashboardHandler) setupStaticAndRootRoutes() {
