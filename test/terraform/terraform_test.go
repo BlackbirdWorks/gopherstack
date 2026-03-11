@@ -70,6 +70,7 @@ import (
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
 	efssvc "github.com/aws/aws-sdk-go-v2/service/efs"
+	ekssvc "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -204,6 +205,7 @@ provider "aws" {
     ecr             = %[1]q
     ecs             = %[1]q
     efs             = %[1]q
+    eks             = %[1]q
     elasticache     = %[1]q
     events          = %[1]q
     firehose        = %[1]q
@@ -3496,6 +3498,41 @@ func TestTerraform_Batch(t *testing.T) {
 				require.NoError(t, err, "DescribeJobQueues should succeed")
 				require.Len(t, jqOut.JobQueues, 1, "job queue should exist")
 				assert.Equal(t, "tf-jq-"+suffix, *jqOut.JobQueues[0].JobQueueName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_EKS provisions an EKS cluster via Terraform, then verifies it is listed via the EKS SDK.
+func TestTerraform_EKS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "eks/cluster",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ClusterName": "tf-eks-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEKSClient(t)
+				out, err := client.ListClusters(ctx, &ekssvc.ListClustersInput{})
+				require.NoError(t, err, "ListClusters should succeed after terraform apply")
+				found := slices.Contains(out.Clusters, vars["ClusterName"].(string))
+				assert.True(t, found, "cluster %q should be listed", vars["ClusterName"].(string))
 			},
 		},
 	}

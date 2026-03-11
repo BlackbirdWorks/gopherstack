@@ -43,6 +43,7 @@ import (
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
@@ -150,6 +151,7 @@ type AWSSDKProvider interface {
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetEFSHandler() service.Registerable
+	GetEKSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
 	GetAPIGatewayManagementAPIHandler() service.Registerable
@@ -239,6 +241,7 @@ type extractedConfig struct {
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
 	efsOps                    *efsbackend.Handler
+	eksOps                    *eksbackend.Handler
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
 	faultStore                *chaos.FaultStore
@@ -456,6 +459,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.ecsOps, _ = h.(*ecsbackend.Handler)
 	}
 
+	if h := ap.GetEKSHandler(); h != nil {
+		ec.eksOps, _ = h.(*eksbackend.Handler)
+	}
+
 	if h := ap.GetIoTHandler(); h != nil {
 		ec.iotOps, _ = h.(*iotbackend.Handler)
 	}
@@ -652,6 +659,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		EFSOps:                     ec.efsOps,
+		EKSOps:                     ec.eksOps,
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,
 		GlobalConfig:               ec.gCfg,
