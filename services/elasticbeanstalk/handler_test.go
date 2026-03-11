@@ -282,14 +282,26 @@ func TestHandler_DescribeEnvironments(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
-	postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app-a&EnvironmentName=env-1")
+	rec1 := postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app-a&EnvironmentName=env-1")
 	postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment&ApplicationName=app-a&EnvironmentName=env-2")
 
+	// Extract env-1's EnvironmentId from the create response using XML parsing.
+	var createResult struct {
+		CreateEnvironmentResult struct {
+			EnvironmentID string `xml:"EnvironmentId"`
+		} `xml:"CreateEnvironmentResult"`
+	}
+
+	require.NoError(t, xml.Unmarshal(rec1.Body.Bytes(), &createResult))
+	env1ID := createResult.CreateEnvironmentResult.EnvironmentID
+	require.NotEmpty(t, env1ID, "env-1 EnvironmentId should not be empty")
+
 	tests := []struct {
-		name       string
-		body       string
-		wantEnv    string
-		wantStatus int
+		name        string
+		body        string
+		wantEnv     string
+		wantContain string
+		wantStatus  int
 	}{
 		{
 			name:       "list all",
@@ -308,6 +320,13 @@ func TestHandler_DescribeEnvironments(t *testing.T) {
 			wantStatus: http.StatusOK,
 			wantEnv:    "env-1",
 		},
+		{
+			name:        "filter by env id",
+			body:        "Version=2010-12-01&Action=DescribeEnvironments&EnvironmentIds.member.1=" + env1ID,
+			wantStatus:  http.StatusOK,
+			wantEnv:     "env-1",
+			wantContain: "<Tier>",
+		},
 	}
 
 	for _, tt := range tests {
@@ -319,6 +338,10 @@ func TestHandler_DescribeEnvironments(t *testing.T) {
 
 			if tt.wantEnv != "" {
 				assert.Contains(t, rec.Body.String(), tt.wantEnv)
+			}
+
+			if tt.wantContain != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContain)
 			}
 		})
 	}

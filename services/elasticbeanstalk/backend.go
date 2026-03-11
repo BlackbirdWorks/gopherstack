@@ -40,6 +40,7 @@ type Environment struct {
 	Description       string            `json:"description,omitempty"`
 	Status            string            `json:"status"`
 	Health            string            `json:"health"`
+	Tier              string            `json:"tier,omitempty"`
 }
 
 // ApplicationVersion represents an Elastic Beanstalk application version.
@@ -226,6 +227,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 		Description:       description,
 		Status:            "Ready",
 		Health:            "Green",
+		Tier:              "WebServer",
 		Tags:              copyTags(tags),
 	}
 	b.environments[key] = env
@@ -233,8 +235,8 @@ func (b *InMemoryBackend) CreateEnvironment(
 	return cloneEnvironment(env), nil
 }
 
-// DescribeEnvironments returns environments, optionally filtered by app/environment names.
-func (b *InMemoryBackend) DescribeEnvironments(appName string, envNames []string) []*Environment {
+// DescribeEnvironments returns environments, optionally filtered by app/environment names or IDs.
+func (b *InMemoryBackend) DescribeEnvironments(appName string, envNames []string, envIDs []string) []*Environment {
 	b.mu.RLock("DescribeEnvironments")
 	defer b.mu.RUnlock()
 
@@ -247,6 +249,14 @@ func (b *InMemoryBackend) DescribeEnvironments(appName string, envNames []string
 
 		if len(envNames) > 0 {
 			found := slices.Contains(envNames, env.EnvironmentName)
+
+			if !found {
+				continue
+			}
+		}
+
+		if len(envIDs) > 0 {
+			found := slices.Contains(envIDs, env.EnvironmentID)
 
 			if !found {
 				continue

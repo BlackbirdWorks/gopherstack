@@ -220,6 +220,7 @@ func TestBackend_DescribeEnvironments(t *testing.T) {
 		name      string
 		appFilter string
 		envFilter []string
+		envIDs    []string
 		wantCount int
 	}{
 		{
@@ -236,6 +237,11 @@ func TestBackend_DescribeEnvironments(t *testing.T) {
 			envFilter: []string{"env-1"},
 			wantCount: 1,
 		},
+		{
+			name:      "filter by env id",
+			envIDs:    []string{"e-00000001"},
+			wantCount: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -246,7 +252,7 @@ func TestBackend_DescribeEnvironments(t *testing.T) {
 			_, _ = b.CreateEnvironment("app-a", "env-2", "", "", nil)
 			_, _ = b.CreateEnvironment("app-b", "env-3", "", "", nil)
 
-			envs := b.DescribeEnvironments(tt.appFilter, tt.envFilter)
+			envs := b.DescribeEnvironments(tt.appFilter, tt.envFilter, tt.envIDs)
 			assert.Len(t, envs, tt.wantCount)
 		})
 	}
@@ -299,7 +305,7 @@ func TestBackend_TerminateEnvironment(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, "Terminated", env.Status)
 			// Verify it's gone.
-			envs := b.DescribeEnvironments("my-app", []string{"my-env"})
+			envs := b.DescribeEnvironments("my-app", []string{"my-env"}, nil)
 			assert.Empty(t, envs)
 		})
 	}

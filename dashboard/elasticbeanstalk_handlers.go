@@ -84,7 +84,7 @@ client = boto3.client('elasticbeanstalk', endpoint_url='http://localhost:8000')`
 		})
 	}
 
-	envs := h.ElasticbeanstalkOps.Backend.DescribeEnvironments("", nil)
+	envs := h.ElasticbeanstalkOps.Backend.DescribeEnvironments("", nil, nil)
 	envViews := make([]elasticbeanstalkEnvironmentView, 0, len(envs))
 
 	for _, env := range envs {

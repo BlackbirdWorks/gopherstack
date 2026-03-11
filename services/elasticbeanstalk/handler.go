@@ -326,17 +326,28 @@ func (h *Handler) handleDeleteApplication(vals url.Values) (any, error) {
 
 // --- Environment operations ---
 
-type environmentDescType struct {
-	ApplicationName   string `xml:"ApplicationName"`
-	EnvironmentName   string `xml:"EnvironmentName"`
-	EnvironmentID     string `xml:"EnvironmentId"`
-	EnvironmentArn    string `xml:"EnvironmentArn"`
-	SolutionStackName string `xml:"SolutionStackName,omitempty"`
-	Status            string `xml:"Status"`
-	Health            string `xml:"Health"`
+type environmentTierType struct {
+	Name    string `xml:"Name"`
+	Type    string `xml:"Type"`
+	Version string `xml:"Version"`
 }
 
-func toEnvironmentDesc(env *Environment) environmentDescType {
+type environmentDescType struct {
+	ApplicationName   string              `xml:"ApplicationName"`
+	EnvironmentName   string              `xml:"EnvironmentName"`
+	EnvironmentID     string              `xml:"EnvironmentId"`
+	EnvironmentArn    string              `xml:"EnvironmentArn"`
+	SolutionStackName string              `xml:"SolutionStackName"`
+	Status            string              `xml:"Status"`
+	Health            string              `xml:"Health"`
+	Tier              environmentTierType `xml:"Tier"`
+	CNAME             string              `xml:"CNAME"`
+	EndpointURL       string              `xml:"EndpointURL"`
+}
+
+func toEnvironmentDesc(env *Environment, region string) environmentDescType {
+	cname := env.EnvironmentName + "." + region + ".elasticbeanstalk.com"
+
 	return environmentDescType{
 		ApplicationName:   env.ApplicationName,
 		EnvironmentName:   env.EnvironmentName,
@@ -345,6 +356,13 @@ func toEnvironmentDesc(env *Environment) environmentDescType {
 		SolutionStackName: env.SolutionStackName,
 		Status:            env.Status,
 		Health:            env.Health,
+		Tier: environmentTierType{
+			Name:    env.Tier,
+			Type:    "Standard",
+			Version: "1.0",
+		},
+		CNAME:       cname,
+		EndpointURL: cname,
 	}
 }
 
@@ -378,7 +396,7 @@ func (h *Handler) handleCreateEnvironment(vals url.Values) (any, error) {
 
 	return &createEnvironmentResponse{
 		Xmlns:                   ebXMLNS,
-		CreateEnvironmentResult: toEnvironmentDesc(env),
+		CreateEnvironmentResult: toEnvironmentDesc(env, h.Backend.Region()),
 		ResponseMetadata:        responseMetadata{RequestID: "eb-create-env"},
 	}, nil
 }
@@ -397,12 +415,13 @@ type describeEnvironmentsResponse struct {
 func (h *Handler) handleDescribeEnvironments(vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	envNames := parseMembers(vals, "EnvironmentNames.member")
-	envs := h.Backend.DescribeEnvironments(appName, envNames)
+	envIDs := parseMembers(vals, "EnvironmentIds.member")
+	envs := h.Backend.DescribeEnvironments(appName, envNames, envIDs)
 
 	members := make([]environmentDescType, 0, len(envs))
 
 	for _, env := range envs {
-		members = append(members, toEnvironmentDesc(env))
+		members = append(members, toEnvironmentDesc(env, h.Backend.Region()))
 	}
 
 	return &describeEnvironmentsResponse{
@@ -436,7 +455,7 @@ func (h *Handler) handleUpdateEnvironment(vals url.Values) (any, error) {
 
 	return &updateEnvironmentResponse{
 		Xmlns:                   ebXMLNS,
-		UpdateEnvironmentResult: toEnvironmentDesc(env),
+		UpdateEnvironmentResult: toEnvironmentDesc(env, h.Backend.Region()),
 		ResponseMetadata:        responseMetadata{RequestID: "eb-update-env"},
 	}, nil
 }
@@ -458,7 +477,7 @@ func (h *Handler) handleTerminateEnvironment(vals url.Values) (any, error) {
 
 	// If no app name provided, search across all environments for this name.
 	if appName == "" {
-		envs := h.Backend.DescribeEnvironments("", []string{envName})
+		envs := h.Backend.DescribeEnvironments("", []string{envName}, nil)
 		switch len(envs) {
 		case 0:
 			// No matching environments; let the backend handle the not-found case.
@@ -480,7 +499,7 @@ func (h *Handler) handleTerminateEnvironment(vals url.Values) (any, error) {
 
 	return &terminateEnvironmentResponse{
 		Xmlns:                      ebXMLNS,
-		TerminateEnvironmentResult: toEnvironmentDesc(env),
+		TerminateEnvironmentResult: toEnvironmentDesc(env, h.Backend.Region()),
 		ResponseMetadata:           responseMetadata{RequestID: "eb-terminate-env"},
 	}, nil
 }
@@ -783,7 +802,7 @@ func (h *Handler) handleDescribeConfigurationSettings(vals url.Values) (any, err
 
 	solutionStack := ""
 
-	envs := h.Backend.DescribeEnvironments(appName, []string{envName})
+	envs := h.Backend.DescribeEnvironments(appName, []string{envName}, nil)
 	if len(envs) > 0 {
 		solutionStack = envs[0].SolutionStackName
 	}
