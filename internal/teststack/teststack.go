@@ -52,6 +52,8 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
@@ -133,6 +135,7 @@ type Stack struct {
 	ACMPCAHandler                  *acmpcabackend.Handler
 	RedshiftHandler                *redshiftbackend.Handler
 	RDSHandler                     *rdsbackend.Handler
+	DocDBHandler                   *docdbbackend.Handler
 	AWSConfigHandler               *awsconfigbackend.Handler
 	S3ControlHandler               *s3controlbackend.Handler
 	ResourceGroupsHandler          *resourcegroupsbackend.Handler
@@ -175,6 +178,8 @@ type Stack struct {
 	CodeConnectionsHandler *codeconnectionsbackend.Handler
 	// CodeDeployHandler provides access to the CodeDeploy backend.
 	CodeDeployHandler *codedeploybackend.Handler
+	// DMSHandler provides access to the DMS backend.
+	DMSHandler *dmsbackend.Handler
 	// CodeStarConnectionsHandler provides access to the CodeStar Connections backend.
 	CodeStarConnectionsHandler *codestarconnectionsbackend.Handler
 	// DynamoDBStreamsHandler provides access to the DynamoDB Streams backend.
@@ -404,6 +409,7 @@ type handlers struct {
 	acmpca          *acmpcabackend.Handler
 	redshift        *redshiftbackend.Handler
 	rds             *rdsbackend.Handler
+	docdb           *docdbbackend.Handler
 	awsconfig       *awsconfigbackend.Handler
 	s3control       *s3controlbackend.Handler
 	resourcegroups  *resourcegroupsbackend.Handler
@@ -440,6 +446,7 @@ type handlers struct {
 	codePipeline    *codepipelinebackend.Handler
 	codeConnections *codeconnectionsbackend.Handler
 	codeDeploy      *codedeploybackend.Handler
+	dms             *dmsbackend.Handler
 	codeStarConn    *codestarconnectionsbackend.Handler
 	dynamodbStreams *dynamodbstreamsbackend.Handler
 	efs             *efsbackend.Handler
@@ -526,6 +533,9 @@ func populateExtendedHandlers(h *handlers) {
 	)
 	h.rds = rdsbackend.NewHandler(
 		rdsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.docdb = docdbbackend.NewHandler(
+		docdbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.awsconfig = awsconfigbackend.NewHandler(awsconfigbackend.NewInMemoryBackend())
 	h.s3control = s3controlbackend.NewHandler(s3controlbackend.NewInMemoryBackend())
@@ -620,6 +630,9 @@ func populateNewestHandlers(h *handlers) {
 	h.codeDeploy = codedeploybackend.NewHandler(
 		codedeploybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.dms = dmsbackend.NewHandler(
+		dmsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.codeStarConn = codestarconnectionsbackend.NewHandler(
 		codestarconnectionsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -700,6 +713,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ACMPCAOps:                  h.acmpca,
 		RedshiftOps:                h.redshift,
 		RDSOps:                     h.rds,
+		DocDBOps:                   h.docdb,
 		AWSConfigOps:               h.awsconfig,
 		S3ControlOps:               h.s3control,
 		ResourceGroupsOps:          h.resourcegroups,
@@ -736,6 +750,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CodePipelineOps:            h.codePipeline,
 		CodeConnectionsOps:         h.codeConnections,
 		CodeDeployOps:              h.codeDeploy,
+		DMSOps:                     h.dms,
 		CodeStarConnectionsOps:     h.codeStarConn,
 		DynamoDBStreamsOps:         h.dynamodbStreams,
 		EFSOps:                     h.efs,
@@ -773,6 +788,7 @@ func New(t *testing.T) *Stack {
 		h.amplify, h.apigwv2, h.appConfig, h.athena, h.backup,
 	)
 	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch, h.ce, h.cloudtrail)
+	_ = registry.Register(h.docdb)
 	_ = registry.Register(h.bedrock)
 	_ = registry.Register(h.bedrockruntime)
 	_ = registry.Register(h.cloudcontrol)
@@ -783,6 +799,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.codePipeline)
 	_ = registry.Register(h.codeConnections)
 	_ = registry.Register(h.codeDeploy)
+	_ = registry.Register(h.dms)
 	_ = registry.Register(h.codeStarConn)
 
 	if h.dynamodbStreams != nil {
@@ -847,6 +864,7 @@ func buildStack(
 		ACMPCAHandler:                  h.acmpca,
 		RedshiftHandler:                h.redshift,
 		RDSHandler:                     h.rds,
+		DocDBHandler:                   h.docdb,
 		AWSConfigHandler:               h.awsconfig,
 		S3ControlHandler:               h.s3control,
 		ResourceGroupsHandler:          h.resourcegroups,
@@ -883,6 +901,7 @@ func buildStack(
 		CodePipelineHandler:            h.codePipeline,
 		CodeConnectionsHandler:         h.codeConnections,
 		CodeDeployHandler:              h.codeDeploy,
+		DMSHandler:                     h.dms,
 		CodeStarConnectionsHandler:     h.codeStarConn,
 		DynamoDBStreamsHandler:         h.dynamodbStreams,
 		EFSHandler:                     h.efs,

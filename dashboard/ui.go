@@ -51,6 +51,8 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
@@ -162,6 +164,8 @@ type DashboardHandler struct {
 	ACMPCAOps                  *acmpcabackend.Handler
 	RedshiftOps                *redshiftbackend.Handler
 	RDSOps                     *rdsbackend.Handler
+	// DocDBOps provides access to the DocDB backend.
+	DocDBOps                   *docdbbackend.Handler
 	AWSConfigOps               *awsconfigbackend.Handler
 	S3ControlOps               *s3controlbackend.Handler
 	ResourceGroupsOps          *resourcegroupsbackend.Handler
@@ -199,6 +203,8 @@ type DashboardHandler struct {
 	CodeConnectionsOps *codeconnectionsbackend.Handler
 	// CodeDeployOps provides access to the CodeDeploy backend.
 	CodeDeployOps *codedeploybackend.Handler
+	// DMSOps provides access to the DMS backend.
+	DMSOps *dmsbackend.Handler
 	// CodePipelineOps provides access to the CodePipeline backend.
 	CodePipelineOps *codepipelinebackend.Handler
 	// CodeStarConnectionsOps provides access to the CodeStar Connections backend.
@@ -276,7 +282,8 @@ type Config struct {
 	RedshiftOps *redshiftbackend.Handler
 	// RDSOps provides access to the RDS backend.
 	RDSOps *rdsbackend.Handler
-	// AWSConfigOps provides access to the AWS Config backend.
+	// DocDBOps provides access to the DocDB backend.
+	DocDBOps     *docdbbackend.Handler
 	AWSConfigOps *awsconfigbackend.Handler
 	// S3ControlOps provides access to the S3 Control backend.
 	S3ControlOps *s3controlbackend.Handler
@@ -348,6 +355,8 @@ type Config struct {
 	CodeConnectionsOps *codeconnectionsbackend.Handler
 	// CodeDeployOps provides access to the CodeDeploy backend.
 	CodeDeployOps *codedeploybackend.Handler
+	// DMSOps provides access to the DMS backend.
+	DMSOps *dmsbackend.Handler
 	// CodeStarConnectionsOps provides access to the CodeStar Connections backend.
 	CodeStarConnectionsOps *codestarconnectionsbackend.Handler
 	// DynamoDBStreamsOps provides access to the DynamoDB Streams backend.
@@ -414,6 +423,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/acmpca/*.html",
 		"templates/redshift/*.html",
 		"templates/rds/*.html",
+		"templates/docdb/*.html",
 		"templates/awsconfig/*.html",
 		"templates/s3control/*.html",
 		"templates/resourcegroups/*.html",
@@ -446,6 +456,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/codeartifact/*.html",
 		"templates/codebuild/*.html",
 		"templates/codecommit/*.html",
+		"templates/dms/*.html",
 		"templates/codepipeline/*.html",
 		"templates/codestarconnections/*.html",
 		"templates/dynamodbstreams/*.html",
@@ -500,6 +511,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		ACMPCAOps:                  cfg.ACMPCAOps,
 		RedshiftOps:                cfg.RedshiftOps,
 		RDSOps:                     cfg.RDSOps,
+		DocDBOps:                   cfg.DocDBOps,
 		AWSConfigOps:               cfg.AWSConfigOps,
 		S3ControlOps:               cfg.S3ControlOps,
 		ResourceGroupsOps:          cfg.ResourceGroupsOps,
@@ -536,6 +548,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CodePipelineOps:            cfg.CodePipelineOps,
 		CodeConnectionsOps:         cfg.CodeConnectionsOps,
 		CodeDeployOps:              cfg.CodeDeployOps,
+		DMSOps:                     cfg.DMSOps,
 		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
 		DynamoDBStreamsOps:         cfg.DynamoDBStreamsOps,
 		GlobalConfig:               cfg.GlobalConfig,
@@ -767,6 +780,12 @@ func (h *DashboardHandler) setupRDSRoutes() {
 	h.SubRouter.POST("/dashboard/rds/delete", h.rdsDeleteInstance)
 }
 
+func (h *DashboardHandler) setupDocDBRoutes() {
+	h.SubRouter.GET("/dashboard/docdb", h.docdbIndex)
+	h.SubRouter.POST("/dashboard/docdb/create", h.docdbCreateCluster)
+	h.SubRouter.POST("/dashboard/docdb/delete", h.docdbDeleteCluster)
+}
+
 func (h *DashboardHandler) setupAWSConfigRoutes() {
 	h.SubRouter.GET("/dashboard/awsconfig", h.awsconfigIndex)
 	h.SubRouter.POST("/dashboard/awsconfig/recorder", h.awsconfigPutRecorder)
@@ -956,6 +975,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupACMPCARoutes()
 	h.setupRedshiftRoutes()
 	h.setupRDSRoutes()
+	h.setupDocDBRoutes()
 	h.setupAWSConfigRoutes()
 	h.setupS3ControlRoutes()
 	h.setupResourceGroupsRoutes()
@@ -989,6 +1009,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupCodeConnectionsRoutes()
 	h.setupCodeCommitRoutes()
 	h.setupCodeDeployRoutes()
+	h.setupDMSRoutes()
 	h.setupCodeStarConnectionsRoutes()
 }
 
@@ -1086,6 +1107,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},
 	{"/rds", "RDS"},
+	{"/docdb", "DocDB"},
 	{"/awsconfig", "AWSConfig"},
 	{"/s3control", "S3Control"},
 	{"/resourcegroupstaggingapi", "ResourceGroupsTaggingAPI"},
@@ -1118,6 +1140,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/codecommit", "CodeCommit"},
 	{"/codepipeline", "CodePipeline"},
 	{"/codedeploy", "CodeDeploy"},
+	{"/dms", "DMS"},
 	{"/codestarconnections", "CodeStarConnections"},
 	{"/dynamodbstreams", "DynamoDBStreams"},
 	{"/efs", "EFS"},

@@ -63,6 +63,7 @@ type docPageData struct {
 	CloudFrontOps              []string
 	CodeArtifactOps            []string
 	CodeBuildOps               []string
+	DMSOps                     []string
 	CodeStarConnectionsOps     []string
 	DynamoDBStreamsOps         []string
 }
@@ -139,6 +140,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		CloudFrontOps:              h.getSupportedOps(h.CloudFrontOps),
 		CodeArtifactOps:            h.getSupportedOps(h.CodeArtifactOps),
 		CodeBuildOps:               h.getSupportedOps(h.CodeBuildOps),
+		DMSOps:                     h.getSupportedOps(h.DMSOps),
 		CodeStarConnectionsOps:     h.getSupportedOps(h.CodeStarConnectionsOps),
 		DynamoDBStreamsOps:         h.getSupportedOps(h.DynamoDBStreamsOps),
 	}

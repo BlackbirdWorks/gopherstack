@@ -59,6 +59,9 @@ import (
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 	cesvc "github.com/aws/aws-sdk-go-v2/service/costexplorer"
+	dmssvc "github.com/aws/aws-sdk-go-v2/service/databasemigrationservice"
+	dmstypes "github.com/aws/aws-sdk-go-v2/service/databasemigrationservice/types"
+	docdbsvc "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	dynamodbstreamssvc "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
@@ -121,8 +124,9 @@ var tofuProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tofu-provide
 //
 //nolint:gochecknoglobals // set once in TestMain, read-only during parallel tests
 var (
-	preInitDirMain string
-	preInitDirRDS  string
+	preInitDirMain  string
+	preInitDirRDS   string
+	preInitDirDocDB string
 )
 
 // tofuBinaryOnce ensures tofu is only downloaded once per test run.
@@ -194,6 +198,7 @@ provider "aws" {
     cognitoidentity          = %[1]q
     cognitoidentityprovider  = %[1]q
     configservice   = %[1]q
+    dms             = %[1]q
     dynamodb        = %[1]q
     ec2             = %[1]q
     ecr             = %[1]q
@@ -252,6 +257,34 @@ provider "aws" {
   endpoints {
     rds = %[1]q
     sts = %[1]q
+  }
+}
+`, addr)
+}
+
+// docdbProviderBlock returns an OpenTofu provider block that includes the docdb endpoint.
+func docdbProviderBlock(addr string) string {
+	return fmt.Sprintf(`terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+  required_version = ">= 1.0"
+}
+
+provider "aws" {
+  region                      = "us-east-1"
+  access_key                  = "test"
+  secret_key                  = "test"
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+
+  endpoints {
+    docdb = %[1]q
+    sts   = %[1]q
   }
 }
 `, addr)
@@ -454,6 +487,8 @@ func copyFile(src, dst string, mode os.FileMode) error {
 // can be reused for the given HCL configuration, or an empty string if none matches.
 func selectPreInitDir(hcl string) string {
 	switch {
+	case strings.HasPrefix(hcl, docdbProviderBlock(endpoint)):
+		return preInitDirDocDB
 	case strings.HasPrefix(hcl, rdsProviderBlock(endpoint)):
 		return preInitDirRDS
 	case strings.HasPrefix(hcl, providerBlock(endpoint)):
@@ -769,6 +804,43 @@ func TestTerraform_RDS(t *testing.T) {
 				assert.Equal(t, vars["Identifier"].(string), aws.ToString(out.DBInstances[0].DBInstanceIdentifier))
 				assert.Equal(t, "postgres", aws.ToString(out.DBInstances[0].Engine))
 				assert.Equal(t, "available", aws.ToString(out.DBInstances[0].DBInstanceStatus))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_DocDB provisions a DocDB cluster and instance and verifies they exist.
+func TestTerraform_DocDB(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:       "success",
+			fixture:    "docdb/success",
+			providerFn: docdbProviderBlock,
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{"Suffix": uuid.NewString()[:8]}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				suffix := vars["Suffix"].(string)
+				client := createDocDBClient(t)
+				clusterID := "tf-docdb-" + suffix
+				out, err := client.DescribeDBClusters(ctx, &docdbsvc.DescribeDBClustersInput{
+					DBClusterIdentifier: &clusterID,
+				})
+				require.NoError(t, err, "DescribeDBClusters should succeed after terraform apply")
+				require.Len(t, out.DBClusters, 1)
+				assert.Equal(t, clusterID, *out.DBClusters[0].DBClusterIdentifier)
 			},
 		},
 	}
@@ -3972,6 +4044,51 @@ func TestTerraform_CodeDeploy(t *testing.T) {
 				require.NoError(t, err, "GetApplication should succeed after terraform apply")
 				require.NotNil(t, out.Application, "application should be returned")
 				assert.Equal(t, appName, aws.ToString(out.Application.ApplicationName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_DMS provisions a DMS replication instance via Terraform
+// and verifies it exists using the DMS SDK.
+func TestTerraform_DMS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "dms/instance",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"InstanceID": "tf-dms-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createDMSClient(t)
+				instanceID := vars["InstanceID"].(string)
+
+				out, err := client.DescribeReplicationInstances(ctx, &dmssvc.DescribeReplicationInstancesInput{
+					Filters: []dmstypes.Filter{
+						{
+							Name:   aws.String("replication-instance-id"),
+							Values: []string{instanceID},
+						},
+					},
+				})
+				require.NoError(t, err, "DescribeReplicationInstances should succeed after terraform apply")
+				require.NotEmpty(t, out.ReplicationInstances, "replication instance should be returned")
+				assert.Equal(t, instanceID, aws.ToString(out.ReplicationInstances[0].ReplicationInstanceIdentifier))
 			},
 		},
 	}

@@ -38,6 +38,8 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
@@ -141,8 +143,10 @@ type AWSSDKProvider interface {
 	GetCodePipelineHandler() service.Registerable
 	GetCodeConnectionsHandler() service.Registerable
 	GetCodeDeployHandler() service.Registerable
+	GetDMSHandler() service.Registerable
 	GetCodeStarConnectionsHandler() service.Registerable
 	GetDynamoDBStreamsHandler() service.Registerable
+	GetDocDBHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetEFSHandler() service.Registerable
@@ -228,8 +232,10 @@ type extractedConfig struct {
 	codePipelineOps           *codepipelinebackend.Handler
 	codeConnectionsOps        *codeconnectionsbackend.Handler
 	codeDeployOps             *codedeploybackend.Handler
+	dmsOps                    *dmsbackend.Handler
 	codeStarConnectionsOps    *codestarconnectionsbackend.Handler
 	dynamodbStreamsOps        *dynamodbstreams.Handler
+	docdbOps                  *docdbbackend.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
 	efsOps                    *efsbackend.Handler
@@ -555,12 +561,20 @@ func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.codeDeployOps, _ = h.(*codedeploybackend.Handler)
 	}
 
+	if h := ap.GetDMSHandler(); h != nil {
+		ec.dmsOps, _ = h.(*dmsbackend.Handler)
+	}
+
 	if h := ap.GetCodeStarConnectionsHandler(); h != nil {
 		ec.codeStarConnectionsOps, _ = h.(*codestarconnectionsbackend.Handler)
 	}
 
 	if h := ap.GetDynamoDBStreamsHandler(); h != nil {
 		ec.dynamodbStreamsOps, _ = h.(*dynamodbstreams.Handler)
+	}
+
+	if h := ap.GetDocDBHandler(); h != nil {
+		ec.docdbOps, _ = h.(*docdbbackend.Handler)
 	}
 }
 
@@ -631,8 +645,10 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CodePipelineOps:            ec.codePipelineOps,
 		CodeConnectionsOps:         ec.codeConnectionsOps,
 		CodeDeployOps:              ec.codeDeployOps,
+		DMSOps:                     ec.dmsOps,
 		CodeStarConnectionsOps:     ec.codeStarConnectionsOps,
 		DynamoDBStreamsOps:         ec.dynamodbStreamsOps,
+		DocDBOps:                   ec.docdbOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		EFSOps:                     ec.efsOps,
