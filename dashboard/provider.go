@@ -540,7 +540,7 @@ func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 }
 
 // extractCodeServiceHandlers populates CodeArtifact, CodeBuild, CodeCommit, CodePipeline,
-// CodeConnections, and CodeDeploy handlers on ec.
+// CodeConnections, CodeDeploy, and ElasticTranscoder handlers on ec.
 func extractCodeServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCodeArtifactHandler(); h != nil {
 		ec.codeArtifactOps, _ = h.(*codeartifactbackend.Handler)
@@ -548,6 +548,10 @@ func extractCodeServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetCodeBuildHandler(); h != nil {
 		ec.codebuildOps, _ = h.(*codebuildbackend.Handler)
+	}
+
+	if h := ap.GetElasticTranscoderHandler(); h != nil {
+		ec.elasticTranscoderOps, _ = h.(*elastictranscoderbackend.Handler)
 	}
 
 	extractCodeHandlers(ap, ec)
@@ -585,10 +589,6 @@ func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetDocDBHandler(); h != nil {
 		ec.docdbOps, _ = h.(*docdbbackend.Handler)
-	}
-
-	if h := ap.GetElasticTranscoderHandler(); h != nil {
-		ec.elasticTranscoderOps, _ = h.(*elastictranscoderbackend.Handler)
 	}
 }
 
