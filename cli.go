@@ -74,6 +74,7 @@ import (
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
+	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
@@ -192,6 +193,7 @@ type CLI struct {
 	codeArtifactHandler           service.Registerable
 	codebuildHandler              service.Registerable
 	codeCommitHandler             service.Registerable
+	codeConnectionsHandler        service.Registerable
 	codeDeployHandler             service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
@@ -622,6 +624,11 @@ func (c *CLI) GetCloudFrontHandler() service.Registerable { return c.cloudFrontH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCodeArtifactHandler() service.Registerable { return c.codeArtifactHandler }
+
+// GetCodeConnectionsHandler returns the CodeConnections handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeConnectionsHandler() service.Registerable { return c.codeConnectionsHandler }
 
 // GetCodeBuildHandler returns the CodeBuild handler (dashboard.AWSSDKProvider).
 //
@@ -1066,6 +1073,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cloudcontrolHandler = byName["CloudControl"]
 	cli.cloudFrontHandler = byName["CloudFront"]
 	cli.codeArtifactHandler = byName["CodeArtifact"]
+	cli.codeConnectionsHandler = byName["CodeConnections"]
 	cli.codebuildHandler = byName["CodeBuild"]
 	cli.codeCommitHandler = byName["CodeCommit"]
 	cli.codeDeployHandler = byName["CodeDeploy"]
@@ -1248,6 +1256,7 @@ func getServiceProviders() []service.Provider {
 		&codeartifactbackend.Provider{},
 		&codebuildbackend.Provider{},
 		&codecommitbackend.Provider{},
+		&codeconnectionsbackend.Provider{},
 		&codedeploybackend.Provider{},
 	}
 }

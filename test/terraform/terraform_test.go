@@ -51,6 +51,7 @@ import (
 	codeartifactsvc "github.com/aws/aws-sdk-go-v2/service/codeartifact"
 	codebuildsvc "github.com/aws/aws-sdk-go-v2/service/codebuild"
 	codecommitsvc "github.com/aws/aws-sdk-go-v2/service/codecommit"
+	codeconnectionssvc "github.com/aws/aws-sdk-go-v2/service/codeconnections"
 	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
@@ -182,6 +183,7 @@ provider "aws" {
     codeartifact    = %[1]q
     codebuild       = %[1]q
     codecommit      = %[1]q
+    codeconnections = %[1]q
     codedeploy      = %[1]q
     cognitoidentity          = %[1]q
     cognitoidentityprovider  = %[1]q
@@ -3761,6 +3763,53 @@ func TestTerraform_CodeArtifact(t *testing.T) {
 				require.NoError(t, err, "DescribeRepository should succeed after terraform apply")
 				require.NotNil(t, repoOut.Repository, "repository should be returned")
 				assert.Equal(t, repoName, aws.ToString(repoOut.Repository.Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CodeConnections provisions a CodeConnections connection via Terraform and verifies it exists.
+func TestTerraform_CodeConnections(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "codeconnections/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCodeConnectionsClient(t)
+				suffix := vars["Suffix"].(string)
+
+				out, err := client.ListConnections(ctx, &codeconnectionssvc.ListConnectionsInput{})
+				require.NoError(t, err, "ListConnections should succeed")
+
+				var found bool
+
+				for _, conn := range out.Connections {
+					if conn.ConnectionName != nil && *conn.ConnectionName == "tf-conn-"+suffix {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "connection tf-conn-%s should exist", suffix)
 			},
 		},
 	}
