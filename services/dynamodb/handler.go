@@ -113,17 +113,13 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		"DescribeBackup",
 		"DescribeContinuousBackups",
 		"DescribeExport",
-		"DescribeStream",
 		"DescribeTable",
 		"DescribeTableReplicaAutoScaling",
 		"DescribeTimeToLive",
 		"ExportTableToPointInTime",
 		"GetItem",
-		"GetRecords",
-		"GetShardIterator",
 		"ListBackups",
 		"ListExports",
-		"ListStreams",
 		"ListTables",
 		"ListTagsOfResource",
 		"PutItem",
@@ -267,8 +263,7 @@ func (h *DynamoDBHandler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
 
-		return strings.HasPrefix(target, "DynamoDB_") ||
-			strings.HasPrefix(target, "DynamoDBStreams_")
+		return strings.HasPrefix(target, "DynamoDB_")
 	}
 }
 

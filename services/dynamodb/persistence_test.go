@@ -134,7 +134,7 @@ func TestDynamoDBHandler_Routing(t *testing.T) {
 		wantMatch bool
 	}{
 		{"dynamodb target", "DynamoDB_20120810.ListTables", true},
-		{"streams target", "DynamoDBStreams_20120810.ListStreams", true},
+		{"streams target", "DynamoDBStreams_20120810.ListStreams", false},
 		{"no match", "SQS.SendMessage", false},
 	}
 
