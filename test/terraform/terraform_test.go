@@ -49,6 +49,7 @@ import (
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	codeartifactsvc "github.com/aws/aws-sdk-go-v2/service/codeartifact"
+	codeconnectionssvc "github.com/aws/aws-sdk-go-v2/service/codeconnections"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
@@ -3728,4 +3729,51 @@ func TestTerraform_CodeArtifact(t *testing.T) {
 			runTFTest(t, tc)
 		})
 	}
+}
+
+// TestTerraform_CodeConnections provisions a CodeConnections connection via Terraform and verifies it exists.
+func TestTerraform_CodeConnections(t *testing.T) {
+t.Parallel()
+
+tests := []tfTestCase{
+{
+name:    "success",
+fixture: "codeconnections/success",
+setup: func(t *testing.T, _ string) map[string]any {
+t.Helper()
+id := uuid.NewString()[:8]
+
+return map[string]any{
+"Suffix": id,
+}
+},
+verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+t.Helper()
+client := createCodeConnectionsClient(t)
+suffix := vars["Suffix"].(string)
+
+out, err := client.ListConnections(ctx, &codeconnectionssvc.ListConnectionsInput{})
+require.NoError(t, err, "ListConnections should succeed")
+
+var found bool
+
+for _, conn := range out.Connections {
+if conn.ConnectionName != nil && *conn.ConnectionName == "tf-conn-"+suffix {
+found = true
+
+break
+}
+}
+
+assert.True(t, found, "connection tf-conn-%s should exist", suffix)
+},
+},
+}
+
+for _, tc := range tests {
+t.Run(tc.name, func(t *testing.T) {
+t.Parallel()
+runTFTest(t, tc)
+})
+}
 }

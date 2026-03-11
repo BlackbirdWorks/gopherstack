@@ -71,6 +71,7 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
+	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -186,6 +187,7 @@ type CLI struct {
 	cloudcontrolHandler           service.Registerable
 	cloudFrontHandler             service.Registerable
 	codeArtifactHandler           service.Registerable
+	codeConnectionsHandler        service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -615,6 +617,11 @@ func (c *CLI) GetCloudFrontHandler() service.Registerable { return c.cloudFrontH
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCodeArtifactHandler() service.Registerable { return c.codeArtifactHandler }
 
+// GetCodeConnectionsHandler returns the CodeConnections handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeConnectionsHandler() service.Registerable { return c.codeConnectionsHandler }
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1037,6 +1044,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cloudcontrolHandler = byName["CloudControl"]
 	cli.cloudFrontHandler = byName["CloudFront"]
 	cli.codeArtifactHandler = byName["CodeArtifact"]
+	cli.codeConnectionsHandler = byName["CodeConnections"]
 }
 
 // initializeServices initializes all service providers.
@@ -1214,6 +1222,7 @@ func getServiceProviders() []service.Provider {
 		&cloudcontrolbackend.Provider{},
 		&cloudfrontbackend.Provider{},
 		&codeartifactbackend.Provider{},
+		&codeconnectionsbackend.Provider{},
 	}
 }
 

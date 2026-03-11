@@ -43,6 +43,7 @@ import (
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
+	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -193,7 +194,9 @@ type DashboardHandler struct {
 	CloudFrontOps *cloudfrontbackend.Handler
 	// CodeArtifactOps provides access to the CodeArtifact backend.
 	CodeArtifactOps *codeartifactbackend.Handler
-	SubRouter       *echo.Echo
+	// CodeConnectionsOps provides access to the CodeConnections backend.
+	CodeConnectionsOps *codeconnectionsbackend.Handler
+	SubRouter          *echo.Echo
 	ddbProvider     *ddbbackend.DashboardProvider
 	s3Provider      *s3backend.DashboardProvider
 	FaultStore      *chaos.FaultStore
@@ -324,6 +327,8 @@ type Config struct {
 	CloudFrontOps *cloudfrontbackend.Handler
 	// CodeArtifactOps provides access to the CodeArtifact backend.
 	CodeArtifactOps *codeartifactbackend.Handler
+	// CodeConnectionsOps provides access to the CodeConnections backend.
+	CodeConnectionsOps *codeconnectionsbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -497,6 +502,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CloudControlOps:            cfg.CloudControlOps,
 		CloudFrontOps:              cfg.CloudFrontOps,
 		CodeArtifactOps:            cfg.CodeArtifactOps,
+		CodeConnectionsOps:         cfg.CodeConnectionsOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -939,6 +945,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupBedrockRuntimeRoutes()
 	h.setupCloudFrontRoutes()
 	h.setupCodeArtifactRoutes()
+	h.setupCodeConnectionsRoutes()
 }
 
 // setupRecentServiceRoutes sets up dashboard routes for recently-added services.

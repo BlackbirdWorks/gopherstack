@@ -39,6 +39,7 @@ import (
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	codeartifactsvc "github.com/aws/aws-sdk-go-v2/service/codeartifact"
+	codeconnectionssvc "github.com/aws/aws-sdk-go-v2/service/codeconnections"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
@@ -1425,4 +1426,22 @@ func createCodeArtifactClient(t *testing.T) *codeartifactsvc.Client {
 	return codeartifactsvc.NewFromConfig(cfg, func(o *codeartifactsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+// createCodeConnectionsClient returns a CodeConnections client pointed at the shared test container.
+func createCodeConnectionsClient(t *testing.T) *codeconnectionssvc.Client {
+t.Helper()
+
+cfg, err := config.LoadDefaultConfig(
+t.Context(),
+config.WithRegion("us-east-1"),
+config.WithCredentialsProvider(
+credentials.NewStaticCredentialsProvider("test", "test", ""),
+),
+)
+require.NoError(t, err, "unable to load SDK config")
+
+return codeconnectionssvc.NewFromConfig(cfg, func(o *codeconnectionssvc.Options) {
+o.BaseEndpoint = aws.String(endpoint)
+})
 }
