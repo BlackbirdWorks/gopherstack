@@ -73,6 +73,7 @@ import (
 	ekssvc "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -209,6 +210,7 @@ provider "aws" {
     eks             = %[1]q
     elb             = %[1]q
     elasticache     = %[1]q
+    elastictranscoder = %[1]q
     events          = %[1]q
     firehose        = %[1]q
     iam             = %[1]q
@@ -4219,6 +4221,58 @@ func TestTerraform_EFS(t *testing.T) {
 					}
 				}
 				assert.True(t, found, "file system with token %q should be listed", token)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ElasticTranscoder provisions an Elastic Transcoder pipeline via Terraform
+// and verifies it exists using the Elastic Transcoder SDK.
+func TestTerraform_ElasticTranscoder(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "elastictranscoder/pipeline",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"PipelineName": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createElasticTranscoderClient(t)
+				pipelineName := "tf-et-pipeline-" + vars["PipelineName"].(string)
+
+				out, err := client.ListPipelines( //nolint:staticcheck // AWS deprecated the SDK but service still works
+					ctx,
+					&elastictranscodersvc.ListPipelinesInput{},
+				)
+				require.NoError(t, err, "ListPipelines should succeed after terraform apply")
+
+				found := false
+
+				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated the SDK but service still works
+					name := aws.ToString(p.Name)
+					if name == pipelineName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "pipeline %q should be listed", pipelineName)
 			},
 		},
 	}
