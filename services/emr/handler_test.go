@@ -544,6 +544,42 @@ func TestEMR_AddJobFlowSteps(t *testing.T) {
 	assert.Empty(t, out.StepIDs)
 }
 
+func TestEMR_ListInstanceGroups(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doEMRRequest(t, h, "ListInstanceGroups", map[string]any{
+		"ClusterId": "j-0000000000001",
+	})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		InstanceGroups []any `json:"InstanceGroups"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Empty(t, out.InstanceGroups)
+}
+
+func TestEMR_ListInstanceFleets(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doEMRRequest(t, h, "ListInstanceFleets", map[string]any{
+		"ClusterId": "j-0000000000001",
+	})
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		InstanceFleets []any `json:"InstanceFleets"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Empty(t, out.InstanceFleets)
+}
+
 func TestEMR_UnknownOperation(t *testing.T) {
 	t.Parallel()
 

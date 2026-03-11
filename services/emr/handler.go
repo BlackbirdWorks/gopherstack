@@ -48,6 +48,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"ListSteps",
 		"AddJobFlowSteps",
+		"ListInstanceGroups",
+		"ListInstanceFleets",
 	}
 }
 
@@ -135,6 +137,8 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"ListTagsForResource": service.WrapOp(h.handleListTagsForResource),
 		"ListSteps":           service.WrapOp(h.handleListSteps),
 		"AddJobFlowSteps":     service.WrapOp(h.handleAddJobFlowSteps),
+		"ListInstanceGroups":  service.WrapOp(h.handleListInstanceGroups),
+		"ListInstanceFleets":  service.WrapOp(h.handleListInstanceFleets),
 	}
 }
 
@@ -316,4 +320,34 @@ func (h *Handler) handleAddJobFlowSteps(
 	_ *addJobFlowStepsInput,
 ) (*addJobFlowStepsOutput, error) {
 	return &addJobFlowStepsOutput{StepIDs: []string{}}, nil
+}
+
+type listInstanceGroupsInput struct {
+	ClusterID string `json:"ClusterId"`
+}
+
+type listInstanceGroupsOutput struct {
+	InstanceGroups []any `json:"InstanceGroups"`
+}
+
+func (h *Handler) handleListInstanceGroups(
+	_ context.Context,
+	_ *listInstanceGroupsInput,
+) (*listInstanceGroupsOutput, error) {
+	return &listInstanceGroupsOutput{InstanceGroups: []any{}}, nil
+}
+
+type listInstanceFleetsInput struct {
+	ClusterID string `json:"ClusterId"`
+}
+
+type listInstanceFleetsOutput struct {
+	InstanceFleets []any `json:"InstanceFleets"`
+}
+
+func (h *Handler) handleListInstanceFleets(
+	_ context.Context,
+	_ *listInstanceFleetsInput,
+) (*listInstanceFleetsOutput, error) {
+	return &listInstanceFleetsOutput{InstanceFleets: []any{}}, nil
 }
