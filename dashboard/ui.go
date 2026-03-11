@@ -47,6 +47,7 @@ import (
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
@@ -179,33 +180,24 @@ type DashboardHandler struct {
 	AthenaOps                  *athenabackend.Handler
 	AutoscalingOps             *autoscalingbackend.Handler
 	BackupOps                  *backupbackend.Handler
-	// CloudTrailOps provides access to the CloudTrail backend.
-	CloudTrailOps *cloudtrailbackend.Handler
-	AppConfigOps  *appconfigbackend.Handler
-	// ApplicationAutoscalingOps provides access to the Application Auto Scaling backend.
-	ApplicationAutoscalingOps *applicationautoscalingbackend.Handler
-	// BatchOps provides access to the Batch backend.
-	BatchOps *batchbackend.Handler
-	// BedrockOps provides access to the Bedrock backend.
-	BedrockOps *bedrockbackend.Handler
-	// BedrockRuntimeOps provides access to the Bedrock Runtime backend.
-	BedrockRuntimeOps *bedrockruntimebackend.Handler
-	// CeOps provides access to the Cost Explorer backend.
-	CeOps *cebackend.Handler
-	// CloudControlOps provides access to the CloudControl backend.
-	CloudControlOps *cloudcontrolbackend.Handler
-	// CloudFrontOps provides access to the CloudFront backend.
-	CloudFrontOps *cloudfrontbackend.Handler
-	// CodeArtifactOps provides access to the CodeArtifact backend.
-	CodeArtifactOps *codeartifactbackend.Handler
-	// CodeBuildOps provides access to the CodeBuild backend.
-	CodeBuildOps *codebuildbackend.Handler
-	// CodeCommitOps provides access to the CodeCommit backend.
-	CodeCommitOps *codecommitbackend.Handler
+	CloudTrailOps              *cloudtrailbackend.Handler
+	AppConfigOps               *appconfigbackend.Handler
+	ApplicationAutoscalingOps  *applicationautoscalingbackend.Handler
+	BatchOps                   *batchbackend.Handler
+	BedrockOps                 *bedrockbackend.Handler
+	BedrockRuntimeOps          *bedrockruntimebackend.Handler
+	CeOps                      *cebackend.Handler
+	CloudControlOps            *cloudcontrolbackend.Handler
+	CloudFrontOps              *cloudfrontbackend.Handler
+	CodeArtifactOps            *codeartifactbackend.Handler
+	CodeBuildOps               *codebuildbackend.Handler
+	CodeCommitOps              *codecommitbackend.Handler
 	// CodeConnectionsOps provides access to the CodeConnections backend.
 	CodeConnectionsOps *codeconnectionsbackend.Handler
 	// CodeDeployOps provides access to the CodeDeploy backend.
 	CodeDeployOps *codedeploybackend.Handler
+	// CodePipelineOps provides access to the CodePipeline backend.
+	CodePipelineOps *codepipelinebackend.Handler
 	// CodeStarConnectionsOps provides access to the CodeStar Connections backend.
 	CodeStarConnectionsOps *codestarconnectionsbackend.Handler
 	SubRouter              *echo.Echo
@@ -343,6 +335,8 @@ type Config struct {
 	CodeBuildOps *codebuildbackend.Handler
 	// CodeCommitOps provides access to the CodeCommit backend.
 	CodeCommitOps *codecommitbackend.Handler
+	// CodePipelineOps provides access to the CodePipeline backend.
+	CodePipelineOps *codepipelinebackend.Handler
 	// CodeConnectionsOps provides access to the CodeConnections backend.
 	CodeConnectionsOps *codeconnectionsbackend.Handler
 	// CodeDeployOps provides access to the CodeDeploy backend.
@@ -443,6 +437,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/codeartifact/*.html",
 		"templates/codebuild/*.html",
 		"templates/codecommit/*.html",
+		"templates/codepipeline/*.html",
 		"templates/codestarconnections/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -527,6 +522,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CodeArtifactOps:            cfg.CodeArtifactOps,
 		CodeBuildOps:               cfg.CodeBuildOps,
 		CodeCommitOps:              cfg.CodeCommitOps,
+		CodePipelineOps:            cfg.CodePipelineOps,
 		CodeConnectionsOps:         cfg.CodeConnectionsOps,
 		CodeDeployOps:              cfg.CodeDeployOps,
 		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
@@ -990,6 +986,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupCeRoutes()
 	h.setupCloudControlRoutes()
 	h.setupCodeBuildRoutes()
+	h.setupCodePipelineRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -1099,6 +1096,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/codeartifact", "CodeArtifact"},
 	{"/codebuild", "CodeBuild"},
 	{"/codecommit", "CodeCommit"},
+	{"/codepipeline", "CodePipeline"},
 	{"/codedeploy", "CodeDeploy"},
 	{"/codestarconnections", "CodeStarConnections"},
 	{"/chaos", "Chaos"},
