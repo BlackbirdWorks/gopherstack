@@ -84,6 +84,7 @@ import (
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
+	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
@@ -202,6 +203,7 @@ type CLI struct {
 	codeDeployHandler             service.Registerable
 	dmsHandler                    service.Registerable
 	codeStarConnectionsHandler    service.Registerable
+	dynamodbStreamsHandler        service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -670,6 +672,13 @@ func (c *CLI) GetCodeStarConnectionsHandler() service.Registerable {
 	return c.codeStarConnectionsHandler
 }
 
+// GetDynamoDBStreamsHandler returns the DynamoDB Streams handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDynamoDBStreamsHandler() service.Registerable {
+	return c.dynamodbStreamsHandler
+}
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1111,6 +1120,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.codeDeployHandler = byName["CodeDeploy"]
 	cli.dmsHandler = byName["DMS"]
 	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
+	cli.dynamodbStreamsHandler = byName["DynamoDBStreams"]
 }
 
 // initializeServices initializes all service providers.
@@ -1181,6 +1191,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire AppSync → DynamoDB for AMAZON_DYNAMODB resolver execution.
 	wireAppSyncDynamoDB(byName["AppSync"], byName["DynamoDB"])
+
+	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
+	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
 
 	// Wire Resource Groups Tagging API → service backends so GetResources, TagResources, etc.
 	// aggregate and mutate tags across all services.
@@ -1295,6 +1308,7 @@ func getServiceProviders() []service.Provider {
 		&codedeploybackend.Provider{},
 		&dmsbackend.Provider{},
 		&codestarconnectionsbackend.Provider{},
+		&dynamodbstreamsbackend.Provider{},
 	}
 }
 
@@ -2964,4 +2978,22 @@ func wireFISActionProviders(fisReg service.Registerable, services []service.Regi
 	}
 
 	setter.SetActionProviders(providers)
+}
+
+// wireDynamoDBStreams connects the DynamoDB Streams handler to the DynamoDB in-memory backend
+// so that both services share the same underlying stream state.
+func wireDynamoDBStreams(ddbReg, streamsReg service.Registerable) {
+	streamsH, ok := streamsReg.(*dynamodbstreamsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ddbH, ddbOk := ddbReg.(*ddbbackend.DynamoDBHandler)
+	if !ddbOk {
+		return
+	}
+
+	if ddbBk, bkOk := ddbH.Backend.(ddbbackend.StreamsBackend); bkOk {
+		streamsH.Streams = ddbBk
+	}
 }

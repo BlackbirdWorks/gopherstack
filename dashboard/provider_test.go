@@ -104,6 +104,7 @@ func (m *mockAWSProvider) GetCodeConnectionsHandler() service.Registerable      
 func (m *mockAWSProvider) GetCodeDeployHandler() service.Registerable              { return nil }
 func (m *mockAWSProvider) GetDMSHandler() service.Registerable                     { return nil }
 func (m *mockAWSProvider) GetCodeStarConnectionsHandler() service.Registerable     { return nil }
+func (m *mockAWSProvider) GetDynamoDBStreamsHandler() service.Registerable         { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 
