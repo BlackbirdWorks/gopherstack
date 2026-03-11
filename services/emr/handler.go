@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	emrTargetPrefix  = "ElasticMapReduce."
-	unknownAction    = "Unknown"
+	emrTargetPrefix = "ElasticMapReduce."
+	unknownAction   = "Unknown"
 )
 
 var errUnknownAction = errors.New("UnknownOperationException")
@@ -63,6 +63,7 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		target := c.Request().Header.Get("X-Amz-Target")
+
 		return strings.HasPrefix(target, emrTargetPrefix)
 	}
 }
@@ -90,9 +91,9 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req struct {
-		ClusterID   string `json:"ClusterId"`
-		JobFlowID   string `json:"JobFlowId"`
-		ResourceID  string `json:"ResourceId"`
+		ClusterID  string `json:"ClusterId"`
+		JobFlowID  string `json:"JobFlowId"`
+		ResourceID string `json:"ResourceId"`
 	}
 
 	_ = json.Unmarshal(body, &req)
@@ -124,14 +125,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"RunJobFlow":       service.WrapOp(h.handleRunJobFlow),
-		"DescribeCluster":  service.WrapOp(h.handleDescribeCluster),
-		"ListClusters":     service.WrapOp(h.handleListClusters),
+		"RunJobFlow":        service.WrapOp(h.handleRunJobFlow),
+		"DescribeCluster":   service.WrapOp(h.handleDescribeCluster),
+		"ListClusters":      service.WrapOp(h.handleListClusters),
 		"TerminateJobFlows": service.WrapOp(h.handleTerminateJobFlows),
-		"AddTags":          service.WrapOp(h.handleAddTags),
-		"RemoveTags":       service.WrapOp(h.handleRemoveTags),
-		"ListSteps":        service.WrapOp(h.handleListSteps),
-		"AddJobFlowSteps":  service.WrapOp(h.handleAddJobFlowSteps),
+		"AddTags":           service.WrapOp(h.handleAddTags),
+		"RemoveTags":        service.WrapOp(h.handleRemoveTags),
+		"ListSteps":         service.WrapOp(h.handleListSteps),
+		"AddJobFlowSteps":   service.WrapOp(h.handleAddJobFlowSteps),
 	}
 }
 
@@ -175,7 +176,7 @@ type runJobFlowInput struct {
 }
 
 type runJobFlowOutput struct {
-	JobFlowId  string `json:"JobFlowId"` //nolint:revive,stylecheck // AWS API naming convention
+	JobFlowID  string `json:"JobFlowId"`
 	ClusterArn string `json:"ClusterArn"`
 }
 
@@ -190,13 +191,13 @@ func (h *Handler) handleRunJobFlow(_ context.Context, in *runJobFlowInput) (*run
 	}
 
 	return &runJobFlowOutput{
-		JobFlowId:  cluster.ID,
+		JobFlowID:  cluster.ID,
 		ClusterArn: cluster.ARN,
 	}, nil
 }
 
 type describeClusterInput struct {
-	ClusterId string `json:"ClusterId"` //nolint:revive,stylecheck // AWS API naming convention
+	ClusterID string `json:"ClusterId"`
 }
 
 type describeClusterOutput struct {
@@ -204,7 +205,7 @@ type describeClusterOutput struct {
 }
 
 func (h *Handler) handleDescribeCluster(_ context.Context, in *describeClusterInput) (*describeClusterOutput, error) {
-	cluster, err := h.Backend.DescribeCluster(in.ClusterId)
+	cluster, err := h.Backend.DescribeCluster(in.ClusterID)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +226,7 @@ func (h *Handler) handleListClusters(_ context.Context, _ *listClustersInput) (*
 }
 
 type terminateJobFlowsInput struct {
-	JobFlowIds []string `json:"JobFlowIds"` //nolint:revive,stylecheck // AWS API naming convention
+	JobFlowIDs []string `json:"JobFlowIds"`
 }
 
 type emptyOutput struct{}
@@ -234,7 +235,7 @@ func (h *Handler) handleTerminateJobFlows(
 	_ context.Context,
 	in *terminateJobFlowsInput,
 ) (*emptyOutput, error) {
-	if err := h.Backend.TerminateJobFlows(in.JobFlowIds); err != nil {
+	if err := h.Backend.TerminateJobFlows(in.JobFlowIDs); err != nil {
 		return nil, err
 	}
 
@@ -242,12 +243,12 @@ func (h *Handler) handleTerminateJobFlows(
 }
 
 type addTagsInput struct {
-	ResourceId string `json:"ResourceId"` //nolint:revive,stylecheck // AWS API naming convention
+	ResourceID string `json:"ResourceId"`
 	Tags       []Tag  `json:"Tags"`
 }
 
 func (h *Handler) handleAddTags(_ context.Context, in *addTagsInput) (*emptyOutput, error) {
-	if err := h.Backend.AddTags(in.ResourceId, in.Tags); err != nil {
+	if err := h.Backend.AddTags(in.ResourceID, in.Tags); err != nil {
 		return nil, err
 	}
 
@@ -255,12 +256,12 @@ func (h *Handler) handleAddTags(_ context.Context, in *addTagsInput) (*emptyOutp
 }
 
 type removeTagsInput struct {
-	ResourceId string   `json:"ResourceId"` //nolint:revive,stylecheck // AWS API naming convention
+	ResourceID string   `json:"ResourceId"`
 	TagKeys    []string `json:"TagKeys"`
 }
 
 func (h *Handler) handleRemoveTags(_ context.Context, in *removeTagsInput) (*emptyOutput, error) {
-	if err := h.Backend.RemoveTags(in.ResourceId, in.TagKeys); err != nil {
+	if err := h.Backend.RemoveTags(in.ResourceID, in.TagKeys); err != nil {
 		return nil, err
 	}
 
@@ -270,7 +271,7 @@ func (h *Handler) handleRemoveTags(_ context.Context, in *removeTagsInput) (*emp
 // --- Stub handlers ---
 
 type listStepsInput struct {
-	ClusterId string `json:"ClusterId"` //nolint:revive,stylecheck // AWS API naming convention
+	ClusterID string `json:"ClusterId"`
 }
 
 type listStepsOutput struct {
@@ -282,17 +283,17 @@ func (h *Handler) handleListSteps(_ context.Context, _ *listStepsInput) (*listSt
 }
 
 type addJobFlowStepsInput struct {
-	JobFlowId string `json:"JobFlowId"` //nolint:revive,stylecheck // AWS API naming convention
+	JobFlowID string `json:"JobFlowId"`
 	Steps     []any  `json:"Steps"`
 }
 
 type addJobFlowStepsOutput struct {
-	StepIds []string `json:"StepIds"`
+	StepIDs []string `json:"StepIds"`
 }
 
 func (h *Handler) handleAddJobFlowSteps(
 	_ context.Context,
 	_ *addJobFlowStepsInput,
 ) (*addJobFlowStepsOutput, error) {
-	return &addJobFlowStepsOutput{StepIds: []string{}}, nil
+	return &addJobFlowStepsOutput{StepIDs: []string{}}, nil
 }

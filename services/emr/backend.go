@@ -19,9 +19,9 @@ var (
 
 // ClusterStatus holds the status fields for a Cluster.
 type ClusterStatus struct {
-	State             string                 `json:"State"`
-	StateChangeReason map[string]interface{} `json:"StateChangeReason,omitempty"`
-	Timeline          map[string]interface{} `json:"Timeline,omitempty"`
+	StateChangeReason map[string]any `json:"StateChangeReason,omitempty"`
+	Timeline          map[string]any `json:"Timeline,omitempty"`
+	State             string         `json:"State"`
 }
 
 // Tag is an EMR resource tag.
@@ -32,12 +32,12 @@ type Tag struct {
 
 // Cluster represents an EMR cluster.
 type Cluster struct {
+	Status       ClusterStatus `json:"Status"`
 	ID           string        `json:"Id"`
 	Name         string        `json:"Name"`
-	Status       ClusterStatus `json:"Status"`
-	Tags         []Tag         `json:"Tags,omitempty"`
 	ARN          string        `json:"ClusterArn"`
 	ReleaseLabel string        `json:"ReleaseLabel"`
+	Tags         []Tag         `json:"Tags,omitempty"`
 }
 
 // ClusterSummary is a trimmed-down view used for ListClusters.
@@ -46,15 +46,16 @@ type ClusterSummary struct {
 	Name         string        `json:"Name"`
 	Status       ClusterStatus `json:"Status"`
 	ClusterArn   string        `json:"ClusterArn"`
+	ReleaseLabel string        `json:"ReleaseLabel"`
 }
 
 // InMemoryBackend stores EMR state in memory.
 type InMemoryBackend struct {
 	clusters  map[string]*Cluster
-	counter   atomic.Int64
 	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
+	counter   atomic.Int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -72,6 +73,7 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 func (b *InMemoryBackend) nextID() string {
 	n := b.counter.Add(1)
+
 	return fmt.Sprintf("j-%013d", n)
 }
 
@@ -93,8 +95,8 @@ func (b *InMemoryBackend) RunJobFlow(name, releaseLabel string, tags []Tag) (*Cl
 		ARN:          clusterARN,
 		Status: ClusterStatus{
 			State:             "WAITING",
-			StateChangeReason: map[string]interface{}{"Code": "USER_REQUEST", "Message": ""},
-			Timeline:          map[string]interface{}{"CreationDateTime": 0},
+			StateChangeReason: map[string]any{"Code": "USER_REQUEST", "Message": ""},
+			Timeline:          map[string]any{"CreationDateTime": 0},
 		},
 		Tags: tagsCopy,
 	}
@@ -128,10 +130,11 @@ func (b *InMemoryBackend) ListClusters() []ClusterSummary {
 
 	for _, c := range b.clusters {
 		list = append(list, ClusterSummary{
-			ID:         c.ID,
-			Name:       c.Name,
-			Status:     c.Status,
-			ClusterArn: c.ARN,
+			ID:           c.ID,
+			Name:         c.Name,
+			Status:       c.Status,
+			ClusterArn:   c.ARN,
+			ReleaseLabel: c.ReleaseLabel,
 		})
 	}
 

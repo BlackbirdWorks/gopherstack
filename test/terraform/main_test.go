@@ -1683,18 +1683,18 @@ func createELBClient(t *testing.T) *elbsvc.Client {
 
 // createEMRClient returns an EMR client pointed at the shared test container.
 func createEMRClient(t *testing.T) *emrsvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-require.NoError(t, err, "unable to load SDK config")
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
 
-return emrsvc.NewFromConfig(cfg, func(o *emrsvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return emrsvc.NewFromConfig(cfg, func(o *emrsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }

@@ -71,7 +71,7 @@ client = boto3.client('emr', endpoint_url='http://localhost:8000')`,
 		clusterViews = append(clusterViews, emrClusterView{
 			ID:           c.ID,
 			Name:         c.Name,
-			ReleaseLabel: "",
+			ReleaseLabel: c.ReleaseLabel,
 			State:        c.Status.State,
 			ARN:          c.ClusterArn,
 		})

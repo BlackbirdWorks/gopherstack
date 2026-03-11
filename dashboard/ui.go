@@ -220,7 +220,7 @@ type DashboardHandler struct {
 	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
 	ElasticTranscoderOps *elastictranscoderbackend.Handler
 	// ELBOps provides access to the Classic ELB backend.
-	ELBOps       *elbbackend.Handler
+	ELBOps *elbbackend.Handler
 	// EMROps provides access to the EMR backend.
 	EMROps       *emrbackend.Handler
 	SubRouter    *echo.Echo

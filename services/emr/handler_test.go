@@ -192,8 +192,8 @@ func TestEMR_RunJobFlow(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		input   map[string]any
+		name    string
 		wantErr bool
 	}{
 		{
@@ -224,12 +224,12 @@ func TestEMR_RunJobFlow(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var out struct {
-				JobFlowId  string `json:"JobFlowId"`
+				JobFlowID  string `json:"JobFlowId"`
 				ClusterArn string `json:"ClusterArn"`
 			}
 
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.NotEmpty(t, out.JobFlowId)
+			assert.NotEmpty(t, out.JobFlowID)
 			assert.Contains(t, out.ClusterArn, "elasticmapreduce")
 		})
 	}
@@ -266,14 +266,14 @@ func TestEMR_DescribeCluster(t *testing.T) {
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createOut struct {
-				JobFlowId string `json:"JobFlowId"`
+				JobFlowID string `json:"JobFlowId"`
 			}
 
 			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
 
 			clusterID := tt.clusterID
 			if clusterID == "" {
-				clusterID = createOut.JobFlowId
+				clusterID = createOut.JobFlowID
 			}
 
 			rec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": clusterID})
@@ -322,7 +322,7 @@ func TestEMR_ListClusters(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			for i := 0; i < tt.numClusters; i++ {
+			for range tt.numClusters {
 				rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "cluster"})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -344,17 +344,20 @@ func TestEMR_TerminateJobFlows(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
 		setup    func(*emr.Handler) []string
+		name     string
 		wantCode int
 	}{
 		{
 			name: "terminates existing cluster",
 			setup: func(h *emr.Handler) []string {
 				rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "to-terminate"})
-				var out struct{ JobFlowId string }
+				var out struct {
+					JobFlowID string `json:"JobFlowId"`
+				}
 				_ = json.Unmarshal(rec.Body.Bytes(), &out)
-				return []string{out.JobFlowId}
+
+				return []string{out.JobFlowID}
 			},
 			wantCode: http.StatusOK,
 		},
@@ -402,17 +405,19 @@ func TestEMR_AddAndRemoveTags(t *testing.T) {
 			rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{"Name": "tag-cluster"})
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var createOut struct{ JobFlowId string }
+			var createOut struct {
+				JobFlowID string `json:"JobFlowId"`
+			}
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createOut))
 
 			addRec := doEMRRequest(t, h, "AddTags", map[string]any{
-				"ResourceId": createOut.JobFlowId,
+				"ResourceId": createOut.JobFlowID,
 				"Tags":       []map[string]any{{"Key": "env", "Value": "dev"}},
 			})
 			require.Equal(t, tt.wantCode, addRec.Code)
 
 			removeRec := doEMRRequest(t, h, "RemoveTags", map[string]any{
-				"ResourceId": createOut.JobFlowId,
+				"ResourceId": createOut.JobFlowID,
 				"TagKeys":    []string{"env"},
 			})
 			require.Equal(t, tt.wantCode, removeRec.Code)
@@ -448,11 +453,11 @@ func TestEMR_AddJobFlowSteps(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		StepIds []string `json:"StepIds"`
+		StepIDs []string `json:"StepIds"`
 	}
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Empty(t, out.StepIds)
+	assert.Empty(t, out.StepIDs)
 }
 
 func TestEMR_UnknownOperation(t *testing.T) {
@@ -571,10 +576,10 @@ func TestEMR_Backend_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantTags   map[string]string
 		name       string
 		resourceID string
 		wantErr    bool
-		wantTags   map[string]string
 	}{
 		{
 			name:       "existing cluster by ID",

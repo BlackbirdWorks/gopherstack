@@ -4329,47 +4329,47 @@ func TestTerraform_ELB(t *testing.T) {
 
 // TestTerraform_EMR provisions an EMR cluster via Terraform and verifies it exists via the EMR SDK.
 func TestTerraform_EMR(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "emr/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "emr/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"Suffix": id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createEMRClient(t)
-suffix := vars["Suffix"].(string)
-name := "tf-emr-" + suffix
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEMRClient(t)
+				suffix := vars["Suffix"].(string)
+				name := "tf-emr-" + suffix
 
-out, err := client.ListClusters(ctx, &emrsvc.ListClustersInput{})
-require.NoError(t, err, "ListClusters should succeed")
+				out, err := client.ListClusters(ctx, &emrsvc.ListClustersInput{})
+				require.NoError(t, err, "ListClusters should succeed")
 
-found := false
-for _, c := range out.Clusters {
-if aws.ToString(c.Name) == name {
-found = true
+				found := false
+				for _, c := range out.Clusters {
+					if aws.ToString(c.Name) == name {
+						found = true
 
-break
-}
-}
+						break
+					}
+				}
 
-assert.True(t, found, "EMR cluster %q should exist", name)
-},
-},
-}
+				assert.True(t, found, "EMR cluster %q should exist", name)
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }
