@@ -237,6 +237,11 @@ func (b *InMemoryBackend) ListTagsForResource(resourceID string) (map[string]str
 	if ap, ok := b.accessPoints[resourceID]; ok {
 		return ap.Tags.Clone(), nil
 	}
+	for _, ap := range b.accessPoints {
+		if ap.AccessPointArn == resourceID {
+			return ap.Tags.Clone(), nil
+		}
+	}
 
 	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -85,7 +86,9 @@ type efsRoute struct {
 }
 
 // parseEFSPath maps HTTP method + path to an operation name and resource ID.
-func parseEFSPath(method, path string) efsRoute {
+func parseEFSPath(method, rawPath string) efsRoute {
+	path, _ := url.PathUnescape(rawPath)
+
 	switch {
 	case strings.HasPrefix(path, pathFileSystems):
 		return parseFileSystemRoute(method, strings.TrimPrefix(path, pathFileSystems))

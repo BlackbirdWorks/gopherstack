@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -723,4 +724,72 @@ func TestTagAccessPointByARN(t *testing.T) {
 		"Tags": []map[string]string{{"Key": "k", "Value": "v"}},
 	})
 	assert.Equal(t, http.StatusOK, rec3.Code)
+}
+
+// TestTagResourceByPercentEncodedARN tests tagging with a percent-encoded ARN.
+func TestTagResourceByPercentEncodedARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEFSHandler()
+
+	// Create file system.
+	rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+		"CreationToken": "pct-arn-token",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	resp := parseResp(t, rec)
+	fsARN := resp["FileSystemArn"].(string)
+	require.NotEmpty(t, fsARN)
+
+	// Tag via percent-encoded ARN in path (simulating SDK/Terraform behaviour).
+	encodedARN := url.PathEscape(fsARN)
+	rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/tags/"+encodedARN, map[string]any{
+		"Tags": []map[string]string{{"Key": "env", "Value": "test"}},
+	})
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	// List tags via percent-encoded ARN.
+	rec3 := doREST(t, h, http.MethodGet, "/2015-02-01/tags/"+encodedARN, nil)
+	assert.Equal(t, http.StatusOK, rec3.Code)
+	tagsResp := parseResp(t, rec3)
+	tagsRaw, ok := tagsResp["Tags"].([]any)
+	assert.True(t, ok)
+	assert.NotEmpty(t, tagsRaw)
+}
+
+// TestListTagsForAccessPointByARN tests that ListTagsForResource works with an access point ARN.
+func TestListTagsForAccessPointByARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestEFSHandler()
+
+	// Create file system.
+	rec := doREST(t, h, http.MethodPost, "/2015-02-01/file-systems", map[string]any{
+		"CreationToken": "lt-ap-arn-token",
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+	fsID := parseResp(t, rec)["FileSystemId"].(string)
+
+	// Create access point.
+	rec2 := doREST(t, h, http.MethodPost, "/2015-02-01/access-points", map[string]any{
+		"FileSystemId": fsID,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	apResp := parseResp(t, rec2)
+	apARN := apResp["AccessPointArn"].(string)
+	require.NotEmpty(t, apARN)
+
+	// Tag the access point via its ARN.
+	rec3 := doREST(t, h, http.MethodPost, "/2015-02-01/tags/"+apARN, map[string]any{
+		"Tags": []map[string]string{{"Key": "purpose", "Value": "e2e"}},
+	})
+	require.Equal(t, http.StatusOK, rec3.Code)
+
+	// List tags for the access point via ARN.
+	rec4 := doREST(t, h, http.MethodGet, "/2015-02-01/tags/"+apARN, nil)
+	assert.Equal(t, http.StatusOK, rec4.Code)
+	tagsResp := parseResp(t, rec4)
+	tagsRaw, ok := tagsResp["Tags"].([]any)
+	assert.True(t, ok)
+	assert.NotEmpty(t, tagsRaw)
 }
