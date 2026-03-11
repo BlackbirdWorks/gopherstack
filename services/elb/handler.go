@@ -815,8 +815,7 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancerDescription {
 	}
 
 	if lb.HealthCheck != nil {
-		hc := toXMLHealthCheck(lb.HealthCheck)
-		d.HealthCheck = &hc
+		d.HealthCheck = toXMLHealthCheck(lb.HealthCheck)
 	}
 
 	return d
@@ -920,7 +919,6 @@ type xmlHealthCheck struct {
 }
 
 type xmlLoadBalancerDescription struct {
-	HealthCheck               *xmlHealthCheck            `xml:"HealthCheck,omitempty"`
 	LoadBalancerName          string                     `xml:"LoadBalancerName"`
 	DNSName                   string                     `xml:"DNSName"`
 	CanonicalHostedZoneName   string                     `xml:"CanonicalHostedZoneName"`
@@ -932,6 +930,7 @@ type xmlLoadBalancerDescription struct {
 	Subnets                   xmlStringValueList         `xml:"Subnets"`
 	ListenerDescriptions      xmlListenerDescriptionList `xml:"ListenerDescriptions"`
 	Instances                 xmlInstanceList            `xml:"Instances"`
+	HealthCheck               xmlHealthCheck             `xml:"HealthCheck"`
 }
 
 type xmlLoadBalancerList struct {

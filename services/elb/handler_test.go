@@ -941,7 +941,45 @@ func TestDescribeLoadBalancersWithHealthCheck(t *testing.T) {
 	assert.Equal(t, "TCP:80", resp.Result.LoadBalancerDescriptions.Members[0].HealthCheck.Target)
 }
 
-// TestCreateLoadBalancerListeners tests adding listeners to an existing LB.
+// TestDescribeLoadBalancersHealthCheckAlwaysPresent verifies that the HealthCheck
+// XML element is always included in DescribeLoadBalancers responses, even when no
+// health check is configured. This prevents a nil-pointer panic in the Terraform
+// AWS provider which accesses lb.HealthCheck.Target without a nil guard.
+func TestDescribeLoadBalancersHealthCheckAlwaysPresent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	mustCreateLB(t, h, "no-hc-lb")
+
+	rec := doELB(t, h, url.Values{
+		"Action":                     {"DescribeLoadBalancers"},
+		"Version":                    {"2012-06-01"},
+		"LoadBalancerNames.member.1": {"no-hc-lb"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		XMLName xml.Name `xml:"DescribeLoadBalancersResponse"`
+		Result  struct {
+			LoadBalancerDescriptions struct {
+				Members []struct {
+					HealthCheck *struct {
+						Target string `xml:"Target"`
+					} `xml:"HealthCheck"`
+				} `xml:"member"`
+			} `xml:"LoadBalancerDescriptions"`
+		} `xml:"DescribeLoadBalancersResult"`
+	}
+	parseXMLBody(t, rec, &resp)
+	require.Len(t, resp.Result.LoadBalancerDescriptions.Members, 1)
+	assert.NotNil(
+		t,
+		resp.Result.LoadBalancerDescriptions.Members[0].HealthCheck,
+		"HealthCheck element must always be present",
+	)
+	assert.Empty(t, resp.Result.LoadBalancerDescriptions.Members[0].HealthCheck.Target)
+}
+
 func TestCreateLoadBalancerListeners(t *testing.T) {
 	t.Parallel()
 
