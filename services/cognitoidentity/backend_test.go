@@ -470,3 +470,95 @@ func TestInMemoryBackend_GetIdentityPoolRoles_NoRoles(t *testing.T) {
 	assert.Empty(t, roles.AuthenticatedRoleARN)
 	assert.Empty(t, roles.UnauthenticatedRoleARN)
 }
+
+func TestInMemoryBackend_Region(t *testing.T) {
+	t.Parallel()
+
+	b := cognitoidentity.NewInMemoryBackend("000000000000", "eu-west-1")
+	assert.Equal(t, "eu-west-1", b.Region())
+}
+
+func TestInMemoryBackend_UpdateIdentityPool_RenameConflict(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	pool1, err := b.CreateIdentityPool("pool-one", true, false, nil, nil, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateIdentityPool("pool-two", true, false, nil, nil, nil)
+	require.NoError(t, err)
+
+	// Attempt to rename pool-one to pool-two (conflict).
+	_, err = b.UpdateIdentityPool(pool1.IdentityPoolID, "pool-two", true, false, nil, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolAlreadyExists)
+}
+
+func TestInMemoryBackend_DeleteIdentityPool_CleansIdentities(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	pool, err := b.CreateIdentityPool("clean-pool", true, false, nil, nil, nil)
+	require.NoError(t, err)
+
+	// Create an identity inside the pool.
+	identity, err := b.GetID(pool.IdentityPoolID, "000000000000", nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, identity.IdentityID)
+
+	// Delete the pool.
+	require.NoError(t, b.DeleteIdentityPool(pool.IdentityPoolID))
+
+	// Pool should be gone.
+	_, err = b.DescribeIdentityPool(pool.IdentityPoolID)
+	require.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
+
+	// Identity from the deleted pool should no longer be usable.
+	_, err = b.GetCredentialsForIdentity(identity.IdentityID, nil)
+	require.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
+}
+
+func TestInMemoryBackend_GetIdentityPoolRoles_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	_, err := b.GetIdentityPoolRoles("us-east-1:nonexistent")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
+}
+
+func TestInMemoryBackend_SetIdentityPoolRoles_NotFound(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	err := b.SetIdentityPoolRoles("us-east-1:nonexistent", "arn:aws:iam::000000000000:role/Auth", "")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cognitoidentity.ErrIdentityPoolNotFound)
+}
+
+func TestInMemoryBackend_CreateIdentityPool_WithProviders(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	providers := []cognitoidentity.IdentityProvider{
+		{
+			ProviderName:         "cognito-idp.us-east-1.amazonaws.com/us-east-1_xxx",
+			ClientID:             "client123",
+			ServerSideTokenCheck: true,
+		},
+	}
+
+	pool, err := b.CreateIdentityPool("provider-pool", true, false, providers, map[string]string{
+		"graph.facebook.com": "123456789",
+	}, map[string]string{"env": "test"})
+	require.NoError(t, err)
+	assert.Len(t, pool.IdentityProviders, 1)
+	assert.Equal(t, "client123", pool.IdentityProviders[0].ClientID)
+	assert.Equal(t, "123456789", pool.SupportedLoginProviders["graph.facebook.com"])
+	assert.Equal(t, "test", pool.Tags["env"])
+}
