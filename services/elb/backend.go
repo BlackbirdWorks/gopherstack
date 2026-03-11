@@ -32,6 +32,27 @@ type Listener struct {
 	InstancePort     int32
 }
 
+// LoadBalancerAttributes holds tunable attributes for a Classic ELB.
+type LoadBalancerAttributes struct {
+	CrossZoneLoadBalancing    bool
+	ConnectionDraining        bool
+	ConnectionDrainingTimeout int32
+	IdleTimeout               int32
+	DesyncMitigationMode      string
+}
+
+// defaultLBAttributes returns the default LoadBalancerAttributes used at
+// creation time, matching the AWS service defaults.
+func defaultLBAttributes() LoadBalancerAttributes {
+	return LoadBalancerAttributes{
+		CrossZoneLoadBalancing:    false,
+		ConnectionDraining:        false,
+		ConnectionDrainingTimeout: 300,
+		IdleTimeout:               60,
+		DesyncMitigationMode:      "defensive",
+	}
+}
+
 // HealthCheck holds health-check configuration for a load balancer.
 type HealthCheck struct {
 	Target             string
@@ -59,6 +80,7 @@ type LoadBalancer struct {
 	VPCId                     string
 	AccountID                 string
 	Region                    string
+	Attributes                LoadBalancerAttributes
 	Listeners                 []Listener
 	Instances                 []Instance
 	AvailabilityZones         []string
@@ -82,10 +104,16 @@ type StorageBackend interface {
 	DeleteLoadBalancer(name string) error
 	DescribeLoadBalancers(names []string) ([]LoadBalancer, error)
 
+	CreateLoadBalancerListeners(name string, listeners []Listener) error
+	DeleteLoadBalancerListeners(name string, ports []int32) error
+
 	RegisterInstancesWithLoadBalancer(name string, instances []Instance) ([]Instance, error)
 	DeregisterInstancesFromLoadBalancer(name string, instances []Instance) ([]Instance, error)
 
 	ConfigureHealthCheck(name string, hc HealthCheck) (*HealthCheck, error)
+
+	ModifyLoadBalancerAttributes(name string, attrs LoadBalancerAttributes) (*LoadBalancerAttributes, error)
+	DescribeLoadBalancerAttributes(name string) (*LoadBalancerAttributes, error)
 
 	AddTags(names []string, kvs []tags.KV) error
 	DescribeTags(names []string) (map[string][]tags.KV, error)
@@ -146,6 +174,7 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		Tags:                      tags.New("elb." + input.LoadBalancerName),
 		AccountID:                 b.accountID,
 		Region:                    b.region,
+		Attributes:                defaultLBAttributes(),
 	}
 
 	b.lbs[input.LoadBalancerName] = lb
@@ -341,4 +370,87 @@ func (b *InMemoryBackend) RemoveTags(names []string, keys []string) error {
 	}
 
 	return nil
+}
+
+// CreateLoadBalancerListeners adds listeners to an existing load balancer.
+func (b *InMemoryBackend) CreateLoadBalancerListeners(name string, listeners []Listener) error {
+	b.mu.Lock("CreateLoadBalancerListeners")
+	defer b.mu.Unlock()
+
+	lb, ok := b.lbs[name]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	existing := make(map[int32]bool, len(lb.Listeners))
+	for _, l := range lb.Listeners {
+		existing[l.LoadBalancerPort] = true
+	}
+
+	for _, l := range listeners {
+		if !existing[l.LoadBalancerPort] {
+			lb.Listeners = append(lb.Listeners, l)
+			existing[l.LoadBalancerPort] = true
+		}
+	}
+
+	return nil
+}
+
+// DeleteLoadBalancerListeners removes listeners by port from an existing load balancer.
+func (b *InMemoryBackend) DeleteLoadBalancerListeners(name string, ports []int32) error {
+	b.mu.Lock("DeleteLoadBalancerListeners")
+	defer b.mu.Unlock()
+
+	lb, ok := b.lbs[name]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	remove := make(map[int32]bool, len(ports))
+	for _, p := range ports {
+		remove[p] = true
+	}
+
+	kept := lb.Listeners[:0]
+	for _, l := range lb.Listeners {
+		if !remove[l.LoadBalancerPort] {
+			kept = append(kept, l)
+		}
+	}
+
+	lb.Listeners = kept
+
+	return nil
+}
+
+// ModifyLoadBalancerAttributes updates the tunable attributes for a load balancer.
+func (b *InMemoryBackend) ModifyLoadBalancerAttributes(name string, attrs LoadBalancerAttributes) (*LoadBalancerAttributes, error) {
+	b.mu.Lock("ModifyLoadBalancerAttributes")
+	defer b.mu.Unlock()
+
+	lb, ok := b.lbs[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	lb.Attributes = attrs
+	cp := attrs
+
+	return &cp, nil
+}
+
+// DescribeLoadBalancerAttributes returns the tunable attributes for a load balancer.
+func (b *InMemoryBackend) DescribeLoadBalancerAttributes(name string) (*LoadBalancerAttributes, error) {
+	b.mu.RLock("DescribeLoadBalancerAttributes")
+	defer b.mu.RUnlock()
+
+	lb, ok := b.lbs[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	cp := lb.Attributes
+
+	return &cp, nil
 }

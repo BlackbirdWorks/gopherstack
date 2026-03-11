@@ -44,9 +44,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateLoadBalancer",
 		"DeleteLoadBalancer",
 		"DescribeLoadBalancers",
+		"CreateLoadBalancerListeners",
+		"DeleteLoadBalancerListeners",
 		"RegisterInstancesWithLoadBalancer",
 		"DeregisterInstancesFromLoadBalancer",
 		"ConfigureHealthCheck",
+		"ModifyLoadBalancerAttributes",
+		"DescribeLoadBalancerAttributes",
 		"AddTags",
 		"DescribeTags",
 		"RemoveTags",
@@ -162,12 +166,20 @@ func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
 		return h.handleDeleteLoadBalancer(vals)
 	case "DescribeLoadBalancers":
 		return h.handleDescribeLoadBalancers(vals)
+	case "CreateLoadBalancerListeners":
+		return h.handleCreateLoadBalancerListeners(vals)
+	case "DeleteLoadBalancerListeners":
+		return h.handleDeleteLoadBalancerListeners(vals)
 	case "RegisterInstancesWithLoadBalancer":
 		return h.handleRegisterInstances(vals)
 	case "DeregisterInstancesFromLoadBalancer":
 		return h.handleDeregisterInstances(vals)
 	case "ConfigureHealthCheck":
 		return h.handleConfigureHealthCheck(vals)
+	case "ModifyLoadBalancerAttributes":
+		return h.handleModifyLoadBalancerAttributes(vals)
+	case "DescribeLoadBalancerAttributes":
+		return h.handleDescribeLoadBalancerAttributes(vals)
 	case "AddTags":
 		return h.handleAddTags(vals)
 	case "DescribeTags":
@@ -421,6 +433,87 @@ func (h *Handler) handleRemoveTags(vals url.Values) (any, error) {
 	}, nil
 }
 
+func (h *Handler) handleCreateLoadBalancerListeners(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	listeners, err := parseListeners(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.CreateLoadBalancerListeners(name, listeners); err != nil {
+		return nil, err
+	}
+
+	return &createLoadBalancerListenersResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-createlisteners-" + name},
+	}, nil
+}
+
+func (h *Handler) handleDeleteLoadBalancerListeners(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	ports := parseListenerPorts(vals, "LoadBalancerPorts.member")
+
+	if err := h.Backend.DeleteLoadBalancerListeners(name, ports); err != nil {
+		return nil, err
+	}
+
+	return &deleteLoadBalancerListenersResponse{
+		Xmlns:            elbXMLNS,
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-deletelisteners-" + name},
+	}, nil
+}
+
+func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	attrs := parseLoadBalancerAttributes(vals)
+
+	result, err := h.Backend.ModifyLoadBalancerAttributes(name, attrs)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyLoadBalancerAttributesResponse{
+		Xmlns: elbXMLNS,
+		Result: modifyLoadBalancerAttributesResult{
+			LoadBalancerAttributes: toXMLLoadBalancerAttributes(result),
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-modifyattrs-" + name},
+	}, nil
+}
+
+func (h *Handler) handleDescribeLoadBalancerAttributes(vals url.Values) (any, error) {
+	name := vals.Get("LoadBalancerName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
+	}
+
+	attrs, err := h.Backend.DescribeLoadBalancerAttributes(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeLoadBalancerAttributesResponse{
+		Xmlns: elbXMLNS,
+		Result: describeLoadBalancerAttributesResult{
+			LoadBalancerAttributes: toXMLLoadBalancerAttributes(attrs),
+		},
+		ResponseMetadata: xmlResponseMetadata{RequestID: "elb-describeattrs-" + name},
+	}, nil
+}
+
 // handleOpError translates an operation error into an HTTP response.
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
 	code, statusCode := elbErrorCode(opErr)
@@ -596,6 +689,89 @@ func parseTagKeys(vals url.Values, prefix string) []string {
 	}
 
 	return result
+}
+
+// parseListenerPorts extracts integer ports from LoadBalancerPorts.member.N form values.
+func parseListenerPorts(vals url.Values, prefix string) []int32 {
+	result := make([]int32, 0)
+
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("%s.%d", prefix, i))
+		if v == "" {
+			break
+		}
+
+		p, err := parseInt32(v)
+		if err != nil {
+			continue
+		}
+
+		result = append(result, p)
+	}
+
+	return result
+}
+
+// parseLoadBalancerAttributes reads LoadBalancerAttributes.* form values into a
+// LoadBalancerAttributes struct. Missing values fall back to the service defaults.
+func parseLoadBalancerAttributes(vals url.Values) LoadBalancerAttributes {
+	attrs := defaultLBAttributes()
+
+	if v := vals.Get("LoadBalancerAttributes.CrossZoneLoadBalancing.Enabled"); v != "" {
+		attrs.CrossZoneLoadBalancing = v == "true"
+	}
+
+	if v := vals.Get("LoadBalancerAttributes.ConnectionDraining.Enabled"); v != "" {
+		attrs.ConnectionDraining = v == "true"
+	}
+
+	if v := vals.Get("LoadBalancerAttributes.ConnectionDraining.Timeout"); v != "" {
+		if n, err := parseInt32(v); err == nil {
+			attrs.ConnectionDrainingTimeout = n
+		}
+	}
+
+	if v := vals.Get("LoadBalancerAttributes.ConnectionSettings.IdleTimeout"); v != "" {
+		if n, err := parseInt32(v); err == nil {
+			attrs.IdleTimeout = n
+		}
+	}
+
+	// The desync mitigation mode is passed as an AdditionalAttribute with
+	// key "elb.http.desyncmitigationmode".
+	for i := 1; ; i++ {
+		k := vals.Get(fmt.Sprintf("LoadBalancerAttributes.AdditionalAttributes.member.%d.Key", i))
+		if k == "" {
+			break
+		}
+
+		v := vals.Get(fmt.Sprintf("LoadBalancerAttributes.AdditionalAttributes.member.%d.Value", i))
+
+		if k == "elb.http.desyncmitigationmode" {
+			attrs.DesyncMitigationMode = v
+		}
+	}
+
+	return attrs
+}
+
+// toXMLLoadBalancerAttributes converts a LoadBalancerAttributes to its XML wire representation.
+func toXMLLoadBalancerAttributes(attrs *LoadBalancerAttributes) xmlLoadBalancerAttributes {
+	additionalAttrs := []xmlAdditionalAttribute{
+		{Key: "elb.http.desyncmitigationmode", Value: attrs.DesyncMitigationMode},
+	}
+
+	return xmlLoadBalancerAttributes{
+		CrossZoneLoadBalancing: xmlBoolAttribute{Enabled: attrs.CrossZoneLoadBalancing},
+		ConnectionDraining: xmlConnectionDraining{
+			Enabled: attrs.ConnectionDraining,
+			Timeout: attrs.ConnectionDrainingTimeout,
+		},
+		ConnectionSettings: xmlConnectionSettings{IdleTimeout: attrs.IdleTimeout},
+		AdditionalAttributes: xmlAdditionalAttributeList{
+			Members: additionalAttrs,
+		},
+	}
 }
 
 // toXMLLoadBalancer converts a LoadBalancer to its XML representation.
@@ -863,4 +1039,77 @@ type removeTagsResponse struct {
 	XMLName          xml.Name            `xml:"RemoveTagsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// CreateLoadBalancerListeners response.
+
+type createLoadBalancerListenersResponse struct {
+	XMLName          xml.Name            `xml:"CreateLoadBalancerListenersResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// DeleteLoadBalancerListeners response.
+
+type deleteLoadBalancerListenersResponse struct {
+	XMLName          xml.Name            `xml:"DeleteLoadBalancerListenersResponse"`
+	Xmlns            string              `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// LoadBalancerAttributes XML types.
+
+type xmlBoolAttribute struct {
+	Enabled bool `xml:"Enabled"`
+}
+
+type xmlConnectionDraining struct {
+	Enabled bool  `xml:"Enabled"`
+	Timeout int32 `xml:"Timeout"`
+}
+
+type xmlConnectionSettings struct {
+	IdleTimeout int32 `xml:"IdleTimeout"`
+}
+
+type xmlAdditionalAttribute struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
+type xmlAdditionalAttributeList struct {
+	Members []xmlAdditionalAttribute `xml:"member"`
+}
+
+type xmlLoadBalancerAttributes struct {
+	CrossZoneLoadBalancing  xmlBoolAttribute           `xml:"CrossZoneLoadBalancing"`
+	ConnectionDraining      xmlConnectionDraining      `xml:"ConnectionDraining"`
+	ConnectionSettings      xmlConnectionSettings      `xml:"ConnectionSettings"`
+	AdditionalAttributes    xmlAdditionalAttributeList `xml:"AdditionalAttributes"`
+}
+
+// ModifyLoadBalancerAttributes response.
+
+type modifyLoadBalancerAttributesResult struct {
+	LoadBalancerAttributes xmlLoadBalancerAttributes `xml:"LoadBalancerAttributes"`
+}
+
+type modifyLoadBalancerAttributesResponse struct {
+	XMLName          xml.Name                           `xml:"ModifyLoadBalancerAttributesResponse"`
+	Xmlns            string                             `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                `xml:"ResponseMetadata"`
+	Result           modifyLoadBalancerAttributesResult `xml:"ModifyLoadBalancerAttributesResult"`
+}
+
+// DescribeLoadBalancerAttributes response.
+
+type describeLoadBalancerAttributesResult struct {
+	LoadBalancerAttributes xmlLoadBalancerAttributes `xml:"LoadBalancerAttributes"`
+}
+
+type describeLoadBalancerAttributesResponse struct {
+	XMLName          xml.Name                             `xml:"DescribeLoadBalancerAttributesResponse"`
+	Xmlns            string                               `xml:"xmlns,attr"`
+	ResponseMetadata xmlResponseMetadata                  `xml:"ResponseMetadata"`
+	Result           describeLoadBalancerAttributesResult `xml:"DescribeLoadBalancerAttributesResult"`
 }

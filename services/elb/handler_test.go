@@ -940,3 +940,284 @@ func TestDescribeLoadBalancersWithHealthCheck(t *testing.T) {
 	require.Len(t, resp.Result.LoadBalancerDescriptions.Members, 1)
 	assert.Equal(t, "TCP:80", resp.Result.LoadBalancerDescriptions.Members[0].HealthCheck.Target)
 }
+
+// TestCreateLoadBalancerListeners tests adding listeners to an existing LB.
+func TestCreateLoadBalancerListeners(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elb.Handler)
+		vals       url.Values
+		name       string
+		wantStatus int
+		wantErrMsg string
+	}{
+		{
+			name: "adds_listener_to_existing_lb",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "listeners-lb")
+			},
+			vals: url.Values{
+				"Action":                              {"CreateLoadBalancerListeners"},
+				"Version":                             {"2012-06-01"},
+				"LoadBalancerName":                    {"listeners-lb"},
+				"Listeners.member.1.Protocol":         {"HTTP"},
+				"Listeners.member.1.LoadBalancerPort": {"443"},
+				"Listeners.member.1.InstancePort":     {"8443"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":                              {"CreateLoadBalancerListeners"},
+				"Version":                             {"2012-06-01"},
+				"LoadBalancerName":                    {"no-such-lb"},
+				"Listeners.member.1.Protocol":         {"HTTP"},
+				"Listeners.member.1.LoadBalancerPort": {"80"},
+				"Listeners.member.1.InstancePort":     {"8080"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_lb_name",
+			vals: url.Values{
+				"Action":  {"CreateLoadBalancerListeners"},
+				"Version": {"2012-06-01"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestDeleteLoadBalancerListeners tests removing listeners from an existing LB.
+func TestDeleteLoadBalancerListeners(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elb.Handler)
+		vals       url.Values
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "deletes_listener",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "del-listener-lb")
+			},
+			vals: url.Values{
+				"Action":                       {"DeleteLoadBalancerListeners"},
+				"Version":                      {"2012-06-01"},
+				"LoadBalancerName":             {"del-listener-lb"},
+				"LoadBalancerPorts.member.1":   {"80"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":                     {"DeleteLoadBalancerListeners"},
+				"Version":                    {"2012-06-01"},
+				"LoadBalancerName":           {"no-such-lb"},
+				"LoadBalancerPorts.member.1": {"80"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_lb_name",
+			vals: url.Values{
+				"Action":  {"DeleteLoadBalancerListeners"},
+				"Version": {"2012-06-01"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestModifyLoadBalancerAttributes tests modifying LB attributes.
+func TestModifyLoadBalancerAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elb.Handler)
+		vals       url.Values
+		name       string
+		wantStatus int
+		wantXZLB   string
+	}{
+		{
+			name: "sets_cross_zone_and_idle_timeout",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "attrs-lb")
+			},
+			vals: url.Values{
+				"Action":           {"ModifyLoadBalancerAttributes"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"attrs-lb"},
+				"LoadBalancerAttributes.CrossZoneLoadBalancing.Enabled":    {"true"},
+				"LoadBalancerAttributes.ConnectionDraining.Enabled":        {"false"},
+				"LoadBalancerAttributes.ConnectionDraining.Timeout":        {"300"},
+				"LoadBalancerAttributes.ConnectionSettings.IdleTimeout":    {"120"},
+				"LoadBalancerAttributes.AdditionalAttributes.member.1.Key": {"elb.http.desyncmitigationmode"},
+				"LoadBalancerAttributes.AdditionalAttributes.member.1.Value": {"monitor"},
+			},
+			wantStatus: http.StatusOK,
+			wantXZLB:   "true",
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":           {"ModifyLoadBalancerAttributes"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"no-such-lb"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_lb_name",
+			vals: url.Values{
+				"Action":  {"ModifyLoadBalancerAttributes"},
+				"Version": {"2012-06-01"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantXZLB != "" {
+				var resp struct {
+					XMLName xml.Name `xml:"ModifyLoadBalancerAttributesResponse"`
+					Result  struct {
+						LoadBalancerAttributes struct {
+							CrossZoneLoadBalancing struct {
+								Enabled string `xml:"Enabled"`
+							} `xml:"CrossZoneLoadBalancing"`
+						} `xml:"LoadBalancerAttributes"`
+					} `xml:"ModifyLoadBalancerAttributesResult"`
+				}
+				parseXMLBody(t, rec, &resp)
+				assert.Equal(t, tt.wantXZLB, resp.Result.LoadBalancerAttributes.CrossZoneLoadBalancing.Enabled)
+			}
+		})
+	}
+}
+
+// TestDescribeLoadBalancerAttributes tests reading LB attributes.
+func TestDescribeLoadBalancerAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *elb.Handler)
+		vals       url.Values
+		name       string
+		wantStatus int
+		checkResp  bool
+	}{
+		{
+			name: "returns_default_attributes",
+			setup: func(t *testing.T, h *elb.Handler) {
+				t.Helper()
+				mustCreateLB(t, h, "descattrs-lb")
+			},
+			vals: url.Values{
+				"Action":           {"DescribeLoadBalancerAttributes"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"descattrs-lb"},
+			},
+			wantStatus: http.StatusOK,
+			checkResp:  true,
+		},
+		{
+			name: "lb_not_found",
+			vals: url.Values{
+				"Action":           {"DescribeLoadBalancerAttributes"},
+				"Version":          {"2012-06-01"},
+				"LoadBalancerName": {"no-such-lb"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "missing_lb_name",
+			vals: url.Values{
+				"Action":  {"DescribeLoadBalancerAttributes"},
+				"Version": {"2012-06-01"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doELB(t, h, tt.vals)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.checkResp {
+				var resp struct {
+					XMLName xml.Name `xml:"DescribeLoadBalancerAttributesResponse"`
+					Result  struct {
+						LoadBalancerAttributes struct {
+							ConnectionSettings struct {
+								IdleTimeout string `xml:"IdleTimeout"`
+							} `xml:"ConnectionSettings"`
+						} `xml:"LoadBalancerAttributes"`
+					} `xml:"DescribeLoadBalancerAttributesResult"`
+				}
+				parseXMLBody(t, rec, &resp)
+				assert.Equal(t, "60", resp.Result.LoadBalancerAttributes.ConnectionSettings.IdleTimeout)
+			}
+		})
+	}
+}
