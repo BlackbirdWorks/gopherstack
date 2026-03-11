@@ -949,8 +949,8 @@ func TestCreateLoadBalancerListeners(t *testing.T) {
 		setup      func(t *testing.T, h *elb.Handler)
 		vals       url.Values
 		name       string
-		wantStatus int
 		wantErrMsg string
+		wantStatus int
 	}{
 		{
 			name: "adds_listener_to_existing_lb",
@@ -1023,10 +1023,10 @@ func TestDeleteLoadBalancerListeners(t *testing.T) {
 				mustCreateLB(t, h, "del-listener-lb")
 			},
 			vals: url.Values{
-				"Action":                       {"DeleteLoadBalancerListeners"},
-				"Version":                      {"2012-06-01"},
-				"LoadBalancerName":             {"del-listener-lb"},
-				"LoadBalancerPorts.member.1":   {"80"},
+				"Action":                     {"DeleteLoadBalancerListeners"},
+				"Version":                    {"2012-06-01"},
+				"LoadBalancerName":           {"del-listener-lb"},
+				"LoadBalancerPorts.member.1": {"80"},
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -1074,8 +1074,8 @@ func TestModifyLoadBalancerAttributes(t *testing.T) {
 		setup      func(t *testing.T, h *elb.Handler)
 		vals       url.Values
 		name       string
-		wantStatus int
 		wantXZLB   string
+		wantStatus int
 	}{
 		{
 			name: "sets_cross_zone_and_idle_timeout",
@@ -1087,11 +1087,11 @@ func TestModifyLoadBalancerAttributes(t *testing.T) {
 				"Action":           {"ModifyLoadBalancerAttributes"},
 				"Version":          {"2012-06-01"},
 				"LoadBalancerName": {"attrs-lb"},
-				"LoadBalancerAttributes.CrossZoneLoadBalancing.Enabled":    {"true"},
-				"LoadBalancerAttributes.ConnectionDraining.Enabled":        {"false"},
-				"LoadBalancerAttributes.ConnectionDraining.Timeout":        {"300"},
-				"LoadBalancerAttributes.ConnectionSettings.IdleTimeout":    {"120"},
-				"LoadBalancerAttributes.AdditionalAttributes.member.1.Key": {"elb.http.desyncmitigationmode"},
+				"LoadBalancerAttributes.CrossZoneLoadBalancing.Enabled":      {"true"},
+				"LoadBalancerAttributes.ConnectionDraining.Enabled":          {"false"},
+				"LoadBalancerAttributes.ConnectionDraining.Timeout":          {"300"},
+				"LoadBalancerAttributes.ConnectionSettings.IdleTimeout":      {"120"},
+				"LoadBalancerAttributes.AdditionalAttributes.member.1.Key":   {"elb.http.desyncmitigationmode"},
 				"LoadBalancerAttributes.AdditionalAttributes.member.1.Value": {"monitor"},
 			},
 			wantStatus: http.StatusOK,

@@ -24,6 +24,13 @@ var (
 	ErrUnknownAction = awserr.New("InvalidAction", awserr.ErrInvalidParameter)
 )
 
+const (
+	// defaultConnectionDrainingTimeout is the default connection-draining timeout in seconds.
+	defaultConnectionDrainingTimeout int32 = 300
+	// defaultIdleTimeout is the default idle connection timeout in seconds.
+	defaultIdleTimeout int32 = 60
+)
+
 // Listener is a single protocol/port mapping on a load balancer.
 type Listener struct {
 	Protocol         string
@@ -34,11 +41,11 @@ type Listener struct {
 
 // LoadBalancerAttributes holds tunable attributes for a Classic ELB.
 type LoadBalancerAttributes struct {
-	CrossZoneLoadBalancing    bool
-	ConnectionDraining        bool
+	DesyncMitigationMode      string
 	ConnectionDrainingTimeout int32
 	IdleTimeout               int32
-	DesyncMitigationMode      string
+	CrossZoneLoadBalancing    bool
+	ConnectionDraining        bool
 }
 
 // defaultLBAttributes returns the default LoadBalancerAttributes used at
@@ -47,8 +54,8 @@ func defaultLBAttributes() LoadBalancerAttributes {
 	return LoadBalancerAttributes{
 		CrossZoneLoadBalancing:    false,
 		ConnectionDraining:        false,
-		ConnectionDrainingTimeout: 300,
-		IdleTimeout:               60,
+		ConnectionDrainingTimeout: defaultConnectionDrainingTimeout,
+		IdleTimeout:               defaultIdleTimeout,
 		DesyncMitigationMode:      "defensive",
 	}
 }
@@ -72,20 +79,20 @@ type LoadBalancer struct {
 	CreatedTime               time.Time
 	HealthCheck               *HealthCheck
 	Tags                      *tags.Tags
-	LoadBalancerName          string
-	DNSName                   string
+	VPCId                     string
+	Region                    string
 	CanonicalHostedZoneName   string
 	CanonicalHostedZoneNameID string
 	Scheme                    string
-	VPCId                     string
+	LoadBalancerName          string
 	AccountID                 string
-	Region                    string
-	Attributes                LoadBalancerAttributes
+	DNSName                   string
 	Listeners                 []Listener
 	Instances                 []Instance
 	AvailabilityZones         []string
 	SecurityGroups            []string
 	Subnets                   []string
+	Attributes                LoadBalancerAttributes
 }
 
 // CreateLoadBalancerInput holds input for CreateLoadBalancer.
@@ -425,7 +432,10 @@ func (b *InMemoryBackend) DeleteLoadBalancerListeners(name string, ports []int32
 }
 
 // ModifyLoadBalancerAttributes updates the tunable attributes for a load balancer.
-func (b *InMemoryBackend) ModifyLoadBalancerAttributes(name string, attrs LoadBalancerAttributes) (*LoadBalancerAttributes, error) {
+func (b *InMemoryBackend) ModifyLoadBalancerAttributes(
+	name string,
+	attrs LoadBalancerAttributes,
+) (*LoadBalancerAttributes, error) {
 	b.mu.Lock("ModifyLoadBalancerAttributes")
 	defer b.mu.Unlock()
 

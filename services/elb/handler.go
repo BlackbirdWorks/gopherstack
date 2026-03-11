@@ -439,13 +439,13 @@ func (h *Handler) handleCreateLoadBalancerListeners(vals url.Values) (any, error
 		return nil, fmt.Errorf("%w: LoadBalancerName is required", ErrInvalidParameter)
 	}
 
-	listeners, err := parseListeners(vals)
-	if err != nil {
-		return nil, err
+	listeners, parseErr := parseListeners(vals)
+	if parseErr != nil {
+		return nil, parseErr
 	}
 
-	if err := h.Backend.CreateLoadBalancerListeners(name, listeners); err != nil {
-		return nil, err
+	if createErr := h.Backend.CreateLoadBalancerListeners(name, listeners); createErr != nil {
+		return nil, createErr
 	}
 
 	return &createLoadBalancerListenersResponse{
@@ -1082,10 +1082,10 @@ type xmlAdditionalAttributeList struct {
 }
 
 type xmlLoadBalancerAttributes struct {
-	CrossZoneLoadBalancing  xmlBoolAttribute           `xml:"CrossZoneLoadBalancing"`
-	ConnectionDraining      xmlConnectionDraining      `xml:"ConnectionDraining"`
-	ConnectionSettings      xmlConnectionSettings      `xml:"ConnectionSettings"`
-	AdditionalAttributes    xmlAdditionalAttributeList `xml:"AdditionalAttributes"`
+	AdditionalAttributes   xmlAdditionalAttributeList `xml:"AdditionalAttributes"`
+	ConnectionDraining     xmlConnectionDraining      `xml:"ConnectionDraining"`
+	ConnectionSettings     xmlConnectionSettings      `xml:"ConnectionSettings"`
+	CrossZoneLoadBalancing xmlBoolAttribute           `xml:"CrossZoneLoadBalancing"`
 }
 
 // ModifyLoadBalancerAttributes response.
