@@ -174,11 +174,11 @@ type Stack struct {
 	// CodeDeployHandler provides access to the CodeDeploy backend.
 	CodeDeployHandler *codedeploybackend.Handler
 	// CodeStarConnectionsHandler provides access to the CodeStar Connections backend.
-	CodeStarConnectionsHandler     *codestarconnectionsbackend.Handler
-	S3Client                       *s3.Client
-	DDBClient                      *dynamodb.Client
-	FaultStore                     *chaos.FaultStore
-	Dashboard                      *dashboard.DashboardHandler
+	CodeStarConnectionsHandler *codestarconnectionsbackend.Handler
+	S3Client                   *s3.Client
+	DDBClient                  *dynamodb.Client
+	FaultStore                 *chaos.FaultStore
+	Dashboard                  *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
