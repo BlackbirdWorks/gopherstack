@@ -58,6 +58,7 @@ import (
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
+	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -158,6 +159,7 @@ type AWSSDKProvider interface {
 	GetEFSHandler() service.Registerable
 	GetEKSHandler() service.Registerable
 	GetELBHandler() service.Registerable
+	GetELBv2Handler() service.Registerable
 	GetEMRHandler() service.Registerable
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
@@ -252,6 +254,7 @@ type extractedConfig struct {
 	efsOps                    *efsbackend.Handler
 	eksOps                    *eksbackend.Handler
 	elbOps                    *elbbackend.Handler
+	elbv2Ops                  *elbv2backend.Handler
 	emrOps                    *emrbackend.Handler
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
@@ -479,6 +482,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.elbOps, _ = h.(*elbbackend.Handler)
 	}
 
+	if h := ap.GetELBv2Handler(); h != nil {
+		ec.elbv2Ops, _ = h.(*elbv2backend.Handler)
+	}
+
 	if h := ap.GetEMRHandler(); h != nil {
 		ec.emrOps, _ = h.(*emrbackend.Handler)
 	}
@@ -690,6 +697,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		EFSOps:                     ec.efsOps,
 		EKSOps:                     ec.eksOps,
 		ELBOps:                     ec.elbOps,
+		ELBv2Ops:                   ec.elbv2Ops,
 		EMROps:                     ec.emrOps,
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,

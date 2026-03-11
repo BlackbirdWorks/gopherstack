@@ -104,6 +104,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
+		if vals.Get("Version") != "2010-12-01" {
+			return false
+		}
+
 		action := vals.Get("Action")
 
 		return slices.Contains(h.GetSupportedOperations(), action)
