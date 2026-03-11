@@ -66,8 +66,10 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // RouteMatcher returns a function that matches Elastic Beanstalk requests.
-// Elastic Beanstalk uses the same Version=2010-12-01 as SES, so we disambiguate
-// by matching on the Action field against the list of supported EB operations.
+// Elastic Beanstalk uses Version=2010-12-01. We check both the Version and the
+// Action field to avoid stealing requests from other services (e.g. CloudWatch or
+// SNS) that share operation names like ListTagsForResource but use different
+// API version strings.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		r := c.Request()
@@ -91,6 +93,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		vals, err := url.ParseQuery(string(body))
 		if err != nil {
+			return false
+		}
+
+		if vals.Get("Version") != "2010-12-01" {
 			return false
 		}
 
