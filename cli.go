@@ -93,6 +93,7 @@ import (
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
@@ -212,6 +213,7 @@ type CLI struct {
 	codeStarConnectionsHandler    service.Registerable
 	dynamodbStreamsHandler        service.Registerable
 	docdbHandler                  service.Registerable
+	elasticbeanstalkHandler       service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	efsHandler                    service.Registerable
@@ -718,6 +720,11 @@ func (c *CLI) GetDynamoDBStreamsHandler() service.Registerable {
 	return c.dynamodbStreamsHandler
 }
 
+// GetElasticbeanstalkHandler returns the Elastic Beanstalk handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetElasticbeanstalkHandler() service.Registerable { return c.elasticbeanstalkHandler }
+
 // GetDocDBHandler returns the DocDB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1176,6 +1183,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.dmsHandler = byName["DMS"]
 	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 	cli.dynamodbStreamsHandler = byName["DynamoDBStreams"]
+	cli.elasticbeanstalkHandler = byName["Elasticbeanstalk"]
 	cli.efsHandler = byName["EFS"]
 	cli.eksHandler = byName["EKS"]
 	cli.elbHandler = byName["ELB"]
@@ -1370,6 +1378,7 @@ func getServiceProviders() []service.Provider {
 		&dmsbackend.Provider{},
 		&codestarconnectionsbackend.Provider{},
 		&dynamodbstreamsbackend.Provider{},
+		&elasticbeanstalkbackend.Provider{},
 		&efsbackend.Provider{},
 		&eksbackend.Provider{},
 		&elbbackend.Provider{},

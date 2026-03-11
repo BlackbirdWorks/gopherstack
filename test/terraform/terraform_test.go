@@ -72,6 +72,7 @@ import (
 	efssvc "github.com/aws/aws-sdk-go-v2/service/efs"
 	ekssvc "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	elasticbeanstalksvc "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2svc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
@@ -211,6 +212,7 @@ provider "aws" {
     eks             = %[1]q
     elb             = %[1]q
     elasticache     = %[1]q
+    elasticbeanstalk = %[1]q
     elastictranscoder = %[1]q
     events          = %[1]q
     firehose        = %[1]q
@@ -3515,6 +3517,54 @@ func TestTerraform_Batch(t *testing.T) {
 	}
 }
 
+// TestTerraform_Elasticbeanstalk provisions Elastic Beanstalk resources via Terraform and verifies they exist.
+func TestTerraform_Elasticbeanstalk(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "elasticbeanstalk/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createElasticbeanstalkClient(t)
+				suffix := vars["Suffix"].(string)
+				appName := "tf-app-" + suffix
+				envName := "tf-env-" + suffix
+
+				appOut, err := client.DescribeApplications(ctx, &elasticbeanstalksvc.DescribeApplicationsInput{
+					ApplicationNames: []string{appName},
+				})
+				require.NoError(t, err, "DescribeApplications should succeed")
+				require.Len(t, appOut.Applications, 1, "application should exist")
+				assert.Equal(t, appName, *appOut.Applications[0].ApplicationName)
+
+				envOut, err := client.DescribeEnvironments(ctx, &elasticbeanstalksvc.DescribeEnvironmentsInput{
+					EnvironmentNames: []string{envName},
+				})
+				require.NoError(t, err, "DescribeEnvironments should succeed")
+				require.Len(t, envOut.Environments, 1, "environment should exist")
+				assert.Equal(t, envName, *envOut.Environments[0].EnvironmentName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_EKS provisions an EKS cluster via Terraform, then verifies it is listed via the EKS SDK.
 func TestTerraform_EKS(t *testing.T) {
 	t.Parallel()
@@ -4265,7 +4315,7 @@ func TestTerraform_ElasticTranscoder(t *testing.T) {
 				found := false
 
 				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated the SDK but service still works
-					name := aws.ToString(p.Name)
+					name := aws.ToString(p.Name) //nolint:staticcheck // deprecated service
 					if name == pipelineName {
 						found = true
 
