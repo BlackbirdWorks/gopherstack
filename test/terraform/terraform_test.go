@@ -74,6 +74,7 @@ import (
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
+	docdbsvc "github.com/aws/aws-sdk-go-v2/service/docdb"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	taggingsvc "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
@@ -118,8 +119,9 @@ var tofuProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tofu-provide
 //
 //nolint:gochecknoglobals // set once in TestMain, read-only during parallel tests
 var (
-	preInitDirMain string
-	preInitDirRDS  string
+	preInitDirMain  string
+	preInitDirRDS   string
+	preInitDirDocDB string
 )
 
 // tofuBinaryOnce ensures tofu is only downloaded once per test run.
@@ -248,6 +250,34 @@ provider "aws" {
   endpoints {
     rds = %[1]q
     sts = %[1]q
+  }
+}
+`, addr)
+}
+
+// docdbProviderBlock returns an OpenTofu provider block that includes the docdb endpoint.
+func docdbProviderBlock(addr string) string {
+	return fmt.Sprintf(`terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+  required_version = ">= 1.0"
+}
+
+provider "aws" {
+  region                      = "us-east-1"
+  access_key                  = "test"
+  secret_key                  = "test"
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+
+  endpoints {
+    docdb = %[1]q
+    sts   = %[1]q
   }
 }
 `, addr)
@@ -450,6 +480,8 @@ func copyFile(src, dst string, mode os.FileMode) error {
 // can be reused for the given HCL configuration, or an empty string if none matches.
 func selectPreInitDir(hcl string) string {
 	switch {
+	case strings.HasPrefix(hcl, docdbProviderBlock(endpoint)):
+		return preInitDirDocDB
 	case strings.HasPrefix(hcl, rdsProviderBlock(endpoint)):
 		return preInitDirRDS
 	case strings.HasPrefix(hcl, providerBlock(endpoint)):
@@ -726,6 +758,44 @@ func TestTerraform_RDS(t *testing.T) {
 				assert.Equal(t, vars["Identifier"].(string), aws.ToString(out.DBInstances[0].DBInstanceIdentifier))
 				assert.Equal(t, "postgres", aws.ToString(out.DBInstances[0].Engine))
 				assert.Equal(t, "available", aws.ToString(out.DBInstances[0].DBInstanceStatus))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_DocDB provisions a DocDB cluster and instance and verifies they exist.
+func TestTerraform_DocDB(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:       "success",
+			fixture:    "docdb/success",
+			providerFn: docdbProviderBlock,
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				suffix := "tf-docdb-" + "testrun"[:4]
+				return map[string]any{"Suffix": suffix}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				suffix := vars["Suffix"].(string)
+				client := createDocDBClient(t)
+				clusterID := "tf-docdb-" + suffix
+				out, err := client.DescribeDBClusters(ctx, &docdbsvc.DescribeDBClustersInput{
+					DBClusterIdentifier: &clusterID,
+				})
+				require.NoError(t, err, "DescribeDBClusters should succeed after terraform apply")
+				require.Len(t, out.DBClusters, 1)
+				assert.Equal(t, clusterID, *out.DBClusters[0].DBClusterIdentifier)
 			},
 		},
 	}

@@ -62,6 +62,7 @@ import (
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
+	docdbsvc "github.com/aws/aws-sdk-go-v2/service/docdb"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	taggingsvc "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
@@ -174,7 +175,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Clean up pre-initialized directories kept open for parallel tests.
-	for _, d := range []string{preInitDirMain, preInitDirRDS} {
+	for _, d := range []string{preInitDirMain, preInitDirRDS, preInitDirDocDB} {
 		if d != "" {
 			os.RemoveAll(d)
 		}
@@ -278,6 +279,26 @@ func createRDSClient(t *testing.T) *rdssvc.Client {
 	}
 
 	return rdssvc.NewFromConfig(cfg, func(o *rdssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createDocDBClient returns a DocDB client pointed at the shared test container.
+func createDocDBClient(t *testing.T) *docdbsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return docdbsvc.NewFromConfig(cfg, func(o *docdbsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
@@ -727,6 +748,7 @@ func warmProviderCache(logger *slog.Logger) {
 	// first-access initialization cost.
 	preInitDirMain = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, providerBlock(endpoint), logger)
 	preInitDirRDS = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, rdsProviderBlock(endpoint), logger)
+	preInitDirDocDB = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, docdbProviderBlock(endpoint), logger)
 }
 
 // warmWithHCL runs `tofu init` in a temporary directory with the given HCL to

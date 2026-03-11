@@ -66,6 +66,7 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
@@ -158,6 +159,8 @@ type DashboardHandler struct {
 	ACMPCAOps                  *acmpcabackend.Handler
 	RedshiftOps                *redshiftbackend.Handler
 	RDSOps                     *rdsbackend.Handler
+	// DocDBOps provides access to the DocDB backend.
+	DocDBOps *docdbbackend.Handler
 	AWSConfigOps               *awsconfigbackend.Handler
 	S3ControlOps               *s3controlbackend.Handler
 	ResourceGroupsOps          *resourcegroupsbackend.Handler
@@ -277,7 +280,8 @@ type Config struct {
 	RedshiftOps *redshiftbackend.Handler
 	// RDSOps provides access to the RDS backend.
 	RDSOps *rdsbackend.Handler
-	// AWSConfigOps provides access to the AWS Config backend.
+	// DocDBOps provides access to the DocDB backend.
+	DocDBOps *docdbbackend.Handler
 	AWSConfigOps *awsconfigbackend.Handler
 	// S3ControlOps provides access to the S3 Control backend.
 	S3ControlOps *s3controlbackend.Handler
@@ -411,6 +415,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/acmpca/*.html",
 		"templates/redshift/*.html",
 		"templates/rds/*.html",
+		"templates/docdb/*.html",
 		"templates/awsconfig/*.html",
 		"templates/s3control/*.html",
 		"templates/resourcegroups/*.html",
@@ -494,6 +499,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		ACMPCAOps:                  cfg.ACMPCAOps,
 		RedshiftOps:                cfg.RedshiftOps,
 		RDSOps:                     cfg.RDSOps,
+		DocDBOps:                   cfg.DocDBOps,
 		AWSConfigOps:               cfg.AWSConfigOps,
 		S3ControlOps:               cfg.S3ControlOps,
 		ResourceGroupsOps:          cfg.ResourceGroupsOps,
@@ -759,6 +765,12 @@ func (h *DashboardHandler) setupRDSRoutes() {
 	h.SubRouter.POST("/dashboard/rds/delete", h.rdsDeleteInstance)
 }
 
+func (h *DashboardHandler) setupDocDBRoutes() {
+	h.SubRouter.GET("/dashboard/docdb", h.docdbIndex)
+	h.SubRouter.POST("/dashboard/docdb/create", h.docdbCreateCluster)
+	h.SubRouter.POST("/dashboard/docdb/delete", h.docdbDeleteCluster)
+}
+
 func (h *DashboardHandler) setupAWSConfigRoutes() {
 	h.SubRouter.GET("/dashboard/awsconfig", h.awsconfigIndex)
 	h.SubRouter.POST("/dashboard/awsconfig/recorder", h.awsconfigPutRecorder)
@@ -942,6 +954,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupACMPCARoutes()
 	h.setupRedshiftRoutes()
 	h.setupRDSRoutes()
+	h.setupDocDBRoutes()
 	h.setupAWSConfigRoutes()
 	h.setupS3ControlRoutes()
 	h.setupResourceGroupsRoutes()
@@ -1069,6 +1082,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/acm", "ACM"},
 	{"/redshift", "Redshift"},
 	{"/rds", "RDS"},
+	{"/docdb", "DocDB"},
 	{"/awsconfig", "AWSConfig"},
 	{"/s3control", "S3Control"},
 	{"/resourcegroupstaggingapi", "ResourceGroupsTaggingAPI"},

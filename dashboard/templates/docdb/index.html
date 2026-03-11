@@ -1,0 +1,193 @@
+{{template "layout" .}}
+
+{{define "content"}}
+<div class="container-fluid">
+
+  <!-- Header -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex align-items-center gap-3">
+      <img src="/dashboard/static/icons/docdb.svg" alt="DocDB" width="40" height="40">
+      <div>
+        <h1 class="h3 mb-0">DocDB Clusters</h1>
+        <p class="text-muted mb-0">Amazon DocumentDB</p>
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <span class="badge bg-primary fs-6">{{len .Clusters}} Cluster(s)</span>
+      <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#createClusterModal">
+        + Create Cluster
+      </button>
+    </div>
+  </div>
+
+  <!-- Clusters Table -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5 class="card-title mb-0">Clusters</h5>
+    </div>
+    <div class="card-body p-0">
+      {{if .Clusters}}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Cluster ID</th>
+              <th>Engine</th>
+              <th>Status</th>
+              <th>Endpoint</th>
+              <th>Port</th>
+              <th>Master User</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Clusters}}
+            <tr>
+              <td><code>{{.DBClusterIdentifier}}</code></td>
+              <td>{{.Engine}}</td>
+              <td>
+                {{if eq .Status "available"}}
+                <span class="badge bg-success">{{.Status}}</span>
+                {{else if eq .Status "stopped"}}
+                <span class="badge bg-warning">{{.Status}}</span>
+                {{else}}
+                <span class="badge bg-secondary">{{.Status}}</span>
+                {{end}}
+              </td>
+              <td>{{.Endpoint}}</td>
+              <td>{{.Port}}</td>
+              <td>{{.MasterUsername}}</td>
+              <td>
+                <form method="POST" action="/dashboard/docdb/delete" class="d-inline">
+                  <input type="hidden" name="cluster_id" value="{{.DBClusterIdentifier}}">
+                  <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                </form>
+              </td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <div class="p-4 text-center text-muted">No DocDB clusters found.</div>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- Instances Table -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5 class="card-title mb-0">Instances</h5>
+    </div>
+    <div class="card-body p-0">
+      {{if .Instances}}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Instance ID</th>
+              <th>Cluster ID</th>
+              <th>Class</th>
+              <th>Engine</th>
+              <th>Status</th>
+              <th>Endpoint</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .Instances}}
+            <tr>
+              <td><code>{{.DBInstanceIdentifier}}</code></td>
+              <td><code>{{.DBClusterIdentifier}}</code></td>
+              <td>{{.DBInstanceClass}}</td>
+              <td>{{.Engine}}</td>
+              <td>
+                {{if eq .DBInstanceStatus "available"}}
+                <span class="badge bg-success">{{.DBInstanceStatus}}</span>
+                {{else}}
+                <span class="badge bg-secondary">{{.DBInstanceStatus}}</span>
+                {{end}}
+              </td>
+              <td>{{.Endpoint}}:{{.Port}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <div class="p-4 text-center text-muted">No DocDB instances found.</div>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- Subnet Groups Table -->
+  <div class="card mb-4">
+    <div class="card-header">
+      <h5 class="card-title mb-0">Subnet Groups</h5>
+    </div>
+    <div class="card-body p-0">
+      {{if .SubnetGroups}}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Description</th>
+              <th>VPC ID</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{range .SubnetGroups}}
+            <tr>
+              <td><code>{{.DBSubnetGroupName}}</code></td>
+              <td>{{.DBSubnetGroupDescription}}</td>
+              <td>{{.VpcID}}</td>
+              <td>{{.Status}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <div class="p-4 text-center text-muted">No subnet groups found.</div>
+      {{end}}
+    </div>
+  </div>
+
+</div>
+
+<!-- Create Cluster Modal -->
+<div class="modal fade" id="createClusterModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Create DocDB Cluster</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="/dashboard/docdb/create">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Cluster Identifier</label>
+            <input type="text" class="form-control" name="cluster_id" required placeholder="my-docdb-cluster">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Engine</label>
+            <select class="form-select" name="engine">
+              <option value="docdb">docdb</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Master Username</label>
+            <input type="text" class="form-control" name="master_username" value="admin">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success">Create</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{{end}}
