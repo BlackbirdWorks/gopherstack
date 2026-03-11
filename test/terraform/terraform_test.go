@@ -72,6 +72,7 @@ import (
 	efssvc "github.com/aws/aws-sdk-go-v2/service/efs"
 	ekssvc "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -206,6 +207,7 @@ provider "aws" {
     ecs             = %[1]q
     efs             = %[1]q
     eks             = %[1]q
+    elb             = %[1]q
     elasticache     = %[1]q
     events          = %[1]q
     firehose        = %[1]q
@@ -4217,6 +4219,47 @@ func TestTerraform_EFS(t *testing.T) {
 					}
 				}
 				assert.True(t, found, "file system with token %q should be listed", token)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ELB provisions a Classic ELB load balancer via Terraform, then verifies
+// it is listed via the ELB SDK.
+func TestTerraform_ELB(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "elb/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createELBClient(t)
+				suffix := vars["Suffix"].(string)
+				name := "tf-elb-" + suffix
+
+				out, err := client.DescribeLoadBalancers(ctx, &elbsvc.DescribeLoadBalancersInput{
+					LoadBalancerNames: []string{name},
+				})
+				require.NoError(t, err, "DescribeLoadBalancers should succeed after terraform apply")
+				require.Len(t, out.LoadBalancerDescriptions, 1, "load balancer should exist")
+				assert.Equal(t, name, aws.ToString(out.LoadBalancerDescriptions[0].LoadBalancerName))
 			},
 		},
 	}
