@@ -546,6 +546,7 @@ func TestElasticTranscoder_Job_ReadListCancel(t *testing.T) {
 			name: "read job",
 			setup: func(t *testing.T, h *elastictranscoder.Handler) ids {
 				t.Helper()
+
 				return createPipelineAndJob(t, h)
 			},
 			pathFn:     func(i ids) string { return "/2012-09-25/jobs/" + i.jobID },
@@ -556,6 +557,7 @@ func TestElasticTranscoder_Job_ReadListCancel(t *testing.T) {
 			name: "read non-existent job",
 			setup: func(t *testing.T, _ *elastictranscoder.Handler) ids {
 				t.Helper()
+
 				return ids{}
 			},
 			pathFn:     func(_ ids) string { return "/2012-09-25/jobs/nonexistent" },
@@ -566,6 +568,7 @@ func TestElasticTranscoder_Job_ReadListCancel(t *testing.T) {
 			name: "list jobs by pipeline",
 			setup: func(t *testing.T, h *elastictranscoder.Handler) ids {
 				t.Helper()
+
 				return createPipelineAndJob(t, h)
 			},
 			pathFn:     func(i ids) string { return "/2012-09-25/jobsByPipeline/" + i.pipelineID },
@@ -576,6 +579,7 @@ func TestElasticTranscoder_Job_ReadListCancel(t *testing.T) {
 			name: "cancel job",
 			setup: func(t *testing.T, h *elastictranscoder.Handler) ids {
 				t.Helper()
+
 				return createPipelineAndJob(t, h)
 			},
 			pathFn:     func(i ids) string { return "/2012-09-25/jobs/" + i.jobID },
@@ -586,6 +590,7 @@ func TestElasticTranscoder_Job_ReadListCancel(t *testing.T) {
 			name: "cancel non-existent job",
 			setup: func(t *testing.T, _ *elastictranscoder.Handler) ids {
 				t.Helper()
+
 				return ids{}
 			},
 			pathFn:     func(_ ids) string { return "/2012-09-25/jobs/nonexistent" },

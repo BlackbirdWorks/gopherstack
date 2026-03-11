@@ -81,8 +81,10 @@ func (b *InMemoryBackend) CreatePipeline(name, inputBucket, outputBucket, role s
 	b.mu.Lock("CreatePipeline")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pipelines[name]; ok {
-		return nil, fmt.Errorf("%w: pipeline %s already exists", ErrAlreadyExists, name)
+	for _, existing := range b.pipelines {
+		if existing.Name == name {
+			return nil, fmt.Errorf("%w: pipeline %s already exists", ErrAlreadyExists, name)
+		}
 	}
 
 	id := uuid.NewString()
