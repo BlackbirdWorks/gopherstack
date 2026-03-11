@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsynctypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
+	codedeploytypes "github.com/aws/aws-sdk-go-v2/service/codedeploy/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -584,16 +585,17 @@ func loadAmplify(ctx context.Context, amplifyClient *amplify.Client) {
 func loadCodeDeploy(ctx context.Context, client *codedeploysvc.Client) {
 	apps := []struct {
 		name     string
-		platform string
+		platform codedeploytypes.ComputePlatform
 	}{
-		{"demo-server-app", "Server"},
-		{"demo-lambda-app", "Lambda"},
-		{"demo-ecs-app", "ECS"},
+		{"demo-server-app", codedeploytypes.ComputePlatformServer},
+		{"demo-lambda-app", codedeploytypes.ComputePlatformLambda},
+		{"demo-ecs-app", codedeploytypes.ComputePlatformEcs},
 	}
 
 	for _, a := range apps {
 		_, err := client.CreateApplication(ctx, &codedeploysvc.CreateApplicationInput{
 			ApplicationName: aws.String(a.name),
+			ComputePlatform: a.platform,
 		})
 		if err != nil {
 			pkgslogger.Load(ctx).
