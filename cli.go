@@ -94,6 +94,7 @@ import (
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
+	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -215,6 +216,7 @@ type CLI struct {
 	ecsHandler                    service.Registerable
 	efsHandler                    service.Registerable
 	eksHandler                    service.Registerable
+	elbHandler                    service.Registerable
 	iotHandler                    service.Registerable
 	cognitoIDPHandler             service.Registerable
 	cognitoIdentityHandler        service.Registerable
@@ -548,6 +550,11 @@ func (c *CLI) GetEFSHandler() service.Registerable { return c.efsHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetEKSHandler() service.Registerable { return c.eksHandler }
+
+// GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetELBHandler() service.Registerable { return c.elbHandler }
 
 // GetIoTHandler returns the IoT handler (dashboard.AWSSDKProvider).
 //
@@ -1165,6 +1172,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.elasticbeanstalkHandler = byName["Elasticbeanstalk"]
 	cli.efsHandler = byName["EFS"]
 	cli.eksHandler = byName["EKS"]
+	cli.elbHandler = byName["ELB"]
 	cli.docdbHandler = byName["DocDB"]
 }
 
@@ -1357,6 +1365,7 @@ func getServiceProviders() []service.Provider {
 		&elasticbeanstalkbackend.Provider{},
 		&efsbackend.Provider{},
 		&eksbackend.Provider{},
+		&elbbackend.Provider{},
 		&docdbbackend.Provider{},
 	}
 }

@@ -63,6 +63,7 @@ import (
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
+	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -192,6 +193,8 @@ type Stack struct {
 	EFSHandler *efsbackend.Handler
 	// EKSHandler provides access to the EKS backend.
 	EKSHandler *eksbackend.Handler
+	// ELBHandler provides access to the Classic ELB backend.
+	ELBHandler *elbbackend.Handler
 	S3Client   *s3.Client
 	DDBClient  *dynamodb.Client
 	FaultStore *chaos.FaultStore
@@ -458,6 +461,7 @@ type handlers struct {
 	elasticbeanstalk *elasticbeanstalkbackend.Handler
 	efs              *efsbackend.Handler
 	eks              *eksbackend.Handler
+	elb              *elbbackend.Handler
 	iamBk            *iambackend.InMemoryBackend
 	s3Bk             *s3backend.InMemoryBackend
 }
@@ -660,6 +664,10 @@ func populateNewestHandlers(h *handlers) {
 	h.eks = eksbackend.NewHandler(
 		eksbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+
+	h.elb = elbbackend.NewHandler(
+		elbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -772,6 +780,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ElasticbeanstalkOps:        h.elasticbeanstalk,
 		EFSOps:                     h.efs,
 		EKSOps:                     h.eks,
+		ELBOps:                     h.elb,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -827,6 +836,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.elasticbeanstalk)
 	_ = registry.Register(h.efs)
 	_ = registry.Register(h.eks)
+	_ = registry.Register(h.elb)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -927,6 +937,7 @@ func buildStack(
 		ElasticbeanstalkHandler:        h.elasticbeanstalk,
 		EFSHandler:                     h.efs,
 		EKSHandler:                     h.eks,
+		ELBHandler:                     h.elb,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,

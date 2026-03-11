@@ -60,6 +60,7 @@ import (
 	ekssvc "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	elasticbeanstalksvc "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
+	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -1654,6 +1655,24 @@ func createElasticbeanstalkClient(t *testing.T) *elasticbeanstalksvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return elasticbeanstalksvc.NewFromConfig(cfg, func(o *elasticbeanstalksvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createELBClient returns a Classic ELB client pointed at the shared test container.
+func createELBClient(t *testing.T) *elbsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return elbsvc.NewFromConfig(cfg, func(o *elbsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
