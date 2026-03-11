@@ -514,6 +514,13 @@ func populateExtendedHandlers(h *handlers) {
 	)
 	h.transcribe = transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend())
 	h.support = supportbackend.NewHandler(supportbackend.NewInMemoryBackend())
+
+	populateNewestHandlers(h)
+}
+
+// populateNewestHandlers fills in the most recently added service handlers that would push
+// populateExtendedHandlers past the funlen limit.
+func populateNewestHandlers(h *handlers) {
 	h.cognitoIdentity = cognitoidentitybackend.NewHandler(
 		cognitoidentitybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 		config.DefaultRegion,
