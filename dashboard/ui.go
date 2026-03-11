@@ -51,6 +51,7 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
@@ -197,6 +198,8 @@ type DashboardHandler struct {
 	CodeConnectionsOps *codeconnectionsbackend.Handler
 	// CodeDeployOps provides access to the CodeDeploy backend.
 	CodeDeployOps *codedeploybackend.Handler
+	// DMSOps provides access to the DMS backend.
+	DMSOps *dmsbackend.Handler
 	// CodePipelineOps provides access to the CodePipeline backend.
 	CodePipelineOps *codepipelinebackend.Handler
 	// CodeStarConnectionsOps provides access to the CodeStar Connections backend.
@@ -344,6 +347,8 @@ type Config struct {
 	CodeConnectionsOps *codeconnectionsbackend.Handler
 	// CodeDeployOps provides access to the CodeDeploy backend.
 	CodeDeployOps *codedeploybackend.Handler
+	// DMSOps provides access to the DMS backend.
+	DMSOps *dmsbackend.Handler
 	// CodeStarConnectionsOps provides access to the CodeStar Connections backend.
 	CodeStarConnectionsOps *codestarconnectionsbackend.Handler
 	// DynamoDBStreamsOps provides access to the DynamoDB Streams backend.
@@ -442,6 +447,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/codeartifact/*.html",
 		"templates/codebuild/*.html",
 		"templates/codecommit/*.html",
+		"templates/dms/*.html",
 		"templates/codepipeline/*.html",
 		"templates/codestarconnections/*.html",
 		"templates/dynamodbstreams/*.html",
@@ -531,6 +537,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CodePipelineOps:            cfg.CodePipelineOps,
 		CodeConnectionsOps:         cfg.CodeConnectionsOps,
 		CodeDeployOps:              cfg.CodeDeployOps,
+		DMSOps:                     cfg.DMSOps,
 		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
 		DynamoDBStreamsOps:         cfg.DynamoDBStreamsOps,
 		GlobalConfig:               cfg.GlobalConfig,
@@ -978,6 +985,7 @@ func (h *DashboardHandler) setupExtendedServiceRoutes() {
 	h.setupCodeConnectionsRoutes()
 	h.setupCodeCommitRoutes()
 	h.setupCodeDeployRoutes()
+	h.setupDMSRoutes()
 	h.setupCodeStarConnectionsRoutes()
 }
 
@@ -1106,6 +1114,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/codecommit", "CodeCommit"},
 	{"/codepipeline", "CodePipeline"},
 	{"/codedeploy", "CodeDeploy"},
+	{"/dms", "DMS"},
 	{"/codestarconnections", "CodeStarConnections"},
 	{"/dynamodbstreams", "DynamoDBStreams"},
 	{"/chaos", "Chaos"},
