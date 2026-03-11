@@ -19,6 +19,7 @@ import (
 func newTestHandler(t *testing.T) *docdb.Handler {
 	t.Helper()
 	backend := docdb.NewInMemoryBackend("000000000000", "us-east-1")
+
 	return docdb.NewHandler(backend)
 }
 
@@ -33,6 +34,7 @@ func doRequest(t *testing.T, h *docdb.Handler, vals url.Values) *httptest.Respon
 	c := e.NewContext(req, rr)
 	err := h.Handler()(c)
 	require.NoError(t, err)
+
 	return rr
 }
 
@@ -40,11 +42,11 @@ func TestHandler_CreateDescribeDeleteDBCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		vals         url.Values
 		name         string
 		action       string
-		vals         url.Values
-		wantStatus   int
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name:   "create_cluster",
@@ -118,10 +120,10 @@ func TestHandler_ClusterOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		vals         url.Values
-		wantStatus   int
+		name         string
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name: "modify_cluster",
@@ -188,10 +190,10 @@ func TestHandler_DBInstances(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		vals         url.Values
-		wantStatus   int
+		name         string
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name: "create_instance",
@@ -284,10 +286,10 @@ func TestHandler_SubnetGroups(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		vals         url.Values
-		wantStatus   int
+		name         string
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name: "create_subnet_group",
@@ -359,10 +361,10 @@ func TestHandler_ClusterParameterGroups(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		vals         url.Values
-		wantStatus   int
+		name         string
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name: "create_param_group",
@@ -443,10 +445,10 @@ func TestHandler_ClusterSnapshots(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		vals         url.Values
-		wantStatus   int
+		name         string
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name: "create_snapshot",
@@ -521,10 +523,10 @@ func TestHandler_Tags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		vals         url.Values
-		wantStatus   int
+		name         string
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name: "add_tags",
@@ -585,10 +587,10 @@ func TestHandler_MiscOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		vals         url.Values
-		wantStatus   int
+		name         string
 		wantContains string
+		wantStatus   int
 	}{
 		{
 			name: "describe_engine_versions",
@@ -626,11 +628,11 @@ func TestHandler_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
 		vals         url.Values
-		wantStatus   int
+		name         string
 		wantContains string
 		seedName     string
+		wantStatus   int
 	}{
 		{
 			name: "missing_action",

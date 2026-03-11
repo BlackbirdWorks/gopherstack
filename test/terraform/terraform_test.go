@@ -59,6 +59,7 @@ import (
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 	cesvc "github.com/aws/aws-sdk-go-v2/service/costexplorer"
+	docdbsvc "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -75,7 +76,6 @@ import (
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
-	docdbsvc "github.com/aws/aws-sdk-go-v2/service/docdb"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	taggingsvc "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
@@ -784,8 +784,7 @@ func TestTerraform_DocDB(t *testing.T) {
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
-				suffix := "tf-docdb-" + "testrun"[:4]
-				return map[string]any{"Suffix": suffix}
+				return map[string]any{"Suffix": uuid.NewString()[:8]}
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()

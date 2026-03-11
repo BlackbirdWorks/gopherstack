@@ -46,18 +46,13 @@ type docdbIndexData struct {
 	SubnetGroups []docdbSubnetGroupView
 }
 
-// docdbIndex renders the DocDB dashboard page.
-func (h *DashboardHandler) docdbIndex(c *echo.Context) error {
-	w := c.Response()
-
-	if h.DocDBOps == nil {
-		h.renderTemplate(w, "docdb/index.html", docdbIndexData{
-			PageData: PageData{Title: "DocDB Clusters", ActiveTab: "docdb",
-				Snippet: &SnippetData{
-					ID:    "docdb-operations",
-					Title: "Using DocDB",
-					Cli:   `aws docdb help --endpoint-url http://localhost:8000`,
-					Go: `// Initialize AWS SDK v2 for DocDB
+// docdbSnippet returns the SnippetData for the DocDB dashboard page.
+func docdbSnippet() *SnippetData {
+	return &SnippetData{
+		ID:    "docdb-operations",
+		Title: "Using DocDB",
+		Cli:   `aws docdb help --endpoint-url http://localhost:8000`,
+		Go: `// Initialize AWS SDK v2 for DocDB
 cfg, err := config.LoadDefaultConfig(context.TODO(),
     config.WithEndpointResolverWithOptions(
         aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
@@ -69,11 +64,20 @@ if err != nil {
     log.Fatal(err)
 }
 client := docdb.NewFromConfig(cfg)`,
-					Python: `# Initialize boto3 client for DocDB
+		Python: `# Initialize boto3 client for DocDB
 import boto3
 
 client = boto3.client('docdb', endpoint_url='http://localhost:8000')`,
-				}},
+	}
+}
+
+// docdbIndex renders the DocDB dashboard page.
+func (h *DashboardHandler) docdbIndex(c *echo.Context) error {
+	w := c.Response()
+
+	if h.DocDBOps == nil {
+		h.renderTemplate(w, "docdb/index.html", docdbIndexData{
+			PageData:     PageData{Title: "DocDB Clusters", ActiveTab: "docdb", Snippet: docdbSnippet()},
 			Clusters:     []docdbClusterView{},
 			Instances:    []docdbInstanceView{},
 			SubnetGroups: []docdbSubnetGroupView{},
@@ -135,28 +139,7 @@ client = boto3.client('docdb', endpoint_url='http://localhost:8000')`,
 	}
 
 	h.renderTemplate(w, "docdb/index.html", docdbIndexData{
-		PageData: PageData{Title: "DocDB Clusters", ActiveTab: "docdb",
-			Snippet: &SnippetData{
-				ID:    "docdb-operations",
-				Title: "Using DocDB",
-				Cli:   `aws docdb help --endpoint-url http://localhost:8000`,
-				Go: `// Initialize AWS SDK v2 for DocDB
-cfg, err := config.LoadDefaultConfig(context.TODO(),
-    config.WithEndpointResolverWithOptions(
-        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-            return aws.Endpoint{URL: "http://localhost:8000"}, nil
-        }),
-    ),
-)
-if err != nil {
-    log.Fatal(err)
-}
-client := docdb.NewFromConfig(cfg)`,
-				Python: `# Initialize boto3 client for DocDB
-import boto3
-
-client = boto3.client('docdb', endpoint_url='http://localhost:8000')`,
-			}},
+		PageData:     PageData{Title: "DocDB Clusters", ActiveTab: "docdb", Snippet: docdbSnippet()},
 		Clusters:     clusterViews,
 		Instances:    instViews,
 		SubnetGroups: sgViews,

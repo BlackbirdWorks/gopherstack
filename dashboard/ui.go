@@ -51,6 +51,7 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
@@ -67,7 +68,6 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
-	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
@@ -126,42 +126,42 @@ type PageData struct {
 //
 //nolint:revive // Stuttering preferred here for clarity per Plan.md
 type DashboardHandler struct {
-	SNSOps                     *snsbackend.Handler
-	KMSOps                     *kmsbackend.Handler
-	SSM                        *ssmsdk.Client
-	DDBOps                     *ddbbackend.DynamoDBHandler
-	S3Ops                      *s3backend.S3Handler
-	SSMOps                     *ssmbackend.Handler
-	IAMOps                     *iambackend.Handler
-	STSOps                     *stsbackend.Handler
-	S3                         *s3.Client
-	DynamoDB                   *dynamodb.Client
-	SQSOps                     *sqsbackend.Handler
-	SecretsManagerOps          *secretsmanagerbackend.Handler
-	LambdaOps                  *lambdabackend.Handler
-	EventBridgeOps             *ebbackend.Handler
-	APIGatewayOps              *apigwbackend.Handler
-	CloudWatchLogsOps          *cwlogsbackend.Handler
-	StepFunctionsOps           *sfnbackend.Handler
-	CloudWatchOps              *cwbackend.Handler
-	CloudFormationOps          *cfnbackend.Handler
-	KinesisOps                 *kinesisbackend.Handler
-	ElastiCacheOps             *elasticachebackend.Handler
-	Route53Ops                 *route53backend.Handler
-	SESOps                     *sesbackend.Handler
-	SESv2Ops                   *sesv2backend.Handler
-	EC2Ops                     *ec2backend.Handler
-	ECROps                     *ecrbackend.Handler
-	ECSOps                     *ecsbackend.Handler
-	IoTOps                     *iotbackend.Handler
-	FISOps                     *fisbackend.Handler
-	OpenSearchOps              *opensearchbackend.Handler
-	ACMOps                     *acmbackend.Handler
-	ACMPCAOps                  *acmpcabackend.Handler
-	RedshiftOps                *redshiftbackend.Handler
-	RDSOps                     *rdsbackend.Handler
+	SNSOps            *snsbackend.Handler
+	KMSOps            *kmsbackend.Handler
+	SSM               *ssmsdk.Client
+	DDBOps            *ddbbackend.DynamoDBHandler
+	S3Ops             *s3backend.S3Handler
+	SSMOps            *ssmbackend.Handler
+	IAMOps            *iambackend.Handler
+	STSOps            *stsbackend.Handler
+	S3                *s3.Client
+	DynamoDB          *dynamodb.Client
+	SQSOps            *sqsbackend.Handler
+	SecretsManagerOps *secretsmanagerbackend.Handler
+	LambdaOps         *lambdabackend.Handler
+	EventBridgeOps    *ebbackend.Handler
+	APIGatewayOps     *apigwbackend.Handler
+	CloudWatchLogsOps *cwlogsbackend.Handler
+	StepFunctionsOps  *sfnbackend.Handler
+	CloudWatchOps     *cwbackend.Handler
+	CloudFormationOps *cfnbackend.Handler
+	KinesisOps        *kinesisbackend.Handler
+	ElastiCacheOps    *elasticachebackend.Handler
+	Route53Ops        *route53backend.Handler
+	SESOps            *sesbackend.Handler
+	SESv2Ops          *sesv2backend.Handler
+	EC2Ops            *ec2backend.Handler
+	ECROps            *ecrbackend.Handler
+	ECSOps            *ecsbackend.Handler
+	IoTOps            *iotbackend.Handler
+	FISOps            *fisbackend.Handler
+	OpenSearchOps     *opensearchbackend.Handler
+	ACMOps            *acmbackend.Handler
+	ACMPCAOps         *acmpcabackend.Handler
+	RedshiftOps       *redshiftbackend.Handler
+	RDSOps            *rdsbackend.Handler
 	// DocDBOps provides access to the DocDB backend.
-	DocDBOps *docdbbackend.Handler
+	DocDBOps                   *docdbbackend.Handler
 	AWSConfigOps               *awsconfigbackend.Handler
 	S3ControlOps               *s3controlbackend.Handler
 	ResourceGroupsOps          *resourcegroupsbackend.Handler
@@ -273,7 +273,7 @@ type Config struct {
 	// RDSOps provides access to the RDS backend.
 	RDSOps *rdsbackend.Handler
 	// DocDBOps provides access to the DocDB backend.
-	DocDBOps *docdbbackend.Handler
+	DocDBOps     *docdbbackend.Handler
 	AWSConfigOps *awsconfigbackend.Handler
 	// S3ControlOps provides access to the S3 Control backend.
 	S3ControlOps *s3controlbackend.Handler

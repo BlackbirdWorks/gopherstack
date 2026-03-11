@@ -1,193 +1,203 @@
-{{template "layout" .}}
-
 {{define "content"}}
-<div class="container-fluid">
+<div class="px-4 sm:px-6 lg:px-8">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <img src="/dashboard/static/icons/docdb.svg" class="w-8 h-8 rounded-md shadow-sm" alt="docdb" />
 
-  <!-- Header -->
-  <div class="d-flex justify-content-between align-items-center mb-4">
-    <div class="d-flex align-items-center gap-3">
-      <img src="/dashboard/static/icons/docdb.svg" alt="DocDB" width="40" height="40">
-      <div>
-        <h1 class="h3 mb-0">DocDB Clusters</h1>
-        <p class="text-muted mb-0">Amazon DocumentDB</p>
-      </div>
-    </div>
-    <div class="d-flex gap-2">
-      <span class="badge bg-primary fs-6">{{len .Clusters}} Cluster(s)</span>
-      <button type="button" class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#createClusterModal">
-        + Create Cluster
-      </button>
-    </div>
-  </div>
+                DocDB Clusters
+                <span
+                    class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
+                    {{len .Clusters}}
+                </span>
 
-  <!-- Clusters Table -->
-  <div class="card mb-4">
-    <div class="card-header">
-      <h5 class="card-title mb-0">Clusters</h5>
-    </div>
-    <div class="card-body p-0">
-      {{if .Clusters}}
-      <div class="table-responsive">
-        <table class="table table-hover mb-0">
-          <thead>
-            <tr>
-              <th>Cluster ID</th>
-              <th>Engine</th>
-              <th>Status</th>
-              <th>Endpoint</th>
-              <th>Port</th>
-              <th>Master User</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .Clusters}}
-            <tr>
-              <td><code>{{.DBClusterIdentifier}}</code></td>
-              <td>{{.Engine}}</td>
-              <td>
-                {{if eq .Status "available"}}
-                <span class="badge bg-success">{{.Status}}</span>
-                {{else if eq .Status "stopped"}}
-                <span class="badge bg-warning">{{.Status}}</span>
-                {{else}}
-                <span class="badge bg-secondary">{{.Status}}</span>
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
                 {{end}}
-              </td>
-              <td>{{.Endpoint}}</td>
-              <td>{{.Port}}</td>
-              <td>{{.MasterUsername}}</td>
-              <td>
-                <form method="POST" action="/dashboard/docdb/delete" class="d-inline">
-                  <input type="hidden" name="cluster_id" value="{{.DBClusterIdentifier}}">
-                  <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-                </form>
-              </td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-      </div>
-      {{else}}
-      <div class="p-4 text-center text-muted">No DocDB clusters found.</div>
-      {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory Amazon DocumentDB clusters.</p>
+        </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
+            <button type="button" onclick="document.getElementById('create-cluster-modal').classList.remove('hidden')"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
+                + Create Cluster
+            </button>
+        </div>
     </div>
-  </div>
 
-  <!-- Instances Table -->
-  <div class="card mb-4">
-    <div class="card-header">
-      <h5 class="card-title mb-0">Instances</h5>
-    </div>
-    <div class="card-body p-0">
-      {{if .Instances}}
-      <div class="table-responsive">
-        <table class="table table-hover mb-0">
-          <thead>
-            <tr>
-              <th>Instance ID</th>
-              <th>Cluster ID</th>
-              <th>Class</th>
-              <th>Engine</th>
-              <th>Status</th>
-              <th>Endpoint</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .Instances}}
-            <tr>
-              <td><code>{{.DBInstanceIdentifier}}</code></td>
-              <td><code>{{.DBClusterIdentifier}}</code></td>
-              <td>{{.DBInstanceClass}}</td>
-              <td>{{.Engine}}</td>
-              <td>
-                {{if eq .DBInstanceStatus "available"}}
-                <span class="badge bg-success">{{.DBInstanceStatus}}</span>
+    <div
+        class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Cluster ID</th>
+                    <th scope="col" class="px-6 py-3">Engine</th>
+                    <th scope="col" class="px-6 py-3">Status</th>
+                    <th scope="col" class="px-6 py-3">Endpoint</th>
+                    <th scope="col" class="px-6 py-3">Port</th>
+                    <th scope="col" class="px-6 py-3">Master User</th>
+                    <th scope="col" class="px-6 py-3 text-right"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Clusters}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white font-mono text-xs">{{.DBClusterIdentifier}}</td>
+                    <td class="px-6 py-4">
+                        <span
+                            class="bg-purple-100 text-purple-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-purple-900 dark:text-purple-300">{{.Engine}}</span>
+                    </td>
+                    <td class="px-6 py-4">
+                        <span
+                            class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.Status}}</span>
+                    </td>
+                    <td class="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-300 truncate max-w-xs">{{.Endpoint}}</td>
+                    <td class="px-6 py-4 text-xs">{{.Port}}</td>
+                    <td class="px-6 py-4 text-xs">{{.MasterUsername}}</td>
+                    <td class="px-6 py-4 text-right">
+                        <form method="POST" action="/dashboard/docdb/delete" style="display:inline" hx-boost="false">
+                            <input type="hidden" name="cluster_id" value="{{.DBClusterIdentifier}}">
+                            <button type="submit"
+                                class="font-medium text-red-600 dark:text-red-500 hover:underline text-xs">Delete</button>
+                        </form>
+                    </td>
+                </tr>
                 {{else}}
-                <span class="badge bg-secondary">{{.DBInstanceStatus}}</span>
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="7" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No DocDB clusters. Create one to get started.
+                    </td>
+                </tr>
                 {{end}}
-              </td>
-              <td>{{.Endpoint}}:{{.Port}}</td>
-            </tr>
-            {{end}}
-          </tbody>
+            </tbody>
         </table>
-      </div>
-      {{else}}
-      <div class="p-4 text-center text-muted">No DocDB instances found.</div>
-      {{end}}
     </div>
-  </div>
 
-  <!-- Subnet Groups Table -->
-  <div class="card mb-4">
-    <div class="card-header">
-      <h5 class="card-title mb-0">Subnet Groups</h5>
+    <!-- Instances Section -->
+    <div class="mt-10">
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">
+            Instances
+            <span
+                class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                {{len .Instances}}
+            </span>
+        </h2>
+        <div
+            class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+            <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Instance ID</th>
+                        <th scope="col" class="px-6 py-3">Cluster ID</th>
+                        <th scope="col" class="px-6 py-3">Class</th>
+                        <th scope="col" class="px-6 py-3">Status</th>
+                        <th scope="col" class="px-6 py-3">Endpoint</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Instances}}
+                    <tr
+                        class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                        <td class="px-6 py-4 font-medium text-slate-900 dark:text-white font-mono text-xs">{{.DBInstanceIdentifier}}</td>
+                        <td class="px-6 py-4 text-xs font-mono">{{.DBClusterIdentifier}}</td>
+                        <td class="px-6 py-4 text-xs">{{.DBInstanceClass}}</td>
+                        <td class="px-6 py-4">
+                            <span
+                                class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.DBInstanceStatus}}</span>
+                        </td>
+                        <td class="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-300">{{.Endpoint}}:{{.Port}}</td>
+                    </tr>
+                    {{else}}
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                        <td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No DocDB instances.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
     </div>
-    <div class="card-body p-0">
-      {{if .SubnetGroups}}
-      <div class="table-responsive">
-        <table class="table table-hover mb-0">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Description</th>
-              <th>VPC ID</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{range .SubnetGroups}}
-            <tr>
-              <td><code>{{.DBSubnetGroupName}}</code></td>
-              <td>{{.DBSubnetGroupDescription}}</td>
-              <td>{{.VpcID}}</td>
-              <td>{{.Status}}</td>
-            </tr>
-            {{end}}
-          </tbody>
-        </table>
-      </div>
-      {{else}}
-      <div class="p-4 text-center text-muted">No subnet groups found.</div>
-      {{end}}
-    </div>
-  </div>
 
+    <!-- Subnet Groups Section -->
+    <div class="mt-10">
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">
+            Subnet Groups
+            <span
+                class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                {{len .SubnetGroups}}
+            </span>
+        </h2>
+        <div
+            class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+            <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Name</th>
+                        <th scope="col" class="px-6 py-3">Description</th>
+                        <th scope="col" class="px-6 py-3">VPC ID</th>
+                        <th scope="col" class="px-6 py-3">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .SubnetGroups}}
+                    <tr
+                        class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                        <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.DBSubnetGroupName}}</td>
+                        <td class="px-6 py-4 text-xs">{{.DBSubnetGroupDescription}}</td>
+                        <td class="px-6 py-4 text-xs font-mono">{{.VpcID}}</td>
+                        <td class="px-6 py-4">
+                            <span
+                                class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.Status}}</span>
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                        <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No subnet groups.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 <!-- Create Cluster Modal -->
-<div class="modal fade" id="createClusterModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Create DocDB Cluster</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <form method="POST" action="/dashboard/docdb/create">
-        <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label">Cluster Identifier</label>
-            <input type="text" class="form-control" name="cluster_id" required placeholder="my-docdb-cluster">
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Engine</label>
-            <select class="form-select" name="engine">
-              <option value="docdb">docdb</option>
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Master Username</label>
-            <input type="text" class="form-control" name="master_username" value="admin">
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-          <button type="submit" class="btn btn-success">Create</button>
-        </div>
-      </form>
+<div id="create-cluster-modal"
+    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
+        <h3 class="text-lg font-medium leading-6 text-slate-900 dark:text-white mb-4">Create DocDB Cluster</h3>
+        <form method="POST" action="/dashboard/docdb/create" hx-boost="false">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
+                    for="cluster_id">Cluster Identifier</label>
+                <input id="cluster_id" name="cluster_id" type="text" required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="my-docdb-cluster">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
+                    for="master_username">Master Username</label>
+                <input id="master_username" name="master_username" type="text"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="admin" value="admin">
+            </div>
+            <div class="flex justify-end gap-3">
+                <button type="button"
+                    onclick="document.getElementById('create-cluster-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-md hover:bg-blue-800 focus:outline-none dark:bg-blue-600 dark:hover:bg-blue-700">
+                    Create
+                </button>
+            </div>
+        </form>
     </div>
-  </div>
 </div>
-
 {{end}}

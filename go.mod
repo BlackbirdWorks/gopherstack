@@ -98,6 +98,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.46.19
 	github.com/aws/aws-sdk-go-v2/service/codestarconnections v1.35.11
 	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.63.4
+	github.com/aws/aws-sdk-go-v2/service/docdb v1.48.11
 )
 
 require (
@@ -111,7 +112,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.19 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.5 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.20 // indirect
-	github.com/aws/aws-sdk-go-v2/service/docdb v1.48.11 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.11 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.11.19 // indirect

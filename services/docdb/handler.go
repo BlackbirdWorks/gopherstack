@@ -102,6 +102,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if err != nil {
 			return false
 		}
+
 		return vals.Get("Version") == docdbVersion
 	}
 }
@@ -119,6 +120,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	if action == "" {
 		return "Unknown"
 	}
+
 	return action
 }
 
@@ -128,6 +130,7 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	if err := r.ParseForm(); err != nil {
 		return ""
 	}
+
 	return r.Form.Get("DBClusterIdentifier")
 }
 
@@ -151,6 +154,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			return h.writeError(c, http.StatusInternalServerError, "InternalFailure", "internal server error")
 		}
+
 		return c.Blob(http.StatusOK, "text/xml", xmlBytes)
 	}
 }
@@ -202,6 +206,13 @@ func (h *Handler) dispatchExtended(action string, vals url.Values) (any, error) 
 		return h.handleDeleteDBClusterParameterGroup(vals)
 	case "ModifyDBClusterParameterGroup":
 		return h.handleModifyDBClusterParameterGroup(vals)
+	default:
+		return h.dispatchExtended2(action, vals)
+	}
+}
+
+func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error) {
+	switch action {
 	case "CreateDBClusterSnapshot":
 		return h.handleCreateDBClusterSnapshot(vals)
 	case "DescribeDBClusterSnapshots":
@@ -233,6 +244,7 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &createDBClusterResponse{
 		Xmlns:     docdbXMLNS,
 		DBCluster: toXMLCluster(cluster),
@@ -250,6 +262,7 @@ func (h *Handler) handleDescribeDBClusters(vals url.Values) (any, error) {
 		cp := c
 		members = append(members, toXMLCluster(&cp))
 	}
+
 	return &describeDBClustersResponse{
 		Xmlns:      docdbXMLNS,
 		DBClusters: xmlDBClusterList{Members: members},
@@ -262,6 +275,7 @@ func (h *Handler) handleDeleteDBCluster(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &deleteDBClusterResponse{
 		Xmlns:     docdbXMLNS,
 		DBCluster: toXMLCluster(cluster),
@@ -275,6 +289,7 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &modifyDBClusterResponse{
 		Xmlns:     docdbXMLNS,
 		DBCluster: toXMLCluster(cluster),
@@ -287,6 +302,7 @@ func (h *Handler) handleStopDBCluster(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &stopDBClusterResponse{
 		Xmlns:     docdbXMLNS,
 		DBCluster: toXMLCluster(cluster),
@@ -299,6 +315,7 @@ func (h *Handler) handleStartDBCluster(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &startDBClusterResponse{
 		Xmlns:     docdbXMLNS,
 		DBCluster: toXMLCluster(cluster),
@@ -311,6 +328,7 @@ func (h *Handler) handleFailoverDBCluster(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &failoverDBClusterResponse{
 		Xmlns:     docdbXMLNS,
 		DBCluster: toXMLCluster(cluster),
@@ -326,6 +344,7 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &createDBInstanceResponse{
 		Xmlns:      docdbXMLNS,
 		DBInstance: toXMLInstance(inst),
@@ -343,6 +362,7 @@ func (h *Handler) handleDescribeDBInstances(vals url.Values) (any, error) {
 		cp := inst
 		members = append(members, toXMLInstance(&cp))
 	}
+
 	return &describeDBInstancesResponse{
 		Xmlns:       docdbXMLNS,
 		DBInstances: xmlDBInstanceList{Members: members},
@@ -355,6 +375,7 @@ func (h *Handler) handleDeleteDBInstance(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &deleteDBInstanceResponse{
 		Xmlns:      docdbXMLNS,
 		DBInstance: toXMLInstance(inst),
@@ -368,6 +389,7 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &modifyDBInstanceResponse{
 		Xmlns:      docdbXMLNS,
 		DBInstance: toXMLInstance(inst),
@@ -380,6 +402,7 @@ func (h *Handler) handleRebootDBInstance(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &rebootDBInstanceResponse{
 		Xmlns:      docdbXMLNS,
 		DBInstance: toXMLInstance(inst),
@@ -395,6 +418,7 @@ func (h *Handler) handleCreateDBSubnetGroup(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &createDBSubnetGroupResponse{
 		Xmlns:         docdbXMLNS,
 		DBSubnetGroup: toXMLSubnetGroup(sg),
@@ -412,6 +436,7 @@ func (h *Handler) handleDescribeDBSubnetGroups(vals url.Values) (any, error) {
 		cp := sg
 		members = append(members, toXMLSubnetGroup(&cp))
 	}
+
 	return &describeDBSubnetGroupsResponse{
 		Xmlns:          docdbXMLNS,
 		DBSubnetGroups: xmlDBSubnetGroupList{Members: members},
@@ -423,6 +448,7 @@ func (h *Handler) handleDeleteDBSubnetGroup(vals url.Values) (any, error) {
 	if err := h.Backend.DeleteDBSubnetGroup(name); err != nil {
 		return nil, err
 	}
+
 	return &deleteDBSubnetGroupResponse{Xmlns: docdbXMLNS}, nil
 }
 
@@ -434,6 +460,7 @@ func (h *Handler) handleCreateDBClusterParameterGroup(vals url.Values) (any, err
 	if err != nil {
 		return nil, err
 	}
+
 	return &createDBClusterParameterGroupResponse{
 		Xmlns:                   docdbXMLNS,
 		DBClusterParameterGroup: toXMLParameterGroup(pg),
@@ -451,9 +478,12 @@ func (h *Handler) handleDescribeDBClusterParameterGroups(vals url.Values) (any, 
 		cp := pg
 		members = append(members, toXMLParameterGroup(&cp))
 	}
+
 	return &describeDBClusterParameterGroupsResponse{
-		Xmlns:                    docdbXMLNS,
-		DBClusterParameterGroups: xmlDBClusterParameterGroupList{Members: members},
+		Xmlns: docdbXMLNS,
+		Result: describeDBClusterParameterGroupsResult{
+			DBClusterParameterGroups: xmlDBClusterParameterGroupList{Members: members},
+		},
 	}, nil
 }
 
@@ -462,6 +492,7 @@ func (h *Handler) handleDeleteDBClusterParameterGroup(vals url.Values) (any, err
 	if err := h.Backend.DeleteDBClusterParameterGroup(name); err != nil {
 		return nil, err
 	}
+
 	return &deleteDBClusterParameterGroupResponse{Xmlns: docdbXMLNS}, nil
 }
 
@@ -471,6 +502,7 @@ func (h *Handler) handleModifyDBClusterParameterGroup(vals url.Values) (any, err
 	if err != nil {
 		return nil, err
 	}
+
 	return &modifyDBClusterParameterGroupResponse{
 		Xmlns:                       docdbXMLNS,
 		DBClusterParameterGroupName: pg.DBClusterParameterGroupName,
@@ -484,6 +516,7 @@ func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &createDBClusterSnapshotResponse{
 		Xmlns:             docdbXMLNS,
 		DBClusterSnapshot: toXMLClusterSnapshot(snap),
@@ -501,6 +534,7 @@ func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error)
 		cp := snap
 		members = append(members, toXMLClusterSnapshot(&cp))
 	}
+
 	return &describeDBClusterSnapshotsResponse{
 		Xmlns:              docdbXMLNS,
 		DBClusterSnapshots: xmlDBClusterSnapshotList{Members: members},
@@ -513,6 +547,7 @@ func (h *Handler) handleDeleteDBClusterSnapshot(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &deleteDBClusterSnapshotResponse{
 		Xmlns:             docdbXMLNS,
 		DBClusterSnapshot: toXMLClusterSnapshot(snap),
@@ -526,6 +561,7 @@ func (h *Handler) handleListTagsForResource(vals url.Values) (any, error) {
 	for _, t := range tags {
 		members = append(members, svcTags.KV(t))
 	}
+
 	return &listTagsForResourceResponse{
 		Xmlns:   docdbXMLNS,
 		TagList: xmlTagList{Members: members},
@@ -536,6 +572,7 @@ func (h *Handler) handleAddTagsToResource(vals url.Values) (any, error) {
 	arn := vals.Get("ResourceName")
 	tags := parseTagEntries(vals)
 	h.Backend.AddTagsToResource(arn, tags)
+
 	return &addTagsToResourceResponse{Xmlns: docdbXMLNS}, nil
 }
 
@@ -543,14 +580,16 @@ func (h *Handler) handleRemoveTagsFromResource(vals url.Values) (any, error) {
 	arn := vals.Get("ResourceName")
 	keys := parseTagKeyMembers(vals)
 	h.Backend.RemoveTagsFromResource(arn, keys)
+
 	return &removeTagsFromResourceResponse{Xmlns: docdbXMLNS}, nil
 }
 
 func (h *Handler) handleDescribeDBEngineVersions(_ url.Values) (any, error) {
 	members := []xmlDBEngineVersion{
-		{Engine: "docdb", EngineVersion: "4.0.0", DBEngineDescription: "Amazon DocumentDB"},
-		{Engine: "docdb", EngineVersion: "5.0.0", DBEngineDescription: "Amazon DocumentDB"},
+		{Engine: docDBEngine, EngineVersion: "4.0.0", DBEngineDescription: "Amazon DocumentDB"},
+		{Engine: docDBEngine, EngineVersion: "5.0.0", DBEngineDescription: "Amazon DocumentDB"},
 	}
+
 	return &describeDBEngineVersionsResponse{
 		Xmlns:            docdbXMLNS,
 		DBEngineVersions: xmlDBEngineVersionList{Members: members},
@@ -559,14 +598,17 @@ func (h *Handler) handleDescribeDBEngineVersions(_ url.Values) (any, error) {
 
 func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, error) {
 	members := []xmlOrderableDBInstanceOption{
-		{Engine: "docdb", EngineVersion: "4.0.0", DBInstanceClass: "db.t3.medium"},
-		{Engine: "docdb", EngineVersion: "4.0.0", DBInstanceClass: "db.r5.large"},
-		{Engine: "docdb", EngineVersion: "5.0.0", DBInstanceClass: "db.t3.medium"},
-		{Engine: "docdb", EngineVersion: "5.0.0", DBInstanceClass: "db.r5.large"},
+		{Engine: docDBEngine, EngineVersion: "4.0.0", DBInstanceClass: "db.t3.medium"},
+		{Engine: docDBEngine, EngineVersion: "4.0.0", DBInstanceClass: "db.r5.large"},
+		{Engine: docDBEngine, EngineVersion: "5.0.0", DBInstanceClass: "db.t3.medium"},
+		{Engine: docDBEngine, EngineVersion: "5.0.0", DBInstanceClass: "db.r5.large"},
 	}
+
 	return &describeOrderableDBInstanceOptionsResponse{
-		Xmlns:                      docdbXMLNS,
-		OrderableDBInstanceOptions: xmlOrderableDBInstanceOptionList{Members: members},
+		Xmlns: docdbXMLNS,
+		Result: describeOrderableDBInstanceOptionsResult{
+			OrderableDBInstanceOptions: xmlOrderableDBInstanceOptionList{Members: members},
+		},
 	}, nil
 }
 
@@ -578,6 +620,7 @@ func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) err
 		statusCode = http.StatusInternalServerError
 		logger.Load(c.Request().Context()).Error("DocDB internal error", "error", opErr, "action", action)
 	}
+
 	return h.writeError(c, statusCode, code, opErr.Error())
 }
 
@@ -605,6 +648,7 @@ func docdbErrorCode(opErr error) string {
 			return m.code
 		}
 	}
+
 	return ""
 }
 
@@ -617,6 +661,7 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, code, message stri
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "internal server error")
 	}
+
 	return c.Blob(statusCode, "text/xml", xmlBytes)
 }
 
@@ -625,6 +670,7 @@ func marshalXML(v any) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return append([]byte(xml.Header), raw...), nil
 }
 
@@ -691,6 +737,7 @@ func toXMLSubnetGroup(sg *DBSubnetGroup) xmlDBSubnetGroup {
 	for _, id := range sg.SubnetIDs {
 		subnetMembers = append(subnetMembers, xmlSubnet{SubnetIdentifier: id})
 	}
+
 	return xmlDBSubnetGroup{
 		DBSubnetGroupName:        sg.DBSubnetGroupName,
 		DBSubnetGroupDescription: sg.DBSubnetGroupDescription,
@@ -883,10 +930,14 @@ type createDBClusterParameterGroupResponse struct {
 	DBClusterParameterGroup xmlDBClusterParameterGroup `xml:"CreateDBClusterParameterGroupResult>DBClusterParameterGroup"`
 }
 
+type describeDBClusterParameterGroupsResult struct {
+	DBClusterParameterGroups xmlDBClusterParameterGroupList `xml:"DBClusterParameterGroups"`
+}
+
 type describeDBClusterParameterGroupsResponse struct {
-	XMLName                  xml.Name                       `xml:"DescribeDBClusterParameterGroupsResponse"`
-	Xmlns                    string                         `xml:"xmlns,attr"`
-	DBClusterParameterGroups xmlDBClusterParameterGroupList `xml:"DescribeDBClusterParameterGroupsResult>DBClusterParameterGroups"`
+	XMLName xml.Name                               `xml:"DescribeDBClusterParameterGroupsResponse"`
+	Xmlns   string                                 `xml:"xmlns,attr"`
+	Result  describeDBClusterParameterGroupsResult `xml:"DescribeDBClusterParameterGroupsResult"`
 }
 
 type deleteDBClusterParameterGroupResponse struct {
@@ -975,8 +1026,12 @@ type xmlOrderableDBInstanceOptionList struct {
 	Members []xmlOrderableDBInstanceOption `xml:"OrderableDBInstanceOption"`
 }
 
+type describeOrderableDBInstanceOptionsResult struct {
+	OrderableDBInstanceOptions xmlOrderableDBInstanceOptionList `xml:"OrderableDBInstanceOptions"`
+}
+
 type describeOrderableDBInstanceOptionsResponse struct {
-	XMLName                    xml.Name                         `xml:"DescribeOrderableDBInstanceOptionsResponse"`
-	Xmlns                      string                           `xml:"xmlns,attr"`
-	OrderableDBInstanceOptions xmlOrderableDBInstanceOptionList `xml:"DescribeOrderableDBInstanceOptionsResult>OrderableDBInstanceOptions"`
+	XMLName xml.Name                                 `xml:"DescribeOrderableDBInstanceOptionsResponse"`
+	Xmlns   string                                   `xml:"xmlns,attr"`
+	Result  describeOrderableDBInstanceOptionsResult `xml:"DescribeOrderableDBInstanceOptionsResult"`
 }

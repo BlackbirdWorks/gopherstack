@@ -26,6 +26,7 @@ var (
 const (
 	defaultDocDBPort     = 27017
 	defaultInstanceClass = "db.t3.medium"
+	docDBEngine          = "docdb"
 )
 
 type DBCluster struct {
@@ -105,7 +106,10 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 func (b *InMemoryBackend) Region() string { return b.region }
 
-func (b *InMemoryBackend) CreateDBCluster(id, engine, masterUser, dbName, paramGroupName string, port int) (*DBCluster, error) {
+func (b *InMemoryBackend) CreateDBCluster(
+	id, engine, masterUser, dbName, paramGroupName string,
+	port int,
+) (*DBCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -115,7 +119,7 @@ func (b *InMemoryBackend) CreateDBCluster(id, engine, masterUser, dbName, paramG
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
 	if engine == "" {
-		engine = "docdb"
+		engine = docDBEngine
 	}
 	if paramGroupName == "" {
 		paramGroupName = "default.docdb4.0"
@@ -136,6 +140,7 @@ func (b *InMemoryBackend) CreateDBCluster(id, engine, masterUser, dbName, paramG
 	}
 	b.clusters[id] = cluster
 	cp := *cluster
+
 	return &cp, nil
 }
 
@@ -148,12 +153,14 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 			return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 		}
 		cp := *c
+
 		return []DBCluster{cp}, nil
 	}
 	result := make([]DBCluster, 0, len(b.clusters))
 	for _, c := range b.clusters {
 		result = append(result, *c)
 	}
+
 	return result, nil
 }
 
@@ -166,6 +173,7 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 	}
 	cp := *c
 	delete(b.clusters, id)
+
 	return &cp, nil
 }
 
@@ -180,6 +188,7 @@ func (b *InMemoryBackend) ModifyDBCluster(id, paramGroupName string) (*DBCluster
 		c.DBClusterParameterGroupName = paramGroupName
 	}
 	cp := *c
+
 	return &cp, nil
 }
 
@@ -192,6 +201,7 @@ func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
 	}
 	c.Status = "stopped"
 	cp := *c
+
 	return &cp, nil
 }
 
@@ -204,6 +214,7 @@ func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
 	}
 	c.Status = "available"
 	cp := *c
+
 	return &cp, nil
 }
 
@@ -215,6 +226,7 @@ func (b *InMemoryBackend) FailoverDBCluster(id string) (*DBCluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 	cp := *c
+
 	return &cp, nil
 }
 
@@ -228,7 +240,7 @@ func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass, engine 
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 	}
 	if engine == "" {
-		engine = "docdb"
+		engine = docDBEngine
 	}
 	if instanceClass == "" {
 		instanceClass = defaultInstanceClass
@@ -245,6 +257,7 @@ func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass, engine 
 	}
 	b.instances[id] = inst
 	cp := *inst
+
 	return &cp, nil
 }
 
@@ -257,12 +270,14 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 			return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 		}
 		cp := *inst
+
 		return []DBInstance{cp}, nil
 	}
 	result := make([]DBInstance, 0, len(b.instances))
 	for _, inst := range b.instances {
 		result = append(result, *inst)
 	}
+
 	return result, nil
 }
 
@@ -275,6 +290,7 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	}
 	cp := *inst
 	delete(b.instances, id)
+
 	return &cp, nil
 }
 
@@ -289,6 +305,7 @@ func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string) (*DBInstanc
 		inst.DBInstanceClass = instanceClass
 	}
 	cp := *inst
+
 	return &cp, nil
 }
 
@@ -300,10 +317,14 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 	cp := *inst
+
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) CreateDBSubnetGroup(name, description, vpcID string, subnetIDs []string) (*DBSubnetGroup, error) {
+func (b *InMemoryBackend) CreateDBSubnetGroup(
+	name, description, vpcID string,
+	subnetIDs []string,
+) (*DBSubnetGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: DBSubnetGroupName is required", ErrInvalidParameter)
 	}
@@ -325,6 +346,7 @@ func (b *InMemoryBackend) CreateDBSubnetGroup(name, description, vpcID string, s
 	cp := *sg
 	cp.SubnetIDs = make([]string, len(ids))
 	copy(cp.SubnetIDs, ids)
+
 	return &cp, nil
 }
 
@@ -339,6 +361,7 @@ func (b *InMemoryBackend) DescribeDBSubnetGroups(name string) ([]DBSubnetGroup, 
 		cp := *sg
 		cp.SubnetIDs = make([]string, len(sg.SubnetIDs))
 		copy(cp.SubnetIDs, sg.SubnetIDs)
+
 		return []DBSubnetGroup{cp}, nil
 	}
 	result := make([]DBSubnetGroup, 0, len(b.subnetGroups))
@@ -348,6 +371,7 @@ func (b *InMemoryBackend) DescribeDBSubnetGroups(name string) ([]DBSubnetGroup, 
 		copy(cp.SubnetIDs, sg.SubnetIDs)
 		result = append(result, cp)
 	}
+
 	return result, nil
 }
 
@@ -358,17 +382,24 @@ func (b *InMemoryBackend) DeleteDBSubnetGroup(name string) error {
 		return fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
 	}
 	delete(b.subnetGroups, name)
+
 	return nil
 }
 
-func (b *InMemoryBackend) CreateDBClusterParameterGroup(name, family, description string) (*DBClusterParameterGroup, error) {
+func (b *InMemoryBackend) CreateDBClusterParameterGroup(
+	name, family, description string,
+) (*DBClusterParameterGroup, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: DBClusterParameterGroupName is required", ErrInvalidParameter)
 	}
 	b.mu.Lock("CreateDBClusterParameterGroup")
 	defer b.mu.Unlock()
 	if _, exists := b.clusterParameterGroups[name]; exists {
-		return nil, fmt.Errorf("%w: cluster parameter group %s already exists", ErrClusterParameterGroupAlreadyExists, name)
+		return nil, fmt.Errorf(
+			"%w: cluster parameter group %s already exists",
+			ErrClusterParameterGroupAlreadyExists,
+			name,
+		)
 	}
 	pg := &DBClusterParameterGroup{
 		DBClusterParameterGroupName: name,
@@ -377,6 +408,7 @@ func (b *InMemoryBackend) CreateDBClusterParameterGroup(name, family, descriptio
 	}
 	b.clusterParameterGroups[name] = pg
 	cp := *pg
+
 	return &cp, nil
 }
 
@@ -389,12 +421,14 @@ func (b *InMemoryBackend) DescribeDBClusterParameterGroups(name string) ([]DBClu
 			return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
 		}
 		cp := *pg
+
 		return []DBClusterParameterGroup{cp}, nil
 	}
 	result := make([]DBClusterParameterGroup, 0, len(b.clusterParameterGroups))
 	for _, pg := range b.clusterParameterGroups {
 		result = append(result, *pg)
 	}
+
 	return result, nil
 }
 
@@ -405,6 +439,7 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(name string) error {
 		return fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
 	}
 	delete(b.clusterParameterGroups, name)
+
 	return nil
 }
 
@@ -416,6 +451,7 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(name string) (*DBCluster
 		return nil, fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
 	}
 	cp := *pg
+
 	return &cp, nil
 }
 
@@ -443,6 +479,7 @@ func (b *InMemoryBackend) CreateDBClusterSnapshot(snapshotID, clusterID string) 
 	}
 	b.clusterSnapshots[snapshotID] = snap
 	cp := *snap
+
 	return &cp, nil
 }
 
@@ -455,12 +492,14 @@ func (b *InMemoryBackend) DescribeDBClusterSnapshots(snapshotID string) ([]DBClu
 			return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
 		}
 		cp := *snap
+
 		return []DBClusterSnapshot{cp}, nil
 	}
 	result := make([]DBClusterSnapshot, 0, len(b.clusterSnapshots))
 	for _, snap := range b.clusterSnapshots {
 		result = append(result, *snap)
 	}
+
 	return result, nil
 }
 
@@ -473,6 +512,7 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 	}
 	cp := *snap
 	delete(b.clusterSnapshots, snapshotID)
+
 	return &cp, nil
 }
 
@@ -518,5 +558,6 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) []Tag {
 	src := b.tags[arn]
 	cp := make([]Tag, len(src))
 	copy(cp, src)
+
 	return cp
 }
