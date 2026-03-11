@@ -95,6 +95,7 @@ import (
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
+	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -221,6 +222,7 @@ type CLI struct {
 	cognitoIdentityHandler        service.Registerable
 	fisHandler                    service.Registerable
 	elastictranscoderHandler      service.Registerable
+	emrHandler                    service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -555,6 +557,11 @@ func (c *CLI) GetEKSHandler() service.Registerable { return c.eksHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetElasticTranscoderHandler() service.Registerable { return c.elastictranscoderHandler }
+
+// GetEMRHandler returns the EMR handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetEMRHandler() service.Registerable { return c.emrHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1172,6 +1179,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.efsHandler = byName["EFS"]
 	cli.eksHandler = byName["EKS"]
 	cli.elbHandler = byName["ELB"]
+	cli.emrHandler = byName["EMR"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1365,6 +1373,7 @@ func getServiceProviders() []service.Provider {
 		&efsbackend.Provider{},
 		&eksbackend.Provider{},
 		&elbbackend.Provider{},
+		&emrbackend.Provider{},
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
 	}
