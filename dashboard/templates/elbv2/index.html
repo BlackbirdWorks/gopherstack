@@ -1,0 +1,115 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <img src="/dashboard/static/icons/elbv2.svg" class="w-8 h-8 rounded-md shadow-sm" alt="elbv2" />
+
+                Elastic Load Balancers v2
+                <span
+                    class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
+                    {{len .LoadBalancers}}
+                </span>
+
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory Application and Network Load Balancers (ELBv2).</p>
+        </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
+            <button type="button" onclick="document.getElementById('create-lb-modal').classList.remove('hidden')"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
+                + Create Load Balancer
+            </button>
+        </div>
+    </div>
+
+    <div
+        class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">Type</th>
+                    <th scope="col" class="px-6 py-3">Scheme</th>
+                    <th scope="col" class="px-6 py-3">DNS Name</th>
+                    <th scope="col" class="px-6 py-3 text-right"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .LoadBalancers}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
+                    <td class="px-6 py-4">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300">
+                            {{.Type}}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 text-xs">{{.Scheme}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.DNSName}}">{{.DNSName}}</td>
+                    <td class="px-6 py-4 text-right">
+                        <form method="POST" action="/dashboard/elbv2/loadbalancer/delete" style="display:inline"
+                            hx-boost="false">
+                            <input type="hidden" name="arn" value="{{.Arn}}">
+                            <button type="submit"
+                                class="font-medium text-red-600 dark:text-red-500 hover:underline text-xs">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No load balancers. Create one to get started.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Create Load Balancer Modal -->
+<div id="create-lb-modal"
+    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
+        <h3 class="text-lg font-medium leading-6 text-slate-900 dark:text-white mb-4">Create Load Balancer</h3>
+        <form method="POST" action="/dashboard/elbv2/loadbalancer/create" hx-boost="false">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="name">Name</label>
+                <input id="name" name="name" type="text" required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="my-alb">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="lb-type">Type</label>
+                <select id="lb-type" name="type"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                    <option value="application">Application (ALB)</option>
+                    <option value="network">Network (NLB)</option>
+                </select>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="scheme">Scheme</label>
+                <select id="scheme" name="scheme"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                    <option value="internet-facing">Internet-facing</option>
+                    <option value="internal">Internal</option>
+                </select>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button type="button" onclick="document.getElementById('create-lb-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-md hover:bg-blue-800 focus:outline-none dark:bg-blue-600 dark:hover:bg-blue-700">
+                    Create
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}
