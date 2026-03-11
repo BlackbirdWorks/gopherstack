@@ -55,6 +55,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
@@ -150,6 +151,7 @@ type AWSSDKProvider interface {
 	GetCodeStarConnectionsHandler() service.Registerable
 	GetDynamoDBStreamsHandler() service.Registerable
 	GetDocDBHandler() service.Registerable
+	GetElasticbeanstalkHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetEFSHandler() service.Registerable
@@ -242,6 +244,7 @@ type extractedConfig struct {
 	codeStarConnectionsOps    *codestarconnectionsbackend.Handler
 	dynamodbStreamsOps        *dynamodbstreams.Handler
 	docdbOps                  *docdbbackend.Handler
+	elasticbeanstalkOps       *elasticbeanstalkbackend.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
 	efsOps                    *efsbackend.Handler
@@ -557,6 +560,10 @@ func extractCodeServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.codebuildOps, _ = h.(*codebuildbackend.Handler)
 	}
 
+	if h := ap.GetElasticbeanstalkHandler(); h != nil {
+		ec.elasticbeanstalkOps, _ = h.(*elasticbeanstalkbackend.Handler)
+	}
+
 	if h := ap.GetElasticTranscoderHandler(); h != nil {
 		ec.elasticTranscoderOps, _ = h.(*elastictranscoderbackend.Handler)
 	}
@@ -670,6 +677,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CodeStarConnectionsOps:     ec.codeStarConnectionsOps,
 		DynamoDBStreamsOps:         ec.dynamodbStreamsOps,
 		DocDBOps:                   ec.docdbOps,
+		ElasticbeanstalkOps:        ec.elasticbeanstalkOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		EFSOps:                     ec.efsOps,

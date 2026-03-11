@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <rect width="48" height="48" rx="8" fill="#4CAF50"/>
+  <g fill="white">
+    <!-- Leaf / plant sprout icon representing Elastic Beanstalk -->
+    <ellipse cx="24" cy="20" rx="11" ry="9" opacity="0.9"/>
+    <rect x="22.5" y="20" width="3" height="14" rx="1.5"/>
+    <path d="M24 26 Q18 22 14 24" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -62,6 +62,7 @@ import (
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
@@ -187,6 +188,8 @@ type Stack struct {
 	CodeStarConnectionsHandler *codestarconnectionsbackend.Handler
 	// DynamoDBStreamsHandler provides access to the DynamoDB Streams backend.
 	DynamoDBStreamsHandler *dynamodbstreamsbackend.Handler
+	// ElasticbeanstalkHandler provides access to the Elastic Beanstalk backend.
+	ElasticbeanstalkHandler *elasticbeanstalkbackend.Handler
 	// EFSHandler provides access to the EFS backend.
 	EFSHandler *efsbackend.Handler
 	// EKSHandler provides access to the EKS backend.
@@ -458,9 +461,10 @@ type handlers struct {
 	dms               *dmsbackend.Handler
 	codeStarConn      *codestarconnectionsbackend.Handler
 	dynamodbStreams   *dynamodbstreamsbackend.Handler
+	elasticbeanstalk  *elasticbeanstalkbackend.Handler
+	elastictranscoder *elastictranscoderbackend.Handler
 	efs               *efsbackend.Handler
 	eks               *eksbackend.Handler
-	elastictranscoder *elastictranscoderbackend.Handler
 	elb               *elbbackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
@@ -653,6 +657,10 @@ func populateNewestHandlers(h *handlers) {
 		h.dynamodbStreams = dynamodbstreamsbackend.NewHandler(ddbBk)
 	}
 
+	h.elasticbeanstalk = elasticbeanstalkbackend.NewHandler(
+		elasticbeanstalkbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+
 	h.efs = efsbackend.NewHandler(
 		efsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -776,6 +784,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		DMSOps:                     h.dms,
 		CodeStarConnectionsOps:     h.codeStarConn,
 		DynamoDBStreamsOps:         h.dynamodbStreams,
+		ElasticbeanstalkOps:        h.elasticbeanstalk,
 		EFSOps:                     h.efs,
 		EKSOps:                     h.eks,
 		ElasticTranscoderOps:       h.elastictranscoder,
@@ -832,6 +841,7 @@ func New(t *testing.T) *Stack {
 		_ = registry.Register(h.dynamodbStreams)
 	}
 
+	_ = registry.Register(h.elasticbeanstalk)
 	_ = registry.Register(h.efs)
 	_ = registry.Register(h.eks)
 	_ = registry.Register(h.elastictranscoder)
@@ -933,6 +943,7 @@ func buildStack(
 		DMSHandler:                     h.dms,
 		CodeStarConnectionsHandler:     h.codeStarConn,
 		DynamoDBStreamsHandler:         h.dynamodbStreams,
+		ElasticbeanstalkHandler:        h.elasticbeanstalk,
 		EFSHandler:                     h.efs,
 		EKSHandler:                     h.eks,
 		ElasticTranscoderHandler:       h.elastictranscoder,

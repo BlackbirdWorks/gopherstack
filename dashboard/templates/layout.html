@@ -573,12 +573,20 @@
                                 EKS
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>                    </ul>
-                </li>
-                <li>
-                    <button
-                        class="category-btn flex items-center justify-between w-full px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                        onclick="window.SidebarManager.toggleSection('database-analytics')">
+                        </li><li>
+                            <a href="/dashboard/elasticbeanstalk"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "elasticbeanstalk"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-elasticbeanstalk" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/elasticbeanstalk.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="elasticbeanstalk" /> <span
+                                    class="sidebar-text truncate" title="Elastic Beanstalk">Elastic Beanstalk</span>
+                            </a>
+                            <div id="tooltip-elasticbeanstalk" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Elastic Beanstalk
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>                    </ul>>
                         <span class="category-header-text">Databases & Analytics</span>
                         <svg id="chevron-database-analytics"
                             class="w-3 h-3 chevron-icon transition-transform duration-200" fill="none"
