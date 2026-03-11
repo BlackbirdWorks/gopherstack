@@ -316,6 +316,32 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
+// UntagResource removes specific tag keys from a resource by ARN.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	for _, c := range b.clusters {
+		if c.ARN == resourceARN {
+			c.Tags.DeleteKeys(tagKeys)
+
+			return nil
+		}
+	}
+
+	for _, ngs := range b.nodegroups {
+		for _, ng := range ngs {
+			if ng.ARN == resourceARN {
+				ng.Tags.DeleteKeys(tagKeys)
+
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+}
+
 // ListTagsForResource returns tags for a resource by ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")

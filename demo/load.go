@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecstypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
+	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/iot"
 	iottypes "github.com/aws/aws-sdk-go-v2/service/iot/types"
@@ -538,6 +539,10 @@ func loadEKS(ctx context.Context, eksClient *ekssdk.Client) {
 		_, err := eksClient.CreateCluster(ctx, &ekssdk.CreateClusterInput{
 			Name:    aws.String(name),
 			Version: aws.String("1.32"),
+			RoleArn: aws.String("arn:aws:iam::000000000000:role/eks-demo-role"),
+			ResourcesVpcConfig: &ekstypes.VpcConfigRequest{
+				SubnetIds: []string{"subnet-00000000", "subnet-11111111"},
+			},
 		})
 		if err != nil {
 			pkgslogger.Load(ctx).WarnContext(ctx, "Failed to create EKS cluster", "name", name, "error", err)

@@ -468,9 +468,11 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []
 }
 
 func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error {
-	// The EKS UntagResource API uses query parameters "tagKeys" to specify which tags to remove.
-	// For simplicity in our stub, we accept the call and return success.
-	_ = resourceARN
+	tagKeys := c.Request().URL.Query()["tagKeys"]
+
+	if err := h.Backend.UntagResource(resourceARN, tagKeys); err != nil {
+		return h.handleError(c, err)
+	}
 
 	return c.NoContent(http.StatusOK)
 }

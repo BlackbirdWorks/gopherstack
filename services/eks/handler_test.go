@@ -417,18 +417,35 @@ func TestEKSBackendListAllClusters(t *testing.T) {
 	assert.Len(t, all, 2)
 }
 
-// TestEKSUntagResource verifies the UntagResource handler returns 200.
+// TestEKSUntagResource verifies UntagResource removes specified tag keys and returns 200.
 func TestEKSUntagResource(t *testing.T) {
 	t.Parallel()
 
 	h := newTestEKSHandler()
-	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "tag-cluster"})
+	rec := doREST(t, h, http.MethodPost, "/clusters", map[string]any{
+		"name": "tag-cluster",
+		"tags": map[string]string{"Env": "test", "Project": "demo"},
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	resp := parseResp(t, rec)
 	clusterARN := resp["cluster"].(map[string]any)["arn"].(string)
 
-	untagRec := doREST(t, h, http.MethodDelete, "/tags/"+clusterARN, nil)
+	// Remove the "Env" tag via query param
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodDelete, "/tags/"+clusterARN+"?tagKeys=Env", nil)
+	untagRec := httptest.NewRecorder()
+	c := e.NewContext(req, untagRec)
+	err := h.Handler()(c)
+	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, untagRec.Code)
+
+	// Verify "Env" is gone but "Project" remains
+	listRec := doREST(t, h, http.MethodGet, "/tags/"+clusterARN, nil)
+	assert.Equal(t, http.StatusOK, listRec.Code)
+	listResp := parseResp(t, listRec)
+	tagsMap, ok := listResp["tags"].(map[string]any)
+	require.True(t, ok)
+	assert.NotContains(t, tagsMap, "Env")
 }
 
 // TestEKSTagNodegroup verifies that tags can be applied to a nodegroup.
@@ -532,6 +549,21 @@ func TestEKSErrorPaths(t *testing.T) {
 				t.Helper()
 				rec := doREST(t, h, http.MethodPost, "/tags/arn:aws:eks:us-east-1:123:cluster/nonexistent",
 					map[string]any{"tags": map[string]string{}})
+				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "untag_resource_not_found",
+			ops: func(t *testing.T, h *eks.Handler) {
+				t.Helper()
+				e := echo.New()
+				req := httptest.NewRequest(http.MethodDelete,
+					"/tags/arn:aws:eks:us-east-1:123:cluster/nonexistent?tagKeys=Env",
+					nil)
+				rec := httptest.NewRecorder()
+				c := e.NewContext(req, rec)
+				err := h.Handler()(c)
+				require.NoError(t, err)
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
