@@ -24,17 +24,17 @@ var (
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via TagResource / CreateRepository.
 type Repository struct {
-	CreationDate    time.Time  `json:"creationDate"`
-	LastModifiedDate time.Time `json:"lastModifiedDate"`
-	Tags            *tags.Tags `json:"tags,omitempty"`
-	RepositoryName  string     `json:"repositoryName"`
-	RepositoryID    string     `json:"repositoryId"`
-	ARN             string     `json:"arn"`
-	Description     string     `json:"repositoryDescription,omitempty"`
-	AccountID       string     `json:"accountId"`
-	Region          string     `json:"-"`
-	CloneURLHTTP    string     `json:"cloneUrlHttp"`
-	CloneURLSSH     string     `json:"cloneUrlSsh"`
+	CreationDate     time.Time  `json:"creationDate"`
+	LastModifiedDate time.Time  `json:"lastModifiedDate"`
+	Tags             *tags.Tags `json:"tags,omitempty"`
+	RepositoryName   string     `json:"repositoryName"`
+	RepositoryID     string     `json:"repositoryId"`
+	ARN              string     `json:"arn"`
+	Description      string     `json:"repositoryDescription,omitempty"`
+	AccountID        string     `json:"accountId"`
+	Region           string     `json:"-"`
+	CloneURLHTTP     string     `json:"cloneUrlHttp"`
+	CloneURLSSH      string     `json:"cloneUrlSsh"`
 }
 
 // InMemoryBackend is the in-memory store for CodeCommit resources.

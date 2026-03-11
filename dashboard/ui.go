@@ -196,13 +196,13 @@ type DashboardHandler struct {
 	CodeArtifactOps *codeartifactbackend.Handler
 	// CodeCommitOps provides access to the CodeCommit backend.
 	CodeCommitOps *codecommitbackend.Handler
-	SubRouter       *echo.Echo
-	ddbProvider     *ddbbackend.DashboardProvider
-	s3Provider      *s3backend.DashboardProvider
-	FaultStore      *chaos.FaultStore
-	Logger          *slog.Logger
-	layout          *template.Template
-	GlobalConfig    config.GlobalConfig
+	SubRouter     *echo.Echo
+	ddbProvider   *ddbbackend.DashboardProvider
+	s3Provider    *s3backend.DashboardProvider
+	FaultStore    *chaos.FaultStore
+	Logger        *slog.Logger
+	layout        *template.Template
+	GlobalConfig  config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.

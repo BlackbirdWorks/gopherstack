@@ -137,10 +137,10 @@ func TestHandler_CreateRepository(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
 		input       map[string]any
-		wantStatus  int
+		name        string
 		wantRepoKey string
+		wantStatus  int
 	}{
 		{
 			name: "success",
@@ -314,9 +314,9 @@ func TestHandler_TagAndUntagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(t *testing.T, h *codecommit.Handler) string
 		name       string
 		action     string
-		setup      func(t *testing.T, h *codecommit.Handler) string
 		wantStatus int
 	}{
 		{
@@ -327,11 +327,24 @@ func TestHandler_TagAndUntagResource(t *testing.T) {
 				rec := doRequest(t, h, "CreateRepository", map[string]any{
 					"repositoryName": "tag-repo",
 				})
-				var resp map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-				meta := resp["repositoryMetadata"].(map[string]any)
+				require.Equal(t, http.StatusOK, rec.Code)
 
-				return meta["Arn"].(string)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				metaRaw, ok := resp["repositoryMetadata"]
+				require.True(t, ok)
+
+				meta, ok := metaRaw.(map[string]any)
+				require.True(t, ok)
+
+				arnRaw, ok := meta["Arn"]
+				require.True(t, ok)
+
+				arn, ok := arnRaw.(string)
+				require.True(t, ok)
+
+				return arn
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -344,11 +357,24 @@ func TestHandler_TagAndUntagResource(t *testing.T) {
 					"repositoryName": "untag-repo",
 					"tags":           map[string]string{"key1": "val1"},
 				})
-				var resp map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-				meta := resp["repositoryMetadata"].(map[string]any)
+				require.Equal(t, http.StatusOK, rec.Code)
 
-				return meta["Arn"].(string)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				metaRaw, ok := resp["repositoryMetadata"]
+				require.True(t, ok)
+
+				meta, ok := metaRaw.(map[string]any)
+				require.True(t, ok)
+
+				arnRaw, ok := meta["Arn"]
+				require.True(t, ok)
+
+				arn, ok := arnRaw.(string)
+				require.True(t, ok)
+
+				return arn
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -384,10 +410,10 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(t *testing.T, h *codecommit.Handler) string
-		wantStatus int
 		wantTags   map[string]string
+		name       string
+		wantStatus int
 	}{
 		{
 			name: "repository_with_tags",
@@ -397,11 +423,24 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 					"repositoryName": "tagged-repo",
 					"tags":           map[string]string{"env": "test"},
 				})
-				var resp map[string]any
-				_ = json.Unmarshal(rec.Body.Bytes(), &resp)
-				meta := resp["repositoryMetadata"].(map[string]any)
+				require.Equal(t, http.StatusOK, rec.Code)
 
-				return meta["Arn"].(string)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				metaRaw, ok := resp["repositoryMetadata"]
+				require.True(t, ok)
+
+				meta, ok := metaRaw.(map[string]any)
+				require.True(t, ok)
+
+				arnRaw, ok := meta["Arn"]
+				require.True(t, ok)
+
+				arn, ok := arnRaw.(string)
+				require.True(t, ok)
+
+				return arn
 			},
 			wantStatus: http.StatusOK,
 			wantTags:   map[string]string{"env": "test"},

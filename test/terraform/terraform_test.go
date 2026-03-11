@@ -3735,39 +3735,39 @@ func TestTerraform_CodeArtifact(t *testing.T) {
 // TestTerraform_CodeCommit provisions a CodeCommit repository via Terraform
 // and verifies it exists using the CodeCommit SDK.
 func TestTerraform_CodeCommit(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "codecommit/repository",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "codecommit/repository",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"RepositoryName": "tf-repo-" + id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createCodeCommitClient(t)
-repoName := vars["RepositoryName"].(string)
+				return map[string]any{
+					"RepositoryName": "tf-repo-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCodeCommitClient(t)
+				repoName := vars["RepositoryName"].(string)
 
-out, err := client.GetRepository(ctx, &codecommitsvc.GetRepositoryInput{
-RepositoryName: aws.String(repoName),
-})
-require.NoError(t, err, "GetRepository should succeed after terraform apply")
-require.NotNil(t, out.RepositoryMetadata, "repository metadata should be returned")
-assert.Equal(t, repoName, aws.ToString(out.RepositoryMetadata.RepositoryName))
-},
-},
-}
+				out, err := client.GetRepository(ctx, &codecommitsvc.GetRepositoryInput{
+					RepositoryName: aws.String(repoName),
+				})
+				require.NoError(t, err, "GetRepository should succeed after terraform apply")
+				require.NotNil(t, out.RepositoryMetadata, "repository metadata should be returned")
+				assert.Equal(t, repoName, aws.ToString(out.RepositoryMetadata.RepositoryName))
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }

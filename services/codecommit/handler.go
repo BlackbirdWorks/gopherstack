@@ -17,7 +17,10 @@ import (
 
 const codecommitTargetPrefix = "CodeCommit_20150413."
 
-var errUnknownAction = errors.New("unknown action")
+var (
+	errUnknownAction  = errors.New("unknown action")
+	errInvalidRequest = errors.New("invalid request")
+)
 
 // Handler is the Echo HTTP handler for AWS CodeCommit operations.
 type Handler struct {
@@ -77,15 +80,15 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 
 // ExtractResource extracts the repository name from the request body.
 func (h *Handler) ExtractResource(c *echo.Context) string {
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
+	body, readErr := httputils.ReadBody(c.Request())
+	if readErr != nil {
 		return ""
 	}
 
 	var input struct {
 		RepositoryName string `json:"repositoryName"`
 	}
-	if err := json.Unmarshal(body, &input); err != nil {
+	if jsonErr := json.Unmarshal(body, &input); jsonErr != nil {
 		return ""
 	}
 
@@ -115,7 +118,6 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 	return json.Marshal(resp)
 }
 
-//nolint:cyclop // dispatch table for CodeCommit operations
 func (h *Handler) dispatchJSON(action string, body []byte) (any, error) {
 	switch action {
 	case "CreateRepository":
@@ -149,6 +151,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrAlreadyExists):
 		code = http.StatusBadRequest
 		errType = "RepositoryNameExistsException"
+	case errors.Is(err, errInvalidRequest):
+		code = http.StatusBadRequest
+		errType = "ValidationException"
 	}
 
 	return c.JSON(code, map[string]string{
@@ -160,9 +165,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 // --- Request body types ---
 
 type createRepositoryInput struct {
+	Tags                  map[string]string `json:"tags"`
 	RepositoryName        string            `json:"repositoryName"`
 	RepositoryDescription string            `json:"repositoryDescription"`
-	Tags                  map[string]string `json:"tags"`
 }
 
 type getRepositoryInput struct {
@@ -173,14 +178,9 @@ type deleteRepositoryInput struct {
 	RepositoryName string `json:"repositoryName"`
 }
 
-type listRepositoriesInput struct {
-	SortBy string `json:"sortBy"`
-	Order  string `json:"order"`
-}
-
 type tagResourceInput struct {
-	ResourceARN string            `json:"resourceArn"`
 	Tags        map[string]string `json:"tags"`
+	ResourceARN string            `json:"resourceArn"`
 }
 
 type untagResourceInput struct {
@@ -219,7 +219,7 @@ func (h *Handler) handleCreateRepository(body []byte) (any, error) {
 	}
 
 	if in.RepositoryName == "" {
-		return nil, fmt.Errorf("%w: repositoryName is required", errUnknownAction)
+		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
 	r, err := h.Backend.CreateRepository(in.RepositoryName, in.RepositoryDescription, in.Tags)
@@ -287,7 +287,7 @@ func (h *Handler) handleTagResource(body []byte) (any, error) {
 	}
 
 	if in.ResourceARN == "" {
-		return nil, fmt.Errorf("%w: resourceArn is required", errUnknownAction)
+		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.TagResource(in.ResourceARN, in.Tags); err != nil {
@@ -304,7 +304,7 @@ func (h *Handler) handleUntagResource(body []byte) (any, error) {
 	}
 
 	if in.ResourceARN == "" {
-		return nil, fmt.Errorf("%w: resourceArn is required", errUnknownAction)
+		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
 	}
 
 	if err := h.Backend.UntagResource(in.ResourceARN, in.TagKeys); err != nil {
@@ -321,7 +321,7 @@ func (h *Handler) handleListTagsForResource(body []byte) (any, error) {
 	}
 
 	if in.ResourceARN == "" {
-		return nil, fmt.Errorf("%w: resourceArn is required", errUnknownAction)
+		return nil, fmt.Errorf("%w: resourceArn is required", errInvalidRequest)
 	}
 
 	kv, err := h.Backend.ListTagsForResource(in.ResourceARN)

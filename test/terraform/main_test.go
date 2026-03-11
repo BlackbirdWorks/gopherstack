@@ -1430,18 +1430,18 @@ func createCodeArtifactClient(t *testing.T) *codeartifactsvc.Client {
 
 // createCodeCommitClient returns a CodeCommit client pointed at the shared test container.
 func createCodeCommitClient(t *testing.T) *codecommitsvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-require.NoError(t, err, "unable to load SDK config")
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
 
-return codecommitsvc.NewFromConfig(cfg, func(o *codecommitsvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return codecommitsvc.NewFromConfig(cfg, func(o *codecommitsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }
