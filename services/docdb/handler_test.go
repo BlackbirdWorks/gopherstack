@@ -610,6 +610,15 @@ func TestHandler_MiscOperations(t *testing.T) {
 			wantStatus:   http.StatusOK,
 			wantContains: "db.t3.medium",
 		},
+		{
+			name: "describe_global_clusters",
+			vals: url.Values{
+				"Action":  {"DescribeGlobalClusters"},
+				"Version": {"2014-10-31"},
+			},
+			wantStatus:   http.StatusOK,
+			wantContains: "DescribeGlobalClustersResponse",
+		},
 	}
 
 	for _, tt := range tests {

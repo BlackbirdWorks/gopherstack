@@ -64,6 +64,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RemoveTagsFromResource",
 		"DescribeDBEngineVersions",
 		"DescribeOrderableDBInstanceOptions",
+		"DescribeGlobalClusters",
 	}
 }
 
@@ -229,6 +230,8 @@ func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error)
 		return h.handleDescribeDBEngineVersions(vals)
 	case "DescribeOrderableDBInstanceOptions":
 		return h.handleDescribeOrderableDBInstanceOptions(vals)
+	case "DescribeGlobalClusters":
+		return h.handleDescribeGlobalClusters(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid DocDB action", ErrUnknownAction, action)
 	}
@@ -609,6 +612,13 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, e
 		Result: describeOrderableDBInstanceOptionsResult{
 			OrderableDBInstanceOptions: xmlOrderableDBInstanceOptionList{Members: members},
 		},
+	}, nil
+}
+
+func (h *Handler) handleDescribeGlobalClusters(_ url.Values) (any, error) {
+	return &describeGlobalClustersResponse{
+		Xmlns:          docdbXMLNS,
+		GlobalClusters: xmlGlobalClusterList{},
 	}, nil
 }
 
@@ -1034,4 +1044,14 @@ type describeOrderableDBInstanceOptionsResponse struct {
 	XMLName xml.Name                                 `xml:"DescribeOrderableDBInstanceOptionsResponse"`
 	Xmlns   string                                   `xml:"xmlns,attr"`
 	Result  describeOrderableDBInstanceOptionsResult `xml:"DescribeOrderableDBInstanceOptionsResult"`
+}
+
+type xmlGlobalClusterList struct {
+	Members []struct{} `xml:"GlobalCluster"`
+}
+
+type describeGlobalClustersResponse struct {
+	XMLName        xml.Name             `xml:"DescribeGlobalClustersResponse"`
+	Xmlns          string               `xml:"xmlns,attr"`
+	GlobalClusters xmlGlobalClusterList `xml:"DescribeGlobalClustersResult>GlobalClusters"`
 }
