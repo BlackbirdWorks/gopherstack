@@ -140,11 +140,27 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+	case errors.Is(err, errUnknownAction):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InvalidActionException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
+	case errors.Is(err, errInvalidRequest), errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ValidationException",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "InternalFailure",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusInternalServerError, payload)
 	}
 }
 
@@ -206,6 +222,11 @@ func (h *Handler) handleGetPipeline(
 	p, err := h.Backend.GetPipeline(in.Name)
 	if err != nil {
 		return nil, err
+	}
+
+	if in.Version != 0 && in.Version != p.Declaration.Version {
+		return nil, fmt.Errorf("%w: pipeline %q version %d not found (current: %d)",
+			ErrNotFound, in.Name, in.Version, p.Declaration.Version)
 	}
 
 	return &getPipelineOutput{

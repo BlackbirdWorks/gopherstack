@@ -70,6 +70,8 @@ func (h *DashboardHandler) codepipelineIndex(c *echo.Context) error {
 	for _, s := range summaries {
 		p, err := h.CodePipelineOps.Backend.GetPipeline(s.Name)
 		if err != nil {
+			h.Logger.Error("failed to get codepipeline pipeline details", "name", s.Name, "error", err)
+
 			continue
 		}
 

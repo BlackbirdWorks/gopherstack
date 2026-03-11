@@ -583,7 +583,11 @@ func TestHandler_UnknownAction(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "UnknownAction", map[string]any{})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "InvalidActionException", out["__type"])
 }
 
 func TestHandler_ChaosOperations(t *testing.T) {
@@ -644,4 +648,130 @@ func TestInMemoryBackend_UpdatePipeline_IncrementsVersion(t *testing.T) {
 	updated, err := backend.UpdatePipeline(samplePipeline("versioned-pipeline"))
 	require.NoError(t, err)
 	assert.Equal(t, 2, updated.Declaration.Version)
+}
+
+func TestHandler_ErrorEnvelopes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input      any
+		setup      func(h *codepipeline.Handler)
+		name       string
+		action     string
+		wantType   string
+		wantStatus int
+	}{
+		{
+			name:       "not found returns PipelineNotFoundException",
+			action:     "GetPipeline",
+			input:      map[string]any{"name": "nonexistent"},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "PipelineNotFoundException",
+		},
+		{
+			name: "duplicate create returns InvalidStructureException",
+			setup: func(h *codepipeline.Handler) {
+				_, err := h.Backend.CreatePipeline(samplePipeline("duplicate-pipeline"), nil)
+				require.NoError(t, err)
+			},
+			action:     "CreatePipeline",
+			input:      map[string]any{"pipeline": samplePipeline("duplicate-pipeline")},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "InvalidStructureException",
+		},
+		{
+			name:       "unknown action returns InvalidActionException",
+			action:     "NoSuchAction",
+			input:      map[string]any{},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "InvalidActionException",
+		},
+		{
+			name:       "missing required field returns ValidationException",
+			action:     "CreatePipeline",
+			input:      map[string]any{},
+			wantStatus: http.StatusBadRequest,
+			wantType:   "ValidationException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRequest(t, h, tt.action, tt.input)
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Equal(t, tt.wantType, out["__type"])
+		})
+	}
+}
+
+func TestHandler_GetPipeline_VersionHandling(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		version    int
+		wantStatus int
+	}{
+		{
+			name:       "version 0 returns latest",
+			version:    0,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "exact version match",
+			version:    1,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "wrong version returns not found",
+			version:    99,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			_, err := h.Backend.CreatePipeline(samplePipeline("ver-pipeline"), nil)
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, "GetPipeline", map[string]any{
+				"name":    "ver-pipeline",
+				"version": tt.version,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestInMemoryBackend_DeepCopy(t *testing.T) {
+	t.Parallel()
+
+	backend := codepipeline.NewInMemoryBackend("000000000000", "us-east-1")
+
+	decl := samplePipeline("deep-copy-pipeline")
+	decl.Stages[0].Actions[0].Configuration = map[string]string{"key": "original"}
+
+	p, err := backend.CreatePipeline(decl, nil)
+	require.NoError(t, err)
+
+	// Mutate the returned pipeline's nested data.
+	p.Declaration.Stages[0].Actions[0].Configuration["key"] = "mutated"
+
+	// The backend should still have the original value.
+	stored, err := backend.GetPipeline("deep-copy-pipeline")
+	require.NoError(t, err)
+	assert.Equal(t, "original", stored.Declaration.Stages[0].Actions[0].Configuration["key"])
 }

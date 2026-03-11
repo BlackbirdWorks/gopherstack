@@ -2,6 +2,7 @@
 package codepipeline
 
 import (
+	"fmt"
 	"maps"
 	"time"
 
@@ -120,7 +121,7 @@ func (b *InMemoryBackend) CreatePipeline(decl PipelineDeclaration, tags map[stri
 	defer b.mu.Unlock()
 
 	if _, exists := b.pipelines[decl.Name]; exists {
-		return nil, ErrAlreadyExists
+		return nil, fmt.Errorf("%w: pipeline %q already exists", ErrAlreadyExists, decl.Name)
 	}
 
 	tagsCopy := make(map[string]string, len(tags))
@@ -152,7 +153,7 @@ func (b *InMemoryBackend) GetPipeline(name string) (*Pipeline, error) {
 
 	p, ok := b.pipelines[name]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, name)
 	}
 
 	return copyPipeline(p), nil
@@ -165,7 +166,7 @@ func (b *InMemoryBackend) UpdatePipeline(decl PipelineDeclaration) (*Pipeline, e
 
 	p, ok := b.pipelines[decl.Name]
 	if !ok {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: pipeline %q", ErrNotFound, decl.Name)
 	}
 
 	currentVersion := p.Declaration.Version
@@ -182,7 +183,7 @@ func (b *InMemoryBackend) DeletePipeline(name string) error {
 	defer b.mu.Unlock()
 
 	if _, ok := b.pipelines[name]; !ok {
-		return ErrNotFound
+		return fmt.Errorf("%w: pipeline %q", ErrNotFound, name)
 	}
 
 	delete(b.pipelines, name)
@@ -273,6 +274,71 @@ func copyPipeline(p *Pipeline) *Pipeline {
 
 	out := *p
 	out.Tags = tagsCopy
+	out.Declaration = copyDeclaration(p.Declaration)
 
 	return &out
+}
+
+// copyDeclaration deep-copies a PipelineDeclaration so callers cannot mutate
+// the backend's stored stages, actions, or configuration maps.
+func copyDeclaration(d PipelineDeclaration) PipelineDeclaration {
+	out := d
+	out.Stages = copyStages(d.Stages)
+
+	return out
+}
+
+func copyStages(stages []Stage) []Stage {
+	if stages == nil {
+		return nil
+	}
+
+	out := make([]Stage, len(stages))
+	for i, s := range stages {
+		out[i] = Stage{
+			Name:    s.Name,
+			Actions: copyActions(s.Actions),
+		}
+	}
+
+	return out
+}
+
+func copyActions(actions []Action) []Action {
+	if actions == nil {
+		return nil
+	}
+
+	out := make([]Action, len(actions))
+	for i, a := range actions {
+		actionCopy := a
+		actionCopy.Configuration = copyStringMap(a.Configuration)
+		actionCopy.InputArtifacts = copyArtifactRefs(a.InputArtifacts)
+		actionCopy.OutputArtifacts = copyArtifactRefs(a.OutputArtifacts)
+		out[i] = actionCopy
+	}
+
+	return out
+}
+
+func copyStringMap(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+
+	out := make(map[string]string, len(m))
+	maps.Copy(out, m)
+
+	return out
+}
+
+func copyArtifactRefs(refs []ArtifactRef) []ArtifactRef {
+	if refs == nil {
+		return nil
+	}
+
+	out := make([]ArtifactRef, len(refs))
+	copy(out, refs)
+
+	return out
 }

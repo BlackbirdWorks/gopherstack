@@ -493,7 +493,7 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	extractCloudPlatformHandlers(ap, ec)
 }
 
-// extractCloudPlatformHandlers populates CE, CloudControl, CloudFront, and CodeArtifact handlers on ec.
+// extractCloudPlatformHandlers populates CE, CloudControl, and CloudFront handlers on ec.
 func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCeHandler(); h != nil {
 		ec.ceOps, _ = h.(*cebackend.Handler)
@@ -507,6 +507,12 @@ func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.cloudFrontOps, _ = h.(*cloudfrontbackend.Handler)
 	}
 
+	extractCodeServiceHandlers(ap, ec)
+}
+
+// extractCodeServiceHandlers populates CodeArtifact, CodeBuild, CodeCommit, CodePipeline,
+// CodeConnections, and CodeDeploy handlers on ec.
+func extractCodeServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCodeArtifactHandler(); h != nil {
 		ec.codeArtifactOps, _ = h.(*codeartifactbackend.Handler)
 	}
