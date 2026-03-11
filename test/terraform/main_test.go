@@ -56,6 +56,7 @@ import (
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
+	efssvc "github.com/aws/aws-sdk-go-v2/service/efs"
 	ekssvc "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
@@ -1365,6 +1366,24 @@ func createCloudTrailClient(t *testing.T) *cloudtrailsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return cloudtrailsvc.NewFromConfig(cfg, func(o *cloudtrailsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createEFSClient returns an EFS client pointed at the shared test container.
+func createEFSClient(t *testing.T) *efssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return efssvc.NewFromConfig(cfg, func(o *efssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

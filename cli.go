@@ -90,6 +90,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
@@ -211,6 +212,7 @@ type CLI struct {
 	docdbHandler                  service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
+	efsHandler                    service.Registerable
 	eksHandler                    service.Registerable
 	iotHandler                    service.Registerable
 	cognitoIDPHandler             service.Registerable
@@ -536,6 +538,11 @@ func (c *CLI) GetECRHandler() service.Registerable { return c.ecrHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetECSHandler() service.Registerable { return c.ecsHandler }
+
+// GetEFSHandler returns the EFS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetEFSHandler() service.Registerable { return c.efsHandler }
 
 // GetEKSHandler returns the EKS handler (dashboard.AWSSDKProvider).
 //
@@ -1155,6 +1162,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.dmsHandler = byName["DMS"]
 	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 	cli.dynamodbStreamsHandler = byName["DynamoDBStreams"]
+	cli.efsHandler = byName["EFS"]
 	cli.eksHandler = byName["EKS"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
@@ -1346,6 +1354,7 @@ func getServiceProviders() []service.Provider {
 		&dmsbackend.Provider{},
 		&codestarconnectionsbackend.Provider{},
 		&dynamodbstreamsbackend.Provider{},
+		&efsbackend.Provider{},
 		&eksbackend.Provider{},
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},

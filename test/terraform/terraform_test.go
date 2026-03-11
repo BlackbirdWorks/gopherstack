@@ -69,6 +69,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
+	efssvc "github.com/aws/aws-sdk-go-v2/service/efs"
 	ekssvc "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
@@ -204,6 +205,7 @@ provider "aws" {
     ec2             = %[1]q
     ecr             = %[1]q
     ecs             = %[1]q
+    efs             = %[1]q
     eks             = %[1]q
     elasticache     = %[1]q
     events          = %[1]q
@@ -4185,6 +4187,49 @@ func TestTerraform_CodeStarConnections(t *testing.T) {
 	}
 }
 
+// TestTerraform_EFS provisions an EFS file system via Terraform and verifies it exists.
+func TestTerraform_EFS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "efs/filesystem",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"CreationToken": "tf-efs-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEFSClient(t)
+				token := vars["CreationToken"].(string)
+				out, err := client.DescribeFileSystems(ctx, &efssvc.DescribeFileSystemsInput{})
+				require.NoError(t, err, "DescribeFileSystems should succeed after terraform apply")
+				found := false
+				for _, fs := range out.FileSystems {
+					if aws.ToString(fs.CreationToken) == token {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "file system with token %q should be listed", token)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_ElasticTranscoder provisions an Elastic Transcoder pipeline via Terraform
 // and verifies it exists using the Elastic Transcoder SDK.
 func TestTerraform_ElasticTranscoder(t *testing.T) {
@@ -4216,7 +4261,8 @@ func TestTerraform_ElasticTranscoder(t *testing.T) {
 				found := false
 
 				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated the SDK but service still works
-					if aws.ToString(p.Name) == pipelineName {
+					name := aws.ToString(p.Name)
+					if name == pipelineName {
 						found = true
 
 						break
