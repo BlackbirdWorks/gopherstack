@@ -759,7 +759,7 @@ type configurationOptionSettingType struct {
 type configurationSettingsDescType struct {
 	ApplicationName   string                           `xml:"ApplicationName"`
 	EnvironmentName   string                           `xml:"EnvironmentName"`
-	SolutionStackName string                           `xml:"SolutionStackName,omitempty"`
+	SolutionStackName string                           `xml:"SolutionStackName"`
 	OptionSettings    []configurationOptionSettingType `xml:"OptionSettings>member"`
 }
 
@@ -774,19 +774,28 @@ type describeConfigurationSettingsResponse struct {
 	DescribeConfigurationSettingsResult describeConfigurationSettingsResult `xml:"DescribeConfigurationSettingsResult"`
 }
 
-// handleDescribeConfigurationSettings returns an empty configuration settings list.
+// handleDescribeConfigurationSettings returns the configuration settings for an environment.
 // The Terraform provider calls this after environment creation to populate all_settings.
+// SolutionStackName must be populated to prevent the provider from dereferencing a nil pointer.
 func (h *Handler) handleDescribeConfigurationSettings(vals url.Values) (any, error) {
 	appName := vals.Get("ApplicationName")
 	envName := vals.Get("EnvironmentName")
+
+	solutionStack := ""
+
+	envs := h.Backend.DescribeEnvironments(appName, []string{envName})
+	if len(envs) > 0 {
+		solutionStack = envs[0].SolutionStackName
+	}
 
 	return &describeConfigurationSettingsResponse{
 		Xmlns: ebXMLNS,
 		DescribeConfigurationSettingsResult: describeConfigurationSettingsResult{
 			ConfigurationSettings: []configurationSettingsDescType{
 				{
-					ApplicationName: appName,
-					EnvironmentName: envName,
+					ApplicationName:   appName,
+					EnvironmentName:   envName,
+					SolutionStackName: solutionStack,
 				},
 			},
 		},
