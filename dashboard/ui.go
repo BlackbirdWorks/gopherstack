@@ -60,6 +60,7 @@ import (
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
+	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
@@ -214,7 +215,9 @@ type DashboardHandler struct {
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
 	// EKSOps provides access to the EKS backend.
 	EKSOps       *eksbackend.Handler
-	SubRouter    *echo.Echo
+	// ELBOps provides access to the Classic ELB backend.
+	ELBOps    *elbbackend.Handler
+	SubRouter *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
 	FaultStore   *chaos.FaultStore
@@ -366,6 +369,8 @@ type Config struct {
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
 	// EKSOps provides access to the EKS backend.
 	EKSOps *eksbackend.Handler
+	// ELBOps provides access to the Classic ELB backend.
+	ELBOps *elbbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -465,6 +470,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/codepipeline/*.html",
 		"templates/codestarconnections/*.html",
 		"templates/dynamodbstreams/*.html",
+		"templates/elb/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -557,6 +563,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
 		DynamoDBStreamsOps:         cfg.DynamoDBStreamsOps,
 		EKSOps:                     cfg.EKSOps,
+		ELBOps:                     cfg.ELBOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -904,6 +911,12 @@ func (h *DashboardHandler) setupEFSRoutes() {
 	h.SubRouter.POST("/dashboard/efs/filesystem/delete", h.efsDeleteFileSystem)
 }
 
+func (h *DashboardHandler) setupELBRoutes() {
+	h.SubRouter.GET("/dashboard/elb", h.elbIndex)
+	h.SubRouter.POST("/dashboard/elb/loadbalancer/create", h.elbCreateLoadBalancer)
+	h.SubRouter.POST("/dashboard/elb/loadbalancer/delete", h.elbDeleteLoadBalancer)
+}
+
 func (h *DashboardHandler) setupAppSyncRoutes() {
 	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
 }
@@ -1035,6 +1048,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupDynamoDBStreamsRoutes()
 	h.setupEFSRoutes()
 	h.setupEKSRoutes()
+	h.setupELBRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -1151,6 +1165,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/codestarconnections", "CodeStarConnections"},
 	{"/dynamodbstreams", "DynamoDBStreams"},
 	{"/efs", "EFS"},
+	{"/elb", "ELB"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
