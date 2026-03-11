@@ -55,6 +55,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
@@ -160,6 +161,7 @@ type AWSSDKProvider interface {
 	GetFISHandler() service.Registerable
 	GetAPIGatewayManagementAPIHandler() service.Registerable
 	GetAppConfigDataHandler() service.Registerable
+	GetElasticTranscoderHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -250,6 +252,7 @@ type extractedConfig struct {
 	elbv2Ops                  *elbv2backend.Handler
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
+	elasticTranscoderOps      *elastictranscoderbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -551,7 +554,7 @@ func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 }
 
 // extractCodeServiceHandlers populates CodeArtifact, CodeBuild, CodeCommit, CodePipeline,
-// CodeConnections, and CodeDeploy handlers on ec.
+// CodeConnections, CodeDeploy, and ElasticTranscoder handlers on ec.
 func extractCodeServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCodeArtifactHandler(); h != nil {
 		ec.codeArtifactOps, _ = h.(*codeartifactbackend.Handler)
@@ -559,6 +562,10 @@ func extractCodeServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetCodeBuildHandler(); h != nil {
 		ec.codebuildOps, _ = h.(*codebuildbackend.Handler)
+	}
+
+	if h := ap.GetElasticTranscoderHandler(); h != nil {
+		ec.elasticTranscoderOps, _ = h.(*elastictranscoderbackend.Handler)
 	}
 
 	extractCodeHandlers(ap, ec)
@@ -678,6 +685,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ELBv2Ops:                   ec.elbv2Ops,
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,
+		ElasticTranscoderOps:       ec.elasticTranscoderOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,
