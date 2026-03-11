@@ -13,6 +13,8 @@ import (
 	appsynctypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
 	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	codedeploytypes "github.com/aws/aws-sdk-go-v2/service/codedeploy/types"
+	codepipelinesvc "github.com/aws/aws-sdk-go-v2/service/codepipeline"
+	codepipelinetypes "github.com/aws/aws-sdk-go-v2/service/codepipeline/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -57,6 +59,7 @@ type Clients struct {
 	ECS            *ecs.Client
 	IoT            *iot.Client
 	CodeDeploy     *codedeploysvc.Client
+	CodePipeline   *codepipelinesvc.Client
 }
 
 // LoadData loads sample data into all supported services.
@@ -112,6 +115,10 @@ func LoadData(
 
 	if clients.CodeDeploy != nil {
 		loadCodeDeploy(ctx, clients.CodeDeploy)
+	}
+
+	if clients.CodePipeline != nil {
+		loadCodePipeline(ctx, clients.CodePipeline)
 	}
 
 	pkgslogger.Load(ctx).InfoContext(ctx, "Demo data loaded successfully")
@@ -605,5 +612,84 @@ func loadCodeDeploy(ctx context.Context, client *codedeploysvc.Client) {
 		}
 
 		pkgslogger.Load(ctx).InfoContext(ctx, "Created CodeDeploy application", "name", a.name, "platform", a.platform)
+	}
+}
+
+func loadCodePipeline(ctx context.Context, client *codepipelinesvc.Client) {
+	pipelines := []struct {
+		name     string
+		roleARN  string
+		location string
+	}{
+		{"demo-deploy-pipeline", "arn:aws:iam::000000000000:role/demo-pipeline-role", "demo-artifact-bucket"},
+		{"demo-build-pipeline", "arn:aws:iam::000000000000:role/demo-pipeline-role", "demo-artifact-bucket"},
+	}
+
+	for _, p := range pipelines {
+		_, err := client.CreatePipeline(ctx, &codepipelinesvc.CreatePipelineInput{
+			Pipeline: &codepipelinetypes.PipelineDeclaration{
+				Name:    aws.String(p.name),
+				RoleArn: aws.String(p.roleARN),
+				ArtifactStore: &codepipelinetypes.ArtifactStore{
+					Type:     codepipelinetypes.ArtifactStoreTypeS3,
+					Location: aws.String(p.location),
+				},
+				Stages: []codepipelinetypes.StageDeclaration{
+					{
+						Name: aws.String("Source"),
+						Actions: []codepipelinetypes.ActionDeclaration{
+							{
+								Name: aws.String("SourceAction"),
+								ActionTypeId: &codepipelinetypes.ActionTypeId{
+									Category: codepipelinetypes.ActionCategorySource,
+									Owner:    codepipelinetypes.ActionOwnerAws,
+									Provider: aws.String("CodeCommit"),
+									Version:  aws.String("1"),
+								},
+								OutputArtifacts: []codepipelinetypes.OutputArtifact{
+									{Name: aws.String("source_output")},
+								},
+								Configuration: map[string]string{
+									"RepositoryName": "demo-repo",
+									"BranchName":     "main",
+								},
+							},
+						},
+					},
+					{
+						Name: aws.String("Deploy"),
+						Actions: []codepipelinetypes.ActionDeclaration{
+							{
+								Name: aws.String("DeployAction"),
+								ActionTypeId: &codepipelinetypes.ActionTypeId{
+									Category: codepipelinetypes.ActionCategoryDeploy,
+									Owner:    codepipelinetypes.ActionOwnerAws,
+									Provider: aws.String("CloudFormation"),
+									Version:  aws.String("1"),
+								},
+								InputArtifacts: []codepipelinetypes.InputArtifact{
+									{Name: aws.String("source_output")},
+								},
+								Configuration: map[string]string{
+									"ActionMode": "CREATE_UPDATE",
+									"StackName":  "demo-stack",
+								},
+							},
+						},
+					},
+				},
+			},
+			Tags: []codepipelinetypes.Tag{
+				{Key: aws.String("Environment"), Value: aws.String("demo")},
+			},
+		})
+		if err != nil {
+			pkgslogger.Load(ctx).
+				WarnContext(ctx, "Failed to create CodePipeline pipeline", "name", p.name, "error", err)
+
+			continue
+		}
+
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created CodePipeline pipeline", "name", p.name)
 	}
 }

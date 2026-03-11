@@ -21,6 +21,7 @@ import (
 	amplifysdk "github.com/aws/aws-sdk-go-v2/service/amplify"
 	appsyncsdksvc "github.com/aws/aws-sdk-go-v2/service/appsync"
 	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
+	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -76,6 +77,8 @@ import (
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
@@ -194,9 +197,11 @@ type CLI struct {
 	codeArtifactHandler           service.Registerable
 	codebuildHandler              service.Registerable
 	codeCommitHandler             service.Registerable
+	codePipelineHandler           service.Registerable
 	codeConnectionsHandler        service.Registerable
 	codeDeployHandler             service.Registerable
 	dmsHandler                    service.Registerable
+	codeStarConnectionsHandler    service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -219,6 +224,7 @@ type CLI struct {
 	ecsClient                     *ecs.Client
 	iotClient                     *iotsdk.Client
 	codeDeployClient              *codedeploysdk.Client
+	codePipelineSDKClient         *codepipelinesdk.Client
 	AccountID                     string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
 	Port                          string                 `                                  name:"port"               env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
 	ElastiCacheEngine             string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
@@ -642,6 +648,11 @@ func (c *CLI) GetCodeBuildHandler() service.Registerable { return c.codebuildHan
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCodeCommitHandler() service.Registerable { return c.codeCommitHandler }
 
+// GetCodePipelineHandler returns the CodePipeline handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodePipelineHandler() service.Registerable { return c.codePipelineHandler }
+
 // GetCodeDeployHandler returns the CodeDeploy handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -651,6 +662,13 @@ func (c *CLI) GetCodeDeployHandler() service.Registerable { return c.codeDeployH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetDMSHandler() service.Registerable { return c.dmsHandler }
+
+// GetCodeStarConnectionsHandler returns the CodeStar Connections handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodeStarConnectionsHandler() service.Registerable {
+	return c.codeStarConnectionsHandler
+}
 
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
@@ -986,6 +1004,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
+	cli.codePipelineSDKClient = codepipelinesdk.NewFromConfig(
+		awsCfg,
+		func(o *codepipelinesdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
 }
 
 // serviceByName builds a lookup map from service Name() to the service instance.
@@ -1083,8 +1107,10 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.codeConnectionsHandler = byName["CodeConnections"]
 	cli.codebuildHandler = byName["CodeBuild"]
 	cli.codeCommitHandler = byName["CodeCommit"]
+	cli.codePipelineHandler = byName["CodePipeline"]
 	cli.codeDeployHandler = byName["CodeDeploy"]
 	cli.dmsHandler = byName["DMS"]
+	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 }
 
 // initializeServices initializes all service providers.
@@ -1264,9 +1290,11 @@ func getServiceProviders() []service.Provider {
 		&codeartifactbackend.Provider{},
 		&codebuildbackend.Provider{},
 		&codecommitbackend.Provider{},
+		&codepipelinebackend.Provider{},
 		&codeconnectionsbackend.Provider{},
 		&codedeploybackend.Provider{},
 		&dmsbackend.Provider{},
+		&codestarconnectionsbackend.Provider{},
 	}
 }
 
@@ -2797,6 +2825,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		ECS:            cli.ecsClient,
 		IoT:            cli.iotClient,
 		CodeDeploy:     cli.codeDeployClient,
+		CodePipeline:   cli.codePipelineSDKClient,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load demo data", "error", err)

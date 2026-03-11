@@ -43,6 +43,8 @@ import (
 	codecommitsvc "github.com/aws/aws-sdk-go-v2/service/codecommit"
 	codeconnectionssvc "github.com/aws/aws-sdk-go-v2/service/codeconnections"
 	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
+	codepipelinesvc "github.com/aws/aws-sdk-go-v2/service/codepipeline"
+	codestarconnectionssvc "github.com/aws/aws-sdk-go-v2/service/codestarconnections"
 	cognitoidentitysvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
@@ -1486,6 +1488,24 @@ func createCodeCommitClient(t *testing.T) *codecommitsvc.Client {
 	})
 }
 
+// createCodePipelineClient returns a CodePipeline client pointed at the shared test container.
+func createCodePipelineClient(t *testing.T) *codepipelinesvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return codepipelinesvc.NewFromConfig(cfg, func(o *codepipelinesvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
 // createCodeDeployClient returns a CodeDeploy client pointed at the shared test container.
 func createCodeDeployClient(t *testing.T) *codedeploysvc.Client {
 	t.Helper()
@@ -1518,6 +1538,24 @@ func createDMSClient(t *testing.T) *dmssvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return dmssvc.NewFromConfig(cfg, func(o *dmssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodeStarConnectionsClient returns a CodeStar Connections client pointed at the shared test container.
+func createCodeStarConnectionsClient(t *testing.T) *codestarconnectionssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return codestarconnectionssvc.NewFromConfig(cfg, func(o *codestarconnectionssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

@@ -34,6 +34,8 @@ import (
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
+	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
@@ -135,9 +137,11 @@ type AWSSDKProvider interface {
 	GetCodeArtifactHandler() service.Registerable
 	GetCodeBuildHandler() service.Registerable
 	GetCodeCommitHandler() service.Registerable
+	GetCodePipelineHandler() service.Registerable
 	GetCodeConnectionsHandler() service.Registerable
 	GetCodeDeployHandler() service.Registerable
 	GetDMSHandler() service.Registerable
+	GetCodeStarConnectionsHandler() service.Registerable
 	GetECRHandler() service.Registerable
 	GetECSHandler() service.Registerable
 	GetIoTHandler() service.Registerable
@@ -219,9 +223,11 @@ type extractedConfig struct {
 	codeArtifactOps           *codeartifactbackend.Handler
 	codebuildOps              *codebuildbackend.Handler
 	codeCommitOps             *codecommitbackend.Handler
+	codePipelineOps           *codepipelinebackend.Handler
 	codeConnectionsOps        *codeconnectionsbackend.Handler
 	codeDeployOps             *codedeploybackend.Handler
 	dmsOps                    *dmsbackend.Handler
+	codeStarConnectionsOps    *codestarconnectionsbackend.Handler
 	ecrOps                    *ecrbackend.Handler
 	ecsOps                    *ecsbackend.Handler
 	iotOps                    *iotbackend.Handler
@@ -493,7 +499,7 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	extractCloudPlatformHandlers(ap, ec)
 }
 
-// extractCloudPlatformHandlers populates CE, CloudControl, CloudFront, and CodeArtifact handlers on ec.
+// extractCloudPlatformHandlers populates CE, CloudControl, and CloudFront handlers on ec.
 func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCeHandler(); h != nil {
 		ec.ceOps, _ = h.(*cebackend.Handler)
@@ -507,6 +513,12 @@ func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.cloudFrontOps, _ = h.(*cloudfrontbackend.Handler)
 	}
 
+	extractCodeServiceHandlers(ap, ec)
+}
+
+// extractCodeServiceHandlers populates CodeArtifact, CodeBuild, CodeCommit, CodePipeline,
+// CodeConnections, and CodeDeploy handlers on ec.
+func extractCodeServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCodeArtifactHandler(); h != nil {
 		ec.codeArtifactOps, _ = h.(*codeartifactbackend.Handler)
 	}
@@ -515,8 +527,17 @@ func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.codebuildOps, _ = h.(*codebuildbackend.Handler)
 	}
 
+	extractCodeHandlers(ap, ec)
+}
+
+// extractCodeHandlers populates Code* service handlers on ec.
+func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCodeCommitHandler(); h != nil {
 		ec.codeCommitOps, _ = h.(*codecommitbackend.Handler)
+	}
+
+	if h := ap.GetCodePipelineHandler(); h != nil {
+		ec.codePipelineOps, _ = h.(*codepipelinebackend.Handler)
 	}
 
 	if h := ap.GetCodeConnectionsHandler(); h != nil {
@@ -529,6 +550,10 @@ func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetDMSHandler(); h != nil {
 		ec.dmsOps, _ = h.(*dmsbackend.Handler)
+	}
+
+	if h := ap.GetCodeStarConnectionsHandler(); h != nil {
+		ec.codeStarConnectionsOps, _ = h.(*codestarconnectionsbackend.Handler)
 	}
 }
 
@@ -596,9 +621,11 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CodeArtifactOps:            ec.codeArtifactOps,
 		CodeBuildOps:               ec.codebuildOps,
 		CodeCommitOps:              ec.codeCommitOps,
+		CodePipelineOps:            ec.codePipelineOps,
 		CodeConnectionsOps:         ec.codeConnectionsOps,
 		CodeDeployOps:              ec.codeDeployOps,
 		DMSOps:                     ec.dmsOps,
+		CodeStarConnectionsOps:     ec.codeStarConnectionsOps,
 		ECROps:                     ec.ecrOps,
 		ECSOps:                     ec.ecsOps,
 		IoTOps:                     ec.iotOps,
