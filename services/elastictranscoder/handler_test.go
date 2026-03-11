@@ -248,56 +248,74 @@ func TestElasticTranscoder_Pipeline_ReadAndList(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest,tparallel // subtests share a stateful handler and must run sequentially
 func TestElasticTranscoder_Pipeline_UpdateAndDelete(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-
-	// Create a pipeline.
-	createRec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]string{
-		"Name": "to-update", "InputBucket": "bucket", "Role": "arn:aws:iam::123:role/et",
-	})
-	require.Equal(t, http.StatusCreated, createRec.Code)
-
-	var createOut struct {
-		Pipeline elastictranscoder.Pipeline `json:"Pipeline"`
-	}
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
-	id := createOut.Pipeline.ID
-
 	tests := []struct {
+		setup      func(t *testing.T, h *elastictranscoder.Handler) string
 		body       any
 		name       string
 		method     string
-		path       string
 		wantStatus int
 	}{
 		{
-			name:       "update pipeline",
-			method:     http.MethodPut,
-			path:       "/2012-09-25/pipelines/" + id,
+			name: "update pipeline",
+			setup: func(t *testing.T, h *elastictranscoder.Handler) string {
+				t.Helper()
+				rec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]string{
+					"Name": "to-update", "InputBucket": "bucket", "Role": "arn:aws:iam::123:role/et",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+
+				var out struct {
+					Pipeline elastictranscoder.Pipeline `json:"Pipeline"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+
+				return "/2012-09-25/pipelines/" + out.Pipeline.ID
+			},
 			body:       map[string]string{"Name": "updated-name"},
+			method:     http.MethodPut,
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "delete pipeline",
+			name: "delete pipeline",
+			setup: func(t *testing.T, h *elastictranscoder.Handler) string {
+				t.Helper()
+				rec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]string{
+					"Name": "to-delete", "InputBucket": "bucket", "Role": "arn:aws:iam::123:role/et",
+				})
+				require.Equal(t, http.StatusCreated, rec.Code)
+
+				var out struct {
+					Pipeline elastictranscoder.Pipeline `json:"Pipeline"`
+				}
+				require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+
+				return "/2012-09-25/pipelines/" + out.Pipeline.ID
+			},
 			method:     http.MethodDelete,
-			path:       "/2012-09-25/pipelines/" + id,
 			wantStatus: http.StatusAccepted,
 		},
 		{
-			name:       "delete non-existent pipeline",
+			name: "delete non-existent pipeline",
+			setup: func(t *testing.T, _ *elastictranscoder.Handler) string {
+				t.Helper()
+
+				return "/2012-09-25/pipelines/nonexistent"
+			},
 			method:     http.MethodDelete,
-			path:       "/2012-09-25/pipelines/nonexistent",
 			wantStatus: http.StatusNotFound,
 		},
 	}
 
-	// Run sequentially since the delete test depends on the update happening first.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			t.Parallel()
+
+			h := newTestHandler(t)
+			path := tt.setup(t, h)
+			rec := doRequest(t, h, tt.method, path, tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -342,65 +360,83 @@ func TestElasticTranscoder_Preset_CRUD(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest,tparallel // subtests share a stateful handler and must run sequentially
 func TestElasticTranscoder_Preset_ReadListDelete(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	createPreset := func(t *testing.T, h *elastictranscoder.Handler) string {
+		t.Helper()
+		rec := doRequest(t, h, http.MethodPost, "/2012-09-25/presets", map[string]string{
+			"Name": "test-preset", "Container": "mp4",
+		})
+		require.Equal(t, http.StatusCreated, rec.Code)
 
-	// Create a preset.
-	createRec := doRequest(t, h, http.MethodPost, "/2012-09-25/presets", map[string]string{
-		"Name": "test-preset", "Container": "mp4",
-	})
-	require.Equal(t, http.StatusCreated, createRec.Code)
+		var out struct {
+			Preset elastictranscoder.Preset `json:"Preset"`
+		}
+		require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 
-	var createOut struct {
-		Preset elastictranscoder.Preset `json:"Preset"`
+		return out.Preset.ID
 	}
-	require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
-	id := createOut.Preset.ID
 
 	tests := []struct {
+		setup      func(t *testing.T, h *elastictranscoder.Handler) string
 		name       string
 		method     string
-		path       string
 		wantField  string
 		wantStatus int
 	}{
 		{
-			name:       "read preset",
+			name: "read preset",
+			setup: func(t *testing.T, h *elastictranscoder.Handler) string {
+				t.Helper()
+
+				return "/2012-09-25/presets/" + createPreset(t, h)
+			},
 			method:     http.MethodGet,
-			path:       "/2012-09-25/presets/" + id,
 			wantStatus: http.StatusOK,
 			wantField:  "test-preset",
 		},
 		{
-			name:       "read non-existent preset",
+			name: "read non-existent preset",
+			setup: func(t *testing.T, _ *elastictranscoder.Handler) string {
+				t.Helper()
+
+				return "/2012-09-25/presets/missing"
+			},
 			method:     http.MethodGet,
-			path:       "/2012-09-25/presets/missing",
 			wantStatus: http.StatusNotFound,
-			wantField:  "",
 		},
 		{
-			name:       "list presets",
+			name: "list presets",
+			setup: func(t *testing.T, h *elastictranscoder.Handler) string {
+				t.Helper()
+				createPreset(t, h)
+
+				return "/2012-09-25/presets"
+			},
 			method:     http.MethodGet,
-			path:       "/2012-09-25/presets",
 			wantStatus: http.StatusOK,
 			wantField:  "test-preset",
 		},
 		{
-			name:       "delete preset",
+			name: "delete preset",
+			setup: func(t *testing.T, h *elastictranscoder.Handler) string {
+				t.Helper()
+
+				return "/2012-09-25/presets/" + createPreset(t, h)
+			},
 			method:     http.MethodDelete,
-			path:       "/2012-09-25/presets/" + id,
 			wantStatus: http.StatusAccepted,
-			wantField:  "",
 		},
 	}
 
-	// Run sequentially since tests share the same handler and depend on state order.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := doRequest(t, h, tt.method, tt.path, nil)
+			t.Parallel()
+
+			h := newTestHandler(t)
+			path := tt.setup(t, h)
+			rec := doRequest(t, h, tt.method, path, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantField != "" {
@@ -467,83 +503,105 @@ func TestElasticTranscoder_Job_CRUD(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest,tparallel // subtests share a stateful handler and must run sequentially
 func TestElasticTranscoder_Job_ReadListCancel(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-
-	// Create pipeline and job.
-	createPipelineRec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]string{
-		"Name": "my-pipeline", "InputBucket": "bucket", "Role": "arn:aws:iam::123:role/et",
-	})
-	require.Equal(t, http.StatusCreated, createPipelineRec.Code)
-
-	var pipelineOut struct {
-		Pipeline elastictranscoder.Pipeline `json:"Pipeline"`
+	type ids struct {
+		pipelineID string
+		jobID      string
 	}
-	require.NoError(t, json.NewDecoder(createPipelineRec.Body).Decode(&pipelineOut))
-	pipelineID := pipelineOut.Pipeline.ID
 
-	createJobRec := doRequest(t, h, http.MethodPost, "/2012-09-25/jobs", map[string]string{
-		"PipelineId": pipelineID,
-	})
-	require.Equal(t, http.StatusCreated, createJobRec.Code)
+	createPipelineAndJob := func(t *testing.T, h *elastictranscoder.Handler) ids {
+		t.Helper()
+		pRec := doRequest(t, h, http.MethodPost, "/2012-09-25/pipelines", map[string]string{
+			"Name": "my-pipeline", "InputBucket": "bucket", "Role": "arn:aws:iam::123:role/et",
+		})
+		require.Equal(t, http.StatusCreated, pRec.Code)
 
-	var jobOut struct {
-		Job elastictranscoder.Job `json:"Job"`
+		var pOut struct {
+			Pipeline elastictranscoder.Pipeline `json:"Pipeline"`
+		}
+		require.NoError(t, json.NewDecoder(pRec.Body).Decode(&pOut))
+
+		jRec := doRequest(t, h, http.MethodPost, "/2012-09-25/jobs", map[string]string{"PipelineId": pOut.Pipeline.ID})
+		require.Equal(t, http.StatusCreated, jRec.Code)
+
+		var jOut struct {
+			Job elastictranscoder.Job `json:"Job"`
+		}
+		require.NoError(t, json.NewDecoder(jRec.Body).Decode(&jOut))
+
+		return ids{pipelineID: pOut.Pipeline.ID, jobID: jOut.Job.ID}
 	}
-	require.NoError(t, json.NewDecoder(createJobRec.Body).Decode(&jobOut))
-	jobID := jobOut.Job.ID
 
 	tests := []struct {
+		setup      func(t *testing.T, h *elastictranscoder.Handler) ids
 		name       string
 		method     string
-		path       string
+		pathFn     func(i ids) string
 		wantField  string
 		wantStatus int
 	}{
 		{
-			name:       "read job",
+			name: "read job",
+			setup: func(t *testing.T, h *elastictranscoder.Handler) ids {
+				t.Helper()
+				return createPipelineAndJob(t, h)
+			},
+			pathFn:     func(i ids) string { return "/2012-09-25/jobs/" + i.jobID },
 			method:     http.MethodGet,
-			path:       "/2012-09-25/jobs/" + jobID,
 			wantStatus: http.StatusOK,
-			wantField:  pipelineID,
 		},
 		{
-			name:       "read non-existent job",
+			name: "read non-existent job",
+			setup: func(t *testing.T, _ *elastictranscoder.Handler) ids {
+				t.Helper()
+				return ids{}
+			},
+			pathFn:     func(_ ids) string { return "/2012-09-25/jobs/nonexistent" },
 			method:     http.MethodGet,
-			path:       "/2012-09-25/jobs/nonexistent",
 			wantStatus: http.StatusNotFound,
-			wantField:  "",
 		},
 		{
-			name:       "list jobs by pipeline",
+			name: "list jobs by pipeline",
+			setup: func(t *testing.T, h *elastictranscoder.Handler) ids {
+				t.Helper()
+				return createPipelineAndJob(t, h)
+			},
+			pathFn:     func(i ids) string { return "/2012-09-25/jobsByPipeline/" + i.pipelineID },
 			method:     http.MethodGet,
-			path:       "/2012-09-25/jobsByPipeline/" + pipelineID,
 			wantStatus: http.StatusOK,
-			wantField:  pipelineID,
 		},
 		{
-			name:       "cancel job",
+			name: "cancel job",
+			setup: func(t *testing.T, h *elastictranscoder.Handler) ids {
+				t.Helper()
+				return createPipelineAndJob(t, h)
+			},
+			pathFn:     func(i ids) string { return "/2012-09-25/jobs/" + i.jobID },
 			method:     http.MethodDelete,
-			path:       "/2012-09-25/jobs/" + jobID,
 			wantStatus: http.StatusAccepted,
-			wantField:  "",
 		},
 		{
-			name:       "cancel non-existent job",
+			name: "cancel non-existent job",
+			setup: func(t *testing.T, _ *elastictranscoder.Handler) ids {
+				t.Helper()
+				return ids{}
+			},
+			pathFn:     func(_ ids) string { return "/2012-09-25/jobs/nonexistent" },
 			method:     http.MethodDelete,
-			path:       "/2012-09-25/jobs/nonexistent",
 			wantStatus: http.StatusNotFound,
-			wantField:  "",
 		},
 	}
 
-	// Run sequentially since cancel_job removes the job from the store.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rec := doRequest(t, h, tt.method, tt.path, nil)
+			t.Parallel()
+
+			h := newTestHandler(t)
+			i := tt.setup(t, h)
+			path := tt.pathFn(i)
+			rec := doRequest(t, h, tt.method, path, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantField != "" {
