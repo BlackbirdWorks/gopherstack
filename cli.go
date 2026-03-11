@@ -73,6 +73,7 @@ import (
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
+	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
@@ -190,6 +191,7 @@ type CLI struct {
 	codeArtifactHandler           service.Registerable
 	codebuildHandler              service.Registerable
 	codeCommitHandler             service.Registerable
+	codePipelineHandler           service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -629,6 +631,11 @@ func (c *CLI) GetCodeBuildHandler() service.Registerable { return c.codebuildHan
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCodeCommitHandler() service.Registerable { return c.codeCommitHandler }
 
+// GetCodePipelineHandler returns the CodePipeline handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCodePipelineHandler() service.Registerable { return c.codePipelineHandler }
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1053,6 +1060,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.codeArtifactHandler = byName["CodeArtifact"]
 	cli.codebuildHandler = byName["CodeBuild"]
 	cli.codeCommitHandler = byName["CodeCommit"]
+	cli.codePipelineHandler = byName["CodePipeline"]
 }
 
 // initializeServices initializes all service providers.
@@ -1232,6 +1240,7 @@ func getServiceProviders() []service.Provider {
 		&codeartifactbackend.Provider{},
 		&codebuildbackend.Provider{},
 		&codecommitbackend.Provider{},
+		&codepipelinebackend.Provider{},
 	}
 }
 
