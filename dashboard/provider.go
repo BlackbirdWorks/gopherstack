@@ -26,6 +26,7 @@ import (
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
@@ -117,6 +118,7 @@ type AWSSDKProvider interface {
 	GetAPIGatewayV2Handler() service.Registerable
 	GetAthenaHandler() service.Registerable
 	GetBackupHandler() service.Registerable
+	GetCloudTrailHandler() service.Registerable
 	GetAppConfigHandler() service.Registerable
 	GetApplicationAutoscalingHandler() service.Registerable
 	GetBatchHandler() service.Registerable
@@ -195,6 +197,7 @@ type extractedConfig struct {
 	athenaOps                 *athenabackend.Handler
 	autoscalingOps            *autoscalingbackend.Handler
 	backupOps                 *backupbackend.Handler
+	cloudtrailOps             *cloudtrailbackend.Handler
 	appConfigOps              *appconfigbackend.Handler
 	applicationAutoscalingOps *applicationautoscalingbackend.Handler
 	batchOps                  *batchbackend.Handler
@@ -456,6 +459,10 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.backupOps, _ = h.(*backupbackend.Handler)
 	}
 
+	if h := ap.GetCloudTrailHandler(); h != nil {
+		ec.cloudtrailOps, _ = h.(*cloudtrailbackend.Handler)
+	}
+
 	if h := ap.GetAutoscalingHandler(); h != nil {
 		ec.autoscalingOps, _ = h.(*autoscalingbackend.Handler)
 	}
@@ -468,6 +475,11 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.bedrockOps, _ = h.(*bedrockbackend.Handler)
 	}
 
+	extractCloudPlatformHandlers(ap, ec)
+}
+
+// extractCloudPlatformHandlers populates CE, CloudControl, CloudFront, and CodeArtifact handlers on ec.
+func extractCloudPlatformHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetCeHandler(); h != nil {
 		ec.ceOps, _ = h.(*cebackend.Handler)
 	}
@@ -537,6 +549,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		AthenaOps:                  ec.athenaOps,
 		AutoscalingOps:             ec.autoscalingOps,
 		BackupOps:                  ec.backupOps,
+		CloudTrailOps:              ec.cloudtrailOps,
 		AppConfigOps:               ec.appConfigOps,
 		ApplicationAutoscalingOps:  ec.applicationAutoscalingOps,
 		BatchOps:                   ec.batchOps,

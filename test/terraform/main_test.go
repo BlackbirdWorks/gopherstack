@@ -35,6 +35,7 @@ import (
 	cloudcontrolsvc "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudfrontsvc "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	cloudtrailsvc "github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	codeartifactsvc "github.com/aws/aws-sdk-go-v2/service/codeartifact"
@@ -1296,6 +1297,24 @@ func createBatchClient(t *testing.T) *batchsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return batchsvc.NewFromConfig(cfg, func(o *batchsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudTrailClient returns a CloudTrail client pointed at the shared test container.
+func createCloudTrailClient(t *testing.T) *cloudtrailsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return cloudtrailsvc.NewFromConfig(cfg, func(o *cloudtrailsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

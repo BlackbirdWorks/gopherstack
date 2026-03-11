@@ -67,6 +67,7 @@ import (
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
@@ -175,6 +176,7 @@ type CLI struct {
 	apiGatewayV2Handler           service.Registerable
 	athenaHandler                 service.Registerable
 	backupHandler                 service.Registerable
+	cloudtrailHandler             service.Registerable
 	appConfigHandler              service.Registerable
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
@@ -560,6 +562,11 @@ func (c *CLI) GetAthenaHandler() service.Registerable { return c.athenaHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetBackupHandler() service.Registerable { return c.backupHandler }
+
+// GetCloudTrailHandler returns the CloudTrail handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetCloudTrailHandler() service.Registerable { return c.cloudtrailHandler }
 
 // GetAppConfigHandler returns the AppConfig handler (dashboard.AWSSDKProvider).
 //
@@ -1025,6 +1032,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cognitoIdentityHandler = byName["CognitoIdentity"]
 	cli.fisHandler = byName["FIS"]
 	cli.backupHandler = byName["Backup"]
+	cli.cloudtrailHandler = byName["CloudTrail"]
 	cli.ceHandler = byName["Ce"]
 	cli.cloudcontrolHandler = byName["CloudControl"]
 	cli.cloudFrontHandler = byName["CloudFront"]
@@ -1197,6 +1205,7 @@ func getServiceProviders() []service.Provider {
 		&athenabackend.Provider{},
 		&appconfigbackend.Provider{},
 		&backupbackend.Provider{},
+		&cloudtrailbackend.Provider{},
 		&applicationautoscalingbackend.Provider{},
 		&batchbackend.Provider{},
 		&bedrockbackend.Provider{},
