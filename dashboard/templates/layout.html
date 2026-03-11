@@ -298,7 +298,20 @@
                             </div>
                         </li>
 
-                    </ul>
+                    <li>
+                            <a href="/dashboard/elasticache"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "elasticache"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-elasticache" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/elasticache.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="elasticache" /> <span
+                                    class="sidebar-text truncate" title="ElastiCache">ElastiCache</span>
+                            </a>
+                            <div id="tooltip-elasticache" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                ElastiCache
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li></ul>
                 </li>
                 <li>
                     <button
@@ -493,63 +506,299 @@
 
                     </ul>
                 </li>
+                
                 <li>
                     <button
                         class="category-btn flex items-center justify-between w-full px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                        onclick="window.SidebarManager.toggleSection('integration-services')">
-                        <span class="category-header-text">Integration Services</span>
-                        <svg id="chevron-integration-services"
+                        onclick="window.SidebarManager.toggleSection('compute')">
+                        <span class="category-header-text">Compute & Containers</span>
+                        <svg id="chevron-compute"
                             class="w-3 h-3 chevron-icon transition-transform duration-200" fill="none"
                             stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7">
                             </path>
                         </svg>
                     </button>
-                    <ul id="section-integration-services"
+                    <ul id="section-compute"
                         class="space-y-1 mt-1 overflow-hidden transition-all duration-300 origin-top">
-                        <li>
-                            <a href="/dashboard/eventbridge"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "eventbridge"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-eventbridge" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/eventbridge.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="eventbridge" /> <span
-                                    class="sidebar-text truncate" title="EventBridge">EventBridge</span>
+<li>
+                            <a href="/dashboard/ec2"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "ec2"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-ec2" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/ec2.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="ec2" /> <span
+                                    class="sidebar-text truncate" title="EC2">EC2</span>
                             </a>
-                            <div id="tooltip-eventbridge" role="tooltip"
+                            <div id="tooltip-ec2" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                EventBridge
+                                EC2
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/apigatewayv2"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "apigatewayv2"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-apigatewayv2" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/apigatewayv2.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="apigatewayv2" /> <span
-                                    class="sidebar-text truncate" title="API Gateway V2">API Gateway V2</span>
+                        </li><li>
+                            <a href="/dashboard/ecr"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "ecr"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-ecr" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/ecr.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="ecr" /> <span
+                                    class="sidebar-text truncate" title="ECR">ECR</span>
                             </a>
-                            <div id="tooltip-apigatewayv2" role="tooltip"
+                            <div id="tooltip-ecr" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                API Gateway V2
+                                ECR
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/apigateway"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "apigateway"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-apigateway" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/apigateway.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="apigateway" /> <span
-                                    class="sidebar-text truncate" title="API Gateway">API Gateway</span>
+                        </li><li>
+                            <a href="/dashboard/ecs"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "ecs"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-ecs" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/ecs.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="ecs" /> <span
+                                    class="sidebar-text truncate" title="ECS">ECS</span>
                             </a>
-                            <div id="tooltip-apigateway" role="tooltip"
+                            <div id="tooltip-ecs" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                API Gateway
+                                ECS
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
+                        </li><li>
+                            <a href="/dashboard/eks"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "eks"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-eks" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/eks.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="eks" /> <span
+                                    class="sidebar-text truncate" title="EKS">EKS</span>
+                            </a>
+                            <div id="tooltip-eks" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                EKS
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/elasticbeanstalk"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "elasticbeanstalk"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-elasticbeanstalk" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/elasticbeanstalk.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="elasticbeanstalk" /> <span
+                                    class="sidebar-text truncate" title="Elastic Beanstalk">Elastic Beanstalk</span>
+                            </a>
+                            <div id="tooltip-elasticbeanstalk" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Elastic Beanstalk
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>                    </ul>>
+                        <span class="category-header-text">Databases & Analytics</span>
+                        <svg id="chevron-database-analytics"
+                            class="w-3 h-3 chevron-icon transition-transform duration-200" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7">
+                            </path>
+                        </svg>
+                    </button>
+                    <ul id="section-database-analytics"
+                        class="space-y-1 mt-1 overflow-hidden transition-all duration-300 origin-top">
+<li>
+                            <a href="/dashboard/opensearch"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "opensearch"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-opensearch" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/opensearch.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="opensearch" /> <span
+                                    class="sidebar-text truncate" title="OpenSearch">OpenSearch</span>
+                            </a>
+                            <div id="tooltip-opensearch" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                OpenSearch
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/redshift"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "redshift"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-redshift" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/redshift.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="redshift" /> <span
+                                    class="sidebar-text truncate" title="Redshift">Redshift</span>
+                            </a>
+                            <div id="tooltip-redshift" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Redshift
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/rds"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "rds"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-rds" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/rds.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="rds" /> <span
+                                    class="sidebar-text truncate" title="RDS">RDS</span>
+                            </a>
+                            <div id="tooltip-rds" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                RDS
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/dms"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "dms"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-dms" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/dms.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="dms" /> <span
+                                    class="sidebar-text truncate" title="DMS">DMS</span>
+                            </a>
+                            <div id="tooltip-dms" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                DMS
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/kinesis"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "kinesis"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-kinesis" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/kinesis.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="kinesis" /> <span
+                                    class="sidebar-text truncate" title="Kinesis">Kinesis</span>
+                            </a>
+                            <div id="tooltip-kinesis" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Kinesis
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/firehose"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "firehose"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-firehose" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/firehose.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="firehose" /> <span
+                                    class="sidebar-text truncate" title="Firehose">Firehose</span>
+                            </a>
+                            <div id="tooltip-firehose" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Firehose
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>                    </ul>
+                </li>
+                <li>
+                    <button
+                        class="category-btn flex items-center justify-between w-full px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        onclick="window.SidebarManager.toggleSection('devtools')">
+                        <span class="category-header-text">Developer Tools</span>
+                        <svg id="chevron-devtools"
+                            class="w-3 h-3 chevron-icon transition-transform duration-200" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7">
+                            </path>
+                        </svg>
+                    </button>
+                    <ul id="section-devtools"
+                        class="space-y-1 mt-1 overflow-hidden transition-all duration-300 origin-top">
+<li>
+                            <a href="/dashboard/codecommit"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codecommit"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-codecommit" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/codecommit.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codecommit" /> <span
+                                    class="sidebar-text truncate" title="CodeCommit">CodeCommit</span>
+                            </a>
+                            <div id="tooltip-codecommit" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                CodeCommit
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/codebuild"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codebuild"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-codebuild" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/codebuild.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codebuild" /> <span
+                                    class="sidebar-text truncate" title="CodeBuild">CodeBuild</span>
+                            </a>
+                            <div id="tooltip-codebuild" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                CodeBuild
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/codedeploy"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codedeploy"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-codedeploy" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/codedeploy.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codedeploy" /> <span
+                                    class="sidebar-text truncate" title="CodeDeploy">CodeDeploy</span>
+                            </a>
+                            <div id="tooltip-codedeploy" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                CodeDeploy
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/codepipeline"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codepipeline"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-codepipeline" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/codepipeline.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codepipeline" /> <span
+                                    class="sidebar-text truncate" title="CodePipeline">CodePipeline</span>
+                            </a>
+                            <div id="tooltip-codepipeline" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                CodePipeline
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/codeartifact"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codeartifact"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-codeartifact" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/codeartifact.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codeartifact" /> <span
+                                    class="sidebar-text truncate" title="CodeArtifact">CodeArtifact</span>
+                            </a>
+                            <div id="tooltip-codeartifact" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                CodeArtifact
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/codeconnections"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codeconnections"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-codeconnections" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/codeconnections.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codeconnections" /> <span
+                                    class="sidebar-text truncate" title="CodeConnections">CodeConnections</span>
+                            </a>
+                            <div id="tooltip-codeconnections" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                CodeConnections
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>                    </ul>
+                </li>
+                <li>
+                    <button
+                        class="category-btn flex items-center justify-between w-full px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        onclick="window.SidebarManager.toggleSection('management')">
+                        <span class="category-header-text">Management & Governance</span>
+                        <svg id="chevron-management"
+                            class="w-3 h-3 chevron-icon transition-transform duration-200" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7">
+                            </path>
+                        </svg>
+                    </button>
+                    <ul id="section-management"
+                        class="space-y-1 mt-1 overflow-hidden transition-all duration-300 origin-top">
+<li>
+                            <a href="/dashboard/cloudwatch"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "cloudwatch"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-cloudwatch" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/cloudwatch.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="cloudwatch" /> <span
+                                    class="sidebar-text truncate" title="CloudWatch">CloudWatch</span>
+                            </a>
+                            <div id="tooltip-cloudwatch" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                CloudWatch
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
                             <a href="/dashboard/cloudwatchlogs"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "cloudwatchlogs"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-cloudwatchlogs" data-tooltip-placement="right">
@@ -564,36 +813,7 @@
                                 Logs
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/stepfunctions"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "stepfunctions"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-stepfunctions" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/stepfunctions.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="stepfunctions" /> <span
-                                    class="sidebar-text truncate" title="Step Functions">Step Functions</span>
-                            </a>
-                            <div id="tooltip-stepfunctions" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                Step Functions
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/cloudwatch"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "cloudwatch"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-cloudwatch" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/cloudwatch.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="cloudwatch" /> <span
-                                    class="sidebar-text truncate" title="CloudWatch">CloudWatch</span>
-                            </a>
-                            <div id="tooltip-cloudwatch" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                CloudWatch
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
+                        </li><li>
                             <a href="/dashboard/cloudformation"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "cloudformation"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-cloudformation" data-tooltip-placement="right">
@@ -606,162 +826,7 @@
                                 CloudFormation
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/kinesis"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "kinesis"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-kinesis" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/kinesis.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="kinesis" /> <span
-                                    class="sidebar-text truncate" title="Kinesis">Kinesis</span>
-                            </a>
-                            <div id="tooltip-kinesis" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                Kinesis
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/elasticache"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "elasticache"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-elasticache" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/elasticache.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="elasticache" /> <span
-                                    class="sidebar-text truncate" title="ElastiCache">ElastiCache</span>
-                            </a>
-                            <div id="tooltip-elasticache" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                ElastiCache
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/route53"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "route53"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-route53" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/route53.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="route53" /> <span
-                                    class="sidebar-text truncate" title="Route 53">Route 53</span>
-                            </a>
-                            <div id="tooltip-route53" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                Route 53
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/ses"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "ses"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-ses" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/ses.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="ses" /> <span
-                                    class="sidebar-text truncate" title="SES">SES</span>
-                            </a>
-                            <div id="tooltip-ses" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                SES
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/ec2"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "ec2"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-ec2" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/ec2.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="ec2" /> <span
-                                    class="sidebar-text truncate" title="EC2">EC2</span>
-                            </a>
-                            <div id="tooltip-ec2" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                EC2
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/ecr"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "ecr"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-ecr" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/ecr.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="ecr" /> <span
-                                    class="sidebar-text truncate" title="ECR">ECR</span>
-                            </a>
-                            <div id="tooltip-ecr" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                ECR
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/ecs"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "ecs"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-ecs" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/ecs.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="ecs" /> <span
-                                    class="sidebar-text truncate" title="ECS">ECS</span>
-                            </a>
-                            <div id="tooltip-ecs" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                ECS
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/iot"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "iot"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-iot" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/iot.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="iot" /> <span
-                                    class="sidebar-text truncate" title="IoT Core">IoT Core</span>
-                            </a>
-                            <div id="tooltip-iot" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                IoT Core
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/opensearch"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "opensearch"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-opensearch" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/opensearch.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="opensearch" /> <span
-                                    class="sidebar-text truncate" title="OpenSearch">OpenSearch</span>
-                            </a>
-                            <div id="tooltip-opensearch" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                OpenSearch
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/redshift"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "redshift"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-redshift" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/redshift.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="redshift" /> <span
-                                    class="sidebar-text truncate" title="Redshift">Redshift</span>
-                            </a>
-                            <div id="tooltip-redshift" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                Redshift
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/rds"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "rds"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-rds" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/rds.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="rds" /> <span
-                                    class="sidebar-text truncate" title="RDS">RDS</span>
-                            </a>
-                            <div id="tooltip-rds" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                RDS
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
+                        </li><li>
                             <a href="/dashboard/awsconfig"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "awsconfig"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-awsconfig" data-tooltip-placement="right">
@@ -774,22 +839,7 @@
                                 AWS Config
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/s3control"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "s3control"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-s3control" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/s3control.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="s3control" /> <span
-                                    class="sidebar-text truncate" title="S3 Control">S3 Control</span>
-                            </a>
-                            <div id="tooltip-s3control" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                S3 Control
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
+                        </li><li>
                             <a href="/dashboard/resourcegroups"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "resourcegroups"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-resourcegroups" data-tooltip-placement="right">
@@ -804,8 +854,7 @@
                                 Groups
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
+                        </li><li>
                             <a href="/dashboard/resourcegroupstaggingapi"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "resourcegroupstaggingapi"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-resourcegroupstaggingapi" data-tooltip-placement="right">
@@ -819,78 +868,62 @@
                                 Resource Groups Tagging API
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/swf"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "swf"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-swf" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/swf.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="SWF" /> <span
-                                    class="sidebar-text truncate" title="SWF">SWF</span>
+                        </li>                    </ul>
+                </li>
+                <li>
+                    <button
+                        class="category-btn flex items-center justify-between w-full px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        onclick="window.SidebarManager.toggleSection('app-integration')">
+                        <span class="category-header-text">Application Integration</span>
+                        <svg id="chevron-app-integration"
+                            class="w-3 h-3 chevron-icon transition-transform duration-200" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7">
+                            </path>
+                        </svg>
+                    </button>
+                    <ul id="section-app-integration"
+                        class="space-y-1 mt-1 overflow-hidden transition-all duration-300 origin-top">
+<li>
+                            <a href="/dashboard/eventbridge"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "eventbridge"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-eventbridge" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/eventbridge.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="eventbridge" /> <span
+                                    class="sidebar-text truncate" title="EventBridge">EventBridge</span>
                             </a>
-                            <div id="tooltip-swf" role="tooltip"
+                            <div id="tooltip-eventbridge" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                SWF
+                                EventBridge
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/firehose"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "firehose"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-firehose" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/firehose.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="firehose" /> <span
-                                    class="sidebar-text truncate" title="Firehose">Firehose</span>
+                        </li><li>
+                            <a href="/dashboard/apigateway"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "apigateway"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-apigateway" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/apigateway.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="apigateway" /> <span
+                                    class="sidebar-text truncate" title="API Gateway">API Gateway</span>
                             </a>
-                            <div id="tooltip-firehose" role="tooltip"
+                            <div id="tooltip-apigateway" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                Firehose
+                                API Gateway
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/appsync"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "appsync"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-appsync" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/appsync.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="appsync" /> <span
-                                    class="sidebar-text truncate" title="AppSync">AppSync</span>
+                        </li><li>
+                            <a href="/dashboard/apigatewayv2"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "apigatewayv2"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-apigatewayv2" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/apigatewayv2.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="apigatewayv2" /> <span
+                                    class="sidebar-text truncate" title="API Gateway V2">API Gateway V2</span>
                             </a>
-                            <div id="tooltip-appsync" role="tooltip"
+                            <div id="tooltip-apigatewayv2" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                AppSync
+                                API Gateway V2
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/cognitoidp"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "cognitoidp"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-cognitoidp" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/cognitoidentity.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="cognitoidp" /> <span
-                                    class="sidebar-text truncate" title="Cognito IDP">Cognito IDP</span>
-                            </a>
-                            <div id="tooltip-cognitoidp" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                Cognito User Pools (IDP)
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/iotdataplane"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "iotdataplane"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-iotdataplane" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/iotdataplane.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="iotdataplane" /> <span
-                                    class="sidebar-text truncate" title="IoT Data Plane">IoT Data Plane</span>
-                            </a>
-                            <div id="tooltip-iotdataplane" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                IoT Data Plane
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
+                        </li><li>
                             <a href="/dashboard/apigatewaymanagementapi"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "apigatewaymanagementapi"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-apigatewaymanagementapi" data-tooltip-placement="right">
@@ -903,8 +936,49 @@
                                 API Gateway Management API
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
+                        </li><li>
+                            <a href="/dashboard/stepfunctions"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "stepfunctions"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-stepfunctions" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/stepfunctions.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="stepfunctions" /> <span
+                                    class="sidebar-text truncate" title="Step Functions">Step Functions</span>
+                            </a>
+                            <div id="tooltip-stepfunctions" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Step Functions
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/swf"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "swf"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-swf" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/swf.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="SWF" /> <span
+                                    class="sidebar-text truncate" title="SWF">SWF</span>
+                            </a>
+                            <div id="tooltip-swf" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                SWF
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>                    </ul>
+                </li>
+                <li>
+                    <button
+                        class="category-btn flex items-center justify-between w-full px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        onclick="window.SidebarManager.toggleSection('web-mobile')">
+                        <span class="category-header-text">Front-end Web & Mobile</span>
+                        <svg id="chevron-web-mobile"
+                            class="w-3 h-3 chevron-icon transition-transform duration-200" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7">
+                            </path>
+                        </svg>
+                    </button>
+                    <ul id="section-web-mobile"
+                        class="space-y-1 mt-1 overflow-hidden transition-all duration-300 origin-top">
+<li>
                             <a href="/dashboard/amplify"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "amplify"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-amplify" data-tooltip-placement="right">
@@ -917,8 +991,62 @@
                                 Amplify
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
+                        </li><li>
+                            <a href="/dashboard/appsync"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "appsync"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-appsync" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/appsync.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="appsync" /> <span
+                                    class="sidebar-text truncate" title="AppSync">AppSync</span>
+                            </a>
+                            <div id="tooltip-appsync" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                AppSync
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>                    </ul>
+                </li>
+                <li>
+                    <button
+                        class="category-btn flex items-center justify-between w-full px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        onclick="window.SidebarManager.toggleSection('iot-ai')">
+                        <span class="category-header-text">IoT & AI</span>
+                        <svg id="chevron-iot-ai"
+                            class="w-3 h-3 chevron-icon transition-transform duration-200" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7">
+                            </path>
+                        </svg>
+                    </button>
+                    <ul id="section-iot-ai"
+                        class="space-y-1 mt-1 overflow-hidden transition-all duration-300 origin-top">
+<li>
+                            <a href="/dashboard/iot"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "iot"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-iot" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/iot.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="iot" /> <span
+                                    class="sidebar-text truncate" title="IoT Core">IoT Core</span>
+                            </a>
+                            <div id="tooltip-iot" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                IoT Core
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
+                            <a href="/dashboard/iotdataplane"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "iotdataplane"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-iotdataplane" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/iotdataplane.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="iotdataplane" /> <span
+                                    class="sidebar-text truncate" title="IoT Data Plane">IoT Data Plane</span>
+                            </a>
+                            <div id="tooltip-iotdataplane" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                IoT Data Plane
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
                             <a href="/dashboard/bedrockruntime"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "bedrockruntime"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-bedrockruntime" data-tooltip-placement="right">
@@ -931,121 +1059,107 @@
                                 Bedrock Runtime
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/codeartifact"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codeartifact"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-codeartifact" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/codeartifact.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codeartifact" /> <span
-                                    class="sidebar-text truncate" title="CodeArtifact">CodeArtifact</span>
+                        </li>                    </ul>
+                </li>
+                <li>
+                    <button
+                        class="category-btn flex items-center justify-between w-full px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        onclick="window.SidebarManager.toggleSection('networking-security')">
+                        <span class="category-header-text">Networking & Security</span>
+                        <svg id="chevron-networking-security"
+                            class="w-3 h-3 chevron-icon transition-transform duration-200" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7">
+                            </path>
+                        </svg>
+                    </button>
+                    <ul id="section-networking-security"
+                        class="space-y-1 mt-1 overflow-hidden transition-all duration-300 origin-top">
+<li>
+                            <a href="/dashboard/route53"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "route53"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-route53" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/route53.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="route53" /> <span
+                                    class="sidebar-text truncate" title="Route 53">Route 53</span>
                             </a>
-                            <div id="tooltip-codeartifact" role="tooltip"
+                            <div id="tooltip-route53" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                CodeArtifact
+                                Route 53
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/codebuild"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codebuild"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-codebuild" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/codebuild.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codebuild" /> <span
-                                    class="sidebar-text truncate" title="CodeBuild">CodeBuild</span>
+                        </li><li>
+                            <a href="/dashboard/cognitoidp"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "cognitoidp"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-cognitoidp" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/cognitoidentity.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="cognitoidp" /> <span
+                                    class="sidebar-text truncate" title="Cognito IDP">Cognito IDP</span>
                             </a>
-                            <div id="tooltip-codebuild" role="tooltip"
+                            <div id="tooltip-cognitoidp" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                CodeBuild
+                                Cognito User Pools (IDP)
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/codedeploy"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codedeploy"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-codedeploy" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/codedeploy.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codedeploy" /> <span
-                                    class="sidebar-text truncate" title="CodeDeploy">CodeDeploy</span>
+                        </li>                    </ul>
+                </li>
+                <li>
+                    <button
+                        class="category-btn flex items-center justify-between w-full px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        onclick="window.SidebarManager.toggleSection('storage')">
+                        <span class="category-header-text">Storage</span>
+                        <svg id="chevron-storage"
+                            class="w-3 h-3 chevron-icon transition-transform duration-200" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7">
+                            </path>
+                        </svg>
+                    </button>
+                    <ul id="section-storage"
+                        class="space-y-1 mt-1 overflow-hidden transition-all duration-300 origin-top">
+<li>
+                            <a href="/dashboard/s3control"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "s3control"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-s3control" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/s3control.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="s3control" /> <span
+                                    class="sidebar-text truncate" title="S3 Control">S3 Control</span>
                             </a>
-                            <div id="tooltip-codedeploy" role="tooltip"
+                            <div id="tooltip-s3control" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                CodeDeploy
+                                S3 Control
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/dms"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "dms"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-dms" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/dms.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="dms" /> <span
-                                    class="sidebar-text truncate" title="DMS">DMS</span>
+                        </li>                    </ul>
+                </li>
+                <li>
+                    <button
+                        class="category-btn flex items-center justify-between w-full px-3 py-1 mt-4 text-xs font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        onclick="window.SidebarManager.toggleSection('business')">
+                        <span class="category-header-text">Business & Communication</span>
+                        <svg id="chevron-business"
+                            class="w-3 h-3 chevron-icon transition-transform duration-200" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7">
+                            </path>
+                        </svg>
+                    </button>
+                    <ul id="section-business"
+                        class="space-y-1 mt-1 overflow-hidden transition-all duration-300 origin-top">
+<li>
+                            <a href="/dashboard/ses"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "ses"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-ses" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/ses.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="ses" /> <span
+                                    class="sidebar-text truncate" title="SES">SES</span>
                             </a>
-                            <div id="tooltip-dms" role="tooltip"
+                            <div id="tooltip-ses" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                DMS
+                                SES
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/codecommit"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codecommit"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-codecommit" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/codecommit.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codecommit" /> <span
-                                    class="sidebar-text truncate" title="CodeCommit">CodeCommit</span>
-                            </a>
-                            <div id="tooltip-codecommit" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                CodeCommit
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/codeconnections"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codeconnections"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-codeconnections" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/codeconnections.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codeconnections" /> <span
-                                    class="sidebar-text truncate" title="CodeConnections">CodeConnections</span>
-                            </a>
-                            <div id="tooltip-codeconnections" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                CodeConnections
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/codepipeline"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "codepipeline"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-codepipeline" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/codepipeline.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="codepipeline" /> <span
-                                    class="sidebar-text truncate" title="CodePipeline">CodePipeline</span>
-                            </a>
-                            <div id="tooltip-codepipeline" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                CodePipeline
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-                        <li>
-                            <a href="/dashboard/elasticbeanstalk"
-                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "elasticbeanstalk"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
-                                data-tooltip-target="tooltip-elasticbeanstalk" data-tooltip-placement="right">
-                                <img src="/dashboard/static/icons/elasticbeanstalk.svg"
-                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="elasticbeanstalk" /> <span
-                                    class="sidebar-text truncate" title="Elastic Beanstalk">Elastic Beanstalk</span>
-                            </a>
-                            <div id="tooltip-elasticbeanstalk" role="tooltip"
-                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
-                                Elastic Beanstalk
-                                <div class="tooltip-arrow" data-popper-arrow></div>
-                            </div>
-                        </li>
-
-                    </ul>
+                        </li>                    </ul>
                 </li>
                 <li>
                     <button

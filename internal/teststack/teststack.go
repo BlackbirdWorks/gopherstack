@@ -59,6 +59,8 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
@@ -186,10 +188,14 @@ type Stack struct {
 	DynamoDBStreamsHandler *dynamodbstreamsbackend.Handler
 	// ElasticbeanstalkHandler provides access to the Elastic Beanstalk backend.
 	ElasticbeanstalkHandler *elasticbeanstalkbackend.Handler
-	S3Client                *s3.Client
-	DDBClient               *dynamodb.Client
-	FaultStore              *chaos.FaultStore
-	Dashboard               *dashboard.DashboardHandler
+	// EFSHandler provides access to the EFS backend.
+	EFSHandler *efsbackend.Handler
+	// EKSHandler provides access to the EKS backend.
+	EKSHandler *eksbackend.Handler
+	S3Client   *s3.Client
+	DDBClient  *dynamodb.Client
+	FaultStore *chaos.FaultStore
+	Dashboard  *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -450,6 +456,8 @@ type handlers struct {
 	codeStarConn     *codestarconnectionsbackend.Handler
 	dynamodbStreams  *dynamodbstreamsbackend.Handler
 	elasticbeanstalk *elasticbeanstalkbackend.Handler
+	efs              *efsbackend.Handler
+	eks              *eksbackend.Handler
 	iamBk            *iambackend.InMemoryBackend
 	s3Bk             *s3backend.InMemoryBackend
 }
@@ -644,6 +652,14 @@ func populateNewestHandlers(h *handlers) {
 	h.elasticbeanstalk = elasticbeanstalkbackend.NewHandler(
 		elasticbeanstalkbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+
+	h.efs = efsbackend.NewHandler(
+		efsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+
+	h.eks = eksbackend.NewHandler(
+		eksbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -754,6 +770,8 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CodeStarConnectionsOps:     h.codeStarConn,
 		DynamoDBStreamsOps:         h.dynamodbStreams,
 		ElasticbeanstalkOps:        h.elasticbeanstalk,
+		EFSOps:                     h.efs,
+		EKSOps:                     h.eks,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -807,6 +825,8 @@ func New(t *testing.T) *Stack {
 	}
 
 	_ = registry.Register(h.elasticbeanstalk)
+	_ = registry.Register(h.efs)
+	_ = registry.Register(h.eks)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -905,6 +925,8 @@ func buildStack(
 		CodeStarConnectionsHandler:     h.codeStarConn,
 		DynamoDBStreamsHandler:         h.dynamodbStreams,
 		ElasticbeanstalkHandler:        h.elasticbeanstalk,
+		EFSHandler:                     h.efs,
+		EKSHandler:                     h.eks,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,

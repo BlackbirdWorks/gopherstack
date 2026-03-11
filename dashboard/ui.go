@@ -58,6 +58,8 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
@@ -156,6 +158,7 @@ type DashboardHandler struct {
 	EC2Ops            *ec2backend.Handler
 	ECROps            *ecrbackend.Handler
 	ECSOps            *ecsbackend.Handler
+	EFSOps            *efsbackend.Handler
 	IoTOps            *iotbackend.Handler
 	FISOps            *fisbackend.Handler
 	OpenSearchOps     *opensearchbackend.Handler
@@ -212,6 +215,8 @@ type DashboardHandler struct {
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
 	// ElasticbeanstalkOps provides access to the Elastic Beanstalk backend.
 	ElasticbeanstalkOps *elasticbeanstalkbackend.Handler
+	// EKSOps provides access to the EKS backend.
+	EKSOps              *eksbackend.Handler
 	SubRouter           *echo.Echo
 	ddbProvider         *ddbbackend.DashboardProvider
 	s3Provider          *s3backend.DashboardProvider
@@ -267,6 +272,8 @@ type Config struct {
 	ECROps *ecrbackend.Handler
 	// ECSOps provides access to the ECS backend.
 	ECSOps *ecsbackend.Handler
+	// EFSOps provides access to the EFS backend.
+	EFSOps *efsbackend.Handler
 	// IoTOps provides access to the IoT backend.
 	IoTOps *iotbackend.Handler
 	// FISOps provides access to the FIS backend.
@@ -362,6 +369,8 @@ type Config struct {
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
 	// ElasticbeanstalkOps provides access to the Elastic Beanstalk backend.
 	ElasticbeanstalkOps *elasticbeanstalkbackend.Handler
+	// EKSOps provides access to the EKS backend.
+	EKSOps *eksbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -505,6 +514,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EC2Ops:                     cfg.EC2Ops,
 		ECROps:                     cfg.ECROps,
 		ECSOps:                     cfg.ECSOps,
+		EFSOps:                     cfg.EFSOps,
 		IoTOps:                     cfg.IoTOps,
 		FISOps:                     cfg.FISOps,
 		OpenSearchOps:              cfg.OpenSearchOps,
@@ -553,6 +563,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
 		DynamoDBStreamsOps:         cfg.DynamoDBStreamsOps,
 		ElasticbeanstalkOps:        cfg.ElasticbeanstalkOps,
+		EKSOps:                     cfg.EKSOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -894,6 +905,12 @@ func (h *DashboardHandler) setupApplicationAutoscalingRoutes() {
 	h.SubRouter.POST("/dashboard/applicationautoscaling/delete", h.applicationautoscalingDelete)
 }
 
+func (h *DashboardHandler) setupEFSRoutes() {
+	h.SubRouter.GET("/dashboard/efs", h.efsIndex)
+	h.SubRouter.POST("/dashboard/efs/filesystem/create", h.efsCreateFileSystem)
+	h.SubRouter.POST("/dashboard/efs/filesystem/delete", h.efsDeleteFileSystem)
+}
+
 func (h *DashboardHandler) setupAppSyncRoutes() {
 	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
 }
@@ -1024,6 +1041,8 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupCodePipelineRoutes()
 	h.setupDynamoDBStreamsRoutes()
 	h.setupElasticbeanstalkRoutes()
+	h.setupEFSRoutes()
+	h.setupEKSRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -1140,6 +1159,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/codestarconnections", "CodeStarConnections"},
 	{"/dynamodbstreams", "DynamoDBStreams"},
 	{"/elasticbeanstalk", "Elasticbeanstalk"},
+	{"/efs", "EFS"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

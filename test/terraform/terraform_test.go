@@ -69,6 +69,8 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecssvc "github.com/aws/aws-sdk-go-v2/service/ecs"
+	efssvc "github.com/aws/aws-sdk-go-v2/service/efs"
+	ekssvc "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	elasticbeanstalksvc "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
@@ -203,6 +205,8 @@ provider "aws" {
     ec2             = %[1]q
     ecr             = %[1]q
     ecs             = %[1]q
+    efs             = %[1]q
+    eks             = %[1]q
     elasticache     = %[1]q
     events          = %[1]q
     firehose        = %[1]q
@@ -3507,6 +3511,7 @@ func TestTerraform_Batch(t *testing.T) {
 	}
 }
 
+
 // TestTerraform_Elasticbeanstalk provisions Elastic Beanstalk resources via Terraform and verifies they exist.
 func TestTerraform_Elasticbeanstalk(t *testing.T) {
 	t.Parallel()
@@ -3543,6 +3548,41 @@ func TestTerraform_Elasticbeanstalk(t *testing.T) {
 				require.NoError(t, err, "DescribeEnvironments should succeed")
 				require.Len(t, envOut.Environments, 1, "environment should exist")
 				assert.Equal(t, envName, *envOut.Environments[0].EnvironmentName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_EKS provisions an EKS cluster via Terraform, then verifies it is listed via the EKS SDK.
+func TestTerraform_EKS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "eks/cluster",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ClusterName": "tf-eks-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEKSClient(t)
+				out, err := client.ListClusters(ctx, &ekssvc.ListClustersInput{})
+				require.NoError(t, err, "ListClusters should succeed after terraform apply")
+				found := slices.Contains(out.Clusters, vars["ClusterName"].(string))
+				assert.True(t, found, "cluster %q should be listed", vars["ClusterName"].(string))
 			},
 		},
 	}
@@ -4184,6 +4224,49 @@ func TestTerraform_CodeStarConnections(t *testing.T) {
 				}
 
 				assert.True(t, found, "connection should exist")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_EFS provisions an EFS file system via Terraform and verifies it exists.
+func TestTerraform_EFS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "efs/filesystem",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"CreationToken": "tf-efs-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEFSClient(t)
+				token := vars["CreationToken"].(string)
+				out, err := client.DescribeFileSystems(ctx, &efssvc.DescribeFileSystemsInput{})
+				require.NoError(t, err, "DescribeFileSystems should succeed after terraform apply")
+				found := false
+				for _, fs := range out.FileSystems {
+					if aws.ToString(fs.CreationToken) == token {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "file system with token %q should be listed", token)
 			},
 		},
 	}
