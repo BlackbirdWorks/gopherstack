@@ -1043,18 +1043,24 @@ type removeTagsResponse struct {
 
 // CreateLoadBalancerListeners response.
 
+type createLoadBalancerListenersResult struct{}
+
 type createLoadBalancerListenersResponse struct {
-	XMLName          xml.Name            `xml:"CreateLoadBalancerListenersResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                          `xml:"CreateLoadBalancerListenersResponse"`
+	Xmlns            string                            `xml:"xmlns,attr"`
+	Result           createLoadBalancerListenersResult `xml:"CreateLoadBalancerListenersResult"`
+	ResponseMetadata xmlResponseMetadata               `xml:"ResponseMetadata"`
 }
 
 // DeleteLoadBalancerListeners response.
 
+type deleteLoadBalancerListenersResult struct{}
+
 type deleteLoadBalancerListenersResponse struct {
-	XMLName          xml.Name            `xml:"DeleteLoadBalancerListenersResponse"`
-	Xmlns            string              `xml:"xmlns,attr"`
-	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	XMLName          xml.Name                          `xml:"DeleteLoadBalancerListenersResponse"`
+	Xmlns            string                            `xml:"xmlns,attr"`
+	Result           deleteLoadBalancerListenersResult `xml:"DeleteLoadBalancerListenersResult"`
+	ResponseMetadata xmlResponseMetadata               `xml:"ResponseMetadata"`
 }
 
 // LoadBalancerAttributes XML types.
