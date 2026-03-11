@@ -40,6 +40,7 @@ import (
 	cloudcontrolbackend "github.com/blackbirdworks/gopherstack/services/cloudcontrol"
 	cfnbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cwbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
@@ -148,6 +149,7 @@ type Stack struct {
 	AutoscalingHandler             *autoscalingbackend.Handler
 	ApplicationAutoscalingHandler  *applicationautoscalingbackend.Handler
 	BackupHandler                  *backupbackend.Handler
+	CloudTrailHandler              *cloudtrailbackend.Handler
 	BatchHandler                   *batchbackend.Handler
 	BedrockHandler                 *bedrockbackend.Handler
 	BedrockRuntimeHandler          *bedrockruntimebackend.Handler
@@ -332,11 +334,13 @@ func registerNewestServices(
 	appAutoScalingHndlr *applicationautoscalingbackend.Handler,
 	batchHndlr *batchbackend.Handler,
 	ceHndlr *cebackend.Handler,
+	cloudtrailHndlr *cloudtrailbackend.Handler,
 ) {
 	_ = registry.Register(autoscalingHndlr)
 	_ = registry.Register(appAutoScalingHndlr)
 	_ = registry.Register(batchHndlr)
 	_ = registry.Register(ceHndlr)
+	_ = registry.Register(cloudtrailHndlr)
 }
 
 // registerCloudfrontService registers the CloudFront service handler.
@@ -400,6 +404,7 @@ type handlers struct {
 	autoscaling     *autoscalingbackend.Handler
 	appAutoScaling  *applicationautoscalingbackend.Handler
 	backup          *backupbackend.Handler
+	cloudtrail      *cloudtrailbackend.Handler
 	batch           *batchbackend.Handler
 	bedrock         *bedrockbackend.Handler
 	bedrockruntime  *bedrockruntimebackend.Handler
@@ -512,6 +517,13 @@ func populateExtendedHandlers(h *handlers) {
 	)
 	h.transcribe = transcribebackend.NewHandler(transcribebackend.NewInMemoryBackend())
 	h.support = supportbackend.NewHandler(supportbackend.NewInMemoryBackend())
+
+	populateNewestHandlers(h)
+}
+
+// populateNewestHandlers fills in the most recently added service handlers that would push
+// populateExtendedHandlers past the funlen limit.
+func populateNewestHandlers(h *handlers) {
 	h.cognitoIdentity = cognitoidentitybackend.NewHandler(
 		cognitoidentitybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 		config.DefaultRegion,
@@ -542,6 +554,9 @@ func populateExtendedHandlers(h *handlers) {
 	)
 	h.backup = backupbackend.NewHandler(
 		backupbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.cloudtrail = cloudtrailbackend.NewHandler(
+		cloudtrailbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.batch = batchbackend.NewHandler(batchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	h.bedrock = bedrockbackend.NewHandler(
@@ -655,6 +670,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		AutoscalingOps:             h.autoscaling,
 		ApplicationAutoscalingOps:  h.appAutoScaling,
 		BackupOps:                  h.backup,
+		CloudTrailOps:              h.cloudtrail,
 		BatchOps:                   h.batch,
 		BedrockOps:                 h.bedrock,
 		BedrockRuntimeOps:          h.bedrockruntime,
@@ -696,7 +712,7 @@ func New(t *testing.T) *Stack {
 		h.appSync, h.cognitoIDP, h.iotDataPlane, h.apiGatewayMgmt, h.appConfigData,
 		h.amplify, h.apigwv2, h.appConfig, h.athena, h.backup,
 	)
-	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch, h.ce)
+	registerNewestServices(registry, h.autoscaling, h.appAutoScaling, h.batch, h.ce, h.cloudtrail)
 	_ = registry.Register(h.bedrock)
 	_ = registry.Register(h.bedrockruntime)
 	_ = registry.Register(h.cloudcontrol)
@@ -783,6 +799,7 @@ func buildStack(
 		AutoscalingHandler:             h.autoscaling,
 		ApplicationAutoscalingHandler:  h.appAutoScaling,
 		BackupHandler:                  h.backup,
+		CloudTrailHandler:              h.cloudtrail,
 		BatchHandler:                   h.batch,
 		BedrockHandler:                 h.bedrock,
 		BedrockRuntimeHandler:          h.bedrockruntime,

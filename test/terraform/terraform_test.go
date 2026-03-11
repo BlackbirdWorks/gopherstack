@@ -44,6 +44,7 @@ import (
 	cloudcontrolsvc "github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	cfnsvc "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cloudfrontsvc "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	cloudtrailsvc "github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cwsvc "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	cwlogssvc "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -173,10 +174,11 @@ provider "aws" {
     cloudcontrol    = %[1]q
     cloudformation  = %[1]q
     cloudfront      = %[1]q
-    codeartifact    = %[1]q
-    codecommit      = %[1]q
+    cloudtrail      = %[1]q
     cloudwatch      = %[1]q
     cloudwatchlogs  = %[1]q
+    codeartifact    = %[1]q
+    codecommit      = %[1]q
     cognitoidentity          = %[1]q
     cognitoidentityprovider  = %[1]q
     configservice   = %[1]q
@@ -3511,6 +3513,46 @@ func TestTerraform_Ce(t *testing.T) {
 					}
 				}
 				assert.True(t, found, "cost category %q should be listed", vars["CategoryName"].(string))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_CloudTrail provisions a CloudTrail trail via Terraform, then verifies
+// it is reachable via the CloudTrail SDK.
+func TestTerraform_CloudTrail(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "cloudtrail/trail",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"TrailName":  "tf-cloudtrail-" + id,
+					"BucketName": "tf-cloudtrail-bucket-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createCloudTrailClient(t)
+				trailName := vars["TrailName"].(string)
+				out, err := client.DescribeTrails(ctx, &cloudtrailsvc.DescribeTrailsInput{
+					TrailNameList: []string{trailName},
+				})
+				require.NoError(t, err, "DescribeTrails should succeed after terraform apply")
+				require.NotEmpty(t, out.TrailList, "trail %q should be listed", trailName)
+				assert.Equal(t, trailName, aws.ToString(out.TrailList[0].Name))
 			},
 		},
 	}
