@@ -81,6 +81,7 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
@@ -200,6 +201,7 @@ type CLI struct {
 	codePipelineHandler           service.Registerable
 	codeConnectionsHandler        service.Registerable
 	codeDeployHandler             service.Registerable
+	dmsHandler                    service.Registerable
 	codeStarConnectionsHandler    service.Registerable
 	dynamodbStreamsHandler        service.Registerable
 	ecrHandler                    service.Registerable
@@ -658,6 +660,11 @@ func (c *CLI) GetCodePipelineHandler() service.Registerable { return c.codePipel
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCodeDeployHandler() service.Registerable { return c.codeDeployHandler }
 
+// GetDMSHandler returns the DMS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDMSHandler() service.Registerable { return c.dmsHandler }
+
 // GetCodeStarConnectionsHandler returns the CodeStar Connections handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1111,6 +1118,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.codeCommitHandler = byName["CodeCommit"]
 	cli.codePipelineHandler = byName["CodePipeline"]
 	cli.codeDeployHandler = byName["CodeDeploy"]
+	cli.dmsHandler = byName["DMS"]
 	cli.codeStarConnectionsHandler = byName["CodeStarConnections"]
 	cli.dynamodbStreamsHandler = byName["DynamoDBStreams"]
 }
@@ -1298,6 +1306,7 @@ func getServiceProviders() []service.Provider {
 		&codepipelinebackend.Provider{},
 		&codeconnectionsbackend.Provider{},
 		&codedeploybackend.Provider{},
+		&dmsbackend.Provider{},
 		&codestarconnectionsbackend.Provider{},
 		&dynamodbstreamsbackend.Provider{},
 	}

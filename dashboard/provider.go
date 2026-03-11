@@ -38,6 +38,7 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -140,6 +141,7 @@ type AWSSDKProvider interface {
 	GetCodePipelineHandler() service.Registerable
 	GetCodeConnectionsHandler() service.Registerable
 	GetCodeDeployHandler() service.Registerable
+	GetDMSHandler() service.Registerable
 	GetCodeStarConnectionsHandler() service.Registerable
 	GetDynamoDBStreamsHandler() service.Registerable
 	GetECRHandler() service.Registerable
@@ -226,6 +228,7 @@ type extractedConfig struct {
 	codePipelineOps           *codepipelinebackend.Handler
 	codeConnectionsOps        *codeconnectionsbackend.Handler
 	codeDeployOps             *codedeploybackend.Handler
+	dmsOps                    *dmsbackend.Handler
 	codeStarConnectionsOps    *codestarconnectionsbackend.Handler
 	dynamodbStreamsOps        *dynamodbstreams.Handler
 	ecrOps                    *ecrbackend.Handler
@@ -548,6 +551,10 @@ func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.codeDeployOps, _ = h.(*codedeploybackend.Handler)
 	}
 
+	if h := ap.GetDMSHandler(); h != nil {
+		ec.dmsOps, _ = h.(*dmsbackend.Handler)
+	}
+
 	if h := ap.GetCodeStarConnectionsHandler(); h != nil {
 		ec.codeStarConnectionsOps, _ = h.(*codestarconnectionsbackend.Handler)
 	}
@@ -624,6 +631,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		CodePipelineOps:            ec.codePipelineOps,
 		CodeConnectionsOps:         ec.codeConnectionsOps,
 		CodeDeployOps:              ec.codeDeployOps,
+		DMSOps:                     ec.dmsOps,
 		CodeStarConnectionsOps:     ec.codeStarConnectionsOps,
 		DynamoDBStreamsOps:         ec.dynamodbStreamsOps,
 		ECROps:                     ec.ecrOps,

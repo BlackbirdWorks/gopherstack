@@ -52,6 +52,7 @@ import (
 	codestarconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codestarconnections"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	dynamodbstreamsbackend "github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
@@ -176,6 +177,8 @@ type Stack struct {
 	CodeConnectionsHandler *codeconnectionsbackend.Handler
 	// CodeDeployHandler provides access to the CodeDeploy backend.
 	CodeDeployHandler *codedeploybackend.Handler
+	// DMSHandler provides access to the DMS backend.
+	DMSHandler *dmsbackend.Handler
 	// CodeStarConnectionsHandler provides access to the CodeStar Connections backend.
 	CodeStarConnectionsHandler *codestarconnectionsbackend.Handler
 	// DynamoDBStreamsHandler provides access to the DynamoDB Streams backend.
@@ -440,6 +443,7 @@ type handlers struct {
 	codePipeline    *codepipelinebackend.Handler
 	codeConnections *codeconnectionsbackend.Handler
 	codeDeploy      *codedeploybackend.Handler
+	dms             *dmsbackend.Handler
 	codeStarConn    *codestarconnectionsbackend.Handler
 	dynamodbStreams *dynamodbstreamsbackend.Handler
 	iamBk           *iambackend.InMemoryBackend
@@ -622,6 +626,9 @@ func populateNewestHandlers(h *handlers) {
 	h.codeDeploy = codedeploybackend.NewHandler(
 		codedeploybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.dms = dmsbackend.NewHandler(
+		dmsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.codeStarConn = codestarconnectionsbackend.NewHandler(
 		codestarconnectionsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -735,6 +742,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		CodePipelineOps:            h.codePipeline,
 		CodeConnectionsOps:         h.codeConnections,
 		CodeDeployOps:              h.codeDeploy,
+		DMSOps:                     h.dms,
 		CodeStarConnectionsOps:     h.codeStarConn,
 		DynamoDBStreamsOps:         h.dynamodbStreams,
 		GlobalConfig: config.GlobalConfig{
@@ -782,6 +790,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.codePipeline)
 	_ = registry.Register(h.codeConnections)
 	_ = registry.Register(h.codeDeploy)
+	_ = registry.Register(h.dms)
 	_ = registry.Register(h.codeStarConn)
 
 	if h.dynamodbStreams != nil {
@@ -881,6 +890,7 @@ func buildStack(
 		CodePipelineHandler:            h.codePipeline,
 		CodeConnectionsHandler:         h.codeConnections,
 		CodeDeployHandler:              h.codeDeploy,
+		DMSHandler:                     h.dms,
 		CodeStarConnectionsHandler:     h.codeStarConn,
 		DynamoDBStreamsHandler:         h.dynamodbStreams,
 		S3Client:                       clients.S3,
