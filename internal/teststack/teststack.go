@@ -195,10 +195,10 @@ type Stack struct {
 	ELBHandler *elbbackend.Handler
 	// ELBv2Handler provides access to the ELBv2 (ALB/NLB) backend.
 	ELBv2Handler *elbv2backend.Handler
-	S3Client   *s3.Client
-	DDBClient  *dynamodb.Client
-	FaultStore *chaos.FaultStore
-	Dashboard  *dashboard.DashboardHandler
+	S3Client     *s3.Client
+	DDBClient    *dynamodb.Client
+	FaultStore   *chaos.FaultStore
+	Dashboard    *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.

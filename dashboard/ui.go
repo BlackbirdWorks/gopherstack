@@ -217,7 +217,7 @@ type DashboardHandler struct {
 	// EKSOps provides access to the EKS backend.
 	EKSOps *eksbackend.Handler
 	// ELBOps provides access to the Classic ELB backend.
-	ELBOps       *elbbackend.Handler
+	ELBOps *elbbackend.Handler
 	// ELBv2Ops provides access to the ELBv2 (ALB/NLB) backend.
 	ELBv2Ops     *elbv2backend.Handler
 	SubRouter    *echo.Echo
@@ -580,15 +580,19 @@ func NewHandler(cfg Config) *DashboardHandler {
 		SubRouter:                  echo.New(),
 	}
 
-	h.SubRouter.Pre(pkgslogger.EchoMiddleware(cfg.Logger))
+	h.initSubRouter(cfg.Logger)
+
+	return h
+}
+
+func (h *DashboardHandler) initSubRouter(log *slog.Logger) {
+	h.SubRouter.Pre(pkgslogger.EchoMiddleware(log))
 
 	// Set up handler functions for providers
 	h.ddbProvider.Handlers.HandleDynamoDB = h.handleDynamoDB
 	h.s3Provider.Handlers.HandleS3 = h.handleS3
 
 	h.setupSubRouter()
-
-	return h
 }
 
 func (h *DashboardHandler) setupStaticAndRootRoutes() {

@@ -73,6 +73,7 @@ import (
 	ekssvc "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elbv2svc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -4260,6 +4261,63 @@ func TestTerraform_ELB(t *testing.T) {
 				require.NoError(t, err, "DescribeLoadBalancers should succeed after terraform apply")
 				require.Len(t, out.LoadBalancerDescriptions, 1, "load balancer should exist")
 				assert.Equal(t, name, aws.ToString(out.LoadBalancerDescriptions[0].LoadBalancerName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ELBv2 provisions an ALB, target group, and listener via Terraform, then verifies
+// they exist via the ELBv2 SDK.
+func TestTerraform_ELBv2(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "elbv2/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createELBv2Client(t)
+				suffix := vars["Suffix"].(string)
+				lbName := "tf-alb-" + suffix
+				tgName := "tf-tg-" + suffix
+
+				lbOut, err := client.DescribeLoadBalancers(ctx, &elbv2svc.DescribeLoadBalancersInput{
+					Names: []string{lbName},
+				})
+				require.NoError(t, err, "DescribeLoadBalancers should succeed after terraform apply")
+				require.Len(t, lbOut.LoadBalancers, 1, "load balancer should exist")
+				assert.Equal(t, lbName, *lbOut.LoadBalancers[0].LoadBalancerName)
+
+				tgOut, err := client.DescribeTargetGroups(ctx, &elbv2svc.DescribeTargetGroupsInput{
+					Names: []string{tgName},
+				})
+				require.NoError(t, err, "DescribeTargetGroups should succeed after terraform apply")
+				require.Len(t, tgOut.TargetGroups, 1, "target group should exist")
+				assert.Equal(t, tgName, *tgOut.TargetGroups[0].TargetGroupName)
+
+				lbArn := lbOut.LoadBalancers[0].LoadBalancerArn
+				listenerOut, err := client.DescribeListeners(ctx, &elbv2svc.DescribeListenersInput{
+					LoadBalancerArn: lbArn,
+				})
+				require.NoError(t, err, "DescribeListeners should succeed after terraform apply")
+				require.Len(t, listenerOut.Listeners, 1, "listener should exist")
+				assert.Equal(t, *lbArn, *listenerOut.Listeners[0].LoadBalancerArn)
 			},
 		},
 	}

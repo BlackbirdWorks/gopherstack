@@ -174,63 +174,48 @@ func (h *Handler) Handler() echo.HandlerFunc {
 }
 
 // dispatch routes the ELBv2 action to the appropriate handler.
+type dispatchFunc func(url.Values) (any, error)
+
+func (h *Handler) buildDispatchTable() map[string]dispatchFunc {
+	return map[string]dispatchFunc{
+		"CreateLoadBalancer":             h.handleCreateLoadBalancer,
+		"DeleteLoadBalancer":             h.handleDeleteLoadBalancer,
+		"DescribeLoadBalancers":          h.handleDescribeLoadBalancers,
+		"ModifyLoadBalancerAttributes":   h.handleModifyLoadBalancerAttributes,
+		"DescribeLoadBalancerAttributes": h.handleDescribeLoadBalancerAttributes,
+		"SetSecurityGroups":              h.handleSetSecurityGroups,
+		"SetSubnets":                     h.handleSetSubnets,
+		"SetIpAddressType":               h.handleSetIPAddressType,
+		"CreateTargetGroup":              h.handleCreateTargetGroup,
+		"DeleteTargetGroup":              h.handleDeleteTargetGroup,
+		"DescribeTargetGroups":           h.handleDescribeTargetGroups,
+		"ModifyTargetGroup":              h.handleModifyTargetGroup,
+		"RegisterTargets":                h.handleRegisterTargets,
+		"DeregisterTargets":              h.handleDeregisterTargets,
+		"DescribeTargetHealth":           h.handleDescribeTargetHealth,
+		"CreateListener":                 h.handleCreateListener,
+		"DeleteListener":                 h.handleDeleteListener,
+		"DescribeListeners":              h.handleDescribeListeners,
+		"ModifyListener":                 h.handleModifyListener,
+		"CreateRule":                     h.handleCreateRule,
+		"DeleteRule":                     h.handleDeleteRule,
+		"DescribeRules":                  h.handleDescribeRules,
+		"ModifyRule":                     h.handleModifyRule,
+		"AddTags":                        h.handleAddTags,
+		"RemoveTags":                     h.handleRemoveTags,
+		"DescribeTags":                   h.handleDescribeTags,
+	}
+}
+
 func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
-	switch action {
-	case "CreateLoadBalancer":
-		return h.handleCreateLoadBalancer(vals)
-	case "DeleteLoadBalancer":
-		return h.handleDeleteLoadBalancer(vals)
-	case "DescribeLoadBalancers":
-		return h.handleDescribeLoadBalancers(vals)
-	case "ModifyLoadBalancerAttributes":
-		return h.handleModifyLoadBalancerAttributes(vals)
-	case "DescribeLoadBalancerAttributes":
-		return h.handleDescribeLoadBalancerAttributes(vals)
-	case "CreateTargetGroup":
-		return h.handleCreateTargetGroup(vals)
-	case "DeleteTargetGroup":
-		return h.handleDeleteTargetGroup(vals)
-	case "DescribeTargetGroups":
-		return h.handleDescribeTargetGroups(vals)
-	case "ModifyTargetGroup":
-		return h.handleModifyTargetGroup(vals)
-	case "RegisterTargets":
-		return h.handleRegisterTargets(vals)
-	case "DeregisterTargets":
-		return h.handleDeregisterTargets(vals)
-	case "DescribeTargetHealth":
-		return h.handleDescribeTargetHealth(vals)
-	case "CreateListener":
-		return h.handleCreateListener(vals)
-	case "DeleteListener":
-		return h.handleDeleteListener(vals)
-	case "DescribeListeners":
-		return h.handleDescribeListeners(vals)
-	case "ModifyListener":
-		return h.handleModifyListener(vals)
-	case "CreateRule":
-		return h.handleCreateRule(vals)
-	case "DeleteRule":
-		return h.handleDeleteRule(vals)
-	case "DescribeRules":
-		return h.handleDescribeRules(vals)
-	case "ModifyRule":
-		return h.handleModifyRule(vals)
-	case "AddTags":
-		return h.handleAddTags(vals)
-	case "RemoveTags":
-		return h.handleRemoveTags(vals)
-	case "DescribeTags":
-		return h.handleDescribeTags(vals)
-	case "SetSecurityGroups":
-		return h.handleSetSecurityGroups(vals)
-	case "SetSubnets":
-		return h.handleSetSubnets(vals)
-	case "SetIpAddressType":
-		return h.handleSetIpAddressType(vals)
-	default:
+	table := h.buildDispatchTable()
+
+	fn, ok := table[action]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownAction, action)
 	}
+
+	return fn(vals)
 }
 
 // --- load balancer handlers ---
@@ -243,7 +228,7 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 
 	azs := parseMembers(vals, "AvailabilityZones.member")
 	sgs := parseMembers(vals, "SecurityGroups.member")
-	tagKVs := parseTagKVs(vals, "Tags.member")
+	tagKVs := parseTagKVs(vals)
 
 	lb, err := h.Backend.CreateLoadBalancer(CreateLoadBalancerInput{
 		Name:              name,
@@ -320,8 +305,10 @@ func (h *Handler) handleModifyLoadBalancerAttributes(vals url.Values) (any, erro
 	}
 
 	return &modifyLoadBalancerAttributesResponse{
-		Xmlns:            elbv2XMLNS,
-		Result:           modifyLoadBalancerAttributesResult{Attributes: xmlLBAttributeList{Members: []xmlLBAttribute{}}},
+		Xmlns: elbv2XMLNS,
+		Result: modifyLoadBalancerAttributesResult{
+			Attributes: xmlLBAttributeList{Members: []xmlLBAttribute{}},
+		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-modify-lb-attrs"},
 	}, nil
 }
@@ -378,15 +365,15 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleSetIpAddressType(vals url.Values) (any, error) {
+func (h *Handler) handleSetIPAddressType(vals url.Values) (any, error) {
 	lbArn := vals.Get("LoadBalancerArn")
 	if lbArn == "" {
 		return nil, fmt.Errorf("%w: LoadBalancerArn is required", ErrInvalidParameter)
 	}
 
-	return &setIpAddressTypeResponse{
+	return &setIPAddressTypeResponse{
 		Xmlns:            elbv2XMLNS,
-		Result:           setIpAddressTypeResult{IpAddressType: vals.Get("IpAddressType")},
+		Result:           setIPAddressTypeResult{IPAddressType: vals.Get("IpAddressType")},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-ip-type"},
 	}, nil
 }
@@ -404,7 +391,7 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
 	}
 
-	tagKVs := parseTagKVs(vals, "Tags.member")
+	tagKVs := parseTagKVs(vals)
 
 	tg, createErr := h.Backend.CreateTargetGroup(CreateTargetGroupInput{
 		Name:       name,
@@ -547,7 +534,7 @@ func (h *Handler) handleDescribeTargetHealth(vals url.Values) (any, error) {
 	members := make([]xmlTargetHealthDescription, 0, len(targets))
 	for _, t := range targets {
 		members = append(members, xmlTargetHealthDescription{
-			Target: xmlTargetDescription{ID: t.ID, Port: t.Port},
+			Target: xmlTargetDescription(t),
 			TargetHealth: xmlTargetHealth{
 				State: "healthy",
 			},
@@ -577,7 +564,7 @@ func (h *Handler) handleCreateListener(vals url.Values) (any, error) {
 	}
 
 	actions := parseActions(vals, "DefaultActions.member")
-	tagKVs := parseTagKVs(vals, "Tags.member")
+	tagKVs := parseTagKVs(vals)
 
 	listener, createErr := h.Backend.CreateListener(CreateListenerInput{
 		LoadBalancerArn: lbArn,
@@ -769,7 +756,7 @@ func (h *Handler) handleAddTags(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: at least one ResourceArn is required", ErrInvalidParameter)
 	}
 
-	kvs := parseTagKVs(vals, "Tags.member")
+	kvs := parseTagKVs(vals)
 
 	if err := h.Backend.AddTags(resourceArns, kvs); err != nil {
 		return nil, err
@@ -934,7 +921,9 @@ func parseMembers(vals url.Values, prefix string) []string {
 }
 
 // parseTagKVs extracts key-value tag pairs from Tags.member.N.Key/Value form values.
-func parseTagKVs(vals url.Values, prefix string) []tags.KV {
+func parseTagKVs(vals url.Values) []tags.KV {
+	const prefix = "Tags.member"
+
 	result := make([]tags.KV, 0)
 
 	for i := 1; ; i++ {
@@ -1049,7 +1038,7 @@ func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
 func toXMLListener(l *Listener) xmlListener {
 	actions := make([]xmlAction, 0, len(l.DefaultActions))
 	for _, a := range l.DefaultActions {
-		actions = append(actions, xmlAction{Type: a.Type, TargetGroupArn: a.TargetGroupArn})
+		actions = append(actions, xmlAction(a))
 	}
 
 	return xmlListener{
@@ -1064,7 +1053,7 @@ func toXMLListener(l *Listener) xmlListener {
 func toXMLRule(r *Rule) xmlRule {
 	actions := make([]xmlAction, 0, len(r.Actions))
 	for _, a := range r.Actions {
-		actions = append(actions, xmlAction{Type: a.Type, TargetGroupArn: a.TargetGroupArn})
+		actions = append(actions, xmlAction(a))
 	}
 
 	return xmlRule{
@@ -1160,8 +1149,8 @@ type createLoadBalancerResult struct {
 type createLoadBalancerResponse struct {
 	XMLName          xml.Name                 `xml:"CreateLoadBalancerResponse"`
 	Xmlns            string                   `xml:"xmlns,attr"`
-	Result           createLoadBalancerResult `xml:"CreateLoadBalancerResult"`
 	ResponseMetadata xmlResponseMetadata      `xml:"ResponseMetadata"`
+	Result           createLoadBalancerResult `xml:"CreateLoadBalancerResult"`
 }
 
 type deleteLoadBalancerResponse struct {
@@ -1178,8 +1167,8 @@ type describeLoadBalancersResult struct {
 type describeLoadBalancersResponse struct {
 	XMLName          xml.Name                    `xml:"DescribeLoadBalancersResponse"`
 	Xmlns            string                      `xml:"xmlns,attr"`
-	Result           describeLoadBalancersResult `xml:"DescribeLoadBalancersResult"`
 	ResponseMetadata xmlResponseMetadata         `xml:"ResponseMetadata"`
+	Result           describeLoadBalancersResult `xml:"DescribeLoadBalancersResult"`
 }
 
 type xmlLBAttribute struct {
@@ -1198,8 +1187,8 @@ type modifyLoadBalancerAttributesResult struct {
 type modifyLoadBalancerAttributesResponse struct {
 	XMLName          xml.Name                           `xml:"ModifyLoadBalancerAttributesResponse"`
 	Xmlns            string                             `xml:"xmlns,attr"`
-	Result           modifyLoadBalancerAttributesResult `xml:"ModifyLoadBalancerAttributesResult"`
 	ResponseMetadata xmlResponseMetadata                `xml:"ResponseMetadata"`
+	Result           modifyLoadBalancerAttributesResult `xml:"ModifyLoadBalancerAttributesResult"`
 }
 
 type describeLoadBalancerAttributesResult struct {
@@ -1209,8 +1198,8 @@ type describeLoadBalancerAttributesResult struct {
 type describeLoadBalancerAttributesResponse struct {
 	XMLName          xml.Name                             `xml:"DescribeLoadBalancerAttributesResponse"`
 	Xmlns            string                               `xml:"xmlns,attr"`
-	Result           describeLoadBalancerAttributesResult `xml:"DescribeLoadBalancerAttributesResult"`
 	ResponseMetadata xmlResponseMetadata                  `xml:"ResponseMetadata"`
+	Result           describeLoadBalancerAttributesResult `xml:"DescribeLoadBalancerAttributesResult"`
 }
 
 type setSecurityGroupsResult struct {
@@ -1220,8 +1209,8 @@ type setSecurityGroupsResult struct {
 type setSecurityGroupsResponse struct {
 	XMLName          xml.Name                `xml:"SetSecurityGroupsResponse"`
 	Xmlns            string                  `xml:"xmlns,attr"`
-	Result           setSecurityGroupsResult `xml:"SetSecurityGroupsResult"`
 	ResponseMetadata xmlResponseMetadata     `xml:"ResponseMetadata"`
+	Result           setSecurityGroupsResult `xml:"SetSecurityGroupsResult"`
 }
 
 type setSubnetsResult struct {
@@ -1231,18 +1220,18 @@ type setSubnetsResult struct {
 type setSubnetsResponse struct {
 	XMLName          xml.Name            `xml:"SetSubnetsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
-	Result           setSubnetsResult    `xml:"SetSubnetsResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	Result           setSubnetsResult    `xml:"SetSubnetsResult"`
 }
 
-type setIpAddressTypeResult struct {
-	IpAddressType string `xml:"IpAddressType"`
+type setIPAddressTypeResult struct {
+	IPAddressType string `xml:"IpAddressType"`
 }
 
-type setIpAddressTypeResponse struct {
+type setIPAddressTypeResponse struct {
 	XMLName          xml.Name               `xml:"SetIpAddressTypeResponse"`
 	Xmlns            string                 `xml:"xmlns,attr"`
-	Result           setIpAddressTypeResult `xml:"SetIpAddressTypeResult"`
+	Result           setIPAddressTypeResult `xml:"SetIpAddressTypeResult"`
 	ResponseMetadata xmlResponseMetadata    `xml:"ResponseMetadata"`
 }
 
@@ -1252,12 +1241,12 @@ type xmlTargetGroup struct {
 	TargetGroupArn      string `xml:"TargetGroupArn"`
 	TargetGroupName     string `xml:"TargetGroupName"`
 	Protocol            string `xml:"Protocol"`
-	Port                int32  `xml:"Port,omitempty"`
 	VpcID               string `xml:"VpcId,omitempty"`
 	TargetType          string `xml:"TargetType"`
 	HealthCheckProtocol string `xml:"HealthCheckProtocol"`
 	HealthCheckPort     string `xml:"HealthCheckPort"`
 	HealthCheckPath     string `xml:"HealthCheckPath,omitempty"`
+	Port                int32  `xml:"Port,omitempty"`
 	HealthCheckEnabled  bool   `xml:"HealthCheckEnabled"`
 }
 
@@ -1272,8 +1261,8 @@ type createTargetGroupResult struct {
 type createTargetGroupResponse struct {
 	XMLName          xml.Name                `xml:"CreateTargetGroupResponse"`
 	Xmlns            string                  `xml:"xmlns,attr"`
-	Result           createTargetGroupResult `xml:"CreateTargetGroupResult"`
 	ResponseMetadata xmlResponseMetadata     `xml:"ResponseMetadata"`
+	Result           createTargetGroupResult `xml:"CreateTargetGroupResult"`
 }
 
 type deleteTargetGroupResponse struct {
@@ -1290,8 +1279,8 @@ type describeTargetGroupsResult struct {
 type describeTargetGroupsResponse struct {
 	XMLName          xml.Name                   `xml:"DescribeTargetGroupsResponse"`
 	Xmlns            string                     `xml:"xmlns,attr"`
-	Result           describeTargetGroupsResult `xml:"DescribeTargetGroupsResult"`
 	ResponseMetadata xmlResponseMetadata        `xml:"ResponseMetadata"`
+	Result           describeTargetGroupsResult `xml:"DescribeTargetGroupsResult"`
 }
 
 type modifyTargetGroupResult struct {
@@ -1301,8 +1290,8 @@ type modifyTargetGroupResult struct {
 type modifyTargetGroupResponse struct {
 	XMLName          xml.Name                `xml:"ModifyTargetGroupResponse"`
 	Xmlns            string                  `xml:"xmlns,attr"`
-	Result           modifyTargetGroupResult `xml:"ModifyTargetGroupResult"`
 	ResponseMetadata xmlResponseMetadata     `xml:"ResponseMetadata"`
+	Result           modifyTargetGroupResult `xml:"ModifyTargetGroupResult"`
 }
 
 // --- target health XML types ---
@@ -1319,8 +1308,8 @@ type xmlTargetHealth struct {
 }
 
 type xmlTargetHealthDescription struct {
-	Target       xmlTargetDescription `xml:"Target"`
 	TargetHealth xmlTargetHealth      `xml:"TargetHealth"`
+	Target       xmlTargetDescription `xml:"Target"`
 }
 
 type xmlTargetHealthDescriptionList struct {
@@ -1346,8 +1335,8 @@ type describeTargetHealthResult struct {
 type describeTargetHealthResponse struct {
 	XMLName          xml.Name                   `xml:"DescribeTargetHealthResponse"`
 	Xmlns            string                     `xml:"xmlns,attr"`
-	Result           describeTargetHealthResult `xml:"DescribeTargetHealthResult"`
 	ResponseMetadata xmlResponseMetadata        `xml:"ResponseMetadata"`
+	Result           describeTargetHealthResult `xml:"DescribeTargetHealthResult"`
 }
 
 // --- listener XML types ---
@@ -1365,8 +1354,8 @@ type xmlListener struct {
 	ListenerArn     string        `xml:"ListenerArn"`
 	LoadBalancerArn string        `xml:"LoadBalancerArn"`
 	Protocol        string        `xml:"Protocol"`
-	Port            int32         `xml:"Port"`
 	DefaultActions  xmlActionList `xml:"DefaultActions"`
+	Port            int32         `xml:"Port"`
 }
 
 type xmlListenerList struct {
@@ -1380,8 +1369,8 @@ type createListenerResult struct {
 type createListenerResponse struct {
 	XMLName          xml.Name             `xml:"CreateListenerResponse"`
 	Xmlns            string               `xml:"xmlns,attr"`
-	Result           createListenerResult `xml:"CreateListenerResult"`
 	ResponseMetadata xmlResponseMetadata  `xml:"ResponseMetadata"`
+	Result           createListenerResult `xml:"CreateListenerResult"`
 }
 
 type deleteListenerResponse struct {
@@ -1398,8 +1387,8 @@ type describeListenersResult struct {
 type describeListenersResponse struct {
 	XMLName          xml.Name                `xml:"DescribeListenersResponse"`
 	Xmlns            string                  `xml:"xmlns,attr"`
-	Result           describeListenersResult `xml:"DescribeListenersResult"`
 	ResponseMetadata xmlResponseMetadata     `xml:"ResponseMetadata"`
+	Result           describeListenersResult `xml:"DescribeListenersResult"`
 }
 
 type modifyListenerResult struct {
@@ -1409,8 +1398,8 @@ type modifyListenerResult struct {
 type modifyListenerResponse struct {
 	XMLName          xml.Name             `xml:"ModifyListenerResponse"`
 	Xmlns            string               `xml:"xmlns,attr"`
-	Result           modifyListenerResult `xml:"ModifyListenerResult"`
 	ResponseMetadata xmlResponseMetadata  `xml:"ResponseMetadata"`
+	Result           modifyListenerResult `xml:"ModifyListenerResult"`
 }
 
 // --- rule XML types ---
@@ -1418,8 +1407,8 @@ type modifyListenerResponse struct {
 type xmlRule struct {
 	RuleArn   string        `xml:"RuleArn"`
 	Priority  string        `xml:"Priority"`
-	IsDefault bool          `xml:"IsDefault"`
 	Actions   xmlActionList `xml:"Actions"`
+	IsDefault bool          `xml:"IsDefault"`
 }
 
 type xmlRuleList struct {
@@ -1433,8 +1422,8 @@ type createRuleResult struct {
 type createRuleResponse struct {
 	XMLName          xml.Name            `xml:"CreateRuleResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
-	Result           createRuleResult    `xml:"CreateRuleResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	Result           createRuleResult    `xml:"CreateRuleResult"`
 }
 
 type deleteRuleResponse struct {
@@ -1451,8 +1440,8 @@ type describeRulesResult struct {
 type describeRulesResponse struct {
 	XMLName          xml.Name            `xml:"DescribeRulesResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
-	Result           describeRulesResult `xml:"DescribeRulesResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	Result           describeRulesResult `xml:"DescribeRulesResult"`
 }
 
 type modifyRuleResult struct {
@@ -1462,8 +1451,8 @@ type modifyRuleResult struct {
 type modifyRuleResponse struct {
 	XMLName          xml.Name            `xml:"ModifyRuleResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
-	Result           modifyRuleResult    `xml:"ModifyRuleResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	Result           modifyRuleResult    `xml:"ModifyRuleResult"`
 }
 
 // --- tag XML types ---
@@ -1487,6 +1476,6 @@ type describeTagsResult struct {
 type describeTagsResponse struct {
 	XMLName          xml.Name            `xml:"DescribeTagsResponse"`
 	Xmlns            string              `xml:"xmlns,attr"`
-	Result           describeTagsResult  `xml:"DescribeTagsResult"`
 	ResponseMetadata xmlResponseMetadata `xml:"ResponseMetadata"`
+	Result           describeTagsResult  `xml:"DescribeTagsResult"`
 }

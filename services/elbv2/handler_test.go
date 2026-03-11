@@ -100,8 +100,6 @@ func mustCreateTG(t *testing.T, h *elbv2.Handler, name string) string {
 	return resp.Result.TargetGroups.Members[0].TargetGroupArn
 }
 
-
-
 // parseXMLBody parses raw XML from a recorder body into dst.
 func parseXMLBody(t *testing.T, rec *httptest.ResponseRecorder, dst any) {
 	t.Helper()
@@ -258,8 +256,8 @@ func TestDeleteLoadBalancerByARN(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec2 := doELBv2(t, h, url.Values{
-		"Action":          {"DescribeLoadBalancers"},
-		"Version":         {"2015-12-01"},
+		"Action":                    {"DescribeLoadBalancers"},
+		"Version":                   {"2015-12-01"},
 		"LoadBalancerArns.member.1": {lbArn},
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
@@ -267,7 +265,9 @@ func TestDeleteLoadBalancerByARN(t *testing.T) {
 	var resp struct {
 		Result struct {
 			LoadBalancers struct {
-				Members []struct{ LoadBalancerArn string `xml:"LoadBalancerArn"` } `xml:"member"`
+				Members []struct {
+					LoadBalancerArn string `xml:"LoadBalancerArn"`
+				} `xml:"member"`
 			} `xml:"LoadBalancers"`
 		} `xml:"DescribeLoadBalancersResult"`
 	}
@@ -342,7 +342,9 @@ func TestDescribeLoadBalancers(t *testing.T) {
 				XMLName xml.Name `xml:"DescribeLoadBalancersResponse"`
 				Result  struct {
 					LoadBalancers struct {
-						Members []struct{ LoadBalancerArn string `xml:"LoadBalancerArn"` } `xml:"member"`
+						Members []struct {
+							LoadBalancerArn string `xml:"LoadBalancerArn"`
+						} `xml:"member"`
 					} `xml:"LoadBalancers"`
 				} `xml:"DescribeLoadBalancersResult"`
 			}
@@ -489,7 +491,9 @@ func TestDescribeTargetGroups(t *testing.T) {
 			var resp struct {
 				Result struct {
 					TargetGroups struct {
-						Members []struct{ TargetGroupArn string `xml:"TargetGroupArn"` } `xml:"member"`
+						Members []struct {
+							TargetGroupArn string `xml:"TargetGroupArn"`
+						} `xml:"member"`
 					} `xml:"TargetGroups"`
 				} `xml:"DescribeTargetGroupsResult"`
 			}
@@ -515,16 +519,18 @@ func TestDeleteTargetGroup(t *testing.T) {
 
 	// Verify deletion
 	rec2 := doELBv2(t, h, url.Values{
-		"Action":                      {"DescribeTargetGroups"},
-		"Version":                     {"2015-12-01"},
-		"TargetGroupArns.member.1":    {tgArn},
+		"Action":                   {"DescribeTargetGroups"},
+		"Version":                  {"2015-12-01"},
+		"TargetGroupArns.member.1": {tgArn},
 	})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp struct {
 		Result struct {
 			TargetGroups struct {
-				Members []struct{ TargetGroupArn string `xml:"TargetGroupArn"` } `xml:"member"`
+				Members []struct {
+					TargetGroupArn string `xml:"TargetGroupArn"`
+				} `xml:"member"`
 			} `xml:"TargetGroups"`
 		} `xml:"DescribeTargetGroupsResult"`
 	}
@@ -611,7 +617,7 @@ func TestCreateListener(t *testing.T) {
 		},
 		{
 			name: "missing_lb_arn",
-			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
 				t.Helper()
 
 				return url.Values{
@@ -623,15 +629,17 @@ func TestCreateListener(t *testing.T) {
 		},
 		{
 			name: "nonexistent_lb_arn",
-			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
 				t.Helper()
 
 				return url.Values{
-					"Action":          {"CreateListener"},
-					"Version":         {"2015-12-01"},
-					"LoadBalancerArn": {"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/no-such/0"},
-					"Protocol":        {"HTTP"},
-					"Port":            {"80"},
+					"Action":  {"CreateListener"},
+					"Version": {"2015-12-01"},
+					"LoadBalancerArn": {
+						"arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/no-such/0",
+					},
+					"Protocol": {"HTTP"},
+					"Port":     {"80"},
 				}
 			},
 			wantStatus: http.StatusNotFound,
@@ -683,11 +691,11 @@ func TestCreateRule(t *testing.T) {
 	listenerArn := listenerResp.Result.Listeners.Members[0].ListenerArn
 
 	ruleRec := doELBv2(t, h, url.Values{
-		"Action":                         {"CreateRule"},
-		"Version":                        {"2015-12-01"},
-		"ListenerArn":                    {listenerArn},
-		"Priority":                       {"1"},
-		"Actions.member.1.Type":          {"forward"},
+		"Action":                          {"CreateRule"},
+		"Version":                         {"2015-12-01"},
+		"ListenerArn":                     {listenerArn},
+		"Priority":                        {"1"},
+		"Actions.member.1.Type":           {"forward"},
 		"Actions.member.1.TargetGroupArn": {tgArn},
 	})
 	assert.Equal(t, http.StatusOK, ruleRec.Code)
@@ -714,11 +722,11 @@ func TestAddAndDescribeTags(t *testing.T) {
 	lbArn := mustCreateLB(t, h, "tagged-lb")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                  {"AddTags"},
-		"Version":                 {"2015-12-01"},
-		"ResourceArns.member.1":   {lbArn},
-		"Tags.member.1.Key":       {"env"},
-		"Tags.member.1.Value":     {"test"},
+		"Action":                {"AddTags"},
+		"Version":               {"2015-12-01"},
+		"ResourceArns.member.1": {lbArn},
+		"Tags.member.1.Key":     {"env"},
+		"Tags.member.1.Value":   {"test"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -844,10 +852,10 @@ func TestSetSecurityGroups(t *testing.T) {
 	lbArn := mustCreateLB(t, h, "sg-lb")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":                    {"SetSecurityGroups"},
-		"Version":                   {"2015-12-01"},
-		"LoadBalancerArn":           {lbArn},
-		"SecurityGroups.member.1":   {"sg-00000001"},
+		"Action":                  {"SetSecurityGroups"},
+		"Version":                 {"2015-12-01"},
+		"LoadBalancerArn":         {lbArn},
+		"SecurityGroups.member.1": {"sg-00000001"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
@@ -877,8 +885,8 @@ func TestDeleteListener(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		setup      func(t *testing.T, h *elbv2.Handler) url.Values
+		name       string
 		wantStatus int
 	}{
 		{
@@ -921,7 +929,7 @@ func TestDeleteListener(t *testing.T) {
 		},
 		{
 			name: "missing_arn",
-			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
 				t.Helper()
 
 				return url.Values{
@@ -933,7 +941,7 @@ func TestDeleteListener(t *testing.T) {
 		},
 		{
 			name: "not_found",
-			setup: func(t *testing.T, h *elbv2.Handler) url.Values {
+			setup: func(t *testing.T, _ *elbv2.Handler) url.Values {
 				t.Helper()
 
 				return url.Values{
@@ -1072,7 +1080,9 @@ func TestDeleteRule(t *testing.T) {
 	var listenerResp struct {
 		Result struct {
 			Listeners struct {
-				Members []struct{ ListenerArn string `xml:"ListenerArn"` } `xml:"member"`
+				Members []struct {
+					ListenerArn string `xml:"ListenerArn"`
+				} `xml:"member"`
 			} `xml:"Listeners"`
 		} `xml:"CreateListenerResult"`
 	}
@@ -1092,7 +1102,9 @@ func TestDeleteRule(t *testing.T) {
 	var ruleResp struct {
 		Result struct {
 			Rules struct {
-				Members []struct{ RuleArn string `xml:"RuleArn"` } `xml:"member"`
+				Members []struct {
+					RuleArn string `xml:"RuleArn"`
+				} `xml:"member"`
 			} `xml:"Rules"`
 		} `xml:"CreateRuleResult"`
 	}
@@ -1145,7 +1157,9 @@ func TestDescribeRules(t *testing.T) {
 	var listenerResp struct {
 		Result struct {
 			Listeners struct {
-				Members []struct{ ListenerArn string `xml:"ListenerArn"` } `xml:"member"`
+				Members []struct {
+					ListenerArn string `xml:"ListenerArn"`
+				} `xml:"member"`
 			} `xml:"Listeners"`
 		} `xml:"CreateListenerResult"`
 	}
@@ -1171,7 +1185,9 @@ func TestDescribeRules(t *testing.T) {
 	var resp struct {
 		Result struct {
 			Rules struct {
-				Members []struct{ RuleArn string `xml:"RuleArn"` } `xml:"member"`
+				Members []struct {
+					RuleArn string `xml:"RuleArn"`
+				} `xml:"member"`
 			} `xml:"Rules"`
 		} `xml:"DescribeRulesResult"`
 	}
@@ -1201,7 +1217,9 @@ func TestModifyRule(t *testing.T) {
 	var listenerResp struct {
 		Result struct {
 			Listeners struct {
-				Members []struct{ ListenerArn string `xml:"ListenerArn"` } `xml:"member"`
+				Members []struct {
+					ListenerArn string `xml:"ListenerArn"`
+				} `xml:"member"`
 			} `xml:"Listeners"`
 		} `xml:"CreateListenerResult"`
 	}
@@ -1221,7 +1239,9 @@ func TestModifyRule(t *testing.T) {
 	var ruleResp struct {
 		Result struct {
 			Rules struct {
-				Members []struct{ RuleArn string `xml:"RuleArn"` } `xml:"member"`
+				Members []struct {
+					RuleArn string `xml:"RuleArn"`
+				} `xml:"member"`
 			} `xml:"Rules"`
 		} `xml:"CreateRuleResult"`
 	}
@@ -1259,9 +1279,9 @@ func TestSetSubnets(t *testing.T) {
 	lbArn := mustCreateLB(t, h, "subnet-lb")
 
 	rec := doELBv2(t, h, url.Values{
-		"Action":          {"SetSubnets"},
-		"Version":         {"2015-12-01"},
-		"LoadBalancerArn": {lbArn},
+		"Action":           {"SetSubnets"},
+		"Version":          {"2015-12-01"},
+		"LoadBalancerArn":  {lbArn},
 		"Subnets.member.1": {"subnet-00000001"},
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -1552,7 +1572,9 @@ func TestRemoveTagsFromListener(t *testing.T) {
 	var listenerResp struct {
 		Result struct {
 			Listeners struct {
-				Members []struct{ ListenerArn string `xml:"ListenerArn"` } `xml:"member"`
+				Members []struct {
+					ListenerArn string `xml:"ListenerArn"`
+				} `xml:"member"`
 			} `xml:"Listeners"`
 		} `xml:"CreateListenerResult"`
 	}
