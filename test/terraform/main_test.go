@@ -47,6 +47,7 @@ import (
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 	cesvc "github.com/aws/aws-sdk-go-v2/service/costexplorer"
+	dmssvc "github.com/aws/aws-sdk-go-v2/service/databasemigrationservice"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ecrsvc "github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -1499,6 +1500,24 @@ func createCodeDeployClient(t *testing.T) *codedeploysvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return codedeploysvc.NewFromConfig(cfg, func(o *codedeploysvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createDMSClient returns a DMS client pointed at the shared test container.
+func createDMSClient(t *testing.T) *dmssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return dmssvc.NewFromConfig(cfg, func(o *dmssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

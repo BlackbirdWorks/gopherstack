@@ -78,6 +78,7 @@ import (
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidentitybackend "github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ddbmodels "github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
@@ -195,6 +196,7 @@ type CLI struct {
 	codeCommitHandler             service.Registerable
 	codeConnectionsHandler        service.Registerable
 	codeDeployHandler             service.Registerable
+	dmsHandler                    service.Registerable
 	ecrHandler                    service.Registerable
 	ecsHandler                    service.Registerable
 	iotHandler                    service.Registerable
@@ -645,6 +647,11 @@ func (c *CLI) GetCodeCommitHandler() service.Registerable { return c.codeCommitH
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetCodeDeployHandler() service.Registerable { return c.codeDeployHandler }
 
+// GetDMSHandler returns the DMS handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDMSHandler() service.Registerable { return c.dmsHandler }
+
 // GetFISHandler returns the FIS handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1077,6 +1084,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.codebuildHandler = byName["CodeBuild"]
 	cli.codeCommitHandler = byName["CodeCommit"]
 	cli.codeDeployHandler = byName["CodeDeploy"]
+	cli.dmsHandler = byName["DMS"]
 }
 
 // initializeServices initializes all service providers.
@@ -1258,6 +1266,7 @@ func getServiceProviders() []service.Provider {
 		&codecommitbackend.Provider{},
 		&codeconnectionsbackend.Provider{},
 		&codedeploybackend.Provider{},
+		&dmsbackend.Provider{},
 	}
 }
 

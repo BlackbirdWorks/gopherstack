@@ -57,6 +57,8 @@ import (
 	cognitoidpsvc "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	configsvc "github.com/aws/aws-sdk-go-v2/service/configservice"
 	cesvc "github.com/aws/aws-sdk-go-v2/service/costexplorer"
+	dmssvc "github.com/aws/aws-sdk-go-v2/service/databasemigrationservice"
+	dmstypes "github.com/aws/aws-sdk-go-v2/service/databasemigrationservice/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	ec2svc "github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -188,6 +190,7 @@ provider "aws" {
     cognitoidentity          = %[1]q
     cognitoidentityprovider  = %[1]q
     configservice   = %[1]q
+    dms             = %[1]q
     dynamodb        = %[1]q
     ec2             = %[1]q
     ecr             = %[1]q
@@ -3890,6 +3893,51 @@ func TestTerraform_CodeDeploy(t *testing.T) {
 				require.NoError(t, err, "GetApplication should succeed after terraform apply")
 				require.NotNil(t, out.Application, "application should be returned")
 				assert.Equal(t, appName, aws.ToString(out.Application.ApplicationName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_DMS provisions a DMS replication instance via Terraform
+// and verifies it exists using the DMS SDK.
+func TestTerraform_DMS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "dms/instance",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"InstanceID": "tf-dms-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createDMSClient(t)
+				instanceID := vars["InstanceID"].(string)
+
+				out, err := client.DescribeReplicationInstances(ctx, &dmssvc.DescribeReplicationInstancesInput{
+					Filters: []dmstypes.Filter{
+						{
+							Name:   aws.String("replication-instance-id"),
+							Values: []string{instanceID},
+						},
+					},
+				})
+				require.NoError(t, err, "DescribeReplicationInstances should succeed after terraform apply")
+				require.NotEmpty(t, out.ReplicationInstances, "replication instance should be returned")
+				assert.Equal(t, instanceID, aws.ToString(out.ReplicationInstances[0].ReplicationInstanceIdentifier))
 			},
 		},
 	}
