@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	amplifysdk "github.com/aws/aws-sdk-go-v2/service/amplify"
 	appsyncsdksvc "github.com/aws/aws-sdk-go-v2/service/appsync"
+	codedeploysdk "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -213,6 +214,7 @@ type CLI struct {
 	amplifyClient                 *amplifysdk.Client
 	ecsClient                     *ecs.Client
 	iotClient                     *iotsdk.Client
+	codeDeployClient              *codedeploysdk.Client
 	AccountID                     string                 `                                  name:"account-id"         env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
 	Port                          string                 `                                  name:"port"               env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
 	ElastiCacheEngine             string                 `                                  name:"elasticache-engine" env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
@@ -961,6 +963,12 @@ func initializeClients(cli *CLI, awsCfg aws.Config) {
 	cli.iotClient = iotsdk.NewFromConfig(
 		awsCfg,
 		func(o *iotsdk.Options) {
+			o.BaseEndpoint = aws.String("http://local")
+		},
+	)
+	cli.codeDeployClient = codedeploysdk.NewFromConfig(
+		awsCfg,
+		func(o *codedeploysdk.Options) {
 			o.BaseEndpoint = aws.String("http://local")
 		},
 	)
@@ -2770,6 +2778,7 @@ func loadDemoData(ctx context.Context, cli *CLI) {
 		Amplify:        cli.amplifyClient,
 		ECS:            cli.ecsClient,
 		IoT:            cli.iotClient,
+		CodeDeploy:     cli.codeDeployClient,
 	})
 	if err != nil {
 		log.ErrorContext(ctx, "Failed to load demo data", "error", err)

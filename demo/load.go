@@ -11,6 +11,7 @@ import (
 	amplifytypes "github.com/aws/aws-sdk-go-v2/service/amplify/types"
 	"github.com/aws/aws-sdk-go-v2/service/appsync"
 	appsynctypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
+	codedeploysvc "github.com/aws/aws-sdk-go-v2/service/codedeploy"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
@@ -54,6 +55,7 @@ type Clients struct {
 	Amplify        *amplify.Client
 	ECS            *ecs.Client
 	IoT            *iot.Client
+	CodeDeploy     *codedeploysvc.Client
 }
 
 // LoadData loads sample data into all supported services.
@@ -105,6 +107,10 @@ func LoadData(
 
 	if clients.IoT != nil {
 		loadIoT(ctx, clients.IoT)
+	}
+
+	if clients.CodeDeploy != nil {
+		loadCodeDeploy(ctx, clients.CodeDeploy)
 	}
 
 	pkgslogger.Load(ctx).InfoContext(ctx, "Demo data loaded successfully")
@@ -572,5 +578,30 @@ func loadAmplify(ctx context.Context, amplifyClient *amplify.Client) {
 		} else {
 			pkgslogger.Load(ctx).InfoContext(ctx, "Created Amplify branch", "app", a.name, "branch", "main")
 		}
+	}
+}
+
+func loadCodeDeploy(ctx context.Context, client *codedeploysvc.Client) {
+	apps := []struct {
+		name     string
+		platform string
+	}{
+		{"demo-server-app", "Server"},
+		{"demo-lambda-app", "Lambda"},
+		{"demo-ecs-app", "ECS"},
+	}
+
+	for _, a := range apps {
+		_, err := client.CreateApplication(ctx, &codedeploysvc.CreateApplicationInput{
+			ApplicationName: aws.String(a.name),
+		})
+		if err != nil {
+			pkgslogger.Load(ctx).
+				WarnContext(ctx, "Failed to create CodeDeploy application", "name", a.name, "error", err)
+
+			continue
+		}
+
+		pkgslogger.Load(ctx).InfoContext(ctx, "Created CodeDeploy application", "name", a.name, "platform", a.platform)
 	}
 }
