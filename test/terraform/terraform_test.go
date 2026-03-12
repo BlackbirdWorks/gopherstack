@@ -81,6 +81,7 @@ import (
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	fissvc "github.com/aws/aws-sdk-go-v2/service/fis"
 	fistypes "github.com/aws/aws-sdk-go-v2/service/fis/types"
+	gluesvc "github.com/aws/aws-sdk-go-v2/service/glue"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -222,6 +223,7 @@ provider "aws" {
     events          = %[1]q
     firehose        = %[1]q
     fis             = %[1]q
+    glue            = %[1]q
     iam             = %[1]q
     iot             = %[1]q
     kinesis         = %[1]q
@@ -4530,4 +4532,45 @@ func TestTerraform_FIS(t *testing.T) {
 			runTFTest(t, tc)
 		})
 	}
+}
+
+// TestTerraform_Glue provisions a Glue catalog database via Terraform, then verifies
+// it exists via the Glue SDK.
+func TestTerraform_Glue(t *testing.T) {
+t.Parallel()
+
+tests := []tfTestCase{
+{
+name:    "success",
+fixture: "glue/success",
+setup: func(t *testing.T, _ string) map[string]any {
+t.Helper()
+id := uuid.NewString()[:8]
+
+return map[string]any{
+"Suffix": id,
+}
+},
+verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+t.Helper()
+client := createGlueClient(t)
+suffix := vars["Suffix"].(string)
+dbName := "tf-glue-" + suffix
+
+out, err := client.GetDatabase(ctx, &gluesvc.GetDatabaseInput{
+Name: aws.String(dbName),
+})
+require.NoError(t, err, "GetDatabase should succeed after terraform apply")
+require.NotNil(t, out.Database)
+assert.Equal(t, dbName, aws.ToString(out.Database.Name))
+},
+},
+}
+
+for _, tc := range tests {
+t.Run(tc.name, func(t *testing.T) {
+t.Parallel()
+runTFTest(t, tc)
+})
+}
 }

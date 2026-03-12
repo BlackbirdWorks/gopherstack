@@ -67,6 +67,7 @@ import (
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	fissvc "github.com/aws/aws-sdk-go-v2/service/fis"
+	gluesvc "github.com/aws/aws-sdk-go-v2/service/glue"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -1752,6 +1753,23 @@ func createFISClient(t *testing.T) *fissvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return fissvc.NewFromConfig(cfg, func(o *fissvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+func createGlueClient(t *testing.T) *gluesvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return gluesvc.NewFromConfig(cfg, func(o *gluesvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

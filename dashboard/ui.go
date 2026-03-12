@@ -69,6 +69,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
@@ -165,6 +166,7 @@ type DashboardHandler struct {
 	EFSOps            *efsbackend.Handler
 	IoTOps            *iotbackend.Handler
 	FISOps            *fisbackend.Handler
+	GlueOps           *gluebackend.Handler
 	OpenSearchOps     *opensearchbackend.Handler
 	ACMOps            *acmbackend.Handler
 	ACMPCAOps         *acmpcabackend.Handler
@@ -290,6 +292,8 @@ type Config struct {
 	IoTOps *iotbackend.Handler
 	// FISOps provides access to the FIS backend.
 	FISOps *fisbackend.Handler
+	// GlueOps provides access to the Glue backend.
+	GlueOps *gluebackend.Handler
 	// OpenSearchOps provides access to the OpenSearch backend.
 	OpenSearchOps *opensearchbackend.Handler
 	// ACMOps provides access to the ACM backend.
@@ -495,6 +499,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/elb/*.html",
 		"templates/elbv2/*.html",
 		"templates/emr/*.html",
+		"templates/glue/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -592,6 +597,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		ELBOps:                     cfg.ELBOps,
 		ELBv2Ops:                   cfg.ELBv2Ops,
 		EMROps:                     cfg.EMROps,
+		GlueOps:                    cfg.GlueOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1089,6 +1095,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupELBRoutes()
 	h.setupELBv2Routes()
 	h.setupEMRRoutes()
+	h.setupGlueRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -1209,6 +1216,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/elastictranscoder", "ElasticTranscoder"},
 	{"/elb", "ELB"},
 	{"/emr", "EMR"},
+	{"/glue", "Glue"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

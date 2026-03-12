@@ -101,6 +101,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
@@ -227,6 +228,7 @@ type CLI struct {
 	fisHandler                    service.Registerable
 	elastictranscoderHandler      service.Registerable
 	emrHandler                    service.Registerable
+	glueHandler                   service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -566,6 +568,11 @@ func (c *CLI) GetElasticTranscoderHandler() service.Registerable { return c.elas
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetEMRHandler() service.Registerable { return c.emrHandler }
+
+// GetGlueHandler returns the Glue handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGlueHandler() service.Registerable { return c.glueHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1196,6 +1203,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.elbHandler = byName["ELB"]
 	cli.elbv2Handler = byName["ELBv2"]
 	cli.emrHandler = byName["EMR"]
+	cli.glueHandler = byName["Glue"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1392,6 +1400,7 @@ func getServiceProviders() []service.Provider {
 		&elbbackend.Provider{},
 		&elbv2backend.Provider{},
 		&emrbackend.Provider{},
+		&gluebackend.Provider{},
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
 	}
