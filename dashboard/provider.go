@@ -51,6 +51,7 @@ import (
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -178,6 +179,7 @@ type AWSSDKProvider interface {
 	GetGlacierHandler() service.Registerable
 	GetIoTWirelessHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
+	GetKinesisAnalyticsV2Handler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -277,6 +279,7 @@ type extractedConfig struct {
 	glacierOps                *glacierbackend.Handler
 	iotwirelessOps            *iotwirelessbackend.Handler
 	kafkaOps                  *kafkabackend.Handler
+	kinesisanalyticsv2Ops     *kinesisanalyticsv2backend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -665,6 +668,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetKafkaHandler(); h != nil {
 		ec.kafkaOps, _ = h.(*kafkabackend.Handler)
 	}
+
+	if h := ap.GetKinesisAnalyticsV2Handler(); h != nil {
+		ec.kinesisanalyticsv2Ops, _ = h.(*kinesisanalyticsv2backend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -755,6 +762,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		GlacierOps:                 ec.glacierOps,
 		IoTWirelessOps:             ec.iotwirelessOps,
 		KafkaOps:                   ec.kafkaOps,
+		KinesisAnalyticsV2Ops:      ec.kinesisanalyticsv2Ops,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,

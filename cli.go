@@ -111,6 +111,7 @@ import (
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -239,6 +240,7 @@ type CLI struct {
 	iotwirelessHandler            service.Registerable
 	glueHandler                   service.Registerable
 	kafkaHandler                  service.Registerable
+	kinesisanalyticsv2Handler     service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -598,6 +600,13 @@ func (c *CLI) GetGlueHandler() service.Registerable { return c.glueHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
+
+// GetKinesisAnalyticsV2Handler returns the Kinesis Data Analytics v2 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKinesisAnalyticsV2Handler() service.Registerable {
+	return c.kinesisanalyticsv2Handler
+}
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1244,6 +1253,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.iotwirelessHandler = byName["IoTWireless"]
 	cli.glueHandler = byName["Glue"]
 	cli.kafkaHandler = byName["Kafka"]
+	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1448,6 +1458,7 @@ func getServiceProviders() []service.Provider {
 		&glacierbackend.Provider{},
 		&iotwirelessbackend.Provider{},
 		&kafkabackend.Provider{},
+		&kinesisanalyticsv2backend.Provider{},
 	}
 }
 
