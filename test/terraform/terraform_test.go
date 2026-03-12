@@ -4886,7 +4886,7 @@ func TestTerraform_MediaStore(t *testing.T) {
 				id := uuid.NewString()[:8]
 
 				return map[string]any{
-					"ContainerName": "tf-ms-" + id,
+					"ContainerName": "tfms_" + id,
 				}
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
