@@ -631,12 +631,7 @@ func (h *Handler) handleDeletePipeline(c *echo.Context, name string) error {
 func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	resourceARN := c.Request().URL.Query().Get("resourceArn")
 	if resourceARN == "" {
-		return h.writeError(
-			c,
-			http.StatusBadRequest,
-			"InvalidRequestException",
-			"resourceArn query parameter is required",
-		)
+		return h.writeError(c, http.StatusBadRequest, "resourceArn query parameter is required")
 	}
 
 	tags, err := h.Backend.ListTagsForResource(resourceARN)
@@ -650,12 +645,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	resourceARN := c.Request().URL.Query().Get("resourceArn")
 	if resourceARN == "" {
-		return h.writeError(
-			c,
-			http.StatusBadRequest,
-			"InvalidRequestException",
-			"resourceArn query parameter is required",
-		)
+		return h.writeError(c, http.StatusBadRequest, "resourceArn query parameter is required")
 	}
 
 	var req tagResourceRequest
@@ -673,12 +663,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 func (h *Handler) handleUntagResource(c *echo.Context) error {
 	resourceARN := c.Request().URL.Query().Get("resourceArn")
 	if resourceARN == "" {
-		return h.writeError(
-			c,
-			http.StatusBadRequest,
-			"InvalidRequestException",
-			"resourceArn query parameter is required",
-		)
+		return h.writeError(c, http.StatusBadRequest, "resourceArn query parameter is required")
 	}
 
 	tagKeys := c.Request().URL.Query()["tagKeys"]
