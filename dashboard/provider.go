@@ -50,6 +50,7 @@ import (
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
+	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -176,6 +177,7 @@ type AWSSDKProvider interface {
 	GetElasticTranscoderHandler() service.Registerable
 	GetGlacierHandler() service.Registerable
 	GetIoTAnalyticsHandler() service.Registerable
+	GetIoTWirelessHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -274,6 +276,7 @@ type extractedConfig struct {
 	elasticTranscoderOps      *elastictranscoderbackend.Handler
 	glacierOps                *glacierbackend.Handler
 	iotanalyticsOps           *iotanalyticsbackend.Handler
+	iotwirelessOps            *iotwirelessbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -655,6 +658,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.iotanalyticsOps, _ = h.(*iotanalyticsbackend.Handler)
 	}
 
+	if h := ap.GetIoTWirelessHandler(); h != nil {
+		ec.iotwirelessOps, _ = h.(*iotwirelessbackend.Handler)
+	}
+
 	if h := ap.GetIdentityStoreHandler(); h != nil {
 		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
@@ -747,6 +754,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ElasticTranscoderOps:       ec.elasticTranscoderOps,
 		GlacierOps:                 ec.glacierOps,
 		IoTAnalyticsOps:            ec.iotanalyticsOps,
+		IoTWirelessOps:             ec.iotwirelessOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,
