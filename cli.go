@@ -119,6 +119,7 @@ import (
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
+	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -252,6 +253,7 @@ type CLI struct {
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
 	mediastoreHandler             service.Registerable
+	mediastoredataHandler         service.Registerable
 	memorydbHandler               service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
@@ -642,6 +644,11 @@ func (c *CLI) GetMediaConvertHandler() service.Registerable { return c.mediaconv
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMediaStoreHandler() service.Registerable { return c.mediastoreHandler }
+
+// GetMediaStoreDataHandler returns the MediaStore Data handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMediaStoreDataHandler() service.Registerable { return c.mediastoredataHandler }
 
 // GetMemoryDBHandler returns the MemoryDB handler (dashboard.AWSSDKProvider).
 //
@@ -1299,6 +1306,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.mediaconvertHandler = byName["MediaConvert"]
 	cli.mediastoreHandler = byName["MediaStore"]
+	cli.mediastoredataHandler = byName["MediaStoreData"]
 	cli.memorydbHandler = byName["MemoryDB"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
@@ -1510,6 +1518,7 @@ func getServiceProviders() []service.Provider {
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},
 		&mediastorebackend.Provider{},
+		&mediastoredatabackend.Provider{},
 		&memorydbbackend.Provider{},
 	}
 }

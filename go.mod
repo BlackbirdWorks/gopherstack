@@ -131,6 +131,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.12 // indirect
 )
 
+require github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.18
+
 require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect
