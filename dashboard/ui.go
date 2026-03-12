@@ -66,6 +66,7 @@ import (
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
+	emrserverlessbackend "github.com/blackbirdworks/gopherstack/services/emrserverless"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -228,6 +229,8 @@ type DashboardHandler struct {
 	ELBOps *elbbackend.Handler
 	// ELBv2Ops provides access to the ELBv2 (ALB/NLB) backend.
 	ELBv2Ops *elbv2backend.Handler
+	// EmrServerlessOps provides access to the EMR Serverless backend.
+	EmrServerlessOps *emrserverlessbackend.Handler
 	// EMROps provides access to the EMR backend.
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
@@ -392,6 +395,8 @@ type Config struct {
 	ELBOps *elbbackend.Handler
 	// ELBv2Ops provides access to the ELBv2 (ALB/NLB) backend.
 	ELBv2Ops *elbv2backend.Handler
+	// EmrServerlessOps provides access to the EMR Serverless backend.
+	EmrServerlessOps *emrserverlessbackend.Handler
 	// EMROps provides access to the EMR backend.
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
@@ -403,8 +408,6 @@ type Config struct {
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
 	GlobalConfig config.GlobalConfig
 }
-
-// NewHandler creates a new Dashboard handler.
 
 // parseDashboardTemplates loads and parses all HTML templates for the dashboard.
 func parseDashboardTemplates() *template.Template {
@@ -499,6 +502,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/elastictranscoder/*.html",
 		"templates/elb/*.html",
 		"templates/elbv2/*.html",
+		"templates/emrserverless/*.html",
 		"templates/emr/*.html",
 		"templates/glacier/*.html",
 		"templates/chaos/*.html",
@@ -509,6 +513,7 @@ func parseDashboardTemplates() *template.Template {
 	))
 }
 
+// NewHandler creates a new Dashboard handler.
 func NewHandler(cfg Config) *DashboardHandler {
 	tmpl := parseDashboardTemplates()
 
@@ -597,6 +602,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		ElasticTranscoderOps:       cfg.ElasticTranscoderOps,
 		ELBOps:                     cfg.ELBOps,
 		ELBv2Ops:                   cfg.ELBv2Ops,
+		EmrServerlessOps:           cfg.EmrServerlessOps,
 		EMROps:                     cfg.EMROps,
 		GlacierOps:                 cfg.GlacierOps,
 		GlobalConfig:               cfg.GlobalConfig,
@@ -1095,6 +1101,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupElasticTranscoderRoutes()
 	h.setupELBRoutes()
 	h.setupELBv2Routes()
+	h.setupEmrServerlessRoutes()
 	h.setupEMRRoutes()
 	h.setupGlacierRoutes()
 }
@@ -1216,6 +1223,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/efs", "EFS"},
 	{"/elastictranscoder", "ElasticTranscoder"},
 	{"/elb", "ELB"},
+	{"/emrserverless", "EmrServerless"},
 	{"/emr", "EMR"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
