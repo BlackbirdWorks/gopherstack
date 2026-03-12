@@ -92,6 +92,7 @@ import (
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
+	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
@@ -239,6 +240,7 @@ provider "aws" {
     kinesis         = %[1]q
     kinesisanalytics = %[1]q
     kms             = %[1]q
+    lakeformation   = %[1]q
     lambda          = %[1]q
     opensearch      = %[1]q
     redshift        = %[1]q
@@ -4823,6 +4825,39 @@ func TestTerraform_Kafka(t *testing.T) {
 				}
 
 				assert.True(t, found, "cluster %q should be listed after terraform apply", clusterName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_LakeFormation provisions Lake Formation data lake settings via Terraform,
+// then verifies the settings are readable via the Lake Formation SDK.
+func TestTerraform_LakeFormation(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "lakeformation/settings",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createLakeFormationClient(t)
+
+				out, err := client.GetDataLakeSettings(ctx, &lakeformationsvc.GetDataLakeSettingsInput{})
+				require.NoError(t, err, "GetDataLakeSettings should succeed after terraform apply")
+				require.NotNil(t, out.DataLakeSettings, "DataLakeSettings should not be nil")
 			},
 		},
 	}

@@ -82,6 +82,7 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -253,6 +254,8 @@ type DashboardHandler struct {
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
+	// LakeFormationOps provides access to the Lake Formation backend.
+	LakeFormationOps *lakeformationbackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
 	ManagedBlockchainOps *managedblockchainbackend.Handler
 	SubRouter            *echo.Echo
@@ -433,6 +436,8 @@ type Config struct {
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
+	// LakeFormationOps provides access to the Lake Formation backend.
+	LakeFormationOps *lakeformationbackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
 	ManagedBlockchainOps *managedblockchainbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -659,6 +664,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
 		KafkaOps:                   cfg.KafkaOps,
+		LakeFormationOps:           cfg.LakeFormationOps,
 		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
@@ -1161,6 +1167,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupKinesisAnalyticsRoutes()
 	h.setupGlueRoutes()
 	h.setupKafkaRoutes()
+	h.setupLakeFormationRoutes()
 	h.setupManagedBlockchainRoutes()
 }
 

@@ -77,6 +77,7 @@ import (
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
+	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
@@ -1867,6 +1868,24 @@ func createKafkaClient(t *testing.T) *kafkasvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return kafkasvc.NewFromConfig(cfg, func(o *kafkasvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createLakeFormationClient returns a Lake Formation client pointed at the shared test container.
+func createLakeFormationClient(t *testing.T) *lakeformationsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return lakeformationsvc.NewFromConfig(cfg, func(o *lakeformationsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

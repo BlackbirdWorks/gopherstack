@@ -82,6 +82,7 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -224,10 +225,12 @@ type Stack struct {
 	KinesisAnalyticsHandler *kinesisanalyticsbackend.Handler
 	// KafkaHandler provides access to the MSK Kafka backend.
 	KafkaHandler *kafkabackend.Handler
-	S3Client     *s3.Client
-	DDBClient    *dynamodb.Client
-	FaultStore   *chaos.FaultStore
-	Dashboard    *dashboard.DashboardHandler
+	// LakeFormationHandler provides access to the Lake Formation backend.
+	LakeFormationHandler *lakeformationbackend.Handler
+	S3Client             *s3.Client
+	DDBClient            *dynamodb.Client
+	FaultStore           *chaos.FaultStore
+	Dashboard            *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -501,6 +504,7 @@ type handlers struct {
 	iotwireless       *iotwirelessbackend.Handler
 	kinesisanalytics  *kinesisanalyticsbackend.Handler
 	kafka             *kafkabackend.Handler
+	lakeformation     *lakeformationbackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
 }
@@ -753,6 +757,10 @@ func populateLatestHandlers(h *handlers) {
 	h.kafka = kafkabackend.NewHandler(
 		kafkabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+
+	h.lakeformation = lakeformationbackend.NewHandler(lakeformationbackend.NewInMemoryBackend())
+	h.lakeformation.AccountID = config.DefaultAccountID
+	h.lakeformation.DefaultRegion = config.DefaultRegion
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -876,6 +884,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		IoTWirelessOps:             h.iotwireless,
 		KinesisAnalyticsOps:        h.kinesisanalytics,
 		KafkaOps:                   h.kafka,
+		LakeFormationOps:           h.lakeformation,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -943,6 +952,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.iotwireless)
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
+	_ = registry.Register(h.lakeformation)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -1054,6 +1064,7 @@ func buildStack(
 		IoTWirelessHandler:             h.iotwireless,
 		KinesisAnalyticsHandler:        h.kinesisanalytics,
 		KafkaHandler:                   h.kafka,
+		LakeFormationHandler:           h.lakeformation,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,

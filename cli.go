@@ -114,6 +114,7 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -241,6 +242,7 @@ type CLI struct {
 	glacierHandler                service.Registerable
 	iotwirelessHandler            service.Registerable
 	kinesisanalyticsHandler       service.Registerable
+	lakeformationHandler          service.Registerable
 	glueHandler                   service.Registerable
 	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
@@ -604,6 +606,11 @@ func (c *CLI) GetIoTWirelessHandler() service.Registerable { return c.iotwireles
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKinesisAnalyticsHandler() service.Registerable { return c.kinesisanalyticsHandler }
+
+// GetLakeFormationHandler returns the Lake Formation handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetLakeFormationHandler() service.Registerable { return c.lakeformationHandler }
 
 // GetGlueHandler returns the Glue handler (dashboard.AWSSDKProvider).
 //
@@ -1264,6 +1271,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.glacierHandler = byName["Glacier"]
 	cli.iotwirelessHandler = byName["IoTWireless"]
 	cli.kinesisanalyticsHandler = byName["KinesisAnalytics"]
+	cli.lakeformationHandler = byName["LakeFormation"]
 	cli.glueHandler = byName["Glue"]
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
@@ -1474,6 +1482,7 @@ func getServiceProviders() []service.Provider {
 		&iotwirelessbackend.Provider{},
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
+		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
 	}
 }
