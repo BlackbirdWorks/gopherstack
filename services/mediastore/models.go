@@ -159,12 +159,12 @@ type listTagsForResourceRequest struct {
 
 // containerObject is the JSON representation of a container.
 type containerObject struct {
-	CreationTime         *time.Time `json:"CreationTime,omitempty"`
-	ARN                  string     `json:"ARN,omitempty"`
-	Endpoint             string     `json:"Endpoint,omitempty"`
-	Name                 string     `json:"Name,omitempty"`
-	Status               string     `json:"Status,omitempty"`
-	AccessLoggingEnabled bool       `json:"AccessLoggingEnabled"`
+	ARN                  string  `json:"ARN,omitempty"`
+	Endpoint             string  `json:"Endpoint,omitempty"`
+	Name                 string  `json:"Name,omitempty"`
+	Status               string  `json:"Status,omitempty"`
+	CreationTime         float64 `json:"CreationTime,omitempty"`
+	AccessLoggingEnabled bool    `json:"AccessLoggingEnabled"`
 }
 
 // createContainerResponse is the response for CreateContainer.

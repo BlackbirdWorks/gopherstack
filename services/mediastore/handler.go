@@ -616,12 +616,17 @@ func writeError(c *echo.Context, status int, errType, message string) error {
 
 // toContainerObject converts a Container to its JSON representation.
 func toContainerObject(c *Container) containerObject {
+	var creationTime float64
+	if c.CreationTime != nil {
+		creationTime = float64(c.CreationTime.Unix())
+	}
+
 	return containerObject{
 		Name:                 c.Name,
 		ARN:                  c.ARN,
 		Endpoint:             c.Endpoint,
 		Status:               c.Status,
-		CreationTime:         c.CreationTime,
+		CreationTime:         creationTime,
 		AccessLoggingEnabled: c.AccessLoggingEnabled,
 	}
 }
