@@ -114,9 +114,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iotwireless v1.54.7
 )
 
-require github.com/aws/aws-sdk-go-v2/service/glue v1.137.2
-
-require github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0
+require (
+	github.com/aws/aws-sdk-go-v2/service/glue v1.137.2
+	github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0
+	github.com/aws/aws-sdk-go-v2/service/kafka v1.49.0
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

@@ -78,6 +78,7 @@ import (
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
+	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -246,13 +247,15 @@ type DashboardHandler struct {
 	IoTAnalyticsOps *iotanalyticsbackend.Handler
 	// IoTWirelessOps provides access to the IoT Wireless backend.
 	IoTWirelessOps *iotwirelessbackend.Handler
-	SubRouter      *echo.Echo
-	ddbProvider    *ddbbackend.DashboardProvider
-	s3Provider     *s3backend.DashboardProvider
-	FaultStore     *chaos.FaultStore
-	Logger         *slog.Logger
-	layout         *template.Template
-	GlobalConfig   config.GlobalConfig
+	// KafkaOps provides access to the MSK Kafka backend.
+	KafkaOps     *kafkabackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -420,6 +423,8 @@ type Config struct {
 	IoTAnalyticsOps *iotanalyticsbackend.Handler
 	// IoTWirelessOps provides access to the IoT Wireless backend.
 	IoTWirelessOps *iotwirelessbackend.Handler
+	// KafkaOps provides access to the MSK Kafka backend.
+	KafkaOps *kafkabackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -531,6 +536,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/iotanalytics/*.html",
 		"templates/iotwireless/*.html",
 		"templates/glue/*.html",
+		"templates/kafka/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -639,6 +645,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		IoTAnalyticsOps:            cfg.IoTAnalyticsOps,
 		IoTWirelessOps:             cfg.IoTWirelessOps,
 		GlueOps:                    cfg.GlueOps,
+		KafkaOps:                   cfg.KafkaOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1138,6 +1145,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupIoTAnalyticsRoutes()
 	h.setupIoTWirelessRoutes()
 	h.setupGlueRoutes()
+	h.setupKafkaRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
