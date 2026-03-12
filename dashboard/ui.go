@@ -540,7 +540,6 @@ func parseRecentTemplates(t *template.Template) *template.Template {
 // NewHandler creates a new Dashboard handler.
 func NewHandler(cfg Config) *DashboardHandler {
 	tmpl := parseDashboardTemplates()
-
 	h := &DashboardHandler{
 		DynamoDB:                   cfg.DDBClient,
 		S3:                         cfg.S3Client,

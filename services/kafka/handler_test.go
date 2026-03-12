@@ -123,7 +123,12 @@ func TestKafka_RouteMatcher(t *testing.T) {
 		{name: "v1_clusters", path: "/v1/clusters", want: true},
 		{name: "v2_clusters", path: "/v2/clusters", want: true},
 		{name: "v1_configurations", path: "/v1/configurations", want: true},
-		{name: "v1_tags", path: "/v1/tags/some-arn", want: true},
+		{
+			name: "v1_tags_kafka_arn",
+			path: "/v1/tags/arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Ftest%2Fabc",
+			want: true,
+		},
+		{name: "v1_tags_non_kafka_arn", path: "/v1/tags/some-arn", want: false},
 		{name: "other_path", path: "/v1/other", want: false},
 		{name: "s3_path", path: "/my-bucket", want: false},
 	}
@@ -306,7 +311,7 @@ func TestKafka_DescribeAndDeleteCluster(t *testing.T) {
 		},
 		{
 			name:       "describe_not_found",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 			useRealArn: false,
 		},
 		{
@@ -316,7 +321,7 @@ func TestKafka_DescribeAndDeleteCluster(t *testing.T) {
 		},
 		{
 			name:       "delete_not_found",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 			useRealArn: false,
 		},
 	}
@@ -383,7 +388,7 @@ func TestKafka_GetBootstrapBrokers(t *testing.T) {
 		{
 			name:       "not_found",
 			useRealArn: false,
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -450,7 +455,7 @@ func TestKafka_CreateAndDescribeConfiguration(t *testing.T) {
 		{
 			name:       "duplicate",
 			confName:   "my-config",
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 	}
 
@@ -655,7 +660,7 @@ func TestKafka_DescribeClusterV2(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "success", useRealArn: true, wantStatus: http.StatusOK},
-		{name: "not_found", useRealArn: false, wantStatus: http.StatusBadRequest},
+		{name: "not_found", useRealArn: false, wantStatus: http.StatusNotFound},
 	}
 
 	for _, tt := range tests {

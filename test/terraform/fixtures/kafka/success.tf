@@ -6,6 +6,7 @@ resource "aws_msk_cluster" "this" {
   broker_node_group_info {
     instance_type   = "kafka.m5.large"
     client_subnets  = ["subnet-00000000"]
+    security_groups = ["sg-00000000"]
     storage_info {
       ebs_storage_info {
         volume_size = 20

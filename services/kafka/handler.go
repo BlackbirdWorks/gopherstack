@@ -21,6 +21,9 @@ const (
 	configurationsPrefix   = "/v1/configurations/"
 	tagsPrefix             = "/v1/tags/"
 	bootstrapBrokersSuffix = "/bootstrap-brokers"
+
+	arnMaxParts    = 6 // arn:partition:service:region:account:resource
+	arnServicePart = 3 // minimum parts to check the service field
 )
 
 // Handler is the HTTP handler for the MSK REST API.
@@ -74,8 +77,38 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		return strings.HasPrefix(p, "/v1/clusters") ||
 			strings.HasPrefix(p, "/v2/clusters") ||
 			strings.HasPrefix(p, "/v1/configurations") ||
-			strings.HasPrefix(p, "/v1/tags/")
+			isKafkaTagsPath(p)
 	}
+}
+
+// isKafkaTagsPath reports whether the path is a /v1/tags/{arn} path for a Kafka ARN.
+// It avoids matching tag paths that belong to other services sharing the same prefix.
+func isKafkaTagsPath(path string) bool {
+	if !strings.HasPrefix(path, tagsPrefix) {
+		return false
+	}
+
+	encodedARN := path[len(tagsPrefix):]
+	if encodedARN == "" {
+		return false
+	}
+
+	decodedARN, err := url.PathUnescape(encodedARN)
+	if err != nil {
+		return false
+	}
+
+	if !strings.HasPrefix(decodedARN, "arn:") {
+		return false
+	}
+
+	// arn:partition:service:region:account:resource
+	parts := strings.SplitN(decodedARN, ":", arnMaxParts)
+	if len(parts) < arnServicePart {
+		return false
+	}
+
+	return parts[2] == "kafka"
 }
 
 // MatchPriority returns the routing priority.
@@ -635,9 +668,9 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return h.writeError(c, http.StatusBadRequest, "NotFoundException", err.Error())
+		return h.writeError(c, http.StatusNotFound, "NotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return h.writeError(c, http.StatusBadRequest, "ConflictException", err.Error())
+		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error())
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
