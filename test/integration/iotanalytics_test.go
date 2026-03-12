@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	iotanalyticssdk "github.com/aws/aws-sdk-go-v2/service/iotanalytics"       //nolint:staticcheck // AWS deprecated the SDK but service still works
-	iotanalyticstype "github.com/aws/aws-sdk-go-v2/service/iotanalytics/types" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	iotanalyticssdk "github.com/aws/aws-sdk-go-v2/service/iotanalytics" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	iotanalyticstype "github.com/aws/aws-sdk-go-v2/service/iotanalytics/types"
 )
 
 // createIoTAnalyticsClient returns an IoT Analytics client pointed at the shared test stack.
@@ -134,9 +134,9 @@ func TestIntegration_IoTAnalytics_PipelineLifecycle(t *testing.T) {
 	createOut, err := client.CreatePipeline( //nolint:staticcheck // AWS deprecated
 		ctx, &iotanalyticssdk.CreatePipelineInput{
 			PipelineName: aws.String(pipelineName),
-			PipelineActivities: []iotanalyticstype.PipelineActivity{ //nolint:staticcheck // required field, types are deprecated
+			PipelineActivities: []iotanalyticstype.PipelineActivity{
 				{
-					Channel: &iotanalyticstype.ChannelActivity{ //nolint:staticcheck // deprecated type
+					Channel: &iotanalyticstype.ChannelActivity{
 						Name:        aws.String("channel-activity"),
 						ChannelName: aws.String("test-channel"),
 					},
