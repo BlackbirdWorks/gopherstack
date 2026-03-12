@@ -97,6 +97,8 @@ import (
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
+	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
+	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -248,6 +250,8 @@ provider "aws" {
     lambda          = %[1]q
     mediaconvert    = %[1]q
     mediastore      = %[1]q
+    memorydb        = %[1]q
+    mq              = %[1]q
     opensearch      = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
@@ -4942,6 +4946,55 @@ func TestTerraform_MediaConvert(t *testing.T) {
 	}
 }
 
+// TestTerraform_MQ provisions an Amazon MQ broker via Terraform, then verifies
+// it is listed via the Amazon MQ SDK.
+func TestTerraform_MQ(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "mq/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createMQClient(t)
+				suffix := vars["Suffix"].(string)
+				brokerName := "tf-mq-" + suffix
+
+				out, err := client.ListBrokers(ctx, &mqsvc.ListBrokersInput{})
+				require.NoError(t, err, "ListBrokers should succeed after terraform apply")
+
+				found := false
+
+				for _, br := range out.BrokerSummaries {
+					if aws.ToString(br.BrokerName) == brokerName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "broker %q should be listed after terraform apply", brokerName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_LakeFormation provisions Lake Formation data lake settings via Terraform,
 // then verifies the settings are readable via the Lake Formation SDK.
 func TestTerraform_LakeFormation(t *testing.T) {
@@ -5010,6 +5063,53 @@ func TestTerraform_MediaStore(t *testing.T) {
 				}
 
 				assert.True(t, found, "container %q should be listed", containerName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_MemoryDB provisions a MemoryDB cluster via Terraform, then verifies
+// it is listed via the MemoryDB SDK.
+func TestTerraform_MemoryDB(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "memorydb/cluster",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ClusterName": "tfmdb-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createMemoryDBClient(t)
+				clusterName := vars["ClusterName"].(string)
+
+				out, err := client.DescribeClusters(ctx, &memorydbsvc.DescribeClustersInput{})
+				require.NoError(t, err, "DescribeClusters should succeed after terraform apply")
+
+				found := false
+				for _, c := range out.Clusters {
+					if aws.ToString(c.Name) == clusterName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "created cluster should appear in DescribeClusters output")
 			},
 		},
 	}

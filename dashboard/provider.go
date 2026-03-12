@@ -59,6 +59,8 @@ import (
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -192,8 +194,10 @@ type AWSSDKProvider interface {
 	GetLakeFormationHandler() service.Registerable
 	GetManagedBlockchainHandler() service.Registerable
 	GetMediaConvertHandler() service.Registerable
+	GetMQHandler() service.Registerable
 	GetMediaStoreHandler() service.Registerable
 	GetMediaStoreDataHandler() service.Registerable
+	GetMemoryDBHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -299,8 +303,10 @@ type extractedConfig struct {
 	lakeformationOps          *lakeformationbackend.Handler
 	managedblockchainOps      *managedblockchainbackend.Handler
 	mediaconvertOps           *mediaconvertbackend.Handler
+	mqOps                     *mqbackend.Handler
 	mediastoreOps             *mediastorebackend.Handler
 	mediastoredataOps         *mediastoredatabackend.Handler
+	memorydbOps               *memorydbbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -718,9 +724,13 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMediaStoreDataHandler(); h != nil {
 		ec.mediastoredataOps, _ = h.(*mediastoredatabackend.Handler)
 	}
+
+	if h := ap.GetMemoryDBHandler(); h != nil {
+		ec.memorydbOps, _ = h.(*memorydbbackend.Handler)
+	}
 }
 
-// extractBlockchainHandlers populates ManagedBlockchain and MediaConvert handlers on ec.
+// extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, and MQ handlers on ec.
 func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
@@ -729,13 +739,24 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMediaConvertHandler(); h != nil {
 		ec.mediaconvertOps, _ = h.(*mediaconvertbackend.Handler)
 	}
+
+	if h := ap.GetMQHandler(); h != nil {
+		ec.mqOps, _ = h.(*mqbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	ec := extractFromProvider(ctx)
 
-	handler := NewHandler(Config{
+	cfg := buildProviderConfig(ec, ctx)
+	handler := NewHandler(cfg)
+
+	return handler, nil
+}
+
+func buildProviderConfig(ec extractedConfig, ctx *service.AppContext) Config {
+	return Config{
 		DDBClient:                  ec.ddbClient,
 		S3Client:                   ec.s3Client,
 		SSMClient:                  ec.ssmClient,
@@ -825,12 +846,12 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		LakeFormationOps:           ec.lakeformationOps,
 		ManagedBlockchainOps:       ec.managedblockchainOps,
 		MediaConvertOps:            ec.mediaconvertOps,
+		MQOps:                      ec.mqOps,
 		MediaStoreOps:              ec.mediastoreOps,
 		MediaStoreDataOps:          ec.mediastoredataOps,
+		MemoryDBOps:                ec.memorydbOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,
-	})
-
-	return handler, nil
+	}
 }

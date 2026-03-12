@@ -121,6 +121,8 @@ import (
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -253,8 +255,10 @@ type CLI struct {
 	kinesisanalyticsv2Handler     service.Registerable
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
+	mqHandler                     service.Registerable
 	mediastoreHandler             service.Registerable
 	mediastoredataHandler         service.Registerable
+	memorydbHandler               service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -647,6 +651,11 @@ func (c *CLI) GetManagedBlockchainHandler() service.Registerable { return c.mana
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMediaConvertHandler() service.Registerable { return c.mediaconvertHandler }
 
+// GetMQHandler returns the Amazon MQ handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMQHandler() service.Registerable { return c.mqHandler }
+
 // GetMediaStoreHandler returns the MediaStore handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -656,6 +665,11 @@ func (c *CLI) GetMediaStoreHandler() service.Registerable { return c.mediastoreH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMediaStoreDataHandler() service.Registerable { return c.mediastoredataHandler }
+
+// GetMemoryDBHandler returns the MemoryDB handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMemoryDBHandler() service.Registerable { return c.memorydbHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1308,8 +1322,10 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.mediaconvertHandler = byName["MediaConvert"]
+	cli.mqHandler = byName["MQ"]
 	cli.mediastoreHandler = byName["MediaStore"]
 	cli.mediastoredataHandler = byName["MediaStoreData"]
+	cli.memorydbHandler = byName["MemoryDB"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1520,8 +1536,10 @@ func getServiceProviders() []service.Provider {
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},
+		&mqbackend.Provider{},
 		&mediastorebackend.Provider{},
 		&mediastoredatabackend.Provider{},
+		&memorydbbackend.Provider{},
 	}
 }
 

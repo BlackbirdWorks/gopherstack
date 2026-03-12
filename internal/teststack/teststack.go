@@ -88,6 +88,8 @@ import (
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -235,14 +237,18 @@ type Stack struct {
 	LakeFormationHandler *lakeformationbackend.Handler
 	// MediaConvertHandler provides access to the MediaConvert backend.
 	MediaConvertHandler *mediaconvertbackend.Handler
+	// MQHandler provides access to the Amazon MQ backend.
+	MQHandler *mqbackend.Handler
 	// MediaStoreHandler provides access to the MediaStore backend.
 	MediaStoreHandler *mediastorebackend.Handler
 	// MediaStoreDataHandler provides access to the MediaStore Data backend.
 	MediaStoreDataHandler *mediastoredatabackend.Handler
-	S3Client              *s3.Client
-	DDBClient             *dynamodb.Client
-	FaultStore            *chaos.FaultStore
-	Dashboard             *dashboard.DashboardHandler
+	// MemoryDBHandler provides access to the MemoryDB backend.
+	MemoryDBHandler *memorydbbackend.Handler
+	S3Client        *s3.Client
+	DDBClient       *dynamodb.Client
+	FaultStore      *chaos.FaultStore
+	Dashboard       *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -434,8 +440,10 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.kinesisanalyticsv2)
 	_ = registry.Register(h.lakeformation)
 	_ = registry.Register(h.mediaconvert)
+	_ = registry.Register(h.mq)
 	_ = registry.Register(h.mediastore)
 	_ = registry.Register(h.mediastoredata)
+	_ = registry.Register(h.memorydb)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -528,8 +536,10 @@ type handlers struct {
 	kinesisanalyticsv2 *kinesisanalyticsv2backend.Handler
 	lakeformation      *lakeformationbackend.Handler
 	mediaconvert       *mediaconvertbackend.Handler
+	mq                 *mqbackend.Handler
 	mediastore         *mediastorebackend.Handler
 	mediastoredata     *mediastoredatabackend.Handler
+	memorydb           *memorydbbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -794,11 +804,17 @@ func populateLatestHandlers(h *handlers) {
 	h.mediaconvert = mediaconvertbackend.NewHandler(
 		mediaconvertbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.mq = mqbackend.NewHandler(
+		mqbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.mediastore = mediastorebackend.NewHandler(mediastorebackend.NewInMemoryBackend())
 	h.mediastore.AccountID = config.DefaultAccountID
 	h.mediastore.DefaultRegion = config.DefaultRegion
 
 	h.mediastoredata = mediastoredatabackend.NewHandler(mediastoredatabackend.NewInMemoryBackend())
+	h.memorydb = memorydbbackend.NewHandler(memorydbbackend.NewInMemoryBackend())
+	h.memorydb.AccountID = config.DefaultAccountID
+	h.memorydb.DefaultRegion = config.DefaultRegion
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -946,8 +962,10 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.KinesisAnalyticsV2Ops = h.kinesisanalyticsv2
 	cfg.LakeFormationOps = h.lakeformation
 	cfg.MediaConvertOps = h.mediaconvert
+	cfg.MQOps = h.mq
 	cfg.MediaStoreOps = h.mediastore
 	cfg.MediaStoreDataOps = h.mediastoredata
+	cfg.MemoryDBOps = h.memorydb
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1140,8 +1158,10 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.KinesisAnalyticsV2Handler = h.kinesisanalyticsv2
 	s.LakeFormationHandler = h.lakeformation
 	s.MediaConvertHandler = h.mediaconvert
+	s.MQHandler = h.mq
 	s.MediaStoreHandler = h.mediastore
 	s.MediaStoreDataHandler = h.mediastoredata
+	s.MemoryDBHandler = h.memorydb
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".
