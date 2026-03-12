@@ -4330,7 +4330,7 @@ func TestTerraform_ElasticTranscoder(t *testing.T) {
 				found := false
 
 				for i := range pipelines {
-					name := aws.ToString(pipelines[i].Name) //nolint:staticcheck // deprecated SDK
+					name := aws.ToString(pipelines[i].Name)
 					if name == pipelineName {
 						found = true
 
