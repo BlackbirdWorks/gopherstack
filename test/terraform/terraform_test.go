@@ -98,6 +98,7 @@ import (
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
 	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
 	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
+	neptuneSvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -144,9 +145,10 @@ var tofuProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tofu-provide
 //
 //nolint:gochecknoglobals // set once in TestMain, read-only during parallel tests
 var (
-	preInitDirMain  string
-	preInitDirRDS   string
-	preInitDirDocDB string
+	preInitDirMain    string
+	preInitDirRDS     string
+	preInitDirDocDB   string
+	preInitDirNeptune string
 )
 
 // tofuBinaryOnce ensures tofu is only downloaded once per test run.
@@ -324,6 +326,34 @@ provider "aws" {
   endpoints {
     docdb = %[1]q
     sts   = %[1]q
+  }
+}
+`, addr)
+}
+
+// neptuneProviderBlock returns an OpenTofu provider block that includes the neptune endpoint.
+func neptuneProviderBlock(addr string) string {
+	return fmt.Sprintf(`terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+  required_version = ">= 1.0"
+}
+
+provider "aws" {
+  region                      = "us-east-1"
+  access_key                  = "test"
+  secret_key                  = "test"
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+
+  endpoints {
+    neptune = %[1]q
+    sts     = %[1]q
   }
 }
 `, addr)
@@ -528,6 +558,8 @@ func selectPreInitDir(hcl string) string {
 	switch {
 	case strings.HasPrefix(hcl, docdbProviderBlock(endpoint)):
 		return preInitDirDocDB
+	case strings.HasPrefix(hcl, neptuneProviderBlock(endpoint)):
+		return preInitDirNeptune
 	case strings.HasPrefix(hcl, rdsProviderBlock(endpoint)):
 		return preInitDirRDS
 	case strings.HasPrefix(hcl, providerBlock(endpoint)):
@@ -875,6 +907,43 @@ func TestTerraform_DocDB(t *testing.T) {
 				client := createDocDBClient(t)
 				clusterID := "tf-docdb-" + suffix
 				out, err := client.DescribeDBClusters(ctx, &docdbsvc.DescribeDBClustersInput{
+					DBClusterIdentifier: &clusterID,
+				})
+				require.NoError(t, err, "DescribeDBClusters should succeed after terraform apply")
+				require.Len(t, out.DBClusters, 1)
+				assert.Equal(t, clusterID, *out.DBClusters[0].DBClusterIdentifier)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Neptune provisions a Neptune cluster and instance and verifies they exist.
+func TestTerraform_Neptune(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:       "success",
+			fixture:    "neptune/success",
+			providerFn: neptuneProviderBlock,
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{"Suffix": uuid.NewString()[:8]}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				suffix := vars["Suffix"].(string)
+				client := createNeptuneClient(t)
+				clusterID := "tf-neptune-" + suffix
+				out, err := client.DescribeDBClusters(ctx, &neptuneSvc.DescribeDBClustersInput{
 					DBClusterIdentifier: &clusterID,
 				})
 				require.NoError(t, err, "DescribeDBClusters should succeed after terraform apply")

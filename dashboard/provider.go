@@ -60,6 +60,7 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -196,6 +197,7 @@ type AWSSDKProvider interface {
 	GetMediaStoreHandler() service.Registerable
 	GetMediaStoreDataHandler() service.Registerable
 	GetMemoryDBHandler() service.Registerable
+	GetNeptuneHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -304,6 +306,7 @@ type extractedConfig struct {
 	mediastoreOps             *mediastorebackend.Handler
 	mediastoredataOps         *mediastoredatabackend.Handler
 	memorydbOps               *memorydbbackend.Handler
+	neptuneOps                *neptunebackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -721,6 +724,10 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMemoryDBHandler(); h != nil {
 		ec.memorydbOps, _ = h.(*memorydbbackend.Handler)
 	}
+
+	if h := ap.GetNeptuneHandler(); h != nil {
+		ec.neptuneOps, _ = h.(*neptunebackend.Handler)
+	}
 }
 
 // extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, and MQ handlers on ec.
@@ -842,6 +849,7 @@ func buildProviderConfig(ec extractedConfig, ctx *service.AppContext) Config {
 		MediaStoreOps:              ec.mediastoreOps,
 		MediaStoreDataOps:          ec.mediastoredataOps,
 		MemoryDBOps:                ec.memorydbOps,
+		NeptuneOps:                 ec.neptuneOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,

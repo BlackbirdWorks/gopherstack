@@ -83,6 +83,7 @@ import (
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
 	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
 	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
+	neptuneSvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -197,7 +198,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Clean up pre-initialized directories kept open for parallel tests.
-	for _, d := range []string{preInitDirMain, preInitDirRDS, preInitDirDocDB} {
+	for _, d := range []string{preInitDirMain, preInitDirRDS, preInitDirDocDB, preInitDirNeptune} {
 		if d != "" {
 			os.RemoveAll(d)
 		}
@@ -321,6 +322,26 @@ func createDocDBClient(t *testing.T) *docdbsvc.Client {
 	}
 
 	return docdbsvc.NewFromConfig(cfg, func(o *docdbsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createNeptuneClient returns a Neptune client pointed at the shared test container.
+func createNeptuneClient(t *testing.T) *neptuneSvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return neptuneSvc.NewFromConfig(cfg, func(o *neptuneSvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
@@ -771,6 +792,7 @@ func warmProviderCache(logger *slog.Logger) {
 	preInitDirMain = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, providerBlock(endpoint), logger)
 	preInitDirRDS = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, rdsProviderBlock(endpoint), logger)
 	preInitDirDocDB = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, docdbProviderBlock(endpoint), logger)
+	preInitDirNeptune = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, neptuneProviderBlock(endpoint), logger)
 }
 
 // warmWithHCL runs `tofu init` in a temporary directory with the given HCL to

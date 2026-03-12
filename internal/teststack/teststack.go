@@ -89,6 +89,7 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -156,6 +157,7 @@ type Stack struct {
 	RedshiftHandler                *redshiftbackend.Handler
 	RDSHandler                     *rdsbackend.Handler
 	DocDBHandler                   *docdbbackend.Handler
+	NeptuneHandler                 *neptunebackend.Handler
 	AWSConfigHandler               *awsconfigbackend.Handler
 	S3ControlHandler               *s3controlbackend.Handler
 	ResourceGroupsHandler          *resourcegroupsbackend.Handler
@@ -541,6 +543,7 @@ type handlers struct {
 	mediastore        *mediastorebackend.Handler
 	mediastoredata    *mediastoredatabackend.Handler
 	memorydb          *memorydbbackend.Handler
+	neptune           *neptunebackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
 }
@@ -812,6 +815,9 @@ func populateLatestHandlers(h *handlers) {
 	h.memorydb = memorydbbackend.NewHandler(memorydbbackend.NewInMemoryBackend())
 	h.memorydb.AccountID = config.DefaultAccountID
 	h.memorydb.DefaultRegion = config.DefaultRegion
+	h.neptune = neptunebackend.NewHandler(
+		neptunebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -955,6 +961,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.MediaStoreOps = h.mediastore
 	cfg.MediaStoreDataOps = h.mediastoredata
 	cfg.MemoryDBOps = h.memorydb
+	cfg.NeptuneOps = h.neptune
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1017,6 +1024,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.lakeformation)
 	registerMediaServices(registry, h.mediaconvert, h.mq, h.mediastore, h.mediastoredata, h.memorydb)
+	_ = registry.Register(h.neptune)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -1149,6 +1157,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.MediaStoreHandler = h.mediastore
 	s.MediaStoreDataHandler = h.mediastoredata
 	s.MemoryDBHandler = h.memorydb
+	s.NeptuneHandler = h.neptune
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".
