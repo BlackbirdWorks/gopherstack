@@ -1,11 +1,12 @@
 package mwaa
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"sort"
 	"sync"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -99,8 +100,9 @@ func (b *InMemoryBackend) CreateEnvironment(
 
 	envARN := arn.Build("airflow", region, accountID, fmt.Sprintf("environment/%s", name))
 
-	// Generate a deterministic-looking unique ID for the webserver URL.
-	uniqueID := fmt.Sprintf("%x", len(name)+len(region))
+	// Generate a deterministic unique ID for the webserver URL based on the environment name.
+	sum := sha256.Sum256([]byte(name))
+	uniqueID := hex.EncodeToString(sum[:4])
 
 	tags := make(map[string]string)
 	maps.Copy(tags, req.Tags)
@@ -120,7 +122,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 		WebserverAccessMode:  accessMode,
 		NetworkConfiguration: req.NetworkConfiguration,
 		Tags:                 tags,
-		CreatedAt:            time.Now(),
+		CreatedAt:            epochSecondsNow(),
 	}
 
 	b.environments[name] = env

@@ -2,21 +2,27 @@ package mwaa
 
 import "time"
 
+// epochSecondsNow returns the current time as Unix epoch seconds (float64).
+// The AWS SDK v2 deserializes MWAA timestamps as JSON numbers (__timestampUnix).
+func epochSecondsNow() float64 {
+	return float64(time.Now().Unix())
+}
+
 // Environment represents an MWAA environment.
 type Environment struct {
-	CreatedAt            time.Time         `json:"CreatedAt"`
-	NetworkConfiguration *NetworkConfig    `json:"NetworkConfiguration,omitempty"`
 	Tags                 map[string]string `json:"Tags,omitempty"`
+	NetworkConfiguration *NetworkConfig    `json:"NetworkConfiguration,omitempty"`
+	Name                 string            `json:"Name"`
 	AirflowVersion       string            `json:"AirflowVersion"`
 	ExecutionRoleArn     string            `json:"ExecutionRoleArn"`
 	SourceBucketArn      string            `json:"SourceBucketArn"`
-	Name                 string            `json:"Name"`
 	EnvironmentClass     string            `json:"EnvironmentClass"`
 	WebserverURL         string            `json:"WebserverUrl"`
 	WebserverAccessMode  string            `json:"WebserverAccessMode"`
 	DagS3Path            string            `json:"DagS3Path"`
 	Status               string            `json:"Status"`
 	ARN                  string            `json:"Arn"`
+	CreatedAt            float64           `json:"CreatedAt"`
 	MaxWorkers           int32             `json:"MaxWorkers"`
 	MinWorkers           int32             `json:"MinWorkers"`
 }

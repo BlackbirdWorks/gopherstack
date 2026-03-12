@@ -60,18 +60,23 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 
 // RouteMatcher returns a function that matches MWAA API requests.
+// All path-based matches are gated on the SigV4 service name to prevent
+// routing conflicts with other services that share similar REST paths.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		if httputils.ExtractServiceFromRequest(c.Request()) == mwaaService {
-			return true
+		if httputils.ExtractServiceFromRequest(c.Request()) != mwaaService {
+			return false
 		}
 
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/environments") ||
-			strings.HasPrefix(path, "/tags/") ||
-			strings.HasPrefix(path, "/clitoken/") ||
-			strings.HasPrefix(path, "/webtoken/")
+		for _, prefix := range []string{"/environments", "/tags/", "/clitoken/", "/webtoken/"} {
+			if strings.HasPrefix(path, prefix) {
+				return true
+			}
+		}
+
+		return false
 	}
 }
 

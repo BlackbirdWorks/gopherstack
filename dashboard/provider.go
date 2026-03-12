@@ -761,6 +761,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 func buildDashboardConfig(ec *extractedConfig, log *slog.Logger) Config {
 	cfg := buildBaseConfig(ec, log)
 	applyExtendedConfig(&cfg, ec)
+	applyMWAAConfig(&cfg, ec)
 
 	return cfg
 }
@@ -866,5 +867,10 @@ func applyExtendedConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MediaStoreOps = ec.mediastoreOps
 	cfg.MediaStoreDataOps = ec.mediastoredataOps
 	cfg.MemoryDBOps = ec.memorydbOps
+}
+
+// applyMWAAConfig sets the MWAA ops field on the dashboard config.
+// Extracted from applyExtendedConfig to satisfy the funlen limit.
+func applyMWAAConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MWAAOps = ec.mwaaOps
 }
