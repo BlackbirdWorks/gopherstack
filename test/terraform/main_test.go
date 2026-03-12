@@ -81,6 +81,7 @@ import (
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
+	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -1927,6 +1928,24 @@ func createMediaStoreClient(t *testing.T) *mediastoresvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return mediastoresvc.NewFromConfig(cfg, func(o *mediastoresvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createMemoryDBClient returns a MemoryDB client pointed at the shared test container.
+func createMemoryDBClient(t *testing.T) *memorydbsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return memorydbsvc.NewFromConfig(cfg, func(o *memorydbsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

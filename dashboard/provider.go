@@ -57,6 +57,7 @@ import (
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -190,6 +191,7 @@ type AWSSDKProvider interface {
 	GetManagedBlockchainHandler() service.Registerable
 	GetMediaConvertHandler() service.Registerable
 	GetMediaStoreHandler() service.Registerable
+	GetMemoryDBHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -295,6 +297,7 @@ type extractedConfig struct {
 	managedblockchainOps      *managedblockchainbackend.Handler
 	mediaconvertOps           *mediaconvertbackend.Handler
 	mediastoreOps             *mediastorebackend.Handler
+	memorydbOps               *memorydbbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -704,6 +707,10 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMediaStoreHandler(); h != nil {
 		ec.mediastoreOps, _ = h.(*mediastorebackend.Handler)
 	}
+
+	if h := ap.GetMemoryDBHandler(); h != nil {
+		ec.memorydbOps, _ = h.(*memorydbbackend.Handler)
+	}
 }
 
 // extractBlockchainHandlers populates blockchain service handlers on ec.
@@ -811,6 +818,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ManagedBlockchainOps:       ec.managedblockchainOps,
 		MediaConvertOps:            ec.mediaconvertOps,
 		MediaStoreOps:              ec.mediastoreOps,
+		MemoryDBOps:                ec.memorydbOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,

@@ -86,6 +86,7 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -233,10 +234,12 @@ type Stack struct {
 	MediaConvertHandler *mediaconvertbackend.Handler
 	// MediaStoreHandler provides access to the MediaStore backend.
 	MediaStoreHandler *mediastorebackend.Handler
-	S3Client          *s3.Client
-	DDBClient         *dynamodb.Client
-	FaultStore        *chaos.FaultStore
-	Dashboard         *dashboard.DashboardHandler
+	// MemoryDBHandler provides access to the MemoryDB backend.
+	MemoryDBHandler *memorydbbackend.Handler
+	S3Client        *s3.Client
+	DDBClient       *dynamodb.Client
+	FaultStore      *chaos.FaultStore
+	Dashboard       *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -423,6 +426,18 @@ func registerCloudfrontService(registry *service.Registry, cloudFrontHndlr *clou
 	_ = registry.Register(cloudFrontHndlr)
 }
 
+// registerMediaServices registers the media service handlers.
+func registerMediaServices(
+	registry *service.Registry,
+	mediaconvertHndlr *mediaconvertbackend.Handler,
+	mediastoreHndlr *mediastorebackend.Handler,
+	memorydbHndlr *memorydbbackend.Handler,
+) {
+	_ = registry.Register(mediaconvertHndlr)
+	_ = registry.Register(mediastoreHndlr)
+	_ = registry.Register(memorydbHndlr)
+}
+
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
 	s3                *s3backend.S3Handler
@@ -513,6 +528,7 @@ type handlers struct {
 	lakeformation     *lakeformationbackend.Handler
 	mediaconvert      *mediaconvertbackend.Handler
 	mediastore        *mediastorebackend.Handler
+	memorydb          *memorydbbackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
 }
@@ -776,6 +792,10 @@ func populateLatestHandlers(h *handlers) {
 	h.mediastore = mediastorebackend.NewHandler(mediastorebackend.NewInMemoryBackend())
 	h.mediastore.AccountID = config.DefaultAccountID
 	h.mediastore.DefaultRegion = config.DefaultRegion
+
+	h.memorydb = memorydbbackend.NewHandler(memorydbbackend.NewInMemoryBackend())
+	h.memorydb.AccountID = config.DefaultAccountID
+	h.memorydb.DefaultRegion = config.DefaultRegion
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -903,6 +923,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		LakeFormationOps:           h.lakeformation,
 		MediaConvertOps:            h.mediaconvert,
 		MediaStoreOps:              h.mediastore,
+		MemoryDBOps:                h.memorydb,
 		GlobalConfig:               gc,
 		FaultStore:                 fs,
 		Logger:                     slog.Default(),
@@ -968,8 +989,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.lakeformation)
-	_ = registry.Register(h.mediaconvert)
-	_ = registry.Register(h.mediastore)
+	registerMediaServices(registry, h.mediaconvert, h.mediastore, h.memorydb)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -983,6 +1003,7 @@ func New(t *testing.T) *Stack {
 
 	s := buildStack(e, h, clients, faultStore, dashHndlr)
 	s.MediaStoreHandler = h.mediastore
+	s.MemoryDBHandler = h.memorydb
 
 	return s
 }
