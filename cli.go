@@ -108,6 +108,7 @@ import (
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
+	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -235,6 +236,7 @@ type CLI struct {
 	emrHandler                    service.Registerable
 	glacierHandler                service.Registerable
 	glueHandler                   service.Registerable
+	kafkaHandler                  service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -584,6 +586,11 @@ func (c *CLI) GetGlacierHandler() service.Registerable { return c.glacierHandler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGlueHandler() service.Registerable { return c.glueHandler }
+
+// GetKafkaHandler returns the Kafka handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1228,6 +1235,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.emrHandler = byName["EMR"]
 	cli.glacierHandler = byName["Glacier"]
 	cli.glueHandler = byName["Glue"]
+	cli.kafkaHandler = byName["Kafka"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1430,6 +1438,7 @@ func getServiceProviders() []service.Provider {
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
 		&glacierbackend.Provider{},
+		&kafkabackend.Provider{},
 	}
 }
 

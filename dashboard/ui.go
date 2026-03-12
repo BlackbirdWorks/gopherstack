@@ -76,6 +76,7 @@ import (
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
+	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -239,7 +240,9 @@ type DashboardHandler struct {
 	// EMROps provides access to the EMR backend.
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
-	GlacierOps   *glacierbackend.Handler
+	GlacierOps *glacierbackend.Handler
+	// KafkaOps provides access to the MSK Kafka backend.
+	KafkaOps     *kafkabackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -410,6 +413,8 @@ type Config struct {
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
 	GlacierOps *glacierbackend.Handler
+	// KafkaOps provides access to the MSK Kafka backend.
+	KafkaOps *kafkabackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -435,7 +440,7 @@ func parseDashboardTemplates() *template.Template {
 		},
 	}
 
-	return template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS,
+	t := template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS,
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
@@ -515,6 +520,15 @@ func parseDashboardTemplates() *template.Template {
 		"templates/emr/*.html",
 		"templates/glacier/*.html",
 		"templates/glue/*.html",
+	))
+
+	return parseRecentTemplates(t)
+}
+
+// parseRecentTemplates adds recently-introduced service templates to an existing template set.
+func parseRecentTemplates(t *template.Template) *template.Template {
+	return template.Must(t.ParseFS(templateFS,
+		"templates/kafka/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -613,6 +627,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EMROps:                     cfg.EMROps,
 		GlacierOps:                 cfg.GlacierOps,
 		GlueOps:                    cfg.GlueOps,
+		KafkaOps:                   cfg.KafkaOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1114,6 +1129,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupIdentityStoreRoutes()
 	h.setupGlacierRoutes()
 	h.setupGlueRoutes()
+	h.setupKafkaRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.

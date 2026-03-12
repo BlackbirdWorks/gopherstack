@@ -88,6 +88,7 @@ import (
 	identitystoresvc "github.com/aws/aws-sdk-go-v2/service/identitystore"
 	identitystoretypes "github.com/aws/aws-sdk-go-v2/service/identitystore/types"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
+	kafkasvc "github.com/aws/aws-sdk-go-v2/service/kafka"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -4720,6 +4721,56 @@ func TestTerraform_Glacier(t *testing.T) {
 				}
 
 				assert.True(t, found, "vault %q should be listed", vaultName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Kafka provisions an MSK cluster via Terraform, then verifies
+// it is listed via the Kafka SDK.
+func TestTerraform_Kafka(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "kafka/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createKafkaClient(t)
+				suffix := vars["Suffix"].(string)
+				clusterName := "tf-kafka-" + suffix
+
+				out, err := client.ListClusters(ctx, &kafkasvc.ListClustersInput{
+					ClusterNameFilter: aws.String(clusterName),
+				})
+				require.NoError(t, err, "ListClusters should succeed after terraform apply")
+
+				found := false
+				for _, cl := range out.ClusterInfoList {
+					if aws.ToString(cl.ClusterName) == clusterName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "cluster %q should be listed after terraform apply", clusterName)
 			},
 		},
 	}

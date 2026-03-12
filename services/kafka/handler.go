@@ -25,12 +25,12 @@ const (
 
 // Handler is the HTTP handler for the MSK REST API.
 type Handler struct {
-	backend *InMemoryBackend
+	Backend *InMemoryBackend
 }
 
 // NewHandler creates a new Kafka handler backed by backend.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{backend: backend}
+	return &Handler{Backend: backend}
 }
 
 // Name returns the service name.
@@ -64,7 +64,7 @@ func (h *Handler) ChaosServiceName() string { return "kafka" }
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
 // ChaosRegions returns all regions this handler instance handles.
-func (h *Handler) ChaosRegions() []string { return []string{h.backend.Region()} }
+func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches MSK REST API requests.
 func (h *Handler) RouteMatcher() service.Matcher {
@@ -408,7 +408,7 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		)
 	}
 
-	cluster, err := h.backend.CreateCluster(
+	cluster, err := h.Backend.CreateCluster(
 		in.ClusterName,
 		in.KafkaVersion,
 		in.NumberOfBrokerNodes,
@@ -449,7 +449,7 @@ func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
 		numBrokers = in.Provisioned.NumberOfBrokerNodes
 	}
 
-	cluster, err := h.backend.CreateCluster(in.ClusterName, kafkaVersion, numBrokers, brokerInfo, in.Tags)
+	cluster, err := h.Backend.CreateCluster(in.ClusterName, kafkaVersion, numBrokers, brokerInfo, in.Tags)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -462,13 +462,13 @@ func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleListClusters(c *echo.Context) error {
-	clusters := h.backend.ListClusters()
+	clusters := h.Backend.ListClusters()
 
 	return c.JSON(http.StatusOK, listClustersOutput{ClusterInfoList: clusters})
 }
 
 func (h *Handler) handleListClustersV2(c *echo.Context) error {
-	clusters := h.backend.ListClusters()
+	clusters := h.Backend.ListClusters()
 	out := make([]*clusterInfoV2, 0, len(clusters))
 
 	for _, cl := range clusters {
@@ -479,7 +479,7 @@ func (h *Handler) handleListClustersV2(c *echo.Context) error {
 }
 
 func (h *Handler) handleDescribeCluster(c *echo.Context, clusterArn string) error {
-	cluster, err := h.backend.DescribeCluster(clusterArn)
+	cluster, err := h.Backend.DescribeCluster(clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -488,7 +488,7 @@ func (h *Handler) handleDescribeCluster(c *echo.Context, clusterArn string) erro
 }
 
 func (h *Handler) handleDescribeClusterV2(c *echo.Context, clusterArn string) error {
-	cluster, err := h.backend.DescribeCluster(clusterArn)
+	cluster, err := h.Backend.DescribeCluster(clusterArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -497,7 +497,7 @@ func (h *Handler) handleDescribeClusterV2(c *echo.Context, clusterArn string) er
 }
 
 func (h *Handler) handleDeleteCluster(c *echo.Context, clusterArn string) error {
-	if err := h.backend.DeleteCluster(clusterArn); err != nil {
+	if err := h.Backend.DeleteCluster(clusterArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -505,7 +505,7 @@ func (h *Handler) handleDeleteCluster(c *echo.Context, clusterArn string) error 
 }
 
 func (h *Handler) handleGetBootstrapBrokers(c *echo.Context, clusterArn string) error {
-	if _, err := h.backend.DescribeCluster(clusterArn); err != nil {
+	if _, err := h.Backend.DescribeCluster(clusterArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -546,7 +546,7 @@ func (h *Handler) handleCreateConfiguration(c *echo.Context, body []byte) error 
 		)
 	}
 
-	config, err := h.backend.CreateConfiguration(in.Name, in.Description, in.KafkaVersions, in.ServerProperties)
+	config, err := h.Backend.CreateConfiguration(in.Name, in.Description, in.KafkaVersions, in.ServerProperties)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -558,13 +558,13 @@ func (h *Handler) handleCreateConfiguration(c *echo.Context, body []byte) error 
 }
 
 func (h *Handler) handleListConfigurations(c *echo.Context) error {
-	configs := h.backend.ListConfigurations()
+	configs := h.Backend.ListConfigurations()
 
 	return c.JSON(http.StatusOK, listConfigurationsOutput{Configurations: configs})
 }
 
 func (h *Handler) handleDescribeConfiguration(c *echo.Context, configArn string) error {
-	config, err := h.backend.DescribeConfiguration(configArn)
+	config, err := h.Backend.DescribeConfiguration(configArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -573,7 +573,7 @@ func (h *Handler) handleDescribeConfiguration(c *echo.Context, configArn string)
 }
 
 func (h *Handler) handleDeleteConfiguration(c *echo.Context, configArn string) error {
-	if err := h.backend.DeleteConfiguration(configArn); err != nil {
+	if err := h.Backend.DeleteConfiguration(configArn); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -585,7 +585,7 @@ func (h *Handler) handleDeleteConfiguration(c *echo.Context, configArn string) e
 // ----------------------------------------
 
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string) error {
-	tags, err := h.backend.GetTags(resourceArn)
+	tags, err := h.Backend.GetTags(resourceArn)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -604,7 +604,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceArn string, body []
 		)
 	}
 
-	if err := h.backend.TagResource(resourceArn, in.Tags); err != nil {
+	if err := h.Backend.TagResource(resourceArn, in.Tags); err != nil {
 		return h.writeBackendError(c, err)
 	}
 
@@ -614,7 +614,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceArn string, body []
 func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string, u *url.URL) error {
 	tagKeys := u.Query()["tagKeys"]
 
-	if err := h.backend.UntagResource(resourceArn, tagKeys); err != nil {
+	if err := h.Backend.UntagResource(resourceArn, tagKeys); err != nil {
 		return h.writeBackendError(c, err)
 	}
 

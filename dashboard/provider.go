@@ -49,6 +49,7 @@ import (
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
+	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -174,6 +175,7 @@ type AWSSDKProvider interface {
 	GetAppConfigDataHandler() service.Registerable
 	GetElasticTranscoderHandler() service.Registerable
 	GetGlacierHandler() service.Registerable
+	GetKafkaHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -271,6 +273,7 @@ type extractedConfig struct {
 	identitystoreOps          *identitystorebackend.Handler
 	elasticTranscoderOps      *elastictranscoderbackend.Handler
 	glacierOps                *glacierbackend.Handler
+	kafkaOps                  *kafkabackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -651,6 +654,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetIdentityStoreHandler(); h != nil {
 		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
+
+	if h := ap.GetKafkaHandler(); h != nil {
+		ec.kafkaOps, _ = h.(*kafkabackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -739,6 +746,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IdentityStoreOps:           ec.identitystoreOps,
 		ElasticTranscoderOps:       ec.elasticTranscoderOps,
 		GlacierOps:                 ec.glacierOps,
+		KafkaOps:                   ec.kafkaOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,
