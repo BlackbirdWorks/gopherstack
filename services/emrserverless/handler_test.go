@@ -63,9 +63,9 @@ func createApp(t *testing.T, h *emrserverless.Handler, name string) string {
 
 	var out map[string]string
 	mustUnmarshal(t, rec, &out)
-	require.NotEmpty(t, out["applicationID"])
+	require.NotEmpty(t, out["applicationId"])
 
-	return out["applicationID"]
+	return out["applicationId"]
 }
 
 // --- CreateApplication ---
@@ -140,7 +140,7 @@ func TestHandler_CreateApplication(t *testing.T) {
 				var out map[string]string
 				mustUnmarshal(t, rec, &out)
 				assert.Equal(t, tt.wantName, out["name"])
-				assert.NotEmpty(t, out["applicationID"])
+				assert.NotEmpty(t, out["applicationId"])
 				assert.NotEmpty(t, out["arn"])
 			}
 		})
@@ -189,7 +189,7 @@ func TestHandler_GetApplication(t *testing.T) {
 				var out map[string]any
 				mustUnmarshal(t, rec, &out)
 				app := out["application"].(map[string]any)
-				assert.Equal(t, appID, app["applicationID"])
+				assert.Equal(t, appID, app["applicationId"])
 			}
 		})
 	}
@@ -515,9 +515,9 @@ func TestHandler_StartJobRun(t *testing.T) {
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]string
 				mustUnmarshal(t, rec, &out)
-				assert.NotEmpty(t, out["jobRunID"])
+				assert.NotEmpty(t, out["jobRunId"])
 				assert.NotEmpty(t, out["arn"])
-				assert.Equal(t, appID, out["applicationID"])
+				assert.Equal(t, appID, out["applicationId"])
 			}
 		})
 	}
@@ -547,7 +547,7 @@ func TestHandler_GetJobRun(t *testing.T) {
 				var out map[string]string
 				mustUnmarshal(t, rec, &out)
 
-				return appID, out["jobRunID"]
+				return appID, out["jobRunId"]
 			},
 		},
 		{
@@ -582,7 +582,7 @@ func TestHandler_GetJobRun(t *testing.T) {
 				var out map[string]any
 				mustUnmarshal(t, rec, &out)
 				jr := out["jobRun"].(map[string]any)
-				assert.Equal(t, jobRunID, jr["jobRunID"])
+				assert.Equal(t, jobRunID, jr["jobRunId"])
 			}
 		})
 	}
@@ -673,7 +673,7 @@ func TestHandler_CancelJobRun(t *testing.T) {
 				var out map[string]string
 				mustUnmarshal(t, rec, &out)
 
-				return appID, out["jobRunID"]
+				return appID, out["jobRunId"]
 			},
 		},
 		{
@@ -707,8 +707,8 @@ func TestHandler_CancelJobRun(t *testing.T) {
 			if tt.wantStatus == http.StatusOK {
 				var out map[string]string
 				mustUnmarshal(t, rec, &out)
-				assert.Equal(t, appID, out["applicationID"])
-				assert.Equal(t, jobRunID, out["jobRunID"])
+				assert.Equal(t, appID, out["applicationId"])
+				assert.Equal(t, jobRunID, out["jobRunId"])
 			}
 		})
 	}
@@ -898,8 +898,10 @@ func TestHandler_UntagResource(t *testing.T) {
 func TestHandler_RouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	const emrAuth = "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/emr-serverless/aws4_request, SignedHeaders=host, Signature=abc"
-	const appConfigAuth = "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/appconfig/aws4_request, SignedHeaders=host, Signature=abc"
+	const emrAuth = "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/emr-serverless/aws4_request," +
+		" SignedHeaders=host, Signature=abc"
+	const appConfigAuth = "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/appconfig/aws4_request," +
+		" SignedHeaders=host, Signature=abc"
 
 	tests := []struct {
 		name      string

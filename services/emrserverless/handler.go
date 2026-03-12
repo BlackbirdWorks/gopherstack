@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	pathApplications       = "/applications"
-	pathTags               = "/tags/"
-	emrServerlessService   = "emr-serverless"
-	emrMatchPriority       = 87
+	pathApplications     = "/applications"
+	pathTags             = "/tags/"
+	emrServerlessService = "emr-serverless"
+	emrMatchPriority     = 87
 )
 
 // Handler is the Echo HTTP handler for EMR Serverless operations (REST-JSON protocol).
@@ -304,7 +304,7 @@ type createApplicationBody struct {
 }
 
 type createApplicationResponse struct {
-	ApplicationID string `json:"applicationID"`
+	ApplicationID string `json:"applicationId"`
 	Arn           string `json:"arn"`
 	Name          string `json:"name"`
 }
@@ -401,9 +401,9 @@ type startJobRunBody struct {
 }
 
 type startJobRunResponse struct {
-	ApplicationID string `json:"applicationID"`
+	ApplicationID string `json:"applicationId"`
 	Arn           string `json:"arn"`
-	JobRunID      string `json:"jobRunID"`
+	JobRunID      string `json:"jobRunId"`
 }
 
 func (h *Handler) handleStartJobRun(c *echo.Context, applicationID string, body []byte) error {
@@ -451,8 +451,8 @@ func (h *Handler) handleCancelJobRun(c *echo.Context, applicationID, jobRunID st
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"applicationID": jr.ApplicationID,
-		"jobRunID":      jr.JobRunID,
+		"applicationId": jr.ApplicationID,
+		"jobRunId":      jr.JobRunID,
 	})
 }
 

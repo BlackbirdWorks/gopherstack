@@ -4,8 +4,6 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
-
-	emrserverlessbackend "github.com/blackbirdworks/gopherstack/services/emrserverless"
 )
 
 // emrServerlessApplicationView is the view model for a single EMR Serverless application.
@@ -148,10 +146,4 @@ func (h *DashboardHandler) setupEmrServerlessRoutes() {
 	h.SubRouter.GET("/dashboard/emrserverless", h.emrServerlessIndex)
 	h.SubRouter.POST("/dashboard/emrserverless/applications/create", h.emrServerlessCreateApplication)
 	h.SubRouter.POST("/dashboard/emrserverless/applications/delete", h.emrServerlessDeleteApplication)
-}
-
-// demoEmrServerlessData seeds the EMR Serverless backend with demo data for visual inspection.
-func demoEmrServerlessData(backend *emrserverlessbackend.InMemoryBackend) {
-	_, _ = backend.CreateApplication("demo-spark-app", "SPARK", "emr-6.6.0", map[string]string{"env": "demo"})
-	_, _ = backend.CreateApplication("demo-hive-app", "HIVE", "emr-6.5.0", map[string]string{"env": "demo"})
 }

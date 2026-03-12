@@ -253,7 +253,8 @@ func RequestIDMiddleware() echo.MiddlewareFunc {
 }
 
 // minSigV4CredentialParts is the minimum number of slash-separated parts in the
-// SigV4 credential scope (AKID/date/region/service/aws4_request).
+// SigV4 credential scope needed to safely read the region at index 2
+// (AKID/date/region/...).
 const minSigV4CredentialParts = 3
 
 // sigV4ServiceIndex is the index of the service name in the credential scope parts.

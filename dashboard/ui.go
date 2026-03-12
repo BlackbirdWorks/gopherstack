@@ -65,6 +65,7 @@ import (
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
+	emrserverlessbackend "github.com/blackbirdworks/gopherstack/services/emrserverless"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -79,7 +80,6 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
-	emrserverlessbackend "github.com/blackbirdworks/gopherstack/services/emrserverless"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
@@ -230,12 +230,12 @@ type DashboardHandler struct {
 	// EmrServerlessOps provides access to the EMR Serverless backend.
 	EmrServerlessOps *emrserverlessbackend.Handler
 	SubRouter        *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	ddbProvider      *ddbbackend.DashboardProvider
+	s3Provider       *s3backend.DashboardProvider
+	FaultStore       *chaos.FaultStore
+	Logger           *slog.Logger
+	layout           *template.Template
+	GlobalConfig     config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.

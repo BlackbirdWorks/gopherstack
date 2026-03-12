@@ -77,7 +77,7 @@ type Application struct {
 	Tags          map[string]string `json:"tags,omitempty"`
 	CreatedAt     time.Time         `json:"createdAt"`
 	UpdatedAt     time.Time         `json:"updatedAt"`
-	ApplicationID string            `json:"applicationID"`
+	ApplicationID string            `json:"applicationId"`
 	Arn           string            `json:"arn"`
 	Name          string            `json:"name"`
 	Type          string            `json:"type"`
@@ -90,8 +90,8 @@ type JobRun struct {
 	Tags             map[string]string `json:"tags,omitempty"`
 	CreatedAt        time.Time         `json:"createdAt"`
 	UpdatedAt        time.Time         `json:"updatedAt"`
-	ApplicationID    string            `json:"applicationID"`
-	JobRunID         string            `json:"jobRunID"`
+	ApplicationID    string            `json:"applicationId"`
+	JobRunID         string            `json:"jobRunId"`
 	Arn              string            `json:"arn"`
 	Name             string            `json:"name"`
 	State            string            `json:"state"`
@@ -178,9 +178,8 @@ func (b *InMemoryBackend) CreateApplication(
 		Tags:          tagsCopy,
 	}
 	b.applications[id] = app
-	cp := *app
 
-	return &cp, nil
+	return cloneApplication(app), nil
 }
 
 // GetApplication retrieves an application by ID.
@@ -193,9 +192,7 @@ func (b *InMemoryBackend) GetApplication(id string) (*Application, error) {
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, id)
 	}
 
-	cp := *app
-
-	return &cp, nil
+	return cloneApplication(app), nil
 }
 
 // ListApplications returns all applications.
@@ -206,8 +203,7 @@ func (b *InMemoryBackend) ListApplications() []*Application {
 	list := make([]*Application, 0, len(b.applications))
 
 	for _, app := range b.applications {
-		cp := *app
-		list = append(list, &cp)
+		list = append(list, cloneApplication(app))
 	}
 
 	return list
@@ -225,9 +221,8 @@ func (b *InMemoryBackend) UpdateApplication(id string, update func(*Application)
 
 	update(app)
 	app.UpdatedAt = time.Now().UTC()
-	cp := *app
 
-	return &cp, nil
+	return cloneApplication(app), nil
 }
 
 // DeleteApplication removes an application.
@@ -312,9 +307,8 @@ func (b *InMemoryBackend) StartJobRun(
 	}
 
 	b.jobRuns[applicationID][jobRunID] = jr
-	cp := *jr
 
-	return &cp, nil
+	return cloneJobRun(jr), nil
 }
 
 // GetJobRun retrieves a job run by application ID and job run ID.
@@ -336,9 +330,7 @@ func (b *InMemoryBackend) GetJobRun(applicationID, jobRunID string) (*JobRun, er
 		return nil, fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
 	}
 
-	cp := *jr
-
-	return &cp, nil
+	return cloneJobRun(jr), nil
 }
 
 // ListJobRuns returns all job runs for an application.
@@ -354,8 +346,7 @@ func (b *InMemoryBackend) ListJobRuns(applicationID string) ([]*JobRun, error) {
 	list := make([]*JobRun, 0, len(runs))
 
 	for _, jr := range runs {
-		cp := *jr
-		list = append(list, &cp)
+		list = append(list, cloneJobRun(jr))
 	}
 
 	return list, nil
@@ -382,9 +373,8 @@ func (b *InMemoryBackend) CancelJobRun(applicationID, jobRunID string) (*JobRun,
 
 	jr.State = JobRunStateCancelled
 	jr.UpdatedAt = time.Now().UTC()
-	cp := *jr
 
-	return &cp, nil
+	return cloneJobRun(jr), nil
 }
 
 // ListTagsForResource returns tags for a resource identified by ARN.
@@ -453,4 +443,24 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, 
 	}
 
 	return nil, false
+}
+
+// cloneApplication returns a deep copy of an Application with its Tags map cloned.
+func cloneApplication(app *Application) *Application {
+	cp := *app
+	if app.Tags != nil {
+		cp.Tags = maps.Clone(app.Tags)
+	}
+
+	return &cp
+}
+
+// cloneJobRun returns a deep copy of a JobRun with its Tags map cloned.
+func cloneJobRun(jr *JobRun) *JobRun {
+	cp := *jr
+	if jr.Tags != nil {
+		cp.Tags = maps.Clone(jr.Tags)
+	}
+
+	return &cp
 }

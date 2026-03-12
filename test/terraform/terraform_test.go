@@ -75,8 +75,8 @@ import (
 	elasticbeanstalksvc "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2svc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
-	emrserverlesssvc "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	emrserverlesssvc "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -216,6 +216,7 @@ provider "aws" {
     elasticache     = %[1]q
     elasticbeanstalk = %[1]q
     elastictranscoder = %[1]q
+    emrserverless   = %[1]q
     events          = %[1]q
     firehose        = %[1]q
     iam             = %[1]q
