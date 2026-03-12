@@ -45,6 +45,7 @@ import (
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -168,6 +169,7 @@ type AWSSDKProvider interface {
 	GetAPIGatewayManagementAPIHandler() service.Registerable
 	GetAppConfigDataHandler() service.Registerable
 	GetElasticTranscoderHandler() service.Registerable
+	GetGlacierHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -262,6 +264,7 @@ type extractedConfig struct {
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
 	elasticTranscoderOps      *elastictranscoderbackend.Handler
+	glacierOps                *glacierbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -618,12 +621,21 @@ func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.codeStarConnectionsOps, _ = h.(*codestarconnectionsbackend.Handler)
 	}
 
+	extractNewestHandlers(ap, ec)
+}
+
+// extractNewestHandlers populates handlers for the most recently introduced services.
+func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetDynamoDBStreamsHandler(); h != nil {
 		ec.dynamodbStreamsOps, _ = h.(*dynamodbstreams.Handler)
 	}
 
 	if h := ap.GetDocDBHandler(); h != nil {
 		ec.docdbOps, _ = h.(*docdbbackend.Handler)
+	}
+
+	if h := ap.GetGlacierHandler(); h != nil {
+		ec.glacierOps, _ = h.(*glacierbackend.Handler)
 	}
 }
 
@@ -710,6 +722,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,
 		ElasticTranscoderOps:       ec.elasticTranscoderOps,
+		GlacierOps:                 ec.glacierOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,
