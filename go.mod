@@ -116,6 +116,7 @@ require github.com/aws/aws-sdk-go-v2/service/identitystore v1.36.3
 require (
 	github.com/aws/aws-sdk-go-v2/service/glacier v1.32.4
 	github.com/aws/aws-sdk-go-v2/service/iotwireless v1.54.7
+	github.com/aws/aws-sdk-go-v2/service/kinesisanalytics v1.30.21
 )
 
 require (

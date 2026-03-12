@@ -79,6 +79,7 @@ import (
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -217,6 +218,8 @@ type Stack struct {
 	GlacierHandler *glacierbackend.Handler
 	// IoTWirelessHandler provides access to the IoT Wireless backend.
 	IoTWirelessHandler *iotwirelessbackend.Handler
+	// KinesisAnalyticsHandler provides access to the Kinesis Analytics backend.
+	KinesisAnalyticsHandler *kinesisanalyticsbackend.Handler
 	// KafkaHandler provides access to the MSK Kafka backend.
 	KafkaHandler *kafkabackend.Handler
 	// KinesisAnalyticsV2Handler provides access to the Kinesis Data Analytics v2 backend.
@@ -496,6 +499,7 @@ type handlers struct {
 	glacier            *glacierbackend.Handler
 	iotwireless        *iotwirelessbackend.Handler
 	kafka              *kafkabackend.Handler
+	kinesisanalytics   *kinesisanalyticsbackend.Handler
 	kinesisanalyticsv2 *kinesisanalyticsv2backend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
@@ -738,6 +742,12 @@ func populateLatestHandlers(h *handlers) {
 	h.iotwireless.AccountID = config.DefaultAccountID
 	h.iotwireless.DefaultRegion = config.DefaultRegion
 
+	h.kinesisanalytics = kinesisanalyticsbackend.NewHandler(
+		kinesisanalyticsbackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID),
+	)
+	h.kinesisanalytics.AccountID = config.DefaultAccountID
+	h.kinesisanalytics.DefaultRegion = config.DefaultRegion
+
 	h.kafka = kafkabackend.NewHandler(
 		kafkabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -865,6 +875,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		EMROps:                     h.emr,
 		GlacierOps:                 h.glacier,
 		IoTWirelessOps:             h.iotwireless,
+		KinesisAnalyticsOps:        h.kinesisanalytics,
 		KafkaOps:                   h.kafka,
 		KinesisAnalyticsV2Ops:      h.kinesisanalyticsv2,
 		GlobalConfig: config.GlobalConfig{
@@ -931,6 +942,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.identitystore)
 	_ = registry.Register(h.glacier)
 	_ = registry.Register(h.iotwireless)
+	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.kinesisanalyticsv2)
 
@@ -1041,6 +1053,7 @@ func buildStack(
 		EMRHandler:                     h.emr,
 		GlacierHandler:                 h.glacier,
 		IoTWirelessHandler:             h.iotwireless,
+		KinesisAnalyticsHandler:        h.kinesisanalytics,
 		KafkaHandler:                   h.kafka,
 		KinesisAnalyticsV2Handler:      h.kinesisanalyticsv2,
 		S3Client:                       clients.S3,

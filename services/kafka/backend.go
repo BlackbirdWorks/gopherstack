@@ -62,6 +62,7 @@ type Cluster struct {
 	ClusterName         string              `json:"clusterName"`
 	KafkaVersion        string              `json:"kafkaVersion"`
 	State               string              `json:"state"`
+	CurrentVersion      string              `json:"currentVersion"`
 	BrokerNodeGroupInfo BrokerNodeGroupInfo `json:"brokerNodeGroupInfo"`
 	NumberOfBrokerNodes int32               `json:"numberOfBrokerNodes"`
 }
@@ -138,6 +139,7 @@ func (b *InMemoryBackend) CreateCluster(
 		NumberOfBrokerNodes: numBrokers,
 		BrokerNodeGroupInfo: brokerInfo,
 		State:               ClusterStateActive,
+		CurrentVersion:      "K3AEGXETSR30VB",
 		Tags:                maps.Clone(tags),
 	}
 	b.clusters[clusterArn] = cluster
