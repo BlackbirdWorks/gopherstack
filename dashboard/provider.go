@@ -56,6 +56,7 @@ import (
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -188,6 +189,7 @@ type AWSSDKProvider interface {
 	GetLakeFormationHandler() service.Registerable
 	GetManagedBlockchainHandler() service.Registerable
 	GetMediaConvertHandler() service.Registerable
+	GetMediaStoreHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -292,6 +294,7 @@ type extractedConfig struct {
 	lakeformationOps          *lakeformationbackend.Handler
 	managedblockchainOps      *managedblockchainbackend.Handler
 	mediaconvertOps           *mediaconvertbackend.Handler
+	mediastoreOps             *mediastorebackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -697,6 +700,10 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetLakeFormationHandler(); h != nil {
 		ec.lakeformationOps, _ = h.(*lakeformationbackend.Handler)
 	}
+
+	if h := ap.GetMediaStoreHandler(); h != nil {
+		ec.mediastoreOps, _ = h.(*mediastorebackend.Handler)
+	}
 }
 
 // extractBlockchainHandlers populates blockchain service handlers on ec.
@@ -803,6 +810,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		LakeFormationOps:           ec.lakeformationOps,
 		ManagedBlockchainOps:       ec.managedblockchainOps,
 		MediaConvertOps:            ec.mediaconvertOps,
+		MediaStoreOps:              ec.mediastoreOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,

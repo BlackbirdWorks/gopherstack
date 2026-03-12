@@ -86,6 +86,7 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -261,13 +262,15 @@ type DashboardHandler struct {
 	ManagedBlockchainOps *managedblockchainbackend.Handler
 	// MediaConvertOps provides access to the MediaConvert backend.
 	MediaConvertOps *mediaconvertbackend.Handler
-	SubRouter       *echo.Echo
-	ddbProvider     *ddbbackend.DashboardProvider
-	s3Provider      *s3backend.DashboardProvider
-	FaultStore      *chaos.FaultStore
-	Logger          *slog.Logger
-	layout          *template.Template
-	GlobalConfig    config.GlobalConfig
+	// MediaStoreOps provides access to the MediaStore backend.
+	MediaStoreOps *mediastorebackend.Handler
+	SubRouter     *echo.Echo
+	ddbProvider   *ddbbackend.DashboardProvider
+	s3Provider    *s3backend.DashboardProvider
+	FaultStore    *chaos.FaultStore
+	Logger        *slog.Logger
+	layout        *template.Template
+	GlobalConfig  config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -445,6 +448,8 @@ type Config struct {
 	ManagedBlockchainOps *managedblockchainbackend.Handler
 	// MediaConvertOps provides access to the MediaConvert backend.
 	MediaConvertOps *mediaconvertbackend.Handler
+	// MediaStoreOps provides access to the MediaStore backend.
+	MediaStoreOps *mediastorebackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -560,6 +565,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/kafka/*.html",
 		"templates/managedblockchain/*.html",
 		"templates/mediaconvert/*.html",
+		"templates/mediastore/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -579,6 +585,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 	return h
 }
 
+//nolint:funlen // function length grows with each new service; each addition is a single field assignment.
 func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler {
 	h := &DashboardHandler{
 		DynamoDB:                   cfg.DDBClient,
@@ -669,6 +676,10 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		IoTWirelessOps:             cfg.IoTWirelessOps,
 		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
+		KafkaOps:                   cfg.KafkaOps,
+		LakeFormationOps:           cfg.LakeFormationOps,
+		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
+		MediaStoreOps:              cfg.MediaStoreOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1185,6 +1196,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupLakeFormationRoutes()
 	h.setupManagedBlockchainRoutes()
 	h.setupMediaConvertRoutes()
+	h.setupMediaStoreRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {

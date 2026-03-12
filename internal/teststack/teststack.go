@@ -85,6 +85,7 @@ import (
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -230,10 +231,12 @@ type Stack struct {
 	LakeFormationHandler *lakeformationbackend.Handler
 	// MediaConvertHandler provides access to the MediaConvert backend.
 	MediaConvertHandler *mediaconvertbackend.Handler
-	S3Client            *s3.Client
-	DDBClient           *dynamodb.Client
-	FaultStore          *chaos.FaultStore
-	Dashboard           *dashboard.DashboardHandler
+	// MediaStoreHandler provides access to the MediaStore backend.
+	MediaStoreHandler *mediastorebackend.Handler
+	S3Client          *s3.Client
+	DDBClient         *dynamodb.Client
+	FaultStore        *chaos.FaultStore
+	Dashboard         *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -509,6 +512,7 @@ type handlers struct {
 	kafka             *kafkabackend.Handler
 	lakeformation     *lakeformationbackend.Handler
 	mediaconvert      *mediaconvertbackend.Handler
+	mediastore        *mediastorebackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
 }
@@ -769,6 +773,9 @@ func populateLatestHandlers(h *handlers) {
 	h.mediaconvert = mediaconvertbackend.NewHandler(
 		mediaconvertbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.mediastore = mediastorebackend.NewHandler(mediastorebackend.NewInMemoryBackend())
+	h.mediastore.AccountID = config.DefaultAccountID
+	h.mediastore.DefaultRegion = config.DefaultRegion
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -802,6 +809,7 @@ func newCFNHandler(
 // newDashboardConfig builds the dashboard.Config for the test stack.
 func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chaos.FaultStore) {
 	fs := chaos.NewFaultStore()
+	gc := config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion}
 
 	return dashboard.Config{
 		DDBClient:                  clients.DDB,
@@ -894,12 +902,10 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		KafkaOps:                   h.kafka,
 		LakeFormationOps:           h.lakeformation,
 		MediaConvertOps:            h.mediaconvert,
-		GlobalConfig: config.GlobalConfig{
-			AccountID: config.DefaultAccountID,
-			Region:    config.DefaultRegion,
-		},
-		FaultStore: fs,
-		Logger:     slog.Default(),
+		MediaStoreOps:              h.mediastore,
+		GlobalConfig:               gc,
+		FaultStore:                 fs,
+		Logger:                     slog.Default(),
 	}, fs
 }
 
@@ -963,6 +969,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.lakeformation)
 	_ = registry.Register(h.mediaconvert)
+	_ = registry.Register(h.mediastore)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -974,7 +981,10 @@ func New(t *testing.T) *Stack {
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
 
-	return buildStack(e, h, clients, faultStore, dashHndlr)
+	s := buildStack(e, h, clients, faultStore, dashHndlr)
+	s.MediaStoreHandler = h.mediastore
+
+	return s
 }
 
 // buildStack assembles the Stack struct from wired components.
