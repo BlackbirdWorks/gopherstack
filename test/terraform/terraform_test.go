@@ -94,6 +94,7 @@ import (
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
+	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -242,6 +243,7 @@ provider "aws" {
     kms             = %[1]q
     lakeformation   = %[1]q
     lambda          = %[1]q
+    mediastore      = %[1]q
     opensearch      = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
@@ -4858,6 +4860,53 @@ func TestTerraform_LakeFormation(t *testing.T) {
 				out, err := client.GetDataLakeSettings(ctx, &lakeformationsvc.GetDataLakeSettingsInput{})
 				require.NoError(t, err, "GetDataLakeSettings should succeed after terraform apply")
 				require.NotNil(t, out.DataLakeSettings, "DataLakeSettings should not be nil")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_MediaStore provisions a MediaStore container via Terraform, then verifies
+// it is listed via the MediaStore SDK.
+func TestTerraform_MediaStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "mediastore/container",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ContainerName": "tf-ms-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createMediaStoreClient(t)
+				containerName := vars["ContainerName"].(string)
+
+				out, err := client.ListContainers(ctx, &mediastoresvc.ListContainersInput{})
+				require.NoError(t, err, "ListContainers should succeed after terraform apply")
+
+				found := false
+				for _, c := range out.Containers {
+					if aws.ToString(c.Name) == containerName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "container %q should be listed", containerName)
 			},
 		},
 	}
