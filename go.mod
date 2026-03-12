@@ -108,7 +108,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/emrserverless v1.39.4
 )
 
-require github.com/aws/aws-sdk-go-v2/service/glacier v1.32.4 // indirect
+require (
+	github.com/aws/aws-sdk-go-v2/service/glacier v1.32.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0 // indirect
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
