@@ -151,7 +151,7 @@ func TestIdentityStoreDashboard_CreateUser(t *testing.T) {
 	require.NoError(t, err)
 
 	// Submit the form.
-	err = page.Locator("button[type='submit']:has-text('Create')").Last().Click()
+	err = page.Locator("#create-user-modal button[type='submit']:has-text('Create')").Click()
 	require.NoError(t, err)
 
 	// Wait for the table to show the new user.
@@ -208,7 +208,7 @@ func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
 	require.NoError(t, err)
 
 	// Submit the form.
-	err = page.Locator("button[type='submit']:has-text('Create')").Last().Click()
+	err = page.Locator("#create-group-modal button[type='submit']:has-text('Create')").Click()
 	require.NoError(t, err)
 
 	// After the POST redirect the page reloads to the Users tab by default;
