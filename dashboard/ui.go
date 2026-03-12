@@ -66,6 +66,7 @@ import (
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	emrserverlessbackend "github.com/blackbirdworks/gopherstack/services/emrserverless"
+	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -229,13 +230,15 @@ type DashboardHandler struct {
 	ELBv2Ops *elbv2backend.Handler
 	// EmrServerlessOps provides access to the EMR Serverless backend.
 	EmrServerlessOps *emrserverlessbackend.Handler
-	SubRouter        *echo.Echo
-	ddbProvider      *ddbbackend.DashboardProvider
-	s3Provider       *s3backend.DashboardProvider
-	FaultStore       *chaos.FaultStore
-	Logger           *slog.Logger
-	layout           *template.Template
-	GlobalConfig     config.GlobalConfig
+	// EMROps provides access to the EMR backend.
+	EMROps       *emrbackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -391,6 +394,8 @@ type Config struct {
 	ELBv2Ops *elbv2backend.Handler
 	// EmrServerlessOps provides access to the EMR Serverless backend.
 	EmrServerlessOps *emrserverlessbackend.Handler
+	// EMROps provides access to the EMR backend.
+	EMROps *emrbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -398,8 +403,6 @@ type Config struct {
 	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
 	GlobalConfig config.GlobalConfig
 }
-
-// NewHandler creates a new Dashboard handler.
 
 // parseDashboardTemplates loads and parses all HTML templates for the dashboard.
 func parseDashboardTemplates() *template.Template {
@@ -495,6 +498,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/elb/*.html",
 		"templates/elbv2/*.html",
 		"templates/emrserverless/*.html",
+		"templates/emr/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -503,6 +507,7 @@ func parseDashboardTemplates() *template.Template {
 	))
 }
 
+// NewHandler creates a new Dashboard handler.
 func NewHandler(cfg Config) *DashboardHandler {
 	tmpl := parseDashboardTemplates()
 
@@ -592,6 +597,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		ELBOps:                     cfg.ELBOps,
 		ELBv2Ops:                   cfg.ELBv2Ops,
 		EmrServerlessOps:           cfg.EmrServerlessOps,
+		EMROps:                     cfg.EMROps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1089,6 +1095,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupELBRoutes()
 	h.setupELBv2Routes()
 	h.setupEmrServerlessRoutes()
+	h.setupEMRRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -1209,6 +1216,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/elastictranscoder", "ElasticTranscoder"},
 	{"/elb", "ELB"},
 	{"/emrserverless", "EmrServerless"},
+	{"/emr", "EMR"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

@@ -77,6 +77,7 @@ import (
 	elbv2svc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	emrserverlesssvc "github.com/aws/aws-sdk-go-v2/service/emrserverless"
+	emrsvc "github.com/aws/aws-sdk-go-v2/service/emr"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
@@ -217,6 +218,7 @@ provider "aws" {
     elasticbeanstalk = %[1]q
     elastictranscoder = %[1]q
     emrserverless   = %[1]q
+    emr             = %[1]q
     events          = %[1]q
     firehose        = %[1]q
     iam             = %[1]q
@@ -4317,8 +4319,10 @@ func TestTerraform_ElasticTranscoder(t *testing.T) {
 
 				found := false
 
-				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated the SDK but service still works
-					name := aws.ToString(p.Name)
+				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated this SDK field but the service still works
+					name := aws.ToString(
+						p.Name,
+					)
 					if name == pipelineName {
 						found = true
 
@@ -4416,6 +4420,53 @@ func TestTerraform_EmrServerless(t *testing.T) {
 				}
 
 				assert.True(t, found, "application %q should be listed", name)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_EMR provisions an EMR cluster via Terraform and verifies it exists via the EMR SDK.
+func TestTerraform_EMR(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "emr/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEMRClient(t)
+				suffix := vars["Suffix"].(string)
+				name := "tf-emr-" + suffix
+
+				out, err := client.ListClusters(ctx, &emrsvc.ListClustersInput{})
+				require.NoError(t, err, "ListClusters should succeed")
+
+				found := false
+				for _, c := range out.Clusters {
+					if aws.ToString(c.Name) == name {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "EMR cluster %q should exist", name)
 			},
 		},
 	}
