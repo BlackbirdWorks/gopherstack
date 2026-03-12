@@ -102,9 +102,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/databasemigrationservice v1.61.8
 	github.com/aws/aws-sdk-go-v2/service/docdb v1.48.11
 	github.com/aws/aws-sdk-go-v2/service/eks v1.80.2
-	github.com/aws/aws-sdk-go-v2/service/elastictranscoder v1.33.0
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing v1.33.21
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.54.8
+	github.com/aws/aws-sdk-go-v2/service/elastictranscoder v1.33.0
 )
 
 require (
@@ -119,6 +119,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.5 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.20 // indirect
 	github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk v1.34.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/emr v1.57.7
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.11 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.11.19 // indirect

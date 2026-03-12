@@ -59,6 +59,7 @@ import (
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
+	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
@@ -159,6 +160,7 @@ type AWSSDKProvider interface {
 	GetEKSHandler() service.Registerable
 	GetELBHandler() service.Registerable
 	GetELBv2Handler() service.Registerable
+	GetEMRHandler() service.Registerable
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
 	GetAPIGatewayManagementAPIHandler() service.Registerable
@@ -253,6 +255,7 @@ type extractedConfig struct {
 	eksOps                    *eksbackend.Handler
 	elbOps                    *elbbackend.Handler
 	elbv2Ops                  *elbv2backend.Handler
+	emrOps                    *emrbackend.Handler
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
 	elasticTranscoderOps      *elastictranscoderbackend.Handler
@@ -483,6 +486,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.elbv2Ops, _ = h.(*elbv2backend.Handler)
 	}
 
+	if h := ap.GetEMRHandler(); h != nil {
+		ec.emrOps, _ = h.(*emrbackend.Handler)
+	}
+
 	if h := ap.GetIoTHandler(); h != nil {
 		ec.iotOps, _ = h.(*iotbackend.Handler)
 	}
@@ -495,6 +502,11 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.apiGatewayMgmtOps, _ = h.(*apigwmgmtbackend.Handler)
 	}
 
+	extractLatestServiceHandlers(ap, ec)
+}
+
+// extractLatestServiceHandlers populates handlers for the most recently added services.
+func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetAppConfigHandler(); h != nil {
 		ec.appConfigOps, _ = h.(*appconfigbackend.Handler)
 	}
@@ -511,11 +523,6 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.athenaOps, _ = h.(*athenabackend.Handler)
 	}
 
-	extractLatestServiceHandlers(ap, ec)
-}
-
-// extractLatestServiceHandlers populates handlers for the most recently added services.
-func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetBackupHandler(); h != nil {
 		ec.backupOps, _ = h.(*backupbackend.Handler)
 	}
@@ -691,6 +698,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		EKSOps:                     ec.eksOps,
 		ELBOps:                     ec.elbOps,
 		ELBv2Ops:                   ec.elbv2Ops,
+		EMROps:                     ec.emrOps,
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,
 		ElasticTranscoderOps:       ec.elasticTranscoderOps,

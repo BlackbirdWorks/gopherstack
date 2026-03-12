@@ -65,11 +65,15 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions returns all regions this handler instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
+// ebAPIVersion is the API version string used by Elastic Beanstalk requests.
+const ebAPIVersion = "Version=2010-12-01"
+
 // RouteMatcher returns a function that matches Elastic Beanstalk requests.
-// Elastic Beanstalk uses Version=2010-12-01. We check both the Version and the
-// Action field to avoid stealing requests from other services (e.g. CloudWatch or
-// SNS) that share operation names like ListTagsForResource but use different
-// API version strings.
+// Elastic Beanstalk uses the same Version=2010-12-01 as SES, so we disambiguate
+// by matching on the Action field against the list of supported EB operations.
+// We also require Version=2010-12-01 to avoid matching other services (e.g. SNS
+// with Version=2010-03-31 or CloudWatch with Version=2010-08-01) that share the
+// same action names (e.g. ListTagsForResource).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		r := c.Request()
@@ -88,6 +92,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		body, err := httputils.ReadBody(r)
 		if err != nil {
+			return false
+		}
+
+		if !strings.Contains(string(body), ebAPIVersion) {
 			return false
 		}
 

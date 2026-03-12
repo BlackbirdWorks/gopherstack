@@ -103,6 +103,20 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			body:   "Version=2010-12-01&Action=DescribeApplications",
 			want:   false,
 		},
+		{
+			name:   "wrong API version (SNS-style) rejected even for shared action name",
+			method: http.MethodPost,
+			path:   "/",
+			body:   "Version=2010-03-31&Action=ListTagsForResource&ResourceArn=arn:aws:sns:us-east-1:123:my-topic",
+			want:   false,
+		},
+		{
+			name:   "wrong API version (CloudWatch-style) rejected even for shared action name",
+			method: http.MethodPost,
+			path:   "/",
+			body:   "Version=2010-08-01&Action=ListTagsForResource&ResourceARN=arn:aws:cloudwatch:us-east-1:123:alarm:my-alarm",
+			want:   false,
+		},
 	}
 
 	for _, tt := range tests {
