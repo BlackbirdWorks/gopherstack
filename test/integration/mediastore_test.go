@@ -54,7 +54,7 @@ func TestIntegration_MediaStore_ContainerLifecycle(t *testing.T) {
 			ctx := t.Context()
 			client := createMediaStoreClient(t)
 
-			uniqueSuffix := "integration"
+			uniqueSuffix := t.Name()
 			containerName := tt.containerName + "-" + uniqueSuffix
 
 			// CreateContainer.

@@ -697,16 +697,16 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetLakeFormationHandler(); h != nil {
 		ec.lakeformationOps, _ = h.(*lakeformationbackend.Handler)
 	}
+
+	if h := ap.GetMediaStoreHandler(); h != nil {
+		ec.mediastoreOps, _ = h.(*mediastorebackend.Handler)
+	}
 }
 
 // extractBlockchainHandlers populates blockchain service handlers on ec.
 func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
-	}
-
-	if h := ap.GetMediaStoreHandler(); h != nil {
-		ec.mediastoreOps, _ = h.(*mediastorebackend.Handler)
 	}
 }
 

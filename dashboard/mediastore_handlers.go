@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -72,7 +71,15 @@ func (h *DashboardHandler) mediastoreIndex(c *echo.Context) error {
 		return nil
 	}
 
-	rawContainers, _ := h.MediaStoreOps.Backend.ListContainers()
+	ctx := c.Request().Context()
+
+	rawContainers, err := h.MediaStoreOps.Backend.ListContainers()
+	if err != nil {
+		h.Logger.ErrorContext(ctx, "mediastore: failed to list containers", "error", err)
+
+		rawContainers = nil
+	}
+
 	views := make([]mediastoreContainerView, 0, len(rawContainers))
 
 	for _, ct := range rawContainers {
@@ -112,13 +119,15 @@ func (h *DashboardHandler) mediastoreCreateContainer(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
+	ctx := c.Request().Context()
+
 	if _, err := h.MediaStoreOps.Backend.CreateContainer(
 		h.GlobalConfig.Region,
 		h.GlobalConfig.AccountID,
 		name,
 		nil,
 	); err != nil {
-		h.Logger.ErrorContext(context.Background(), "mediastore: failed to create container", "error", err)
+		h.Logger.ErrorContext(ctx, "mediastore: failed to create container", "error", err)
 
 		return c.NoContent(http.StatusBadRequest)
 	}
@@ -141,8 +150,10 @@ func (h *DashboardHandler) mediastoreDeleteContainer(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
+	ctx := c.Request().Context()
+
 	if err := h.MediaStoreOps.Backend.DeleteContainer(name); err != nil {
-		h.Logger.ErrorContext(context.Background(), "mediastore: failed to delete container", "error", err)
+		h.Logger.ErrorContext(ctx, "mediastore: failed to delete container", "error", err)
 
 		return c.NoContent(http.StatusBadRequest)
 	}

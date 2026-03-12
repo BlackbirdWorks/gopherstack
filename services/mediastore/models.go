@@ -1,6 +1,10 @@
 package mediastore
 
-import "time"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
+)
 
 // Container represents an AWS Elemental MediaStore container.
 type Container struct {
@@ -205,6 +209,4 @@ type listTagsForResourceResponse struct {
 }
 
 // errorResponse is the standard JSON error response body.
-type errorResponse struct {
-	Message string `json:"Message"`
-}
+type errorResponse = service.JSONErrorResponse

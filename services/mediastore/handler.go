@@ -137,7 +137,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		target := c.Request().Header.Get("X-Amz-Target")
 
 		if !strings.HasPrefix(target, mediastoreTargetPrefix) {
-			return writeError(c, http.StatusBadRequest, "missing or invalid X-Amz-Target header")
+			return writeError(c, http.StatusBadRequest, "BadRequestException", "missing or invalid X-Amz-Target header")
 		}
 
 		op := strings.TrimPrefix(target, mediastoreTargetPrefix)
@@ -146,7 +146,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		if err != nil {
 			log.ErrorContext(ctx, "mediastore: failed to read request body", "error", err)
 
-			return writeError(c, http.StatusInternalServerError, "failed to read request body")
+			return writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to read request body")
 		}
 
 		log.DebugContext(ctx, "mediastore request", "op", op)
@@ -204,18 +204,18 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 		return h.handleListTagsForResource(c, body)
 	}
 
-	return writeError(c, http.StatusBadRequest, "unknown operation: "+op)
+	return writeError(c, http.StatusBadRequest, "UnknownOperationException", "unknown operation: "+op)
 }
 
 func (h *Handler) handleCreateContainer(c *echo.Context, body []byte) error {
 	var req createContainerRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	tags := tagsFromSlice(req.Tags)
@@ -234,11 +234,11 @@ func (h *Handler) handleDeleteContainer(c *echo.Context, body []byte) error {
 	var req deleteContainerRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	if err := h.Backend.DeleteContainer(req.ContainerName); err != nil {
@@ -252,11 +252,11 @@ func (h *Handler) handleDescribeContainer(c *echo.Context, body []byte) error {
 	var req describeContainerRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	container, err := h.Backend.DescribeContainer(req.ContainerName)
@@ -288,11 +288,11 @@ func (h *Handler) handlePutContainerPolicy(c *echo.Context, body []byte) error {
 	var req putContainerPolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	if err := h.Backend.PutContainerPolicy(req.ContainerName, req.Policy); err != nil {
@@ -306,11 +306,11 @@ func (h *Handler) handleGetContainerPolicy(c *echo.Context, body []byte) error {
 	var req getContainerPolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	policy, err := h.Backend.GetContainerPolicy(req.ContainerName)
@@ -325,11 +325,11 @@ func (h *Handler) handleDeleteContainerPolicy(c *echo.Context, body []byte) erro
 	var req deleteContainerPolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	if err := h.Backend.DeleteContainerPolicy(req.ContainerName); err != nil {
@@ -343,11 +343,11 @@ func (h *Handler) handlePutCorsPolicy(c *echo.Context, body []byte) error {
 	var req putCorsPolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	if err := h.Backend.PutCorsPolicy(req.ContainerName, req.CorsPolicy); err != nil {
@@ -361,11 +361,11 @@ func (h *Handler) handleGetCorsPolicy(c *echo.Context, body []byte) error {
 	var req getCorsPolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	rules, err := h.Backend.GetCorsPolicy(req.ContainerName)
@@ -380,11 +380,11 @@ func (h *Handler) handleDeleteCorsPolicy(c *echo.Context, body []byte) error {
 	var req deleteCorsPolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	if err := h.Backend.DeleteCorsPolicy(req.ContainerName); err != nil {
@@ -398,11 +398,11 @@ func (h *Handler) handlePutLifecyclePolicy(c *echo.Context, body []byte) error {
 	var req putLifecyclePolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	if err := h.Backend.PutLifecyclePolicy(req.ContainerName, req.LifecyclePolicy); err != nil {
@@ -416,11 +416,11 @@ func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, body []byte) error {
 	var req getLifecyclePolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	policy, err := h.Backend.GetLifecyclePolicy(req.ContainerName)
@@ -435,11 +435,11 @@ func (h *Handler) handleDeleteLifecyclePolicy(c *echo.Context, body []byte) erro
 	var req deleteLifecyclePolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	if err := h.Backend.DeleteLifecyclePolicy(req.ContainerName); err != nil {
@@ -453,11 +453,11 @@ func (h *Handler) handlePutMetricPolicy(c *echo.Context, body []byte) error {
 	var req putMetricPolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	if err := h.Backend.PutMetricPolicy(req.ContainerName, req.MetricPolicy); err != nil {
@@ -471,11 +471,11 @@ func (h *Handler) handleGetMetricPolicy(c *echo.Context, body []byte) error {
 	var req getMetricPolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	policy, err := h.Backend.GetMetricPolicy(req.ContainerName)
@@ -490,11 +490,11 @@ func (h *Handler) handleDeleteMetricPolicy(c *echo.Context, body []byte) error {
 	var req deleteMetricPolicyRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	if err := h.Backend.DeleteMetricPolicy(req.ContainerName); err != nil {
@@ -508,11 +508,11 @@ func (h *Handler) handleStartAccessLogging(c *echo.Context, body []byte) error {
 	var req startAccessLoggingRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	if err := h.Backend.StartAccessLogging(req.ContainerName); err != nil {
@@ -526,11 +526,11 @@ func (h *Handler) handleStopAccessLogging(c *echo.Context, body []byte) error {
 	var req stopAccessLoggingRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.ContainerName == "" {
-		return writeError(c, http.StatusBadRequest, ErrMissingContainerName.Error())
+		return writeError(c, http.StatusBadRequest, "ValidationException", ErrMissingContainerName.Error())
 	}
 
 	if err := h.Backend.StopAccessLogging(req.ContainerName); err != nil {
@@ -544,11 +544,11 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	var req tagResourceRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.Resource == "" {
-		return writeError(c, http.StatusBadRequest, "Resource is required")
+		return writeError(c, http.StatusBadRequest, "ValidationException", "Resource is required")
 	}
 
 	tags := tagsFromSlice(req.Tags)
@@ -564,11 +564,11 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 	var req untagResourceRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.Resource == "" {
-		return writeError(c, http.StatusBadRequest, "Resource is required")
+		return writeError(c, http.StatusBadRequest, "ValidationException", "Resource is required")
 	}
 
 	if err := h.Backend.UntagResource(req.Resource, req.TagKeys); err != nil {
@@ -582,11 +582,11 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 	var req listTagsForResourceRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return writeError(c, http.StatusBadRequest, "invalid request body")
+		return writeError(c, http.StatusBadRequest, "SerializationException", "invalid request body")
 	}
 
 	if req.Resource == "" {
-		return writeError(c, http.StatusBadRequest, "Resource is required")
+		return writeError(c, http.StatusBadRequest, "ValidationException", "Resource is required")
 	}
 
 	tags, err := h.Backend.ListTagsForResource(req.Resource)
@@ -601,17 +601,17 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return writeError(c, http.StatusNotFound, err.Error())
+		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return writeError(c, http.StatusConflict, err.Error())
+		return writeError(c, http.StatusConflict, "ContainerInUseException", err.Error())
 	default:
-		return writeError(c, http.StatusInternalServerError, err.Error())
+		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 }
 
-// writeError writes a JSON error response.
-func writeError(c *echo.Context, status int, message string) error {
-	return c.JSON(status, errorResponse{Message: message})
+// writeError writes a JSON error response using the standard AWS JSON 1.1 envelope.
+func writeError(c *echo.Context, status int, errType, message string) error {
+	return c.JSON(status, errorResponse{Type: errType, Message: message})
 }
 
 // toContainerObject converts a Container to its JSON representation.
