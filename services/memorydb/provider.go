@@ -24,7 +24,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		region = cfg.Region
 	}
 
-	backend := NewInMemoryBackend()
+	backend := newInMemoryBackendWithDefaults(region, accountID)
 	handler := NewHandler(backend)
 	handler.AccountID = accountID
 	handler.DefaultRegion = region

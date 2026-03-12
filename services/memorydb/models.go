@@ -19,6 +19,7 @@ type Cluster struct {
 	SubnetGroupName        string
 	ParameterGroupName     string
 	Status                 string
+	Region                 string
 	KmsKeyID               string
 	SnsTopicArn            string
 	MaintenanceWindow      string
@@ -275,9 +276,18 @@ type clusterObject struct {
 	MaintenanceWindow      string          `json:"MaintenanceWindow,omitempty"`
 	SnapshotWindow         string          `json:"SnapshotWindow,omitempty"`
 	Tags                   []tagEntry      `json:"Tags,omitempty"`
+	Shards                 []shardObject   `json:"Shards,omitempty"`
 	NumberOfShards         int32           `json:"NumberOfShards,omitempty"`
 	SnapshotRetentionLimit int32           `json:"SnapshotRetentionLimit,omitempty"`
 	TLSEnabled             bool            `json:"TLSEnabled"`
+}
+
+// shardObject represents a single shard in a MemoryDB cluster.
+type shardObject struct {
+	Name     string `json:"Name,omitempty"`
+	Status   string `json:"Status,omitempty"`
+	Slots    string `json:"Slots,omitempty"`
+	NumNodes int32  `json:"NumNodes,omitempty"`
 }
 
 type endpointObject struct {

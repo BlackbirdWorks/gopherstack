@@ -123,6 +123,11 @@ type resourceRef struct {
 // NewInMemoryBackend creates a new MemoryDB in-memory backend.
 // It pre-seeds the "open-access" ACL which is required by most clusters.
 func NewInMemoryBackend() *InMemoryBackend {
+	return newInMemoryBackendWithDefaults("us-east-1", "000000000000")
+}
+
+// newInMemoryBackendWithDefaults creates a backend pre-seeded with the given region and account.
+func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		clusters:        make(map[string]*Cluster),
 		acls:            make(map[string]*ACL),
@@ -134,12 +139,16 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 	// Pre-seed the open-access ACL so Terraform resources that omit an explicit
 	// ACL name can reference it without first creating it.
+	openAccessARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("acl/%s", openAccessACL))
 	b.acls[openAccessACL] = &ACL{
 		Name:      openAccessACL,
+		ARN:       openAccessARN,
 		Status:    aclStatusActive,
 		UserNames: []string{},
 		CreatedAt: time.Now(),
+		Tags:      make(map[string]string),
 	}
+	b.arnToResource[openAccessARN] = resourceRef{kind: resourceKindACL, name: openAccessACL}
 
 	return b
 }
@@ -187,13 +196,18 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 
 	clusterARN := arn.Build("memorydb", region, accountID, fmt.Sprintf("cluster/%s", req.ClusterName))
 
+	aclName := req.ACLName
+	if aclName == "" {
+		aclName = openAccessACL
+	}
+
 	c := &Cluster{
 		Name:                req.ClusterName,
 		ARN:                 clusterARN,
 		Description:         req.Description,
 		NodeType:            nodeType,
 		EngineVersion:       engineVersion,
-		ACLName:             req.ACLName,
+		ACLName:             aclName,
 		SubnetGroupName:     req.SubnetGroupName,
 		ParameterGroupName:  req.ParameterGroupName,
 		KmsKeyID:            req.KmsKeyID,
@@ -207,6 +221,7 @@ func (b *InMemoryBackend) CreateCluster(region, accountID string, req *createClu
 		Status:              clusterStatusAvailable,
 		Tags:                tagsFromSlice(req.Tags),
 		CreatedAt:           time.Now(),
+		Region:              region,
 	}
 
 	if req.SnapshotRetentionLimit != nil {
@@ -802,27 +817,36 @@ func (b *InMemoryBackend) tagsForRef(ref resourceRef) map[string]string {
 }
 
 // applyTags merges tags into the referenced resource (must hold Lock).
+// mergeTags ensures dst is initialized then copies all src entries into it.
+func mergeTags(dst *map[string]string, src map[string]string) {
+	if *dst == nil {
+		*dst = make(map[string]string, len(src))
+	}
+
+	maps.Copy(*dst, src)
+}
+
 func (b *InMemoryBackend) applyTags(ref resourceRef, tags map[string]string) {
 	switch ref.kind {
 	case resourceKindCluster:
 		if c, ok := b.clusters[ref.name]; ok {
-			maps.Copy(c.Tags, tags)
+			mergeTags(&c.Tags, tags)
 		}
 	case resourceKindACL:
 		if a, ok := b.acls[ref.name]; ok {
-			maps.Copy(a.Tags, tags)
+			mergeTags(&a.Tags, tags)
 		}
 	case resourceKindSubnetGroup:
 		if sg, ok := b.subnetGroups[ref.name]; ok {
-			maps.Copy(sg.Tags, tags)
+			mergeTags(&sg.Tags, tags)
 		}
 	case resourceKindUser:
 		if u, ok := b.users[ref.name]; ok {
-			maps.Copy(u.Tags, tags)
+			mergeTags(&u.Tags, tags)
 		}
 	case resourceKindParameterGroup:
 		if pg, ok := b.parameterGroups[ref.name]; ok {
-			maps.Copy(pg.Tags, tags)
+			mergeTags(&pg.Tags, tags)
 		}
 	}
 }

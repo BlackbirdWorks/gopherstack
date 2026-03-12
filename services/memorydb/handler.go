@@ -3,6 +3,7 @@ package memorydb
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -700,6 +701,13 @@ func writeError(c *echo.Context, status int, errType, message string) error {
 
 // toClusterObject converts a Cluster to its JSON representation.
 func toClusterObject(c *Cluster) clusterObject {
+	region := c.Region
+	if region == "" {
+		region = "us-east-1"
+	}
+
+	shards := buildShards(c.Name, c.NumShards)
+
 	return clusterObject{
 		Name:                   c.Name,
 		ARN:                    c.ARN,
@@ -718,11 +726,45 @@ func toClusterObject(c *Cluster) clusterObject {
 		NumberOfShards:         c.NumShards,
 		TLSEnabled:             c.TLSEnabled,
 		SnapshotRetentionLimit: c.SnapshotRetentionLimit,
+		Shards:                 shards,
 		ClusterEndpoint: &endpointObject{
-			Address: c.Name + ".memorydb." + "us-east-1" + ".amazonaws.com",
+			Address: c.Name + ".memorydb." + region + ".amazonaws.com",
 			Port:    c.Port,
 		},
 	}
+}
+
+// buildShards constructs a slice of shardObjects with evenly-distributed slots.
+func buildShards(clusterName string, numShards int32) []shardObject {
+	const totalSlots = 16384
+
+	if numShards <= 0 {
+		numShards = 1
+	}
+
+	shards := make([]shardObject, numShards)
+	n := int(numShards)
+	slotsPerShard := totalSlots / n
+
+	for i := range shards {
+		start := i * slotsPerShard
+		end := start + slotsPerShard - 1
+
+		if i == n-1 {
+			end = totalSlots - 1
+		}
+
+		// Shard name follows the AWS MemoryDB convention: <cluster>-<nodegroup>-<shardindex>
+		// where nodegroup is always "0001" for single-shard-group clusters.
+		shards[i] = shardObject{
+			Name:     fmt.Sprintf("%s-0001-%04d", clusterName, i),
+			Status:   clusterStatusAvailable,
+			Slots:    fmt.Sprintf("%d-%d", start, end),
+			NumNodes: 1,
+		}
+	}
+
+	return shards
 }
 
 // toACLObject converts an ACL to its JSON representation.
