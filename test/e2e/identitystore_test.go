@@ -211,6 +211,16 @@ func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
 	err = page.Locator("button[type='submit']:has-text('Create')").Last().Click()
 	require.NoError(t, err)
 
+	// After the POST redirect the page reloads to the Users tab by default;
+	// click the Groups tab again to make the Groups pane visible.
+	err = page.Locator("h1:has-text('Identity Store')").WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
+	err = page.Locator("button:has-text('Groups')").Click()
+	require.NoError(t, err)
+
 	// Wait for the table to show the new group.
 	err = page.Locator("td:has-text('Platform Team')").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
