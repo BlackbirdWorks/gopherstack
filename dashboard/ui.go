@@ -71,6 +71,7 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
@@ -169,6 +170,7 @@ type DashboardHandler struct {
 	EFSOps            *efsbackend.Handler
 	IoTOps            *iotbackend.Handler
 	FISOps            *fisbackend.Handler
+	GlueOps           *gluebackend.Handler
 	// IdentityStoreOps provides access to the Identity Store backend.
 	IdentityStoreOps *identitystorebackend.Handler
 	OpenSearchOps    *opensearchbackend.Handler
@@ -302,6 +304,8 @@ type Config struct {
 	IoTOps *iotbackend.Handler
 	// FISOps provides access to the FIS backend.
 	FISOps *fisbackend.Handler
+	// GlueOps provides access to the Glue backend.
+	GlueOps *gluebackend.Handler
 	// IdentityStoreOps provides access to the Identity Store backend.
 	IdentityStoreOps *identitystorebackend.Handler
 	// OpenSearchOps provides access to the OpenSearch backend.
@@ -436,7 +440,11 @@ func parseDashboardTemplates() *template.Template {
 		},
 	}
 
-	return template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS,
+	return template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS, dashboardTemplatePatterns()...))
+}
+
+func dashboardTemplatePatterns() []string {
+	return []string{
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
@@ -516,19 +524,28 @@ func parseDashboardTemplates() *template.Template {
 		"templates/emr/*.html",
 		"templates/glacier/*.html",
 		"templates/iotwireless/*.html",
+		"templates/glue/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
 		"templates/apiconsole.html",
-	))
+	}
 }
 
 // NewHandler creates a new Dashboard handler.
 func NewHandler(cfg Config) *DashboardHandler {
 	tmpl := parseDashboardTemplates()
 
-	h := &DashboardHandler{
+	h := newDashboardHandler(cfg, tmpl)
+
+	h.initHandlers(cfg.Logger)
+
+	return h
+}
+
+func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler {
+	return &DashboardHandler{
 		DynamoDB:                   cfg.DDBClient,
 		S3:                         cfg.S3Client,
 		SSM:                        cfg.SSMClient,
@@ -614,6 +631,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EMROps:                     cfg.EMROps,
 		GlacierOps:                 cfg.GlacierOps,
 		IoTWirelessOps:             cfg.IoTWirelessOps,
+		GlueOps:                    cfg.GlueOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -622,10 +640,6 @@ func NewHandler(cfg Config) *DashboardHandler {
 		s3Provider:                 s3backend.NewDashboardProvider(),
 		SubRouter:                  echo.New(),
 	}
-
-	h.initHandlers(cfg.Logger)
-
-	return h
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1115,6 +1129,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupIdentityStoreRoutes()
 	h.setupGlacierRoutes()
 	h.setupIoTWirelessRoutes()
+	h.setupGlueRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -1236,6 +1251,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/elb", "ELB"},
 	{"/emrserverless", "EmrServerless"},
 	{"/emr", "EMR"},
+	{"/glue", "Glue"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

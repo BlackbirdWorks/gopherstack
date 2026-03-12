@@ -1,0 +1,240 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <img src="/dashboard/static/icons/glue.svg" class="w-8 h-8 rounded-md shadow-sm" alt="glue"
+                    onerror="this.style.display='none'" />
+                AWS Glue
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory AWS Glue databases and jobs.</p>
+        </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none flex gap-2">
+            <button type="button" onclick="document.getElementById('create-database-modal').classList.remove('hidden')"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
+                + Database
+            </button>
+            <button type="button" onclick="document.getElementById('create-job-modal').classList.remove('hidden')"
+                class="text-white bg-green-700 hover:bg-green-800 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-green-600 dark:hover:bg-green-700 focus:outline-none dark:focus:ring-green-800">
+                + Job
+            </button>
+        </div>
+    </div>
+
+    <!-- Databases Table -->
+    <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+        Databases
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
+            {{len .Databases}}
+        </span>
+    </h2>
+    <div
+        class="mb-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">Catalog ID</th>
+                    <th scope="col" class="px-6 py-3">ARN</th>
+                    <th scope="col" class="px-6 py-3 text-right"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Databases}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
+                    <td class="px-6 py-4 font-mono text-xs">{{.CatalogID}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.ARN}}">{{.ARN}}</td>
+                    <td class="px-6 py-4 text-right">
+                        <form method="POST" action="/dashboard/glue/databases/delete" style="display:inline"
+                            hx-boost="false">
+                            <input type="hidden" name="name" value="{{.Name}}">
+                            <button type="submit"
+                                class="font-medium text-red-600 dark:text-red-500 hover:underline text-xs">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No databases. Create one to get started.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Crawlers Table -->
+    <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+        Crawlers
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300">
+            {{len .Crawlers}}
+        </span>
+    </h2>
+    <div
+        class="mb-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">Database</th>
+                    <th scope="col" class="px-6 py-3">State</th>
+                    <th scope="col" class="px-6 py-3">ARN</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Crawlers}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
+                    <td class="px-6 py-4">{{.DatabaseName}}</td>
+                    <td class="px-6 py-4">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                            {{if eq .State "READY"}}bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300
+                            {{else}}bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300{{end}}">
+                            {{.State}}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.ARN}}">{{.ARN}}</td>
+                </tr>
+                {{else}}
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No crawlers.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Jobs Table -->
+    <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+        Jobs
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+            {{len .Jobs}}
+        </span>
+    </h2>
+    <div
+        class="mb-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">Role</th>
+                    <th scope="col" class="px-6 py-3">Glue Version</th>
+                    <th scope="col" class="px-6 py-3">Worker Type</th>
+                    <th scope="col" class="px-6 py-3 text-right"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Jobs}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.Role}}">{{.Role}}</td>
+                    <td class="px-6 py-4">{{.GlueVersion}}</td>
+                    <td class="px-6 py-4">{{.WorkerType}}</td>
+                    <td class="px-6 py-4 text-right">
+                        <form method="POST" action="/dashboard/glue/jobs/delete" style="display:inline"
+                            hx-boost="false">
+                            <input type="hidden" name="name" value="{{.Name}}">
+                            <button type="submit"
+                                class="font-medium text-red-600 dark:text-red-500 hover:underline text-xs">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No jobs. Create one to get started.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Create Database Modal -->
+<div id="create-database-modal"
+    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
+        <h3 class="text-lg font-medium leading-6 text-slate-900 dark:text-white mb-4">Create Glue Database</h3>
+        <form method="POST" action="/dashboard/glue/databases/create" hx-boost="false">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="db-name">Name</label>
+                <input id="db-name" name="name" type="text" required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="my-database">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="db-description">Description</label>
+                <input id="db-description" name="description" type="text"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="Optional description">
+            </div>
+            <div class="flex justify-end gap-3">
+                <button type="button" onclick="document.getElementById('create-database-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-md hover:bg-blue-800 focus:outline-none dark:bg-blue-600 dark:hover:bg-blue-700">
+                    Create
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Create Job Modal -->
+<div id="create-job-modal"
+    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
+        <h3 class="text-lg font-medium leading-6 text-slate-900 dark:text-white mb-4">Create Glue Job</h3>
+        <form method="POST" action="/dashboard/glue/jobs/create" hx-boost="false">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="job-name">Name</label>
+                <input id="job-name" name="name" type="text" required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="my-glue-job">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="job-role">IAM Role ARN</label>
+                <input id="job-role" name="role" type="text"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="arn:aws:iam::000000000000:role/GlueRole">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="job-script">Script Location</label>
+                <input id="job-script" name="script_location" type="text"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="s3://my-bucket/scripts/etl.py">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1" for="job-glue-version">Glue Version</label>
+                <input id="job-glue-version" name="glue_version" type="text"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    value="4.0" placeholder="4.0">
+            </div>
+            <div class="flex justify-end gap-3">
+                <button type="button" onclick="document.getElementById('create-job-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-green-700 rounded-md hover:bg-green-800 focus:outline-none dark:bg-green-600 dark:hover:bg-green-700">
+                    Create
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

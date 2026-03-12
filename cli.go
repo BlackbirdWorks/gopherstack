@@ -103,6 +103,7 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
@@ -235,6 +236,7 @@ type CLI struct {
 	emrHandler                    service.Registerable
 	glacierHandler                service.Registerable
 	iotwirelessHandler            service.Registerable
+	glueHandler                   service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -584,6 +586,11 @@ func (c *CLI) GetGlacierHandler() service.Registerable { return c.glacierHandler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetIoTWirelessHandler() service.Registerable { return c.iotwirelessHandler }
+
+// GetGlueHandler returns the Glue handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGlueHandler() service.Registerable { return c.glueHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1228,6 +1235,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.emrHandler = byName["EMR"]
 	cli.glacierHandler = byName["Glacier"]
 	cli.iotwirelessHandler = byName["IoTWireless"]
+	cli.glueHandler = byName["Glue"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1426,6 +1434,7 @@ func getServiceProviders() []service.Provider {
 		&elbv2backend.Provider{},
 		&emrserverlessbackend.Provider{},
 		&emrbackend.Provider{},
+		&gluebackend.Provider{},
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
 		&glacierbackend.Provider{},
