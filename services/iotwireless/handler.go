@@ -69,6 +69,8 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 
 // RouteMatcher returns a function that matches IoT Wireless REST API requests.
+// All paths are disambiguated via the SigV4 credential-scope service name to
+// prevent mis-routing with other REST-JSON services that share similar paths.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
@@ -80,7 +82,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			"/destinations",
 		} {
 			if path == prefix || strings.HasPrefix(path, prefix+"/") {
-				return true
+				return httputils.ExtractServiceFromRequest(c.Request()) == iotwirelessService
 			}
 		}
 
@@ -136,18 +138,21 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+const (
+	// maxPathParts is the maximum number of path segments to split when parsing IoT Wireless paths.
+	maxPathParts = 3
+	// idSegmentIndex is the index of the resource ID segment in the split path.
+	idSegmentIndex = 2
+)
+
 // parseIoTWirelessPath maps a method+path to an operation and resource identifier.
 func parseIoTWirelessPath(method, path string) (string, string) {
-	// Strip leading slash and split.
+	// Strip leading slash and split into at most maxPathParts segments.
 	trimmed := strings.TrimPrefix(path, "/")
-	parts := strings.SplitN(trimmed, "/", 3) //nolint:mnd // max 3 parts
-
-	if len(parts) == 0 {
-		return "", ""
-	}
+	parts := strings.SplitN(trimmed, "/", maxPathParts)
 
 	base := parts[0]
-	hasID := len(parts) >= 2 && parts[1] != "" //nolint:mnd // check for ID segment
+	hasID := len(parts) >= idSegmentIndex && parts[1] != ""
 
 	// Handle /tags/{ResourceArn}
 	if base == "tags" {
@@ -170,7 +175,7 @@ func parseIoTWirelessPath(method, path string) (string, string) {
 	}
 
 	id := ""
-	if len(parts) >= 2 { //nolint:mnd // index 1 holds the resource ID
+	if hasID {
 		id = parts[1]
 	}
 

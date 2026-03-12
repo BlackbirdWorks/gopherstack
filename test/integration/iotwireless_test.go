@@ -4,7 +4,6 @@
 package integration_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -51,7 +50,7 @@ func TestIntegration_IoTWireless_ServiceProfileLifecycle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := context.Background()
+			ctx := t.Context()
 			client := createIoTWirelessClient(t)
 
 			// Create service profile.
@@ -101,12 +100,17 @@ func TestIntegration_IoTWireless_WirelessDevice(t *testing.T) {
 	tests := []struct {
 		name       string
 		deviceName string
-		devType    string
+		devType    iotwirelesssdk.WirelessDeviceType
 	}{
 		{
 			name:       "lorawan_device",
-			deviceName: "integration-device-" + t.Name(),
-			devType:    "LoRaWAN",
+			deviceName: "integration-device-lorawan-" + t.Name(),
+			devType:    iotwirelesssdk.WirelessDeviceTypeLoRaWAN,
+		},
+		{
+			name:       "sidewalk_device",
+			deviceName: "integration-device-sidewalk-" + t.Name(),
+			devType:    iotwirelesssdk.WirelessDeviceTypeSidewalk,
 		},
 	}
 
@@ -114,13 +118,13 @@ func TestIntegration_IoTWireless_WirelessDevice(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := context.Background()
+			ctx := t.Context()
 			client := createIoTWirelessClient(t)
 
 			// Create wireless device.
 			createOut, err := client.CreateWirelessDevice(ctx, &iotwirelesssdk.CreateWirelessDeviceInput{
 				Name:            aws.String(tt.deviceName),
-				Type:            iotwirelesssdk.WirelessDeviceTypeLoRaWAN,
+				Type:            tt.devType,
 				DestinationName: aws.String("integration-dest"),
 			})
 			require.NoError(t, err, "CreateWirelessDevice should succeed")

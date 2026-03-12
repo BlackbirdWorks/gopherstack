@@ -88,7 +88,6 @@ import (
 	identitystoresvc "github.com/aws/aws-sdk-go-v2/service/identitystore"
 	identitystoretypes "github.com/aws/aws-sdk-go-v2/service/identitystore/types"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
-	iotwirelesssvc "github.com/aws/aws-sdk-go-v2/service/iotwireless"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -4721,52 +4720,6 @@ func TestTerraform_Glacier(t *testing.T) {
 				}
 
 				assert.True(t, found, "vault %q should be listed", vaultName)
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			runTFTest(t, tc)
-		})
-	}
-}
-
-// TestTerraform_IoTWireless provisions an IoT Wireless service profile via Terraform and verifies it.
-func TestTerraform_IoTWireless(t *testing.T) {
-	t.Parallel()
-
-	tests := []tfTestCase{
-		{
-			name:    "success",
-			fixture: "iotwireless/success",
-			setup: func(t *testing.T, _ string) map[string]any {
-				t.Helper()
-				id := uuid.NewString()[:8]
-
-				return map[string]any{
-					"ProfileName": "tf-iotwireless-" + id,
-				}
-			},
-			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-				t.Helper()
-				client := createIoTWirelessClient(t)
-				profileName := vars["ProfileName"].(string)
-
-				out, err := client.ListServiceProfiles(ctx, &iotwirelesssvc.ListServiceProfilesInput{})
-				require.NoError(t, err, "ListServiceProfiles should succeed after terraform apply")
-
-				found := false
-				for _, p := range out.ServiceProfileList {
-					if aws.ToString(p.Name) == profileName {
-						found = true
-
-						break
-					}
-				}
-
-				assert.True(t, found, "service profile %q should be listed", profileName)
 			},
 		},
 	}

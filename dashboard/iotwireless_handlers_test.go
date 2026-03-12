@@ -3,39 +3,50 @@ package dashboard_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/internal/teststack"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
 
-// TestIoTWirelessHandlers covers the IoT Wireless dashboard handlers.
-func TestIoTWirelessHandlers(t *testing.T) {
+// TestIoTWirelessHandlers_Index covers the IoT Wireless dashboard index page.
+func TestIoTWirelessHandlers_Index(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup        func(*testing.T)
+		setup        func(*testing.T, *teststack.Stack)
 		name         string
-		path         string
-		method       string
-		formBody     string
 		wantContains string
 		wantCode     int
 	}{
 		{
-			name:         "index renders empty page",
-			method:       http.MethodGet,
-			path:         "/dashboard/iotwireless",
+			name:         "renders empty state with no profiles",
 			wantCode:     http.StatusOK,
-			wantContains: "IoT Wireless",
+			wantContains: "No service profiles found",
 		},
 		{
-			name:   "index renders created service profile",
-			method: http.MethodGet,
-			path:   "/dashboard/iotwireless",
-			setup: func(t *testing.T) {
+			name: "renders created service profile",
+			setup: func(t *testing.T, s *teststack.Stack) {
 				t.Helper()
+
+				_, err := s.IoTWirelessHandler.Backend.CreateServiceProfile(
+					config.DefaultAccountID,
+					config.DefaultRegion,
+					"dashboard-test-profile",
+					nil,
+				)
+				require.NoError(t, err)
 			},
+			wantCode:     http.StatusOK,
+			wantContains: "dashboard-test-profile",
+		},
+		{
+			name:         "renders IoT Wireless header",
 			wantCode:     http.StatusOK,
 			wantContains: "IoT Wireless",
 		},
@@ -48,15 +59,10 @@ func TestIoTWirelessHandlers(t *testing.T) {
 			s := newStack(t)
 
 			if tt.setup != nil {
-				tt.setup(t)
+				tt.setup(t, s)
 			}
 
-			_, err := s.IoTWirelessHandler.Backend.CreateServiceProfile(
-				"000000000000", "us-east-1", "dashboard-test-profile", nil,
-			)
-			require.NoError(t, err)
-
-			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req := httptest.NewRequest(http.MethodGet, "/dashboard/iotwireless", nil)
 			w := httptest.NewRecorder()
 			serveHandler(s.Dashboard, w, req)
 
@@ -72,25 +78,34 @@ func TestIoTWirelessHandlers_CreateDelete(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		method   string
-		path     string
-		formBody string
-		wantCode int
+		formValues   url.Values
+		name         string
+		path         string
+		method       string
+		wantLocation string
+		wantCode     int
 	}{
 		{
-			name:     "create redirects",
-			method:   http.MethodPost,
-			path:     "/dashboard/iotwireless/service-profile/create",
-			formBody: "name=my-profile",
-			wantCode: http.StatusFound,
+			name:         "create redirects",
+			method:       http.MethodPost,
+			path:         "/dashboard/iotwireless/service-profile/create",
+			formValues:   url.Values{"name": {"my-profile"}},
+			wantCode:     http.StatusFound,
+			wantLocation: "/dashboard/iotwireless",
 		},
 		{
-			name:     "create with empty name returns bad request",
-			method:   http.MethodPost,
-			path:     "/dashboard/iotwireless/service-profile/create",
-			formBody: "name=",
-			wantCode: http.StatusBadRequest,
+			name:       "create with empty name returns bad request",
+			method:     http.MethodPost,
+			path:       "/dashboard/iotwireless/service-profile/create",
+			formValues: url.Values{"name": {""}},
+			wantCode:   http.StatusBadRequest,
+		},
+		{
+			name:       "delete with empty id returns bad request",
+			method:     http.MethodPost,
+			path:       "/dashboard/iotwireless/service-profile/delete",
+			formValues: url.Values{"id": {""}},
+			wantCode:   http.StatusBadRequest,
 		},
 	}
 
@@ -100,21 +115,43 @@ func TestIoTWirelessHandlers_CreateDelete(t *testing.T) {
 
 			s := newStack(t)
 
-			var body *httptest.ResponseRecorder
+			body := strings.NewReader(tt.formValues.Encode())
+			req := httptest.NewRequest(tt.method, tt.path, body)
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			serveHandler(s.Dashboard, w, req)
 
-			if tt.formBody != "" {
-				req := httptest.NewRequest(tt.method, tt.path, nil)
-				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-				req.URL.RawQuery = tt.formBody
-				body = httptest.NewRecorder()
-				serveHandler(s.Dashboard, body, req)
-			} else {
-				req := httptest.NewRequest(tt.method, tt.path, nil)
-				body = httptest.NewRecorder()
-				serveHandler(s.Dashboard, body, req)
+			assert.Equal(t, tt.wantCode, w.Code)
+			if tt.wantLocation != "" {
+				assert.Equal(t, tt.wantLocation, w.Header().Get("Location"))
 			}
-
-			assert.Equal(t, tt.wantCode, body.Code)
 		})
 	}
+}
+
+// TestIoTWirelessHandlers_DeleteExisting tests that deleting an existing profile redirects
+// and the profile is no longer present in the backend.
+func TestIoTWirelessHandlers_DeleteExisting(t *testing.T) {
+	t.Parallel()
+
+	s := newStack(t)
+
+	// Pre-create a profile.
+	sp, err := s.IoTWirelessHandler.Backend.CreateServiceProfile(
+		config.DefaultAccountID, config.DefaultRegion, "to-delete", nil,
+	)
+	require.NoError(t, err)
+
+	body := strings.NewReader(url.Values{"id": {sp.ID}}.Encode())
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/iotwireless/service-profile/delete", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	serveHandler(s.Dashboard, w, req)
+
+	assert.Equal(t, http.StatusFound, w.Code)
+	assert.Equal(t, "/dashboard/iotwireless", w.Header().Get("Location"))
+
+	// Verify the profile is gone.
+	profiles := s.IoTWirelessHandler.Backend.ListServiceProfiles(config.DefaultAccountID, config.DefaultRegion)
+	assert.Empty(t, profiles, "deleted profile should not appear in list")
 }
