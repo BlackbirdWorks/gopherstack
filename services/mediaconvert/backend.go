@@ -2,6 +2,7 @@ package mediaconvert
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -70,6 +71,7 @@ type InMemoryBackend struct {
 	queues       map[string]*Queue
 	jobTemplates map[string]*JobTemplate
 	jobs         map[string]*Job
+	tags         map[string]map[string]string
 	mu           *lockmetrics.RWMutex
 	accountID    string
 	region       string
@@ -81,6 +83,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		queues:       make(map[string]*Queue),
 		jobTemplates: make(map[string]*JobTemplate),
 		jobs:         make(map[string]*Job),
+		tags:         make(map[string]map[string]string),
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("mediaconvert"),
@@ -380,4 +383,39 @@ func generateJobID() string {
 	suffix := uuid.NewString()[:13]
 
 	return fmt.Sprintf("%d-%s", ts, suffix)
+}
+
+// GetTags returns a copy of tags for the given resource ARN.
+func (b *InMemoryBackend) GetTags(resourceARN string) map[string]string {
+	b.mu.RLock("GetTags")
+	defer b.mu.RUnlock()
+
+	t := b.tags[resourceARN]
+	cp := make(map[string]string, len(t))
+
+	maps.Copy(cp, t)
+
+	return cp
+}
+
+// TagResource adds or updates tags for the given resource ARN.
+func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	if b.tags[resourceARN] == nil {
+		b.tags[resourceARN] = make(map[string]string)
+	}
+
+	maps.Copy(b.tags[resourceARN], tags)
+}
+
+// UntagResource removes the specified tag keys from the resource ARN.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	for _, k := range tagKeys {
+		delete(b.tags[resourceARN], k)
+	}
 }

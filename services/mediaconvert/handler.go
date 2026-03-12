@@ -20,6 +20,7 @@ const (
 	jobTemplatesPath = "/2017-08-29/jobTemplates"
 	jobsPath         = "/2017-08-29/jobs"
 	endpointsPath    = "/2017-08-29/endpoints"
+	tagsPath         = "/2017-08-29/tags"
 )
 
 // Handler is the Echo HTTP handler for Amazon MediaConvert operations.
@@ -53,6 +54,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListJobs",
 		"CancelJob",
 		"DescribeEndpoints",
+		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -133,6 +137,10 @@ func (h *Handler) dispatch(c *echo.Context, route mcRoute) error {
 		return h.handleCancelJob(c, route.resource)
 	case "DescribeEndpoints":
 		return h.handleDescribeEndpoints(c)
+	case "ListTagsForResource":
+		return h.handleListTagsForResource(c, route.resource)
+	case "UntagResource":
+		return h.handleUntagResource(c, route.resource)
 	}
 
 	return h.dispatchMutating(c, route, readBody)
@@ -156,6 +164,8 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mcRoute, readBody func
 		return h.handleUpdateJobTemplate(c, route.resource, body)
 	case "CreateJob":
 		return h.handleCreateJob(c, body)
+	case "TagResource":
+		return h.handleTagResource(c, route.resource, body)
 	}
 
 	return c.JSON(
@@ -179,6 +189,8 @@ func parseRoute(method, path string) mcRoute {
 		return parseJobTemplateRoute(method, strings.TrimPrefix(path, jobTemplatesPath))
 	case strings.HasPrefix(path, jobsPath):
 		return parseJobRoute(method, strings.TrimPrefix(path, jobsPath))
+	case strings.HasPrefix(path, tagsPath):
+		return parseTagRoute(method, strings.TrimPrefix(path, tagsPath))
 	case path == endpointsPath:
 		return mcRoute{operation: "DescribeEndpoints"}
 	}
@@ -251,6 +263,21 @@ func parseJobRoute(method, suffix string) mcRoute {
 		return mcRoute{operation: "GetJob", resource: id}
 	case http.MethodDelete:
 		return mcRoute{operation: "CancelJob", resource: id}
+	}
+
+	return mcRoute{operation: "Unknown"}
+}
+
+func parseTagRoute(method, suffix string) mcRoute {
+	resourceARN := strings.TrimPrefix(suffix, "/")
+
+	switch method {
+	case http.MethodGet:
+		return mcRoute{operation: "ListTagsForResource", resource: resourceARN}
+	case http.MethodPost:
+		return mcRoute{operation: "TagResource", resource: resourceARN}
+	case http.MethodDelete:
+		return mcRoute{operation: "UntagResource", resource: resourceARN}
 	}
 
 	return mcRoute{operation: "Unknown"}
@@ -506,6 +533,53 @@ func (h *Handler) handleDescribeEndpoints(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, out)
+}
+
+// --- Tags handlers ---
+
+type resourceTagsOutput struct {
+	ResourceTags resourceTagsEntry `json:"resourceTags"`
+}
+
+type resourceTagsEntry struct {
+	Tags map[string]string `json:"tags"`
+	Arn  string            `json:"arn"`
+}
+
+type tagResourceInput struct {
+	Tags map[string]string `json:"tags"`
+}
+
+func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string) error {
+	tags := h.Backend.GetTags(resourceARN)
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
+	return c.JSON(http.StatusOK, resourceTagsOutput{
+		ResourceTags: resourceTagsEntry{
+			Arn:  resourceARN,
+			Tags: tags,
+		},
+	})
+}
+
+func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []byte) error {
+	var in tagResourceInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	h.Backend.TagResource(resourceARN, in.Tags)
+
+	return c.NoContent(http.StatusNoContent)
+}
+
+func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string) error {
+	tagKeys := c.Request().URL.Query()["tagKeys"]
+	h.Backend.UntagResource(resourceARN, tagKeys)
+
+	return c.NoContent(http.StatusNoContent)
 }
 
 // --- Error handling ---
