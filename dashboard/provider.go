@@ -489,10 +489,6 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.elbv2Ops, _ = h.(*elbv2backend.Handler)
 	}
 
-	if h := ap.GetEmrServerlessHandler(); h != nil {
-		ec.emrServerlessOps, _ = h.(*emrserverlessbackend.Handler)
-	}
-
 	if h := ap.GetEMRHandler(); h != nil {
 		ec.emrOps, _ = h.(*emrbackend.Handler)
 	}
@@ -548,6 +544,10 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetBedrockHandler(); h != nil {
 		ec.bedrockOps, _ = h.(*bedrockbackend.Handler)
+	}
+
+	if h := ap.GetEmrServerlessHandler(); h != nil {
+		ec.emrServerlessOps, _ = h.(*emrserverlessbackend.Handler)
 	}
 
 	extractCloudPlatformHandlers(ap, ec)
