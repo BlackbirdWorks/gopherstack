@@ -70,6 +70,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
@@ -204,10 +205,12 @@ type Stack struct {
 	ELBv2Handler *elbv2backend.Handler
 	// EMRHandler provides access to the EMR backend.
 	EMRHandler *emrbackend.Handler
-	S3Client   *s3.Client
-	DDBClient  *dynamodb.Client
-	FaultStore *chaos.FaultStore
-	Dashboard  *dashboard.DashboardHandler
+	// GlacierHandler provides access to the Glacier backend.
+	GlacierHandler *glacierbackend.Handler
+	S3Client       *s3.Client
+	DDBClient      *dynamodb.Client
+	FaultStore     *chaos.FaultStore
+	Dashboard      *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -474,6 +477,7 @@ type handlers struct {
 	elb               *elbbackend.Handler
 	elbv2             *elbv2backend.Handler
 	emr               *emrbackend.Handler
+	glacier           *glacierbackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
 }
@@ -699,6 +703,10 @@ func populateLatestHandlers(h *handlers) {
 	h.emr = emrbackend.NewHandler(
 		emrbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+
+	h.glacier = glacierbackend.NewHandler(glacierbackend.NewInMemoryBackend())
+	h.glacier.AccountID = config.DefaultAccountID
+	h.glacier.DefaultRegion = config.DefaultRegion
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -815,6 +823,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ELBOps:                     h.elb,
 		ELBv2Ops:                   h.elbv2,
 		EMROps:                     h.emr,
+		GlacierOps:                 h.glacier,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -874,6 +883,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.elb)
 	_ = registry.Register(h.elbv2)
 	_ = registry.Register(h.emr)
+	_ = registry.Register(h.glacier)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -978,6 +988,7 @@ func buildStack(
 		ELBHandler:                     h.elb,
 		ELBv2Handler:                   h.elbv2,
 		EMRHandler:                     h.emr,
+		GlacierHandler:                 h.glacier,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,

@@ -1,0 +1,10 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="64" height="64" rx="8" fill="#1C7EBF"/>
+<g fill="white">
+  <!-- Mountain/glacier shape -->
+  <polygon points="32,10 52,50 12,50" opacity="0.9"/>
+  <polygon points="32,18 46,50 18,50" fill="#1C7EBF" opacity="0.6"/>
+  <!-- Snow cap -->
+  <polygon points="32,10 40,28 24,28" opacity="0.95"/>
+</g>
+</svg>

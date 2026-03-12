@@ -69,6 +69,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
@@ -228,7 +229,9 @@ type DashboardHandler struct {
 	// ELBv2Ops provides access to the ELBv2 (ALB/NLB) backend.
 	ELBv2Ops *elbv2backend.Handler
 	// EMROps provides access to the EMR backend.
-	EMROps       *emrbackend.Handler
+	EMROps *emrbackend.Handler
+	// GlacierOps provides access to the Glacier backend.
+	GlacierOps   *glacierbackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -391,6 +394,8 @@ type Config struct {
 	ELBv2Ops *elbv2backend.Handler
 	// EMROps provides access to the EMR backend.
 	EMROps *emrbackend.Handler
+	// GlacierOps provides access to the Glacier backend.
+	GlacierOps *glacierbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -495,6 +500,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/elb/*.html",
 		"templates/elbv2/*.html",
 		"templates/emr/*.html",
+		"templates/glacier/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -592,6 +598,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		ELBOps:                     cfg.ELBOps,
 		ELBv2Ops:                   cfg.ELBv2Ops,
 		EMROps:                     cfg.EMROps,
+		GlacierOps:                 cfg.GlacierOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1089,6 +1096,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupELBRoutes()
 	h.setupELBv2Routes()
 	h.setupEMRRoutes()
+	h.setupGlacierRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.

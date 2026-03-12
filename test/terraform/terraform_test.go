@@ -79,6 +79,7 @@ import (
 	emrsvc "github.com/aws/aws-sdk-go-v2/service/emr"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
+	glaciersvc "github.com/aws/aws-sdk-go-v2/service/glacier"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -219,6 +220,7 @@ provider "aws" {
     emr             = %[1]q
     events          = %[1]q
     firehose        = %[1]q
+    glacier         = %[1]q
     iam             = %[1]q
     iot             = %[1]q
     kinesis         = %[1]q
@@ -4474,6 +4476,55 @@ func TestTerraform_ELBv2(t *testing.T) {
 				require.NoError(t, err, "DescribeListeners should succeed after terraform apply")
 				require.Len(t, listenerOut.Listeners, 1, "listener should exist")
 				assert.Equal(t, *lbArn, *listenerOut.Listeners[0].LoadBalancerArn)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Glacier provisions an AWS Glacier vault via Terraform, then verifies
+// it is listed via the Glacier SDK.
+func TestTerraform_Glacier(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "glacier/vault",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"VaultName": "tf-glacier-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createGlacierClient(t)
+				vaultName := vars["VaultName"].(string)
+
+				out, err := client.ListVaults(ctx, &glaciersvc.ListVaultsInput{
+					AccountId: aws.String("-"),
+				})
+				require.NoError(t, err, "ListVaults should succeed after terraform apply")
+
+				found := false
+				for _, v := range out.VaultList {
+					if aws.ToString(v.VaultName) == vaultName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "vault %q should be listed", vaultName)
 			},
 		},
 	}
