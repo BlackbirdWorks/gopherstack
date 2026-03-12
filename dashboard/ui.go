@@ -85,6 +85,7 @@ import (
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -258,13 +259,15 @@ type DashboardHandler struct {
 	LakeFormationOps *lakeformationbackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
 	ManagedBlockchainOps *managedblockchainbackend.Handler
-	SubRouter            *echo.Echo
-	ddbProvider          *ddbbackend.DashboardProvider
-	s3Provider           *s3backend.DashboardProvider
-	FaultStore           *chaos.FaultStore
-	Logger               *slog.Logger
-	layout               *template.Template
-	GlobalConfig         config.GlobalConfig
+	// MediaConvertOps provides access to the MediaConvert backend.
+	MediaConvertOps *mediaconvertbackend.Handler
+	SubRouter       *echo.Echo
+	ddbProvider     *ddbbackend.DashboardProvider
+	s3Provider      *s3backend.DashboardProvider
+	FaultStore      *chaos.FaultStore
+	Logger          *slog.Logger
+	layout          *template.Template
+	GlobalConfig    config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -440,6 +443,8 @@ type Config struct {
 	LakeFormationOps *lakeformationbackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
 	ManagedBlockchainOps *managedblockchainbackend.Handler
+	// MediaConvertOps provides access to the MediaConvert backend.
+	MediaConvertOps *mediaconvertbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -554,6 +559,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/glue/*.html",
 		"templates/kafka/*.html",
 		"templates/managedblockchain/*.html",
+		"templates/mediaconvert/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -574,7 +580,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 }
 
 func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler {
-	return &DashboardHandler{
+	h := &DashboardHandler{
 		DynamoDB:                   cfg.DDBClient,
 		S3:                         cfg.S3Client,
 		SSM:                        cfg.SSMClient,
@@ -663,9 +669,6 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		IoTWirelessOps:             cfg.IoTWirelessOps,
 		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
-		KafkaOps:                   cfg.KafkaOps,
-		LakeFormationOps:           cfg.LakeFormationOps,
-		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -674,6 +677,18 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		s3Provider:                 s3backend.NewDashboardProvider(),
 		SubRouter:                  echo.New(),
 	}
+	h.applyNewestOps(cfg)
+
+	return h
+}
+
+// applyNewestOps sets the most recently added service handler fields on the DashboardHandler.
+// It is extracted from newDashboardHandler to satisfy the funlen limit.
+func (h *DashboardHandler) applyNewestOps(cfg Config) {
+	h.KafkaOps = cfg.KafkaOps
+	h.LakeFormationOps = cfg.LakeFormationOps
+	h.ManagedBlockchainOps = cfg.ManagedBlockchainOps
+	h.MediaConvertOps = cfg.MediaConvertOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1169,9 +1184,8 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupKafkaRoutes()
 	h.setupLakeFormationRoutes()
 	h.setupManagedBlockchainRoutes()
+	h.setupMediaConvertRoutes()
 }
-
-// Handler returns the Echo handler function for dashboard requests.
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		h.SubRouter.ServeHTTP(c.Response(), c.Request())
@@ -1292,6 +1306,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/emr", "EMR"},
 	{"/glue", "Glue"},
 	{"/iotanalytics", "IoTAnalytics"},
+	{"/mediaconvert", "MediaConvert"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

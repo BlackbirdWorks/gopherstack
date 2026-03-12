@@ -84,6 +84,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -227,10 +228,12 @@ type Stack struct {
 	KafkaHandler *kafkabackend.Handler
 	// LakeFormationHandler provides access to the Lake Formation backend.
 	LakeFormationHandler *lakeformationbackend.Handler
-	S3Client             *s3.Client
-	DDBClient            *dynamodb.Client
-	FaultStore           *chaos.FaultStore
-	Dashboard            *dashboard.DashboardHandler
+	// MediaConvertHandler provides access to the MediaConvert backend.
+	MediaConvertHandler *mediaconvertbackend.Handler
+	S3Client            *s3.Client
+	DDBClient           *dynamodb.Client
+	FaultStore          *chaos.FaultStore
+	Dashboard           *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -505,6 +508,7 @@ type handlers struct {
 	kinesisanalytics  *kinesisanalyticsbackend.Handler
 	kafka             *kafkabackend.Handler
 	lakeformation     *lakeformationbackend.Handler
+	mediaconvert      *mediaconvertbackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
 }
@@ -761,6 +765,10 @@ func populateLatestHandlers(h *handlers) {
 	h.lakeformation = lakeformationbackend.NewHandler(lakeformationbackend.NewInMemoryBackend())
 	h.lakeformation.AccountID = config.DefaultAccountID
 	h.lakeformation.DefaultRegion = config.DefaultRegion
+
+	h.mediaconvert = mediaconvertbackend.NewHandler(
+		mediaconvertbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -885,6 +893,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		KinesisAnalyticsOps:        h.kinesisanalytics,
 		KafkaOps:                   h.kafka,
 		LakeFormationOps:           h.lakeformation,
+		MediaConvertOps:            h.mediaconvert,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -953,6 +962,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.lakeformation)
+	_ = registry.Register(h.mediaconvert)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -976,7 +986,7 @@ func buildStack(
 	faultStore *chaos.FaultStore,
 	dashboardHandler *dashboard.DashboardHandler,
 ) *Stack {
-	return &Stack{
+	s := &Stack{
 		Echo:                           e,
 		S3Backend:                      h.s3Bk,
 		S3Handler:                      h.s3,
@@ -1062,14 +1072,23 @@ func buildStack(
 		GlacierHandler:                 h.glacier,
 		IoTAnalyticsHandler:            h.iotanalytics,
 		IoTWirelessHandler:             h.iotwireless,
-		KinesisAnalyticsHandler:        h.kinesisanalytics,
-		KafkaHandler:                   h.kafka,
-		LakeFormationHandler:           h.lakeformation,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
 		Dashboard:                      dashboardHandler,
 	}
+	setNewestStackHandlers(s, h)
+
+	return s
+}
+
+// setNewestStackHandlers sets the most recently added handler fields on a Stack.
+// It is extracted from buildStack to satisfy the funlen limit.
+func setNewestStackHandlers(s *Stack, h handlers) {
+	s.KinesisAnalyticsHandler = h.kinesisanalytics
+	s.KafkaHandler = h.kafka
+	s.LakeFormationHandler = h.lakeformation
+	s.MediaConvertHandler = h.mediaconvert
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

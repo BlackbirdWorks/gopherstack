@@ -79,6 +79,7 @@ import (
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
+	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -1870,6 +1871,27 @@ func createKafkaClient(t *testing.T) *kafkasvc.Client {
 	return kafkasvc.NewFromConfig(cfg, func(o *kafkasvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+// createMediaConvertClient returns a MediaConvert client pointed at the shared test container.
+func createMediaConvertClient(t *testing.T) *mediaconvertsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return mediaconvertsvc.NewFromConfig(
+		cfg,
+		func(o *mediaconvertsvc.Options) {
+			o.BaseEndpoint = aws.String(endpoint)
+		},
+	)
 }
 
 // createLakeFormationClient returns a Lake Formation client pointed at the shared test container.
