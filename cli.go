@@ -102,6 +102,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
@@ -231,6 +232,7 @@ type CLI struct {
 	identitystoreHandler          service.Registerable
 	elastictranscoderHandler      service.Registerable
 	emrHandler                    service.Registerable
+	glacierHandler                service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -570,6 +572,11 @@ func (c *CLI) GetElasticTranscoderHandler() service.Registerable { return c.elas
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetEMRHandler() service.Registerable { return c.emrHandler }
+
+// GetGlacierHandler returns the Glacier handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGlacierHandler() service.Registerable { return c.glacierHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1212,6 +1219,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.elbv2Handler = byName["ELBv2"]
 	cli.emrserverlessHandler = byName["EmrServerless"]
 	cli.emrHandler = byName["EMR"]
+	cli.glacierHandler = byName["Glacier"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1412,6 +1420,7 @@ func getServiceProviders() []service.Provider {
 		&emrbackend.Provider{},
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
+		&glacierbackend.Provider{},
 	}
 }
 

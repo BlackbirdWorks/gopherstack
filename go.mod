@@ -109,6 +109,7 @@ require (
 )
 
 require github.com/aws/aws-sdk-go-v2/service/identitystore v1.36.3 // indirect
+require github.com/aws/aws-sdk-go-v2/service/glacier v1.32.4 // indirect
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
