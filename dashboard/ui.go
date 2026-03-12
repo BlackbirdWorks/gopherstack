@@ -269,14 +269,14 @@ type DashboardHandler struct {
 	// MediaStoreDataOps provides access to the MediaStore Data backend.
 	MediaStoreDataOps *mediastoredatabackend.Handler
 	// MemoryDBOps provides access to the MemoryDB backend.
-	MemoryDBOps       *memorydbbackend.Handler
-	SubRouter         *echo.Echo
-	ddbProvider       *ddbbackend.DashboardProvider
-	s3Provider        *s3backend.DashboardProvider
-	FaultStore        *chaos.FaultStore
-	Logger            *slog.Logger
-	layout            *template.Template
-	GlobalConfig      config.GlobalConfig
+	MemoryDBOps  *memorydbbackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.

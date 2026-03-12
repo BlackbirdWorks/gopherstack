@@ -238,11 +238,11 @@ type Stack struct {
 	// MediaStoreDataHandler provides access to the MediaStore Data backend.
 	MediaStoreDataHandler *mediastoredatabackend.Handler
 	// MemoryDBHandler provides access to the MemoryDB backend.
-	MemoryDBHandler       *memorydbbackend.Handler
-	S3Client              *s3.Client
-	DDBClient             *dynamodb.Client
-	FaultStore            *chaos.FaultStore
-	Dashboard             *dashboard.DashboardHandler
+	MemoryDBHandler *memorydbbackend.Handler
+	S3Client        *s3.Client
+	DDBClient       *dynamodb.Client
+	FaultStore      *chaos.FaultStore
+	Dashboard       *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
