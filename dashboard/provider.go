@@ -52,6 +52,7 @@ import (
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
+	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -182,6 +183,7 @@ type AWSSDKProvider interface {
 	GetIoTWirelessHandler() service.Registerable
 	GetKinesisAnalyticsHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
+	GetManagedBlockchainHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -283,6 +285,7 @@ type extractedConfig struct {
 	iotwirelessOps            *iotwirelessbackend.Handler
 	kinesisanalyticsOps       *kinesisanalyticsbackend.Handler
 	kafkaOps                  *kafkabackend.Handler
+	managedblockchainOps      *managedblockchainbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -679,6 +682,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetKafkaHandler(); h != nil {
 		ec.kafkaOps, _ = h.(*kafkabackend.Handler)
 	}
+
+	if h := ap.GetManagedBlockchainHandler(); h != nil {
+		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -771,6 +778,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IoTWirelessOps:             ec.iotwirelessOps,
 		KinesisAnalyticsOps:        ec.kinesisanalyticsOps,
 		KafkaOps:                   ec.kafkaOps,
+		ManagedBlockchainOps:       ec.managedblockchainOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,
