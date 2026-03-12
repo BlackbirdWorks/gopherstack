@@ -81,6 +81,7 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -248,14 +249,16 @@ type DashboardHandler struct {
 	// KinesisAnalyticsOps provides access to the Kinesis Analytics backend.
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
-	KafkaOps     *kafkabackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	KafkaOps *kafkabackend.Handler
+	// LakeFormationOps provides access to the Lake Formation backend.
+	LakeFormationOps *lakeformationbackend.Handler
+	SubRouter        *echo.Echo
+	ddbProvider      *ddbbackend.DashboardProvider
+	s3Provider       *s3backend.DashboardProvider
+	FaultStore       *chaos.FaultStore
+	Logger           *slog.Logger
+	layout           *template.Template
+	GlobalConfig     config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -425,6 +428,8 @@ type Config struct {
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
+	// LakeFormationOps provides access to the Lake Formation backend.
+	LakeFormationOps *lakeformationbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -646,6 +651,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
 		KafkaOps:                   cfg.KafkaOps,
+		LakeFormationOps:           cfg.LakeFormationOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1146,6 +1152,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupKinesisAnalyticsRoutes()
 	h.setupGlueRoutes()
 	h.setupKafkaRoutes()
+	h.setupLakeFormationRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
