@@ -294,6 +294,56 @@ func errResp(code, msg string) map[string]string {
 	return map[string]string{"code": code, "message": msg}
 }
 
+// epochSeconds converts a [time.Time] to a float64 Unix epoch seconds value,
+// matching the AWS REST-JSON timestamp serialization format.
+func epochSeconds(ts interface{ Unix() int64 }) float64 {
+	return float64(ts.Unix())
+}
+
+// applicationToMap converts an Application to a map with float64 timestamps
+// for correct AWS REST-JSON serialization. Returns a map representation with
+// createdAt/updatedAt as float64 Unix epoch seconds values.
+func applicationToMap(app *Application) map[string]any {
+	m := map[string]any{
+		"applicationId": app.ApplicationID,
+		"arn":           app.Arn,
+		"name":          app.Name,
+		"type":          app.Type,
+		"releaseLabel":  app.ReleaseLabel,
+		"state":         app.State,
+		"createdAt":     epochSeconds(app.CreatedAt),
+		"updatedAt":     epochSeconds(app.UpdatedAt),
+	}
+
+	if len(app.Tags) > 0 {
+		m["tags"] = app.Tags
+	}
+
+	return m
+}
+
+// jobRunToMap converts a JobRun to a map with float64 timestamps
+// for correct AWS REST-JSON serialization. Returns a map representation with
+// createdAt/updatedAt as float64 Unix epoch seconds values.
+func jobRunToMap(jr *JobRun) map[string]any {
+	m := map[string]any{
+		"applicationId":    jr.ApplicationID,
+		"jobRunId":         jr.JobRunID,
+		"arn":              jr.Arn,
+		"name":             jr.Name,
+		"state":            jr.State,
+		"executionRoleArn": jr.ExecutionRoleArn,
+		"createdAt":        epochSeconds(jr.CreatedAt),
+		"updatedAt":        epochSeconds(jr.UpdatedAt),
+	}
+
+	if len(jr.Tags) > 0 {
+		m["tags"] = jr.Tags
+	}
+
+	return m
+}
+
 // --- Application handlers ---
 
 type createApplicationBody struct {
@@ -335,13 +385,18 @@ func (h *Handler) handleGetApplication(c *echo.Context, applicationID string) er
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"application": app})
+	return c.JSON(http.StatusOK, map[string]any{"application": applicationToMap(app)})
 }
 
 func (h *Handler) handleListApplications(c *echo.Context) error {
 	apps := h.Backend.ListApplications()
+	list := make([]map[string]any, 0, len(apps))
 
-	return c.JSON(http.StatusOK, map[string]any{"applications": apps})
+	for _, app := range apps {
+		list = append(list, applicationToMap(app))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"applications": list})
 }
 
 type updateApplicationBody struct {
@@ -365,7 +420,7 @@ func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string,
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"application": app})
+	return c.JSON(http.StatusOK, map[string]any{"application": applicationToMap(app)})
 }
 
 func (h *Handler) handleDeleteApplication(c *echo.Context, applicationID string) error {
@@ -432,7 +487,7 @@ func (h *Handler) handleGetJobRun(c *echo.Context, applicationID, jobRunID strin
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"jobRun": jr})
+	return c.JSON(http.StatusOK, map[string]any{"jobRun": jobRunToMap(jr)})
 }
 
 func (h *Handler) handleListJobRuns(c *echo.Context, applicationID string) error {
@@ -441,7 +496,13 @@ func (h *Handler) handleListJobRuns(c *echo.Context, applicationID string) error
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"jobRuns": runs})
+	list := make([]map[string]any, 0, len(runs))
+
+	for _, jr := range runs {
+		list = append(list, jobRunToMap(jr))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"jobRuns": list})
 }
 
 func (h *Handler) handleCancelJobRun(c *echo.Context, applicationID, jobRunID string) error {
