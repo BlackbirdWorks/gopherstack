@@ -99,9 +99,10 @@ type createClusterRequest struct {
 }
 
 type describeClusterRequest struct {
-	MaxResults  *int32 `json:"MaxResults,omitempty"`
-	ClusterName string `json:"ClusterName,omitempty"`
-	NextToken   string `json:"NextToken,omitempty"`
+	MaxResults       *int32 `json:"MaxResults,omitempty"`
+	ShowShardDetails *bool  `json:"ShowShardDetails,omitempty"`
+	ClusterName      string `json:"ClusterName,omitempty"`
+	NextToken        string `json:"NextToken,omitempty"`
 }
 
 type deleteClusterRequest struct {
@@ -284,10 +285,10 @@ type clusterObject struct {
 
 // shardObject represents a single shard in a MemoryDB cluster.
 type shardObject struct {
-	Name     string `json:"Name,omitempty"`
-	Status   string `json:"Status,omitempty"`
-	Slots    string `json:"Slots,omitempty"`
-	NumNodes int32  `json:"NumNodes,omitempty"`
+	Name          string `json:"Name,omitempty"`
+	Status        string `json:"Status,omitempty"`
+	Slots         string `json:"Slots,omitempty"`
+	NumberOfNodes int32  `json:"NumberOfNodes,omitempty"`
 }
 
 type endpointObject struct {

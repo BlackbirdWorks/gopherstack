@@ -757,10 +757,10 @@ func buildShards(clusterName string, numShards int32) []shardObject {
 		// Shard name follows the AWS MemoryDB convention: <cluster>-<nodegroup>-<shardindex>
 		// where nodegroup is always "0001" for single-shard-group clusters.
 		shards[i] = shardObject{
-			Name:     fmt.Sprintf("%s-0001-%04d", clusterName, i),
-			Status:   clusterStatusAvailable,
-			Slots:    fmt.Sprintf("%d-%d", start, end),
-			NumNodes: 1,
+			Name:          fmt.Sprintf("%s-0001-%04d", clusterName, i),
+			Status:        clusterStatusAvailable,
+			Slots:         fmt.Sprintf("%d-%d", start, end),
+			NumberOfNodes: 1,
 		}
 	}
 
