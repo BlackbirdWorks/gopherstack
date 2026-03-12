@@ -437,6 +437,7 @@ func parseDashboardTemplates() *template.Template {
 			s = strings.ReplaceAll(s, ".", "-")
 			s = strings.ReplaceAll(s, ":", "-")
 			s = strings.ReplaceAll(s, "%", "-")
+
 			return s
 		},
 		"unescapeHTML": func(s string) template.HTML {

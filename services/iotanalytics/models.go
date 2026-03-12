@@ -68,9 +68,9 @@ type Pipeline struct {
 	Tags                  map[string]string
 	Name                  string
 	ARN                   string
+	ReprocessingSummaries []string
 	CreationTime          float64
 	LastUpdate            float64
-	ReprocessingSummaries []string
 }
 
 // epochSeconds converts a [time.Time] to a float64 Unix epoch seconds value.
@@ -94,9 +94,9 @@ type createChannelResponse struct {
 
 // channelSummary is a summary of a channel for list operations.
 type channelSummary struct {
-	ChannelName    string `json:"channelName"`
-	ChannelARN     string `json:"channelArn,omitempty"`
-	Status         string `json:"status"`
+	ChannelName    string  `json:"channelName"`
+	ChannelARN     string  `json:"channelArn,omitempty"`
+	Status         string  `json:"status"`
 	CreationTime   float64 `json:"creationTime"`
 	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
@@ -114,9 +114,9 @@ type describeChannelResponse struct {
 
 // channelDetail is a detailed view of a channel.
 type channelDetail struct {
-	Name           string `json:"name"`
-	ARN            string `json:"arn"`
-	Status         string `json:"status"`
+	Name           string  `json:"name"`
+	ARN            string  `json:"arn"`
+	Status         string  `json:"status"`
 	CreationTime   float64 `json:"creationTime"`
 	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
@@ -135,9 +135,9 @@ type createDatastoreResponse struct {
 
 // datastoreSummary is a summary of a datastore for list operations.
 type datastoreSummary struct {
-	DatastoreName  string `json:"datastoreName"`
-	DatastoreARN   string `json:"datastoreArn,omitempty"`
-	Status         string `json:"status"`
+	DatastoreName  string  `json:"datastoreName"`
+	DatastoreARN   string  `json:"datastoreArn,omitempty"`
+	Status         string  `json:"status"`
 	CreationTime   float64 `json:"creationTime"`
 	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
@@ -155,9 +155,9 @@ type describeDatastoreResponse struct {
 
 // datastoreDetail is a detailed view of a datastore.
 type datastoreDetail struct {
-	Name           string `json:"name"`
-	ARN            string `json:"arn"`
-	Status         string `json:"status"`
+	Name           string  `json:"name"`
+	ARN            string  `json:"arn"`
+	Status         string  `json:"status"`
 	CreationTime   float64 `json:"creationTime"`
 	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
@@ -177,9 +177,9 @@ type createDatasetResponse struct {
 
 // datasetSummary is a summary of a dataset for list operations.
 type datasetSummary struct {
-	DatasetName    string `json:"datasetName"`
-	DatasetARN     string `json:"datasetArn,omitempty"`
-	Status         string `json:"status"`
+	DatasetName    string  `json:"datasetName"`
+	DatasetARN     string  `json:"datasetArn,omitempty"`
+	Status         string  `json:"status"`
 	CreationTime   float64 `json:"creationTime"`
 	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
@@ -197,9 +197,9 @@ type describeDatasetResponse struct {
 
 // datasetDetail is a detailed view of a dataset.
 type datasetDetail struct {
-	Name           string `json:"name"`
-	ARN            string `json:"arn"`
-	Status         string `json:"status"`
+	Name           string  `json:"name"`
+	ARN            string  `json:"arn"`
+	Status         string  `json:"status"`
 	CreationTime   float64 `json:"creationTime"`
 	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
@@ -221,9 +221,9 @@ type createPipelineResponse struct {
 type pipelineSummary struct {
 	PipelineName          string   `json:"pipelineName"`
 	PipelineARN           string   `json:"pipelineArn,omitempty"`
-	CreationTime          float64 `json:"creationTime"`
-	LastUpdateTime        float64 `json:"lastUpdateTime,omitempty"`
 	ReprocessingSummaries []string `json:"reprocessingSummaries,omitempty"`
+	CreationTime          float64  `json:"creationTime"`
+	LastUpdateTime        float64  `json:"lastUpdateTime,omitempty"`
 }
 
 // listPipelinesResponse is the response body for ListPipelines.
@@ -241,9 +241,9 @@ type describePipelineResponse struct {
 type pipelineDetail struct {
 	Name                  string   `json:"name"`
 	ARN                   string   `json:"arn"`
-	CreationTime          float64 `json:"creationTime"`
-	LastUpdateTime        float64 `json:"lastUpdateTime,omitempty"`
 	ReprocessingSummaries []string `json:"reprocessingSummaries,omitempty"`
+	CreationTime          float64  `json:"creationTime"`
+	LastUpdateTime        float64  `json:"lastUpdateTime,omitempty"`
 }
 
 // TagDTO is a key-value tag for IoT Analytics resources.

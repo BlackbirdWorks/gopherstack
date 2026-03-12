@@ -125,7 +125,7 @@ func TestIoTAnalyticsDashboard_CreateAndDeleteChannel(t *testing.T) {
 	err = page.Locator("button[type='submit']:has-text('Create')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("text=ui-test-channel").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("td.font-medium:has-text('ui-test-channel')").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
 	require.NoError(t, err)

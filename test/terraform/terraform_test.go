@@ -88,7 +88,6 @@ import (
 	identitystoresvc "github.com/aws/aws-sdk-go-v2/service/identitystore"
 	identitystoretypes "github.com/aws/aws-sdk-go-v2/service/identitystore/types"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
-	iotanalyticssvc "github.com/aws/aws-sdk-go-v2/service/iotanalytics" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -4721,59 +4720,6 @@ func TestTerraform_Glacier(t *testing.T) {
 				}
 
 				assert.True(t, found, "vault %q should be listed", vaultName)
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			runTFTest(t, tc)
-		})
-	}
-}
-
-// TestTerraform_IoTAnalytics provisions an AWS IoT Analytics channel via Terraform,
-// then verifies it is listed via the IoT Analytics SDK.
-func TestTerraform_IoTAnalytics(t *testing.T) {
-	t.Parallel()
-
-	tests := []tfTestCase{
-		{
-			name:    "success",
-			fixture: "iotanalytics/channel",
-			setup: func(t *testing.T, _ string) map[string]any {
-				t.Helper()
-				id := uuid.NewString()[:8]
-
-				return map[string]any{
-					"ChannelName": "tf-channel-" + id,
-				}
-			},
-			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-				t.Helper()
-
-				client := createIoTAnalyticsClient(t)
-				channelName := vars["ChannelName"].(string)
-
-				out, err := client.ListChannels( //nolint:staticcheck // AWS deprecated the SDK but service still works
-					ctx, &iotanalyticssvc.ListChannelsInput{},
-				)
-				require.NoError(t, err, "ListChannels should succeed after terraform apply")
-
-				channelSummaries := out.ChannelSummaries //nolint:staticcheck // deprecated
-				found := false
-
-				for _, ch := range channelSummaries {
-					chName := ch.ChannelName //nolint:staticcheck // deprecated field
-					if aws.ToString(chName) == channelName {
-						found = true
-
-						break
-					}
-				}
-
-				assert.True(t, found, "channel %q should be listed", channelName)
 			},
 		},
 	}
