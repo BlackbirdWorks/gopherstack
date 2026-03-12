@@ -87,6 +87,7 @@ import (
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
+	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -264,13 +265,15 @@ type DashboardHandler struct {
 	MediaConvertOps *mediaconvertbackend.Handler
 	// MediaStoreOps provides access to the MediaStore backend.
 	MediaStoreOps *mediastorebackend.Handler
-	SubRouter     *echo.Echo
-	ddbProvider   *ddbbackend.DashboardProvider
-	s3Provider    *s3backend.DashboardProvider
-	FaultStore    *chaos.FaultStore
-	Logger        *slog.Logger
-	layout        *template.Template
-	GlobalConfig  config.GlobalConfig
+	// MediaStoreDataOps provides access to the MediaStore Data backend.
+	MediaStoreDataOps *mediastoredatabackend.Handler
+	SubRouter         *echo.Echo
+	ddbProvider       *ddbbackend.DashboardProvider
+	s3Provider        *s3backend.DashboardProvider
+	FaultStore        *chaos.FaultStore
+	Logger            *slog.Logger
+	layout            *template.Template
+	GlobalConfig      config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -450,6 +453,8 @@ type Config struct {
 	MediaConvertOps *mediaconvertbackend.Handler
 	// MediaStoreOps provides access to the MediaStore backend.
 	MediaStoreOps *mediastorebackend.Handler
+	// MediaStoreDataOps provides access to the MediaStore Data backend.
+	MediaStoreDataOps *mediastoredatabackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -566,6 +571,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/managedblockchain/*.html",
 		"templates/mediaconvert/*.html",
 		"templates/mediastore/*.html",
+		"templates/mediastoredata/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -700,6 +706,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.LakeFormationOps = cfg.LakeFormationOps
 	h.ManagedBlockchainOps = cfg.ManagedBlockchainOps
 	h.MediaConvertOps = cfg.MediaConvertOps
+	h.MediaStoreDataOps = cfg.MediaStoreDataOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1197,6 +1204,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupManagedBlockchainRoutes()
 	h.setupMediaConvertRoutes()
 	h.setupMediaStoreRoutes()
+	h.setupMediaStoreDataRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1319,6 +1327,8 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/glue", "Glue"},
 	{"/iotanalytics", "IoTAnalytics"},
 	{"/mediaconvert", "MediaConvert"},
+	{"/mediastore", "MediaStore"},
+	{"/mediastoredata", "MediaStoreData"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

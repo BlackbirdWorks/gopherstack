@@ -119,6 +119,7 @@ import (
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
+	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -251,6 +252,7 @@ type CLI struct {
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
 	mediastoreHandler             service.Registerable
+	mediastoredataHandler         service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -640,6 +642,11 @@ func (c *CLI) GetMediaConvertHandler() service.Registerable { return c.mediaconv
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMediaStoreHandler() service.Registerable { return c.mediastoreHandler }
+
+// GetMediaStoreDataHandler returns the MediaStore Data handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMediaStoreDataHandler() service.Registerable { return c.mediastoredataHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1292,6 +1299,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.mediaconvertHandler = byName["MediaConvert"]
 	cli.mediastoreHandler = byName["MediaStore"]
+	cli.mediastoredataHandler = byName["MediaStoreData"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1502,6 +1510,7 @@ func getServiceProviders() []service.Provider {
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},
 		&mediastorebackend.Provider{},
+		&mediastoredatabackend.Provider{},
 	}
 }
 
