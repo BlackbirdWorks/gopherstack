@@ -121,6 +121,7 @@ func (m *mockAWSProvider) GetIoTAnalyticsHandler() service.Registerable         
 func (m *mockAWSProvider) GetKafkaHandler() service.Registerable                   { return nil }
 func (m *mockAWSProvider) GetLakeFormationHandler() service.Registerable           { return nil }
 func (m *mockAWSProvider) GetManagedBlockchainHandler() service.Registerable       { return nil }
+func (m *mockAWSProvider) GetMediaStoreHandler() service.Registerable              { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 

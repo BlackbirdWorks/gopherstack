@@ -85,6 +85,7 @@ import (
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -231,6 +232,8 @@ type Stack struct {
 	LakeFormationHandler *lakeformationbackend.Handler
 	// MediaConvertHandler provides access to the MediaConvert backend.
 	MediaConvertHandler *mediaconvertbackend.Handler
+	// MediaStoreHandler provides access to the MediaStore backend.
+	MediaStoreHandler *mediastorebackend.Handler
 	// MediaStoreDataHandler provides access to the MediaStore Data backend.
 	MediaStoreDataHandler *mediastoredatabackend.Handler
 	S3Client              *s3.Client
@@ -512,6 +515,7 @@ type handlers struct {
 	kafka             *kafkabackend.Handler
 	lakeformation     *lakeformationbackend.Handler
 	mediaconvert      *mediaconvertbackend.Handler
+	mediastore        *mediastorebackend.Handler
 	mediastoredata    *mediastoredatabackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
@@ -773,6 +777,9 @@ func populateLatestHandlers(h *handlers) {
 	h.mediaconvert = mediaconvertbackend.NewHandler(
 		mediaconvertbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.mediastore = mediastorebackend.NewHandler(mediastorebackend.NewInMemoryBackend())
+	h.mediastore.AccountID = config.DefaultAccountID
+	h.mediastore.DefaultRegion = config.DefaultRegion
 
 	h.mediastoredata = mediastoredatabackend.NewHandler(mediastoredatabackend.NewInMemoryBackend())
 }
@@ -808,6 +815,7 @@ func newCFNHandler(
 // newDashboardConfig builds the dashboard.Config for the test stack.
 func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chaos.FaultStore) {
 	fs := chaos.NewFaultStore()
+	gc := config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion}
 
 	cfg := dashboard.Config{
 		DDBClient:                  clients.DDB,
@@ -891,12 +899,9 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ElasticTranscoderOps:       h.elastictranscoder,
 		ELBOps:                     h.elb,
 		ELBv2Ops:                   h.elbv2,
-		GlobalConfig: config.GlobalConfig{
-			AccountID: config.DefaultAccountID,
-			Region:    config.DefaultRegion,
-		},
-		FaultStore: fs,
-		Logger:     slog.Default(),
+		GlobalConfig:               gc,
+		FaultStore:                 fs,
+		Logger:                     slog.Default(),
 	}
 
 	applyNewestDashboardOps(&cfg, h)
@@ -916,6 +921,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.KafkaOps = h.kafka
 	cfg.LakeFormationOps = h.lakeformation
 	cfg.MediaConvertOps = h.mediaconvert
+	cfg.MediaStoreOps = h.mediastore
 	cfg.MediaStoreDataOps = h.mediastoredata
 }
 
@@ -979,6 +985,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.lakeformation)
 	_ = registry.Register(h.mediaconvert)
+	_ = registry.Register(h.mediastore)
 	_ = registry.Register(h.mediastoredata)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -991,7 +998,9 @@ func New(t *testing.T) *Stack {
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
 
-	return buildStack(e, h, clients, faultStore, dashHndlr)
+	s := buildStack(e, h, clients, faultStore, dashHndlr)
+
+	return s
 }
 
 // buildStack assembles the Stack struct from wired components.
@@ -1106,6 +1115,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.KafkaHandler = h.kafka
 	s.LakeFormationHandler = h.lakeformation
 	s.MediaConvertHandler = h.mediaconvert
+	s.MediaStoreHandler = h.mediastore
 	s.MediaStoreDataHandler = h.mediastoredata
 }
 
