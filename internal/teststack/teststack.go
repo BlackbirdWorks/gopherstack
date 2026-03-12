@@ -75,6 +75,7 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
@@ -215,6 +216,8 @@ type Stack struct {
 	EMRHandler *emrbackend.Handler
 	// GlacierHandler provides access to the Glacier backend.
 	GlacierHandler *glacierbackend.Handler
+	// IoTAnalyticsHandler provides access to the IoT Analytics backend.
+	IoTAnalyticsHandler *iotanalyticsbackend.Handler
 	// IoTWirelessHandler provides access to the IoT Wireless backend.
 	IoTWirelessHandler *iotwirelessbackend.Handler
 	// KinesisAnalyticsHandler provides access to the Kinesis Analytics backend.
@@ -494,6 +497,7 @@ type handlers struct {
 	emrserverless     *emrserverlessbackend.Handler
 	emr               *emrbackend.Handler
 	glacier           *glacierbackend.Handler
+	iotanalytics      *iotanalyticsbackend.Handler
 	iotwireless       *iotwirelessbackend.Handler
 	kinesisanalytics  *kinesisanalyticsbackend.Handler
 	kafka             *kafkabackend.Handler
@@ -734,6 +738,8 @@ func populateLatestHandlers(h *handlers) {
 	h.glacier.AccountID = config.DefaultAccountID
 	h.glacier.DefaultRegion = config.DefaultRegion
 
+	h.iotanalytics = iotanalyticsbackend.NewHandler(iotanalyticsbackend.NewInMemoryBackend())
+
 	h.iotwireless = iotwirelessbackend.NewHandler(iotwirelessbackend.NewInMemoryBackend())
 	h.iotwireless.AccountID = config.DefaultAccountID
 	h.iotwireless.DefaultRegion = config.DefaultRegion
@@ -866,6 +872,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		EmrServerlessOps:           h.emrserverless,
 		EMROps:                     h.emr,
 		GlacierOps:                 h.glacier,
+		IoTAnalyticsOps:            h.iotanalytics,
 		IoTWirelessOps:             h.iotwireless,
 		KinesisAnalyticsOps:        h.kinesisanalytics,
 		KafkaOps:                   h.kafka,
@@ -932,6 +939,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.fis)
 	_ = registry.Register(h.identitystore)
 	_ = registry.Register(h.glacier)
+	_ = registry.Register(h.iotanalytics)
 	_ = registry.Register(h.iotwireless)
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
@@ -1042,6 +1050,7 @@ func buildStack(
 		EmrServerlessHandler:           h.emrserverless,
 		EMRHandler:                     h.emr,
 		GlacierHandler:                 h.glacier,
+		IoTAnalyticsHandler:            h.iotanalytics,
 		IoTWirelessHandler:             h.iotwireless,
 		KinesisAnalyticsHandler:        h.kinesisanalytics,
 		KafkaHandler:                   h.kafka,
