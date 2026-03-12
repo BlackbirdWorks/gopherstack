@@ -891,6 +891,8 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.elbv2)
 	_ = registry.Register(h.emrserverless)
 	_ = registry.Register(h.emr)
+	_ = registry.Register(h.fis)
+	_ = registry.Register(h.identitystore)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)

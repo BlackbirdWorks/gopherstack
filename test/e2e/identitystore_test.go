@@ -147,7 +147,7 @@ func TestIdentityStoreDashboard_CreateUser(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fill in display name.
-	err = page.Locator("input[name='display_name']").Fill("Bob Jones")
+	err = page.Locator("#create-user-modal input[name='display_name']").Fill("Bob Jones")
 	require.NoError(t, err)
 
 	// Submit the form.
@@ -204,7 +204,7 @@ func TestIdentityStoreDashboard_CreateGroup(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fill in group name.
-	err = page.Locator("input[name='display_name']").Fill("Platform Team")
+	err = page.Locator("#create-group-modal input[name='display_name']").Fill("Platform Team")
 	require.NoError(t, err)
 
 	// Submit the form.

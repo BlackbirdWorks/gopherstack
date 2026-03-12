@@ -515,8 +515,6 @@ func parseDashboardTemplates() *template.Template {
 // NewHandler creates a new Dashboard handler.
 func NewHandler(cfg Config) *DashboardHandler {
 	tmpl := parseDashboardTemplates()
-
-	// Create service-specific dashboard providers
 	ddbProvider := ddbbackend.NewDashboardProvider()
 	s3Provider := s3backend.NewDashboardProvider()
 
