@@ -46,7 +46,7 @@ The following services are supported by Localstack (either Free or Pro tier) but
 | **Identitystore** | ❌ No | ❌ No | ❌ No |
 | **Iotanalytics** | ❌ No | ❌ No | ❌ No |
 | **Iotwireless** | ❌ No | ❌ No | ❌ No |
-| **Kafka** | ❌ No | ❌ No | ❌ No |
+| **Kafka** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Kinesisanalytics** | ❌ No | ❌ No | ❌ No |
 | **Kinesisanalyticsv2** | ❌ No | ❌ No | ❌ No |
 | **Lakeformation** | ❌ No | ❌ No | ❌ No |

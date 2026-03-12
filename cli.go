@@ -109,6 +109,7 @@ import (
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
+	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
@@ -239,6 +240,7 @@ type CLI struct {
 	iotwirelessHandler            service.Registerable
 	kinesisanalyticsHandler       service.Registerable
 	glueHandler                   service.Registerable
+	kafkaHandler                  service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -598,6 +600,11 @@ func (c *CLI) GetKinesisAnalyticsHandler() service.Registerable { return c.kines
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGlueHandler() service.Registerable { return c.glueHandler }
+
+// GetKafkaHandler returns the Kafka handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1244,6 +1251,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.iotwirelessHandler = byName["IoTWireless"]
 	cli.kinesisanalyticsHandler = byName["KinesisAnalytics"]
 	cli.glueHandler = byName["Glue"]
+	cli.kafkaHandler = byName["Kafka"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1448,6 +1456,7 @@ func getServiceProviders() []service.Provider {
 		&glacierbackend.Provider{},
 		&iotwirelessbackend.Provider{},
 		&kinesisanalyticsbackend.Provider{},
+		&kafkabackend.Provider{},
 	}
 }
 

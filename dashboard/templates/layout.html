@@ -1278,6 +1278,21 @@
                             </div>
                         </li>
                         <li>
+                            <a href="/dashboard/kafka"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-orange-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-orange-400 transition-colors {{if eq .ActiveTab "kafka"}}bg-orange-50 text-orange-700 dark:bg-slate-800 dark:text-orange-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-kafka" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+                                </svg>
+                                <span class="sidebar-text truncate" title="Kafka (MSK)">Kafka (MSK)</span>
+                            </a>
+                            <div id="tooltip-kafka" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Managed Streaming for Kafka
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
                             <a href="/dashboard/chaos"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-red-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-red-400 transition-colors {{if eq .ActiveTab "chaos"}}bg-red-50 text-red-700 dark:bg-slate-800 dark:text-red-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-chaos" data-tooltip-placement="right">
