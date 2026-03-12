@@ -23,6 +23,10 @@ const (
 	codeartifactDomain    = "/v1/domain"
 	codeartifactRepos     = "/v1/repository"
 	codeartifactAuthToken = "/v1/authorization-token" //nolint:gosec // not a credential
+	// kafkaClustersPrefix and kafkaConfigurationsPrefix are MSK Kafka paths that share
+	// the /v1/ prefix; exclude them to avoid routing Kafka requests to Batch.
+	kafkaClustersPrefix       = "/v1/clusters"
+	kafkaConfigurationsPrefix = "/v1/configurations"
 )
 
 // Handler is the Echo HTTP handler for AWS Batch operations.
@@ -91,6 +95,11 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			path == "/v1/tags" ||
 			path == "/v1/tag" ||
 			path == "/v1/untag" {
+			return false
+		}
+		// Exclude Kafka (MSK) paths which share the /v1/ prefix.
+		if strings.HasPrefix(path, kafkaClustersPrefix) ||
+			strings.HasPrefix(path, kafkaConfigurationsPrefix) {
 			return false
 		}
 

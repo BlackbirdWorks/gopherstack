@@ -223,6 +223,10 @@ func (h *Handler) handleRegisterResource(_ context.Context, c *echo.Context, bod
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
+	if strings.TrimSpace(in.ResourceArn) == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "ResourceArn is required")
+	}
+
 	if err := h.Backend.RegisterResource(in.ResourceArn, in.RoleArn); err != nil {
 		return h.handleError(c, err)
 	}

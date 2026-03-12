@@ -117,6 +117,7 @@ func (m *mockAWSProvider) GetEMRHandler() service.Registerable                  
 func (m *mockAWSProvider) GetGlacierHandler() service.Registerable                 { return nil }
 func (m *mockAWSProvider) GetIoTWirelessHandler() service.Registerable             { return nil }
 func (m *mockAWSProvider) GetKinesisAnalyticsHandler() service.Registerable        { return nil }
+func (m *mockAWSProvider) GetIoTAnalyticsHandler() service.Registerable            { return nil }
 func (m *mockAWSProvider) GetKafkaHandler() service.Registerable                   { return nil }
 func (m *mockAWSProvider) GetLakeFormationHandler() service.Registerable           { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }

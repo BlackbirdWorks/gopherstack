@@ -62,6 +62,7 @@ func TestRegisterDeregisterDescribeResource(t *testing.T) {
 		resourceArn string
 		roleArn     string
 		errType     string
+		notFound    bool
 		wantErr     bool
 	}{
 		{
@@ -79,6 +80,7 @@ func TestRegisterDeregisterDescribeResource(t *testing.T) {
 		{
 			name:        "deregister_not_found",
 			resourceArn: "arn:aws:s3:::nonexistent",
+			notFound:    true,
 		},
 	}
 
@@ -87,6 +89,17 @@ func TestRegisterDeregisterDescribeResource(t *testing.T) {
 			t.Parallel()
 
 			b := lakeformation.NewInMemoryBackend()
+
+			if tt.notFound {
+				// Test not-found path: do NOT register first.
+				err := b.DeregisterResource(tt.resourceArn)
+				require.Error(t, err)
+
+				_, err = b.DescribeResource(tt.resourceArn)
+				require.Error(t, err)
+
+				return
+			}
 
 			err := b.RegisterResource(tt.resourceArn, tt.roleArn)
 			require.NoError(t, err)

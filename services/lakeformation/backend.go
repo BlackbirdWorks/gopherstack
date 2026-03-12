@@ -3,6 +3,7 @@ package lakeformation
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -145,6 +146,10 @@ func (b *InMemoryBackend) ListResources(maxResults int, nextToken string) ([]*Re
 	for _, v := range b.resources {
 		all = append(all, v)
 	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].ResourceArn < all[j].ResourceArn
+	})
 
 	return paginate(all, maxResults, nextToken, defaultMaxResults)
 }
@@ -305,6 +310,14 @@ func (b *InMemoryBackend) ListLFTags(catalogID string, maxResults int, nextToken
 		}
 	}
 
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].CatalogID != all[j].CatalogID {
+			return all[i].CatalogID < all[j].CatalogID
+		}
+
+		return all[i].TagKey < all[j].TagKey
+	})
+
 	return paginate(all, maxResults, nextToken, defaultMaxResults)
 }
 
@@ -346,7 +359,8 @@ func (b *InMemoryBackend) BatchRevokePermissions(entries []*PermissionEntry) []*
 	return failures
 }
 
-// permissionMatches returns true if two permission entries have the same principal and resource.
+// permissionMatches returns true if two permission entries have the same principal, resource,
+// and overlapping permissions (i.e., all revoke permissions are present in the stored entry).
 func permissionMatches(a, b *PermissionEntry) bool {
 	if a == nil || b == nil {
 		return a == b
@@ -356,7 +370,20 @@ func permissionMatches(a, b *PermissionEntry) bool {
 		return false
 	}
 
-	return resourceEqual(a.Resource, b.Resource)
+	if !resourceEqual(a.Resource, b.Resource) {
+		return false
+	}
+
+	// If the revoke request specifies permissions, only match entries that contain them all.
+	if len(b.Permissions) > 0 {
+		for _, p := range b.Permissions {
+			if !slices.Contains(a.Permissions, p) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 func principalEqual(a, b *DataLakePrincipal) bool {
@@ -407,6 +434,10 @@ func paginate[T any](items []T, maxResults int, nextToken string, defaultMax int
 
 	if nextToken != "" {
 		if _, err := fmt.Sscanf(nextToken, "%d", &start); err != nil {
+			start = 0
+		}
+
+		if start < 0 {
 			start = 0
 		}
 	}
