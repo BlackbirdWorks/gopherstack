@@ -149,32 +149,14 @@ func parseBrokerRoute(method, suffix string) mqRoute {
 
 	// /v1/brokers/{id}/reboot
 	if before, ok := strings.CutSuffix(id, rebootSuffix); ok {
-		brokerID := before
 		if method == http.MethodPost {
-			return mqRoute{operation: "RebootBroker", resource: brokerID}
+			return mqRoute{operation: "RebootBroker", resource: before}
 		}
 	}
 
 	// /v1/brokers/{id}/users or /v1/brokers/{id}/users/{username}
 	if before, after, ok := strings.Cut(id, usersSuffix); ok {
-		brokerID := before
-		remainder := after
-		username := strings.TrimPrefix(remainder, "/")
-
-		if username == "" {
-			if method == http.MethodGet {
-				return mqRoute{operation: "ListUsers", resource: brokerID}
-			}
-		} else {
-			switch method {
-			case http.MethodGet:
-				return mqRoute{operation: "DescribeUser", resource: brokerID, subresource: username}
-			case http.MethodPost, http.MethodPut:
-				return mqRoute{operation: "CreateUser", resource: brokerID, subresource: username}
-			case http.MethodDelete:
-				return mqRoute{operation: "DeleteUser", resource: brokerID, subresource: username}
-			}
-		}
+		return parseUserRoute(method, before, strings.TrimPrefix(after, "/"))
 	}
 
 	switch method {
@@ -184,6 +166,30 @@ func parseBrokerRoute(method, suffix string) mqRoute {
 		return mqRoute{operation: "UpdateBroker", resource: id}
 	case http.MethodDelete:
 		return mqRoute{operation: "DeleteBroker", resource: id}
+	}
+
+	return mqRoute{operation: "Unknown"}
+}
+
+// parseUserRoute returns the route for /v1/brokers/{id}/users[/{username}] paths.
+func parseUserRoute(method, brokerID, username string) mqRoute {
+	if username == "" {
+		if method == http.MethodGet {
+			return mqRoute{operation: "ListUsers", resource: brokerID}
+		}
+
+		return mqRoute{operation: "Unknown"}
+	}
+
+	switch method {
+	case http.MethodGet:
+		return mqRoute{operation: "DescribeUser", resource: brokerID, subresource: username}
+	case http.MethodPost:
+		return mqRoute{operation: "CreateUser", resource: brokerID, subresource: username}
+	case http.MethodPut:
+		return mqRoute{operation: "UpdateUser", resource: brokerID, subresource: username}
+	case http.MethodDelete:
+		return mqRoute{operation: "DeleteUser", resource: brokerID, subresource: username}
 	}
 
 	return mqRoute{operation: "Unknown"}
@@ -284,6 +290,8 @@ func (h *Handler) dispatchMutating(c *echo.Context, route mqRoute, readBody func
 		return h.handleUpdateBroker(c, route.resource, body)
 	case "CreateUser":
 		return h.handleCreateUser(c, route.resource, route.subresource, body)
+	case "UpdateUser":
+		return h.handleUpdateUser(c, route.resource, route.subresource, body)
 	case "CreateConfiguration":
 		return h.handleCreateConfiguration(c, body)
 	case "UpdateConfiguration":
@@ -531,6 +539,25 @@ func (h *Handler) handleDescribeUser(c *echo.Context, brokerID, username string)
 
 func (h *Handler) handleDeleteUser(c *echo.Context, brokerID, username string) error {
 	if err := h.Backend.DeleteUser(brokerID, username); err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
+}
+
+type updateUserBody struct {
+	Console  *bool    `json:"consoleAccess"`
+	Password string   `json:"password"`
+	Groups   []string `json:"groups"`
+}
+
+func (h *Handler) handleUpdateUser(c *echo.Context, brokerID, username string, body []byte) error {
+	var in updateUserBody
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", "invalid request body"))
+	}
+
+	if err := h.Backend.UpdateUser(brokerID, username, in.Password, in.Groups, in.Console); err != nil {
 		return h.writeError(c, err)
 	}
 
