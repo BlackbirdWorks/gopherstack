@@ -113,6 +113,7 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -239,6 +240,7 @@ type CLI struct {
 	glacierHandler                service.Registerable
 	iotwirelessHandler            service.Registerable
 	kinesisanalyticsHandler       service.Registerable
+	lakeformationHandler          service.Registerable
 	glueHandler                   service.Registerable
 	kafkaHandler                  service.Registerable
 	faultStore                    *chaos.FaultStore
@@ -595,6 +597,11 @@ func (c *CLI) GetIoTWirelessHandler() service.Registerable { return c.iotwireles
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKinesisAnalyticsHandler() service.Registerable { return c.kinesisanalyticsHandler }
+
+// GetLakeFormationHandler returns the Lake Formation handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetLakeFormationHandler() service.Registerable { return c.lakeformationHandler }
 
 // GetGlueHandler returns the Glue handler (dashboard.AWSSDKProvider).
 //
@@ -1250,6 +1257,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.glacierHandler = byName["Glacier"]
 	cli.iotwirelessHandler = byName["IoTWireless"]
 	cli.kinesisanalyticsHandler = byName["KinesisAnalytics"]
+	cli.lakeformationHandler = byName["LakeFormation"]
 	cli.glueHandler = byName["Glue"]
 	cli.kafkaHandler = byName["Kafka"]
 	cli.docdbHandler = byName["DocDB"]
@@ -1457,6 +1465,7 @@ func getServiceProviders() []service.Provider {
 		&iotwirelessbackend.Provider{},
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
+		&lakeformationbackend.Provider{},
 	}
 }
 
