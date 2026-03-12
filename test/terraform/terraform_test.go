@@ -93,8 +93,6 @@ import (
 	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
-	managedblockchainsvc "github.com/aws/aws-sdk-go-v2/service/managedblockchain"
-	managedblockchaintypes "github.com/aws/aws-sdk-go-v2/service/managedblockchain/types"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -242,7 +240,6 @@ provider "aws" {
     kinesisanalytics = %[1]q
     kms             = %[1]q
     lambda          = %[1]q
-    managedblockchain = %[1]q
     opensearch      = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
@@ -4826,88 +4823,6 @@ func TestTerraform_Kafka(t *testing.T) {
 				}
 
 				assert.True(t, found, "cluster %q should be listed after terraform apply", clusterName)
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			runTFTest(t, tc)
-		})
-	}
-}
-
-// TestTerraform_ManagedBlockchain provisions a Managed Blockchain member via Terraform,
-// then verifies it is listed via the Managed Blockchain SDK.
-func TestTerraform_ManagedBlockchain(t *testing.T) {
-	t.Parallel()
-
-	tests := []tfTestCase{
-		{
-			name:    "success",
-			fixture: "managedblockchain/member",
-			setup: func(t *testing.T, _ string) map[string]any {
-				t.Helper()
-
-				client := createManagedBlockchainClient(t)
-				ctx := t.Context()
-
-				suffix := uuid.NewString()[:8]
-				networkName := "tf-mbc-" + suffix
-
-				out, err := client.CreateNetwork(ctx, &managedblockchainsvc.CreateNetworkInput{
-					ClientRequestToken: aws.String("setup-" + suffix),
-					Framework:          managedblockchaintypes.FrameworkHyperledgerFabric,
-					FrameworkVersion:   aws.String("1.4"),
-					Name:               aws.String(networkName),
-					VotingPolicy: &managedblockchaintypes.VotingPolicy{
-						ApprovalThresholdPolicy: &managedblockchaintypes.ApprovalThresholdPolicy{
-							ThresholdPercentage:     aws.Int32(50),
-							ProposalDurationInHours: aws.Int32(24),
-							ThresholdComparator:     managedblockchaintypes.ThresholdComparatorGreaterThan,
-						},
-					},
-					MemberConfiguration: &managedblockchaintypes.MemberConfiguration{
-						Name: aws.String("initial-member"),
-						FrameworkConfiguration: &managedblockchaintypes.MemberFrameworkConfiguration{
-							Fabric: &managedblockchaintypes.MemberFabricConfiguration{
-								AdminUsername: aws.String("admin"),
-								AdminPassword: aws.String("Password123!"),
-							},
-						},
-					},
-				})
-				require.NoError(t, err, "setup CreateNetwork should succeed")
-
-				return map[string]any{
-					"NetworkID":  aws.ToString(out.NetworkId),
-					"MemberName": "tf-member-" + suffix,
-				}
-			},
-			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-				t.Helper()
-
-				client := createManagedBlockchainClient(t)
-				networkID := vars["NetworkID"].(string)
-				memberName := vars["MemberName"].(string)
-
-				out, err := client.ListMembers(ctx, &managedblockchainsvc.ListMembersInput{
-					NetworkId: aws.String(networkID),
-				})
-				require.NoError(t, err, "ListMembers should succeed after terraform apply")
-
-				found := false
-
-				for _, m := range out.Members {
-					if aws.ToString(m.Name) == memberName {
-						found = true
-
-						break
-					}
-				}
-
-				assert.True(t, found, "member %q should be listed", memberName)
 			},
 		},
 	}

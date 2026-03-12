@@ -647,6 +647,7 @@ func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	}
 
 	extractNewestHandlers(ap, ec)
+	extractBlockchainHandlers(ap, ec)
 }
 
 // extractNewestHandlers populates handlers for the most recently introduced services.
@@ -682,7 +683,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetKafkaHandler(); h != nil {
 		ec.kafkaOps, _ = h.(*kafkabackend.Handler)
 	}
+}
 
+// extractBlockchainHandlers populates blockchain service handlers on ec.
+func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
 	}
