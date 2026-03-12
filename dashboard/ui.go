@@ -70,6 +70,7 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
@@ -165,6 +166,8 @@ type DashboardHandler struct {
 	EFSOps            *efsbackend.Handler
 	IoTOps            *iotbackend.Handler
 	FISOps            *fisbackend.Handler
+	// IdentityStoreOps provides access to the Identity Store backend.
+	IdentityStoreOps  *identitystorebackend.Handler
 	OpenSearchOps     *opensearchbackend.Handler
 	ACMOps            *acmbackend.Handler
 	ACMPCAOps         *acmpcabackend.Handler
@@ -290,6 +293,8 @@ type Config struct {
 	IoTOps *iotbackend.Handler
 	// FISOps provides access to the FIS backend.
 	FISOps *fisbackend.Handler
+	// IdentityStoreOps provides access to the Identity Store backend.
+	IdentityStoreOps *identitystorebackend.Handler
 	// OpenSearchOps provides access to the OpenSearch backend.
 	OpenSearchOps *opensearchbackend.Handler
 	// ACMOps provides access to the ACM backend.
@@ -541,6 +546,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EFSOps:                     cfg.EFSOps,
 		IoTOps:                     cfg.IoTOps,
 		FISOps:                     cfg.FISOps,
+		IdentityStoreOps:           cfg.IdentityStoreOps,
 		OpenSearchOps:              cfg.OpenSearchOps,
 		ACMOps:                     cfg.ACMOps,
 		ACMPCAOps:                  cfg.ACMPCAOps,
@@ -1089,6 +1095,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupELBRoutes()
 	h.setupELBv2Routes()
 	h.setupEMRRoutes()
+	h.setupIdentityStoreRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.

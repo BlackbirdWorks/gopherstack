@@ -71,6 +71,7 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
@@ -136,6 +137,7 @@ type Stack struct {
 	ECSHandler                     *ecsbackend.Handler
 	IoTHandler                     *iotbackend.Handler
 	FISHandler                     *fisbackend.Handler
+	IdentityStoreHandler           *identitystorebackend.Handler
 	OpenSearchHandler              *opensearchbackend.Handler
 	ACMHandler                     *acmbackend.Handler
 	ACMPCAHandler                  *acmpcabackend.Handler
@@ -422,6 +424,7 @@ type handlers struct {
 	ecs               *ecsbackend.Handler
 	iot               *iotbackend.Handler
 	fis               *fisbackend.Handler
+	identitystore     *identitystorebackend.Handler
 	opensearch        *opensearchbackend.Handler
 	acm               *acmbackend.Handler
 	acmpca            *acmpcabackend.Handler
@@ -542,6 +545,9 @@ func populateExtendedHandlers(h *handlers) {
 	)
 	h.fis = fisbackend.NewHandler(
 		fisbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.identitystore = identitystorebackend.NewHandler(
+		identitystorebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.opensearch = opensearchbackend.NewHandler(
 		opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -763,6 +769,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ECSOps:                     h.ecs,
 		IoTOps:                     h.iot,
 		FISOps:                     h.fis,
+		IdentityStoreOps:           h.identitystore,
 		OpenSearchOps:              h.opensearch,
 		ACMOps:                     h.acm,
 		ACMPCAOps:                  h.acmpca,
@@ -926,6 +933,7 @@ func buildStack(
 		ECSHandler:                     h.ecs,
 		IoTHandler:                     h.iot,
 		FISHandler:                     h.fis,
+		IdentityStoreHandler:           h.identitystore,
 		OpenSearchHandler:              h.opensearch,
 		ACMHandler:                     h.acm,
 		ACMPCAHandler:                  h.acmpca,

@@ -45,6 +45,7 @@ import (
 	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -163,6 +164,7 @@ type AWSSDKProvider interface {
 	GetEMRHandler() service.Registerable
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
+	GetIdentityStoreHandler() service.Registerable
 	GetAPIGatewayManagementAPIHandler() service.Registerable
 	GetAppConfigDataHandler() service.Registerable
 	GetElasticTranscoderHandler() service.Registerable
@@ -258,6 +260,7 @@ type extractedConfig struct {
 	emrOps                    *emrbackend.Handler
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
+	identitystoreOps          *identitystorebackend.Handler
 	elasticTranscoderOps      *elastictranscoderbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
@@ -498,6 +501,10 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.fisOps, _ = h.(*fisbackend.Handler)
 	}
 
+	if h := ap.GetIdentityStoreHandler(); h != nil {
+		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
+	}
+
 	if h := ap.GetAPIGatewayManagementAPIHandler(); h != nil {
 		ec.apiGatewayMgmtOps, _ = h.(*apigwmgmtbackend.Handler)
 	}
@@ -701,6 +708,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		EMROps:                     ec.emrOps,
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,
+		IdentityStoreOps:           ec.identitystoreOps,
 		ElasticTranscoderOps:       ec.elasticTranscoderOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,

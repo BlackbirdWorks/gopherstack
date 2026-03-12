@@ -68,6 +68,7 @@ import (
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	fissvc "github.com/aws/aws-sdk-go-v2/service/fis"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
+	identitystoresvc "github.com/aws/aws-sdk-go-v2/service/identitystore"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
@@ -1754,4 +1755,22 @@ func createFISClient(t *testing.T) *fissvc.Client {
 	return fissvc.NewFromConfig(cfg, func(o *fissvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+// createIdentityStoreClient returns an Identity Store client pointed at the shared test container.
+func createIdentityStoreClient(t *testing.T) *identitystoresvc.Client {
+t.Helper()
+
+cfg, err := config.LoadDefaultConfig(
+t.Context(),
+config.WithRegion("us-east-1"),
+config.WithCredentialsProvider(
+credentials.NewStaticCredentialsProvider("test", "test", ""),
+),
+)
+require.NoError(t, err, "unable to load SDK config")
+
+return identitystoresvc.NewFromConfig(cfg, func(o *identitystoresvc.Options) {
+o.BaseEndpoint = aws.String(endpoint)
+})
 }
