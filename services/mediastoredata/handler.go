@@ -77,7 +77,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	case http.MethodPut:
 		return "PutObject"
 	case http.MethodGet:
-		if r.URL.Path == "/" || r.URL.Path == "" || r.URL.Query().Get("Path") != "" {
+		if r.URL.Path == "/" || r.URL.Path == "" {
 			return "ListItems"
 		}
 
