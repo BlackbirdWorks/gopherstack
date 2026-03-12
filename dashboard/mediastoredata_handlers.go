@@ -55,13 +55,33 @@ func (h *DashboardHandler) mediastoredataIndex(c *echo.Context) error {
 	w := c.Response()
 
 	if h.MediaStoreDataOps == nil {
+		const (
+			demoVideoSize = int64(10 * 1024 * 1024) // 10 MiB
+			demoAudioSize = int64(5 * 1024 * 1024)  // 5 MiB
+		)
+
 		h.renderTemplate(w, "mediastoredata/index.html", mediastoredataIndexData{
 			PageData: PageData{
 				Title:     "MediaStore Data Objects",
 				ActiveTab: "mediastoredata",
 				Snippet:   mediastoredataSnippet(),
 			},
-			Objects: []mediastoredataObjectView{},
+			Objects: []mediastoredataObjectView{
+				{
+					Name:          "videos/demo-clip.mp4",
+					ContentType:   "video/mp4",
+					ETag:          `"a3f8b2c1d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1"`,
+					ContentLength: demoVideoSize,
+					LastModified:  "2026-01-01T12:00:00Z",
+				},
+				{
+					Name:          "audio/demo-track.mp3",
+					ContentType:   "audio/mpeg",
+					ETag:          `"b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4"`,
+					ContentLength: demoAudioSize,
+					LastModified:  "2026-01-02T08:30:00Z",
+				},
+			},
 		})
 
 		return nil
