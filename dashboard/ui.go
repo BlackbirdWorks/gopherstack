@@ -75,6 +75,7 @@ import (
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
+	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -237,14 +238,16 @@ type DashboardHandler struct {
 	// EMROps provides access to the EMR backend.
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
-	GlacierOps   *glacierbackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	GlacierOps *glacierbackend.Handler
+	// IoTWirelessOps provides access to the IoT Wireless backend.
+	IoTWirelessOps *iotwirelessbackend.Handler
+	SubRouter      *echo.Echo
+	ddbProvider    *ddbbackend.DashboardProvider
+	s3Provider     *s3backend.DashboardProvider
+	FaultStore     *chaos.FaultStore
+	Logger         *slog.Logger
+	layout         *template.Template
+	GlobalConfig   config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -406,6 +409,8 @@ type Config struct {
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
 	GlacierOps *glacierbackend.Handler
+	// IoTWirelessOps provides access to the IoT Wireless backend.
+	IoTWirelessOps *iotwirelessbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -510,6 +515,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/emrserverless/*.html",
 		"templates/emr/*.html",
 		"templates/glacier/*.html",
+		"templates/iotwireless/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -607,6 +613,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EmrServerlessOps:           cfg.EmrServerlessOps,
 		EMROps:                     cfg.EMROps,
 		GlacierOps:                 cfg.GlacierOps,
+		IoTWirelessOps:             cfg.IoTWirelessOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1107,6 +1114,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEMRRoutes()
 	h.setupIdentityStoreRoutes()
 	h.setupGlacierRoutes()
+	h.setupIoTWirelessRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
