@@ -78,6 +78,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AddTagsToVault",
 		"ListTagsForVault",
 		"RemoveTagsFromVault",
+		"InitiateVaultLock",
+		"AbortVaultLock",
+		"CompleteVaultLock",
+		"GetDataRetrievalPolicy",
+		"SetDataRetrievalPolicy",
 	}
 }
 
@@ -835,8 +840,6 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 	case errors.Is(err, ErrJobNotFound):
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-	case errors.Is(err, ErrVaultAlreadyExists):
-		return h.writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
 	}
 
 	return h.writeError(c, http.StatusInternalServerError, "ServiceUnavailableException", err.Error())

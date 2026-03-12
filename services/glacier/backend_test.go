@@ -108,18 +108,17 @@ func TestInMemoryBackend_ArchiveCRUD(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		setup       func(*glacier.InMemoryBackend)
+		setup       func(*testing.T, *glacier.InMemoryBackend)
 		vaultName   string
 		description string
 		wantErr     bool
 	}{
 		{
 			name: "upload_and_delete",
-			setup: func(bk *glacier.InMemoryBackend) {
+			setup: func(t *testing.T, bk *glacier.InMemoryBackend) {
+				t.Helper()
 				_, err := bk.CreateVault(testAccountID, testRegion, "vault")
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 			},
 			vaultName:   "vault",
 			description: "test archive",
@@ -137,7 +136,7 @@ func TestInMemoryBackend_ArchiveCRUD(t *testing.T) {
 
 			bk := glacier.NewInMemoryBackend()
 			if tt.setup != nil {
-				tt.setup(bk)
+				tt.setup(t, bk)
 			}
 
 			a, err := bk.UploadArchive(testAccountID, testRegion, tt.vaultName, tt.description, "checksum", 1024)

@@ -18,8 +18,6 @@ var (
 	ErrArchiveNotFound = errors.New("ResourceNotFoundException: Archive not found")
 	// ErrJobNotFound is returned when a job does not exist.
 	ErrJobNotFound = errors.New("ResourceNotFoundException: Job not found")
-	// ErrVaultAlreadyExists is returned when a vault with the same name already exists.
-	ErrVaultAlreadyExists = errors.New("VaultAlreadyExists")
 )
 
 const (
