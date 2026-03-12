@@ -118,6 +118,7 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2/service/glue v1.137.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/kafka v1.49.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2 v1.36.22 // indirect
 )
 
 require (
