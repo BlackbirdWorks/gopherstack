@@ -85,6 +85,7 @@ func TestIntegration_KinesisAnalyticsV2_ApplicationLifecycle(t *testing.T) {
 	// Delete application.
 	_, err = client.DeleteApplication(t.Context(), &kinesisanalyticsv2svc.DeleteApplicationInput{
 		ApplicationName: aws.String(appName),
+		CreateTimestamp: createOut.ApplicationDetail.CreateTimestamp,
 	})
 	require.NoError(t, err, "DeleteApplication should succeed")
 
@@ -102,9 +103,10 @@ func TestIntegration_KinesisAnalyticsV2_StartStop(t *testing.T) {
 	client := createKinesisAnalyticsV2SDKClient(t)
 	appName := "integration-kav2-startstop-" + t.Name()
 
-	_, err := client.CreateApplication(t.Context(), &kinesisanalyticsv2svc.CreateApplicationInput{
-		ApplicationName:    aws.String(appName),
-		RuntimeEnvironment: "FLINK-1_18",
+	createOut, err := client.CreateApplication(t.Context(), &kinesisanalyticsv2svc.CreateApplicationInput{
+		ApplicationName:      aws.String(appName),
+		RuntimeEnvironment:   "FLINK-1_18",
+		ServiceExecutionRole: aws.String("arn:aws:iam::000000000000:role/service-role"),
 	})
 	require.NoError(t, err)
 
@@ -137,6 +139,7 @@ func TestIntegration_KinesisAnalyticsV2_StartStop(t *testing.T) {
 	// Clean up.
 	_, err = client.DeleteApplication(t.Context(), &kinesisanalyticsv2svc.DeleteApplicationInput{
 		ApplicationName: aws.String(appName),
+		CreateTimestamp: createOut.ApplicationDetail.CreateTimestamp,
 	})
 	require.NoError(t, err)
 }
@@ -148,9 +151,10 @@ func TestIntegration_KinesisAnalyticsV2_Snapshots(t *testing.T) {
 	client := createKinesisAnalyticsV2SDKClient(t)
 	appName := "integration-kav2-snapshots-" + t.Name()
 
-	_, err := client.CreateApplication(t.Context(), &kinesisanalyticsv2svc.CreateApplicationInput{
-		ApplicationName:    aws.String(appName),
-		RuntimeEnvironment: "FLINK-1_18",
+	createOut, err := client.CreateApplication(t.Context(), &kinesisanalyticsv2svc.CreateApplicationInput{
+		ApplicationName:      aws.String(appName),
+		RuntimeEnvironment:   "FLINK-1_18",
+		ServiceExecutionRole: aws.String("arn:aws:iam::000000000000:role/service-role"),
 	})
 	require.NoError(t, err)
 
@@ -179,6 +183,7 @@ func TestIntegration_KinesisAnalyticsV2_Snapshots(t *testing.T) {
 	// Clean up.
 	_, err = client.DeleteApplication(t.Context(), &kinesisanalyticsv2svc.DeleteApplicationInput{
 		ApplicationName: aws.String(appName),
+		CreateTimestamp: createOut.ApplicationDetail.CreateTimestamp,
 	})
 	require.NoError(t, err)
 }
@@ -191,9 +196,10 @@ func TestIntegration_KinesisAnalyticsV2_Tags(t *testing.T) {
 	appName := "integration-kav2-tags-" + t.Name()
 
 	createOut, err := client.CreateApplication(t.Context(), &kinesisanalyticsv2svc.CreateApplicationInput{
-		ApplicationName:    aws.String(appName),
-		RuntimeEnvironment: "FLINK-1_18",
-		Tags:               []kinesisanalyticsv2types.Tag{{Key: aws.String("team"), Value: aws.String("platform")}},
+		ApplicationName:      aws.String(appName),
+		RuntimeEnvironment:   "FLINK-1_18",
+		ServiceExecutionRole: aws.String("arn:aws:iam::000000000000:role/service-role"),
+		Tags:                 []kinesisanalyticsv2types.Tag{{Key: aws.String("team"), Value: aws.String("platform")}},
 	})
 	require.NoError(t, err)
 
@@ -223,6 +229,7 @@ func TestIntegration_KinesisAnalyticsV2_Tags(t *testing.T) {
 	// Clean up.
 	_, err = client.DeleteApplication(t.Context(), &kinesisanalyticsv2svc.DeleteApplicationInput{
 		ApplicationName: aws.String(appName),
+		CreateTimestamp: createOut.ApplicationDetail.CreateTimestamp,
 	})
 	require.NoError(t, err)
 }

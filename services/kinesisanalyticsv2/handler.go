@@ -74,7 +74,12 @@ func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 
 // ExtractOperation extracts the operation name from the X-Amz-Target header.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	return strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), targetPrefix)
+	target := c.Request().Header.Get("X-Amz-Target")
+	if !strings.HasPrefix(target, targetPrefix) {
+		return ""
+	}
+
+	return strings.TrimPrefix(target, targetPrefix)
 }
 
 // ExtractResource extracts the application name from the request body.
