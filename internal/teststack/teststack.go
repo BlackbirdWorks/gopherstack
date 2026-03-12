@@ -88,6 +88,7 @@ import (
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -234,6 +235,8 @@ type Stack struct {
 	LakeFormationHandler *lakeformationbackend.Handler
 	// MediaConvertHandler provides access to the MediaConvert backend.
 	MediaConvertHandler *mediaconvertbackend.Handler
+	// MQHandler provides access to the Amazon MQ backend.
+	MQHandler *mqbackend.Handler
 	// MediaStoreHandler provides access to the MediaStore backend.
 	MediaStoreHandler *mediastorebackend.Handler
 	// MediaStoreDataHandler provides access to the MediaStore Data backend.
@@ -436,11 +439,13 @@ func registerCloudfrontService(registry *service.Registry, cloudFrontHndlr *clou
 func registerMediaServices(
 	registry *service.Registry,
 	mediaconvertHndlr *mediaconvertbackend.Handler,
+	mqHndlr *mqbackend.Handler,
 	mediastoreHndlr *mediastorebackend.Handler,
 	mediastoredataHndlr *mediastoredatabackend.Handler,
 	memorydbHndlr *memorydbbackend.Handler,
 ) {
 	_ = registry.Register(mediaconvertHndlr)
+	_ = registry.Register(mqHndlr)
 	_ = registry.Register(mediastoreHndlr)
 	_ = registry.Register(mediastoredataHndlr)
 	_ = registry.Register(memorydbHndlr)
@@ -535,6 +540,7 @@ type handlers struct {
 	kafka             *kafkabackend.Handler
 	lakeformation     *lakeformationbackend.Handler
 	mediaconvert      *mediaconvertbackend.Handler
+	mq                *mqbackend.Handler
 	mediastore        *mediastorebackend.Handler
 	mediastoredata    *mediastoredatabackend.Handler
 	memorydb          *memorydbbackend.Handler
@@ -799,6 +805,9 @@ func populateLatestHandlers(h *handlers) {
 	h.mediaconvert = mediaconvertbackend.NewHandler(
 		mediaconvertbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.mq = mqbackend.NewHandler(
+		mqbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.mediastore = mediastorebackend.NewHandler(mediastorebackend.NewInMemoryBackend())
 	h.mediastore.AccountID = config.DefaultAccountID
 	h.mediastore.DefaultRegion = config.DefaultRegion
@@ -950,6 +959,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.KafkaOps = h.kafka
 	cfg.LakeFormationOps = h.lakeformation
 	cfg.MediaConvertOps = h.mediaconvert
+	cfg.MQOps = h.mq
 	cfg.MediaStoreOps = h.mediastore
 	cfg.MediaStoreDataOps = h.mediastoredata
 	cfg.MemoryDBOps = h.memorydb
@@ -1015,7 +1025,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.lakeformation)
-	registerMediaServices(registry, h.mediaconvert, h.mediastore, h.mediastoredata, h.memorydb)
+	registerMediaServices(registry, h.mediaconvert, h.mq, h.mediastore, h.mediastoredata, h.memorydb)
 	_ = registry.Register(h.mwaa)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -1145,6 +1155,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.KafkaHandler = h.kafka
 	s.LakeFormationHandler = h.lakeformation
 	s.MediaConvertHandler = h.mediaconvert
+	s.MQHandler = h.mq
 	s.MediaStoreHandler = h.mediastore
 	s.MediaStoreDataHandler = h.mediastoredata
 	s.MemoryDBHandler = h.memorydb

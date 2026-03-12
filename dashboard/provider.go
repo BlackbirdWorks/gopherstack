@@ -61,6 +61,7 @@ import (
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -194,6 +195,7 @@ type AWSSDKProvider interface {
 	GetLakeFormationHandler() service.Registerable
 	GetManagedBlockchainHandler() service.Registerable
 	GetMediaConvertHandler() service.Registerable
+	GetMQHandler() service.Registerable
 	GetMediaStoreHandler() service.Registerable
 	GetMediaStoreDataHandler() service.Registerable
 	GetMemoryDBHandler() service.Registerable
@@ -302,6 +304,7 @@ type extractedConfig struct {
 	lakeformationOps          *lakeformationbackend.Handler
 	managedblockchainOps      *managedblockchainbackend.Handler
 	mediaconvertOps           *mediaconvertbackend.Handler
+	mqOps                     *mqbackend.Handler
 	mediastoreOps             *mediastorebackend.Handler
 	mediastoredataOps         *mediastoredatabackend.Handler
 	memorydbOps               *memorydbbackend.Handler
@@ -729,7 +732,7 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	}
 }
 
-// extractBlockchainHandlers populates ManagedBlockchain and MediaConvert handlers on ec.
+// extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, and MQ handlers on ec.
 func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
@@ -737,6 +740,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetMediaConvertHandler(); h != nil {
 		ec.mediaconvertOps, _ = h.(*mediaconvertbackend.Handler)
+	}
+
+	if h := ap.GetMQHandler(); h != nil {
+		ec.mqOps, _ = h.(*mqbackend.Handler)
 	}
 }
 
@@ -855,6 +862,7 @@ func applyExtendedConfig(cfg *Config, ec *extractedConfig) {
 	cfg.LakeFormationOps = ec.lakeformationOps
 	cfg.ManagedBlockchainOps = ec.managedblockchainOps
 	cfg.MediaConvertOps = ec.mediaconvertOps
+	cfg.MQOps = ec.mqOps
 	cfg.MediaStoreOps = ec.mediastoreOps
 	cfg.MediaStoreDataOps = ec.mediastoredataOps
 	cfg.MemoryDBOps = ec.memorydbOps

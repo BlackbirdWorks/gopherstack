@@ -121,6 +121,7 @@ import (
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -253,6 +254,7 @@ type CLI struct {
 	kafkaHandler                  service.Registerable
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
+	mqHandler                     service.Registerable
 	mediastoreHandler             service.Registerable
 	mediastoredataHandler         service.Registerable
 	memorydbHandler               service.Registerable
@@ -641,6 +643,11 @@ func (c *CLI) GetManagedBlockchainHandler() service.Registerable { return c.mana
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMediaConvertHandler() service.Registerable { return c.mediaconvertHandler }
+
+// GetMQHandler returns the Amazon MQ handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMQHandler() service.Registerable { return c.mqHandler }
 
 // GetMediaStoreHandler returns the MediaStore handler (dashboard.AWSSDKProvider).
 //
@@ -1312,6 +1319,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.kafkaHandler = byName["Kafka"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.mediaconvertHandler = byName["MediaConvert"]
+	cli.mqHandler = byName["MQ"]
 	cli.mediastoreHandler = byName["MediaStore"]
 	cli.mediastoredataHandler = byName["MediaStoreData"]
 	cli.memorydbHandler = byName["MemoryDB"]
@@ -1525,6 +1533,7 @@ func getServiceProviders() []service.Provider {
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},
+		&mqbackend.Provider{},
 		&mediastorebackend.Provider{},
 		&mediastoredatabackend.Provider{},
 		&memorydbbackend.Provider{},
