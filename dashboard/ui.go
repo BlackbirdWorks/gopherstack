@@ -75,6 +75,7 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
@@ -244,6 +245,8 @@ type DashboardHandler struct {
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
 	GlacierOps *glacierbackend.Handler
+	// IoTAnalyticsOps provides access to the IoT Analytics backend.
+	IoTAnalyticsOps *iotanalyticsbackend.Handler
 	// IoTWirelessOps provides access to the IoT Wireless backend.
 	IoTWirelessOps *iotwirelessbackend.Handler
 	// KinesisAnalyticsOps provides access to the Kinesis Analytics backend.
@@ -422,6 +425,8 @@ type Config struct {
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
 	GlacierOps *glacierbackend.Handler
+	// IoTAnalyticsOps provides access to the IoT Analytics backend.
+	IoTAnalyticsOps *iotanalyticsbackend.Handler
 	// IoTWirelessOps provides access to the IoT Wireless backend.
 	IoTWirelessOps *iotwirelessbackend.Handler
 	// KinesisAnalyticsOps provides access to the Kinesis Analytics backend.
@@ -538,6 +543,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/emrserverless/*.html",
 		"templates/emr/*.html",
 		"templates/glacier/*.html",
+		"templates/iotanalytics/*.html",
 		"templates/iotwireless/*.html",
 		"templates/kinesisanalytics/*.html",
 		"templates/glue/*.html",
@@ -647,6 +653,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		EmrServerlessOps:           cfg.EmrServerlessOps,
 		EMROps:                     cfg.EMROps,
 		GlacierOps:                 cfg.GlacierOps,
+		IoTAnalyticsOps:            cfg.IoTAnalyticsOps,
 		IoTWirelessOps:             cfg.IoTWirelessOps,
 		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
@@ -1148,6 +1155,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEMRRoutes()
 	h.setupIdentityStoreRoutes()
 	h.setupGlacierRoutes()
+	h.setupIoTAnalyticsRoutes()
 	h.setupIoTWirelessRoutes()
 	h.setupKinesisAnalyticsRoutes()
 	h.setupGlueRoutes()
@@ -1275,6 +1283,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/emrserverless", "EmrServerless"},
 	{"/emr", "EMR"},
 	{"/glue", "Glue"},
+	{"/iotanalytics", "IoTAnalytics"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

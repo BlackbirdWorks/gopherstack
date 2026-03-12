@@ -48,6 +48,7 @@ import (
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
@@ -178,6 +179,7 @@ type AWSSDKProvider interface {
 	GetAppConfigDataHandler() service.Registerable
 	GetElasticTranscoderHandler() service.Registerable
 	GetGlacierHandler() service.Registerable
+	GetIoTAnalyticsHandler() service.Registerable
 	GetIoTWirelessHandler() service.Registerable
 	GetKinesisAnalyticsHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
@@ -279,6 +281,7 @@ type extractedConfig struct {
 	identitystoreOps          *identitystorebackend.Handler
 	elasticTranscoderOps      *elastictranscoderbackend.Handler
 	glacierOps                *glacierbackend.Handler
+	iotanalyticsOps           *iotanalyticsbackend.Handler
 	iotwirelessOps            *iotwirelessbackend.Handler
 	kinesisanalyticsOps       *kinesisanalyticsbackend.Handler
 	kafkaOps                  *kafkabackend.Handler
@@ -660,6 +663,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.glacierOps, _ = h.(*glacierbackend.Handler)
 	}
 
+	if h := ap.GetIoTAnalyticsHandler(); h != nil {
+		ec.iotanalyticsOps, _ = h.(*iotanalyticsbackend.Handler)
+	}
+
 	if h := ap.GetIoTWirelessHandler(); h != nil {
 		ec.iotwirelessOps, _ = h.(*iotwirelessbackend.Handler)
 	}
@@ -668,6 +675,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.kinesisanalyticsOps, _ = h.(*kinesisanalyticsbackend.Handler)
 	}
 
+	extractNewestDataHandlers(ap, ec)
+}
+
+func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetIdentityStoreHandler(); h != nil {
 		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
@@ -767,6 +778,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IdentityStoreOps:           ec.identitystoreOps,
 		ElasticTranscoderOps:       ec.elasticTranscoderOps,
 		GlacierOps:                 ec.glacierOps,
+		IoTAnalyticsOps:            ec.iotanalyticsOps,
 		IoTWirelessOps:             ec.iotwirelessOps,
 		KinesisAnalyticsOps:        ec.kinesisanalyticsOps,
 		KafkaOps:                   ec.kafkaOps,

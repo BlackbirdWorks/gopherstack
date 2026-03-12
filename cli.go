@@ -107,6 +107,7 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
@@ -242,6 +243,7 @@ type CLI struct {
 	kinesisanalyticsHandler       service.Registerable
 	lakeformationHandler          service.Registerable
 	glueHandler                   service.Registerable
+	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
@@ -587,6 +589,11 @@ func (c *CLI) GetEMRHandler() service.Registerable { return c.emrHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGlacierHandler() service.Registerable { return c.glacierHandler }
+
+// GetIoTAnalyticsHandler returns the IoT Analytics handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetIoTAnalyticsHandler() service.Registerable { return c.iotanalyticsHandler }
 
 // GetIoTWirelessHandler returns the IoT Wireless handler (dashboard.AWSSDKProvider).
 //
@@ -1259,6 +1266,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.kinesisanalyticsHandler = byName["KinesisAnalytics"]
 	cli.lakeformationHandler = byName["LakeFormation"]
 	cli.glueHandler = byName["Glue"]
+	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
@@ -1462,6 +1470,7 @@ func getServiceProviders() []service.Provider {
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
 		&glacierbackend.Provider{},
+		&iotanalyticsbackend.Provider{},
 		&iotwirelessbackend.Provider{},
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
