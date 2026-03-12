@@ -1,0 +1,52 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <img src="/dashboard/static/icons/mediaconvert.svg" class="w-8 h-8 rounded-md shadow-sm" alt="mediastoredata" />
+                MediaStore Data Objects
+                <span
+                    class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
+                    {{len .Objects}}
+                </span>
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory AWS Elemental MediaStore Data objects.</p>
+        </div>
+    </div>
+
+    <div
+        class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Path</th>
+                    <th scope="col" class="px-6 py-3">Content Type</th>
+                    <th scope="col" class="px-6 py-3">Size (bytes)</th>
+                    <th scope="col" class="px-6 py-3">ETag</th>
+                    <th scope="col" class="px-6 py-3">Last Modified</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Objects}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white font-mono text-xs">{{.Name}}</td>
+                    <td class="px-6 py-4">{{.ContentType}}</td>
+                    <td class="px-6 py-4">{{.ContentLength}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.ETag}}">{{.ETag}}</td>
+                    <td class="px-6 py-4 text-xs">{{.LastModified}}</td>
+                </tr>
+                {{else}}
+                <tr class="bg-white dark:bg-slate-800/50">
+                    <td colspan="5" class="px-6 py-8 text-center text-slate-500 dark:text-slate-400">No objects stored.</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+{{end}}

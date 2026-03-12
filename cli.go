@@ -118,6 +118,7 @@ import (
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -249,6 +250,7 @@ type CLI struct {
 	kafkaHandler                  service.Registerable
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
+	mediastoredataHandler         service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -633,6 +635,11 @@ func (c *CLI) GetManagedBlockchainHandler() service.Registerable { return c.mana
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMediaConvertHandler() service.Registerable { return c.mediaconvertHandler }
+
+// GetMediaStoreDataHandler returns the MediaStore Data handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMediaStoreDataHandler() service.Registerable { return c.mediastoredataHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1284,6 +1291,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.kafkaHandler = byName["Kafka"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.mediaconvertHandler = byName["MediaConvert"]
+	cli.mediastoredataHandler = byName["MediaStoreData"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1493,6 +1501,7 @@ func getServiceProviders() []service.Provider {
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},
+		&mediastoredatabackend.Provider{},
 	}
 }
 
