@@ -63,8 +63,8 @@ import (
 	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2svc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
-	emrserverlesssvc "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	emrsvc "github.com/aws/aws-sdk-go-v2/service/emr"
+	emrserverlesssvc "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	fissvc "github.com/aws/aws-sdk-go-v2/service/fis"
