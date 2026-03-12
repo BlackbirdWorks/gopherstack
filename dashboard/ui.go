@@ -580,7 +580,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 }
 
 func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler {
-	return &DashboardHandler{
+	h := &DashboardHandler{
 		DynamoDB:                   cfg.DDBClient,
 		S3:                         cfg.S3Client,
 		SSM:                        cfg.SSMClient,
@@ -669,10 +669,6 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		IoTWirelessOps:             cfg.IoTWirelessOps,
 		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
-		KafkaOps:                   cfg.KafkaOps,
-		LakeFormationOps:           cfg.LakeFormationOps,
-		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
-		MediaConvertOps:            cfg.MediaConvertOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -681,6 +677,18 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		s3Provider:                 s3backend.NewDashboardProvider(),
 		SubRouter:                  echo.New(),
 	}
+	h.applyNewestOps(cfg)
+
+	return h
+}
+
+// applyNewestOps sets the most recently added service handler fields on the DashboardHandler.
+// It is extracted from newDashboardHandler to satisfy the funlen limit.
+func (h *DashboardHandler) applyNewestOps(cfg Config) {
+	h.KafkaOps = cfg.KafkaOps
+	h.LakeFormationOps = cfg.LakeFormationOps
+	h.ManagedBlockchainOps = cfg.ManagedBlockchainOps
+	h.MediaConvertOps = cfg.MediaConvertOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.

@@ -986,7 +986,7 @@ func buildStack(
 	faultStore *chaos.FaultStore,
 	dashboardHandler *dashboard.DashboardHandler,
 ) *Stack {
-	return &Stack{
+	s := &Stack{
 		Echo:                           e,
 		S3Backend:                      h.s3Bk,
 		S3Handler:                      h.s3,
@@ -1072,15 +1072,23 @@ func buildStack(
 		GlacierHandler:                 h.glacier,
 		IoTAnalyticsHandler:            h.iotanalytics,
 		IoTWirelessHandler:             h.iotwireless,
-		KinesisAnalyticsHandler:        h.kinesisanalytics,
-		KafkaHandler:                   h.kafka,
-		LakeFormationHandler:           h.lakeformation,
-		MediaConvertHandler:            h.mediaconvert,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
 		Dashboard:                      dashboardHandler,
 	}
+	setNewestStackHandlers(s, h)
+
+	return s
+}
+
+// setNewestStackHandlers sets the most recently added handler fields on a Stack.
+// It is extracted from buildStack to satisfy the funlen limit.
+func setNewestStackHandlers(s *Stack, h handlers) {
+	s.KinesisAnalyticsHandler = h.kinesisanalytics
+	s.KafkaHandler = h.kafka
+	s.LakeFormationHandler = h.lakeformation
+	s.MediaConvertHandler = h.mediaconvert
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

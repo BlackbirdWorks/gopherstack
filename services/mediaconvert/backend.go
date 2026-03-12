@@ -19,24 +19,28 @@ var (
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrConflict)
 )
 
+// epochSeconds converts a [time.Time] to a float64 Unix epoch seconds value,
+// which is the format expected by the MediaConvert SDK for timestamp fields.
+func epochSeconds(t time.Time) float64 {
+	return float64(t.Unix())
+}
+
 // Queue represents a MediaConvert queue.
 type Queue struct {
-	CreatedAt            time.Time `json:"createdAt,omitzero"`
-	LastUpdated          time.Time `json:"lastUpdated,omitzero"`
-	Arn                  string    `json:"arn"`
-	Name                 string    `json:"name"`
-	Description          string    `json:"description,omitempty"`
-	PricingPlan          string    `json:"pricingPlan"`
-	Status               string    `json:"status"`
-	Type                 string    `json:"type"`
-	ProgressingJobsCount int       `json:"progressingJobsCount"`
-	SubmittedJobsCount   int       `json:"submittedJobsCount"`
+	Arn                  string  `json:"arn"`
+	Name                 string  `json:"name"`
+	Description          string  `json:"description,omitempty"`
+	PricingPlan          string  `json:"pricingPlan"`
+	Status               string  `json:"status"`
+	Type                 string  `json:"type"`
+	CreatedAt            float64 `json:"createdAt"`
+	LastUpdated          float64 `json:"lastUpdated"`
+	ProgressingJobsCount int     `json:"progressingJobsCount"`
+	SubmittedJobsCount   int     `json:"submittedJobsCount"`
 }
 
 // JobTemplate represents a MediaConvert job template.
 type JobTemplate struct {
-	CreatedAt   time.Time      `json:"createdAt,omitzero"`
-	LastUpdated time.Time      `json:"lastUpdated,omitzero"`
 	Settings    map[string]any `json:"settings,omitempty"`
 	Arn         string         `json:"arn"`
 	Name        string         `json:"name"`
@@ -44,12 +48,13 @@ type JobTemplate struct {
 	Category    string         `json:"category,omitempty"`
 	Queue       string         `json:"queue,omitempty"`
 	Type        string         `json:"type"`
+	CreatedAt   float64        `json:"createdAt"`
+	LastUpdated float64        `json:"lastUpdated"`
 	Priority    int            `json:"priority"`
 }
 
 // Job represents a MediaConvert transcoding job.
 type Job struct {
-	CreatedAt   time.Time      `json:"createdAt,omitzero"`
 	Settings    map[string]any `json:"settings,omitempty"`
 	Arn         string         `json:"arn"`
 	ID          string         `json:"id"`
@@ -57,6 +62,7 @@ type Job struct {
 	Role        string         `json:"role"`
 	Status      string         `json:"status"`
 	JobTemplate string         `json:"jobTemplate,omitempty"`
+	CreatedAt   float64        `json:"createdAt"`
 }
 
 // InMemoryBackend is the in-memory store for MediaConvert resources.
@@ -101,7 +107,7 @@ func (b *InMemoryBackend) CreateQueue(name, description, pricingPlan, status str
 		status = "ACTIVE"
 	}
 
-	now := time.Now().UTC()
+	now := epochSeconds(time.Now())
 	q := &Queue{
 		Arn:         arn.Build("mediaconvert", b.region, b.accountID, "queues/"+name),
 		Name:        name,
@@ -166,7 +172,7 @@ func (b *InMemoryBackend) UpdateQueue(name, description, status string) (*Queue,
 		q.Status = status
 	}
 
-	q.LastUpdated = time.Now().UTC()
+	q.LastUpdated = epochSeconds(time.Now())
 	cp := *q
 
 	return &cp, nil
@@ -198,7 +204,7 @@ func (b *InMemoryBackend) CreateJobTemplate(
 		return nil, fmt.Errorf("%w: job template %s already exists", ErrAlreadyExists, name)
 	}
 
-	now := time.Now().UTC()
+	now := epochSeconds(time.Now())
 	jt := &JobTemplate{
 		Arn:         arn.Build("mediaconvert", b.region, b.accountID, "jobTemplates/"+name),
 		Name:        name,
@@ -281,7 +287,7 @@ func (b *InMemoryBackend) UpdateJobTemplate(
 		jt.Settings = settings
 	}
 
-	jt.LastUpdated = time.Now().UTC()
+	jt.LastUpdated = epochSeconds(time.Now())
 	cp := *jt
 
 	return &cp, nil
@@ -314,7 +320,7 @@ func (b *InMemoryBackend) CreateJob(role, queue, jobTemplate string, settings ma
 		JobTemplate: jobTemplate,
 		Status:      "SUBMITTED",
 		Settings:    settings,
-		CreatedAt:   time.Now().UTC(),
+		CreatedAt:   epochSeconds(time.Now()),
 	}
 	b.jobs[id] = j
 	cp := *j
@@ -348,7 +354,7 @@ func (b *InMemoryBackend) ListJobs() []*Job {
 	}
 
 	sort.Slice(list, func(i, j int) bool {
-		return list[i].CreatedAt.After(list[j].CreatedAt)
+		return list[i].CreatedAt > list[j].CreatedAt
 	})
 
 	return list

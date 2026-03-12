@@ -522,5 +522,5 @@ func (h *Handler) writeError(c *echo.Context, err error) error {
 }
 
 func errorResponse(code, msg string) map[string]string {
-	return map[string]string{"message": msg, "code": code}
+	return map[string]string{"__type": code, "message": msg}
 }

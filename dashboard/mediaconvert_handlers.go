@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -113,7 +112,7 @@ func (h *DashboardHandler) mediaconvertCreateQueue(c *echo.Context) error {
 	description := c.Request().FormValue("description")
 
 	if _, err := h.MediaConvertOps.Backend.CreateQueue(name, description, "", ""); err != nil {
-		h.Logger.ErrorContext(context.Background(), "mediaconvert: failed to create queue", "name", name, "error", err)
+		h.Logger.ErrorContext(c.Request().Context(), "mediaconvert: failed to create queue", "name", name, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)
 	}
@@ -137,7 +136,7 @@ func (h *DashboardHandler) mediaconvertDeleteQueue(c *echo.Context) error {
 	}
 
 	if err := h.MediaConvertOps.Backend.DeleteQueue(name); err != nil {
-		h.Logger.ErrorContext(context.Background(), "mediaconvert: failed to delete queue", "name", name, "error", err)
+		h.Logger.ErrorContext(c.Request().Context(), "mediaconvert: failed to delete queue", "name", name, "error", err)
 
 		return c.NoContent(http.StatusNotFound)
 	}
