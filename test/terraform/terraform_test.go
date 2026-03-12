@@ -79,6 +79,8 @@ import (
 	emrsvc "github.com/aws/aws-sdk-go-v2/service/emr"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
+	fissvc "github.com/aws/aws-sdk-go-v2/service/fis"
+	fistypes "github.com/aws/aws-sdk-go-v2/service/fis/types"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -219,6 +221,7 @@ provider "aws" {
     emr             = %[1]q
     events          = %[1]q
     firehose        = %[1]q
+    fis             = %[1]q
     iam             = %[1]q
     iot             = %[1]q
     kinesis         = %[1]q
@@ -4317,10 +4320,8 @@ func TestTerraform_ElasticTranscoder(t *testing.T) {
 
 				found := false
 
-				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated this SDK field but the service still works
-					name := aws.ToString(
-						p.Name,
-					)
+				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated the SDK but service still works
+					name := aws.ToString(p.Name) //nolint:staticcheck // AWS deprecated the SDK but service still works
 					if name == pipelineName {
 						found = true
 
@@ -4474,6 +4475,51 @@ func TestTerraform_ELBv2(t *testing.T) {
 				require.NoError(t, err, "DescribeListeners should succeed after terraform apply")
 				require.Len(t, listenerOut.Listeners, 1, "listener should exist")
 				assert.Equal(t, *lbArn, *listenerOut.Listeners[0].LoadBalancerArn)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_FIS provisions a FIS experiment template via Terraform, then verifies
+// it exists via the FIS SDK.
+func TestTerraform_FIS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "fis/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createFISClient(t)
+				suffix := vars["Suffix"].(string)
+				description := "tf-fis-" + suffix
+
+				out, err := client.ListExperimentTemplates(ctx, &fissvc.ListExperimentTemplatesInput{})
+				require.NoError(t, err, "ListExperimentTemplates should succeed after terraform apply")
+
+				found := slices.ContainsFunc(
+					out.ExperimentTemplates,
+					func(tpl fistypes.ExperimentTemplateSummary) bool {
+						return aws.ToString(tpl.Description) == description
+					},
+				)
+				assert.True(t, found, "experiment template %q should be listed", description)
 			},
 		},
 	}

@@ -66,6 +66,7 @@ import (
 	emrsvc "github.com/aws/aws-sdk-go-v2/service/emr"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
+	fissvc "github.com/aws/aws-sdk-go-v2/service/fis"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -1733,6 +1734,24 @@ func createELBv2Client(t *testing.T) *elbv2svc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return elbv2svc.NewFromConfig(cfg, func(o *elbv2svc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createFISClient returns a FIS client pointed at the shared test container.
+func createFISClient(t *testing.T) *fissvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return fissvc.NewFromConfig(cfg, func(o *fissvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
