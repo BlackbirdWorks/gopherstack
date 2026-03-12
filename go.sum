@@ -188,6 +188,8 @@ github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19 h1:Kv5zCgLXQcO88IwWqGJt
 github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19/go.mod h1:csvcQANBknUMKeom0XKfe30VkML9c0eYF8xuNxzJTW8=
 github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.18 h1:NHsx1EAXCiOhqTLrT9NWNtZoO6fA1+84rz3c/koHvkI=
 github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.18/go.mod h1:HCvN0cY4QLzbmGUwFfT50m/K8pzuUYYUFJDAUCj2pt8=
+github.com/aws/aws-sdk-go-v2/service/mq v1.34.17 h1:mW26pSlEZG2OGSoC2ZE0AJs2w8YEXHo1AgJDfGEFQFU=
+github.com/aws/aws-sdk-go-v2/service/mq v1.34.17/go.mod h1:3ru7bRS2mF6C5UbPdVNSaUeo2lwL+42YZUhm8bQypFk=
 github.com/aws/aws-sdk-go-v2/service/opensearch v1.59.0 h1:rhlLa2SwSeKva0DEUrbRc5DN2bAsIPvcmW7N/c2MUgI=
 github.com/aws/aws-sdk-go-v2/service/opensearch v1.59.0/go.mod h1:ONvZiWIqgJzRaqzynnqCZO7ofBDKJhmeRbrYiGtjFWM=
 github.com/aws/aws-sdk-go-v2/service/rds v1.116.2 h1:KQLPCn9BWXW0Y8DyzEokbTF9HOiOQoR77Eu9GKcjBWU=

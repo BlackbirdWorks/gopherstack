@@ -125,7 +125,11 @@ require (
 require github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19
 
 require github.com/aws/aws-sdk-go-v2/service/mediaconvert v1.87.3
-require github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19 // indirect
+
+require (
+	github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19 // indirect
+	github.com/aws/aws-sdk-go-v2/service/mq v1.34.17 // indirect
+)
 
 require github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.18
 
