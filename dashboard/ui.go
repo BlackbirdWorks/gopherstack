@@ -83,6 +83,7 @@ import (
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -251,14 +252,16 @@ type DashboardHandler struct {
 	// KinesisAnalyticsOps provides access to the Kinesis Analytics backend.
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
-	KafkaOps     *kafkabackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	KafkaOps *kafkabackend.Handler
+	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
+	ManagedBlockchainOps *managedblockchainbackend.Handler
+	SubRouter            *echo.Echo
+	ddbProvider          *ddbbackend.DashboardProvider
+	s3Provider           *s3backend.DashboardProvider
+	FaultStore           *chaos.FaultStore
+	Logger               *slog.Logger
+	layout               *template.Template
+	GlobalConfig         config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -430,6 +433,8 @@ type Config struct {
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
+	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
+	ManagedBlockchainOps *managedblockchainbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -543,6 +548,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/kinesisanalytics/*.html",
 		"templates/glue/*.html",
 		"templates/kafka/*.html",
+		"templates/managedblockchain/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -653,6 +659,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
 		KafkaOps:                   cfg.KafkaOps,
+		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1154,6 +1161,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupKinesisAnalyticsRoutes()
 	h.setupGlueRoutes()
 	h.setupKafkaRoutes()
+	h.setupManagedBlockchainRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.

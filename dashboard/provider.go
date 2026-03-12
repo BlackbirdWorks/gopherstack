@@ -53,6 +53,7 @@ import (
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
+	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -182,6 +183,7 @@ type AWSSDKProvider interface {
 	GetIoTWirelessHandler() service.Registerable
 	GetKinesisAnalyticsHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
+	GetManagedBlockchainHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -283,6 +285,7 @@ type extractedConfig struct {
 	iotwirelessOps            *iotwirelessbackend.Handler
 	kinesisanalyticsOps       *kinesisanalyticsbackend.Handler
 	kafkaOps                  *kafkabackend.Handler
+	managedblockchainOps      *managedblockchainbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -644,6 +647,7 @@ func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	}
 
 	extractNewestHandlers(ap, ec)
+	extractBlockchainHandlers(ap, ec)
 }
 
 // extractNewestHandlers populates handlers for the most recently introduced services.
@@ -678,6 +682,13 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetKafkaHandler(); h != nil {
 		ec.kafkaOps, _ = h.(*kafkabackend.Handler)
+	}
+}
+
+// extractBlockchainHandlers populates blockchain service handlers on ec.
+func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+	if h := ap.GetManagedBlockchainHandler(); h != nil {
+		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
 	}
 }
 
@@ -771,6 +782,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IoTWirelessOps:             ec.iotwirelessOps,
 		KinesisAnalyticsOps:        ec.kinesisanalyticsOps,
 		KafkaOps:                   ec.kafkaOps,
+		ManagedBlockchainOps:       ec.managedblockchainOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,
