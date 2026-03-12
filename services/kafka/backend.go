@@ -36,6 +36,7 @@ type BrokerNodeGroupInfo struct {
 	BrokerAZDistribution string       `json:"brokerAZDistribution,omitempty"`
 	InstanceType         string       `json:"instanceType"`
 	ClientSubnets        []string     `json:"clientSubnets"`
+	SecurityGroups       []string     `json:"securityGroups,omitempty"`
 }
 
 // StorageInfo holds broker storage config.
