@@ -97,6 +97,7 @@ import (
 	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
 	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
+	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -248,6 +249,7 @@ provider "aws" {
     mediaconvert    = %[1]q
     mediastore      = %[1]q
     memorydb        = %[1]q
+    mq              = %[1]q
     opensearch      = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
@@ -4882,6 +4884,55 @@ func TestTerraform_MediaConvert(t *testing.T) {
 				}
 
 				assert.True(t, found, "queue %q should be listed after terraform apply", queueName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_MQ provisions an Amazon MQ broker via Terraform, then verifies
+// it is listed via the Amazon MQ SDK.
+func TestTerraform_MQ(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "mq/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createMQClient(t)
+				suffix := vars["Suffix"].(string)
+				brokerName := "tf-mq-" + suffix
+
+				out, err := client.ListBrokers(ctx, &mqsvc.ListBrokersInput{})
+				require.NoError(t, err, "ListBrokers should succeed after terraform apply")
+
+				found := false
+
+				for _, br := range out.BrokerSummaries {
+					if aws.ToString(br.BrokerName) == brokerName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "broker %q should be listed after terraform apply", brokerName)
 			},
 		},
 	}
