@@ -83,7 +83,10 @@ import (
 	fissvc "github.com/aws/aws-sdk-go-v2/service/fis"
 	fistypes "github.com/aws/aws-sdk-go-v2/service/fis/types"
 	glaciersvc "github.com/aws/aws-sdk-go-v2/service/glacier"
+	gluesvc "github.com/aws/aws-sdk-go-v2/service/glue"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
+	identitystoresvc "github.com/aws/aws-sdk-go-v2/service/identitystore"
+	identitystoretypes "github.com/aws/aws-sdk-go-v2/service/identitystore/types"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
@@ -226,7 +229,9 @@ provider "aws" {
     firehose        = %[1]q
     fis             = %[1]q
     glacier         = %[1]q
+    glue            = %[1]q
     iam             = %[1]q
+    identitystore   = %[1]q
     iot             = %[1]q
     kinesis         = %[1]q
     kms             = %[1]q
@@ -4326,7 +4331,9 @@ func TestTerraform_ElasticTranscoder(t *testing.T) {
 				found := false
 
 				for i := range pipelines {
-					name := aws.ToString(pipelines[i].Name)
+					name := aws.ToString(
+						pipelines[i].Name, //nolint:staticcheck,nolintlint // AWS deprecated the SDK but service still works
+					)
 					if name == pipelineName {
 						found = true
 
@@ -4573,6 +4580,97 @@ func TestTerraform_FIS(t *testing.T) {
 					},
 				)
 				assert.True(t, found, "experiment template %q should be listed", description)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Glue provisions a Glue catalog database via Terraform, then verifies
+// it exists via the Glue SDK.
+func TestTerraform_Glue(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "glue/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createGlueClient(t)
+				suffix := vars["Suffix"].(string)
+				dbName := "tf-glue-" + suffix
+
+				out, err := client.GetDatabase(ctx, &gluesvc.GetDatabaseInput{
+					Name: aws.String(dbName),
+				})
+				require.NoError(t, err, "GetDatabase should succeed after terraform apply")
+				require.NotNil(t, out.Database)
+				assert.Equal(t, dbName, aws.ToString(out.Database.Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_IdentityStore provisions an identity store user, group, and membership
+// via Terraform, then verifies them via the Identity Store SDK.
+func TestTerraform_IdentityStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "identitystore/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"IdentityStoreID": "d-0000000000",
+					"UserName":        "tf-user-" + id,
+					"DisplayName":     "TF User " + id,
+					"GivenName":       "TF",
+					"FamilyName":      "User-" + id,
+					"GroupName":       "tf-group-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createIdentityStoreClient(t)
+				storeID := vars["IdentityStoreID"].(string)
+				userName := vars["UserName"].(string)
+
+				out, err := client.ListUsers(ctx, &identitystoresvc.ListUsersInput{
+					IdentityStoreId: &storeID,
+				})
+				require.NoError(t, err, "ListUsers should succeed after terraform apply")
+
+				found := slices.ContainsFunc(out.Users, func(u identitystoretypes.User) bool {
+					return aws.ToString(u.UserName) == userName
+				})
+				assert.True(t, found, "expected user %q to exist in identity store", userName)
 			},
 		},
 	}

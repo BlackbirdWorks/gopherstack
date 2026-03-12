@@ -103,7 +103,9 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
@@ -228,9 +230,11 @@ type CLI struct {
 	cognitoIDPHandler             service.Registerable
 	cognitoIdentityHandler        service.Registerable
 	fisHandler                    service.Registerable
+	identitystoreHandler          service.Registerable
 	elastictranscoderHandler      service.Registerable
 	emrHandler                    service.Registerable
 	glacierHandler                service.Registerable
+	glueHandler                   service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -576,6 +580,11 @@ func (c *CLI) GetEMRHandler() service.Registerable { return c.emrHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGlacierHandler() service.Registerable { return c.glacierHandler }
 
+// GetGlueHandler returns the Glue handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGlueHandler() service.Registerable { return c.glueHandler }
+
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -755,6 +764,11 @@ func (c *CLI) GetDocDBHandler() service.Registerable { return c.docdbHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetFISHandler() service.Registerable { return c.fisHandler }
+
+// GetIdentityStoreHandler returns the Identity Store handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetIdentityStoreHandler() service.Registerable { return c.identitystoreHandler }
 
 // GetCognitoIDPHandler returns the Cognito IDP handler (dashboard.AWSSDKProvider).
 //
@@ -1190,6 +1204,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cognitoIDPHandler = byName["CognitoIDP"]
 	cli.cognitoIdentityHandler = byName["CognitoIdentity"]
 	cli.fisHandler = byName["FIS"]
+	cli.identitystoreHandler = byName["IdentityStore"]
 	cli.backupHandler = byName["Backup"]
 	cli.cloudtrailHandler = byName["CloudTrail"]
 	cli.ceHandler = byName["Ce"]
@@ -1212,6 +1227,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.emrserverlessHandler = byName["EmrServerless"]
 	cli.emrHandler = byName["EMR"]
 	cli.glacierHandler = byName["Glacier"]
+	cli.glueHandler = byName["Glue"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1372,6 +1388,7 @@ func getServiceProviders() []service.Provider {
 		&ecrbackend.Provider{},
 		&ecsbackend.Provider{},
 		&fisbackend.Provider{},
+		&identitystorebackend.Provider{},
 		&cognitoidpbackend.Provider{},
 		&cognitoidentitybackend.Provider{},
 		&iotbackend.Provider{},
@@ -1409,6 +1426,7 @@ func getServiceProviders() []service.Provider {
 		&elbv2backend.Provider{},
 		&emrserverlessbackend.Provider{},
 		&emrbackend.Provider{},
+		&gluebackend.Provider{},
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
 		&glacierbackend.Provider{},
