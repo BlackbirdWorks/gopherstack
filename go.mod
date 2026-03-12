@@ -111,13 +111,21 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2 v1.36.22
 )
 
-require github.com/aws/aws-sdk-go-v2/service/identitystore v1.36.3
-
 require (
 	github.com/aws/aws-sdk-go-v2/service/glacier v1.32.4
+	github.com/aws/aws-sdk-go-v2/service/identitystore v1.36.3
+	github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0
 	github.com/aws/aws-sdk-go-v2/service/iotwireless v1.54.7
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalytics v1.30.21
+	github.com/aws/aws-sdk-go-v2/service/lakeformation v1.47.3
 )
+
+require github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19
+
+require github.com/aws/aws-sdk-go-v2/service/mediaconvert v1.87.3
+require github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19 // indirect
+
+require github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.18
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

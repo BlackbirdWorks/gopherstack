@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48px" height="48px" viewBox="0 0 48 48" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>AWS Elemental MediaConvert</title>
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect fill="#BF0816" x="2" y="2" width="44" height="44" rx="6"></rect>
+        <path d="M24 10 L38 24 L24 38 L10 24 Z" fill="#FFFFFF" opacity="0.9"></path>
+        <polygon points="20,18 32,24 20,30" fill="#BF0816"></polygon>
+    </g>
+</svg>

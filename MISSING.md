@@ -53,7 +53,7 @@ The following services are supported by Localstack (either Free or Pro tier) but
 | **Managedblockchain** | ❌ No | ❌ No | ❌ No |
 | **Mediaconvert** | ❌ No | ❌ No | ❌ No |
 | **Mediastore** | ❌ No | ❌ No | ❌ No |
-| **Mediastore Data** | ❌ No | ❌ No | ❌ No |
+| **Mediastore Data** | ✅ Yes | ✅ Yes | ❌ No |
 | **Memorydb** | ❌ No | ❌ No | ❌ No |
 | **Mq** | ❌ No | ❌ No | ❌ No |
 | **Mwaa** | ❌ No | ❌ No | ❌ No |

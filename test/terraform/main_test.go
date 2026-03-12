@@ -78,7 +78,10 @@ import (
 	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
 	kinesisanalyticsv2svc "github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
+	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
+	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
+	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -1886,6 +1889,63 @@ func createKinesisAnalyticsV2Client(t *testing.T) *kinesisanalyticsv2svc.Client 
 	require.NoError(t, err, "unable to load SDK config")
 
 	return kinesisanalyticsv2svc.NewFromConfig(cfg, func(o *kinesisanalyticsv2svc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createMediaConvertClient returns a MediaConvert client pointed at the shared test container.
+func createMediaConvertClient(t *testing.T) *mediaconvertsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return mediaconvertsvc.NewFromConfig(
+		cfg,
+		func(o *mediaconvertsvc.Options) {
+			o.BaseEndpoint = aws.String(endpoint)
+		},
+	)
+}
+
+// createLakeFormationClient returns a Lake Formation client pointed at the shared test container.
+func createLakeFormationClient(t *testing.T) *lakeformationsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return lakeformationsvc.NewFromConfig(cfg, func(o *lakeformationsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createMediaStoreClient returns a MediaStore client pointed at the shared test container.
+func createMediaStoreClient(t *testing.T) *mediastoresvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return mediastoresvc.NewFromConfig(cfg, func(o *mediastoresvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

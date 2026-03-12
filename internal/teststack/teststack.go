@@ -75,6 +75,7 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
@@ -82,7 +83,11 @@ import (
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
+	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -216,6 +221,8 @@ type Stack struct {
 	EMRHandler *emrbackend.Handler
 	// GlacierHandler provides access to the Glacier backend.
 	GlacierHandler *glacierbackend.Handler
+	// IoTAnalyticsHandler provides access to the IoT Analytics backend.
+	IoTAnalyticsHandler *iotanalyticsbackend.Handler
 	// IoTWirelessHandler provides access to the IoT Wireless backend.
 	IoTWirelessHandler *iotwirelessbackend.Handler
 	// KinesisAnalyticsHandler provides access to the Kinesis Analytics backend.
@@ -224,10 +231,18 @@ type Stack struct {
 	KafkaHandler *kafkabackend.Handler
 	// KinesisAnalyticsV2Handler provides access to the Kinesis Data Analytics v2 backend.
 	KinesisAnalyticsV2Handler *kinesisanalyticsv2backend.Handler
-	S3Client                  *s3.Client
-	DDBClient                 *dynamodb.Client
-	FaultStore                *chaos.FaultStore
-	Dashboard                 *dashboard.DashboardHandler
+	// LakeFormationHandler provides access to the Lake Formation backend.
+	LakeFormationHandler *lakeformationbackend.Handler
+	// MediaConvertHandler provides access to the MediaConvert backend.
+	MediaConvertHandler *mediaconvertbackend.Handler
+	// MediaStoreHandler provides access to the MediaStore backend.
+	MediaStoreHandler *mediastorebackend.Handler
+	// MediaStoreDataHandler provides access to the MediaStore Data backend.
+	MediaStoreDataHandler *mediastoredatabackend.Handler
+	S3Client              *s3.Client
+	DDBClient             *dynamodb.Client
+	FaultStore            *chaos.FaultStore
+	Dashboard             *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -414,6 +429,15 @@ func registerCloudfrontService(registry *service.Registry, cloudFrontHndlr *clou
 	_ = registry.Register(cloudFrontHndlr)
 }
 
+// registerMediaServices registers the analytics and media service handlers.
+func registerMediaServices(registry *service.Registry, h handlers) {
+	_ = registry.Register(h.kinesisanalyticsv2)
+	_ = registry.Register(h.lakeformation)
+	_ = registry.Register(h.mediaconvert)
+	_ = registry.Register(h.mediastore)
+	_ = registry.Register(h.mediastoredata)
+}
+
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
 	s3                 *s3backend.S3Handler
@@ -497,10 +521,15 @@ type handlers struct {
 	emrserverless      *emrserverlessbackend.Handler
 	emr                *emrbackend.Handler
 	glacier            *glacierbackend.Handler
+	iotanalytics       *iotanalyticsbackend.Handler
 	iotwireless        *iotwirelessbackend.Handler
 	kafka              *kafkabackend.Handler
 	kinesisanalytics   *kinesisanalyticsbackend.Handler
 	kinesisanalyticsv2 *kinesisanalyticsv2backend.Handler
+	lakeformation      *lakeformationbackend.Handler
+	mediaconvert       *mediaconvertbackend.Handler
+	mediastore         *mediastorebackend.Handler
+	mediastoredata     *mediastoredatabackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -738,6 +767,8 @@ func populateLatestHandlers(h *handlers) {
 	h.glacier.AccountID = config.DefaultAccountID
 	h.glacier.DefaultRegion = config.DefaultRegion
 
+	h.iotanalytics = iotanalyticsbackend.NewHandler(iotanalyticsbackend.NewInMemoryBackend())
+
 	h.iotwireless = iotwirelessbackend.NewHandler(iotwirelessbackend.NewInMemoryBackend())
 	h.iotwireless.AccountID = config.DefaultAccountID
 	h.iotwireless.DefaultRegion = config.DefaultRegion
@@ -755,6 +786,19 @@ func populateLatestHandlers(h *handlers) {
 	h.kinesisanalyticsv2 = kinesisanalyticsv2backend.NewHandler(
 		kinesisanalyticsv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+
+	h.lakeformation = lakeformationbackend.NewHandler(lakeformationbackend.NewInMemoryBackend())
+	h.lakeformation.AccountID = config.DefaultAccountID
+	h.lakeformation.DefaultRegion = config.DefaultRegion
+
+	h.mediaconvert = mediaconvertbackend.NewHandler(
+		mediaconvertbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.mediastore = mediastorebackend.NewHandler(mediastorebackend.NewInMemoryBackend())
+	h.mediastore.AccountID = config.DefaultAccountID
+	h.mediastore.DefaultRegion = config.DefaultRegion
+
+	h.mediastoredata = mediastoredatabackend.NewHandler(mediastoredatabackend.NewInMemoryBackend())
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -788,8 +832,9 @@ func newCFNHandler(
 // newDashboardConfig builds the dashboard.Config for the test stack.
 func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chaos.FaultStore) {
 	fs := chaos.NewFaultStore()
+	gc := config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion}
 
-	return dashboard.Config{
+	cfg := dashboard.Config{
 		DDBClient:                  clients.DDB,
 		S3Client:                   clients.S3,
 		SSMClient:                  clients.SSM,
@@ -874,17 +919,35 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		EmrServerlessOps:           h.emrserverless,
 		EMROps:                     h.emr,
 		GlacierOps:                 h.glacier,
+		IoTAnalyticsOps:            h.iotanalytics,
 		IoTWirelessOps:             h.iotwireless,
 		KinesisAnalyticsOps:        h.kinesisanalytics,
 		KafkaOps:                   h.kafka,
-		KinesisAnalyticsV2Ops:      h.kinesisanalyticsv2,
-		GlobalConfig: config.GlobalConfig{
-			AccountID: config.DefaultAccountID,
-			Region:    config.DefaultRegion,
-		},
-		FaultStore: fs,
-		Logger:     slog.Default(),
-	}, fs
+		GlobalConfig:               gc,
+		FaultStore:                 fs,
+		Logger:                     slog.Default(),
+	}
+
+	applyNewestDashboardOps(&cfg, h)
+
+	return cfg, fs
+}
+
+// applyNewestDashboardOps sets the most recently added service ops on a dashboard.Config.
+// It is extracted from newDashboardConfig to satisfy the funlen limit.
+func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
+	cfg.EmrServerlessOps = h.emrserverless
+	cfg.EMROps = h.emr
+	cfg.GlacierOps = h.glacier
+	cfg.IoTAnalyticsOps = h.iotanalytics
+	cfg.IoTWirelessOps = h.iotwireless
+	cfg.KinesisAnalyticsOps = h.kinesisanalytics
+	cfg.KafkaOps = h.kafka
+	cfg.KinesisAnalyticsV2Ops = h.kinesisanalyticsv2
+	cfg.LakeFormationOps = h.lakeformation
+	cfg.MediaConvertOps = h.mediaconvert
+	cfg.MediaStoreOps = h.mediastore
+	cfg.MediaStoreDataOps = h.mediastoredata
 }
 
 // New creates a fully wired integration stack for testing.
@@ -941,10 +1004,11 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.fis)
 	_ = registry.Register(h.identitystore)
 	_ = registry.Register(h.glacier)
+	_ = registry.Register(h.iotanalytics)
 	_ = registry.Register(h.iotwireless)
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
-	_ = registry.Register(h.kinesisanalyticsv2)
+	registerMediaServices(registry, h)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -956,7 +1020,9 @@ func New(t *testing.T) *Stack {
 	router := service.NewServiceRouter(registry)
 	e.Use(router.RouteHandler())
 
-	return buildStack(e, h, clients, faultStore, dashHndlr)
+	s := buildStack(e, h, clients, faultStore, dashHndlr)
+
+	return s
 }
 
 // buildStack assembles the Stack struct from wired components.
@@ -968,7 +1034,7 @@ func buildStack(
 	faultStore *chaos.FaultStore,
 	dashboardHandler *dashboard.DashboardHandler,
 ) *Stack {
-	return &Stack{
+	s := &Stack{
 		Echo:                           e,
 		S3Backend:                      h.s3Bk,
 		S3Handler:                      h.s3,
@@ -1049,18 +1115,33 @@ func buildStack(
 		ElasticTranscoderHandler:       h.elastictranscoder,
 		ELBHandler:                     h.elb,
 		ELBv2Handler:                   h.elbv2,
-		EmrServerlessHandler:           h.emrserverless,
-		EMRHandler:                     h.emr,
 		GlacierHandler:                 h.glacier,
+		IoTAnalyticsHandler:            h.iotanalytics,
 		IoTWirelessHandler:             h.iotwireless,
 		KinesisAnalyticsHandler:        h.kinesisanalytics,
 		KafkaHandler:                   h.kafka,
-		KinesisAnalyticsV2Handler:      h.kinesisanalyticsv2,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
 		Dashboard:                      dashboardHandler,
 	}
+	setNewestStackHandlers(s, h)
+
+	return s
+}
+
+// setNewestStackHandlers sets the most recently added handler fields on a Stack.
+// It is extracted from buildStack to satisfy the funlen limit.
+func setNewestStackHandlers(s *Stack, h handlers) {
+	s.EmrServerlessHandler = h.emrserverless
+	s.EMRHandler = h.emr
+	s.KinesisAnalyticsHandler = h.kinesisanalytics
+	s.KafkaHandler = h.kafka
+	s.KinesisAnalyticsV2Handler = h.kinesisanalyticsv2
+	s.LakeFormationHandler = h.lakeformation
+	s.MediaConvertHandler = h.mediaconvert
+	s.MediaStoreHandler = h.mediastore
+	s.MediaStoreDataHandler = h.mediastoredata
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

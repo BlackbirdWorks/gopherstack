@@ -75,6 +75,7 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
@@ -82,7 +83,12 @@ import (
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
+	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -244,6 +250,8 @@ type DashboardHandler struct {
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
 	GlacierOps *glacierbackend.Handler
+	// IoTAnalyticsOps provides access to the IoT Analytics backend.
+	IoTAnalyticsOps *iotanalyticsbackend.Handler
 	// IoTWirelessOps provides access to the IoT Wireless backend.
 	IoTWirelessOps *iotwirelessbackend.Handler
 	// KinesisAnalyticsOps provides access to the Kinesis Analytics backend.
@@ -252,13 +260,23 @@ type DashboardHandler struct {
 	KafkaOps *kafkabackend.Handler
 	// KinesisAnalyticsV2Ops provides access to the Kinesis Data Analytics v2 backend.
 	KinesisAnalyticsV2Ops *kinesisanalyticsv2backend.Handler
-	SubRouter             *echo.Echo
-	ddbProvider           *ddbbackend.DashboardProvider
-	s3Provider            *s3backend.DashboardProvider
-	FaultStore            *chaos.FaultStore
-	Logger                *slog.Logger
-	layout                *template.Template
-	GlobalConfig          config.GlobalConfig
+	// LakeFormationOps provides access to the Lake Formation backend.
+	LakeFormationOps *lakeformationbackend.Handler
+	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
+	ManagedBlockchainOps *managedblockchainbackend.Handler
+	// MediaConvertOps provides access to the MediaConvert backend.
+	MediaConvertOps *mediaconvertbackend.Handler
+	// MediaStoreOps provides access to the MediaStore backend.
+	MediaStoreOps *mediastorebackend.Handler
+	// MediaStoreDataOps provides access to the MediaStore Data backend.
+	MediaStoreDataOps *mediastoredatabackend.Handler
+	SubRouter         *echo.Echo
+	ddbProvider       *ddbbackend.DashboardProvider
+	s3Provider        *s3backend.DashboardProvider
+	FaultStore        *chaos.FaultStore
+	Logger            *slog.Logger
+	layout            *template.Template
+	GlobalConfig      config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -422,6 +440,8 @@ type Config struct {
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
 	GlacierOps *glacierbackend.Handler
+	// IoTAnalyticsOps provides access to the IoT Analytics backend.
+	IoTAnalyticsOps *iotanalyticsbackend.Handler
 	// IoTWirelessOps provides access to the IoT Wireless backend.
 	IoTWirelessOps *iotwirelessbackend.Handler
 	// KinesisAnalyticsOps provides access to the Kinesis Analytics backend.
@@ -430,6 +450,16 @@ type Config struct {
 	KafkaOps *kafkabackend.Handler
 	// KinesisAnalyticsV2Ops provides access to the Kinesis Data Analytics v2 backend.
 	KinesisAnalyticsV2Ops *kinesisanalyticsv2backend.Handler
+	// LakeFormationOps provides access to the Lake Formation backend.
+	LakeFormationOps *lakeformationbackend.Handler
+	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
+	ManagedBlockchainOps *managedblockchainbackend.Handler
+	// MediaConvertOps provides access to the MediaConvert backend.
+	MediaConvertOps *mediaconvertbackend.Handler
+	// MediaStoreOps provides access to the MediaStore backend.
+	MediaStoreOps *mediastorebackend.Handler
+	// MediaStoreDataOps provides access to the MediaStore Data backend.
+	MediaStoreDataOps *mediastoredatabackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -538,11 +568,16 @@ func dashboardTemplatePatterns() []string {
 		"templates/emrserverless/*.html",
 		"templates/emr/*.html",
 		"templates/glacier/*.html",
+		"templates/iotanalytics/*.html",
 		"templates/iotwireless/*.html",
 		"templates/kinesisanalytics/*.html",
 		"templates/glue/*.html",
 		"templates/kafka/*.html",
 		"templates/kinesisanalyticsv2/*.html",
+		"templates/managedblockchain/*.html",
+		"templates/mediaconvert/*.html",
+		"templates/mediastore/*.html",
+		"templates/mediastoredata/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -562,8 +597,9 @@ func NewHandler(cfg Config) *DashboardHandler {
 	return h
 }
 
+//nolint:funlen // function length grows with each new service; each addition is a single field assignment.
 func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler {
-	return &DashboardHandler{
+	h := &DashboardHandler{
 		DynamoDB:                   cfg.DDBClient,
 		S3:                         cfg.S3Client,
 		SSM:                        cfg.SSMClient,
@@ -648,11 +684,15 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		EmrServerlessOps:           cfg.EmrServerlessOps,
 		EMROps:                     cfg.EMROps,
 		GlacierOps:                 cfg.GlacierOps,
+		IoTAnalyticsOps:            cfg.IoTAnalyticsOps,
 		IoTWirelessOps:             cfg.IoTWirelessOps,
 		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
 		KafkaOps:                   cfg.KafkaOps,
 		KinesisAnalyticsV2Ops:      cfg.KinesisAnalyticsV2Ops,
+		LakeFormationOps:           cfg.LakeFormationOps,
+		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
+		MediaStoreOps:              cfg.MediaStoreOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -661,6 +701,20 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		s3Provider:                 s3backend.NewDashboardProvider(),
 		SubRouter:                  echo.New(),
 	}
+	h.applyNewestOps(cfg)
+
+	return h
+}
+
+// applyNewestOps sets the most recently added service handler fields on the DashboardHandler.
+// It is extracted from newDashboardHandler to satisfy the funlen limit.
+func (h *DashboardHandler) applyNewestOps(cfg Config) {
+	h.KafkaOps = cfg.KafkaOps
+	h.KinesisAnalyticsV2Ops = cfg.KinesisAnalyticsV2Ops
+	h.LakeFormationOps = cfg.LakeFormationOps
+	h.ManagedBlockchainOps = cfg.ManagedBlockchainOps
+	h.MediaConvertOps = cfg.MediaConvertOps
+	h.MediaStoreDataOps = cfg.MediaStoreDataOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1149,14 +1203,18 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEMRRoutes()
 	h.setupIdentityStoreRoutes()
 	h.setupGlacierRoutes()
+	h.setupIoTAnalyticsRoutes()
 	h.setupIoTWirelessRoutes()
 	h.setupKinesisAnalyticsRoutes()
 	h.setupGlueRoutes()
 	h.setupKafkaRoutes()
 	h.setupKinesisAnalyticsV2Routes()
+	h.setupLakeFormationRoutes()
+	h.setupManagedBlockchainRoutes()
+	h.setupMediaConvertRoutes()
+	h.setupMediaStoreRoutes()
+	h.setupMediaStoreDataRoutes()
 }
-
-// Handler returns the Echo handler function for dashboard requests.
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		h.SubRouter.ServeHTTP(c.Response(), c.Request())
@@ -1276,6 +1334,10 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/emrserverless", "EmrServerless"},
 	{"/emr", "EMR"},
 	{"/glue", "Glue"},
+	{"/iotanalytics", "IoTAnalytics"},
+	{"/mediaconvert", "MediaConvert"},
+	{"/mediastore", "MediaStore"},
+	{"/mediastoredata", "MediaStoreData"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

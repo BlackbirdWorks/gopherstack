@@ -164,6 +164,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.19 h1:JnQeStZvPHFHe
 github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.19/go.mod h1:HGyasyHvYdFQeJhvDHfH7HXkHh57htcJGKDZ+7z+I24=
 github.com/aws/aws-sdk-go-v2/service/iot v1.72.3 h1:IMQaxFW5E/Fvl31LBeAZHDiUj/vDe8mChOCaJwwpJfU=
 github.com/aws/aws-sdk-go-v2/service/iot v1.72.3/go.mod h1:4ImJPCPtQDR5uOnPI3Tcm0fVtH88ld0nCJZPZM1OHTM=
+github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0 h1:QHeG0bWIqSZ/Utkd7BoDjpcmR5NnBQhErZl9JNlG+Xs=
+github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0/go.mod h1:uqgp8z4czp3R86cSNls22vvFFjCkfHT2eR6EOZ+QgVU=
 github.com/aws/aws-sdk-go-v2/service/iotwireless v1.54.7 h1:DaCHEffiDyu8oIj7GHdq1cS6U+nuNxJGkptKJXqMgnI=
 github.com/aws/aws-sdk-go-v2/service/iotwireless v1.54.7/go.mod h1:MGzE1hzlTvNx4IHXVqiJvbUia4U6NU7u97JBIFNh1LA=
 github.com/aws/aws-sdk-go-v2/service/kafka v1.49.0 h1:ducXwInIszhvm402b7nTfKbDdtXqDfGxUTz3C5LJ0pI=
@@ -176,8 +178,18 @@ github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2 v1.36.22 h1:2O+XgkYAQtbW
 github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2 v1.36.22/go.mod h1:XIyMqeiX4yF+oBGWidb9o436tji+/nBuIbnhRlVFVv4=
 github.com/aws/aws-sdk-go-v2/service/kms v1.50.2 h1:UOHOXigIzDRaEU03CBQcZ5uW7FNC7E+vwfhsQWXl5RQ=
 github.com/aws/aws-sdk-go-v2/service/kms v1.50.2/go.mod h1:nAa5gmcmAmjXN3tGuhPSHLXFeWv+7nzKhjZzh8F7MH0=
+github.com/aws/aws-sdk-go-v2/service/lakeformation v1.47.3 h1:882d+kB7+n6Y/zlyPf1ODdZ/0qUxEyLEwWdt1w5qbDI=
+github.com/aws/aws-sdk-go-v2/service/lakeformation v1.47.3/go.mod h1:Q9yCJ65TVUhtb+8RQj+zFn3Ko50ZQ1SiCY5OMob3hik=
 github.com/aws/aws-sdk-go-v2/service/lambda v1.88.2 h1:j+IFEtr7aykD6jJRE86kv/+TgN1UK90LudBuz2bjjYw=
 github.com/aws/aws-sdk-go-v2/service/lambda v1.88.2/go.mod h1:IDvS3hFp41ZJTByY7BO8PNgQkPNeQDjJfU/0cHJ2V4o=
+github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19 h1:PNpmmxmn2nOaLC79aBobNx6jC7O+Ty9yAhot62hNqN0=
+github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19/go.mod h1:pH5sdA6BaztL9AVrhCb55BG7/SpW4sRvz83A40RO66E=
+github.com/aws/aws-sdk-go-v2/service/mediaconvert v1.87.3 h1:fE8GkCE/6hx0wQQjbRJxAC9V0TnIJpXkURKD/j5qaq8=
+github.com/aws/aws-sdk-go-v2/service/mediaconvert v1.87.3/go.mod h1:pVfXaRrT7FlwIIyK+4RTxY9ReVQpqAH+qO7XY+Pn9C8=
+github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19 h1:Kv5zCgLXQcO88IwWqGJtN1byudkgu7U3H0Jficrz/Mw=
+github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19/go.mod h1:csvcQANBknUMKeom0XKfe30VkML9c0eYF8xuNxzJTW8=
+github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.18 h1:NHsx1EAXCiOhqTLrT9NWNtZoO6fA1+84rz3c/koHvkI=
+github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.18/go.mod h1:HCvN0cY4QLzbmGUwFfT50m/K8pzuUYYUFJDAUCj2pt8=
 github.com/aws/aws-sdk-go-v2/service/opensearch v1.59.0 h1:rhlLa2SwSeKva0DEUrbRc5DN2bAsIPvcmW7N/c2MUgI=
 github.com/aws/aws-sdk-go-v2/service/opensearch v1.59.0/go.mod h1:ONvZiWIqgJzRaqzynnqCZO7ofBDKJhmeRbrYiGtjFWM=
 github.com/aws/aws-sdk-go-v2/service/rds v1.116.2 h1:KQLPCn9BWXW0Y8DyzEokbTF9HOiOQoR77Eu9GKcjBWU=

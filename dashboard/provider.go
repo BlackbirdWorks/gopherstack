@@ -48,11 +48,17 @@ import (
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
+	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
+	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -178,10 +184,16 @@ type AWSSDKProvider interface {
 	GetAppConfigDataHandler() service.Registerable
 	GetElasticTranscoderHandler() service.Registerable
 	GetGlacierHandler() service.Registerable
+	GetIoTAnalyticsHandler() service.Registerable
 	GetIoTWirelessHandler() service.Registerable
 	GetKinesisAnalyticsHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
 	GetKinesisAnalyticsV2Handler() service.Registerable
+	GetLakeFormationHandler() service.Registerable
+	GetManagedBlockchainHandler() service.Registerable
+	GetMediaConvertHandler() service.Registerable
+	GetMediaStoreHandler() service.Registerable
+	GetMediaStoreDataHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -279,10 +291,16 @@ type extractedConfig struct {
 	identitystoreOps          *identitystorebackend.Handler
 	elasticTranscoderOps      *elastictranscoderbackend.Handler
 	glacierOps                *glacierbackend.Handler
+	iotanalyticsOps           *iotanalyticsbackend.Handler
 	iotwirelessOps            *iotwirelessbackend.Handler
 	kinesisanalyticsOps       *kinesisanalyticsbackend.Handler
 	kafkaOps                  *kafkabackend.Handler
 	kinesisanalyticsv2Ops     *kinesisanalyticsv2backend.Handler
+	lakeformationOps          *lakeformationbackend.Handler
+	managedblockchainOps      *managedblockchainbackend.Handler
+	mediaconvertOps           *mediaconvertbackend.Handler
+	mediastoreOps             *mediastorebackend.Handler
+	mediastoredataOps         *mediastoredatabackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -644,6 +662,7 @@ func extractCodeHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	}
 
 	extractNewestHandlers(ap, ec)
+	extractBlockchainHandlers(ap, ec)
 }
 
 // extractNewestHandlers populates handlers for the most recently introduced services.
@@ -660,6 +679,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.glacierOps, _ = h.(*glacierbackend.Handler)
 	}
 
+	if h := ap.GetIoTAnalyticsHandler(); h != nil {
+		ec.iotanalyticsOps, _ = h.(*iotanalyticsbackend.Handler)
+	}
+
 	if h := ap.GetIoTWirelessHandler(); h != nil {
 		ec.iotwirelessOps, _ = h.(*iotwirelessbackend.Handler)
 	}
@@ -668,6 +691,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.kinesisanalyticsOps, _ = h.(*kinesisanalyticsbackend.Handler)
 	}
 
+	extractNewestDataHandlers(ap, ec)
+}
+
+func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetIdentityStoreHandler(); h != nil {
 		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
@@ -678,6 +705,29 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetKinesisAnalyticsV2Handler(); h != nil {
 		ec.kinesisanalyticsv2Ops, _ = h.(*kinesisanalyticsv2backend.Handler)
+	}
+
+	if h := ap.GetLakeFormationHandler(); h != nil {
+		ec.lakeformationOps, _ = h.(*lakeformationbackend.Handler)
+	}
+
+	if h := ap.GetMediaStoreHandler(); h != nil {
+		ec.mediastoreOps, _ = h.(*mediastorebackend.Handler)
+	}
+
+	if h := ap.GetMediaStoreDataHandler(); h != nil {
+		ec.mediastoredataOps, _ = h.(*mediastoredatabackend.Handler)
+	}
+}
+
+// extractBlockchainHandlers populates ManagedBlockchain and MediaConvert handlers on ec.
+func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+	if h := ap.GetManagedBlockchainHandler(); h != nil {
+		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
+	}
+
+	if h := ap.GetMediaConvertHandler(); h != nil {
+		ec.mediaconvertOps, _ = h.(*mediaconvertbackend.Handler)
 	}
 }
 
@@ -767,10 +817,16 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IdentityStoreOps:           ec.identitystoreOps,
 		ElasticTranscoderOps:       ec.elasticTranscoderOps,
 		GlacierOps:                 ec.glacierOps,
+		IoTAnalyticsOps:            ec.iotanalyticsOps,
 		IoTWirelessOps:             ec.iotwirelessOps,
 		KinesisAnalyticsOps:        ec.kinesisanalyticsOps,
 		KafkaOps:                   ec.kafkaOps,
 		KinesisAnalyticsV2Ops:      ec.kinesisanalyticsv2Ops,
+		LakeFormationOps:           ec.lakeformationOps,
+		ManagedBlockchainOps:       ec.managedblockchainOps,
+		MediaConvertOps:            ec.mediaconvertOps,
+		MediaStoreOps:              ec.mediastoreOps,
+		MediaStoreDataOps:          ec.mediastoredataOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,

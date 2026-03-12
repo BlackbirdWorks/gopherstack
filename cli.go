@@ -107,6 +107,7 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
@@ -114,7 +115,12 @@ import (
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
+	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
+	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -240,9 +246,15 @@ type CLI struct {
 	glacierHandler                service.Registerable
 	iotwirelessHandler            service.Registerable
 	kinesisanalyticsHandler       service.Registerable
+	lakeformationHandler          service.Registerable
 	glueHandler                   service.Registerable
+	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
 	kinesisanalyticsv2Handler     service.Registerable
+	managedblockchainHandler      service.Registerable
+	mediaconvertHandler           service.Registerable
+	mediastoreHandler             service.Registerable
+	mediastoredataHandler         service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -588,6 +600,11 @@ func (c *CLI) GetEMRHandler() service.Registerable { return c.emrHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGlacierHandler() service.Registerable { return c.glacierHandler }
 
+// GetIoTAnalyticsHandler returns the IoT Analytics handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetIoTAnalyticsHandler() service.Registerable { return c.iotanalyticsHandler }
+
 // GetIoTWirelessHandler returns the IoT Wireless handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -597,6 +614,11 @@ func (c *CLI) GetIoTWirelessHandler() service.Registerable { return c.iotwireles
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKinesisAnalyticsHandler() service.Registerable { return c.kinesisanalyticsHandler }
+
+// GetLakeFormationHandler returns the Lake Formation handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetLakeFormationHandler() service.Registerable { return c.lakeformationHandler }
 
 // GetGlueHandler returns the Glue handler (dashboard.AWSSDKProvider).
 //
@@ -614,6 +636,26 @@ func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
 func (c *CLI) GetKinesisAnalyticsV2Handler() service.Registerable {
 	return c.kinesisanalyticsv2Handler
 }
+
+// GetManagedBlockchainHandler returns the Managed Blockchain handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetManagedBlockchainHandler() service.Registerable { return c.managedblockchainHandler }
+
+// GetMediaConvertHandler returns the MediaConvert handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMediaConvertHandler() service.Registerable { return c.mediaconvertHandler }
+
+// GetMediaStoreHandler returns the MediaStore handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMediaStoreHandler() service.Registerable { return c.mediastoreHandler }
+
+// GetMediaStoreDataHandler returns the MediaStore Data handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMediaStoreDataHandler() service.Registerable { return c.mediastoredataHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1259,9 +1301,15 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.glacierHandler = byName["Glacier"]
 	cli.iotwirelessHandler = byName["IoTWireless"]
 	cli.kinesisanalyticsHandler = byName["KinesisAnalytics"]
+	cli.lakeformationHandler = byName["LakeFormation"]
 	cli.glueHandler = byName["Glue"]
+	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
 	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
+	cli.managedblockchainHandler = byName["ManagedBlockchain"]
+	cli.mediaconvertHandler = byName["MediaConvert"]
+	cli.mediastoreHandler = byName["MediaStore"]
+	cli.mediastoredataHandler = byName["MediaStoreData"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1464,10 +1512,16 @@ func getServiceProviders() []service.Provider {
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
 		&glacierbackend.Provider{},
+		&iotanalyticsbackend.Provider{},
 		&iotwirelessbackend.Provider{},
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
 		&kinesisanalyticsv2backend.Provider{},
+		&lakeformationbackend.Provider{},
+		&managedblockchainbackend.Provider{},
+		&mediaconvertbackend.Provider{},
+		&mediastorebackend.Provider{},
+		&mediastoredatabackend.Provider{},
 	}
 }
 
