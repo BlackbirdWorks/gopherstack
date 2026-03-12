@@ -108,6 +108,7 @@ import (
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
+	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
@@ -235,6 +236,7 @@ type CLI struct {
 	elastictranscoderHandler      service.Registerable
 	emrHandler                    service.Registerable
 	glacierHandler                service.Registerable
+	iotwirelessHandler            service.Registerable
 	glueHandler                   service.Registerable
 	kafkaHandler                  service.Registerable
 	faultStore                    *chaos.FaultStore
@@ -581,6 +583,11 @@ func (c *CLI) GetEMRHandler() service.Registerable { return c.emrHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGlacierHandler() service.Registerable { return c.glacierHandler }
+
+// GetIoTWirelessHandler returns the IoT Wireless handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetIoTWirelessHandler() service.Registerable { return c.iotwirelessHandler }
 
 // GetGlueHandler returns the Glue handler (dashboard.AWSSDKProvider).
 //
@@ -1234,6 +1241,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.emrserverlessHandler = byName["EmrServerless"]
 	cli.emrHandler = byName["EMR"]
 	cli.glacierHandler = byName["Glacier"]
+	cli.iotwirelessHandler = byName["IoTWireless"]
 	cli.glueHandler = byName["Glue"]
 	cli.kafkaHandler = byName["Kafka"]
 	cli.docdbHandler = byName["DocDB"]
@@ -1438,6 +1446,7 @@ func getServiceProviders() []service.Provider {
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
 		&glacierbackend.Provider{},
+		&iotwirelessbackend.Provider{},
 		&kafkabackend.Provider{},
 	}
 }

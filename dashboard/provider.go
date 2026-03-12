@@ -49,6 +49,7 @@ import (
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
+	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -175,6 +176,7 @@ type AWSSDKProvider interface {
 	GetAppConfigDataHandler() service.Registerable
 	GetElasticTranscoderHandler() service.Registerable
 	GetGlacierHandler() service.Registerable
+	GetIoTWirelessHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
@@ -273,6 +275,7 @@ type extractedConfig struct {
 	identitystoreOps          *identitystorebackend.Handler
 	elasticTranscoderOps      *elastictranscoderbackend.Handler
 	glacierOps                *glacierbackend.Handler
+	iotwirelessOps            *iotwirelessbackend.Handler
 	kafkaOps                  *kafkabackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
@@ -651,6 +654,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.glacierOps, _ = h.(*glacierbackend.Handler)
 	}
 
+	if h := ap.GetIoTWirelessHandler(); h != nil {
+		ec.iotwirelessOps, _ = h.(*iotwirelessbackend.Handler)
+	}
+
 	if h := ap.GetIdentityStoreHandler(); h != nil {
 		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
@@ -746,6 +753,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IdentityStoreOps:           ec.identitystoreOps,
 		ElasticTranscoderOps:       ec.elasticTranscoderOps,
 		GlacierOps:                 ec.glacierOps,
+		IoTWirelessOps:             ec.iotwirelessOps,
 		KafkaOps:                   ec.kafkaOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,

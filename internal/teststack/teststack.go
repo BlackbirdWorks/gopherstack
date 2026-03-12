@@ -76,6 +76,7 @@ import (
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
+	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
@@ -213,12 +214,14 @@ type Stack struct {
 	EMRHandler *emrbackend.Handler
 	// GlacierHandler provides access to the Glacier backend.
 	GlacierHandler *glacierbackend.Handler
+	// IoTWirelessHandler provides access to the IoT Wireless backend.
+	IoTWirelessHandler *iotwirelessbackend.Handler
 	// KafkaHandler provides access to the MSK Kafka backend.
-	KafkaHandler *kafkabackend.Handler
-	S3Client     *s3.Client
-	DDBClient    *dynamodb.Client
-	FaultStore   *chaos.FaultStore
-	Dashboard    *dashboard.DashboardHandler
+	KafkaHandler       *kafkabackend.Handler
+	S3Client           *s3.Client
+	DDBClient          *dynamodb.Client
+	FaultStore         *chaos.FaultStore
+	Dashboard          *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -488,6 +491,7 @@ type handlers struct {
 	emrserverless     *emrserverlessbackend.Handler
 	emr               *emrbackend.Handler
 	glacier           *glacierbackend.Handler
+	iotwireless       *iotwirelessbackend.Handler
 	kafka             *kafkabackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
@@ -726,6 +730,10 @@ func populateLatestHandlers(h *handlers) {
 	h.glacier.AccountID = config.DefaultAccountID
 	h.glacier.DefaultRegion = config.DefaultRegion
 
+	h.iotwireless = iotwirelessbackend.NewHandler(iotwirelessbackend.NewInMemoryBackend())
+	h.iotwireless.AccountID = config.DefaultAccountID
+	h.iotwireless.DefaultRegion = config.DefaultRegion
+
 	h.kafka = kafkabackend.NewHandler(
 		kafkabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -848,6 +856,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		EmrServerlessOps:           h.emrserverless,
 		EMROps:                     h.emr,
 		GlacierOps:                 h.glacier,
+		IoTWirelessOps:             h.iotwireless,
 		KafkaOps:                   h.kafka,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
@@ -912,6 +921,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.fis)
 	_ = registry.Register(h.identitystore)
 	_ = registry.Register(h.glacier)
+	_ = registry.Register(h.iotwireless)
 	_ = registry.Register(h.kafka)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -1020,6 +1030,7 @@ func buildStack(
 		EmrServerlessHandler:           h.emrserverless,
 		EMRHandler:                     h.emr,
 		GlacierHandler:                 h.glacier,
+		IoTWirelessHandler:             h.iotwireless,
 		KafkaHandler:                   h.kafka,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,

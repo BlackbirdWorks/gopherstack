@@ -76,6 +76,7 @@ import (
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
+	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
@@ -241,15 +242,17 @@ type DashboardHandler struct {
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
 	GlacierOps *glacierbackend.Handler
+	// IoTWirelessOps provides access to the IoT Wireless backend.
+	IoTWirelessOps *iotwirelessbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
-	KafkaOps     *kafkabackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	KafkaOps       *kafkabackend.Handler
+	SubRouter      *echo.Echo
+	ddbProvider    *ddbbackend.DashboardProvider
+	s3Provider     *s3backend.DashboardProvider
+	FaultStore     *chaos.FaultStore
+	Logger         *slog.Logger
+	layout         *template.Template
+	GlobalConfig   config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -413,6 +416,8 @@ type Config struct {
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
 	GlacierOps *glacierbackend.Handler
+	// IoTWirelessOps provides access to the IoT Wireless backend.
+	IoTWirelessOps *iotwirelessbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -440,7 +445,11 @@ func parseDashboardTemplates() *template.Template {
 		},
 	}
 
-	t := template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS,
+	return template.Must(template.New("layout").Funcs(funcMap).ParseFS(templateFS, dashboardTemplatePatterns()...))
+}
+
+func dashboardTemplatePatterns() []string {
+	return []string{
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
@@ -519,28 +528,30 @@ func parseDashboardTemplates() *template.Template {
 		"templates/emrserverless/*.html",
 		"templates/emr/*.html",
 		"templates/glacier/*.html",
+		"templates/iotwireless/*.html",
 		"templates/glue/*.html",
-	))
-
-	return parseRecentTemplates(t)
-}
-
-// parseRecentTemplates adds recently-introduced service templates to an existing template set.
-func parseRecentTemplates(t *template.Template) *template.Template {
-	return template.Must(t.ParseFS(templateFS,
 		"templates/kafka/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
 		"templates/settings.html",
 		"templates/apiconsole.html",
-	))
+	}
 }
 
 // NewHandler creates a new Dashboard handler.
 func NewHandler(cfg Config) *DashboardHandler {
 	tmpl := parseDashboardTemplates()
-	h := &DashboardHandler{
+
+	h := newDashboardHandler(cfg, tmpl)
+
+	h.initHandlers(cfg.Logger)
+
+	return h
+}
+
+func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler {
+	return &DashboardHandler{
 		DynamoDB:                   cfg.DDBClient,
 		S3:                         cfg.S3Client,
 		SSM:                        cfg.SSMClient,
@@ -625,6 +636,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EmrServerlessOps:           cfg.EmrServerlessOps,
 		EMROps:                     cfg.EMROps,
 		GlacierOps:                 cfg.GlacierOps,
+		IoTWirelessOps:             cfg.IoTWirelessOps,
 		GlueOps:                    cfg.GlueOps,
 		KafkaOps:                   cfg.KafkaOps,
 		GlobalConfig:               cfg.GlobalConfig,
@@ -635,10 +647,6 @@ func NewHandler(cfg Config) *DashboardHandler {
 		s3Provider:                 s3backend.NewDashboardProvider(),
 		SubRouter:                  echo.New(),
 	}
-
-	h.initHandlers(cfg.Logger)
-
-	return h
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1127,6 +1135,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEMRRoutes()
 	h.setupIdentityStoreRoutes()
 	h.setupGlacierRoutes()
+	h.setupIoTWirelessRoutes()
 	h.setupGlueRoutes()
 	h.setupKafkaRoutes()
 }
