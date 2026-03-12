@@ -121,7 +121,7 @@ func TestKafka_RouteMatcher(t *testing.T) {
 		want bool
 	}{
 		{name: "v1_clusters", path: "/v1/clusters", want: true},
-		{name: "v2_clusters", path: "/v2/clusters", want: true},
+		{name: "v2_clusters", path: "/api/v2/clusters", want: true},
 		{name: "v1_configurations", path: "/v1/configurations", want: true},
 		{
 			name: "v1_tags_kafka_arn",
@@ -639,7 +639,7 @@ func TestKafka_CreateClusterV2(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			rec := doKafkaRequest(t, h, http.MethodPost, "/v2/clusters", tt.body)
+			rec := doKafkaRequest(t, h, http.MethodPost, "/api/v2/clusters", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			var resp map[string]any
@@ -669,7 +669,7 @@ func TestKafka_DescribeClusterV2(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			createRec := doKafkaRequest(t, h, http.MethodPost, "/v2/clusters", map[string]any{
+			createRec := doKafkaRequest(t, h, http.MethodPost, "/api/v2/clusters", map[string]any{
 				"clusterName": "v2-cluster",
 				"provisioned": map[string]any{
 					"kafkaVersion":        "2.8.0",
@@ -693,7 +693,7 @@ func TestKafka_DescribeClusterV2(t *testing.T) {
 			}
 
 			encodedArn := url.PathEscape(clusterArn)
-			rec := doKafkaRequest(t, h, http.MethodGet, "/v2/clusters/"+encodedArn, nil)
+			rec := doKafkaRequest(t, h, http.MethodGet, "/api/v2/clusters/"+encodedArn, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantStatus == http.StatusOK {

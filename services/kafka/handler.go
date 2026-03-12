@@ -17,7 +17,7 @@ import (
 
 const (
 	clustersV1Prefix       = "/v1/clusters/"
-	clustersV2Prefix       = "/v2/clusters/"
+	clustersV2Prefix       = "/api/v2/clusters/"
 	configurationsPrefix   = "/v1/configurations/"
 	tagsPrefix             = "/v1/tags/"
 	bootstrapBrokersSuffix = "/bootstrap-brokers"
@@ -75,7 +75,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		p := c.Request().URL.Path
 
 		return strings.HasPrefix(p, "/v1/clusters") ||
-			strings.HasPrefix(p, "/v2/clusters") ||
+			strings.HasPrefix(p, "/api/v2/clusters") ||
 			strings.HasPrefix(p, "/v1/configurations") ||
 			isKafkaTagsPath(p)
 	}
@@ -176,7 +176,7 @@ func parseKafkaPath(method, path string) (string, string) {
 		return parseClusterRootV1(method)
 	case strings.HasPrefix(path, clustersV1Prefix):
 		return parseClusterResourceV1(method, path[len(clustersV1Prefix):])
-	case path == "/v2/clusters" || path == "/v2/clusters/":
+	case path == "/api/v2/clusters" || path == "/api/v2/clusters/":
 		return parseClusterRootV2(method)
 	case strings.HasPrefix(path, clustersV2Prefix):
 		return parseClusterResourceV2(method, path[len(clustersV2Prefix):])

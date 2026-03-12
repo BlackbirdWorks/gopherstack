@@ -443,13 +443,13 @@ func TestParseKafkaPath(t *testing.T) {
 		{
 			name:   "list_clusters_v2",
 			method: http.MethodGet,
-			path:   "/v2/clusters",
+			path:   "/api/v2/clusters",
 			wantOp: "ListClustersV2",
 		},
 		{
 			name:   "create_cluster_v2",
 			method: http.MethodPost,
-			path:   "/v2/clusters",
+			path:   "/api/v2/clusters",
 			wantOp: "CreateClusterV2",
 		},
 		{
