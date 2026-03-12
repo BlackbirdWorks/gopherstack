@@ -142,6 +142,8 @@ github.com/aws/aws-sdk-go-v2/service/eventbridge v1.45.21 h1:V1p6rPBunVWfaXeBRlL
 github.com/aws/aws-sdk-go-v2/service/eventbridge v1.45.21/go.mod h1:TcDMbd5blzISp1pLuIYOfry8K5ArV6mbsMSOhUxttMk=
 github.com/aws/aws-sdk-go-v2/service/firehose v1.42.11 h1:XBYyFYlE2p05hzqqY6AicgeMZ49T0FQKKG/k9vOjbRg=
 github.com/aws/aws-sdk-go-v2/service/firehose v1.42.11/go.mod h1:3uOwsg9hgJgAzaJe+xjVlCHSbXx4F/Bys7o9dPRzU2Q=
+github.com/aws/aws-sdk-go-v2/service/fis v1.37.18 h1:dmu/ow3nsssfkQWM9JfM0ktJt7gtLbplTQAXBNdZH58=
+github.com/aws/aws-sdk-go-v2/service/fis v1.37.18/go.mod h1:VuDLTyye9rEQx3lfs2UrO74ENboOHzkY1pehPvG3HvM=
 github.com/aws/aws-sdk-go-v2/service/iam v1.53.4 h1:FUWGS7m97SYL0bk9Kb+Q4bVpcSrKOHNiIbEXIRFTRW4=
 github.com/aws/aws-sdk-go-v2/service/iam v1.53.4/go.mod h1:seDE466zJ4haVuAVcRk+yIH4DWb3s6cqt3Od8GxnGAA=
 github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.6 h1:XAq62tBTJP/85lFD5oqOOe7YYgWxY9LvWq8plyDvDVg=

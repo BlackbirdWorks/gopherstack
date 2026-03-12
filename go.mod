@@ -121,6 +121,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.20 // indirect
 	github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk v1.34.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/emr v1.57.7
+	github.com/aws/aws-sdk-go-v2/service/fis v1.37.18 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.11 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.11.19 // indirect
