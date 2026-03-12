@@ -454,7 +454,7 @@ func (h *Handler) handleCreateVault(c *echo.Context, vaultName string) error {
 	}
 
 	c.Response().Header().Set("Location", vaultLocation(h.AccountID, vaultName))
-	c.Response().Header().Set("x-amzn-RequestId", "glacier-create-vault")
+	c.Response().Header().Set("X-Amzn-Requestid", "glacier-create-vault")
 
 	return c.JSON(http.StatusCreated, createVaultResponse{
 		Location: vaultLocation(h.AccountID, v.VaultName),
@@ -508,8 +508,8 @@ func toDescribeVaultResponse(v *Vault) describeVaultResponse {
 // ----------------------------------------
 
 func (h *Handler) handleUploadArchive(c *echo.Context, vaultName string, body []byte) error {
-	description := c.Request().Header.Get("x-amz-archive-description")
-	checksum := c.Request().Header.Get("x-amz-sha256-tree-hash")
+	description := c.Request().Header.Get("X-Amz-Archive-Description")
+	checksum := c.Request().Header.Get("X-Amz-Sha256-Tree-Hash")
 
 	if checksum == "" {
 		checksum = "0000000000000000000000000000000000000000000000000000000000000000"
@@ -524,8 +524,8 @@ func (h *Handler) handleUploadArchive(c *echo.Context, vaultName string, body []
 
 	location := "/" + h.AccountID + "/vaults/" + vaultName + "/archives/" + a.ArchiveID
 
-	c.Response().Header().Set("x-amz-archive-id", a.ArchiveID)
-	c.Response().Header().Set("x-amz-sha256-tree-hash", a.SHA256TreeHash)
+	c.Response().Header().Set("X-Amz-Archive-Id", a.ArchiveID)
+	c.Response().Header().Set("X-Amz-Sha256-Tree-Hash", a.SHA256TreeHash)
 	c.Response().Header().Set("Location", location)
 
 	return c.JSON(http.StatusCreated, uploadArchiveResponse{
@@ -565,7 +565,7 @@ func (h *Handler) handleInitiateJob(c *echo.Context, vaultName string, body []by
 
 	location := "/" + h.AccountID + "/vaults/" + vaultName + "/jobs/" + j.JobID
 
-	c.Response().Header().Set("x-amz-job-id", j.JobID)
+	c.Response().Header().Set("X-Amz-Job-Id", j.JobID)
 	c.Response().Header().Set("Location", location)
 
 	return c.JSON(http.StatusAccepted, initiateJobResponse{

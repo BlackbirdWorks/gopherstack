@@ -517,10 +517,6 @@ func parseDashboardTemplates() *template.Template {
 func NewHandler(cfg Config) *DashboardHandler {
 	tmpl := parseDashboardTemplates()
 
-	// Create service-specific dashboard providers
-	ddbProvider := ddbbackend.NewDashboardProvider()
-	s3Provider := s3backend.NewDashboardProvider()
-
 	h := &DashboardHandler{
 		DynamoDB:                   cfg.DDBClient,
 		S3:                         cfg.S3Client,
@@ -609,8 +605,8 @@ func NewHandler(cfg Config) *DashboardHandler {
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
 		layout:                     tmpl,
-		ddbProvider:                ddbProvider,
-		s3Provider:                 s3Provider,
+		ddbProvider:                ddbbackend.NewDashboardProvider(),
+		s3Provider:                 s3backend.NewDashboardProvider(),
 		SubRouter:                  echo.New(),
 	}
 
