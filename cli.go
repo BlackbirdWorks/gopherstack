@@ -120,6 +120,7 @@ import (
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -253,6 +254,7 @@ type CLI struct {
 	mediaconvertHandler           service.Registerable
 	mediastoreHandler             service.Registerable
 	mediastoredataHandler         service.Registerable
+	memorydbHandler               service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -647,6 +649,11 @@ func (c *CLI) GetMediaStoreHandler() service.Registerable { return c.mediastoreH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMediaStoreDataHandler() service.Registerable { return c.mediastoredataHandler }
+
+// GetMemoryDBHandler returns the MemoryDB handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMemoryDBHandler() service.Registerable { return c.memorydbHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1300,6 +1307,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.mediaconvertHandler = byName["MediaConvert"]
 	cli.mediastoreHandler = byName["MediaStore"]
 	cli.mediastoredataHandler = byName["MediaStoreData"]
+	cli.memorydbHandler = byName["MemoryDB"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1511,6 +1519,7 @@ func getServiceProviders() []service.Provider {
 		&mediaconvertbackend.Provider{},
 		&mediastorebackend.Provider{},
 		&mediastoredatabackend.Provider{},
+		&memorydbbackend.Provider{},
 	}
 }
 

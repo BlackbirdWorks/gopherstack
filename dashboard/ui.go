@@ -88,6 +88,7 @@ import (
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -267,13 +268,15 @@ type DashboardHandler struct {
 	MediaStoreOps *mediastorebackend.Handler
 	// MediaStoreDataOps provides access to the MediaStore Data backend.
 	MediaStoreDataOps *mediastoredatabackend.Handler
-	SubRouter         *echo.Echo
-	ddbProvider       *ddbbackend.DashboardProvider
-	s3Provider        *s3backend.DashboardProvider
-	FaultStore        *chaos.FaultStore
-	Logger            *slog.Logger
-	layout            *template.Template
-	GlobalConfig      config.GlobalConfig
+	// MemoryDBOps provides access to the MemoryDB backend.
+	MemoryDBOps  *memorydbbackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -455,6 +458,8 @@ type Config struct {
 	MediaStoreOps *mediastorebackend.Handler
 	// MediaStoreDataOps provides access to the MediaStore Data backend.
 	MediaStoreDataOps *mediastoredatabackend.Handler
+	// MemoryDBOps provides access to the MemoryDB backend.
+	MemoryDBOps *memorydbbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -572,6 +577,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/mediaconvert/*.html",
 		"templates/mediastore/*.html",
 		"templates/mediastoredata/*.html",
+		"templates/memorydb/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -686,6 +692,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		LakeFormationOps:           cfg.LakeFormationOps,
 		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
 		MediaStoreOps:              cfg.MediaStoreOps,
+		MemoryDBOps:                cfg.MemoryDBOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1205,6 +1212,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMediaConvertRoutes()
 	h.setupMediaStoreRoutes()
 	h.setupMediaStoreDataRoutes()
+	h.setupMemoryDBRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
