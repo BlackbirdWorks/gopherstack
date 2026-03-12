@@ -169,7 +169,7 @@ type DashboardHandler struct {
 	EFSOps            *efsbackend.Handler
 	IoTOps            *iotbackend.Handler
 	FISOps            *fisbackend.Handler
-	GlueOps          *gluebackend.Handler
+	GlueOps           *gluebackend.Handler
 	// IdentityStoreOps provides access to the Identity Store backend.
 	IdentityStoreOps *identitystorebackend.Handler
 	OpenSearchOps    *opensearchbackend.Handler

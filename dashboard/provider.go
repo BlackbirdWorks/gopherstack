@@ -563,10 +563,6 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.emrServerlessOps, _ = h.(*emrserverlessbackend.Handler)
 	}
 
-	if h := ap.GetIdentityStoreHandler(); h != nil {
-		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
-	}
-
 	extractCloudPlatformHandlers(ap, ec)
 }
 
@@ -650,6 +646,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetGlacierHandler(); h != nil {
 		ec.glacierOps, _ = h.(*glacierbackend.Handler)
+	}
+
+	if h := ap.GetIdentityStoreHandler(); h != nil {
+		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
 }
 
