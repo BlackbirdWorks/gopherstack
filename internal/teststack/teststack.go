@@ -809,6 +809,7 @@ func newCFNHandler(
 // newDashboardConfig builds the dashboard.Config for the test stack.
 func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chaos.FaultStore) {
 	fs := chaos.NewFaultStore()
+	gc := config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion}
 
 	return dashboard.Config{
 		DDBClient:                  clients.DDB,
@@ -902,12 +903,9 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		LakeFormationOps:           h.lakeformation,
 		MediaConvertOps:            h.mediaconvert,
 		MediaStoreOps:              h.mediastore,
-		GlobalConfig: config.GlobalConfig{
-			AccountID: config.DefaultAccountID,
-			Region:    config.DefaultRegion,
-		},
-		FaultStore: fs,
-		Logger:     slog.Default(),
+		GlobalConfig:               gc,
+		FaultStore:                 fs,
+		Logger:                     slog.Default(),
 	}, fs
 }
 
