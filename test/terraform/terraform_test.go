@@ -74,6 +74,8 @@ import (
 	elasticachesvc "github.com/aws/aws-sdk-go-v2/service/elasticache"
 	elasticbeanstalksvc "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
+	elbv2svc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	emrserverlesssvc "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -210,6 +212,7 @@ provider "aws" {
     efs             = %[1]q
     eks             = %[1]q
     elb             = %[1]q
+    elbv2           = %[1]q
     elasticache     = %[1]q
     elasticbeanstalk = %[1]q
     elastictranscoder = %[1]q
@@ -4314,7 +4317,7 @@ func TestTerraform_ElasticTranscoder(t *testing.T) {
 				found := false
 
 				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated the SDK but service still works
-					name := aws.ToString(p.Name) //nolint:staticcheck // deprecated service
+					name := aws.ToString(p.Name)
 					if name == pipelineName {
 						found = true
 
@@ -4379,47 +4382,104 @@ func TestTerraform_ELB(t *testing.T) {
 // TestTerraform_EmrServerless provisions an EMR Serverless application via Terraform, then
 // verifies it is listed via the EMR Serverless SDK.
 func TestTerraform_EmrServerless(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "emrserverless/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "emrserverless/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"Suffix": id,
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEmrServerlessClient(t)
+				suffix := vars["Suffix"].(string)
+				name := "tf-emr-" + suffix
+
+				out, err := client.ListApplications(ctx, &emrserverlesssvc.ListApplicationsInput{})
+				require.NoError(t, err, "ListApplications should succeed after terraform apply")
+				found := false
+
+				for _, app := range out.Applications {
+					if aws.ToString(app.Name) == name {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "application %q should be listed", name)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createEmrServerlessClient(t)
-suffix := vars["Suffix"].(string)
-name := "tf-emr-" + suffix
 
-out, err := client.ListApplications(ctx, &emrserverlesssvc.ListApplicationsInput{})
-require.NoError(t, err, "ListApplications should succeed after terraform apply")
-found := false
+// TestTerraform_ELBv2 provisions an ALB, target group, and listener via Terraform, then verifies
+// they exist via the ELBv2 SDK.
+func TestTerraform_ELBv2(t *testing.T) {
+	t.Parallel()
 
-for _, app := range out.Applications {
-if aws.ToString(app.Name) == name {
-found = true
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "elbv2/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-break
-}
-}
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createELBv2Client(t)
+				suffix := vars["Suffix"].(string)
+				lbName := "tf-alb-" + suffix
+				tgName := "tf-tg-" + suffix
 
-assert.True(t, found, "application %q should be listed", name)
-},
-},
-}
+				lbOut, err := client.DescribeLoadBalancers(ctx, &elbv2svc.DescribeLoadBalancersInput{
+					Names: []string{lbName},
+				})
+				require.NoError(t, err, "DescribeLoadBalancers should succeed after terraform apply")
+				require.Len(t, lbOut.LoadBalancers, 1, "load balancer should exist")
+				assert.Equal(t, lbName, *lbOut.LoadBalancers[0].LoadBalancerName)
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+				tgOut, err := client.DescribeTargetGroups(ctx, &elbv2svc.DescribeTargetGroupsInput{
+					Names: []string{tgName},
+				})
+				require.NoError(t, err, "DescribeTargetGroups should succeed after terraform apply")
+				require.Len(t, tgOut.TargetGroups, 1, "target group should exist")
+				assert.Equal(t, tgName, *tgOut.TargetGroups[0].TargetGroupName)
+
+				lbArn := lbOut.LoadBalancers[0].LoadBalancerArn
+				listenerOut, err := client.DescribeListeners(ctx, &elbv2svc.DescribeListenersInput{
+					LoadBalancerArn: lbArn,
+				})
+				require.NoError(t, err, "DescribeListeners should succeed after terraform apply")
+				require.Len(t, listenerOut.Listeners, 1, "listener should exist")
+				assert.Equal(t, *lbArn, *listenerOut.Listeners[0].LoadBalancerArn)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }

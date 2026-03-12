@@ -64,6 +64,7 @@ import (
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
+	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -224,6 +225,8 @@ type DashboardHandler struct {
 	ElasticTranscoderOps *elastictranscoderbackend.Handler
 	// ELBOps provides access to the Classic ELB backend.
 	ELBOps *elbbackend.Handler
+	// ELBv2Ops provides access to the ELBv2 (ALB/NLB) backend.
+	ELBv2Ops *elbv2backend.Handler
 	// EmrServerlessOps provides access to the EMR Serverless backend.
 	EmrServerlessOps *emrserverlessbackend.Handler
 	SubRouter        *echo.Echo
@@ -384,6 +387,8 @@ type Config struct {
 	ElasticTranscoderOps *elastictranscoderbackend.Handler
 	// ELBOps provides access to the Classic ELB backend.
 	ELBOps *elbbackend.Handler
+	// ELBv2Ops provides access to the ELBv2 (ALB/NLB) backend.
+	ELBv2Ops *elbv2backend.Handler
 	// EmrServerlessOps provides access to the EMR Serverless backend.
 	EmrServerlessOps *emrserverlessbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -488,6 +493,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/elasticbeanstalk/*.html",
 		"templates/elastictranscoder/*.html",
 		"templates/elb/*.html",
+		"templates/elbv2/*.html",
 		"templates/emrserverless/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -584,6 +590,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EKSOps:                     cfg.EKSOps,
 		ElasticTranscoderOps:       cfg.ElasticTranscoderOps,
 		ELBOps:                     cfg.ELBOps,
+		ELBv2Ops:                   cfg.ELBv2Ops,
 		EmrServerlessOps:           cfg.EmrServerlessOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
@@ -940,6 +947,12 @@ func (h *DashboardHandler) setupELBRoutes() {
 	h.SubRouter.POST("/dashboard/elb/loadbalancer/delete", h.elbDeleteLoadBalancer)
 }
 
+func (h *DashboardHandler) setupELBv2Routes() {
+	h.SubRouter.GET("/dashboard/elbv2", h.elbv2Index)
+	h.SubRouter.POST("/dashboard/elbv2/loadbalancer/create", h.elbv2CreateLoadBalancer)
+	h.SubRouter.POST("/dashboard/elbv2/loadbalancer/delete", h.elbv2DeleteLoadBalancer)
+}
+
 func (h *DashboardHandler) setupAppSyncRoutes() {
 	h.SubRouter.GET("/dashboard/appsync", h.appSyncIndex)
 }
@@ -1074,6 +1087,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEKSRoutes()
 	h.setupElasticTranscoderRoutes()
 	h.setupELBRoutes()
+	h.setupELBv2Routes()
 	h.setupEmrServerlessRoutes()
 }
 
