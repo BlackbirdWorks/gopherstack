@@ -67,6 +67,7 @@ import (
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
+	emrserverlessbackend "github.com/blackbirdworks/gopherstack/services/emrserverless"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -202,6 +203,8 @@ type Stack struct {
 	ELBHandler *elbbackend.Handler
 	// ELBv2Handler provides access to the ELBv2 (ALB/NLB) backend.
 	ELBv2Handler *elbv2backend.Handler
+	// EmrServerlessHandler provides access to the EMR Serverless backend.
+	EmrServerlessHandler *emrserverlessbackend.Handler
 	// EMRHandler provides access to the EMR backend.
 	EMRHandler *emrbackend.Handler
 	S3Client   *s3.Client
@@ -473,6 +476,7 @@ type handlers struct {
 	eks               *eksbackend.Handler
 	elb               *elbbackend.Handler
 	elbv2             *elbv2backend.Handler
+	emrserverless     *emrserverlessbackend.Handler
 	emr               *emrbackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
@@ -687,13 +691,17 @@ func populateNewestHandlers(h *handlers) {
 	populateLatestHandlers(h)
 }
 
-// populateLatestHandlers registers the ELBv2 and EMR service handlers.
-// These are separated from populateNewestHandlers to keep each function within the
-// funlen limit; handlers here represent the most recently added load-balancing and
-// analytics services.
+// populateLatestHandlers fills in the most recently added service handlers that would push
+// populateNewestHandlers past the funlen limit.
+// populateLatestHandlers fills in the most recently added service handlers that would push
+// populateNewestHandlers past the funlen limit.
 func populateLatestHandlers(h *handlers) {
 	h.elbv2 = elbv2backend.NewHandler(
 		elbv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+
+	h.emrserverless = emrserverlessbackend.NewHandler(
+		emrserverlessbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 
 	h.emr = emrbackend.NewHandler(
@@ -814,6 +822,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ElasticTranscoderOps:       h.elastictranscoder,
 		ELBOps:                     h.elb,
 		ELBv2Ops:                   h.elbv2,
+		EmrServerlessOps:           h.emrserverless,
 		EMROps:                     h.emr,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
@@ -873,6 +882,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.elastictranscoder)
 	_ = registry.Register(h.elb)
 	_ = registry.Register(h.elbv2)
+	_ = registry.Register(h.emrserverless)
 	_ = registry.Register(h.emr)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -977,6 +987,7 @@ func buildStack(
 		ElasticTranscoderHandler:       h.elastictranscoder,
 		ELBHandler:                     h.elb,
 		ELBv2Handler:                   h.elbv2,
+		EmrServerlessHandler:           h.emrserverless,
 		EMRHandler:                     h.emr,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,

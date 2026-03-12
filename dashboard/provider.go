@@ -60,6 +60,7 @@ import (
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
+	emrserverlessbackend "github.com/blackbirdworks/gopherstack/services/emrserverless"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
@@ -160,6 +161,7 @@ type AWSSDKProvider interface {
 	GetEKSHandler() service.Registerable
 	GetELBHandler() service.Registerable
 	GetELBv2Handler() service.Registerable
+	GetEmrServerlessHandler() service.Registerable
 	GetEMRHandler() service.Registerable
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
@@ -255,6 +257,7 @@ type extractedConfig struct {
 	eksOps                    *eksbackend.Handler
 	elbOps                    *elbbackend.Handler
 	elbv2Ops                  *elbv2backend.Handler
+	emrServerlessOps          *emrserverlessbackend.Handler
 	emrOps                    *emrbackend.Handler
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
@@ -543,6 +546,10 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.bedrockOps, _ = h.(*bedrockbackend.Handler)
 	}
 
+	if h := ap.GetEmrServerlessHandler(); h != nil {
+		ec.emrServerlessOps, _ = h.(*emrserverlessbackend.Handler)
+	}
+
 	extractCloudPlatformHandlers(ap, ec)
 }
 
@@ -698,6 +705,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		EKSOps:                     ec.eksOps,
 		ELBOps:                     ec.elbOps,
 		ELBv2Ops:                   ec.elbv2Ops,
+		EmrServerlessOps:           ec.emrServerlessOps,
 		EMROps:                     ec.emrOps,
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,
