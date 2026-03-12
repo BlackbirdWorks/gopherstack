@@ -107,6 +107,7 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
@@ -235,6 +236,7 @@ type CLI struct {
 	emrHandler                    service.Registerable
 	glacierHandler                service.Registerable
 	glueHandler                   service.Registerable
+	iotanalyticsHandler           service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -579,6 +581,11 @@ func (c *CLI) GetEMRHandler() service.Registerable { return c.emrHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGlacierHandler() service.Registerable { return c.glacierHandler }
+
+// GetIoTAnalyticsHandler returns the IoT Analytics handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetIoTAnalyticsHandler() service.Registerable { return c.iotanalyticsHandler }
 
 // GetGlueHandler returns the Glue handler (dashboard.AWSSDKProvider).
 //
@@ -1228,6 +1235,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.emrHandler = byName["EMR"]
 	cli.glacierHandler = byName["Glacier"]
 	cli.glueHandler = byName["Glue"]
+	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1430,6 +1438,7 @@ func getServiceProviders() []service.Provider {
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
 		&glacierbackend.Provider{},
+		&iotanalyticsbackend.Provider{},
 	}
 }
 

@@ -48,6 +48,7 @@ import (
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -174,6 +175,7 @@ type AWSSDKProvider interface {
 	GetAppConfigDataHandler() service.Registerable
 	GetElasticTranscoderHandler() service.Registerable
 	GetGlacierHandler() service.Registerable
+	GetIoTAnalyticsHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -271,6 +273,7 @@ type extractedConfig struct {
 	identitystoreOps          *identitystorebackend.Handler
 	elasticTranscoderOps      *elastictranscoderbackend.Handler
 	glacierOps                *glacierbackend.Handler
+	iotanalyticsOps           *iotanalyticsbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -648,6 +651,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.glacierOps, _ = h.(*glacierbackend.Handler)
 	}
 
+	if h := ap.GetIoTAnalyticsHandler(); h != nil {
+		ec.iotanalyticsOps, _ = h.(*iotanalyticsbackend.Handler)
+	}
+
 	if h := ap.GetIdentityStoreHandler(); h != nil {
 		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
@@ -739,6 +746,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IdentityStoreOps:           ec.identitystoreOps,
 		ElasticTranscoderOps:       ec.elasticTranscoderOps,
 		GlacierOps:                 ec.glacierOps,
+		IoTAnalyticsOps:            ec.iotanalyticsOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,

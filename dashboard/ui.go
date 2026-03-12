@@ -75,6 +75,7 @@ import (
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
@@ -239,14 +240,16 @@ type DashboardHandler struct {
 	// EMROps provides access to the EMR backend.
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
-	GlacierOps   *glacierbackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	GlacierOps *glacierbackend.Handler
+	// IoTAnalyticsOps provides access to the IoT Analytics backend.
+	IoTAnalyticsOps *iotanalyticsbackend.Handler
+	SubRouter       *echo.Echo
+	ddbProvider     *ddbbackend.DashboardProvider
+	s3Provider      *s3backend.DashboardProvider
+	FaultStore      *chaos.FaultStore
+	Logger          *slog.Logger
+	layout          *template.Template
+	GlobalConfig    config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -410,6 +413,8 @@ type Config struct {
 	EMROps *emrbackend.Handler
 	// GlacierOps provides access to the Glacier backend.
 	GlacierOps *glacierbackend.Handler
+	// IoTAnalyticsOps provides access to the IoT Analytics backend.
+	IoTAnalyticsOps *iotanalyticsbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -514,6 +519,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/emrserverless/*.html",
 		"templates/emr/*.html",
 		"templates/glacier/*.html",
+		"templates/iotanalytics/*.html",
 		"templates/glue/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -612,6 +618,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EmrServerlessOps:           cfg.EmrServerlessOps,
 		EMROps:                     cfg.EMROps,
 		GlacierOps:                 cfg.GlacierOps,
+		IoTAnalyticsOps:            cfg.IoTAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
@@ -621,7 +628,6 @@ func NewHandler(cfg Config) *DashboardHandler {
 		s3Provider:                 s3backend.NewDashboardProvider(),
 		SubRouter:                  echo.New(),
 	}
-
 	h.initHandlers(cfg.Logger)
 
 	return h
@@ -1113,6 +1119,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEMRRoutes()
 	h.setupIdentityStoreRoutes()
 	h.setupGlacierRoutes()
+	h.setupIoTAnalyticsRoutes()
 	h.setupGlueRoutes()
 }
 
@@ -1236,6 +1243,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/emrserverless", "EmrServerless"},
 	{"/emr", "EMR"},
 	{"/glue", "Glue"},
+	{"/iotanalytics", "IoTAnalytics"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
