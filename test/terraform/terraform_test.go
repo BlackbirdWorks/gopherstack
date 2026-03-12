@@ -234,6 +234,7 @@ provider "aws" {
     iam             = %[1]q
     identitystore   = %[1]q
     iot             = %[1]q
+    kafka           = %[1]q
     kinesis         = %[1]q
     kms             = %[1]q
     lambda          = %[1]q

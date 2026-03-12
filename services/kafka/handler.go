@@ -22,7 +22,7 @@ const (
 	tagsPrefix             = "/v1/tags/"
 	bootstrapBrokersSuffix = "/bootstrap-brokers"
 
-	arnMaxParts        = 6 // arn:partition:service:region:account:resource
+	arnMaxParts           = 6 // arn:partition:service:region:account:resource
 	arnMinPartsForService = 3 // minimum ARN parts needed to read service field at index 2
 )
 
@@ -375,8 +375,8 @@ type listClustersV2Output struct {
 }
 
 type getBootstrapBrokersOutput struct {
-	BootstrapBrokerString    string `json:"BootstrapBrokerString"`
-	BootstrapBrokerStringTLS string `json:"BootstrapBrokerStringTls"`
+	BootstrapBrokerString    string `json:"bootstrapBrokerString"`
+	BootstrapBrokerStringTLS string `json:"bootstrapBrokerStringTls"`
 }
 
 type createClusterV2Input struct {
