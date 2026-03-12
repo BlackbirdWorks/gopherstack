@@ -3,7 +3,6 @@ package identitystore_test
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -25,10 +24,11 @@ func newTestHandler() *identitystore.Handler {
 	return identitystore.NewHandler(backend)
 }
 
+// doRequest sends a JSON protocol request with X-Amz-Target: AWSIdentityStore.{op}.
 func doRequest(
 	t *testing.T,
 	h *identitystore.Handler,
-	method, path string,
+	op string,
 	body map[string]any,
 ) *httptest.ResponseRecorder {
 	t.Helper()
@@ -41,8 +41,9 @@ func doRequest(
 		require.NoError(t, err)
 	}
 
-	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Amz-Target", "AWSIdentityStore."+op)
 	rec := httptest.NewRecorder()
 
 	e := echo.New()
@@ -75,16 +76,15 @@ func TestUserCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				rec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{
-						"UserName":    "john.doe",
-						"DisplayName": "John Doe",
-						"Name": map[string]any{
-							"GivenName":  "John",
-							"FamilyName": "Doe",
-						},
-					})
+				rec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "john.doe",
+					"DisplayName":     "John Doe",
+					"Name": map[string]any{
+						"GivenName":  "John",
+						"FamilyName": "Doe",
+					},
+				})
 
 				assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -98,16 +98,19 @@ func TestUserCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				createRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "jane.doe", "DisplayName": "Jane Doe"})
+				createRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "jane.doe",
+					"DisplayName":     "Jane Doe",
+				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
-				createResp := parseResponse(t, createRec)
-				userID := createResp["UserId"].(string)
+				userID := parseResponse(t, createRec)["UserId"].(string)
 
-				rec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/users/%s", testStoreID, userID), nil)
+				rec := doRequest(t, h, "DescribeUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+				})
 
 				assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -122,8 +125,10 @@ func TestUserCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				rec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/users/nonexistent", testStoreID), nil)
+				rec := doRequest(t, h, "DescribeUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          "nonexistent",
+				})
 
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
@@ -133,15 +138,20 @@ func TestUserCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "user1", "DisplayName": "User One"})
-				doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "user2", "DisplayName": "User Two"})
+				doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "user1",
+					"DisplayName":     "User One",
+				})
+				doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "user2",
+					"DisplayName":     "User Two",
+				})
 
-				rec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID), nil)
+				rec := doRequest(t, h, "ListUsers", map[string]any{
+					"IdentityStoreId": testStoreID,
+				})
 
 				assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -156,28 +166,30 @@ func TestUserCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				createRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "update.me", "DisplayName": "Old Name"})
+				createRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "update.me",
+					"DisplayName":     "Old Name",
+				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
-				createResp := parseResponse(t, createRec)
-				userID := createResp["UserId"].(string)
+				userID := parseResponse(t, createRec)["UserId"].(string)
 
-				rec := doRequest(t, h, http.MethodPatch,
-					fmt.Sprintf("/identitystores/%s/users/%s", testStoreID, userID),
-					map[string]any{
-						"Operations": []map[string]any{
-							{"AttributePath": "displayName", "AttributeValue": "New Name"},
-						},
-					})
+				rec := doRequest(t, h, "UpdateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+					"Operations": []map[string]any{
+						{"AttributePath": "displayName", "AttributeValue": "New Name"},
+					},
+				})
 
 				assert.Equal(t, http.StatusOK, rec.Code)
 
-				descRec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/users/%s", testStoreID, userID), nil)
-				descResp := parseResponse(t, descRec)
-				assert.Equal(t, "New Name", descResp["DisplayName"])
+				descRec := doRequest(t, h, "DescribeUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+				})
+				assert.Equal(t, "New Name", parseResponse(t, descRec)["DisplayName"])
 			},
 		},
 		{
@@ -185,21 +197,25 @@ func TestUserCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				createRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "delete.me"})
+				createRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "delete.me",
+				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
-				createResp := parseResponse(t, createRec)
-				userID := createResp["UserId"].(string)
+				userID := parseResponse(t, createRec)["UserId"].(string)
 
-				rec := doRequest(t, h, http.MethodDelete,
-					fmt.Sprintf("/identitystores/%s/users/%s", testStoreID, userID), nil)
+				rec := doRequest(t, h, "DeleteUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+				})
 
-				assert.Equal(t, http.StatusNoContent, rec.Code)
+				assert.Equal(t, http.StatusOK, rec.Code)
 
-				descRec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/users/%s", testStoreID, userID), nil)
+				descRec := doRequest(t, h, "DescribeUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          userID,
+				})
 				assert.Equal(t, http.StatusNotFound, descRec.Code)
 			},
 		},
@@ -208,24 +224,24 @@ func TestUserCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				createRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "lookup.me", "DisplayName": "Lookup User"})
+				createRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "lookup.me",
+					"DisplayName":     "Lookup User",
+				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
-				createResp := parseResponse(t, createRec)
-				wantUserID := createResp["UserId"].(string)
+				wantUserID := parseResponse(t, createRec)["UserId"].(string)
 
-				rec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users/id", testStoreID),
-					map[string]any{
-						"AlternateIdentifier": map[string]any{
-							"UniqueAttribute": map[string]any{
-								"AttributePath":  "userName",
-								"AttributeValue": "lookup.me",
-							},
+				rec := doRequest(t, h, "GetUserId", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"AlternateIdentifier": map[string]any{
+						"UniqueAttribute": map[string]any{
+							"AttributePath":  "userName",
+							"AttributeValue": "lookup.me",
 						},
-					})
+					},
+				})
 
 				assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -256,12 +272,11 @@ func TestGroupCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				rec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{
-						"DisplayName": "Engineering",
-						"Description": "Engineering team",
-					})
+				rec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Engineering",
+					"Description":     "Engineering team",
+				})
 
 				assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -275,16 +290,19 @@ func TestGroupCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				createRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "Product", "Description": "Product team"})
+				createRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Product",
+					"Description":     "Product team",
+				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
-				createResp := parseResponse(t, createRec)
-				groupID := createResp["GroupId"].(string)
+				groupID := parseResponse(t, createRec)["GroupId"].(string)
 
-				rec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/groups/%s", testStoreID, groupID), nil)
+				rec := doRequest(t, h, "DescribeGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+				})
 
 				assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -298,15 +316,18 @@ func TestGroupCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "Team A"})
-				doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "Team B"})
+				doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Team A",
+				})
+				doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Team B",
+				})
 
-				rec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID), nil)
+				rec := doRequest(t, h, "ListGroups", map[string]any{
+					"IdentityStoreId": testStoreID,
+				})
 
 				assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -321,18 +342,20 @@ func TestGroupCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				createRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "Temp Group"})
+				createRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Temp Group",
+				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
-				createResp := parseResponse(t, createRec)
-				groupID := createResp["GroupId"].(string)
+				groupID := parseResponse(t, createRec)["GroupId"].(string)
 
-				rec := doRequest(t, h, http.MethodDelete,
-					fmt.Sprintf("/identitystores/%s/groups/%s", testStoreID, groupID), nil)
+				rec := doRequest(t, h, "DeleteGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+				})
 
-				assert.Equal(t, http.StatusNoContent, rec.Code)
+				assert.Equal(t, http.StatusOK, rec.Code)
 			},
 		},
 		{
@@ -340,24 +363,23 @@ func TestGroupCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				createRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "Lookup Group"})
+				createRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Lookup Group",
+				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 
-				createResp := parseResponse(t, createRec)
-				wantGroupID := createResp["GroupId"].(string)
+				wantGroupID := parseResponse(t, createRec)["GroupId"].(string)
 
-				rec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups/id", testStoreID),
-					map[string]any{
-						"AlternateIdentifier": map[string]any{
-							"UniqueAttribute": map[string]any{
-								"AttributePath":  "displayName",
-								"AttributeValue": "Lookup Group",
-							},
+				rec := doRequest(t, h, "GetGroupId", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"AlternateIdentifier": map[string]any{
+						"UniqueAttribute": map[string]any{
+							"AttributePath":  "displayName",
+							"AttributeValue": "Lookup Group",
 						},
-					})
+					},
+				})
 
 				assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -389,32 +411,36 @@ func TestMembershipCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				userRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "member.user", "DisplayName": "Member"})
+				userRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "member.user",
+					"DisplayName":     "Member",
+				})
 				require.Equal(t, http.StatusOK, userRec.Code)
 				userID := parseResponse(t, userRec)["UserId"].(string)
 
-				groupRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "Test Group"})
+				groupRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Test Group",
+				})
 				require.Equal(t, http.StatusOK, groupRec.Code)
 				groupID := parseResponse(t, groupRec)["GroupId"].(string)
 
-				memberRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/memberships", testStoreID),
-					map[string]any{
-						"GroupId":  groupID,
-						"MemberId": map[string]any{"UserId": userID},
-					})
+				memberRec := doRequest(t, h, "CreateGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+					"MemberId":        map[string]any{"UserId": userID},
+				})
 
 				assert.Equal(t, http.StatusOK, memberRec.Code)
 				memberResp := parseResponse(t, memberRec)
 				membershipID := memberResp["MembershipId"].(string)
 				assert.NotEmpty(t, membershipID)
 
-				descRec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/memberships/%s", testStoreID, membershipID), nil)
+				descRec := doRequest(t, h, "DescribeGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MembershipId":    membershipID,
+				})
 				assert.Equal(t, http.StatusOK, descRec.Code)
 				descResp := parseResponse(t, descRec)
 				assert.Equal(t, membershipID, descResp["MembershipId"])
@@ -426,29 +452,33 @@ func TestMembershipCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				groupRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "List Membership Group"})
+				groupRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "List Membership Group",
+				})
 				require.Equal(t, http.StatusOK, groupRec.Code)
 				groupID := parseResponse(t, groupRec)["GroupId"].(string)
 
 				for i := range 2 {
-					userRec := doRequest(t, h, http.MethodPost,
-						fmt.Sprintf("/identitystores/%s/users", testStoreID),
-						map[string]any{"UserName": fmt.Sprintf("list.user%d", i)})
+					userNames := []string{"list.user0", "list.user1"}
+					userRec := doRequest(t, h, "CreateUser", map[string]any{
+						"IdentityStoreId": testStoreID,
+						"UserName":        userNames[i],
+					})
 					require.Equal(t, http.StatusOK, userRec.Code)
 					userID := parseResponse(t, userRec)["UserId"].(string)
 
-					doRequest(t, h, http.MethodPost,
-						fmt.Sprintf("/identitystores/%s/memberships", testStoreID),
-						map[string]any{
-							"GroupId":  groupID,
-							"MemberId": map[string]any{"UserId": userID},
-						})
+					doRequest(t, h, "CreateGroupMembership", map[string]any{
+						"IdentityStoreId": testStoreID,
+						"GroupId":         groupID,
+						"MemberId":        map[string]any{"UserId": userID},
+					})
 				}
 
-				rec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/groups/%s/memberships", testStoreID, groupID), nil)
+				rec := doRequest(t, h, "ListGroupMemberships", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+				})
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				resp := parseResponse(t, rec)
@@ -462,33 +492,38 @@ func TestMembershipCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				userRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "del.member"})
+				userRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "del.member",
+				})
 				require.Equal(t, http.StatusOK, userRec.Code)
 				userID := parseResponse(t, userRec)["UserId"].(string)
 
-				groupRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "Del Group"})
+				groupRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Del Group",
+				})
 				require.Equal(t, http.StatusOK, groupRec.Code)
 				groupID := parseResponse(t, groupRec)["GroupId"].(string)
 
-				memberRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/memberships", testStoreID),
-					map[string]any{
-						"GroupId":  groupID,
-						"MemberId": map[string]any{"UserId": userID},
-					})
+				memberRec := doRequest(t, h, "CreateGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+					"MemberId":        map[string]any{"UserId": userID},
+				})
 				require.Equal(t, http.StatusOK, memberRec.Code)
 				membershipID := parseResponse(t, memberRec)["MembershipId"].(string)
 
-				delRec := doRequest(t, h, http.MethodDelete,
-					fmt.Sprintf("/identitystores/%s/memberships/%s", testStoreID, membershipID), nil)
-				assert.Equal(t, http.StatusNoContent, delRec.Code)
+				delRec := doRequest(t, h, "DeleteGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MembershipId":    membershipID,
+				})
+				assert.Equal(t, http.StatusOK, delRec.Code)
 
-				descRec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/memberships/%s", testStoreID, membershipID), nil)
+				descRec := doRequest(t, h, "DescribeGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MembershipId":    membershipID,
+				})
 				assert.Equal(t, http.StatusNotFound, descRec.Code)
 			},
 		},
@@ -497,32 +532,33 @@ func TestMembershipCRUD(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				userRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "multi.group.user"})
+				userRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "multi.group.user",
+				})
 				require.Equal(t, http.StatusOK, userRec.Code)
 				userID := parseResponse(t, userRec)["UserId"].(string)
 
+				groupNames := []string{"Member Group 0", "Member Group 1"}
 				for i := range 2 {
-					groupRec := doRequest(t, h, http.MethodPost,
-						fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-						map[string]any{"DisplayName": fmt.Sprintf("Member Group %d", i)})
+					groupRec := doRequest(t, h, "CreateGroup", map[string]any{
+						"IdentityStoreId": testStoreID,
+						"DisplayName":     groupNames[i],
+					})
 					require.Equal(t, http.StatusOK, groupRec.Code)
 					groupID := parseResponse(t, groupRec)["GroupId"].(string)
 
-					doRequest(t, h, http.MethodPost,
-						fmt.Sprintf("/identitystores/%s/memberships", testStoreID),
-						map[string]any{
-							"GroupId":  groupID,
-							"MemberId": map[string]any{"UserId": userID},
-						})
+					doRequest(t, h, "CreateGroupMembership", map[string]any{
+						"IdentityStoreId": testStoreID,
+						"GroupId":         groupID,
+						"MemberId":        map[string]any{"UserId": userID},
+					})
 				}
 
-				rec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/memberships-for-member", testStoreID),
-					map[string]any{
-						"MemberId": map[string]any{"UserId": userID},
-					})
+				rec := doRequest(t, h, "ListGroupMembershipsForMember", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MemberId":        map[string]any{"UserId": userID},
+				})
 				assert.Equal(t, http.StatusOK, rec.Code)
 
 				resp := parseResponse(t, rec)
@@ -551,12 +587,12 @@ func TestHandlerMetadata(t *testing.T) {
 	assert.Equal(t, "identitystore", h.ChaosServiceName())
 	assert.NotEmpty(t, h.GetSupportedOperations())
 	assert.Len(t, h.GetSupportedOperations(), 19)
-	assert.Equal(t, service.PriorityPathVersioned, h.MatchPriority())
+	assert.Equal(t, service.PriorityHeaderExact, h.MatchPriority())
 	assert.NotEmpty(t, h.ChaosOperations())
 	assert.NotEmpty(t, h.ChaosRegions())
 }
 
-// TestRouteMatcher verifies that RouteMatcher accepts /identitystores/ paths.
+// TestRouteMatcher verifies that RouteMatcher accepts requests with the correct X-Amz-Target header.
 func TestRouteMatcher(t *testing.T) {
 	t.Parallel()
 
@@ -564,24 +600,24 @@ func TestRouteMatcher(t *testing.T) {
 	matcher := h.RouteMatcher()
 
 	tests := []struct {
-		name string
-		path string
-		want bool
+		name   string
+		target string
+		want   bool
 	}{
 		{
-			name: "identitystores_path",
-			path: "/identitystores/d-1234567890/users",
-			want: true,
+			name:   "valid_amz_target",
+			target: "AWSIdentityStore.CreateUser",
+			want:   true,
 		},
 		{
-			name: "other_path",
-			path: "/backup-vaults",
-			want: false,
+			name:   "other_service_target",
+			target: "DynamoDB_20120810.GetItem",
+			want:   false,
 		},
 		{
-			name: "partial_prefix",
-			path: "/s3/buckets",
-			want: false,
+			name:   "no_target",
+			target: "",
+			want:   false,
 		},
 	}
 
@@ -589,7 +625,10 @@ func TestRouteMatcher(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
 			rec := httptest.NewRecorder()
 			e := echo.New()
 			c := e.NewContext(req, rec)
@@ -607,44 +646,44 @@ func TestExtractOperationAndResource(t *testing.T) {
 	h := newTestHandler()
 
 	tests := []struct {
+		body         map[string]any
 		name         string
-		method       string
-		path         string
+		op           string
 		wantOp       string
 		wantResource string
 	}{
 		{
 			name:         "create_user",
-			method:       http.MethodPost,
-			path:         fmt.Sprintf("/identitystores/%s/users", testStoreID),
+			op:           "CreateUser",
+			body:         map[string]any{"IdentityStoreId": testStoreID},
 			wantOp:       "CreateUser",
 			wantResource: testStoreID,
 		},
 		{
 			name:         "describe_user",
-			method:       http.MethodGet,
-			path:         fmt.Sprintf("/identitystores/%s/users/user-001", testStoreID),
+			op:           "DescribeUser",
+			body:         map[string]any{"IdentityStoreId": testStoreID, "UserId": "user-001"},
 			wantOp:       "DescribeUser",
-			wantResource: "user-001",
+			wantResource: testStoreID,
 		},
 		{
 			name:         "create_group",
-			method:       http.MethodPost,
-			path:         fmt.Sprintf("/identitystores/%s/groups", testStoreID),
+			op:           "CreateGroup",
+			body:         map[string]any{"IdentityStoreId": testStoreID},
 			wantOp:       "CreateGroup",
 			wantResource: testStoreID,
 		},
 		{
 			name:         "list_memberships_for_member",
-			method:       http.MethodPost,
-			path:         fmt.Sprintf("/identitystores/%s/memberships-for-member", testStoreID),
+			op:           "ListGroupMembershipsForMember",
+			body:         map[string]any{"IdentityStoreId": testStoreID},
 			wantOp:       "ListGroupMembershipsForMember",
 			wantResource: testStoreID,
 		},
 		{
 			name:         "is_member_in_groups",
-			method:       http.MethodPost,
-			path:         fmt.Sprintf("/identitystores/%s/IsMemberInGroups", testStoreID),
+			op:           "IsMemberInGroups",
+			body:         map[string]any{"IdentityStoreId": testStoreID},
 			wantOp:       "IsMemberInGroups",
 			wantResource: testStoreID,
 		},
@@ -654,7 +693,12 @@ func TestExtractOperationAndResource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := httptest.NewRequest(tt.method, tt.path, nil)
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+			req.Header.Set("X-Amz-Target", "AWSIdentityStore."+tt.op)
+			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			e := echo.New()
 			c := e.NewContext(req, rec)
@@ -681,24 +725,28 @@ func TestUpdateGroupAndGetGroupMembershipID(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				createRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "OldName", "Description": "Old"})
+				createRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "OldName",
+					"Description":     "Old",
+				})
 				require.Equal(t, http.StatusOK, createRec.Code)
 				groupID := parseResponse(t, createRec)["GroupId"].(string)
 
-				patchRec := doRequest(t, h, http.MethodPatch,
-					fmt.Sprintf("/identitystores/%s/groups/%s", testStoreID, groupID),
-					map[string]any{
-						"Operations": []map[string]any{
-							{"AttributePath": "displayName", "AttributeValue": "NewName"},
-							{"AttributePath": "description", "AttributeValue": "New desc"},
-						},
-					})
+				patchRec := doRequest(t, h, "UpdateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+					"Operations": []map[string]any{
+						{"AttributePath": "displayName", "AttributeValue": "NewName"},
+						{"AttributePath": "description", "AttributeValue": "New desc"},
+					},
+				})
 				assert.Equal(t, http.StatusOK, patchRec.Code)
 
-				descRec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/groups/%s", testStoreID, groupID), nil)
+				descRec := doRequest(t, h, "DescribeGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+				})
 				desc := parseResponse(t, descRec)
 				assert.Equal(t, "NewName", desc["DisplayName"])
 				assert.Equal(t, "New desc", desc["Description"])
@@ -709,33 +757,33 @@ func TestUpdateGroupAndGetGroupMembershipID(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				userRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "gm.user"})
+				userRec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "gm.user",
+				})
 				require.Equal(t, http.StatusOK, userRec.Code)
 				userID := parseResponse(t, userRec)["UserId"].(string)
 
-				groupRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "GM Group"})
+				groupRec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "GM Group",
+				})
 				require.Equal(t, http.StatusOK, groupRec.Code)
 				groupID := parseResponse(t, groupRec)["GroupId"].(string)
 
-				memberRec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/memberships", testStoreID),
-					map[string]any{
-						"GroupId":  groupID,
-						"MemberId": map[string]any{"UserId": userID},
-					})
+				memberRec := doRequest(t, h, "CreateGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+					"MemberId":        map[string]any{"UserId": userID},
+				})
 				require.Equal(t, http.StatusOK, memberRec.Code)
 				wantMembershipID := parseResponse(t, memberRec)["MembershipId"].(string)
 
-				rec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/memberships/id", testStoreID),
-					map[string]any{
-						"GroupId":  groupID,
-						"MemberId": map[string]any{"UserId": userID},
-					})
+				rec := doRequest(t, h, "GetGroupMembershipId", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         groupID,
+					"MemberId":        map[string]any{"UserId": userID},
+				})
 				assert.Equal(t, http.StatusOK, rec.Code)
 				resp := parseResponse(t, rec)
 				assert.Equal(t, wantMembershipID, resp["MembershipId"])
@@ -757,38 +805,38 @@ func TestIsMemberInGroups(t *testing.T) {
 
 	h := newTestHandler()
 
-	// Create user and two groups.
-	userRec := doRequest(t, h, http.MethodPost,
-		fmt.Sprintf("/identitystores/%s/users", testStoreID),
-		map[string]any{"UserName": "ismember.user"})
+	userRec := doRequest(t, h, "CreateUser", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"UserName":        "ismember.user",
+	})
 	require.Equal(t, http.StatusOK, userRec.Code)
 	userID := parseResponse(t, userRec)["UserId"].(string)
 
+	groupNames := []string{"IsGroup 0", "IsGroup 1", "IsGroup 2"}
 	groupIDs := make([]string, 3)
 	for i := range 3 {
-		gr := doRequest(t, h, http.MethodPost,
-			fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-			map[string]any{"DisplayName": fmt.Sprintf("IsGroup %d", i)})
+		gr := doRequest(t, h, "CreateGroup", map[string]any{
+			"IdentityStoreId": testStoreID,
+			"DisplayName":     groupNames[i],
+		})
 		require.Equal(t, http.StatusOK, gr.Code)
 		groupIDs[i] = parseResponse(t, gr)["GroupId"].(string)
 	}
 
 	// Add user to first two groups only.
 	for _, gid := range groupIDs[:2] {
-		doRequest(t, h, http.MethodPost,
-			fmt.Sprintf("/identitystores/%s/memberships", testStoreID),
-			map[string]any{
-				"GroupId":  gid,
-				"MemberId": map[string]any{"UserId": userID},
-			})
+		doRequest(t, h, "CreateGroupMembership", map[string]any{
+			"IdentityStoreId": testStoreID,
+			"GroupId":         gid,
+			"MemberId":        map[string]any{"UserId": userID},
+		})
 	}
 
-	rec := doRequest(t, h, http.MethodPost,
-		fmt.Sprintf("/identitystores/%s/IsMemberInGroups", testStoreID),
-		map[string]any{
-			"MemberId": map[string]any{"UserId": userID},
-			"GroupIds": groupIDs,
-		})
+	rec := doRequest(t, h, "IsMemberInGroups", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"MemberId":        map[string]any{"UserId": userID},
+		"GroupIds":        groupIDs,
+	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	resp := parseResponse(t, rec)
@@ -797,7 +845,7 @@ func TestIsMemberInGroups(t *testing.T) {
 	require.Len(t, results, 3)
 }
 
-// TestErrorCases covers 404 and conflict error paths.
+// TestErrorCases covers 404, conflict, missing target, and unknown operation error paths.
 func TestErrorCases(t *testing.T) {
 	t.Parallel()
 
@@ -811,8 +859,10 @@ func TestErrorCases(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				rec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/groups/does-not-exist", testStoreID), nil)
+				rec := doRequest(t, h, "DescribeGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         "does-not-exist",
+				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
@@ -821,8 +871,10 @@ func TestErrorCases(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				rec := doRequest(t, h, http.MethodDelete,
-					fmt.Sprintf("/identitystores/%s/users/does-not-exist", testStoreID), nil)
+				rec := doRequest(t, h, "DeleteUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserId":          "does-not-exist",
+				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
@@ -831,8 +883,10 @@ func TestErrorCases(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				rec := doRequest(t, h, http.MethodDelete,
-					fmt.Sprintf("/identitystores/%s/groups/does-not-exist", testStoreID), nil)
+				rec := doRequest(t, h, "DeleteGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"GroupId":         "does-not-exist",
+				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
@@ -841,8 +895,10 @@ func TestErrorCases(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				rec := doRequest(t, h, http.MethodGet,
-					fmt.Sprintf("/identitystores/%s/memberships/does-not-exist", testStoreID), nil)
+				rec := doRequest(t, h, "DescribeGroupMembership", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"MembershipId":    "does-not-exist",
+				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},
 		},
@@ -851,13 +907,15 @@ func TestErrorCases(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "dup.user"})
+				doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "dup.user",
+				})
 
-				rec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/users", testStoreID),
-					map[string]any{"UserName": "dup.user"})
+				rec := doRequest(t, h, "CreateUser", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"UserName":        "dup.user",
+				})
 				assert.Equal(t, http.StatusConflict, rec.Code)
 			},
 		},
@@ -866,24 +924,49 @@ func TestErrorCases(t *testing.T) {
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "Dup Group"})
+				doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Dup Group",
+				})
 
-				rec := doRequest(t, h, http.MethodPost,
-					fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-					map[string]any{"DisplayName": "Dup Group"})
+				rec := doRequest(t, h, "CreateGroup", map[string]any{
+					"IdentityStoreId": testStoreID,
+					"DisplayName":     "Dup Group",
+				})
 				assert.Equal(t, http.StatusConflict, rec.Code)
 			},
 		},
 		{
-			name: "unsupported_path",
+			name: "unknown_operation",
 			run: func(t *testing.T, h *identitystore.Handler) {
 				t.Helper()
 
-				rec := doRequest(t, h, http.MethodGet,
-					"/identitystores/", nil)
-				assert.Equal(t, http.StatusNotFound, rec.Code)
+				req := httptest.NewRequest(http.MethodPost, "/", nil)
+				req.Header.Set("X-Amz-Target", "AWSIdentityStore.UnknownOp")
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				e := echo.New()
+				c := e.NewContext(req, rec)
+
+				err := h.Handler()(c)
+				require.NoError(t, err)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			},
+		},
+		{
+			name: "missing_amz_target",
+			run: func(t *testing.T, h *identitystore.Handler) {
+				t.Helper()
+
+				req := httptest.NewRequest(http.MethodPost, "/", nil)
+				req.Header.Set("Content-Type", "application/json")
+				rec := httptest.NewRecorder()
+				e := echo.New()
+				c := e.NewContext(req, rec)
+
+				err := h.Handler()(c)
+				require.NoError(t, err)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 	}
@@ -927,19 +1010,21 @@ func TestUpdateUserAttributes(t *testing.T) {
 
 			h := newTestHandler()
 
-			createRec := doRequest(t, h, http.MethodPost,
-				fmt.Sprintf("/identitystores/%s/users", testStoreID),
-				map[string]any{"UserName": "attr-user-" + tt.name, "DisplayName": "Attr User"})
+			createRec := doRequest(t, h, "CreateUser", map[string]any{
+				"IdentityStoreId": testStoreID,
+				"UserName":        "attr-user-" + tt.name,
+				"DisplayName":     "Attr User",
+			})
 			require.Equal(t, http.StatusOK, createRec.Code)
 			userID := parseResponse(t, createRec)["UserId"].(string)
 
-			patchRec := doRequest(t, h, http.MethodPatch,
-				fmt.Sprintf("/identitystores/%s/users/%s", testStoreID, userID),
-				map[string]any{
-					"Operations": []map[string]any{
-						{"AttributePath": tt.attrPath, "AttributeValue": tt.attrValue},
-					},
-				})
+			patchRec := doRequest(t, h, "UpdateUser", map[string]any{
+				"IdentityStoreId": testStoreID,
+				"UserId":          userID,
+				"Operations": []map[string]any{
+					{"AttributePath": tt.attrPath, "AttributeValue": tt.attrValue},
+				},
+			})
 			assert.Equal(t, http.StatusOK, patchRec.Code)
 		})
 	}
@@ -951,22 +1036,21 @@ func TestGetUserID_WithUniqueAttribute(t *testing.T) {
 
 	h := newTestHandler()
 
-	// Create user first.
-	createRec := doRequest(t, h, http.MethodPost,
-		fmt.Sprintf("/identitystores/%s/users", testStoreID),
-		map[string]any{"UserName": "unique.user"})
+	createRec := doRequest(t, h, "CreateUser", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"UserName":        "unique.user",
+	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
-	rec := doRequest(t, h, http.MethodPost,
-		fmt.Sprintf("/identitystores/%s/users/id", testStoreID),
-		map[string]any{
-			"AlternateIdentifier": map[string]any{
-				"UniqueAttribute": map[string]any{
-					"AttributePath":  "userName",
-					"AttributeValue": "unique.user",
-				},
+	rec := doRequest(t, h, "GetUserId", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"AlternateIdentifier": map[string]any{
+			"UniqueAttribute": map[string]any{
+				"AttributePath":  "userName",
+				"AttributeValue": "unique.user",
 			},
-		})
+		},
+	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	resp := parseResponse(t, rec)
 	assert.NotEmpty(t, resp["UserId"])
@@ -978,22 +1062,21 @@ func TestGetGroupID_WithUniqueAttribute(t *testing.T) {
 
 	h := newTestHandler()
 
-	// Create group first.
-	createRec := doRequest(t, h, http.MethodPost,
-		fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-		map[string]any{"DisplayName": "Unique Group"})
+	createRec := doRequest(t, h, "CreateGroup", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"DisplayName":     "Unique Group",
+	})
 	require.Equal(t, http.StatusOK, createRec.Code)
 
-	rec := doRequest(t, h, http.MethodPost,
-		fmt.Sprintf("/identitystores/%s/groups/id", testStoreID),
-		map[string]any{
-			"AlternateIdentifier": map[string]any{
-				"UniqueAttribute": map[string]any{
-					"AttributePath":  "displayName",
-					"AttributeValue": "Unique Group",
-				},
+	rec := doRequest(t, h, "GetGroupId", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"AlternateIdentifier": map[string]any{
+			"UniqueAttribute": map[string]any{
+				"AttributePath":  "displayName",
+				"AttributeValue": "Unique Group",
 			},
-		})
+		},
+	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 	resp := parseResponse(t, rec)
 	assert.NotEmpty(t, resp["GroupId"])
@@ -1005,30 +1088,33 @@ func TestDeleteGroupMembership(t *testing.T) {
 
 	h := newTestHandler()
 
-	userRec := doRequest(t, h, http.MethodPost,
-		fmt.Sprintf("/identitystores/%s/users", testStoreID),
-		map[string]any{"UserName": "del.mem.user"})
+	userRec := doRequest(t, h, "CreateUser", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"UserName":        "del.mem.user",
+	})
 	require.Equal(t, http.StatusOK, userRec.Code)
 	userID := parseResponse(t, userRec)["UserId"].(string)
 
-	groupRec := doRequest(t, h, http.MethodPost,
-		fmt.Sprintf("/identitystores/%s/groups", testStoreID),
-		map[string]any{"DisplayName": "Del Mem Group"})
+	groupRec := doRequest(t, h, "CreateGroup", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"DisplayName":     "Del Mem Group",
+	})
 	require.Equal(t, http.StatusOK, groupRec.Code)
 	groupID := parseResponse(t, groupRec)["GroupId"].(string)
 
-	memRec := doRequest(t, h, http.MethodPost,
-		fmt.Sprintf("/identitystores/%s/memberships", testStoreID),
-		map[string]any{
-			"GroupId":  groupID,
-			"MemberId": map[string]any{"UserId": userID},
-		})
+	memRec := doRequest(t, h, "CreateGroupMembership", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"GroupId":         groupID,
+		"MemberId":        map[string]any{"UserId": userID},
+	})
 	require.Equal(t, http.StatusOK, memRec.Code)
 	membershipID := parseResponse(t, memRec)["MembershipId"].(string)
 
-	delRec := doRequest(t, h, http.MethodDelete,
-		fmt.Sprintf("/identitystores/%s/memberships/%s", testStoreID, membershipID), nil)
-	assert.Equal(t, http.StatusNoContent, delRec.Code)
+	delRec := doRequest(t, h, "DeleteGroupMembership", map[string]any{
+		"IdentityStoreId": testStoreID,
+		"MembershipId":    membershipID,
+	})
+	assert.Equal(t, http.StatusOK, delRec.Code)
 }
 
 // TestInvalidBodyErrors verifies bad JSON returns 400.
@@ -1038,24 +1124,19 @@ func TestInvalidBodyErrors(t *testing.T) {
 	h := newTestHandler()
 
 	tests := []struct {
-		name   string
-		method string
-		path   string
+		name string
+		op   string
 	}{
-		{"create_user_bad_body", http.MethodPost, fmt.Sprintf("/identitystores/%s/users", testStoreID)},
-		{"update_user_bad_body", http.MethodPatch, fmt.Sprintf("/identitystores/%s/users/u-1", testStoreID)},
-		{"get_user_id_bad_body", http.MethodPost, fmt.Sprintf("/identitystores/%s/users/id", testStoreID)},
-		{"create_group_bad_body", http.MethodPost, fmt.Sprintf("/identitystores/%s/groups", testStoreID)},
-		{"update_group_bad_body", http.MethodPatch, fmt.Sprintf("/identitystores/%s/groups/g-1", testStoreID)},
-		{"get_group_id_bad_body", http.MethodPost, fmt.Sprintf("/identitystores/%s/groups/id", testStoreID)},
-		{"create_membership_bad_body", http.MethodPost, fmt.Sprintf("/identitystores/%s/memberships", testStoreID)},
-		{"get_membership_id_bad_body", http.MethodPost, fmt.Sprintf("/identitystores/%s/memberships/id", testStoreID)},
-		{"is_member_bad_body", http.MethodPost, fmt.Sprintf("/identitystores/%s/IsMemberInGroups", testStoreID)},
-		{
-			"list_memberships_for_member_bad_body",
-			http.MethodPost,
-			fmt.Sprintf("/identitystores/%s/memberships-for-member", testStoreID),
-		},
+		{"create_user_bad_body", "CreateUser"},
+		{"update_user_bad_body", "UpdateUser"},
+		{"get_user_id_bad_body", "GetUserId"},
+		{"create_group_bad_body", "CreateGroup"},
+		{"update_group_bad_body", "UpdateGroup"},
+		{"get_group_id_bad_body", "GetGroupId"},
+		{"create_membership_bad_body", "CreateGroupMembership"},
+		{"get_membership_id_bad_body", "GetGroupMembershipId"},
+		{"is_member_bad_body", "IsMemberInGroups"},
+		{"list_memberships_for_member_bad_body", "ListGroupMembershipsForMember"},
 	}
 
 	for _, tt := range tests {
@@ -1063,8 +1144,9 @@ func TestInvalidBodyErrors(t *testing.T) {
 			t.Parallel()
 
 			e := echo.New()
-			req := httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString("{bad json"))
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString("{bad json"))
 			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Amz-Target", "AWSIdentityStore."+tt.op)
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 
