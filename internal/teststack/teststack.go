@@ -66,6 +66,7 @@ import (
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
+	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -201,10 +202,12 @@ type Stack struct {
 	ELBHandler *elbbackend.Handler
 	// ELBv2Handler provides access to the ELBv2 (ALB/NLB) backend.
 	ELBv2Handler *elbv2backend.Handler
-	S3Client     *s3.Client
-	DDBClient    *dynamodb.Client
-	FaultStore   *chaos.FaultStore
-	Dashboard    *dashboard.DashboardHandler
+	// EMRHandler provides access to the EMR backend.
+	EMRHandler *emrbackend.Handler
+	S3Client   *s3.Client
+	DDBClient  *dynamodb.Client
+	FaultStore *chaos.FaultStore
+	Dashboard  *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -470,6 +473,7 @@ type handlers struct {
 	eks               *eksbackend.Handler
 	elb               *elbbackend.Handler
 	elbv2             *elbv2backend.Handler
+	emr               *emrbackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
 }
@@ -680,8 +684,20 @@ func populateNewestHandlers(h *handlers) {
 		elbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 
+	populateLatestHandlers(h)
+}
+
+// populateLatestHandlers registers the ELBv2 and EMR service handlers.
+// These are separated from populateNewestHandlers to keep each function within the
+// funlen limit; handlers here represent the most recently added load-balancing and
+// analytics services.
+func populateLatestHandlers(h *handlers) {
 	h.elbv2 = elbv2backend.NewHandler(
 		elbv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+
+	h.emr = emrbackend.NewHandler(
+		emrbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 }
 
@@ -798,6 +814,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ElasticTranscoderOps:       h.elastictranscoder,
 		ELBOps:                     h.elb,
 		ELBv2Ops:                   h.elbv2,
+		EMROps:                     h.emr,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -856,6 +873,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.elastictranscoder)
 	_ = registry.Register(h.elb)
 	_ = registry.Register(h.elbv2)
+	_ = registry.Register(h.emr)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -959,6 +977,7 @@ func buildStack(
 		ElasticTranscoderHandler:       h.elastictranscoder,
 		ELBHandler:                     h.elb,
 		ELBv2Handler:                   h.elbv2,
+		EMRHandler:                     h.emr,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,

@@ -76,6 +76,7 @@ import (
 	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2svc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	emrsvc "github.com/aws/aws-sdk-go-v2/service/emr"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	fissvc "github.com/aws/aws-sdk-go-v2/service/fis"
@@ -217,6 +218,7 @@ provider "aws" {
     elasticache     = %[1]q
     elasticbeanstalk = %[1]q
     elastictranscoder = %[1]q
+    emr             = %[1]q
     events          = %[1]q
     firehose        = %[1]q
     fis             = %[1]q
@@ -4369,6 +4371,53 @@ func TestTerraform_ELB(t *testing.T) {
 				require.NoError(t, err, "DescribeLoadBalancers should succeed after terraform apply")
 				require.Len(t, out.LoadBalancerDescriptions, 1, "load balancer should exist")
 				assert.Equal(t, name, aws.ToString(out.LoadBalancerDescriptions[0].LoadBalancerName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_EMR provisions an EMR cluster via Terraform and verifies it exists via the EMR SDK.
+func TestTerraform_EMR(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "emr/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEMRClient(t)
+				suffix := vars["Suffix"].(string)
+				name := "tf-emr-" + suffix
+
+				out, err := client.ListClusters(ctx, &emrsvc.ListClustersInput{})
+				require.NoError(t, err, "ListClusters should succeed")
+
+				found := false
+				for _, c := range out.Clusters {
+					if aws.ToString(c.Name) == name {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "EMR cluster %q should exist", name)
 			},
 		},
 	}
