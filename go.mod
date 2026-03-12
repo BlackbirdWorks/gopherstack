@@ -119,6 +119,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0
 	github.com/aws/aws-sdk-go-v2/service/kafka v1.49.0
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalytics v1.30.21
+	github.com/aws/aws-sdk-go-v2/service/lakeformation v1.47.3
 )
 
 require github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19

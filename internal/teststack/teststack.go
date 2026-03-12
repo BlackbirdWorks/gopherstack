@@ -82,6 +82,7 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -225,6 +226,8 @@ type Stack struct {
 	KinesisAnalyticsHandler *kinesisanalyticsbackend.Handler
 	// KafkaHandler provides access to the MSK Kafka backend.
 	KafkaHandler *kafkabackend.Handler
+	// LakeFormationHandler provides access to the Lake Formation backend.
+	LakeFormationHandler *lakeformationbackend.Handler
 	// MediaConvertHandler provides access to the MediaConvert backend.
 	MediaConvertHandler *mediaconvertbackend.Handler
 	S3Client            *s3.Client
@@ -504,6 +507,7 @@ type handlers struct {
 	iotwireless       *iotwirelessbackend.Handler
 	kinesisanalytics  *kinesisanalyticsbackend.Handler
 	kafka             *kafkabackend.Handler
+	lakeformation     *lakeformationbackend.Handler
 	mediaconvert      *mediaconvertbackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
@@ -758,6 +762,10 @@ func populateLatestHandlers(h *handlers) {
 		kafkabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 
+	h.lakeformation = lakeformationbackend.NewHandler(lakeformationbackend.NewInMemoryBackend())
+	h.lakeformation.AccountID = config.DefaultAccountID
+	h.lakeformation.DefaultRegion = config.DefaultRegion
+
 	h.mediaconvert = mediaconvertbackend.NewHandler(
 		mediaconvertbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -884,6 +892,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		IoTWirelessOps:             h.iotwireless,
 		KinesisAnalyticsOps:        h.kinesisanalytics,
 		KafkaOps:                   h.kafka,
+		LakeFormationOps:           h.lakeformation,
 		MediaConvertOps:            h.mediaconvert,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
@@ -952,7 +961,10 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.iotwireless)
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
+	_ = registry.Register(h.lakeformation)
 	_ = registry.Register(h.mediaconvert)
+
+	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
 	dashCfg, faultStore := newDashboardConfig(h, clients)
 	dashHndlr := dashboard.NewHandler(dashCfg)
@@ -1062,7 +1074,9 @@ func buildStack(
 		IoTWirelessHandler:             h.iotwireless,
 		KinesisAnalyticsHandler:        h.kinesisanalytics,
 		KafkaHandler:                   h.kafka,
+		LakeFormationHandler:           h.lakeformation,
 		MediaConvertHandler:            h.mediaconvert,
+		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
 		Dashboard:                      dashboardHandler,

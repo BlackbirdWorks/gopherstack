@@ -53,6 +53,7 @@ import (
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
@@ -184,6 +185,7 @@ type AWSSDKProvider interface {
 	GetIoTWirelessHandler() service.Registerable
 	GetKinesisAnalyticsHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
+	GetLakeFormationHandler() service.Registerable
 	GetManagedBlockchainHandler() service.Registerable
 	GetMediaConvertHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
@@ -287,6 +289,7 @@ type extractedConfig struct {
 	iotwirelessOps            *iotwirelessbackend.Handler
 	kinesisanalyticsOps       *kinesisanalyticsbackend.Handler
 	kafkaOps                  *kafkabackend.Handler
+	lakeformationOps          *lakeformationbackend.Handler
 	managedblockchainOps      *managedblockchainbackend.Handler
 	mediaconvertOps           *mediaconvertbackend.Handler
 	faultStore                *chaos.FaultStore
@@ -679,12 +682,20 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.kinesisanalyticsOps, _ = h.(*kinesisanalyticsbackend.Handler)
 	}
 
+	extractNewestDataHandlers(ap, ec)
+}
+
+func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetIdentityStoreHandler(); h != nil {
 		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
 
 	if h := ap.GetKafkaHandler(); h != nil {
 		ec.kafkaOps, _ = h.(*kafkabackend.Handler)
+	}
+
+	if h := ap.GetLakeFormationHandler(); h != nil {
+		ec.lakeformationOps, _ = h.(*lakeformationbackend.Handler)
 	}
 }
 
@@ -789,6 +800,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IoTWirelessOps:             ec.iotwirelessOps,
 		KinesisAnalyticsOps:        ec.kinesisanalyticsOps,
 		KafkaOps:                   ec.kafkaOps,
+		LakeFormationOps:           ec.lakeformationOps,
 		ManagedBlockchainOps:       ec.managedblockchainOps,
 		MediaConvertOps:            ec.mediaconvertOps,
 		GlobalConfig:               ec.gCfg,

@@ -122,6 +122,18 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	}{
 		{name: "batch_path", path: "/v1/createcomputeenvironment", wantMatch: true},
 		{name: "tags_path", path: "/v1/tags/some-arn", wantMatch: true},
+		{
+			name:      "tags_batch_arn",
+			path:      "/v1/tags/arn%3Aaws%3Abatch%3Aus-east-1%3A123%3Acompute-environment%2Ftest",
+			wantMatch: true,
+		},
+		{
+			name:      "tags_kafka_arn_excluded",
+			path:      "/v1/tags/arn%3Aaws%3Akafka%3Aus-east-1%3A123%3Acluster%2Ftest%2Fuuid",
+			wantMatch: false,
+		},
+		{name: "kafka_cluster_excluded", path: "/v1/clusters", wantMatch: false},
+		{name: "kafka_config_excluded", path: "/v1/configurations", wantMatch: false},
 		{name: "appsync_path_excluded", path: "/v1/apis", wantMatch: false},
 		{name: "appsync_path_excluded_with_id", path: "/v1/apis/abc123/datasources", wantMatch: false},
 		{name: "other_prefix", path: "/v2/apis", wantMatch: false},

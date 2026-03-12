@@ -82,6 +82,7 @@ import (
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
+	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
@@ -254,6 +255,8 @@ type DashboardHandler struct {
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
+	// LakeFormationOps provides access to the Lake Formation backend.
+	LakeFormationOps *lakeformationbackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
 	ManagedBlockchainOps *managedblockchainbackend.Handler
 	// MediaConvertOps provides access to the MediaConvert backend.
@@ -436,6 +439,8 @@ type Config struct {
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
+	// LakeFormationOps provides access to the Lake Formation backend.
+	LakeFormationOps *lakeformationbackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
 	ManagedBlockchainOps *managedblockchainbackend.Handler
 	// MediaConvertOps provides access to the MediaConvert backend.
@@ -665,6 +670,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
 		KafkaOps:                   cfg.KafkaOps,
+		LakeFormationOps:           cfg.LakeFormationOps,
 		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
 		MediaConvertOps:            cfg.MediaConvertOps,
 		GlobalConfig:               cfg.GlobalConfig,
@@ -1168,6 +1174,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupKinesisAnalyticsRoutes()
 	h.setupGlueRoutes()
 	h.setupKafkaRoutes()
+	h.setupLakeFormationRoutes()
 	h.setupManagedBlockchainRoutes()
 	h.setupMediaConvertRoutes()
 }
