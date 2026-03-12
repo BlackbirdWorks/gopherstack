@@ -22,8 +22,8 @@ const (
 	tagsPrefix             = "/v1/tags/"
 	bootstrapBrokersSuffix = "/bootstrap-brokers"
 
-	arnMaxParts    = 6 // arn:partition:service:region:account:resource
-	arnServicePart = 3 // minimum parts to check the service field
+	arnMaxParts        = 6 // arn:partition:service:region:account:resource
+	arnMinPartsForService = 3 // minimum ARN parts needed to read service field at index 2
 )
 
 // Handler is the HTTP handler for the MSK REST API.
@@ -104,7 +104,7 @@ func isKafkaTagsPath(path string) bool {
 
 	// arn:partition:service:region:account:resource
 	parts := strings.SplitN(decodedARN, ":", arnMaxParts)
-	if len(parts) < arnServicePart {
+	if len(parts) < arnMinPartsForService {
 		return false
 	}
 
