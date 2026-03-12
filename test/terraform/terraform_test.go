@@ -4323,7 +4323,7 @@ func TestTerraform_ElasticTranscoder(t *testing.T) {
 				found := false
 
 				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated the SDK but service still works
-					name := aws.ToString(p.Name) //nolint:staticcheck // AWS deprecated the SDK but service still works
+					name := aws.ToString(p.Name)
 					if name == pipelineName {
 						found = true
 
@@ -4537,40 +4537,40 @@ func TestTerraform_FIS(t *testing.T) {
 // TestTerraform_Glue provisions a Glue catalog database via Terraform, then verifies
 // it exists via the Glue SDK.
 func TestTerraform_Glue(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "glue/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "glue/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"Suffix": id,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
-client := createGlueClient(t)
-suffix := vars["Suffix"].(string)
-dbName := "tf-glue-" + suffix
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createGlueClient(t)
+				suffix := vars["Suffix"].(string)
+				dbName := "tf-glue-" + suffix
 
-out, err := client.GetDatabase(ctx, &gluesvc.GetDatabaseInput{
-Name: aws.String(dbName),
-})
-require.NoError(t, err, "GetDatabase should succeed after terraform apply")
-require.NotNil(t, out.Database)
-assert.Equal(t, dbName, aws.ToString(out.Database.Name))
-},
-},
-}
+				out, err := client.GetDatabase(ctx, &gluesvc.GetDatabaseInput{
+					Name: aws.String(dbName),
+				})
+				require.NoError(t, err, "GetDatabase should succeed after terraform apply")
+				require.NotNil(t, out.Database)
+				assert.Equal(t, dbName, aws.ToString(out.Database.Name))
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }

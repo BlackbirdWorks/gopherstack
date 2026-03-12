@@ -200,8 +200,8 @@ func errorResponse(code, msg string) map[string]string {
 // --- Database handlers ---
 
 type createDatabaseInput struct {
-	DatabaseInput DatabaseInput     `json:"DatabaseInput"`
 	Tags          map[string]string `json:"Tags,omitempty"`
+	DatabaseInput DatabaseInput     `json:"DatabaseInput"`
 }
 
 type emptyOutput struct{}
@@ -347,11 +347,11 @@ func (h *Handler) handleDeleteTable(_ context.Context, in *deleteTableInput) (*e
 // --- Crawler handlers ---
 
 type createCrawlerInput struct {
+	Tags         map[string]string `json:"Tags,omitempty"`
 	Name         string            `json:"Name"`
 	Role         string            `json:"Role"`
 	DatabaseName string            `json:"DatabaseName"`
-	Targets      CrawlerTarget     `json:"Targets,omitempty"`
-	Tags         map[string]string `json:"Tags,omitempty"`
+	Targets      CrawlerTarget     `json:"Targets,omitzero"`
 }
 
 func (h *Handler) handleCreateCrawler(_ context.Context, in *createCrawlerInput) (*emptyOutput, error) {
@@ -395,7 +395,7 @@ type updateCrawlerInput struct {
 	Name         string        `json:"Name"`
 	Role         string        `json:"Role"`
 	DatabaseName string        `json:"DatabaseName"`
-	Targets      CrawlerTarget `json:"Targets,omitempty"`
+	Targets      CrawlerTarget `json:"Targets,omitzero"`
 }
 
 func (h *Handler) handleUpdateCrawler(_ context.Context, in *updateCrawlerInput) (*emptyOutput, error) {
@@ -421,19 +421,19 @@ func (h *Handler) handleDeleteCrawler(_ context.Context, in *deleteCrawlerInput)
 // --- Job handlers ---
 
 type createJobInput struct {
+	Tags              map[string]string `json:"Tags,omitempty"`
+	DefaultArguments  map[string]string `json:"DefaultArguments,omitempty"`
+	Command           JobCommand        `json:"Command,omitzero"`
+	WorkerType        string            `json:"WorkerType,omitempty"`
+	Role              string            `json:"Role,omitempty"`
+	GlueVersion       string            `json:"GlueVersion,omitempty"`
 	Name              string            `json:"Name"`
 	Description       string            `json:"Description,omitempty"`
-	Role              string            `json:"Role,omitempty"`
-	Command           JobCommand        `json:"Command,omitempty"`
-	DefaultArguments  map[string]string `json:"DefaultArguments,omitempty"`
-	GlueVersion       string            `json:"GlueVersion,omitempty"`
-	WorkerType        string            `json:"WorkerType,omitempty"`
+	Connections       ConnectionsList   `json:"Connections,omitzero"`
 	NumberOfWorkers   int               `json:"NumberOfWorkers,omitempty"`
 	MaxRetries        int               `json:"MaxRetries,omitempty"`
 	Timeout           int               `json:"Timeout,omitempty"`
-	Tags              map[string]string `json:"Tags,omitempty"`
-	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitempty"`
-	Connections       ConnectionsList   `json:"Connections,omitempty"`
+	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
 }
 
 type createJobOutput struct {
@@ -492,9 +492,25 @@ func (h *Handler) handleGetJobs(_ context.Context, _ *getJobsInput) (*getJobsOut
 	return &getJobsOutput{Jobs: jobs}, nil
 }
 
+// jobUpdatePayload models the allowed fields for Glue's JobUpdate shape.
+// It intentionally omits create-only fields such as Name and Tags.
+type jobUpdatePayload struct {
+	DefaultArguments  map[string]string `json:"DefaultArguments,omitempty"`
+	Command           JobCommand        `json:"Command,omitzero"`
+	WorkerType        string            `json:"WorkerType,omitempty"`
+	Role              string            `json:"Role,omitempty"`
+	GlueVersion       string            `json:"GlueVersion,omitempty"`
+	Description       string            `json:"Description,omitempty"`
+	Connections       ConnectionsList   `json:"Connections,omitzero"`
+	NumberOfWorkers   int               `json:"NumberOfWorkers,omitempty"`
+	MaxRetries        int               `json:"MaxRetries,omitempty"`
+	Timeout           int               `json:"Timeout,omitempty"`
+	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
+}
+
 type updateJobInput struct {
-	JobName   string        `json:"JobName"`
-	JobUpdate createJobInput `json:"JobUpdate"`
+	JobName   string           `json:"JobName"`
+	JobUpdate jobUpdatePayload `json:"JobUpdate"`
 }
 
 type updateJobOutput struct {
@@ -540,8 +556,8 @@ func (h *Handler) handleDeleteJob(_ context.Context, in *deleteJobInput) (*delet
 // --- Tag handlers ---
 
 type tagResourceInput struct {
-	ResourceArn string            `json:"ResourceArn"`
 	TagsToAdd   map[string]string `json:"TagsToAdd"`
+	ResourceArn string            `json:"ResourceArn"`
 }
 
 func (h *Handler) handleTagResource(_ context.Context, in *tagResourceInput) (*emptyOutput, error) {

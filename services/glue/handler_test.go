@@ -145,10 +145,10 @@ func TestGlue_CreateDatabase(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		input      map[string]any
-		wantStatus int
 		setup      func(*glue.Handler)
+		name       string
+		wantStatus int
 	}{
 		{
 			name: "success",
@@ -780,9 +780,9 @@ func TestGlue_ErrorCases(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       map[string]any
 		name       string
 		action     string
-		body       map[string]any
 		wantStatus int
 	}{
 		{
@@ -854,4 +854,7 @@ func TestGlue_Provider_InitWithConfig(t *testing.T) {
 	h, ok := svc.(*glue.Handler)
 	require.True(t, ok)
 	assert.Equal(t, "Glue", h.Name())
+	// Verify the backend is initialized with non-empty region and account
+	assert.NotEmpty(t, h.Backend.Region())
+	assert.NotEmpty(t, h.Backend.AccountID())
 }

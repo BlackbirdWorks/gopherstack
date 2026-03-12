@@ -493,10 +493,6 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.emrOps, _ = h.(*emrbackend.Handler)
 	}
 
-	if h := ap.GetGlueHandler(); h != nil {
-		ec.glueOps, _ = h.(*gluebackend.Handler)
-	}
-
 	if h := ap.GetIoTHandler(); h != nil {
 		ec.iotOps, _ = h.(*iotbackend.Handler)
 	}
@@ -548,6 +544,10 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetBedrockHandler(); h != nil {
 		ec.bedrockOps, _ = h.(*bedrockbackend.Handler)
+	}
+
+	if h := ap.GetGlueHandler(); h != nil {
+		ec.glueOps, _ = h.(*gluebackend.Handler)
 	}
 
 	extractCloudPlatformHandlers(ap, ec)

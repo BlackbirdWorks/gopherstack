@@ -24,11 +24,11 @@ type DatabaseInput struct {
 
 // Database represents a Glue catalog database.
 type Database struct {
+	Tags        map[string]string `json:"-"`
 	Name        string            `json:"Name"`
 	Description string            `json:"Description,omitempty"`
 	CatalogID   string            `json:"CatalogId"`
 	ARN         string            `json:"Arn,omitempty"`
-	Tags        map[string]string `json:"-"`
 }
 
 // Column represents a column in a Glue table.
@@ -40,28 +40,28 @@ type Column struct {
 
 // StorageDescriptor describes the physical storage of a table.
 type StorageDescriptor struct {
-	Columns  []Column `json:"Columns,omitempty"`
 	Location string   `json:"Location,omitempty"`
+	Columns  []Column `json:"Columns,omitempty"`
 }
 
 // TableInput is the input for creating or updating a Glue table.
 type TableInput struct {
+	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
 	Name              string            `json:"Name"`
 	Description       string            `json:"Description,omitempty"`
-	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitempty"`
-	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
 	TableType         string            `json:"TableType,omitempty"`
+	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
 }
 
 // Table represents a Glue catalog table.
 type Table struct {
+	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
 	Name              string            `json:"Name"`
 	DatabaseName      string            `json:"DatabaseName"`
 	CatalogID         string            `json:"CatalogId"`
 	Description       string            `json:"Description,omitempty"`
-	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitempty"`
-	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
 	TableType         string            `json:"TableType,omitempty"`
+	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
 }
 
 // CrawlerTarget specifies S3 targets for a crawler.
@@ -76,13 +76,13 @@ type S3Target struct {
 
 // Crawler represents a Glue crawler.
 type Crawler struct {
+	Tags         map[string]string `json:"-"`
 	Name         string            `json:"Name"`
 	Role         string            `json:"Role"`
 	DatabaseName string            `json:"DatabaseName"`
-	Targets      CrawlerTarget     `json:"Targets,omitempty"`
 	State        string            `json:"State"`
 	ARN          string            `json:"Arn,omitempty"`
-	Tags         map[string]string `json:"-"`
+	Targets      CrawlerTarget     `json:"Targets,omitzero"`
 }
 
 // ConnectionsList holds connections for a Glue job.
@@ -104,20 +104,20 @@ type JobCommand struct {
 
 // Job represents a Glue job.
 type Job struct {
-	Name              string            `json:"Name"`
-	Description       string            `json:"Description,omitempty"`
-	Role              string            `json:"Role,omitempty"`
-	Command           JobCommand        `json:"Command,omitempty"`
+	Tags              map[string]string `json:"-"`
 	DefaultArguments  map[string]string `json:"DefaultArguments,omitempty"`
-	GlueVersion       string            `json:"GlueVersion,omitempty"`
+	Command           JobCommand        `json:"Command,omitzero"`
 	WorkerType        string            `json:"WorkerType,omitempty"`
+	Role              string            `json:"Role,omitempty"`
+	GlueVersion       string            `json:"GlueVersion,omitempty"`
+	Name              string            `json:"Name"`
+	ARN               string            `json:"Arn,omitempty"`
+	Description       string            `json:"Description,omitempty"`
+	Connections       ConnectionsList   `json:"Connections,omitzero"`
 	NumberOfWorkers   int               `json:"NumberOfWorkers,omitempty"`
 	MaxRetries        int               `json:"MaxRetries,omitempty"`
 	Timeout           int               `json:"Timeout,omitempty"`
-	ARN               string            `json:"Arn,omitempty"`
-	Tags              map[string]string `json:"-"`
-	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitempty"`
-	Connections       ConnectionsList   `json:"Connections,omitempty"`
+	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
 }
 
 // InMemoryBackend stores Glue state in memory.
@@ -219,7 +219,7 @@ func (b *InMemoryBackend) GetDatabases() []*Database {
 	return out
 }
 
-// DeleteDatabase deletes a Glue database by name.
+// DeleteDatabase deletes a Glue database by name, also removing all its tables.
 func (b *InMemoryBackend) DeleteDatabase(name string) error {
 	b.mu.Lock("DeleteDatabase")
 	defer b.mu.Unlock()
@@ -229,6 +229,13 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 	}
 
 	delete(b.databases, name)
+
+	prefix := name + "|"
+	for k := range b.tables {
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			delete(b.tables, k)
+		}
+	}
 
 	return nil
 }
@@ -350,9 +357,17 @@ func (b *InMemoryBackend) DeleteTable(dbName, tableName string) error {
 // --- Crawler operations ---
 
 // CreateCrawler creates a new Glue crawler.
-func (b *InMemoryBackend) CreateCrawler(name, role, dbName string, targets CrawlerTarget, tags map[string]string) (*Crawler, error) {
+func (b *InMemoryBackend) CreateCrawler(
+	name, role, dbName string,
+	targets CrawlerTarget,
+	tags map[string]string,
+) (*Crawler, error) {
 	b.mu.Lock("CreateCrawler")
 	defer b.mu.Unlock()
+
+	if _, ok := b.databases[dbName]; !ok {
+		return nil, ErrNotFound
+	}
 
 	if _, ok := b.crawlers[name]; ok {
 		return nil, ErrAlreadyExists
@@ -564,7 +579,7 @@ func (b *InMemoryBackend) tagResource(resourceARN string, tags map[string]string
 		return nil
 	}
 
-	return nil
+	return ErrNotFound
 }
 
 // UntagResource removes tags from a resource by ARN.
@@ -596,7 +611,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		return nil
 	}
 
-	return nil
+	return ErrNotFound
 }
 
 // GetTags retrieves tags for a resource by ARN.
@@ -616,7 +631,7 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 		return maps.Clone(j.Tags), nil
 	}
 
-	return make(map[string]string), nil
+	return nil, ErrNotFound
 }
 
 func (b *InMemoryBackend) findDatabaseByARN(resourceARN string) *Database {
