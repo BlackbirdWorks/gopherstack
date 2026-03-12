@@ -76,9 +76,9 @@ import (
 	kafkasvc "github.com/aws/aws-sdk-go-v2/service/kafka"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
-	managedblockchainSVC "github.com/aws/aws-sdk-go-v2/service/managedblockchain"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
+	managedblockchainsvc "github.com/aws/aws-sdk-go-v2/service/managedblockchain"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -1873,7 +1873,7 @@ func createKafkaClient(t *testing.T) *kafkasvc.Client {
 }
 
 // createManagedBlockchainClient returns a Managed Blockchain client pointed at the shared test container.
-func createManagedBlockchainClient(t *testing.T) *managedblockchainSVC.Client {
+func createManagedBlockchainClient(t *testing.T) *managedblockchainsvc.Client {
 	t.Helper()
 
 	cfg, err := config.LoadDefaultConfig(
@@ -1885,7 +1885,7 @@ func createManagedBlockchainClient(t *testing.T) *managedblockchainSVC.Client {
 	)
 	require.NoError(t, err, "unable to load SDK config")
 
-	return managedblockchainSVC.NewFromConfig(cfg, func(o *managedblockchainSVC.Options) {
+	return managedblockchainsvc.NewFromConfig(cfg, func(o *managedblockchainsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

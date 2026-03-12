@@ -63,8 +63,8 @@ func TestHandler_CreateNetwork(t *testing.T) {
 	tests := []struct {
 		body       map[string]any
 		name       string
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name:       "creates network",
@@ -330,8 +330,8 @@ func TestHandler_MemberErrors(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		wantStatus int
 		op         string
+		wantStatus int
 	}{
 		{
 			name:       "create member missing member name",
@@ -401,7 +401,7 @@ func TestHandler_HandlerMetadata(t *testing.T) {
 			assert.Equal(t, "managedblockchain", h.ChaosServiceName())
 			assert.NotEmpty(t, h.ChaosOperations())
 			assert.NotEmpty(t, h.ChaosRegions())
-			assert.Greater(t, h.MatchPriority(), 0)
+			assert.Positive(t, h.MatchPriority())
 		})
 	}
 }
@@ -468,11 +468,11 @@ func TestHandler_ExtractOperationAndResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		method         string
-		path           string
-		wantOperation  string
-		wantResource   string
+		name          string
+		method        string
+		path          string
+		wantOperation string
+		wantResource  string
 	}{
 		{
 			name:          "create network",
@@ -524,10 +524,10 @@ func TestHandler_TagErrors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		body       map[string]any
 		name       string
 		method     string
 		path       string
-		body       map[string]any
 		wantStatus int
 	}{
 		{

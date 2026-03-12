@@ -121,7 +121,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalytics v1.30.21
 )
 
-require github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19 // indirect
+require github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

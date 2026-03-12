@@ -124,6 +124,9 @@ func (h *Handler) Handler() echo.HandlerFunc {
 const (
 	// maxPathParts is the maximum number of segments to split when parsing paths.
 	maxPathParts = 5
+
+	// networkIDSegment is the index of the network ID in the path parts.
+	networkIDSegment = 2
 )
 
 // parsePath maps a method+path to an (operation, resource) pair.
@@ -178,22 +181,15 @@ func parsePath(method, path string) (string, string) {
 
 // parseNetworksPath handles routing for /networks and /networks/{id}/... paths.
 func parseNetworksPath(method string, parts []string) (string, string) {
-	// /networks
-	if len(parts) == 1 || (len(parts) == 2 && parts[1] == "") {
-		switch method {
-		case http.MethodPost:
-			return "CreateNetwork", ""
-		case http.MethodGet:
-			return "ListNetworks", ""
-		}
-
-		return "", ""
+	// /networks or /networks/
+	if len(parts) == 1 || (len(parts) == networkIDSegment && parts[1] == "") {
+		return parseRootNetworksMethod(method)
 	}
 
 	networkID := parts[1]
 
 	// /networks/{networkId}
-	if len(parts) == 2 {
+	if len(parts) == networkIDSegment {
 		if method == http.MethodGet {
 			return "GetNetwork", networkID
 		}
@@ -201,30 +197,49 @@ func parseNetworksPath(method string, parts []string) (string, string) {
 		return "", ""
 	}
 
-	// /networks/{networkId}/members
+	// /networks/{networkId}/members/...
 	if parts[2] == "members" {
-		if len(parts) == 3 || (len(parts) == 4 && parts[3] == "") {
-			switch method {
-			case http.MethodPost:
-				return "CreateMember", networkID
-			case http.MethodGet:
-				return "ListMembers", networkID
-			}
+		return parseMembersPath(method, parts, networkID)
+	}
 
-			return "", ""
+	return "", ""
+}
+
+// parseRootNetworksMethod returns the operation for POST/GET /networks.
+func parseRootNetworksMethod(method string) (string, string) {
+	switch method {
+	case http.MethodPost:
+		return "CreateNetwork", ""
+	case http.MethodGet:
+		return "ListNetworks", ""
+	}
+
+	return "", ""
+}
+
+// parseMembersPath handles routing for /networks/{networkId}/members/... paths.
+func parseMembersPath(method string, parts []string, networkID string) (string, string) {
+	if len(parts) == 3 || (len(parts) == 4 && parts[3] == "") {
+		switch method {
+		case http.MethodPost:
+			return "CreateMember", networkID
+		case http.MethodGet:
+			return "ListMembers", networkID
 		}
 
-		// /networks/{networkId}/members/{memberId}
-		if len(parts) >= 4 && parts[3] != "" {
-			memberID := parts[3]
-			resource := networkID + "/" + memberID
+		return "", ""
+	}
 
-			switch method {
-			case http.MethodGet:
-				return "GetMember", resource
-			case http.MethodDelete:
-				return "DeleteMember", resource
-			}
+	// /networks/{networkId}/members/{memberId}
+	if len(parts) >= 4 && parts[3] != "" {
+		memberID := parts[3]
+		resource := networkID + "/" + memberID
+
+		switch method {
+		case http.MethodGet:
+			return "GetMember", resource
+		case http.MethodDelete:
+			return "DeleteMember", resource
 		}
 	}
 
@@ -292,8 +307,8 @@ func (h *Handler) handleCreateNetwork(c *echo.Context, body []byte) error {
 	}
 
 	return c.JSON(http.StatusOK, createNetworkResponse{
-		NetworkId: network.ID,
-		MemberId:  member.ID,
+		NetworkID: network.ID,
+		MemberID:  member.ID,
 	})
 }
 
@@ -350,7 +365,7 @@ func (h *Handler) handleCreateMember(c *echo.Context, networkID string, body []b
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, createMemberResponse{MemberId: member.ID})
+	return c.JSON(http.StatusOK, createMemberResponse{MemberID: member.ID})
 }
 
 func (h *Handler) handleGetMember(c *echo.Context, resource string) error {
@@ -423,12 +438,12 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceARN string, body []
 
 	var req tagResourceRequest
 
-	if err := json.Unmarshal(body, &req); err != nil {
+	if parseErr := json.Unmarshal(body, &req); parseErr != nil {
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	if err := h.Backend.TagResource(decoded, req.Tags); err != nil {
-		return h.writeBackendError(c, err)
+	if tagErr := h.Backend.TagResource(decoded, req.Tags); tagErr != nil {
+		return h.writeBackendError(c, tagErr)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -442,8 +457,8 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceARN string, query
 
 	tagKeys := query["tagKeys"]
 
-	if err := h.Backend.UntagResource(decoded, tagKeys); err != nil {
-		return h.writeBackendError(c, err)
+	if untagErr := h.Backend.UntagResource(decoded, tagKeys); untagErr != nil {
+		return h.writeBackendError(c, untagErr)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -479,7 +494,7 @@ func splitResource(resource string) (string, string, bool) {
 // toNetworkObject converts a Network to its JSON representation.
 func toNetworkObject(n *Network) networkObject {
 	return networkObject{
-		Id:               n.ID,
+		ID:               n.ID,
 		Arn:              n.Arn,
 		Name:             n.Name,
 		Description:      n.Description,
@@ -494,7 +509,7 @@ func toNetworkObject(n *Network) networkObject {
 // toNetworkSummaryObject converts a Network to its summary JSON representation.
 func toNetworkSummaryObject(n *Network) networkSummaryObject {
 	return networkSummaryObject{
-		Id:               n.ID,
+		ID:               n.ID,
 		Arn:              n.Arn,
 		Name:             n.Name,
 		Description:      n.Description,
@@ -508,11 +523,11 @@ func toNetworkSummaryObject(n *Network) networkSummaryObject {
 // toMemberObject converts a Member to its JSON representation.
 func toMemberObject(m *Member) memberObject {
 	return memberObject{
-		Id:           m.ID,
+		ID:           m.ID,
 		Arn:          m.Arn,
 		Name:         m.Name,
 		Description:  m.Description,
-		NetworkId:    m.NetworkID,
+		NetworkID:    m.NetworkID,
 		Status:       m.Status,
 		CreationDate: m.CreationDate,
 		Tags:         m.Tags,
@@ -522,7 +537,7 @@ func toMemberObject(m *Member) memberObject {
 // toMemberSummaryObject converts a Member to its summary JSON representation.
 func toMemberSummaryObject(m *Member) memberSummaryObject {
 	return memberSummaryObject{
-		Id:           m.ID,
+		ID:           m.ID,
 		Arn:          m.Arn,
 		Name:         m.Name,
 		Description:  m.Description,

@@ -69,8 +69,8 @@ type memberConfiguration struct {
 
 // createNetworkResponse is the response body for POST /networks.
 type createNetworkResponse struct {
-	MemberId  string `json:"MemberId"`
-	NetworkId string `json:"NetworkId"`
+	MemberID  string `json:"MemberId"`
+	NetworkID string `json:"NetworkId"`
 }
 
 // networkObject is the JSON representation of a network for GetNetwork.
@@ -81,7 +81,7 @@ type networkObject struct {
 	Description      string            `json:"Description,omitempty"`
 	Framework        string            `json:"Framework"`
 	FrameworkVersion string            `json:"FrameworkVersion"`
-	Id               string            `json:"Id"`
+	ID               string            `json:"Id"`
 	Name             string            `json:"Name"`
 	Status           string            `json:"Status"`
 }
@@ -98,27 +98,27 @@ type networkSummaryObject struct {
 	Description      string     `json:"Description,omitempty"`
 	Framework        string     `json:"Framework"`
 	FrameworkVersion string     `json:"FrameworkVersion"`
-	Id               string     `json:"Id"`
+	ID               string     `json:"Id"`
 	Name             string     `json:"Name"`
 	Status           string     `json:"Status"`
 }
 
 // listNetworksResponse is the response body for GET /networks.
 type listNetworksResponse struct {
-	Networks  []networkSummaryObject `json:"Networks"`
 	NextToken *string                `json:"NextToken,omitempty"`
+	Networks  []networkSummaryObject `json:"Networks"`
 }
 
 // createMemberRequest is the request body for POST /networks/{networkId}/members.
 type createMemberRequest struct {
 	ClientRequestToken  string              `json:"ClientRequestToken"`
-	InvitationId        string              `json:"InvitationId"`
+	InvitationID        string              `json:"InvitationId"`
 	MemberConfiguration memberConfiguration `json:"MemberConfiguration"`
 }
 
 // createMemberResponse is the response body for POST /networks/{networkId}/members.
 type createMemberResponse struct {
-	MemberId string `json:"MemberId"`
+	MemberID string `json:"MemberId"`
 }
 
 // memberObject is the JSON representation of a member for GetMember.
@@ -127,9 +127,9 @@ type memberObject struct {
 	Tags         map[string]string `json:"Tags,omitempty"`
 	Arn          string            `json:"Arn"`
 	Description  string            `json:"Description,omitempty"`
-	Id           string            `json:"Id"`
+	ID           string            `json:"Id"`
 	Name         string            `json:"Name"`
-	NetworkId    string            `json:"NetworkId"`
+	NetworkID    string            `json:"NetworkId"`
 	Status       string            `json:"Status"`
 }
 
@@ -143,15 +143,15 @@ type memberSummaryObject struct {
 	CreationDate *time.Time `json:"CreationDate,omitempty"`
 	Arn          string     `json:"Arn"`
 	Description  string     `json:"Description,omitempty"`
-	Id           string     `json:"Id"`
+	ID           string     `json:"Id"`
 	Name         string     `json:"Name"`
 	Status       string     `json:"Status"`
 }
 
 // listMembersResponse is the response body for GET /networks/{networkId}/members.
 type listMembersResponse struct {
-	Members   []memberSummaryObject `json:"Members"`
 	NextToken *string               `json:"NextToken,omitempty"`
+	Members   []memberSummaryObject `json:"Members"`
 }
 
 // listTagsResponse is the response body for GET /tags/{resourceArn}.

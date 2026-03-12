@@ -1,6 +1,7 @@
 package managedblockchain_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,11 +24,11 @@ func TestInMemoryBackend_CreateNetwork(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		errSentinel error
 		name        string
 		networkName string
 		memberName  string
 		wantErr     bool
-		errSentinel error
 	}{
 		{
 			name:        "creates network and first member",
@@ -50,12 +51,32 @@ func TestInMemoryBackend_CreateNetwork(t *testing.T) {
 
 			b := newBackend()
 
-			if tt.errSentinel == awserr.ErrAlreadyExists {
-				_, _, err := b.CreateNetwork(testRegion, testAccountID, tt.networkName, "", "", "", tt.memberName, "", nil)
+			if errors.Is(tt.errSentinel, awserr.ErrAlreadyExists) {
+				_, _, err := b.CreateNetwork(
+					testRegion,
+					testAccountID,
+					tt.networkName,
+					"",
+					"",
+					"",
+					tt.memberName,
+					"",
+					nil,
+				)
 				require.NoError(t, err)
 			}
 
-			network, member, err := b.CreateNetwork(testRegion, testAccountID, tt.networkName, "", "", "", tt.memberName, "", nil)
+			network, member, err := b.CreateNetwork(
+				testRegion,
+				testAccountID,
+				tt.networkName,
+				"",
+				"",
+				"",
+				tt.memberName,
+				"",
+				nil,
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -102,7 +123,17 @@ func TestInMemoryBackend_GetNetwork(t *testing.T) {
 
 			b := newBackend()
 
-			network, _, err := b.CreateNetwork(testRegion, testAccountID, "test-network", "", "", "", "member1", "", nil)
+			network, _, err := b.CreateNetwork(
+				testRegion,
+				testAccountID,
+				"test-network",
+				"",
+				"",
+				"",
+				"member1",
+				"",
+				nil,
+			)
 			require.NoError(t, err)
 
 			id := tt.networkID
@@ -131,9 +162,9 @@ func TestInMemoryBackend_ListNetworks(t *testing.T) {
 
 	tests := []struct {
 		name          string
+		wantOrderedBy string
 		networkNames  []string
 		wantCount     int
-		wantOrderedBy string
 	}{
 		{
 			name:         "empty list",
@@ -188,7 +219,17 @@ func TestInMemoryBackend_MemberLifecycle(t *testing.T) {
 
 			b := newBackend()
 
-			network, _, err := b.CreateNetwork(testRegion, testAccountID, "lifecycle-net", "", "", "", "initial", "", nil)
+			network, _, err := b.CreateNetwork(
+				testRegion,
+				testAccountID,
+				"lifecycle-net",
+				"",
+				"",
+				"",
+				"initial",
+				"",
+				nil,
+			)
 			require.NoError(t, err)
 
 			// CreateMember
@@ -275,7 +316,17 @@ func TestInMemoryBackend_TagOperationsOnMember(t *testing.T) {
 
 			b := newBackend()
 
-			network, initialMember, err := b.CreateNetwork(testRegion, testAccountID, "net1", "", "", "", "initial", "", nil)
+			network, initialMember, err := b.CreateNetwork(
+				testRegion,
+				testAccountID,
+				"net1",
+				"",
+				"",
+				"",
+				"initial",
+				"",
+				nil,
+			)
 			require.NoError(t, err)
 
 			// Tag the initial member

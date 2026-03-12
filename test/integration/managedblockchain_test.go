@@ -68,7 +68,7 @@ func TestIntegration_ManagedBlockchain_NetworkLifecycle(t *testing.T) {
 				Name:               aws.String(networkName),
 				VotingPolicy: &managedblockchaintypes.VotingPolicy{
 					ApprovalThresholdPolicy: &managedblockchaintypes.ApprovalThresholdPolicy{
-						ThresholdPercentage:  aws.Float64(50),
+						ThresholdPercentage:  aws.Int32(50),
 						ProposalDurationInHours: aws.Int32(24),
 						ThresholdComparator:  managedblockchaintypes.ThresholdComparatorGreaterThan,
 					},

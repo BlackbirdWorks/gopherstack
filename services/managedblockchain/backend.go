@@ -19,8 +19,13 @@ var (
 	ErrNetworkNotFound = awserr.New("ResourceNotFoundException: network not found", awserr.ErrNotFound)
 	// ErrMemberNotFound is returned when a member does not exist.
 	ErrMemberNotFound = awserr.New("ResourceNotFoundException: member not found", awserr.ErrNotFound)
+	// ErrResourceNotFound is returned when a resource (network or member) cannot be found by ARN.
+	ErrResourceNotFound = awserr.New("ResourceNotFoundException: resource not found", awserr.ErrNotFound)
 	// ErrNetworkAlreadyExists is returned when a network already exists.
-	ErrNetworkAlreadyExists = awserr.New("ResourceAlreadyExistsException: network already exists", awserr.ErrAlreadyExists)
+	ErrNetworkAlreadyExists = awserr.New(
+		"ResourceAlreadyExistsException: network already exists",
+		awserr.ErrAlreadyExists,
+	)
 	// ErrMissingNetworkName is returned when the network name is missing.
 	ErrMissingNetworkName = errors.New("Name is required for CreateNetwork")
 	// ErrMissingMemberName is returned when the member name is missing.
@@ -42,7 +47,10 @@ const (
 
 // StorageBackend is the interface for the Managed Blockchain in-memory backend.
 type StorageBackend interface {
-	CreateNetwork(region, accountID, name, description, framework, frameworkVersion, memberName, memberDescription string, tags map[string]string) (*Network, *Member, error)
+	CreateNetwork(
+		region, accountID, name, description, framework, frameworkVersion, memberName, memberDescription string,
+		tags map[string]string,
+	) (*Network, *Member, error)
 	GetNetwork(networkID string) (*Network, error)
 	ListNetworks() ([]*Network, error)
 	CreateMember(region, accountID, networkID, name, description string, tags map[string]string) (*Member, error)
@@ -56,9 +64,9 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	networks  map[string]*Network
-	members   map[string]map[string]*Member // networkID → memberID → Member
-	mu        sync.RWMutex
+	networks map[string]*Network
+	members  map[string]map[string]*Member // networkID → memberID → Member
+	mu       sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory Managed Blockchain backend.
@@ -297,7 +305,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 		}
 	}
 
-	return nil, ErrNetworkNotFound
+	return nil, ErrResourceNotFound
 }
 
 // TagResource adds or updates tags on a resource.
@@ -329,7 +337,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		}
 	}
 
-	return ErrNetworkNotFound
+	return ErrResourceNotFound
 }
 
 // UntagResource removes tags from a resource.
@@ -357,5 +365,5 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 		}
 	}
 
-	return ErrNetworkNotFound
+	return ErrResourceNotFound
 }

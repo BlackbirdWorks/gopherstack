@@ -79,11 +79,11 @@ import (
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
-	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -260,8 +260,8 @@ type DashboardHandler struct {
 	s3Provider           *s3backend.DashboardProvider
 	FaultStore           *chaos.FaultStore
 	Logger               *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	layout               *template.Template
+	GlobalConfig         config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.

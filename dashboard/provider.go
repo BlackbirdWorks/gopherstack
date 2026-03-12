@@ -52,8 +52,8 @@ import (
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
-	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
+	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
