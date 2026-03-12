@@ -716,7 +716,7 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	}
 }
 
-// extractBlockchainHandlers populates ManagedBlockchain and MediaConvert handlers on ec.
+// extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, and MQ handlers on ec.
 func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)

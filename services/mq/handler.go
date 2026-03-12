@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -218,7 +219,11 @@ func parseConfigurationRoute(method, suffix string) mqRoute {
 }
 
 func parseTagRoute(method, suffix string) mqRoute {
-	resourceARN := strings.TrimPrefix(suffix, "/")
+	escaped := strings.TrimPrefix(suffix, "/")
+	resourceARN, err := url.PathUnescape(escaped)
+	if err != nil {
+		resourceARN = escaped
+	}
 
 	switch method {
 	case http.MethodGet:

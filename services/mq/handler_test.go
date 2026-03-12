@@ -819,15 +819,16 @@ func TestMQ_TagsLifecycle(t *testing.T) {
 			resourceARN := createResp["brokerArn"]
 
 			// Create tags.
-			tagBody, _ := json.Marshal(map[string]any{
+			tagBody, err := json.Marshal(map[string]any{
 				"tags": map[string]string{"env": "test", "owner": "alice"},
 			})
+			require.NoError(t, err)
 			req := httptest.NewRequest(http.MethodPost, "/v1/tags/"+resourceARN, bytes.NewReader(tagBody))
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/mq/aws4_request")
 			recW := httptest.NewRecorder()
 			c := e.NewContext(req, recW)
-			err := h.Handler()(c)
+			err = h.Handler()(c)
 			require.NoError(t, err)
 			assert.Equal(t, http.StatusOK, recW.Code)
 
@@ -904,15 +905,16 @@ func TestMQ_AdditionalCoverage(t *testing.T) {
 		h := newTestHandler(t)
 		e := echo.New()
 
-		body, _ := json.Marshal(map[string]any{
+		body, err := json.Marshal(map[string]any{
 			"engineType": "ACTIVEMQ",
 		})
+		require.NoError(t, err)
 		req := httptest.NewRequest(http.MethodPost, "/v1/configurations", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/mq/aws4_request")
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
-		err := h.Handler()(c)
+		err = h.Handler()(c)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
@@ -923,15 +925,16 @@ func TestMQ_AdditionalCoverage(t *testing.T) {
 		h := newTestHandler(t)
 		e := echo.New()
 
-		body, _ := json.Marshal(map[string]any{
+		body, err := json.Marshal(map[string]any{
 			"name": "my-config",
 		})
+		require.NoError(t, err)
 		req := httptest.NewRequest(http.MethodPost, "/v1/configurations", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/mq/aws4_request")
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
-		err := h.Handler()(c)
+		err = h.Handler()(c)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
@@ -957,13 +960,14 @@ func TestMQ_AdditionalCoverage(t *testing.T) {
 		h := newTestHandler(t)
 		e := echo.New()
 
-		body, _ := json.Marshal(map[string]any{"description": "updated"})
+		body, err := json.Marshal(map[string]any{"description": "updated"})
+		require.NoError(t, err)
 		req := httptest.NewRequest(http.MethodPut, "/v1/configurations/nonexistent-id", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/mq/aws4_request")
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
-		err := h.Handler()(c)
+		err = h.Handler()(c)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
@@ -975,16 +979,17 @@ func TestMQ_AdditionalCoverage(t *testing.T) {
 		e := echo.New()
 
 		// Create configuration.
-		body, _ := json.Marshal(map[string]any{
+		body, err := json.Marshal(map[string]any{
 			"name":       "tagged-config",
 			"engineType": "ACTIVEMQ",
 		})
+		require.NoError(t, err)
 		req := httptest.NewRequest(http.MethodPost, "/v1/configurations", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/mq/aws4_request")
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
-		err := h.Handler()(c)
+		err = h.Handler()(c)
 		require.NoError(t, err)
 		require.Equal(t, http.StatusOK, rec.Code)
 
@@ -993,9 +998,10 @@ func TestMQ_AdditionalCoverage(t *testing.T) {
 		configARN := createResp["arn"].(string)
 
 		// Create tags on configuration.
-		tagBody, _ := json.Marshal(map[string]any{
+		tagBody, err := json.Marshal(map[string]any{
 			"tags": map[string]string{"tier": "free"},
 		})
+		require.NoError(t, err)
 		req = httptest.NewRequest(http.MethodPost, "/v1/tags/"+configARN, bytes.NewReader(tagBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/mq/aws4_request")

@@ -565,7 +565,7 @@ func (b *InMemoryBackend) UpdateConfiguration(configID, description, data string
 		return nil, fmt.Errorf("%w: configuration %s not found", ErrNotFound, configID)
 	}
 
-	nextRev := int32(len(cfg.Revisions)) + 1 //nolint:gosec // len() is bounded by slice capacity, never overflows int32
+	nextRev := cfg.LatestRevision.Revision + 1
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	rev := ConfigurationRevision{
