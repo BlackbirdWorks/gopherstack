@@ -84,6 +84,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -255,13 +256,15 @@ type DashboardHandler struct {
 	KafkaOps *kafkabackend.Handler
 	// LakeFormationOps provides access to the Lake Formation backend.
 	LakeFormationOps *lakeformationbackend.Handler
-	SubRouter        *echo.Echo
-	ddbProvider      *ddbbackend.DashboardProvider
-	s3Provider       *s3backend.DashboardProvider
-	FaultStore       *chaos.FaultStore
-	Logger           *slog.Logger
-	layout           *template.Template
-	GlobalConfig     config.GlobalConfig
+	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
+	ManagedBlockchainOps *managedblockchainbackend.Handler
+	SubRouter            *echo.Echo
+	ddbProvider          *ddbbackend.DashboardProvider
+	s3Provider           *s3backend.DashboardProvider
+	FaultStore           *chaos.FaultStore
+	Logger               *slog.Logger
+	layout               *template.Template
+	GlobalConfig         config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -435,6 +438,8 @@ type Config struct {
 	KafkaOps *kafkabackend.Handler
 	// LakeFormationOps provides access to the Lake Formation backend.
 	LakeFormationOps *lakeformationbackend.Handler
+	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
+	ManagedBlockchainOps *managedblockchainbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -548,6 +553,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/kinesisanalytics/*.html",
 		"templates/glue/*.html",
 		"templates/kafka/*.html",
+		"templates/managedblockchain/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -659,6 +665,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		GlueOps:                    cfg.GlueOps,
 		KafkaOps:                   cfg.KafkaOps,
 		LakeFormationOps:           cfg.LakeFormationOps,
+		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1161,6 +1168,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupGlueRoutes()
 	h.setupKafkaRoutes()
 	h.setupLakeFormationRoutes()
+	h.setupManagedBlockchainRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.

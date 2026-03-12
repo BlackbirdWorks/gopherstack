@@ -122,6 +122,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lakeformation v1.47.3
 )
 
+require github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19
+
 require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c // indirect

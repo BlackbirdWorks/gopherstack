@@ -98,6 +98,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 		// Exclude Kafka (MSK) paths which share the /v1/ prefix.
+		// Exclude Kafka (MSK) paths which share the /v1/ prefix.
 		if strings.HasPrefix(path, kafkaClustersPrefix) ||
 			strings.HasPrefix(path, kafkaConfigurationsPrefix) {
 			return false

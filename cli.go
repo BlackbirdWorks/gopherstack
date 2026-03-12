@@ -116,6 +116,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -245,6 +246,7 @@ type CLI struct {
 	glueHandler                   service.Registerable
 	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
+	managedblockchainHandler      service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -619,6 +621,11 @@ func (c *CLI) GetGlueHandler() service.Registerable { return c.glueHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
+
+// GetManagedBlockchainHandler returns the Managed Blockchain handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetManagedBlockchainHandler() service.Registerable { return c.managedblockchainHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1268,6 +1275,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.glueHandler = byName["Glue"]
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
+	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1475,6 +1483,7 @@ func getServiceProviders() []service.Provider {
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
 		&lakeformationbackend.Provider{},
+		&managedblockchainbackend.Provider{},
 	}
 }
 
