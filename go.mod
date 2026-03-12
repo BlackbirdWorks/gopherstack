@@ -108,6 +108,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/emrserverless v1.39.4
 )
 
+require github.com/aws/aws-sdk-go-v2/service/identitystore v1.36.3 // indirect
 require github.com/aws/aws-sdk-go-v2/service/glacier v1.32.4 // indirect
 
 require github.com/aws/aws-sdk-go-v2/service/glue v1.137.2 // indirect

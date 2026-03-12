@@ -1,0 +1,252 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <!-- Header -->
+    <div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9" cy="7" r="4"></circle>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                </svg>
+                Identity Store
+                <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300">
+                    {{.IdentityStoreID}}
+                </span>
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory AWS IAM Identity Center store — users, groups, and memberships.</p>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="mb-6 border-b border-slate-200 dark:border-slate-700">
+        <nav class="-mb-px flex space-x-6" aria-label="Tabs">
+            <button onclick="showTab('users')" id="tab-users"
+                class="tab-btn whitespace-nowrap border-b-2 border-blue-500 pb-3 px-1 text-sm font-medium text-blue-600 dark:text-blue-400">
+                Users ({{len .Users}})
+            </button>
+            <button onclick="showTab('groups')" id="tab-groups"
+                class="tab-btn whitespace-nowrap border-b-2 border-transparent pb-3 px-1 text-sm font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+                Groups ({{len .Groups}})
+            </button>
+            <button onclick="showTab('memberships')" id="tab-memberships"
+                class="tab-btn whitespace-nowrap border-b-2 border-transparent pb-3 px-1 text-sm font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200">
+                Memberships ({{len .Memberships}})
+            </button>
+        </nav>
+    </div>
+
+    <!-- Users Tab -->
+    <div id="pane-users">
+        <div class="flex justify-end mb-4">
+            <button onclick="document.getElementById('create-user-modal').classList.remove('hidden')"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
+                + Create User
+            </button>
+        </div>
+        <div class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50">
+            <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Username</th>
+                        <th scope="col" class="px-6 py-3">Display Name</th>
+                        <th scope="col" class="px-6 py-3">Given / Family</th>
+                        <th scope="col" class="px-6 py-3">Email</th>
+                        <th scope="col" class="px-6 py-3 text-right"><span class="sr-only">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Users}}
+                    <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                        <td class="px-6 py-4 font-medium text-slate-900 dark:text-white font-mono text-xs">{{.UserName}}</td>
+                        <td class="px-6 py-4">{{.DisplayName}}</td>
+                        <td class="px-6 py-4 text-xs">{{.GivenName}} {{.FamilyName}}</td>
+                        <td class="px-6 py-4 text-xs">{{.Emails}}</td>
+                        <td class="px-6 py-4 text-right">
+                            <form method="POST" action="/dashboard/identitystore/user/delete" hx-boost="false" style="display:inline">
+                                <input type="hidden" name="user_id" value="{{.UserID}}">
+                                <button type="submit" class="font-medium text-red-600 dark:text-red-500 hover:underline text-xs">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr class="bg-transparent">
+                        <td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No users. Create one to get started.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Groups Tab -->
+    <div id="pane-groups" class="hidden">
+        <div class="flex justify-end mb-4">
+            <button onclick="document.getElementById('create-group-modal').classList.remove('hidden')"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
+                + Create Group
+            </button>
+        </div>
+        <div class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50">
+            <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Display Name</th>
+                        <th scope="col" class="px-6 py-3">Description</th>
+                        <th scope="col" class="px-6 py-3">Members</th>
+                        <th scope="col" class="px-6 py-3 text-right"><span class="sr-only">Actions</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Groups}}
+                    <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                        <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.DisplayName}}</td>
+                        <td class="px-6 py-4 text-xs">{{.Description}}</td>
+                        <td class="px-6 py-4">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">{{.Members}}</span>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <form method="POST" action="/dashboard/identitystore/group/delete" hx-boost="false" style="display:inline">
+                                <input type="hidden" name="group_id" value="{{.GroupID}}">
+                                <button type="submit" class="font-medium text-red-600 dark:text-red-500 hover:underline text-xs">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr class="bg-transparent">
+                        <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No groups. Create one to get started.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Memberships Tab -->
+    <div id="pane-memberships" class="hidden">
+        <div class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50">
+            <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Group</th>
+                        <th scope="col" class="px-6 py-3">User</th>
+                        <th scope="col" class="px-6 py-3">Membership ID</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Memberships}}
+                    <tr class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                        <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.GroupDisplay}}</td>
+                        <td class="px-6 py-4">{{.UserDisplay}}</td>
+                        <td class="px-6 py-4 font-mono text-xs">{{.MembershipID}}</td>
+                    </tr>
+                    {{else}}
+                    <tr class="bg-transparent">
+                        <td colspan="3" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No memberships found.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Create User Modal -->
+<div id="create-user-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
+        <h3 class="text-lg font-medium leading-6 text-slate-900 dark:text-white mb-4">Create User</h3>
+        <form method="POST" action="/dashboard/identitystore/user/create" hx-boost="false">
+            <div class="mb-3">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Username *</label>
+                <input name="user_name" type="text" required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="john.doe">
+            </div>
+            <div class="mb-3">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Display Name</label>
+                <input name="display_name" type="text"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="John Doe">
+            </div>
+            <div class="mb-3 flex gap-2">
+                <div class="flex-1">
+                    <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Given Name</label>
+                    <input name="given_name" type="text"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        placeholder="John">
+                </div>
+                <div class="flex-1">
+                    <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Family Name</label>
+                    <input name="family_name" type="text"
+                        class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        placeholder="Doe">
+                </div>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Email</label>
+                <input name="email" type="email"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="john.doe@example.com">
+            </div>
+            <div class="flex justify-end gap-3">
+                <button type="button" onclick="document.getElementById('create-user-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">Cancel</button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-md hover:bg-blue-800 focus:outline-none dark:bg-blue-600 dark:hover:bg-blue-700">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Create Group Modal -->
+<div id="create-group-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
+        <h3 class="text-lg font-medium leading-6 text-slate-900 dark:text-white mb-4">Create Group</h3>
+        <form method="POST" action="/dashboard/identitystore/group/create" hx-boost="false">
+            <div class="mb-3">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Display Name *</label>
+                <input name="display_name" type="text" required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="Engineering Team">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Description</label>
+                <input name="description" type="text"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="Optional description">
+            </div>
+            <div class="flex justify-end gap-3">
+                <button type="button" onclick="document.getElementById('create-group-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">Cancel</button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-md hover:bg-blue-800 focus:outline-none dark:bg-blue-600 dark:hover:bg-blue-700">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function showTab(name) {
+    ['users', 'groups', 'memberships'].forEach(function(t) {
+        var pane = document.getElementById('pane-' + t);
+        var btn = document.getElementById('tab-' + t);
+        if (t === name) {
+            pane.classList.remove('hidden');
+            btn.classList.add('border-blue-500', 'text-blue-600', 'dark:text-blue-400');
+            btn.classList.remove('border-transparent', 'text-slate-500', 'hover:text-slate-700', 'dark:text-slate-400', 'dark:hover:text-slate-200');
+        } else {
+            pane.classList.add('hidden');
+            btn.classList.remove('border-blue-500', 'text-blue-600', 'dark:text-blue-400');
+            btn.classList.add('border-transparent', 'text-slate-500', 'hover:text-slate-700', 'dark:text-slate-400', 'dark:hover:text-slate-200');
+        }
+    });
+}
+</script>
+{{end}}

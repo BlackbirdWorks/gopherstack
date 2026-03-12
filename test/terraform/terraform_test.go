@@ -85,6 +85,8 @@ import (
 	glaciersvc "github.com/aws/aws-sdk-go-v2/service/glacier"
 	gluesvc "github.com/aws/aws-sdk-go-v2/service/glue"
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
+	identitystoresvc "github.com/aws/aws-sdk-go-v2/service/identitystore"
+	identitystoretypes "github.com/aws/aws-sdk-go-v2/service/identitystore/types"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
@@ -229,6 +231,7 @@ provider "aws" {
     glacier         = %[1]q
     glue            = %[1]q
     iam             = %[1]q
+    identitystore   = %[1]q
     iot             = %[1]q
     kinesis         = %[1]q
     kms             = %[1]q
@@ -4618,6 +4621,56 @@ func TestTerraform_Glue(t *testing.T) {
 				require.NoError(t, err, "GetDatabase should succeed after terraform apply")
 				require.NotNil(t, out.Database)
 				assert.Equal(t, dbName, aws.ToString(out.Database.Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_IdentityStore provisions an identity store user, group, and membership
+// via Terraform, then verifies them via the Identity Store SDK.
+func TestTerraform_IdentityStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "identitystore/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"IdentityStoreID": "d-0000000000",
+					"UserName":        "tf-user-" + id,
+					"DisplayName":     "TF User " + id,
+					"GivenName":       "TF",
+					"FamilyName":      "User-" + id,
+					"GroupName":       "tf-group-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createIdentityStoreClient(t)
+				storeID := vars["IdentityStoreID"].(string)
+				userName := vars["UserName"].(string)
+
+				out, err := client.ListUsers(ctx, &identitystoresvc.ListUsersInput{
+					IdentityStoreId: &storeID,
+				})
+				require.NoError(t, err, "ListUsers should succeed after terraform apply")
+
+				found := slices.ContainsFunc(out.Users, func(u identitystoretypes.User) bool {
+					return aws.ToString(u.UserName) == userName
+				})
+				assert.True(t, found, "expected user %q to exist in identity store", userName)
 			},
 		},
 	}
