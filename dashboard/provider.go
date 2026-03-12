@@ -55,6 +55,7 @@ import (
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -186,6 +187,7 @@ type AWSSDKProvider interface {
 	GetKafkaHandler() service.Registerable
 	GetLakeFormationHandler() service.Registerable
 	GetManagedBlockchainHandler() service.Registerable
+	GetMediaStoreHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -289,6 +291,7 @@ type extractedConfig struct {
 	kafkaOps                  *kafkabackend.Handler
 	lakeformationOps          *lakeformationbackend.Handler
 	managedblockchainOps      *managedblockchainbackend.Handler
+	mediastoreOps             *mediastorebackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -701,6 +704,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
 	}
+
+	if h := ap.GetMediaStoreHandler(); h != nil {
+		ec.mediastoreOps, _ = h.(*mediastorebackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -795,6 +802,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		KafkaOps:                   ec.kafkaOps,
 		LakeFormationOps:           ec.lakeformationOps,
 		ManagedBlockchainOps:       ec.managedblockchainOps,
+		MediaStoreOps:              ec.mediastoreOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,

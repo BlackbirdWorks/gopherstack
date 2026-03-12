@@ -117,6 +117,7 @@ import (
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -247,6 +248,7 @@ type CLI struct {
 	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
 	managedblockchainHandler      service.Registerable
+	mediastoreHandler             service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -626,6 +628,11 @@ func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetManagedBlockchainHandler() service.Registerable { return c.managedblockchainHandler }
+
+// GetMediaStoreHandler returns the MediaStore handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMediaStoreHandler() service.Registerable { return c.mediastoreHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1276,6 +1283,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
+	cli.mediastoreHandler = byName["MediaStore"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1484,6 +1492,7 @@ func getServiceProviders() []service.Provider {
 		&kafkabackend.Provider{},
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
+		&mediastorebackend.Provider{},
 	}
 }
 
