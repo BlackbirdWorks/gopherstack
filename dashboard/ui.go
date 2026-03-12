@@ -71,6 +71,7 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
@@ -168,6 +169,7 @@ type DashboardHandler struct {
 	EFSOps            *efsbackend.Handler
 	IoTOps            *iotbackend.Handler
 	FISOps            *fisbackend.Handler
+	GlueOps           *gluebackend.Handler
 	// IdentityStoreOps provides access to the Identity Store backend.
 	IdentityStoreOps *identitystorebackend.Handler
 	OpenSearchOps    *opensearchbackend.Handler
@@ -299,6 +301,8 @@ type Config struct {
 	IoTOps *iotbackend.Handler
 	// FISOps provides access to the FIS backend.
 	FISOps *fisbackend.Handler
+	// GlueOps provides access to the Glue backend.
+	GlueOps *gluebackend.Handler
 	// IdentityStoreOps provides access to the Identity Store backend.
 	IdentityStoreOps *identitystorebackend.Handler
 	// OpenSearchOps provides access to the OpenSearch backend.
@@ -510,6 +514,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/emrserverless/*.html",
 		"templates/emr/*.html",
 		"templates/glacier/*.html",
+		"templates/glue/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -607,6 +612,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EmrServerlessOps:           cfg.EmrServerlessOps,
 		EMROps:                     cfg.EMROps,
 		GlacierOps:                 cfg.GlacierOps,
+		GlueOps:                    cfg.GlueOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1107,6 +1113,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEMRRoutes()
 	h.setupIdentityStoreRoutes()
 	h.setupGlacierRoutes()
+	h.setupGlueRoutes()
 }
 
 // Handler returns the Echo handler function for dashboard requests.
@@ -1228,6 +1235,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/elb", "ELB"},
 	{"/emrserverless", "EmrServerless"},
 	{"/emr", "EMR"},
+	{"/glue", "Glue"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

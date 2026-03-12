@@ -46,6 +46,7 @@ import (
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
@@ -165,6 +166,7 @@ type AWSSDKProvider interface {
 	GetELBv2Handler() service.Registerable
 	GetEmrServerlessHandler() service.Registerable
 	GetEMRHandler() service.Registerable
+	GetGlueHandler() service.Registerable
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
 	GetIdentityStoreHandler() service.Registerable
@@ -263,6 +265,7 @@ type extractedConfig struct {
 	elbv2Ops                  *elbv2backend.Handler
 	emrServerlessOps          *emrserverlessbackend.Handler
 	emrOps                    *emrbackend.Handler
+	glueOps                   *gluebackend.Handler
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
 	identitystoreOps          *identitystorebackend.Handler
@@ -552,12 +555,12 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.bedrockOps, _ = h.(*bedrockbackend.Handler)
 	}
 
-	if h := ap.GetEmrServerlessHandler(); h != nil {
-		ec.emrServerlessOps, _ = h.(*emrserverlessbackend.Handler)
+	if h := ap.GetGlueHandler(); h != nil {
+		ec.glueOps, _ = h.(*gluebackend.Handler)
 	}
 
-	if h := ap.GetIdentityStoreHandler(); h != nil {
-		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
+	if h := ap.GetEmrServerlessHandler(); h != nil {
+		ec.emrServerlessOps, _ = h.(*emrserverlessbackend.Handler)
 	}
 
 	extractCloudPlatformHandlers(ap, ec)
@@ -644,6 +647,10 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetGlacierHandler(); h != nil {
 		ec.glacierOps, _ = h.(*glacierbackend.Handler)
 	}
+
+	if h := ap.GetIdentityStoreHandler(); h != nil {
+		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -726,6 +733,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		ELBv2Ops:                   ec.elbv2Ops,
 		EmrServerlessOps:           ec.emrServerlessOps,
 		EMROps:                     ec.emrOps,
+		GlueOps:                    ec.glueOps,
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,
 		IdentityStoreOps:           ec.identitystoreOps,
