@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"log/slog"
+
 	ddbsdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -59,6 +61,7 @@ import (
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -194,6 +197,7 @@ type AWSSDKProvider interface {
 	GetMediaStoreHandler() service.Registerable
 	GetMediaStoreDataHandler() service.Registerable
 	GetMemoryDBHandler() service.Registerable
+	GetMWAAHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -301,6 +305,7 @@ type extractedConfig struct {
 	mediastoreOps             *mediastorebackend.Handler
 	mediastoredataOps         *mediastoredatabackend.Handler
 	memorydbOps               *memorydbbackend.Handler
+	mwaaOps                   *mwaabackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -718,6 +723,10 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMemoryDBHandler(); h != nil {
 		ec.memorydbOps, _ = h.(*memorydbbackend.Handler)
 	}
+
+	if h := ap.GetMWAAHandler(); h != nil {
+		ec.mwaaOps, _ = h.(*mwaabackend.Handler)
+	}
 }
 
 // extractBlockchainHandlers populates ManagedBlockchain and MediaConvert handlers on ec.
@@ -734,8 +743,23 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 //nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	ec := extractFromProvider(ctx)
+	cfg := buildDashboardConfig(&ec, ctx.Logger)
+	handler := NewHandler(cfg)
 
-	handler := NewHandler(Config{
+	return handler, nil
+}
+
+// buildDashboardConfig constructs the dashboard Config from an extractedConfig.
+// It is extracted from Init to satisfy the funlen limit.
+func buildDashboardConfig(ec *extractedConfig, log *slog.Logger) Config {
+	cfg := buildBaseConfig(ec, log)
+	applyExtendedConfig(&cfg, ec)
+
+	return cfg
+}
+
+func buildBaseConfig(ec *extractedConfig, log *slog.Logger) Config {
+	return Config{
 		DDBClient:                  ec.ddbClient,
 		S3Client:                   ec.s3Client,
 		SSMClient:                  ec.ssmClient,
@@ -778,59 +802,61 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IoTDataPlaneOps:            ec.iotDataPlaneOps,
 		APIGatewayManagementAPIOps: ec.apiGatewayMgmtOps,
 		APIGatewayV2Ops:            ec.apiGatewayV2Ops,
-		AppConfigDataOps:           ec.appConfigDataOps,
-		AmplifyOps:                 ec.amplifyOps,
-		AthenaOps:                  ec.athenaOps,
-		AutoscalingOps:             ec.autoscalingOps,
-		BackupOps:                  ec.backupOps,
-		CloudTrailOps:              ec.cloudtrailOps,
-		AppConfigOps:               ec.appConfigOps,
-		ApplicationAutoscalingOps:  ec.applicationAutoscalingOps,
-		BatchOps:                   ec.batchOps,
-		BedrockOps:                 ec.bedrockOps,
-		BedrockRuntimeOps:          ec.bedrockRuntimeOps,
-		CeOps:                      ec.ceOps,
-		CloudControlOps:            ec.cloudcontrolOps,
-		CloudFrontOps:              ec.cloudFrontOps,
-		CodeArtifactOps:            ec.codeArtifactOps,
-		CodeBuildOps:               ec.codebuildOps,
-		CodeCommitOps:              ec.codeCommitOps,
-		CodePipelineOps:            ec.codePipelineOps,
-		CodeConnectionsOps:         ec.codeConnectionsOps,
-		CodeDeployOps:              ec.codeDeployOps,
-		DMSOps:                     ec.dmsOps,
-		CodeStarConnectionsOps:     ec.codeStarConnectionsOps,
-		DynamoDBStreamsOps:         ec.dynamodbStreamsOps,
-		DocDBOps:                   ec.docdbOps,
-		ElasticbeanstalkOps:        ec.elasticbeanstalkOps,
-		ECROps:                     ec.ecrOps,
-		ECSOps:                     ec.ecsOps,
-		EFSOps:                     ec.efsOps,
-		EKSOps:                     ec.eksOps,
-		ELBOps:                     ec.elbOps,
-		ELBv2Ops:                   ec.elbv2Ops,
-		EmrServerlessOps:           ec.emrServerlessOps,
-		EMROps:                     ec.emrOps,
-		GlueOps:                    ec.glueOps,
-		IoTOps:                     ec.iotOps,
-		FISOps:                     ec.fisOps,
-		IdentityStoreOps:           ec.identitystoreOps,
-		ElasticTranscoderOps:       ec.elasticTranscoderOps,
-		GlacierOps:                 ec.glacierOps,
-		IoTAnalyticsOps:            ec.iotanalyticsOps,
-		IoTWirelessOps:             ec.iotwirelessOps,
-		KinesisAnalyticsOps:        ec.kinesisanalyticsOps,
-		KafkaOps:                   ec.kafkaOps,
-		LakeFormationOps:           ec.lakeformationOps,
-		ManagedBlockchainOps:       ec.managedblockchainOps,
-		MediaConvertOps:            ec.mediaconvertOps,
-		MediaStoreOps:              ec.mediastoreOps,
-		MediaStoreDataOps:          ec.mediastoredataOps,
-		MemoryDBOps:                ec.memorydbOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
-		Logger:                     ctx.Logger,
-	})
+		Logger:                     log,
+	}
+}
 
-	return handler, nil
+func applyExtendedConfig(cfg *Config, ec *extractedConfig) {
+	cfg.AppConfigDataOps = ec.appConfigDataOps
+	cfg.AmplifyOps = ec.amplifyOps
+	cfg.AthenaOps = ec.athenaOps
+	cfg.AutoscalingOps = ec.autoscalingOps
+	cfg.BackupOps = ec.backupOps
+	cfg.CloudTrailOps = ec.cloudtrailOps
+	cfg.AppConfigOps = ec.appConfigOps
+	cfg.ApplicationAutoscalingOps = ec.applicationAutoscalingOps
+	cfg.BatchOps = ec.batchOps
+	cfg.BedrockOps = ec.bedrockOps
+	cfg.BedrockRuntimeOps = ec.bedrockRuntimeOps
+	cfg.CeOps = ec.ceOps
+	cfg.CloudControlOps = ec.cloudcontrolOps
+	cfg.CloudFrontOps = ec.cloudFrontOps
+	cfg.CodeArtifactOps = ec.codeArtifactOps
+	cfg.CodeBuildOps = ec.codebuildOps
+	cfg.CodeCommitOps = ec.codeCommitOps
+	cfg.CodePipelineOps = ec.codePipelineOps
+	cfg.CodeConnectionsOps = ec.codeConnectionsOps
+	cfg.CodeDeployOps = ec.codeDeployOps
+	cfg.DMSOps = ec.dmsOps
+	cfg.CodeStarConnectionsOps = ec.codeStarConnectionsOps
+	cfg.DynamoDBStreamsOps = ec.dynamodbStreamsOps
+	cfg.DocDBOps = ec.docdbOps
+	cfg.ElasticbeanstalkOps = ec.elasticbeanstalkOps
+	cfg.ECROps = ec.ecrOps
+	cfg.ECSOps = ec.ecsOps
+	cfg.EFSOps = ec.efsOps
+	cfg.EKSOps = ec.eksOps
+	cfg.ELBOps = ec.elbOps
+	cfg.ELBv2Ops = ec.elbv2Ops
+	cfg.EmrServerlessOps = ec.emrServerlessOps
+	cfg.EMROps = ec.emrOps
+	cfg.GlueOps = ec.glueOps
+	cfg.IoTOps = ec.iotOps
+	cfg.FISOps = ec.fisOps
+	cfg.IdentityStoreOps = ec.identitystoreOps
+	cfg.ElasticTranscoderOps = ec.elasticTranscoderOps
+	cfg.GlacierOps = ec.glacierOps
+	cfg.IoTAnalyticsOps = ec.iotanalyticsOps
+	cfg.IoTWirelessOps = ec.iotwirelessOps
+	cfg.KinesisAnalyticsOps = ec.kinesisanalyticsOps
+	cfg.KafkaOps = ec.kafkaOps
+	cfg.LakeFormationOps = ec.lakeformationOps
+	cfg.ManagedBlockchainOps = ec.managedblockchainOps
+	cfg.MediaConvertOps = ec.mediaconvertOps
+	cfg.MediaStoreOps = ec.mediastoreOps
+	cfg.MediaStoreDataOps = ec.mediastoredataOps
+	cfg.MemoryDBOps = ec.memorydbOps
+	cfg.MWAAOps = ec.mwaaOps
 }

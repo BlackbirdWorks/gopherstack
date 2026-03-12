@@ -89,6 +89,7 @@ import (
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -269,7 +270,9 @@ type DashboardHandler struct {
 	// MediaStoreDataOps provides access to the MediaStore Data backend.
 	MediaStoreDataOps *mediastoredatabackend.Handler
 	// MemoryDBOps provides access to the MemoryDB backend.
-	MemoryDBOps  *memorydbbackend.Handler
+	MemoryDBOps *memorydbbackend.Handler
+	// MWAAOps provides access to the MWAA backend.
+	MWAAOps      *mwaabackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -460,6 +463,8 @@ type Config struct {
 	MediaStoreDataOps *mediastoredatabackend.Handler
 	// MemoryDBOps provides access to the MemoryDB backend.
 	MemoryDBOps *memorydbbackend.Handler
+	// MWAAOps provides access to the MWAA backend.
+	MWAAOps *mwaabackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -578,6 +583,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/mediastore/*.html",
 		"templates/mediastoredata/*.html",
 		"templates/memorydb/*.html",
+		"templates/mwaa/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -714,6 +720,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.ManagedBlockchainOps = cfg.ManagedBlockchainOps
 	h.MediaConvertOps = cfg.MediaConvertOps
 	h.MediaStoreDataOps = cfg.MediaStoreDataOps
+	h.MWAAOps = cfg.MWAAOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1213,6 +1220,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMediaStoreRoutes()
 	h.setupMediaStoreDataRoutes()
 	h.setupMemoryDBRoutes()
+	h.setupMWAARoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {

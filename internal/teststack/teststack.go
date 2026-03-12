@@ -88,6 +88,7 @@ import (
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -239,10 +240,12 @@ type Stack struct {
 	MediaStoreDataHandler *mediastoredatabackend.Handler
 	// MemoryDBHandler provides access to the MemoryDB backend.
 	MemoryDBHandler *memorydbbackend.Handler
-	S3Client        *s3.Client
-	DDBClient       *dynamodb.Client
-	FaultStore      *chaos.FaultStore
-	Dashboard       *dashboard.DashboardHandler
+	// MWAAHandler provides access to the MWAA backend.
+	MWAAHandler *mwaabackend.Handler
+	S3Client    *s3.Client
+	DDBClient   *dynamodb.Client
+	FaultStore  *chaos.FaultStore
+	Dashboard   *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -535,6 +538,7 @@ type handlers struct {
 	mediastore        *mediastorebackend.Handler
 	mediastoredata    *mediastoredatabackend.Handler
 	memorydb          *memorydbbackend.Handler
+	mwaa              *mwaabackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
 }
@@ -803,6 +807,10 @@ func populateLatestHandlers(h *handlers) {
 	h.memorydb = memorydbbackend.NewHandler(memorydbbackend.NewInMemoryBackend())
 	h.memorydb.AccountID = config.DefaultAccountID
 	h.memorydb.DefaultRegion = config.DefaultRegion
+
+	h.mwaa = mwaabackend.NewHandler(mwaabackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID))
+	h.mwaa.AccountID = config.DefaultAccountID
+	h.mwaa.DefaultRegion = config.DefaultRegion
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -945,6 +953,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.MediaStoreOps = h.mediastore
 	cfg.MediaStoreDataOps = h.mediastoredata
 	cfg.MemoryDBOps = h.memorydb
+	cfg.MWAAOps = h.mwaa
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1007,6 +1016,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.lakeformation)
 	registerMediaServices(registry, h.mediaconvert, h.mediastore, h.mediastoredata, h.memorydb)
+	_ = registry.Register(h.mwaa)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -1138,6 +1148,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.MediaStoreHandler = h.mediastore
 	s.MediaStoreDataHandler = h.mediastoredata
 	s.MemoryDBHandler = h.memorydb
+	s.MWAAHandler = h.mwaa
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

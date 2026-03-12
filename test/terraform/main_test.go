@@ -82,6 +82,7 @@ import (
 	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
 	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
+	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -1946,6 +1947,24 @@ func createMemoryDBClient(t *testing.T) *memorydbsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return memorydbsvc.NewFromConfig(cfg, func(o *memorydbsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createMWAAClient returns an MWAA client pointed at the shared test container.
+func createMWAAClient(t *testing.T) *mwaasvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return mwaasvc.NewFromConfig(cfg, func(o *mwaasvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

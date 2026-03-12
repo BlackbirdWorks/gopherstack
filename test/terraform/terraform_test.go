@@ -97,6 +97,7 @@ import (
 	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
 	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
+	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -248,6 +249,7 @@ provider "aws" {
     mediaconvert    = %[1]q
     mediastore      = %[1]q
     memorydb        = %[1]q
+    mwaa            = %[1]q
     opensearch      = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
@@ -5009,6 +5011,46 @@ func TestTerraform_MemoryDB(t *testing.T) {
 				}
 
 				assert.True(t, found, "created cluster should appear in DescribeClusters output")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_MWAA provisions an MWAA environment via Terraform, then verifies
+// it is listed via the MWAA SDK.
+func TestTerraform_MWAA(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "mwaa/environment",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"EnvironmentName": "tfmwaa-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createMWAAClient(t)
+				envName := vars["EnvironmentName"].(string)
+
+				out, err := client.ListEnvironments(ctx, &mwaasvc.ListEnvironmentsInput{})
+				require.NoError(t, err, "ListEnvironments should succeed after terraform apply")
+
+				found := slices.Contains(out.Environments, envName)
+
+				assert.True(t, found, "created environment should appear in ListEnvironments output")
 			},
 		},
 	}
