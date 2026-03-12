@@ -88,6 +88,7 @@ import (
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -263,6 +264,8 @@ type DashboardHandler struct {
 	ManagedBlockchainOps *managedblockchainbackend.Handler
 	// MediaConvertOps provides access to the MediaConvert backend.
 	MediaConvertOps *mediaconvertbackend.Handler
+	// MQOps provides access to the Amazon MQ backend.
+	MQOps *mqbackend.Handler
 	// MediaStoreOps provides access to the MediaStore backend.
 	MediaStoreOps *mediastorebackend.Handler
 	// MediaStoreDataOps provides access to the MediaStore Data backend.
@@ -451,6 +454,8 @@ type Config struct {
 	ManagedBlockchainOps *managedblockchainbackend.Handler
 	// MediaConvertOps provides access to the MediaConvert backend.
 	MediaConvertOps *mediaconvertbackend.Handler
+	// MQOps provides access to the Amazon MQ backend.
+	MQOps *mqbackend.Handler
 	// MediaStoreOps provides access to the MediaStore backend.
 	MediaStoreOps *mediastorebackend.Handler
 	// MediaStoreDataOps provides access to the MediaStore Data backend.
@@ -706,6 +711,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.LakeFormationOps = cfg.LakeFormationOps
 	h.ManagedBlockchainOps = cfg.ManagedBlockchainOps
 	h.MediaConvertOps = cfg.MediaConvertOps
+	h.MQOps = cfg.MQOps
 	h.MediaStoreDataOps = cfg.MediaStoreDataOps
 }
 
@@ -1203,6 +1209,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupLakeFormationRoutes()
 	h.setupManagedBlockchainRoutes()
 	h.setupMediaConvertRoutes()
+	h.setupMQRoutes()
 	h.setupMediaStoreRoutes()
 	h.setupMediaStoreDataRoutes()
 }

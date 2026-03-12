@@ -58,6 +58,7 @@ import (
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -190,6 +191,7 @@ type AWSSDKProvider interface {
 	GetLakeFormationHandler() service.Registerable
 	GetManagedBlockchainHandler() service.Registerable
 	GetMediaConvertHandler() service.Registerable
+	GetMQHandler() service.Registerable
 	GetMediaStoreHandler() service.Registerable
 	GetMediaStoreDataHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
@@ -296,6 +298,7 @@ type extractedConfig struct {
 	lakeformationOps          *lakeformationbackend.Handler
 	managedblockchainOps      *managedblockchainbackend.Handler
 	mediaconvertOps           *mediaconvertbackend.Handler
+	mqOps                     *mqbackend.Handler
 	mediastoreOps             *mediastorebackend.Handler
 	mediastoredataOps         *mediastoredatabackend.Handler
 	faultStore                *chaos.FaultStore
@@ -722,6 +725,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMediaConvertHandler(); h != nil {
 		ec.mediaconvertOps, _ = h.(*mediaconvertbackend.Handler)
 	}
+
+	if h := ap.GetMQHandler(); h != nil {
+		ec.mqOps, _ = h.(*mqbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -817,6 +824,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		LakeFormationOps:           ec.lakeformationOps,
 		ManagedBlockchainOps:       ec.managedblockchainOps,
 		MediaConvertOps:            ec.mediaconvertOps,
+		MQOps:                      ec.mqOps,
 		MediaStoreOps:              ec.mediastoreOps,
 		MediaStoreDataOps:          ec.mediastoredataOps,
 		GlobalConfig:               ec.gCfg,
