@@ -343,12 +343,29 @@ type createClusterOutput struct {
 	State       string `json:"state"`
 }
 
+type brokerSoftwareInfo struct {
+	KafkaVersion string `json:"kafkaVersion"`
+}
+
+// clusterInfoV1 is the V1 wire shape for a cluster, including currentBrokerSoftwareInfo
+// which the Terraform provider accesses unconditionally (it panics when nil).
+type clusterInfoV1 struct {
+	Tags                      map[string]string   `json:"tags,omitempty"`
+	CurrentBrokerSoftwareInfo *brokerSoftwareInfo `json:"currentBrokerSoftwareInfo,omitempty"`
+	ClusterArn                string              `json:"clusterArn"`
+	ClusterName               string              `json:"clusterName"`
+	KafkaVersion              string              `json:"kafkaVersion"`
+	State                     string              `json:"state"`
+	BrokerNodeGroupInfo       BrokerNodeGroupInfo `json:"brokerNodeGroupInfo"`
+	NumberOfBrokerNodes       int32               `json:"numberOfBrokerNodes"`
+}
+
 type describeClusterOutput struct {
-	ClusterInfo *Cluster `json:"clusterInfo"`
+	ClusterInfo *clusterInfoV1 `json:"clusterInfo"`
 }
 
 type listClustersOutput struct {
-	ClusterInfoList []*Cluster `json:"clusterInfoList"`
+	ClusterInfoList []*clusterInfoV1 `json:"clusterInfoList"`
 }
 
 type provisionedClusterInfo struct {
@@ -497,8 +514,13 @@ func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleListClusters(c *echo.Context) error {
 	clusters := h.Backend.ListClusters()
+	out := make([]*clusterInfoV1, 0, len(clusters))
 
-	return c.JSON(http.StatusOK, listClustersOutput{ClusterInfoList: clusters})
+	for _, cl := range clusters {
+		out = append(out, toClusterInfoV1(cl))
+	}
+
+	return c.JSON(http.StatusOK, listClustersOutput{ClusterInfoList: out})
 }
 
 func (h *Handler) handleListClustersV2(c *echo.Context) error {
@@ -518,7 +540,7 @@ func (h *Handler) handleDescribeCluster(c *echo.Context, clusterArn string) erro
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, describeClusterOutput{ClusterInfo: cluster})
+	return c.JSON(http.StatusOK, describeClusterOutput{ClusterInfo: toClusterInfoV1(cluster)})
 }
 
 func (h *Handler) handleDescribeClusterV2(c *echo.Context, clusterArn string) error {
@@ -547,6 +569,24 @@ func (h *Handler) handleGetBootstrapBrokers(c *echo.Context, clusterArn string) 
 		BootstrapBrokerString:    "localhost:9092",
 		BootstrapBrokerStringTLS: "localhost:9094",
 	})
+}
+
+// toClusterInfoV1 converts a Cluster to the V1 cluster info wire shape.
+// It populates currentBrokerSoftwareInfo which the Terraform provider reads
+// unconditionally after create/describe (nil pointer panic otherwise).
+func toClusterInfoV1(cl *Cluster) *clusterInfoV1 {
+	return &clusterInfoV1{
+		ClusterArn:          cl.ClusterArn,
+		ClusterName:         cl.ClusterName,
+		KafkaVersion:        cl.KafkaVersion,
+		State:               cl.State,
+		BrokerNodeGroupInfo: cl.BrokerNodeGroupInfo,
+		NumberOfBrokerNodes: cl.NumberOfBrokerNodes,
+		Tags:                cl.Tags,
+		CurrentBrokerSoftwareInfo: &brokerSoftwareInfo{
+			KafkaVersion: cl.KafkaVersion,
+		},
+	}
 }
 
 // toClusterInfoV2 converts a Cluster to the V2 cluster info shape.
