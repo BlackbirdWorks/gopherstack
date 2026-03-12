@@ -115,7 +115,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iotwireless v1.54.7 // indirect
 )
 
-require github.com/aws/aws-sdk-go-v2/service/glue v1.137.2 // indirect
+require (
+	github.com/aws/aws-sdk-go-v2/service/glue v1.137.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/kinesisanalytics v1.30.21 // indirect
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
