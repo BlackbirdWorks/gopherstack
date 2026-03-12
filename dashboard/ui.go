@@ -78,6 +78,7 @@ import (
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -243,13 +244,15 @@ type DashboardHandler struct {
 	GlacierOps *glacierbackend.Handler
 	// IoTWirelessOps provides access to the IoT Wireless backend.
 	IoTWirelessOps *iotwirelessbackend.Handler
-	SubRouter      *echo.Echo
-	ddbProvider    *ddbbackend.DashboardProvider
-	s3Provider     *s3backend.DashboardProvider
-	FaultStore     *chaos.FaultStore
-	Logger         *slog.Logger
-	layout         *template.Template
-	GlobalConfig   config.GlobalConfig
+	// KinesisAnalyticsOps provides access to the Kinesis Analytics backend.
+	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
+	SubRouter           *echo.Echo
+	ddbProvider         *ddbbackend.DashboardProvider
+	s3Provider          *s3backend.DashboardProvider
+	FaultStore          *chaos.FaultStore
+	Logger              *slog.Logger
+	layout              *template.Template
+	GlobalConfig        config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -415,6 +418,8 @@ type Config struct {
 	GlacierOps *glacierbackend.Handler
 	// IoTWirelessOps provides access to the IoT Wireless backend.
 	IoTWirelessOps *iotwirelessbackend.Handler
+	// KinesisAnalyticsOps provides access to the Kinesis Analytics backend.
+	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -524,6 +529,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/emr/*.html",
 		"templates/glacier/*.html",
 		"templates/iotwireless/*.html",
+		"templates/kinesisanalytics/*.html",
 		"templates/glue/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -631,6 +637,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		EMROps:                     cfg.EMROps,
 		GlacierOps:                 cfg.GlacierOps,
 		IoTWirelessOps:             cfg.IoTWirelessOps,
+		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
@@ -1129,6 +1136,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupIdentityStoreRoutes()
 	h.setupGlacierRoutes()
 	h.setupIoTWirelessRoutes()
+	h.setupKinesisAnalyticsRoutes()
 	h.setupGlueRoutes()
 }
 

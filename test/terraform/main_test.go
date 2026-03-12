@@ -74,6 +74,7 @@ import (
 	identitystoresvc "github.com/aws/aws-sdk-go-v2/service/identitystore"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
+	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
@@ -1827,6 +1828,26 @@ func createIdentityStoreClient(t *testing.T) *identitystoresvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return identitystoresvc.NewFromConfig(cfg, func(o *identitystoresvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createKinesisAnalyticsClient returns a Kinesis Analytics client pointed at the shared test container.
+//
+
+func createKinesisAnalyticsClient(t *testing.T) *kinesisanalyticssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return kinesisanalyticssvc.NewFromConfig(cfg, func(o *kinesisanalyticssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

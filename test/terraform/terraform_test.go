@@ -89,6 +89,7 @@ import (
 	identitystoretypes "github.com/aws/aws-sdk-go-v2/service/identitystore/types"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
+	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
@@ -234,6 +235,7 @@ provider "aws" {
     identitystore   = %[1]q
     iot             = %[1]q
     kinesis         = %[1]q
+    kinesisanalytics = %[1]q
     kms             = %[1]q
     lambda          = %[1]q
     opensearch      = %[1]q
@@ -4720,6 +4722,55 @@ func TestTerraform_Glacier(t *testing.T) {
 				}
 
 				assert.True(t, found, "vault %q should be listed", vaultName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_KinesisAnalytics provisions a Kinesis Analytics application via Terraform,
+// then verifies it is listed via the Kinesis Analytics SDK.
+//
+
+func TestTerraform_KinesisAnalytics(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "kinesisanalytics/application",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"AppName": "tf-ka-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createKinesisAnalyticsClient(t)
+				appName := vars["AppName"].(string)
+
+				out, err := client.ListApplications(ctx, &kinesisanalyticssvc.ListApplicationsInput{})
+				require.NoError(t, err, "ListApplications should succeed after terraform apply")
+
+				found := false
+				for _, a := range out.ApplicationSummaries {
+					if aws.ToString(a.ApplicationName) == appName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "application %q should be listed", appName)
 			},
 		},
 	}
