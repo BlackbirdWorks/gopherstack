@@ -129,6 +129,7 @@ require github.com/aws/aws-sdk-go-v2/service/mediaconvert v1.87.3
 require (
 	github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.12 // indirect
+	github.com/aws/aws-sdk-go-v2/service/mwaa v1.39.20 // indirect
 )
 
 require github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.18
