@@ -39,8 +39,8 @@ type Channel struct {
 	Name         string
 	ARN          string
 	Status       string
-	CreationTime string
-	LastUpdate   string
+	CreationTime float64
+	LastUpdate   float64
 }
 
 // Datastore stores all metadata and state for a single IoT Analytics datastore.
@@ -49,8 +49,8 @@ type Datastore struct {
 	Name         string
 	ARN          string
 	Status       string
-	CreationTime string
-	LastUpdate   string
+	CreationTime float64
+	LastUpdate   float64
 }
 
 // Dataset stores all metadata and state for a single IoT Analytics dataset.
@@ -59,8 +59,8 @@ type Dataset struct {
 	Name         string
 	ARN          string
 	Status       string
-	CreationTime string
-	LastUpdate   string
+	CreationTime float64
+	LastUpdate   float64
 }
 
 // Pipeline stores all metadata and state for a single IoT Analytics pipeline.
@@ -68,14 +68,14 @@ type Pipeline struct {
 	Tags                  map[string]string
 	Name                  string
 	ARN                   string
-	CreationTime          string
-	LastUpdate            string
+	CreationTime          float64
+	LastUpdate            float64
 	ReprocessingSummaries []string
 }
 
-// formatTime formats a [time.Time] as an ISO 8601 timestamp.
-func formatTime(t time.Time) string {
-	return t.UTC().Format(time.RFC3339)
+// epochSeconds converts a [time.Time] to a float64 Unix epoch seconds value.
+func epochSeconds(t time.Time) float64 {
+	return float64(t.Unix())
 }
 
 // DTO types for request/response serialization.
@@ -97,8 +97,8 @@ type channelSummary struct {
 	ChannelName    string `json:"channelName"`
 	ChannelARN     string `json:"channelArn,omitempty"`
 	Status         string `json:"status"`
-	CreationTime   string `json:"creationTime"`
-	LastUpdateTime string `json:"lastUpdateTime,omitempty"`
+	CreationTime   float64 `json:"creationTime"`
+	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
 
 // listChannelsResponse is the response body for ListChannels.
@@ -117,8 +117,8 @@ type channelDetail struct {
 	Name           string `json:"name"`
 	ARN            string `json:"arn"`
 	Status         string `json:"status"`
-	CreationTime   string `json:"creationTime"`
-	LastUpdateTime string `json:"lastUpdateTime,omitempty"`
+	CreationTime   float64 `json:"creationTime"`
+	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
 
 // createDatastoreRequest is the request body for CreateDatastore.
@@ -138,8 +138,8 @@ type datastoreSummary struct {
 	DatastoreName  string `json:"datastoreName"`
 	DatastoreARN   string `json:"datastoreArn,omitempty"`
 	Status         string `json:"status"`
-	CreationTime   string `json:"creationTime"`
-	LastUpdateTime string `json:"lastUpdateTime,omitempty"`
+	CreationTime   float64 `json:"creationTime"`
+	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
 
 // listDatastoresResponse is the response body for ListDatastores.
@@ -158,8 +158,8 @@ type datastoreDetail struct {
 	Name           string `json:"name"`
 	ARN            string `json:"arn"`
 	Status         string `json:"status"`
-	CreationTime   string `json:"creationTime"`
-	LastUpdateTime string `json:"lastUpdateTime,omitempty"`
+	CreationTime   float64 `json:"creationTime"`
+	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
 
 // createDatasetRequest is the request body for CreateDataset.
@@ -180,8 +180,8 @@ type datasetSummary struct {
 	DatasetName    string `json:"datasetName"`
 	DatasetARN     string `json:"datasetArn,omitempty"`
 	Status         string `json:"status"`
-	CreationTime   string `json:"creationTime"`
-	LastUpdateTime string `json:"lastUpdateTime,omitempty"`
+	CreationTime   float64 `json:"creationTime"`
+	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
 
 // listDatasetsResponse is the response body for ListDatasets.
@@ -200,8 +200,8 @@ type datasetDetail struct {
 	Name           string `json:"name"`
 	ARN            string `json:"arn"`
 	Status         string `json:"status"`
-	CreationTime   string `json:"creationTime"`
-	LastUpdateTime string `json:"lastUpdateTime,omitempty"`
+	CreationTime   float64 `json:"creationTime"`
+	LastUpdateTime float64 `json:"lastUpdateTime,omitempty"`
 }
 
 // createPipelineRequest is the request body for CreatePipeline.
@@ -221,8 +221,8 @@ type createPipelineResponse struct {
 type pipelineSummary struct {
 	PipelineName          string   `json:"pipelineName"`
 	PipelineARN           string   `json:"pipelineArn,omitempty"`
-	CreationTime          string   `json:"creationTime"`
-	LastUpdateTime        string   `json:"lastUpdateTime,omitempty"`
+	CreationTime          float64 `json:"creationTime"`
+	LastUpdateTime        float64 `json:"lastUpdateTime,omitempty"`
 	ReprocessingSummaries []string `json:"reprocessingSummaries,omitempty"`
 }
 
@@ -241,8 +241,8 @@ type describePipelineResponse struct {
 type pipelineDetail struct {
 	Name                  string   `json:"name"`
 	ARN                   string   `json:"arn"`
-	CreationTime          string   `json:"creationTime"`
-	LastUpdateTime        string   `json:"lastUpdateTime,omitempty"`
+	CreationTime          float64 `json:"creationTime"`
+	LastUpdateTime        float64 `json:"lastUpdateTime,omitempty"`
 	ReprocessingSummaries []string `json:"reprocessingSummaries,omitempty"`
 }
 

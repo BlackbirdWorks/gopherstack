@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -74,7 +75,7 @@ func (h *DashboardHandler) iotanalyticsIndex(c *echo.Context) error {
 			Name:         ch.Name,
 			ARN:          ch.ARN,
 			Status:       ch.Status,
-			CreationTime: ch.CreationTime,
+			CreationTime: fmt.Sprintf("%.0f", ch.CreationTime),
 		})
 	}
 

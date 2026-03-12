@@ -108,7 +108,7 @@ func (b *InMemoryBackend) CreateChannel(name string, tags map[string]string) (*C
 		return b.channels[name], nil
 	}
 
-	now := formatTime(time.Now())
+	now := epochSeconds(time.Now())
 	arn := channelARN(name)
 	c := &Channel{
 		Name:         name,
@@ -149,7 +149,7 @@ func (b *InMemoryBackend) UpdateChannel(name string) error {
 		return ErrChannelNotFound
 	}
 
-	c.LastUpdate = formatTime(time.Now())
+	c.LastUpdate = epochSeconds(time.Now())
 
 	return nil
 }
@@ -192,7 +192,7 @@ func (b *InMemoryBackend) CreateDatastore(name string, tags map[string]string) (
 		return b.datastores[name], nil
 	}
 
-	now := formatTime(time.Now())
+	now := epochSeconds(time.Now())
 	arn := datastoreARN(name)
 	d := &Datastore{
 		Name:         name,
@@ -233,7 +233,7 @@ func (b *InMemoryBackend) UpdateDatastore(name string) error {
 		return ErrDatastoreNotFound
 	}
 
-	d.LastUpdate = formatTime(time.Now())
+	d.LastUpdate = epochSeconds(time.Now())
 
 	return nil
 }
@@ -276,7 +276,7 @@ func (b *InMemoryBackend) CreateDataset(name string, tags map[string]string) (*D
 		return b.datasets[name], nil
 	}
 
-	now := formatTime(time.Now())
+	now := epochSeconds(time.Now())
 	arn := datasetARN(name)
 	d := &Dataset{
 		Name:         name,
@@ -317,7 +317,7 @@ func (b *InMemoryBackend) UpdateDataset(name string) error {
 		return ErrDatasetNotFound
 	}
 
-	d.LastUpdate = formatTime(time.Now())
+	d.LastUpdate = epochSeconds(time.Now())
 
 	return nil
 }
@@ -360,7 +360,7 @@ func (b *InMemoryBackend) CreatePipeline(name string, tags map[string]string) (*
 		return b.pipelines[name], nil
 	}
 
-	now := formatTime(time.Now())
+	now := epochSeconds(time.Now())
 	arn := pipelineARN(name)
 	p := &Pipeline{
 		Name:         name,
@@ -400,7 +400,7 @@ func (b *InMemoryBackend) UpdatePipeline(name string) error {
 		return ErrPipelineNotFound
 	}
 
-	p.LastUpdate = formatTime(time.Now())
+	p.LastUpdate = epochSeconds(time.Now())
 
 	return nil
 }

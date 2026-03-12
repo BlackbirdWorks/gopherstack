@@ -4765,7 +4765,7 @@ func TestTerraform_IoTAnalytics(t *testing.T) {
 				found := false
 
 				for _, ch := range channelSummaries {
-					chName := ch.ChannelName
+					chName := ch.ChannelName //nolint:staticcheck // deprecated field
 					if aws.ToString(chName) == channelName {
 						found = true
 

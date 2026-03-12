@@ -53,7 +53,7 @@ func TestIntegration_IoTAnalytics_ChannelLifecycle(t *testing.T) {
 	found := false
 
 	for _, ch := range listOut.ChannelSummaries { //nolint:staticcheck // deprecated field
-		if aws.ToString(ch.ChannelName) == channelName {
+		if aws.ToString(ch.ChannelName) == channelName { //nolint:staticcheck // deprecated field
 			found = true
 
 			break
@@ -67,7 +67,7 @@ func TestIntegration_IoTAnalytics_ChannelLifecycle(t *testing.T) {
 	)
 	require.NoError(t, err, "DescribeChannel should succeed")
 	ch := descOut.Channel //nolint:staticcheck // deprecated field
-	assert.Equal(t, channelName, aws.ToString(ch.Name))
+	assert.Equal(t, channelName, aws.ToString(ch.Name)) //nolint:staticcheck // deprecated field
 
 	_, err = client.UpdateChannel( //nolint:staticcheck // AWS deprecated
 		ctx, &iotanalyticssdk.UpdateChannelInput{ChannelName: aws.String(channelName)},
@@ -107,7 +107,7 @@ func TestIntegration_IoTAnalytics_DatastoreLifecycle(t *testing.T) {
 	found := false
 
 	for _, ds := range listOut.DatastoreSummaries { //nolint:staticcheck // deprecated field
-		if aws.ToString(ds.DatastoreName) == datastoreName {
+		if aws.ToString(ds.DatastoreName) == datastoreName { //nolint:staticcheck // deprecated field
 			found = true
 
 			break
@@ -147,7 +147,7 @@ func TestIntegration_IoTAnalytics_PipelineLifecycle(t *testing.T) {
 	found := false
 
 	for _, p := range listOut.PipelineSummaries { //nolint:staticcheck // deprecated field
-		if aws.ToString(p.PipelineName) == pipelineName {
+		if aws.ToString(p.PipelineName) == pipelineName { //nolint:staticcheck // deprecated field
 			found = true
 
 			break
@@ -161,7 +161,7 @@ func TestIntegration_IoTAnalytics_PipelineLifecycle(t *testing.T) {
 	)
 	require.NoError(t, err, "DescribePipeline should succeed")
 	pipeline := descOut.Pipeline //nolint:staticcheck // deprecated field
-	assert.Equal(t, pipelineName, aws.ToString(pipeline.Name))
+	assert.Equal(t, pipelineName, aws.ToString(pipeline.Name)) //nolint:staticcheck // deprecated field
 
 	_, err = client.DeletePipeline( //nolint:staticcheck // AWS deprecated
 		ctx, &iotanalyticssdk.DeletePipelineInput{PipelineName: aws.String(pipelineName)},
