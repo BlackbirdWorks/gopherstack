@@ -106,18 +106,16 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.54.8
 	github.com/aws/aws-sdk-go-v2/service/elastictranscoder v1.33.0
 	github.com/aws/aws-sdk-go-v2/service/emrserverless v1.39.4
+	github.com/aws/aws-sdk-go-v2/service/glue v1.137.2
+	github.com/aws/aws-sdk-go-v2/service/kafka v1.49.0
+	github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2 v1.36.22
 )
 
 require (
 	github.com/aws/aws-sdk-go-v2/service/glacier v1.32.4
 	github.com/aws/aws-sdk-go-v2/service/identitystore v1.36.3
-	github.com/aws/aws-sdk-go-v2/service/iotwireless v1.54.7
-)
-
-require (
-	github.com/aws/aws-sdk-go-v2/service/glue v1.137.2
 	github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0
-	github.com/aws/aws-sdk-go-v2/service/kafka v1.49.0
+	github.com/aws/aws-sdk-go-v2/service/iotwireless v1.54.7
 	github.com/aws/aws-sdk-go-v2/service/kinesisanalytics v1.30.21
 	github.com/aws/aws-sdk-go-v2/service/lakeformation v1.47.3
 )

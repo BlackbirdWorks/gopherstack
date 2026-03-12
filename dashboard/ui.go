@@ -81,6 +81,7 @@ import (
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -259,6 +260,8 @@ type DashboardHandler struct {
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
+	// KinesisAnalyticsV2Ops provides access to the Kinesis Data Analytics v2 backend.
+	KinesisAnalyticsV2Ops *kinesisanalyticsv2backend.Handler
 	// LakeFormationOps provides access to the Lake Formation backend.
 	LakeFormationOps *lakeformationbackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
@@ -451,6 +454,8 @@ type Config struct {
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
+	// KinesisAnalyticsV2Ops provides access to the Kinesis Data Analytics v2 backend.
+	KinesisAnalyticsV2Ops *kinesisanalyticsv2backend.Handler
 	// LakeFormationOps provides access to the Lake Formation backend.
 	LakeFormationOps *lakeformationbackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
@@ -578,6 +583,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/kinesisanalytics/*.html",
 		"templates/glue/*.html",
 		"templates/kafka/*.html",
+		"templates/kinesisanalyticsv2/*.html",
 		"templates/managedblockchain/*.html",
 		"templates/mediaconvert/*.html",
 		"templates/mediastore/*.html",
@@ -694,6 +700,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
 		KafkaOps:                   cfg.KafkaOps,
+		KinesisAnalyticsV2Ops:      cfg.KinesisAnalyticsV2Ops,
 		LakeFormationOps:           cfg.LakeFormationOps,
 		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
 		MediaStoreOps:              cfg.MediaStoreOps,
@@ -715,6 +722,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 // It is extracted from newDashboardHandler to satisfy the funlen limit.
 func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.KafkaOps = cfg.KafkaOps
+	h.KinesisAnalyticsV2Ops = cfg.KinesisAnalyticsV2Ops
 	h.LakeFormationOps = cfg.LakeFormationOps
 	h.ManagedBlockchainOps = cfg.ManagedBlockchainOps
 	h.MediaConvertOps = cfg.MediaConvertOps
@@ -1213,6 +1221,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupKinesisAnalyticsRoutes()
 	h.setupGlueRoutes()
 	h.setupKafkaRoutes()
+	h.setupKinesisAnalyticsV2Routes()
 	h.setupLakeFormationRoutes()
 	h.setupManagedBlockchainRoutes()
 	h.setupMediaConvertRoutes()

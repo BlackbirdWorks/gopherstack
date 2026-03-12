@@ -76,6 +76,7 @@ import (
 	kafkasvc "github.com/aws/aws-sdk-go-v2/service/kafka"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
+	kinesisanalyticsv2svc "github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -1872,6 +1873,24 @@ func createKafkaClient(t *testing.T) *kafkasvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return kafkasvc.NewFromConfig(cfg, func(o *kafkasvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createKinesisAnalyticsV2Client returns a Kinesis Data Analytics v2 client pointed at the shared test container.
+func createKinesisAnalyticsV2Client(t *testing.T) *kinesisanalyticsv2svc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return kinesisanalyticsv2svc.NewFromConfig(cfg, func(o *kinesisanalyticsv2svc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
