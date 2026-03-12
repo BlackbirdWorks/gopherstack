@@ -65,15 +65,22 @@ type InstanceGroup struct {
 	RunningInstanceCount   int                 `json:"RunningInstanceCount"`
 }
 
+// EC2InstanceAttributes represents EC2 instance attributes for an EMR cluster.
+// Fields are omitted because the in-memory backend does not simulate EC2 networking.
+// The struct must be non-nil in DescribeCluster responses to prevent a nil-pointer
+// panic in the Terraform provider's flattenEC2InstanceAttributes function.
+type EC2InstanceAttributes struct{}
+
 // Cluster represents an EMR cluster.
 type Cluster struct {
-	Status         ClusterStatus   `json:"Status"`
-	ID             string          `json:"Id"`
-	Name           string          `json:"Name"`
-	ARN            string          `json:"ClusterArn"`
-	ReleaseLabel   string          `json:"ReleaseLabel"`
-	Tags           []Tag           `json:"Tags,omitempty"`
-	instanceGroups []InstanceGroup // not serialized — returned only by ListInstanceGroups
+	Status                ClusterStatus          `json:"Status"`
+	ID                    string                 `json:"Id"`
+	Name                  string                 `json:"Name"`
+	ARN                   string                 `json:"ClusterArn"`
+	ReleaseLabel          string                 `json:"ReleaseLabel"`
+	Ec2InstanceAttributes *EC2InstanceAttributes `json:"Ec2InstanceAttributes"`
+	Tags                  []Tag                  `json:"Tags,omitempty"`
+	instanceGroups        []InstanceGroup        // not serialized — returned only by ListInstanceGroups
 }
 
 // ClusterSummary is a trimmed-down view used for ListClusters.
@@ -149,10 +156,11 @@ func (b *InMemoryBackend) RunJobFlow(
 	}
 
 	cluster := &Cluster{
-		ID:           id,
-		Name:         name,
-		ReleaseLabel: releaseLabel,
-		ARN:          clusterARN,
+		ID:                    id,
+		Name:                  name,
+		ReleaseLabel:          releaseLabel,
+		ARN:                   clusterARN,
+		Ec2InstanceAttributes: &EC2InstanceAttributes{},
 		Status: ClusterStatus{
 			State:             StateWaiting,
 			StateChangeReason: map[string]any{"Code": "USER_REQUEST", "Message": ""},

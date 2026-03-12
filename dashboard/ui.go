@@ -226,7 +226,7 @@ type DashboardHandler struct {
 	// ELBOps provides access to the Classic ELB backend.
 	ELBOps *elbbackend.Handler
 	// ELBv2Ops provides access to the ELBv2 (ALB/NLB) backend.
-	ELBv2Ops     *elbv2backend.Handler
+	ELBv2Ops *elbv2backend.Handler
 	// EMROps provides access to the EMR backend.
 	EMROps       *emrbackend.Handler
 	SubRouter    *echo.Echo

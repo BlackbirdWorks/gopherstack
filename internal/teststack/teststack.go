@@ -684,6 +684,14 @@ func populateNewestHandlers(h *handlers) {
 		elbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 
+	populateLatestHandlers(h)
+}
+
+// populateLatestHandlers registers the ELBv2 and EMR service handlers.
+// These are separated from populateNewestHandlers to keep each function within the
+// funlen limit; handlers here represent the most recently added load-balancing and
+// analytics services.
+func populateLatestHandlers(h *handlers) {
 	h.elbv2 = elbv2backend.NewHandler(
 		elbv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
