@@ -46,6 +46,7 @@ import (
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
+	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -166,6 +167,7 @@ type AWSSDKProvider interface {
 	GetEMRHandler() service.Registerable
 	GetIoTHandler() service.Registerable
 	GetFISHandler() service.Registerable
+	GetIdentityStoreHandler() service.Registerable
 	GetAPIGatewayManagementAPIHandler() service.Registerable
 	GetAppConfigDataHandler() service.Registerable
 	GetElasticTranscoderHandler() service.Registerable
@@ -263,6 +265,7 @@ type extractedConfig struct {
 	emrOps                    *emrbackend.Handler
 	iotOps                    *iotbackend.Handler
 	fisOps                    *fisbackend.Handler
+	identitystoreOps          *identitystorebackend.Handler
 	elasticTranscoderOps      *elastictranscoderbackend.Handler
 	glacierOps                *glacierbackend.Handler
 	faultStore                *chaos.FaultStore
@@ -553,6 +556,10 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.emrServerlessOps, _ = h.(*emrserverlessbackend.Handler)
 	}
 
+	if h := ap.GetIdentityStoreHandler(); h != nil {
+		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
+	}
+
 	extractCloudPlatformHandlers(ap, ec)
 }
 
@@ -721,6 +728,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		EMROps:                     ec.emrOps,
 		IoTOps:                     ec.iotOps,
 		FISOps:                     ec.fisOps,
+		IdentityStoreOps:           ec.identitystoreOps,
 		ElasticTranscoderOps:       ec.elasticTranscoderOps,
 		GlacierOps:                 ec.glacierOps,
 		GlobalConfig:               ec.gCfg,

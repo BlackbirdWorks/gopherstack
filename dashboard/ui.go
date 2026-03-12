@@ -72,6 +72,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
@@ -167,11 +168,13 @@ type DashboardHandler struct {
 	EFSOps            *efsbackend.Handler
 	IoTOps            *iotbackend.Handler
 	FISOps            *fisbackend.Handler
-	OpenSearchOps     *opensearchbackend.Handler
-	ACMOps            *acmbackend.Handler
-	ACMPCAOps         *acmpcabackend.Handler
-	RedshiftOps       *redshiftbackend.Handler
-	RDSOps            *rdsbackend.Handler
+	// IdentityStoreOps provides access to the Identity Store backend.
+	IdentityStoreOps *identitystorebackend.Handler
+	OpenSearchOps    *opensearchbackend.Handler
+	ACMOps           *acmbackend.Handler
+	ACMPCAOps        *acmpcabackend.Handler
+	RedshiftOps      *redshiftbackend.Handler
+	RDSOps           *rdsbackend.Handler
 	// DocDBOps provides access to the DocDB backend.
 	DocDBOps                   *docdbbackend.Handler
 	AWSConfigOps               *awsconfigbackend.Handler
@@ -296,6 +299,8 @@ type Config struct {
 	IoTOps *iotbackend.Handler
 	// FISOps provides access to the FIS backend.
 	FISOps *fisbackend.Handler
+	// IdentityStoreOps provides access to the Identity Store backend.
+	IdentityStoreOps *identitystorebackend.Handler
 	// OpenSearchOps provides access to the OpenSearch backend.
 	OpenSearchOps *opensearchbackend.Handler
 	// ACMOps provides access to the ACM backend.
@@ -548,6 +553,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		EFSOps:                     cfg.EFSOps,
 		IoTOps:                     cfg.IoTOps,
 		FISOps:                     cfg.FISOps,
+		IdentityStoreOps:           cfg.IdentityStoreOps,
 		OpenSearchOps:              cfg.OpenSearchOps,
 		ACMOps:                     cfg.ACMOps,
 		ACMPCAOps:                  cfg.ACMPCAOps,
@@ -1099,6 +1105,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupELBv2Routes()
 	h.setupEmrServerlessRoutes()
 	h.setupEMRRoutes()
+	h.setupIdentityStoreRoutes()
 	h.setupGlacierRoutes()
 }
 

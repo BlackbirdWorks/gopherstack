@@ -104,6 +104,7 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
@@ -228,6 +229,7 @@ type CLI struct {
 	cognitoIDPHandler             service.Registerable
 	cognitoIdentityHandler        service.Registerable
 	fisHandler                    service.Registerable
+	identitystoreHandler          service.Registerable
 	elastictranscoderHandler      service.Registerable
 	emrHandler                    service.Registerable
 	glacierHandler                service.Registerable
@@ -756,6 +758,11 @@ func (c *CLI) GetDocDBHandler() service.Registerable { return c.docdbHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetFISHandler() service.Registerable { return c.fisHandler }
 
+// GetIdentityStoreHandler returns the Identity Store handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetIdentityStoreHandler() service.Registerable { return c.identitystoreHandler }
+
 // GetCognitoIDPHandler returns the Cognito IDP handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1190,6 +1197,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.cognitoIDPHandler = byName["CognitoIDP"]
 	cli.cognitoIdentityHandler = byName["CognitoIdentity"]
 	cli.fisHandler = byName["FIS"]
+	cli.identitystoreHandler = byName["IdentityStore"]
 	cli.backupHandler = byName["Backup"]
 	cli.cloudtrailHandler = byName["CloudTrail"]
 	cli.ceHandler = byName["Ce"]
@@ -1372,6 +1380,7 @@ func getServiceProviders() []service.Provider {
 		&ecrbackend.Provider{},
 		&ecsbackend.Provider{},
 		&fisbackend.Provider{},
+		&identitystorebackend.Provider{},
 		&cognitoidpbackend.Provider{},
 		&cognitoidentitybackend.Provider{},
 		&iotbackend.Provider{},
