@@ -343,28 +343,48 @@ type createClusterOutput struct {
 	State       string `json:"state"`
 }
 
+// brokerSoftwareInfo represents the current broker software information.
+type brokerSoftwareInfo struct {
+	KafkaVersion string `json:"kafkaVersion"`
+}
+
+// clusterInfoV1 is the V1 cluster response shape (DescribeCluster / ListClusters).
+type clusterInfoV1 struct {
+	Tags                      map[string]string   `json:"tags,omitempty"`
+	CurrentBrokerSoftwareInfo *brokerSoftwareInfo `json:"currentBrokerSoftwareInfo,omitempty"`
+	ClusterArn                string              `json:"clusterArn"`
+	ClusterName               string              `json:"clusterName"`
+	KafkaVersion              string              `json:"kafkaVersion"`
+	State                     string              `json:"state"`
+	CurrentVersion            string              `json:"currentVersion"`
+	BrokerNodeGroupInfo       BrokerNodeGroupInfo `json:"brokerNodeGroupInfo"`
+	NumberOfBrokerNodes       int32               `json:"numberOfBrokerNodes"`
+}
+
 type describeClusterOutput struct {
-	ClusterInfo *Cluster `json:"clusterInfo"`
+	ClusterInfo *clusterInfoV1 `json:"clusterInfo"`
 }
 
 type listClustersOutput struct {
-	ClusterInfoList []*Cluster `json:"clusterInfoList"`
+	ClusterInfoList []*clusterInfoV1 `json:"clusterInfoList"`
 }
 
 type provisionedClusterInfo struct {
-	KafkaVersion        string              `json:"kafkaVersion"`
-	State               string              `json:"state"`
-	BrokerNodeGroupInfo BrokerNodeGroupInfo `json:"brokerNodeGroupInfo"`
-	NumberOfBrokerNodes int32               `json:"numberOfBrokerNodes"`
+	CurrentBrokerSoftwareInfo *brokerSoftwareInfo `json:"currentBrokerSoftwareInfo,omitempty"`
+	KafkaVersion              string              `json:"kafkaVersion"`
+	State                     string              `json:"state"`
+	BrokerNodeGroupInfo       BrokerNodeGroupInfo `json:"brokerNodeGroupInfo"`
+	NumberOfBrokerNodes       int32               `json:"numberOfBrokerNodes"`
 }
 
 type clusterInfoV2 struct {
-	Tags        map[string]string       `json:"tags,omitempty"`
-	Provisioned *provisionedClusterInfo `json:"provisioned,omitempty"`
-	ClusterArn  string                  `json:"clusterArn"`
-	ClusterName string                  `json:"clusterName"`
-	ClusterType string                  `json:"clusterType"`
-	State       string                  `json:"state"`
+	Tags           map[string]string       `json:"tags,omitempty"`
+	Provisioned    *provisionedClusterInfo `json:"provisioned,omitempty"`
+	ClusterArn     string                  `json:"clusterArn"`
+	ClusterName    string                  `json:"clusterName"`
+	ClusterType    string                  `json:"clusterType"`
+	State          string                  `json:"state"`
+	CurrentVersion string                  `json:"currentVersion,omitempty"`
 }
 
 type describeClusterV2Output struct {
@@ -497,8 +517,13 @@ func (h *Handler) handleCreateClusterV2(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleListClusters(c *echo.Context) error {
 	clusters := h.Backend.ListClusters()
+	out := make([]*clusterInfoV1, 0, len(clusters))
 
-	return c.JSON(http.StatusOK, listClustersOutput{ClusterInfoList: clusters})
+	for _, cl := range clusters {
+		out = append(out, toClusterInfoV1(cl))
+	}
+
+	return c.JSON(http.StatusOK, listClustersOutput{ClusterInfoList: out})
 }
 
 func (h *Handler) handleListClustersV2(c *echo.Context) error {
@@ -518,7 +543,7 @@ func (h *Handler) handleDescribeCluster(c *echo.Context, clusterArn string) erro
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, describeClusterOutput{ClusterInfo: cluster})
+	return c.JSON(http.StatusOK, describeClusterOutput{ClusterInfo: toClusterInfoV1(cluster)})
 }
 
 func (h *Handler) handleDescribeClusterV2(c *echo.Context, clusterArn string) error {
@@ -549,19 +574,46 @@ func (h *Handler) handleGetBootstrapBrokers(c *echo.Context, clusterArn string) 
 	})
 }
 
+// brokerSoftwareInfoFor returns a brokerSoftwareInfo for the given Kafka version,
+// or nil if the version is empty.
+func brokerSoftwareInfoFor(kafkaVersion string) *brokerSoftwareInfo {
+	if kafkaVersion == "" {
+		return nil
+	}
+
+	return &brokerSoftwareInfo{KafkaVersion: kafkaVersion}
+}
+
+// toClusterInfoV1 converts a Cluster to the V1 cluster info shape.
+func toClusterInfoV1(cl *Cluster) *clusterInfoV1 {
+	return &clusterInfoV1{
+		ClusterArn:                cl.ClusterArn,
+		ClusterName:               cl.ClusterName,
+		KafkaVersion:              cl.KafkaVersion,
+		State:                     cl.State,
+		CurrentVersion:            cl.CurrentVersion,
+		BrokerNodeGroupInfo:       cl.BrokerNodeGroupInfo,
+		NumberOfBrokerNodes:       cl.NumberOfBrokerNodes,
+		Tags:                      cl.Tags,
+		CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
+	}
+}
+
 // toClusterInfoV2 converts a Cluster to the V2 cluster info shape.
 func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 	return &clusterInfoV2{
-		ClusterArn:  cl.ClusterArn,
-		ClusterName: cl.ClusterName,
-		ClusterType: "PROVISIONED",
-		State:       cl.State,
-		Tags:        cl.Tags,
+		ClusterArn:     cl.ClusterArn,
+		ClusterName:    cl.ClusterName,
+		ClusterType:    "PROVISIONED",
+		State:          cl.State,
+		CurrentVersion: cl.CurrentVersion,
+		Tags:           cl.Tags,
 		Provisioned: &provisionedClusterInfo{
-			BrokerNodeGroupInfo: cl.BrokerNodeGroupInfo,
-			KafkaVersion:        cl.KafkaVersion,
-			NumberOfBrokerNodes: cl.NumberOfBrokerNodes,
-			State:               cl.State,
+			BrokerNodeGroupInfo:       cl.BrokerNodeGroupInfo,
+			KafkaVersion:              cl.KafkaVersion,
+			NumberOfBrokerNodes:       cl.NumberOfBrokerNodes,
+			State:                     cl.State,
+			CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
 		},
 	}
 }

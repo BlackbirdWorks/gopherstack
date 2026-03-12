@@ -118,6 +118,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/glue v1.137.2
 	github.com/aws/aws-sdk-go-v2/service/iotanalytics v1.32.0
 	github.com/aws/aws-sdk-go-v2/service/kafka v1.49.0
+	github.com/aws/aws-sdk-go-v2/service/kinesisanalytics v1.30.21
 )
 
 require (

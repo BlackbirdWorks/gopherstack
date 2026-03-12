@@ -80,6 +80,7 @@ import (
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -247,6 +248,8 @@ type DashboardHandler struct {
 	IoTAnalyticsOps *iotanalyticsbackend.Handler
 	// IoTWirelessOps provides access to the IoT Wireless backend.
 	IoTWirelessOps *iotwirelessbackend.Handler
+	// KinesisAnalyticsOps provides access to the Kinesis Analytics backend.
+	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps     *kafkabackend.Handler
 	SubRouter    *echo.Echo
@@ -423,6 +426,8 @@ type Config struct {
 	IoTAnalyticsOps *iotanalyticsbackend.Handler
 	// IoTWirelessOps provides access to the IoT Wireless backend.
 	IoTWirelessOps *iotwirelessbackend.Handler
+	// KinesisAnalyticsOps provides access to the Kinesis Analytics backend.
+	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -535,6 +540,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/glacier/*.html",
 		"templates/iotanalytics/*.html",
 		"templates/iotwireless/*.html",
+		"templates/kinesisanalytics/*.html",
 		"templates/glue/*.html",
 		"templates/kafka/*.html",
 		"templates/chaos/*.html",
@@ -644,6 +650,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		GlacierOps:                 cfg.GlacierOps,
 		IoTAnalyticsOps:            cfg.IoTAnalyticsOps,
 		IoTWirelessOps:             cfg.IoTWirelessOps,
+		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
 		KafkaOps:                   cfg.KafkaOps,
 		GlobalConfig:               cfg.GlobalConfig,
@@ -1144,6 +1151,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupGlacierRoutes()
 	h.setupIoTAnalyticsRoutes()
 	h.setupIoTWirelessRoutes()
+	h.setupKinesisAnalyticsRoutes()
 	h.setupGlueRoutes()
 	h.setupKafkaRoutes()
 }

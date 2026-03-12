@@ -80,6 +80,7 @@ import (
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -219,6 +220,8 @@ type Stack struct {
 	IoTAnalyticsHandler *iotanalyticsbackend.Handler
 	// IoTWirelessHandler provides access to the IoT Wireless backend.
 	IoTWirelessHandler *iotwirelessbackend.Handler
+	// KinesisAnalyticsHandler provides access to the Kinesis Analytics backend.
+	KinesisAnalyticsHandler *kinesisanalyticsbackend.Handler
 	// KafkaHandler provides access to the MSK Kafka backend.
 	KafkaHandler *kafkabackend.Handler
 	S3Client     *s3.Client
@@ -496,6 +499,7 @@ type handlers struct {
 	glacier           *glacierbackend.Handler
 	iotanalytics      *iotanalyticsbackend.Handler
 	iotwireless       *iotwirelessbackend.Handler
+	kinesisanalytics  *kinesisanalyticsbackend.Handler
 	kafka             *kafkabackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
@@ -740,6 +744,12 @@ func populateLatestHandlers(h *handlers) {
 	h.iotwireless.AccountID = config.DefaultAccountID
 	h.iotwireless.DefaultRegion = config.DefaultRegion
 
+	h.kinesisanalytics = kinesisanalyticsbackend.NewHandler(
+		kinesisanalyticsbackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID),
+	)
+	h.kinesisanalytics.AccountID = config.DefaultAccountID
+	h.kinesisanalytics.DefaultRegion = config.DefaultRegion
+
 	h.kafka = kafkabackend.NewHandler(
 		kafkabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -864,6 +874,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		GlacierOps:                 h.glacier,
 		IoTAnalyticsOps:            h.iotanalytics,
 		IoTWirelessOps:             h.iotwireless,
+		KinesisAnalyticsOps:        h.kinesisanalytics,
 		KafkaOps:                   h.kafka,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
@@ -930,6 +941,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.glacier)
 	_ = registry.Register(h.iotanalytics)
 	_ = registry.Register(h.iotwireless)
+	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -1040,6 +1052,7 @@ func buildStack(
 		GlacierHandler:                 h.glacier,
 		IoTAnalyticsHandler:            h.iotanalytics,
 		IoTWirelessHandler:             h.iotwireless,
+		KinesisAnalyticsHandler:        h.kinesisanalytics,
 		KafkaHandler:                   h.kafka,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
