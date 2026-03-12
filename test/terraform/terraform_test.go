@@ -4322,10 +4322,12 @@ func TestTerraform_ElasticTranscoder(t *testing.T) {
 				)
 				require.NoError(t, err, "ListPipelines should succeed after terraform apply")
 
+				pipelines := out.Pipelines //nolint:staticcheck // AWS deprecated the SDK but service still works
 				found := false
 
-				for _, p := range out.Pipelines { //nolint:staticcheck // AWS deprecated the SDK but service still works
-					if aws.ToString(p.Name) == pipelineName { //nolint:staticcheck // AWS deprecated the SDK but service still works
+				for i := range pipelines {
+					name := aws.ToString(pipelines[i].Name) //nolint:staticcheck // deprecated SDK
+					if name == pipelineName {
 						found = true
 
 						break
