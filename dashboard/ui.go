@@ -70,6 +70,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
@@ -233,7 +234,9 @@ type DashboardHandler struct {
 	// EmrServerlessOps provides access to the EMR Serverless backend.
 	EmrServerlessOps *emrserverlessbackend.Handler
 	// EMROps provides access to the EMR backend.
-	EMROps       *emrbackend.Handler
+	EMROps *emrbackend.Handler
+	// GlacierOps provides access to the Glacier backend.
+	GlacierOps   *glacierbackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -400,6 +403,8 @@ type Config struct {
 	EmrServerlessOps *emrserverlessbackend.Handler
 	// EMROps provides access to the EMR backend.
 	EMROps *emrbackend.Handler
+	// GlacierOps provides access to the Glacier backend.
+	GlacierOps *glacierbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -503,6 +508,7 @@ func parseDashboardTemplates() *template.Template {
 		"templates/elbv2/*.html",
 		"templates/emrserverless/*.html",
 		"templates/emr/*.html",
+		"templates/glacier/*.html",
 		"templates/glue/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -599,6 +605,7 @@ func NewHandler(cfg Config) *DashboardHandler {
 		ELBv2Ops:                   cfg.ELBv2Ops,
 		EmrServerlessOps:           cfg.EmrServerlessOps,
 		EMROps:                     cfg.EMROps,
+		GlacierOps:                 cfg.GlacierOps,
 		GlueOps:                    cfg.GlueOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
@@ -1098,6 +1105,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupELBv2Routes()
 	h.setupEmrServerlessRoutes()
 	h.setupEMRRoutes()
+	h.setupGlacierRoutes()
 	h.setupGlueRoutes()
 }
 

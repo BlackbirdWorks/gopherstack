@@ -102,6 +102,7 @@ import (
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
+	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
@@ -230,6 +231,7 @@ type CLI struct {
 	fisHandler                    service.Registerable
 	elastictranscoderHandler      service.Registerable
 	emrHandler                    service.Registerable
+	glacierHandler                service.Registerable
 	glueHandler                   service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
@@ -570,6 +572,11 @@ func (c *CLI) GetElasticTranscoderHandler() service.Registerable { return c.elas
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetEMRHandler() service.Registerable { return c.emrHandler }
+
+// GetGlacierHandler returns the Glacier handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGlacierHandler() service.Registerable { return c.glacierHandler }
 
 // GetGlueHandler returns the Glue handler (dashboard.AWSSDKProvider).
 //
@@ -1211,6 +1218,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.elbv2Handler = byName["ELBv2"]
 	cli.emrserverlessHandler = byName["EmrServerless"]
 	cli.emrHandler = byName["EMR"]
+	cli.glacierHandler = byName["Glacier"]
 	cli.glueHandler = byName["Glue"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
@@ -1412,6 +1420,7 @@ func getServiceProviders() []service.Provider {
 		&gluebackend.Provider{},
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
+		&glacierbackend.Provider{},
 	}
 }
 
