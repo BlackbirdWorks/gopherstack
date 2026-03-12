@@ -84,6 +84,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -228,6 +229,8 @@ type Stack struct {
 	KafkaHandler *kafkabackend.Handler
 	// LakeFormationHandler provides access to the Lake Formation backend.
 	LakeFormationHandler *lakeformationbackend.Handler
+	// MediaConvertHandler provides access to the MediaConvert backend.
+	MediaConvertHandler *mediaconvertbackend.Handler
 	// MediaStoreHandler provides access to the MediaStore backend.
 	MediaStoreHandler *mediastorebackend.Handler
 	S3Client          *s3.Client
@@ -508,6 +511,7 @@ type handlers struct {
 	kinesisanalytics  *kinesisanalyticsbackend.Handler
 	kafka             *kafkabackend.Handler
 	lakeformation     *lakeformationbackend.Handler
+	mediaconvert      *mediaconvertbackend.Handler
 	mediastore        *mediastorebackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
@@ -766,6 +770,9 @@ func populateLatestHandlers(h *handlers) {
 	h.lakeformation.AccountID = config.DefaultAccountID
 	h.lakeformation.DefaultRegion = config.DefaultRegion
 
+	h.mediaconvert = mediaconvertbackend.NewHandler(
+		mediaconvertbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.mediastore = mediastorebackend.NewHandler(mediastorebackend.NewInMemoryBackend())
 	h.mediastore.AccountID = config.DefaultAccountID
 	h.mediastore.DefaultRegion = config.DefaultRegion
@@ -893,6 +900,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		KinesisAnalyticsOps:        h.kinesisanalytics,
 		KafkaOps:                   h.kafka,
 		LakeFormationOps:           h.lakeformation,
+		MediaConvertOps:            h.mediaconvert,
 		MediaStoreOps:              h.mediastore,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
@@ -962,6 +970,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.lakeformation)
+	_ = registry.Register(h.mediaconvert)
 	_ = registry.Register(h.mediastore)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
@@ -989,7 +998,7 @@ func buildStack(
 	faultStore *chaos.FaultStore,
 	dashboardHandler *dashboard.DashboardHandler,
 ) *Stack {
-	return &Stack{
+	s := &Stack{
 		Echo:                           e,
 		S3Backend:                      h.s3Bk,
 		S3Handler:                      h.s3,
@@ -1075,14 +1084,23 @@ func buildStack(
 		GlacierHandler:                 h.glacier,
 		IoTAnalyticsHandler:            h.iotanalytics,
 		IoTWirelessHandler:             h.iotwireless,
-		KinesisAnalyticsHandler:        h.kinesisanalytics,
-		KafkaHandler:                   h.kafka,
-		LakeFormationHandler:           h.lakeformation,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
 		Dashboard:                      dashboardHandler,
 	}
+	setNewestStackHandlers(s, h)
+
+	return s
+}
+
+// setNewestStackHandlers sets the most recently added handler fields on a Stack.
+// It is extracted from buildStack to satisfy the funlen limit.
+func setNewestStackHandlers(s *Stack, h handlers) {
+	s.KinesisAnalyticsHandler = h.kinesisanalytics
+	s.KafkaHandler = h.kafka
+	s.LakeFormationHandler = h.lakeformation
+	s.MediaConvertHandler = h.mediaconvert
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

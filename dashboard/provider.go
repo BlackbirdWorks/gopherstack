@@ -55,6 +55,7 @@ import (
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -187,6 +188,7 @@ type AWSSDKProvider interface {
 	GetKafkaHandler() service.Registerable
 	GetLakeFormationHandler() service.Registerable
 	GetManagedBlockchainHandler() service.Registerable
+	GetMediaConvertHandler() service.Registerable
 	GetMediaStoreHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
@@ -291,6 +293,7 @@ type extractedConfig struct {
 	kafkaOps                  *kafkabackend.Handler
 	lakeformationOps          *lakeformationbackend.Handler
 	managedblockchainOps      *managedblockchainbackend.Handler
+	mediaconvertOps           *mediaconvertbackend.Handler
 	mediastoreOps             *mediastorebackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
@@ -708,6 +711,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
 	}
+
+	if h := ap.GetMediaConvertHandler(); h != nil {
+		ec.mediaconvertOps, _ = h.(*mediaconvertbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -802,6 +809,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		KafkaOps:                   ec.kafkaOps,
 		LakeFormationOps:           ec.lakeformationOps,
 		ManagedBlockchainOps:       ec.managedblockchainOps,
+		MediaConvertOps:            ec.mediaconvertOps,
 		MediaStoreOps:              ec.mediastoreOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,

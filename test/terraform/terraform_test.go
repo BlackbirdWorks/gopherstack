@@ -94,6 +94,7 @@ import (
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
+	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
@@ -243,6 +244,7 @@ provider "aws" {
     kms             = %[1]q
     lakeformation   = %[1]q
     lambda          = %[1]q
+    mediaconvert    = %[1]q
     mediastore      = %[1]q
     opensearch      = %[1]q
     redshift        = %[1]q
@@ -4827,6 +4829,57 @@ func TestTerraform_Kafka(t *testing.T) {
 				}
 
 				assert.True(t, found, "cluster %q should be listed after terraform apply", clusterName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_MediaConvert provisions a MediaConvert queue via Terraform
+// and verifies it exists using the MediaConvert SDK.
+func TestTerraform_MediaConvert(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "mediaconvert/queue",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"QueueName": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createMediaConvertClient(t)
+				queueName := "tf-mc-queue-" + vars["QueueName"].(string)
+
+				out, err := client.ListQueues(
+					ctx,
+					&mediaconvertsvc.ListQueuesInput{},
+				)
+				require.NoError(t, err, "ListQueues should succeed after terraform apply")
+
+				found := false
+
+				for _, q := range out.Queues {
+					if aws.ToString(q.Name) == queueName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "queue %q should be listed after terraform apply", queueName)
 			},
 		},
 	}
