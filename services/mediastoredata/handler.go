@@ -1,8 +1,6 @@
 package mediastoredata
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"net/http"
 	"strconv"
@@ -145,11 +143,8 @@ func (h *Handler) handlePutObject(c *echo.Context) error {
 
 	obj := h.Backend.PutObject(path, body, contentType, cacheControl, storageClass)
 
-	sum := sha256.Sum256(body)
-	sha := hex.EncodeToString(sum[:])
-
 	return c.JSON(http.StatusOK, map[string]string{
-		"ContentSHA256": sha,
+		"ContentSHA256": contentSHA256(body),
 		"ETag":          obj.ETag,
 		"StorageClass":  obj.StorageClass,
 	})

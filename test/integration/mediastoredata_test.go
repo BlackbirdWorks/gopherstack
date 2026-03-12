@@ -4,7 +4,8 @@
 package integration_test
 
 import (
-	"strings"
+	"bytes"
+	"io"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -67,7 +68,7 @@ func TestIntegration_MediaStoreData_ObjectLifecycle(t *testing.T) {
 			// Put object.
 			putOut, err := client.PutObject(ctx, &mediastoredatasdk.PutObjectInput{
 				Path:        aws.String(tt.objectPath),
-				Body:        strings.NewReader(string(tt.body)),
+				Body:        bytes.NewReader(tt.body),
 				ContentType: aws.String(tt.contentType),
 			})
 			require.NoError(t, err, "PutObject should succeed")
@@ -80,17 +81,20 @@ func TestIntegration_MediaStoreData_ObjectLifecycle(t *testing.T) {
 			})
 			require.NoError(t, err, "DescribeObject should succeed")
 			assert.NotEmpty(t, aws.ToString(descOut.ETag), "DescribeObject should return an ETag")
-			assert.NotNil(t, descOut.ContentLength, "DescribeObject should return ContentLength")
+			require.NotNil(t, descOut.ContentLength, "DescribeObject should return ContentLength")
+			assert.Equal(t, int64(len(tt.body)), aws.ToInt64(descOut.ContentLength))
 
-			// Get object.
+			// Get object and validate body.
 			getOut, err := client.GetObject(ctx, &mediastoredatasdk.GetObjectInput{
 				Path: aws.String(tt.objectPath),
 			})
 			require.NoError(t, err, "GetObject should succeed")
 			require.NotNil(t, getOut.Body)
 
-			defer getOut.Body.Close()
-
+			gotBody, readErr := io.ReadAll(getOut.Body)
+			getOut.Body.Close()
+			require.NoError(t, readErr)
+			assert.Equal(t, tt.body, gotBody, "GetObject body should match uploaded content")
 			assert.NotEmpty(t, aws.ToString(getOut.ETag), "GetObject should return an ETag")
 
 			// List items at root.

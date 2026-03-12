@@ -385,48 +385,67 @@ func TestMediaStoreData_DescribeObject(t *testing.T) {
 func TestMediaStoreData_Lifecycle(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-
-	content := []byte("test media content")
-	path := "/media/test.mp4"
-
-	// Put object.
-	putRec := doRequest(t, h, http.MethodPut, path, content, map[string]string{
-		"Content-Type": "video/mp4",
-	})
-	require.Equal(t, http.StatusOK, putRec.Code)
-
-	// Get object.
-	getRec := doRequest(t, h, http.MethodGet, path, nil, nil)
-	require.Equal(t, http.StatusOK, getRec.Code)
-	assert.Equal(t, content, getRec.Body.Bytes())
-
-	// Describe object.
-	headRec := doRequest(t, h, http.MethodHead, path, nil, nil)
-	require.Equal(t, http.StatusOK, headRec.Code)
-	assert.NotEmpty(t, headRec.Header().Get("ETag"))
-
-	// List items at root.
-	listRec := doRequest(t, h, http.MethodGet, "/", nil, nil)
-	require.Equal(t, http.StatusOK, listRec.Code)
-
-	var listResp struct {
-		Items []struct {
-			Name string `json:"Name"`
-			Type string `json:"Type"`
-		} `json:"Items"`
+	tests := []struct {
+		name        string
+		path        string
+		contentType string
+		wantFolder  string
+		content     []byte
+	}{
+		{
+			name:        "mp4_object_in_media_folder",
+			path:        "/media/test.mp4",
+			content:     []byte("test media content"),
+			contentType: "video/mp4",
+			wantFolder:  "media",
+		},
 	}
 
-	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
-	require.Len(t, listResp.Items, 1)
-	assert.Equal(t, "media", listResp.Items[0].Name)
-	assert.Equal(t, "FOLDER", listResp.Items[0].Type)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Delete object.
-	delRec := doRequest(t, h, http.MethodDelete, path, nil, nil)
-	require.Equal(t, http.StatusOK, delRec.Code)
+			h := newTestHandler(t)
 
-	// Verify deletion.
-	getRec2 := doRequest(t, h, http.MethodGet, path, nil, nil)
-	assert.Equal(t, http.StatusNotFound, getRec2.Code)
+			// Put object.
+			putRec := doRequest(t, h, http.MethodPut, tt.path, tt.content, map[string]string{
+				"Content-Type": tt.contentType,
+			})
+			require.Equal(t, http.StatusOK, putRec.Code)
+
+			// Get object and verify body matches.
+			getRec := doRequest(t, h, http.MethodGet, tt.path, nil, nil)
+			require.Equal(t, http.StatusOK, getRec.Code)
+			assert.Equal(t, tt.content, getRec.Body.Bytes())
+
+			// Describe object.
+			headRec := doRequest(t, h, http.MethodHead, tt.path, nil, nil)
+			require.Equal(t, http.StatusOK, headRec.Code)
+			assert.NotEmpty(t, headRec.Header().Get("ETag"))
+
+			// List items at root.
+			listRec := doRequest(t, h, http.MethodGet, "/", nil, nil)
+			require.Equal(t, http.StatusOK, listRec.Code)
+
+			var listResp struct {
+				Items []struct {
+					Name string `json:"Name"`
+					Type string `json:"Type"`
+				} `json:"Items"`
+			}
+
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+			require.Len(t, listResp.Items, 1)
+			assert.Equal(t, tt.wantFolder, listResp.Items[0].Name)
+			assert.Equal(t, "FOLDER", listResp.Items[0].Type)
+
+			// Delete object.
+			delRec := doRequest(t, h, http.MethodDelete, tt.path, nil, nil)
+			require.Equal(t, http.StatusOK, delRec.Code)
+
+			// Verify deletion.
+			getRec2 := doRequest(t, h, http.MethodGet, tt.path, nil, nil)
+			assert.Equal(t, http.StatusNotFound, getRec2.Code)
+		})
+	}
 }

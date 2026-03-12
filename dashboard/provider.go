@@ -707,9 +707,13 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMediaStoreHandler(); h != nil {
 		ec.mediastoreOps, _ = h.(*mediastorebackend.Handler)
 	}
+
+	if h := ap.GetMediaStoreDataHandler(); h != nil {
+		ec.mediastoredataOps, _ = h.(*mediastoredatabackend.Handler)
+	}
 }
 
-// extractBlockchainHandlers populates blockchain service handlers on ec.
+// extractBlockchainHandlers populates ManagedBlockchain and MediaConvert handlers on ec.
 func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
@@ -717,10 +721,6 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetMediaConvertHandler(); h != nil {
 		ec.mediaconvertOps, _ = h.(*mediaconvertbackend.Handler)
-	}
-
-	if h := ap.GetMediaStoreDataHandler(); h != nil {
-		ec.mediastoredataOps, _ = h.(*mediastoredatabackend.Handler)
 	}
 }
 

@@ -1,6 +1,8 @@
 package mediastoredata
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -45,6 +47,27 @@ func normalizePath(p string) string {
 	return strings.TrimPrefix(p, "/")
 }
 
+// contentSHA256 returns the hex-encoded SHA-256 digest of body.
+func contentSHA256(body []byte) string {
+	sum := sha256.Sum256(body)
+
+	return hex.EncodeToString(sum[:])
+}
+
+// contentETag returns a quoted ETag derived from the SHA-256 hash of the body,
+// matching the convention used by real AWS services.
+func contentETag(body []byte) string {
+	return fmt.Sprintf(`"%s"`, contentSHA256(body))
+}
+
+// cloneObject returns a deep copy of obj with the Body slice cloned.
+func cloneObject(obj *Object) *Object {
+	cp := *obj
+	cp.Body = append([]byte(nil), obj.Body...)
+
+	return &cp
+}
+
 // PutObject stores an object at the given path.
 func (b *InMemoryBackend) PutObject(path string, body []byte, contentType, cacheControl, storageClass string) *Object {
 	b.mu.Lock("PutObject")
@@ -55,20 +78,20 @@ func (b *InMemoryBackend) PutObject(path string, body []byte, contentType, cache
 		storageClass = "TEMPORAL"
 	}
 
-	etag := fmt.Sprintf("%x", len(body))
+	// Clone the input body to prevent callers mutating the stored slice.
+	stored := append([]byte(nil), body...)
 	obj := &Object{
-		Body:          body,
-		ETag:          etag,
+		Body:          stored,
+		ETag:          contentETag(stored),
 		ContentType:   contentType,
 		CacheControl:  cacheControl,
 		StorageClass:  storageClass,
 		LastModified:  time.Now().UTC(),
-		ContentLength: int64(len(body)),
+		ContentLength: int64(len(stored)),
 	}
 	b.objects[key] = obj
-	cp := *obj
 
-	return &cp
+	return cloneObject(obj)
 }
 
 // GetObject retrieves an object by path.
@@ -83,9 +106,7 @@ func (b *InMemoryBackend) GetObject(path string) (*Object, error) {
 		return nil, fmt.Errorf("%w: object %q not found", ErrNotFound, path)
 	}
 
-	cp := *obj
-
-	return &cp, nil
+	return cloneObject(obj), nil
 }
 
 // DeleteObject removes an object by path.
