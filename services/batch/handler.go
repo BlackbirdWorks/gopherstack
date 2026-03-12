@@ -78,9 +78,9 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches Batch requests.
-// It matches /v1/ paths but explicitly excludes /v1/apis (AppSync)
-// and CodeArtifact paths to prevent routing conflicts when both services
-// use PriorityPathVersioned.
+// It matches /v1/ paths but explicitly excludes /v1/apis (AppSync),
+// CodeArtifact paths, Kafka paths, and Kafka tag resource paths to
+// prevent routing conflicts when multiple services use PriorityPathVersioned.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
@@ -102,9 +102,40 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, kafkaConfigurationsPrefix) {
 			return false
 		}
+		// Exclude Kafka tag resource paths (/v1/tags/{kafka-arn}).
+		if isKafkaTagPath(path) {
+			return false
+		}
 
 		return strings.HasPrefix(path, v1Prefix)
 	}
+}
+
+// arnSplitNForService is the n passed to [strings.SplitN] when parsing an ARN to
+// reach the service name at index 2 (arn:partition:service:...).
+const arnSplitNForService = 4
+
+// isKafkaTagPath reports whether path is a /v1/tags/{arn} path for a Kafka ARN.
+// Kafka's RouteMatcher handles these; the Batch handler must not intercept them.
+func isKafkaTagPath(path string) bool {
+	if !strings.HasPrefix(path, tagsPrefix) {
+		return false
+	}
+
+	encodedARN := path[len(tagsPrefix):]
+	if encodedARN == "" {
+		return false
+	}
+
+	decodedARN, err := url.PathUnescape(encodedARN)
+	if err != nil {
+		return false
+	}
+
+	// arn:partition:service:region:account:resource — check the service segment.
+	parts := strings.SplitN(decodedARN, ":", arnSplitNForService)
+
+	return len(parts) >= 3 && parts[2] == "kafka"
 }
 
 // MatchPriority returns the routing priority.
