@@ -87,11 +87,6 @@ func (h *DashboardHandler) identityStoreIndex(c *echo.Context) error {
 		userMap[u.UserID] = u
 	}
 
-	groupMap := make(map[string]*identitystorebackend.Group, len(groups))
-	for _, g := range groups {
-		groupMap[g.GroupID] = g
-	}
-
 	userViews := make([]identityStoreUserView, 0, len(users))
 	for _, u := range users {
 		v := identityStoreUserView{

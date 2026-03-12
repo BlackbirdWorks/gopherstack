@@ -167,12 +167,12 @@ type DashboardHandler struct {
 	IoTOps            *iotbackend.Handler
 	FISOps            *fisbackend.Handler
 	// IdentityStoreOps provides access to the Identity Store backend.
-	IdentityStoreOps  *identitystorebackend.Handler
-	OpenSearchOps     *opensearchbackend.Handler
-	ACMOps            *acmbackend.Handler
-	ACMPCAOps         *acmpcabackend.Handler
-	RedshiftOps       *redshiftbackend.Handler
-	RDSOps            *rdsbackend.Handler
+	IdentityStoreOps *identitystorebackend.Handler
+	OpenSearchOps    *opensearchbackend.Handler
+	ACMOps           *acmbackend.Handler
+	ACMPCAOps        *acmpcabackend.Handler
+	RedshiftOps      *redshiftbackend.Handler
+	RDSOps           *rdsbackend.Handler
 	// DocDBOps provides access to the DocDB backend.
 	DocDBOps                   *docdbbackend.Handler
 	AWSConfigOps               *awsconfigbackend.Handler

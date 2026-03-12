@@ -17,6 +17,12 @@ const (
 	pathPrefix = "/identitystores/"
 	// minSegmentsForID is the minimum number of path segments for a resource ID.
 	minSegmentsForID = 2
+	// segmentsWithID is the number of segments when a resource ID is present.
+	segmentsWithID = 3
+	// segmentsWithSub is the number of segments when a sub-path is present.
+	segmentsWithSub = 4
+	// isMemberInGroupsOp is the operation name for the IsMemberInGroups API call.
+	isMemberInGroupsOp = "IsMemberInGroups"
 )
 
 // Handler is the Echo HTTP handler for the Identity Store REST API.
@@ -126,8 +132,8 @@ func (h *Handler) Handler() echo.HandlerFunc {
 //
 // Path structure: /identitystores/{storeId}/{resource}[/{id}][/{sub}]
 //
-//nolint:cyclop // dispatch table requires many branches
-func parseIdentityStorePath(method, path string) (op, storeID, resourceID string) {
+
+func parseIdentityStorePath(method, path string) (string, string, string) {
 	// Strip the /identitystores/ prefix.
 	rest := strings.TrimPrefix(path, pathPrefix)
 	if rest == path {
@@ -135,12 +141,12 @@ func parseIdentityStorePath(method, path string) (op, storeID, resourceID string
 	}
 
 	// Split into segments: [storeID, resource, id?, sub?]
-	parts := strings.SplitN(rest, "/", 4)
+	parts := strings.SplitN(rest, "/", segmentsWithSub)
 	if len(parts) < minSegmentsForID {
 		return "", "", ""
 	}
 
-	storeID = parts[0]
+	storeID := parts[0]
 	if storeID == "" {
 		return "", "", ""
 	}
@@ -150,11 +156,11 @@ func parseIdentityStorePath(method, path string) (op, storeID, resourceID string
 	// Determine the resource ID and optional sub-path.
 	var resID, sub string
 
-	if len(parts) >= 3 {
+	if len(parts) >= segmentsWithID {
 		resID = parts[2]
 	}
 
-	if len(parts) >= 4 {
+	if len(parts) >= segmentsWithSub {
 		sub = parts[3]
 	}
 
@@ -169,9 +175,9 @@ func parseIdentityStorePath(method, path string) (op, storeID, resourceID string
 		if method == http.MethodPost {
 			return "ListGroupMembershipsForMember", storeID, ""
 		}
-	case "IsMemberInGroups":
+	case isMemberInGroupsOp:
 		if method == http.MethodPost {
-			return "IsMemberInGroups", storeID, ""
+			return isMemberInGroupsOp, storeID, ""
 		}
 	}
 
@@ -340,8 +346,8 @@ type createGroupMembershipResponse struct {
 }
 
 type attributeOperation struct {
-	AttributePath  string `json:"AttributePath"`
 	AttributeValue any    `json:"AttributeValue"`
+	AttributePath  string `json:"AttributePath"`
 }
 
 type updateUserRequest struct {
@@ -353,13 +359,13 @@ type updateGroupRequest struct {
 }
 
 type getUserIDRequest struct {
-	IdentityStoreID     string              `json:"IdentityStoreId"`
 	AlternateIdentifier alternateIdentifier `json:"AlternateIdentifier"`
+	IdentityStoreID     string              `json:"IdentityStoreId"`
 }
 
 type getGroupIDRequest struct {
-	IdentityStoreID     string              `json:"IdentityStoreId"`
 	AlternateIdentifier alternateIdentifier `json:"AlternateIdentifier"`
+	IdentityStoreID     string              `json:"IdentityStoreId"`
 }
 
 type getGroupMembershipIDRequest struct {
@@ -395,7 +401,7 @@ type isMemberInGroupsRequest struct {
 }
 
 type isMemberInGroupsResponse struct {
-	Results []groupMembershipExistence `json:"Results"`
+	Results []GroupMembershipExistence `json:"Results"`
 }
 
 // ----------------------------------------
@@ -446,7 +452,7 @@ func (h *Handler) dispatch(c *echo.Context, op, storeID, resourceID string, body
 		return h.handleGetGroupMembershipID(c, storeID, body)
 	case "ListGroupMembershipsForMember":
 		return h.handleListGroupMembershipsForMember(c, storeID, body)
-	case "IsMemberInGroups":
+	case isMemberInGroupsOp:
 		return h.handleIsMemberInGroups(c, storeID, body)
 	}
 
@@ -645,6 +651,10 @@ func (h *Handler) handleCreateGroupMembership(c *echo.Context, storeID string, b
 		return h.writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.MemberID.UserID) == "" {
+		return h.writeError(c, http.StatusBadRequest, "ValidationException", "MemberId.UserId is required")
+	}
+
 	membership, err := h.Backend.CreateGroupMembership(storeID, req.GroupID, req.MemberID)
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -756,9 +766,13 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, errType, message s
 // ----------------------------------------
 
 // extractAlternateIdentifier extracts the attribute path and value from an AlternateIdentifier.
-func extractAlternateIdentifier(ai alternateIdentifier) (path, value string) {
+func extractAlternateIdentifier(ai alternateIdentifier) (string, string) {
 	if ai.UniqueAttribute != nil {
 		return ai.UniqueAttribute.AttributePath, ai.UniqueAttribute.AttributeValue
+	}
+
+	if ai.ExternalID != nil {
+		return "ExternalId", ai.ExternalID.ID
 	}
 
 	return "", ""

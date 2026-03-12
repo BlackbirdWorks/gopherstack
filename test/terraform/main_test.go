@@ -1759,18 +1759,18 @@ func createFISClient(t *testing.T) *fissvc.Client {
 
 // createIdentityStoreClient returns an Identity Store client pointed at the shared test container.
 func createIdentityStoreClient(t *testing.T) *identitystoresvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-require.NoError(t, err, "unable to load SDK config")
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
 
-return identitystoresvc.NewFromConfig(cfg, func(o *identitystoresvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return identitystoresvc.NewFromConfig(cfg, func(o *identitystoresvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }

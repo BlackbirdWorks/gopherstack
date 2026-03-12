@@ -501,10 +501,6 @@ func extractContainerAndFaultHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.fisOps, _ = h.(*fisbackend.Handler)
 	}
 
-	if h := ap.GetIdentityStoreHandler(); h != nil {
-		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
-	}
-
 	if h := ap.GetAPIGatewayManagementAPIHandler(); h != nil {
 		ec.apiGatewayMgmtOps, _ = h.(*apigwmgmtbackend.Handler)
 	}
@@ -548,6 +544,10 @@ func extractLatestServiceHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetBedrockHandler(); h != nil {
 		ec.bedrockOps, _ = h.(*bedrockbackend.Handler)
+	}
+
+	if h := ap.GetIdentityStoreHandler(); h != nil {
+		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
 
 	extractCloudPlatformHandlers(ap, ec)

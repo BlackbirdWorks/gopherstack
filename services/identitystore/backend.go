@@ -101,8 +101,8 @@ type GroupMembership struct {
 	MemberID        MemberID `json:"MemberId"`
 }
 
-// groupMembershipExistence is the result item for IsMemberInGroups.
-type groupMembershipExistence struct {
+// GroupMembershipExistence is the result item for IsMemberInGroups.
+type GroupMembershipExistence struct {
 	GroupID          string `json:"GroupId"`
 	MembershipExists bool   `json:"MembershipExists"`
 }
@@ -113,13 +113,13 @@ type groupMembershipExistence struct {
 
 // InMemoryBackend is the in-memory store for the Identity Store service.
 type InMemoryBackend struct {
-	mu          sync.RWMutex
+	users       map[string]*User
+	groups      map[string]*Group
+	memberships map[string]*GroupMembership
 	accountID   string
 	region      string
-	users       map[string]*User            // userID -> User
-	groups      map[string]*Group           // groupID -> Group
-	memberships map[string]*GroupMembership // membershipID -> GroupMembership
 	counter     int
+	mu          sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the given account and region.
@@ -285,42 +285,39 @@ func applyUserAttribute(user *User, path string, value any) {
 		user.Timezone = strVal
 	case "usertype":
 		user.UserType = strVal
-	case "name.givenname":
-		if user.Name == nil {
-			user.Name = &Name{}
-		}
+	default:
+		applyUserNameAttribute(user, path, strVal)
+	}
+}
 
+// applyUserNameAttribute applies name sub-fields to a user.
+func applyUserNameAttribute(user *User, path, strVal string) {
+	switch strings.ToLower(path) {
+	case "name.givenname":
+		ensureUserName(user)
 		user.Name.GivenName = strVal
 	case "name.familyname":
-		if user.Name == nil {
-			user.Name = &Name{}
-		}
-
+		ensureUserName(user)
 		user.Name.FamilyName = strVal
 	case "name.middlename":
-		if user.Name == nil {
-			user.Name = &Name{}
-		}
-
+		ensureUserName(user)
 		user.Name.MiddleName = strVal
 	case "name.formatted":
-		if user.Name == nil {
-			user.Name = &Name{}
-		}
-
+		ensureUserName(user)
 		user.Name.Formatted = strVal
 	case "name.honorificprefix":
-		if user.Name == nil {
-			user.Name = &Name{}
-		}
-
+		ensureUserName(user)
 		user.Name.HonorificPrefix = strVal
 	case "name.honorificsuffix":
-		if user.Name == nil {
-			user.Name = &Name{}
-		}
-
+		ensureUserName(user)
 		user.Name.HonorificSuffix = strVal
+	}
+}
+
+// ensureUserName initialises user.Name if it is nil.
+func ensureUserName(user *User) {
+	if user.Name == nil {
+		user.Name = &Name{}
 	}
 }
 
@@ -446,11 +443,11 @@ func (b *InMemoryBackend) UpdateGroup(storeID, groupID string, ops []attributeOp
 	for _, op := range ops {
 		switch strings.ToLower(op.AttributePath) {
 		case "displayname":
-			if s, ok := op.AttributeValue.(string); ok {
+			if s, isStr := op.AttributeValue.(string); isStr {
 				group.DisplayName = s
 			}
 		case "description":
-			if s, ok := op.AttributeValue.(string); ok {
+			if s, isStr := op.AttributeValue.(string); isStr {
 				group.Description = s
 			}
 		}
@@ -516,8 +513,8 @@ func (b *InMemoryBackend) CreateGroupMembership(storeID, groupID string, memberI
 
 	// Validate user exists.
 	if memberID.UserID != "" {
-		user, ok := b.users[memberID.UserID]
-		if !ok || user.IdentityStoreID != storeID {
+		user, userOK := b.users[memberID.UserID]
+		if !userOK || user.IdentityStoreID != storeID {
 			return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, memberID.UserID)
 		}
 	}
@@ -597,7 +594,12 @@ func (b *InMemoryBackend) GetGroupMembershipID(storeID, groupID string, memberID
 		}
 	}
 
-	return "", fmt.Errorf("%w: membership not found for group=%q member=%q", ErrMembershipNotFound, groupID, memberID.UserID)
+	return "", fmt.Errorf(
+		"%w: membership not found for group=%q member=%q",
+		ErrMembershipNotFound,
+		groupID,
+		memberID.UserID,
+	)
 }
 
 // ListGroupMembershipsForMember lists all group memberships for a given member.
@@ -617,7 +619,11 @@ func (b *InMemoryBackend) ListGroupMembershipsForMember(storeID string, memberID
 }
 
 // IsMemberInGroups checks which of the given groups contain the specified member.
-func (b *InMemoryBackend) IsMemberInGroups(storeID string, memberID MemberID, groupIDs []string) []groupMembershipExistence {
+func (b *InMemoryBackend) IsMemberInGroups(
+	storeID string,
+	memberID MemberID,
+	groupIDs []string,
+) []GroupMembershipExistence {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -636,9 +642,9 @@ func (b *InMemoryBackend) IsMemberInGroups(storeID string, memberID MemberID, gr
 		}
 	}
 
-	result := make([]groupMembershipExistence, 0, len(groupIDs))
+	result := make([]GroupMembershipExistence, 0, len(groupIDs))
 	for _, id := range groupIDs {
-		result = append(result, groupMembershipExistence{
+		result = append(result, GroupMembershipExistence{
 			GroupID:          id,
 			MembershipExists: groupSet[id],
 		})
