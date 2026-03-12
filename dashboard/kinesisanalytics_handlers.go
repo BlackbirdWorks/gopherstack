@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -107,14 +108,18 @@ func (h *DashboardHandler) kinesisanalyticsCreateApplication(c *echo.Context) er
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	_, _ = h.KinesisAnalyticsOps.Backend.CreateApplication(
+	if _, err := h.KinesisAnalyticsOps.Backend.CreateApplication(
 		h.GlobalConfig.Region,
 		h.GlobalConfig.AccountID,
 		name,
 		c.Request().FormValue("description"),
 		"",
 		nil,
-	)
+	); err != nil {
+		h.Logger.ErrorContext(context.Background(), "kinesisanalytics: failed to create application", "error", err)
+
+		return c.NoContent(http.StatusBadRequest)
+	}
 
 	return c.Redirect(http.StatusSeeOther, "/dashboard/kinesisanalytics")
 }
@@ -134,7 +139,11 @@ func (h *DashboardHandler) kinesisanalyticsDeleteApplication(c *echo.Context) er
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	_ = h.KinesisAnalyticsOps.Backend.DeleteApplication(name, nil)
+	if err := h.KinesisAnalyticsOps.Backend.DeleteApplication(name, nil); err != nil {
+		h.Logger.ErrorContext(context.Background(), "kinesisanalytics: failed to delete application", "error", err)
+
+		return c.NoContent(http.StatusBadRequest)
+	}
 
 	return c.Redirect(http.StatusSeeOther, "/dashboard/kinesisanalytics")
 }

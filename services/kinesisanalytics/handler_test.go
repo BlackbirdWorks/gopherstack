@@ -78,7 +78,7 @@ func TestHandler_CreateApplication(t *testing.T) {
 		{
 			name:       "missing application name",
 			input:      map[string]any{},
-			wantStatus: http.StatusInternalServerError,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -571,17 +571,17 @@ func TestHandler_MissingResourceARN(t *testing.T) {
 		{
 			name:       "list tags missing ARN",
 			op:         "ListTagsForResource",
-			wantStatus: http.StatusInternalServerError,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "tag resource missing ARN",
 			op:         "TagResource",
-			wantStatus: http.StatusInternalServerError,
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "untag resource missing ARN",
 			op:         "UntagResource",
-			wantStatus: http.StatusInternalServerError,
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

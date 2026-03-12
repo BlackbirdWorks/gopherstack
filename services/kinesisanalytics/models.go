@@ -127,5 +127,6 @@ type untagResourceInput struct {
 
 // errorResponse is the standard Kinesis Analytics error response body.
 type errorResponse struct {
+	Type    string `json:"__type"`
 	Message string `json:"message"`
 }

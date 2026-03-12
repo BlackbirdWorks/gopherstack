@@ -155,16 +155,24 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusNotFound,
-			errorResponse{Message: err.Error()})
-	case errors.Is(err, awserr.ErrAlreadyExists),
-		errors.Is(err, errUnknownAction),
+			errorResponse{Type: "ResourceNotFoundException", Message: err.Error()})
+	case errors.Is(err, awserr.ErrAlreadyExists):
+		return c.JSON(http.StatusBadRequest,
+			errorResponse{Type: "ResourceInUseException", Message: err.Error()})
+	case errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr),
 		errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, errorResponse{Message: err.Error()})
+		return c.JSON(http.StatusBadRequest,
+			errorResponse{Type: "InvalidArgumentException", Message: err.Error()})
 	case errors.Is(err, ErrConcurrentUpdate):
-		return c.JSON(http.StatusBadRequest, errorResponse{Message: err.Error()})
+		return c.JSON(http.StatusBadRequest,
+			errorResponse{Type: "ConcurrentModificationException", Message: err.Error()})
+	case errors.Is(err, errApplicationName), errors.Is(err, errResourceARN):
+		return c.JSON(http.StatusBadRequest,
+			errorResponse{Type: "InvalidArgumentException", Message: err.Error()})
 	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse{Message: err.Error()})
+		return c.JSON(http.StatusInternalServerError,
+			errorResponse{Type: "InternalServiceException", Message: err.Error()})
 	}
 }
 

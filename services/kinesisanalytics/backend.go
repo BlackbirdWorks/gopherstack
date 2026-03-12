@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"sort"
 	"sync"
 	"time"
 
@@ -133,6 +134,10 @@ func (b *InMemoryBackend) ListApplications(exclusiveStart string, limit int) ([]
 	for _, app := range b.apps {
 		all = append(all, app)
 	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].ApplicationName < all[j].ApplicationName
+	})
 
 	if exclusiveStart != "" {
 		idx := -1
