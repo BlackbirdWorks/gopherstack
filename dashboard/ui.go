@@ -84,6 +84,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -255,13 +256,15 @@ type DashboardHandler struct {
 	KafkaOps *kafkabackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
 	ManagedBlockchainOps *managedblockchainbackend.Handler
-	SubRouter            *echo.Echo
-	ddbProvider          *ddbbackend.DashboardProvider
-	s3Provider           *s3backend.DashboardProvider
-	FaultStore           *chaos.FaultStore
-	Logger               *slog.Logger
-	layout               *template.Template
-	GlobalConfig         config.GlobalConfig
+	// MediaConvertOps provides access to the MediaConvert backend.
+	MediaConvertOps *mediaconvertbackend.Handler
+	SubRouter       *echo.Echo
+	ddbProvider     *ddbbackend.DashboardProvider
+	s3Provider      *s3backend.DashboardProvider
+	FaultStore      *chaos.FaultStore
+	Logger          *slog.Logger
+	layout          *template.Template
+	GlobalConfig    config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -435,6 +438,8 @@ type Config struct {
 	KafkaOps *kafkabackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
 	ManagedBlockchainOps *managedblockchainbackend.Handler
+	// MediaConvertOps provides access to the MediaConvert backend.
+	MediaConvertOps *mediaconvertbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -549,6 +554,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/glue/*.html",
 		"templates/kafka/*.html",
 		"templates/managedblockchain/*.html",
+		"templates/mediaconvert/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -660,6 +666,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		GlueOps:                    cfg.GlueOps,
 		KafkaOps:                   cfg.KafkaOps,
 		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
+		MediaConvertOps:            cfg.MediaConvertOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1162,9 +1169,8 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupGlueRoutes()
 	h.setupKafkaRoutes()
 	h.setupManagedBlockchainRoutes()
+	h.setupMediaConvertRoutes()
 }
-
-// Handler returns the Echo handler function for dashboard requests.
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		h.SubRouter.ServeHTTP(c.Response(), c.Request())
@@ -1285,6 +1291,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/emr", "EMR"},
 	{"/glue", "Glue"},
 	{"/iotanalytics", "IoTAnalytics"},
+	{"/mediaconvert", "MediaConvert"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

@@ -83,6 +83,7 @@ import (
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -224,10 +225,12 @@ type Stack struct {
 	KinesisAnalyticsHandler *kinesisanalyticsbackend.Handler
 	// KafkaHandler provides access to the MSK Kafka backend.
 	KafkaHandler *kafkabackend.Handler
-	S3Client     *s3.Client
-	DDBClient    *dynamodb.Client
-	FaultStore   *chaos.FaultStore
-	Dashboard    *dashboard.DashboardHandler
+	// MediaConvertHandler provides access to the MediaConvert backend.
+	MediaConvertHandler *mediaconvertbackend.Handler
+	S3Client            *s3.Client
+	DDBClient           *dynamodb.Client
+	FaultStore          *chaos.FaultStore
+	Dashboard           *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -501,6 +504,7 @@ type handlers struct {
 	iotwireless       *iotwirelessbackend.Handler
 	kinesisanalytics  *kinesisanalyticsbackend.Handler
 	kafka             *kafkabackend.Handler
+	mediaconvert      *mediaconvertbackend.Handler
 	iamBk             *iambackend.InMemoryBackend
 	s3Bk              *s3backend.InMemoryBackend
 }
@@ -753,6 +757,10 @@ func populateLatestHandlers(h *handlers) {
 	h.kafka = kafkabackend.NewHandler(
 		kafkabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+
+	h.mediaconvert = mediaconvertbackend.NewHandler(
+		mediaconvertbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -876,6 +884,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		IoTWirelessOps:             h.iotwireless,
 		KinesisAnalyticsOps:        h.kinesisanalytics,
 		KafkaOps:                   h.kafka,
+		MediaConvertOps:            h.mediaconvert,
 		GlobalConfig: config.GlobalConfig{
 			AccountID: config.DefaultAccountID,
 			Region:    config.DefaultRegion,
@@ -943,8 +952,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.iotwireless)
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
-
-	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
+	_ = registry.Register(h.mediaconvert)
 	clients := newSDKClients(t, e)
 	dashCfg, faultStore := newDashboardConfig(h, clients)
 	dashHndlr := dashboard.NewHandler(dashCfg)
@@ -1054,7 +1062,7 @@ func buildStack(
 		IoTWirelessHandler:             h.iotwireless,
 		KinesisAnalyticsHandler:        h.kinesisanalytics,
 		KafkaHandler:                   h.kafka,
-		S3Client:                       clients.S3,
+		MediaConvertHandler:            h.mediaconvert,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
 		Dashboard:                      dashboardHandler,

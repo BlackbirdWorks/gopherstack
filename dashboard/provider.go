@@ -54,6 +54,7 @@ import (
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -184,6 +185,7 @@ type AWSSDKProvider interface {
 	GetKinesisAnalyticsHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
 	GetManagedBlockchainHandler() service.Registerable
+	GetMediaConvertHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -286,6 +288,7 @@ type extractedConfig struct {
 	kinesisanalyticsOps       *kinesisanalyticsbackend.Handler
 	kafkaOps                  *kafkabackend.Handler
 	managedblockchainOps      *managedblockchainbackend.Handler
+	mediaconvertOps           *mediaconvertbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -690,6 +693,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
 	}
+
+	if h := ap.GetMediaConvertHandler(); h != nil {
+		ec.mediaconvertOps, _ = h.(*mediaconvertbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -783,6 +790,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		KinesisAnalyticsOps:        ec.kinesisanalyticsOps,
 		KafkaOps:                   ec.kafkaOps,
 		ManagedBlockchainOps:       ec.managedblockchainOps,
+		MediaConvertOps:            ec.mediaconvertOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     ctx.Logger,
