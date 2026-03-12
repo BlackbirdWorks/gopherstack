@@ -217,11 +217,11 @@ type Stack struct {
 	// IoTWirelessHandler provides access to the IoT Wireless backend.
 	IoTWirelessHandler *iotwirelessbackend.Handler
 	// KafkaHandler provides access to the MSK Kafka backend.
-	KafkaHandler       *kafkabackend.Handler
-	S3Client           *s3.Client
-	DDBClient          *dynamodb.Client
-	FaultStore         *chaos.FaultStore
-	Dashboard          *dashboard.DashboardHandler
+	KafkaHandler *kafkabackend.Handler
+	S3Client     *s3.Client
+	DDBClient    *dynamodb.Client
+	FaultStore   *chaos.FaultStore
+	Dashboard    *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.

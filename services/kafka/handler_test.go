@@ -703,6 +703,7 @@ func TestKafka_DescribeClusterV2(t *testing.T) {
 				clusterInfo, ok := resp["clusterInfo"].(map[string]any)
 				require.True(t, ok)
 				assert.Equal(t, "PROVISIONED", clusterInfo["clusterType"])
+				assert.Equal(t, "ACTIVE", clusterInfo["state"])
 			}
 		})
 	}

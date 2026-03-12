@@ -364,6 +364,7 @@ type clusterInfoV2 struct {
 	ClusterArn  string                  `json:"clusterArn"`
 	ClusterName string                  `json:"clusterName"`
 	ClusterType string                  `json:"clusterType"`
+	State       string                  `json:"state"`
 }
 
 type describeClusterV2Output struct {
@@ -554,6 +555,7 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 		ClusterArn:  cl.ClusterArn,
 		ClusterName: cl.ClusterName,
 		ClusterType: "PROVISIONED",
+		State:       cl.State,
 		Tags:        cl.Tags,
 		Provisioned: &provisionedClusterInfo{
 			BrokerNodeGroupInfo: cl.BrokerNodeGroupInfo,

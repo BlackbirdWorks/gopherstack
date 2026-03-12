@@ -245,14 +245,14 @@ type DashboardHandler struct {
 	// IoTWirelessOps provides access to the IoT Wireless backend.
 	IoTWirelessOps *iotwirelessbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
-	KafkaOps       *kafkabackend.Handler
-	SubRouter      *echo.Echo
-	ddbProvider    *ddbbackend.DashboardProvider
-	s3Provider     *s3backend.DashboardProvider
-	FaultStore     *chaos.FaultStore
-	Logger         *slog.Logger
-	layout         *template.Template
-	GlobalConfig   config.GlobalConfig
+	KafkaOps     *kafkabackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
