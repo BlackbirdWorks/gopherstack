@@ -77,6 +77,7 @@ import (
 	elbv2svc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	emrsvc "github.com/aws/aws-sdk-go-v2/service/emr"
+	emrserverlesssvc "github.com/aws/aws-sdk-go-v2/service/emrserverless"
 	ebsvc "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	firehosesvc "github.com/aws/aws-sdk-go-v2/service/firehose"
 	fissvc "github.com/aws/aws-sdk-go-v2/service/fis"
@@ -220,6 +221,7 @@ provider "aws" {
     elasticache     = %[1]q
     elasticbeanstalk = %[1]q
     elastictranscoder = %[1]q
+    emrserverless   = %[1]q
     emr             = %[1]q
     events          = %[1]q
     firehose        = %[1]q
@@ -4374,6 +4376,54 @@ func TestTerraform_ELB(t *testing.T) {
 				require.NoError(t, err, "DescribeLoadBalancers should succeed after terraform apply")
 				require.Len(t, out.LoadBalancerDescriptions, 1, "load balancer should exist")
 				assert.Equal(t, name, aws.ToString(out.LoadBalancerDescriptions[0].LoadBalancerName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_EmrServerless provisions an EMR Serverless application via Terraform, then
+// verifies it is listed via the EMR Serverless SDK.
+func TestTerraform_EmrServerless(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "emrserverless/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEmrServerlessClient(t)
+				suffix := vars["Suffix"].(string)
+				name := "tf-emr-" + suffix
+
+				out, err := client.ListApplications(ctx, &emrserverlesssvc.ListApplicationsInput{})
+				require.NoError(t, err, "ListApplications should succeed after terraform apply")
+				found := false
+
+				for _, app := range out.Applications {
+					if aws.ToString(app.Name) == name {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "application %q should be listed", name)
 			},
 		},
 	}

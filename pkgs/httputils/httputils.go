@@ -253,8 +253,12 @@ func RequestIDMiddleware() echo.MiddlewareFunc {
 }
 
 // minSigV4CredentialParts is the minimum number of slash-separated parts in the
-// SigV4 credential scope (AKID/date/region/service/aws4_request).
+// SigV4 credential scope needed to safely read the region at index 2
+// (AKID/date/region/...).
 const minSigV4CredentialParts = 3
+
+// sigV4ServiceIndex is the index of the service name in the credential scope parts.
+const sigV4ServiceIndex = 3
 
 // ExtractRegionFromRequest extracts the AWS region from an HTTP request.
 // It checks the SigV4 Authorization header credential scope first, then the
@@ -275,4 +279,21 @@ func ExtractRegionFromRequest(r *http.Request, defaultRegion string) string {
 	}
 
 	return defaultRegion
+}
+
+// ExtractServiceFromRequest extracts the AWS service name from the SigV4 Authorization
+// header credential scope (AKID/date/region/service/aws4_request).
+// Returns an empty string if the service name cannot be determined.
+func ExtractServiceFromRequest(r *http.Request) string {
+	if auth := r.Header.Get("Authorization"); auth != "" && strings.Contains(auth, "Credential=") {
+		parts := strings.Split(auth, "Credential=")
+		if len(parts) > 1 {
+			credParts := strings.Split(parts[1], "/")
+			if len(credParts) > sigV4ServiceIndex {
+				return credParts[sigV4ServiceIndex]
+			}
+		}
+	}
+
+	return ""
 }

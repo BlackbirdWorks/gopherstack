@@ -98,6 +98,7 @@ import (
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
 	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
+	emrserverlessbackend "github.com/blackbirdworks/gopherstack/services/emrserverless"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
@@ -222,6 +223,7 @@ type CLI struct {
 	eksHandler                    service.Registerable
 	elbHandler                    service.Registerable
 	elbv2Handler                  service.Registerable
+	emrserverlessHandler          service.Registerable
 	iotHandler                    service.Registerable
 	cognitoIDPHandler             service.Registerable
 	cognitoIdentityHandler        service.Registerable
@@ -578,6 +580,11 @@ func (c *CLI) GetELBHandler() service.Registerable { return c.elbHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetELBv2Handler() service.Registerable { return c.elbv2Handler }
+
+// GetEmrServerlessHandler returns the EMR Serverless handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetEmrServerlessHandler() service.Registerable { return c.emrserverlessHandler }
 
 // GetIoTHandler returns the IoT handler (dashboard.AWSSDKProvider).
 //
@@ -1203,6 +1210,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.eksHandler = byName["EKS"]
 	cli.elbHandler = byName["ELB"]
 	cli.elbv2Handler = byName["ELBv2"]
+	cli.emrserverlessHandler = byName["EmrServerless"]
 	cli.emrHandler = byName["EMR"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
@@ -1400,6 +1408,7 @@ func getServiceProviders() []service.Provider {
 		&eksbackend.Provider{},
 		&elbbackend.Provider{},
 		&elbv2backend.Provider{},
+		&emrserverlessbackend.Provider{},
 		&emrbackend.Provider{},
 		&docdbbackend.Provider{},
 		&elastictranscoderbackend.Provider{},
