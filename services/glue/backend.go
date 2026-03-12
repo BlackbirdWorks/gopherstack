@@ -3,6 +3,7 @@ package glue
 import (
 	"fmt"
 	"maps"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -15,6 +16,10 @@ var (
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("AlreadyExistsException", awserr.ErrAlreadyExists)
 )
+
+// glueARNParts is the number of colon-separated parts in a Glue ARN.
+// Format: arn:aws:glue:{region}:{account}:{resourceType}/{name}.
+const glueARNParts = 6
 
 // DatabaseInput is the input for creating or updating a Glue database.
 type DatabaseInput struct {
@@ -163,6 +168,24 @@ func (b *InMemoryBackend) crawlerARN(name string) string {
 // jobARN returns the ARN for a Glue job.
 func (b *InMemoryBackend) jobARN(name string) string {
 	return arn.Build("glue", b.region, b.accountID, "job/"+name)
+}
+
+// glueResourceName extracts the resource name from a Glue ARN for a given resource type.
+// Glue ARNs have the format: arn:aws:glue:{region}:{account}:{resourceType}/{name}.
+// This allows matching ARNs even when the account ID differs (e.g. empty vs 000000000000).
+func glueResourceName(resourceARN, resourceType string) string {
+	// Split into exactly glueARNParts parts: arn, aws, glue, region, account, resource
+	parts := strings.SplitN(resourceARN, ":", glueARNParts)
+	if len(parts) != glueARNParts {
+		return ""
+	}
+
+	prefix := resourceType + "/"
+	if !strings.HasPrefix(parts[5], prefix) {
+		return ""
+	}
+
+	return parts[5][len(prefix):]
 }
 
 // tableKey returns a map key for a table.
@@ -635,31 +658,43 @@ func (b *InMemoryBackend) GetTags(resourceARN string) (map[string]string, error)
 }
 
 func (b *InMemoryBackend) findDatabaseByARN(resourceARN string) *Database {
-	for _, db := range b.databases {
-		if db.ARN == resourceARN {
-			return db
-		}
+	name := glueResourceName(resourceARN, "database")
+	if name == "" {
+		return nil
 	}
 
-	return nil
+	db, ok := b.databases[name]
+	if !ok {
+		return nil
+	}
+
+	return db
 }
 
 func (b *InMemoryBackend) findCrawlerByARN(resourceARN string) *Crawler {
-	for _, c := range b.crawlers {
-		if c.ARN == resourceARN {
-			return c
-		}
+	name := glueResourceName(resourceARN, "crawler")
+	if name == "" {
+		return nil
 	}
 
-	return nil
+	c, ok := b.crawlers[name]
+	if !ok {
+		return nil
+	}
+
+	return c
 }
 
 func (b *InMemoryBackend) findJobByARN(resourceARN string) *Job {
-	for _, j := range b.jobs {
-		if j.ARN == resourceARN {
-			return j
-		}
+	name := glueResourceName(resourceARN, "job")
+	if name == "" {
+		return nil
 	}
 
-	return nil
+	j, ok := b.jobs[name]
+	if !ok {
+		return nil
+	}
+
+	return j
 }
