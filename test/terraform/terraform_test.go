@@ -254,6 +254,7 @@ provider "aws" {
     memorydb        = %[1]q
     mq              = %[1]q
     opensearch      = %[1]q
+    organizations   = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
     resourcegroupstaggingapi = %[1]q
