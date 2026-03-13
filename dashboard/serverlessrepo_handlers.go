@@ -27,18 +27,13 @@ func serverlessrepoSnippet() *SnippetData {
 		ID:    "serverlessrepo-operations",
 		Title: "Using Serverless Application Repository",
 		Cli:   `aws serverlessrepo list-applications --endpoint-url http://localhost:8000`,
-		Go: `// Initialize AWS SDK v2 for Serverless Application Repository
-cfg, err := config.LoadDefaultConfig(context.TODO(),
-    config.WithEndpointResolverWithOptions(
-        aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-            return aws.Endpoint{URL: "http://localhost:8000"}, nil
-        }),
-    ),
-)
-if err != nil {
-    log.Fatal(err)
-}
-client := serverlessrepo.NewFromConfig(cfg)`,
+		Go: `// The AWS SDK v2 does not provide a standalone serverlessrepo client package.
+// Use net/http directly with AWS SigV4 signing, or use the AWS CLI.
+// Example using net/http:
+req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
+    "http://localhost:8000/applications", nil)
+// Add AWS SigV4 Authorization header here.
+resp, _ := http.DefaultClient.Do(req)`,
 		Python: `# Initialize boto3 client for Serverless Application Repository
 import boto3
 

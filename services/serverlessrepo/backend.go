@@ -20,13 +20,13 @@ var (
 
 // Application represents an AWS Serverless Application Repository application.
 type Application struct {
-	CreationTime   time.Time
-	Tags           map[string]string
-	ApplicationID  string
-	Name           string
-	Description    string
-	Author         string
-	SourceCodeURL  string
+	CreationTime    time.Time
+	Tags            map[string]string
+	ApplicationID   string
+	Name            string
+	Description     string
+	Author          string
+	SourceCodeURL   string
 	SemanticVersion string
 }
 

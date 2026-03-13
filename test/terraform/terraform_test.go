@@ -5700,54 +5700,54 @@ func TestTerraform_SageMaker(t *testing.T) {
 
 // TestTerraform_ServerlessRepo provisions a Serverless Application Repository application and verifies it was created.
 func TestTerraform_ServerlessRepo(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "serverlessrepo/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
-id := uuid.NewString()[:8]
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "serverlessrepo/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
 
-return map[string]any{
-"ApplicationName": "tf-sar-" + id,
-"Endpoint":        endpoint,
-}
-},
-verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
-t.Helper()
+				return map[string]any{
+					"ApplicationName": "tf-sar-" + id,
+					"Endpoint":        endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
 
-appName := vars["ApplicationName"].(string)
-reqURL := endpoint + "/applications/" + appName
+				appName := vars["ApplicationName"].(string)
+				reqURL := endpoint + "/applications/" + appName
 
-req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-require.NoError(t, err)
-req.Header.Set(
-"Authorization",
-"AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/serverlessrepo/aws4_request, SignedHeaders=host, Signature=fake",
-)
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+				require.NoError(t, err)
+				req.Header.Set(
+					"Authorization",
+					"AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/serverlessrepo/aws4_request, SignedHeaders=host, Signature=fake",
+				)
 
-resp, err := http.DefaultClient.Do(req)
-require.NoError(t, err, "GetApplication should succeed after terraform apply")
-defer resp.Body.Close()
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "GetApplication should succeed after terraform apply")
+				defer resp.Body.Close()
 
-body, err := io.ReadAll(resp.Body)
-require.NoError(t, err)
+				body, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
 
-assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(body))
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(body))
 
-var result map[string]any
-require.NoError(t, json.Unmarshal(body, &result))
-assert.Equal(t, appName, result["name"])
-},
-},
-}
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(body, &result))
+				assert.Equal(t, appName, result["name"])
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }

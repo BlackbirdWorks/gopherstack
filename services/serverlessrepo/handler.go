@@ -21,6 +21,8 @@ import (
 const (
 	serverlessrepoService       = "serverlessrepo"
 	serverlessrepoMatchPriority = 87
+	// pathSegmentsMax is used to split the URL path into at most 2 parts.
+	pathSegmentsMax = 2
 )
 
 var (
@@ -77,7 +79,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/applications")
+		return path == "/applications" || strings.HasPrefix(path, "/applications/")
 	}
 }
 
@@ -170,6 +172,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
+		// json.Marshal on map[string]string never returns an error; _ is intentional.
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "NotFoundException",
 			"message": err.Error(),
@@ -185,22 +188,50 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSONBlob(http.StatusConflict, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		payload, _ := json.Marshal(map[string]string{
+			"__type":  "ValidationException",
+			"message": err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		payload, _ := json.Marshal(map[string]string{
+			"__type":  "InternalServerException",
+			"message": err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusInternalServerError, payload)
 	}
 }
 
 // extractApplicationName extracts the application name from the URL path
-// at /applications/{applicationId} (URL-encoded).
+// at /applications/{applicationId} (URL-encoded). If the segment is an ARN
+// (e.g. arn:aws:serverlessrepo:us-east-1:123:applications/my-app), the name
+// after the final "/" is extracted.
 func extractApplicationName(req *http.Request) (string, error) {
 	path := req.URL.Path
 	path = strings.TrimPrefix(path, "/applications/")
-	path = strings.SplitN(path, "/", 2)[0]
+	path = strings.SplitN(path, "/", pathSegmentsMax)[0]
 
 	name, err := url.PathUnescape(path)
 	if err != nil {
 		return "", fmt.Errorf("%w: invalid application id encoding", errInvalidRequest)
+	}
+
+	// Accept ARN-form application IDs (e.g. arn:aws:serverlessrepo:us-east-1:123456789:applications/my-app).
+	// Validate the ARN has the expected /applications/<name> structure before extracting the name.
+	if strings.HasPrefix(name, "arn:") {
+		const arnResourcePrefix = "/applications/"
+
+		idx := strings.Index(name, arnResourcePrefix)
+		if idx < 0 {
+			return "", fmt.Errorf("%w: ARN does not contain expected /applications/ resource path", errInvalidRequest)
+		}
+
+		name = strings.TrimSuffix(name[idx+len(arnResourcePrefix):], "/")
+		if name == "" {
+			return "", fmt.Errorf("%w: ARN has empty application name", errInvalidRequest)
+		}
 	}
 
 	if name == "" {
@@ -210,9 +241,9 @@ func extractApplicationName(req *http.Request) (string, error) {
 	return name, nil
 }
 
-// epochSeconds converts a [time.Time] to Unix epoch seconds as float64.
-func epochSeconds(t time.Time) float64 {
-	return float64(t.Unix())
+// isoTimestamp converts a [time.Time] to an RFC3339 UTC string, matching the AWS SAR API shape.
+func isoTimestamp(t time.Time) string {
+	return t.UTC().Format(time.RFC3339)
 }
 
 // createApplicationRequest is the request body for CreateApplication.
@@ -254,7 +285,7 @@ func toApplicationResponse(a *Application) applicationResponse {
 		Author:          a.Author,
 		SourceCodeURL:   a.SourceCodeURL,
 		SemanticVersion: a.SemanticVersion,
-		CreationTime:    fmt.Sprintf("%.0f", epochSeconds(a.CreationTime)),
+		CreationTime:    isoTimestamp(a.CreationTime),
 		Tags:            a.Tags,
 	}
 }
@@ -315,7 +346,7 @@ func (h *Handler) handleListApplications() ([]byte, error) {
 			Name:          a.Name,
 			Description:   a.Description,
 			Author:        a.Author,
-			CreationTime:  fmt.Sprintf("%.0f", epochSeconds(a.CreationTime)),
+			CreationTime:  isoTimestamp(a.CreationTime),
 		})
 	}
 
@@ -329,9 +360,9 @@ type updateApplicationRequest struct {
 }
 
 func (h *Handler) handleUpdateApplication(ctx context.Context, req *http.Request, body []byte) ([]byte, error) {
-	name, err := extractApplicationName(req)
-	if err != nil {
-		return nil, err
+	name, nameErr := extractApplicationName(req)
+	if nameErr != nil {
+		return nil, nameErr
 	}
 
 	var updateReq updateApplicationRequest
@@ -353,9 +384,9 @@ func (h *Handler) handleUpdateApplication(ctx context.Context, req *http.Request
 }
 
 func (h *Handler) handleDeleteApplication(ctx context.Context, req *http.Request) ([]byte, error) {
-	name, err := extractApplicationName(req)
-	if err != nil {
-		return nil, err
+	name, nameErr := extractApplicationName(req)
+	if nameErr != nil {
+		return nil, nameErr
 	}
 
 	if err := h.Backend.DeleteApplication(name); err != nil {

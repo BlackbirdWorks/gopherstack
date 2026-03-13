@@ -111,8 +111,8 @@ import (
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
-	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
@@ -280,10 +280,10 @@ type Stack struct {
 	SageMakerHandler *sagemakerbackend.Handler
 	// ServerlessRepoHandler provides access to the Serverless Application Repository backend.
 	ServerlessRepoHandler *serverlessrepobackend.Handler
-	S3Client         *s3.Client
-	DDBClient        *dynamodb.Client
-	FaultStore       *chaos.FaultStore
-	Dashboard        *dashboard.DashboardHandler
+	S3Client              *s3.Client
+	DDBClient             *dynamodb.Client
+	FaultStore            *chaos.FaultStore
+	Dashboard             *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
