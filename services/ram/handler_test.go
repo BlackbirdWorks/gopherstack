@@ -1,0 +1,885 @@
+package ram_test
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/ram"
+)
+
+func newTestHandler(t *testing.T) *ram.Handler {
+	t.Helper()
+
+	return ram.NewHandler(ram.NewInMemoryBackend("000000000000", "us-east-1"))
+}
+
+func doRAMRequest(t *testing.T, h *ram.Handler, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+
+	var bodyBytes []byte
+
+	if body != nil {
+		var err error
+		bodyBytes, err = json.Marshal(body)
+		require.NoError(t, err)
+	}
+
+	return doRAMRawRequest(t, h, http.MethodPost, path, bodyBytes)
+}
+
+func doRAMRawRequest(t *testing.T, h *ram.Handler, method, path string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(method, path, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/ram/aws4_request")
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetRequest(req)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+func TestHandler_Name(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, "RAM", h.Name())
+}
+
+func TestHandler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.GetSupportedOperations()
+	assert.Contains(t, ops, "CreateResourceShare")
+	assert.Contains(t, ops, "GetResourceShares")
+	assert.Contains(t, ops, "UpdateResourceShare")
+	assert.Contains(t, ops, "DeleteResourceShare")
+	assert.Contains(t, ops, "AssociateResourceShare")
+	assert.Contains(t, ops, "DisassociateResourceShare")
+	assert.Contains(t, ops, "GetResourceShareAssociations")
+	assert.Contains(t, ops, "TagResource")
+	assert.Contains(t, ops, "UntagResource")
+	assert.Contains(t, ops, "ListTagsForResource")
+}
+
+func TestHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, 87, h.MatchPriority())
+}
+
+func TestHandler_ChaosServiceName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, "ram", h.ChaosServiceName())
+}
+
+func TestHandler_ChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
+}
+
+func TestHandler_ChaosRegions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
+}
+
+func TestHandler_CreateResourceShare(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		setup      func(*ram.Handler)
+		name       string
+		wantBody   string
+		wantStatus int
+		wantErr    bool
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"name":                    "my-share",
+				"allowExternalPrincipals": true,
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "my-share",
+		},
+		{
+			name:       "missing name",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "duplicate name",
+			setup: func(h *ram.Handler) {
+				_, err := h.Backend.CreateResourceShare("dup-share", true, nil, nil, nil)
+				require.NoError(t, err)
+			},
+			body: map[string]any{
+				"name": "dup-share",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRAMRequest(t, h, "/createresourceshare", tt.body)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_GetResourceShares(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       any
+		setup      func(*ram.Handler)
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "list all",
+			setup: func(h *ram.Handler) {
+				_, err := h.Backend.CreateResourceShare("list-share", true, nil, nil, nil)
+				require.NoError(t, err)
+			},
+			body:       map[string]any{"resourceOwner": "SELF"},
+			wantStatus: http.StatusOK,
+			wantBody:   "list-share",
+		},
+		{
+			name: "by ARN",
+			setup: func(h *ram.Handler) {
+				rs, err := h.Backend.CreateResourceShare("arn-share", true, nil, nil, nil)
+				require.NoError(t, err)
+				t.Cleanup(func() {
+					_ = h.Backend.DeleteResourceShare(rs.ARN)
+				})
+			},
+			body:       map[string]any{"resourceOwner": "SELF"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "empty list",
+			body:       map[string]any{"resourceOwner": "SELF"},
+			wantStatus: http.StatusOK,
+			wantBody:   "resourceShares",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			rec := doRAMRequest(t, h, "/getresourceshares", tt.body)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_UpdateResourceShare(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*ram.Handler) string
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *ram.Handler) string {
+				rs, err := h.Backend.CreateResourceShare("upd-share", true, nil, nil, nil)
+				require.NoError(t, err)
+
+				return rs.ARN
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not found",
+			setup: func(_ *ram.Handler) string {
+				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			shareARN := tt.setup(h)
+
+			rec := doRAMRequest(t, h, "/updateresourceshare", map[string]any{
+				"resourceShareArn":        shareARN,
+				"name":                    "updated-share",
+				"allowExternalPrincipals": false,
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteResourceShare(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*ram.Handler) string
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *ram.Handler) string {
+				rs, err := h.Backend.CreateResourceShare("del-share", true, nil, nil, nil)
+				require.NoError(t, err)
+
+				return rs.ARN
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not found",
+			setup: func(_ *ram.Handler) string {
+				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "missing query param",
+			setup: func(_ *ram.Handler) string {
+				return ""
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			shareARN := tt.setup(h)
+
+			path := "/deleteresourceshare"
+			if shareARN != "" {
+				path += "?resourceShareArn=" + shareARN
+			}
+
+			rec := doRAMRawRequest(t, h, http.MethodDelete, path, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_AssociateResourceShare(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*ram.Handler) string
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "associate principal",
+			setup: func(h *ram.Handler) string {
+				rs, err := h.Backend.CreateResourceShare("assoc-share", true, nil, nil, nil)
+				require.NoError(t, err)
+
+				return rs.ARN
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not found",
+			setup: func(_ *ram.Handler) string {
+				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			shareARN := tt.setup(h)
+
+			rec := doRAMRequest(t, h, "/associateresourceshare", map[string]any{
+				"resourceShareArn": shareARN,
+				"principals":       []string{"123456789012"},
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DisassociateResourceShare(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*ram.Handler) string
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "disassociate principal",
+			setup: func(h *ram.Handler) string {
+				rs, err := h.Backend.CreateResourceShare("disassoc-share", true, nil, []string{"123456789012"}, nil)
+				require.NoError(t, err)
+
+				return rs.ARN
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not found",
+			setup: func(_ *ram.Handler) string {
+				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			shareARN := tt.setup(h)
+
+			rec := doRAMRequest(t, h, "/disassociateresourceshare", map[string]any{
+				"resourceShareArn": shareARN,
+				"principals":       []string{"123456789012"},
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetResourceShareAssociations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*ram.Handler) string
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "list associations",
+			setup: func(h *ram.Handler) string {
+				rs, err := h.Backend.CreateResourceShare("assoc-list-share", true, nil, []string{"123456789012"}, nil)
+				require.NoError(t, err)
+
+				return rs.ARN
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "123456789012",
+		},
+		{
+			name: "empty",
+			setup: func(_ *ram.Handler) string {
+				return ""
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "resourceShareAssociations",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			shareARN := tt.setup(h)
+
+			body := map[string]any{"associationType": "PRINCIPAL"}
+			if shareARN != "" {
+				body["resourceShareArns"] = []string{shareARN}
+			}
+
+			rec := doRAMRequest(t, h, "/getresourceshareassociations", body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_TagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*ram.Handler) string
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *ram.Handler) string {
+				rs, err := h.Backend.CreateResourceShare("tag-share", true, nil, nil, nil)
+				require.NoError(t, err)
+
+				return rs.ARN
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not found",
+			setup: func(_ *ram.Handler) string {
+				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			shareARN := tt.setup(h)
+
+			rec := doRAMRequest(t, h, "/tagresource", map[string]any{
+				"resourceShareArn": shareARN,
+				"tags":             []map[string]string{{"key": "Env", "value": "test"}},
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*ram.Handler) string
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *ram.Handler) string {
+				rs, err := h.Backend.CreateResourceShare(
+					"untag-share",
+					true,
+					map[string]string{"Env": "test"},
+					nil,
+					nil,
+				)
+				require.NoError(t, err)
+
+				return rs.ARN
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "not found",
+			setup: func(_ *ram.Handler) string {
+				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			shareARN := tt.setup(h)
+
+			rec := doRAMRequest(t, h, "/untagresource", map[string]any{
+				"resourceShareArn": shareARN,
+				"tagKeys":          []string{"Env"},
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*ram.Handler) string
+		name       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			setup: func(h *ram.Handler) string {
+				rs, err := h.Backend.CreateResourceShare(
+					"listtag-share",
+					true,
+					map[string]string{"Env": "prod"},
+					nil,
+					nil,
+				)
+				require.NoError(t, err)
+
+				return rs.ARN
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "Env",
+		},
+		{
+			name: "not found",
+			setup: func(_ *ram.Handler) string {
+				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			shareARN := tt.setup(h)
+
+			rec := doRAMRequest(t, h, "/listtagsforresource", map[string]any{
+				"resourceShareArn": shareARN,
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestHandler_EnableSharingWithAwsOrganization(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRAMRawRequest(t, h, http.MethodPost, "/enablesharingwithawsorganization", nil)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "returnValue")
+}
+
+func TestHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "create", path: "/createresourceshare", want: "CreateResourceShare"},
+		{name: "get", path: "/getresourceshares", want: "GetResourceShares"},
+		{name: "update", path: "/updateresourceshare", want: "UpdateResourceShare"},
+		{name: "delete", path: "/deleteresourceshare", want: "DeleteResourceShare"},
+		{name: "associate", path: "/associateresourceshare", want: "AssociateResourceShare"},
+		{name: "disassociate", path: "/disassociateresourceshare", want: "DisassociateResourceShare"},
+		{name: "get associations", path: "/getresourceshareassociations", want: "GetResourceShareAssociations"},
+		{name: "tag", path: "/tagresource", want: "TagResource"},
+		{name: "untag", path: "/untagresource", want: "UntagResource"},
+		{name: "list tags", path: "/listtagsforresource", want: "ListTagsForResource"},
+		{
+			name: "enable org sharing",
+			path: "/enablesharingwithawsorganization",
+			want: "EnableSharingWithAwsOrganization",
+		},
+		{name: "unknown", path: "/unknownpath", want: "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.want, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodDelete,
+		"/deleteresourceshare?resourceShareArn=arn:aws:ram:us-east-1:000000000000:resource-share/my-share",
+		nil)
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	got := h.ExtractResource(c)
+	assert.Equal(t, "arn:aws:ram:us-east-1:000000000000:resource-share/my-share", got)
+}
+
+func TestProvider_Init(t *testing.T) {
+	t.Parallel()
+
+	p := &ram.Provider{}
+	assert.Equal(t, "RAM", p.Name())
+}
+
+func TestBackend_Region(t *testing.T) {
+	t.Parallel()
+
+	b := ram.NewInMemoryBackend("000000000000", "us-west-2")
+	assert.Equal(t, "us-west-2", b.Region())
+}
+
+func TestBackend_GetResourceShare(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*ram.InMemoryBackend) string
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "found",
+			setup: func(b *ram.InMemoryBackend) string {
+				rs, err := b.CreateResourceShare("found-share", true, nil, nil, nil)
+				require.NoError(t, err)
+
+				return rs.ARN
+			},
+		},
+		{
+			name: "not found",
+			setup: func(_ *ram.InMemoryBackend) string {
+				return "arn:aws:ram:us-east-1:000000000000:resource-share/missing"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+			shareARN := tt.setup(b)
+
+			rs, err := b.GetResourceShare(shareARN)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, shareARN, rs.ARN)
+		})
+	}
+}
+
+func TestHandler_GetResourceShares_ByARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rs, err := h.Backend.CreateResourceShare("by-arn-share", true, nil, nil, nil)
+	require.NoError(t, err)
+
+	rec := doRAMRequest(t, h, "/getresourceshares", map[string]any{
+		"resourceOwner":     "SELF",
+		"resourceShareArns": []string{rs.ARN},
+	})
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "by-arn-share")
+}
+
+func TestHandler_TagResource_MissingARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRAMRequest(t, h, "/tagresource", map[string]any{
+		"tags": []map[string]string{{"key": "Env", "value": "test"}},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_UntagResource_MissingARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRAMRequest(t, h, "/untagresource", map[string]any{
+		"tagKeys": []string{"Env"},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_ListTagsForResource_MissingARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRAMRequest(t, h, "/listtagsforresource", map[string]any{})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_UpdateResourceShare_MissingARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRAMRequest(t, h, "/updateresourceshare", map[string]any{
+		"name": "updated",
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_AssociateResourceShare_MissingARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRAMRequest(t, h, "/associateresourceshare", map[string]any{
+		"principals": []string{"123456789012"},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_DisassociateResourceShare_MissingARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRAMRequest(t, h, "/disassociateresourceshare", map[string]any{
+		"principals": []string{"123456789012"},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_CreateResourceShare_WithTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doRAMRequest(t, h, "/createresourceshare", map[string]any{
+		"name":                    "tagged-share",
+		"allowExternalPrincipals": true,
+		"tags":                    []map[string]string{{"key": "Env", "value": "prod"}},
+	})
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "tagged-share")
+}
+
+func TestHandler_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	matcher := h.RouteMatcher()
+	e := echo.New()
+
+	tests := []struct {
+		name    string
+		path    string
+		service string
+		want    bool
+	}{
+		{
+			name:    "createresourceshare with ram service",
+			path:    "/createresourceshare",
+			service: "ram",
+			want:    true,
+		},
+		{
+			name:    "getresourceshares with ram service",
+			path:    "/getresourceshares",
+			service: "ram",
+			want:    true,
+		},
+		{
+			name:    "wrong service",
+			path:    "/createresourceshare",
+			service: "s3",
+			want:    false,
+		},
+		{
+			name:    "unknown path",
+			path:    "/unknownpath",
+			service: "ram",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			req.Header.Set(
+				"Authorization",
+				"AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/"+tt.service+"/aws4_request",
+			)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.want, matcher(c))
+		})
+	}
+}

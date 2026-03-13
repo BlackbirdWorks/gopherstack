@@ -68,6 +68,7 @@ import (
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -210,6 +211,7 @@ type AWSSDKProvider interface {
 	GetNeptuneHandler() service.Registerable
 	GetPipesHandler() service.Registerable
 	GetQLDBHandler() service.Registerable
+	GetRAMHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -324,6 +326,7 @@ type extractedConfig struct {
 	neptuneOps                *neptunebackend.Handler
 	pipesOps                  *pipesbackend.Handler
 	qldbOps                   *qldbbackend.Handler
+	ramOps                    *rambackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -787,6 +790,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetQLDBHandler(); h != nil {
 		ec.qldbOps, _ = h.(*qldbbackend.Handler)
 	}
+
+	if h := ap.GetRAMHandler(); h != nil {
+		ec.ramOps, _ = h.(*rambackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -969,11 +976,12 @@ func applyLatestConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MemoryDBOps = ec.memorydbOps
 }
 
-// applyMWAAConfig sets the MWAA, Neptune, Pipes, and QLDB ops fields on the dashboard config.
+// applyMWAAConfig sets the MWAA, Neptune, Pipes, QLDB, and RAM ops fields on the dashboard config.
 // Extracted from applyExtendedConfig to satisfy the funlen limit.
 func applyMWAAConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MWAAOps = ec.mwaaOps
 	cfg.NeptuneOps = ec.neptuneOps
 	cfg.PipesOps = ec.pipesOps
 	cfg.QLDBOps = ec.qldbOps
+	cfg.RAMOps = ec.ramOps
 }

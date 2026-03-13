@@ -129,6 +129,7 @@ import (
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -269,6 +270,7 @@ type CLI struct {
 	neptuneHandler                service.Registerable
 	pipesHandler                  service.Registerable
 	qldbHandler                   service.Registerable
+	ramHandler                    service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -705,6 +707,11 @@ func (c *CLI) GetPipesHandler() service.Registerable { return c.pipesHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetQLDBHandler() service.Registerable { return c.qldbHandler }
+
+// GetRAMHandler returns the RAM handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRAMHandler() service.Registerable { return c.ramHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1378,6 +1385,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 	cli.pipesHandler = byName["Pipes"]
 	cli.qldbHandler = byName["QLDB"]
+	cli.ramHandler = byName["RAM"]
 }
 
 // initializeServices initializes all service providers.
@@ -1496,7 +1504,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 // getServiceProviders returns the list of all available service providers.
 func getServiceProviders() []service.Provider {
-	return []service.Provider{
+	base := []service.Provider{ //nolint:prealloc // literal slice, capacity is implicit
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
@@ -1591,10 +1599,20 @@ func getServiceProviders() []service.Provider {
 		&mediastorebackend.Provider{},
 		&mediastoredatabackend.Provider{},
 		&memorydbbackend.Provider{},
+	}
+
+	return append(base, getNewestServiceProviders()...)
+}
+
+// getNewestServiceProviders returns the most recently added service providers.
+// Extracted from getServiceProviders to satisfy the funlen limit.
+func getNewestServiceProviders() []service.Provider {
+	return []service.Provider{
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},
 		&pipesbackend.Provider{},
 		&qldbbackend.Provider{},
+		&rambackend.Provider{},
 	}
 }
 
