@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	qldbSessionService = "qldb-session"
 	// qldbSessionTarget is the X-Amz-Target value for all QLDB Session SendCommand requests.
 	qldbSessionTarget = "QLDBSession.SendCommand"
 )
@@ -52,7 +51,8 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
-func (h *Handler) ChaosServiceName() string { return qldbSessionService }
+// QLDB Session uses the SigV4 signing name "qldb" (same as the QLDB management API).
+func (h *Handler) ChaosServiceName() string { return "qldb" }
 
 // ChaosOperations returns all operations that can be fault-injected.
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
@@ -313,9 +313,13 @@ func (h *Handler) handleExecuteStatement(
 		return nil, fmt.Errorf("%w: TransactionID is required for ExecuteStatement", errInvalidRequest)
 	}
 
-	// Validate the session exists.
-	if _, err := h.Backend.GetSession(token); err != nil {
-		return nil, err
+	// Validate the session exists and the transaction is active.
+	if !h.Backend.HasTransaction(token, req.TransactionID) {
+		if _, err := h.Backend.GetSession(token); err != nil {
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("%w: transaction %s not found in session", ErrTransactionNotFound, req.TransactionID)
 	}
 
 	// ExecuteStatement returns an empty result set in this mock implementation.
@@ -342,9 +346,13 @@ func (h *Handler) handleFetchPage(_ context.Context, token string, req *fetchPag
 		return nil, fmt.Errorf("%w: TransactionID is required for FetchPage", errInvalidRequest)
 	}
 
-	// Validate the session exists.
-	if _, err := h.Backend.GetSession(token); err != nil {
-		return nil, err
+	// Validate the session exists and the transaction is active.
+	if !h.Backend.HasTransaction(token, req.TransactionID) {
+		if _, err := h.Backend.GetSession(token); err != nil {
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("%w: transaction %s not found in session", ErrTransactionNotFound, req.TransactionID)
 	}
 
 	resp := &sendCommandResponse{
@@ -394,9 +402,9 @@ func (h *Handler) handleAbortTransaction(_ context.Context, token string, _ *abo
 		return nil, fmt.Errorf("%w: SessionToken is required for AbortTransaction", errInvalidRequest)
 	}
 
-	// For AbortTransaction, the transaction ID is not required in the AWS spec at this level.
-	// We validate only that the session exists.
-	if _, err := h.Backend.GetSession(token); err != nil {
+	// AbortTransaction clears all pending transactions for the session.
+	// AWS QLDB allows only one active transaction per session, so this aborts the current one.
+	if err := h.Backend.AbortAllTransactions(token); err != nil {
 		return nil, err
 	}
 

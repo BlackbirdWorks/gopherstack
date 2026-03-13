@@ -765,7 +765,8 @@ func extractNewestStorageHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	}
 }
 
-// extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, MQ, and Neptune handlers on ec.
+// extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, MQ, Neptune,
+// Pipes, QLDB, and QLDBSession handlers on ec.
 func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)

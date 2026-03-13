@@ -79,7 +79,10 @@ func TestIntegration_QLDBSession_StartAndCommitTransaction(t *testing.T) {
 
 	var startResult map[string]any
 	require.NoError(t, json.Unmarshal([]byte(startBody), &startResult))
-	sessionToken := startResult["StartSession"].(map[string]any)["SessionToken"].(string)
+	startSessionData, ok := startResult["StartSession"].(map[string]any)
+	require.True(t, ok, "StartSession key missing in response: %s", startBody)
+	sessionToken, ok := startSessionData["SessionToken"].(string)
+	require.True(t, ok, "SessionToken missing or wrong type in response: %s", startBody)
 	require.NotEmpty(t, sessionToken)
 
 	// Start a transaction.
@@ -92,7 +95,10 @@ func TestIntegration_QLDBSession_StartAndCommitTransaction(t *testing.T) {
 
 	var txResult map[string]any
 	require.NoError(t, json.Unmarshal([]byte(txBody), &txResult))
-	txID := txResult["StartTransaction"].(map[string]any)["TransactionId"].(string)
+	startTxData, ok := txResult["StartTransaction"].(map[string]any)
+	require.True(t, ok, "StartTransaction key missing in response: %s", txBody)
+	txID, ok := startTxData["TransactionId"].(string)
+	require.True(t, ok, "TransactionId missing or wrong type in response: %s", txBody)
 	require.NotEmpty(t, txID)
 
 	// Commit the transaction.
@@ -121,7 +127,10 @@ func TestIntegration_QLDBSession_EndSession(t *testing.T) {
 
 	var startResult map[string]any
 	require.NoError(t, json.Unmarshal([]byte(startBody), &startResult))
-	sessionToken := startResult["StartSession"].(map[string]any)["SessionToken"].(string)
+	startSessionData, ok := startResult["StartSession"].(map[string]any)
+	require.True(t, ok, "StartSession key missing in response: %s", startBody)
+	sessionToken, ok := startSessionData["SessionToken"].(string)
+	require.True(t, ok, "SessionToken missing or wrong type in response: %s", startBody)
 	require.NotEmpty(t, sessionToken)
 
 	// End the session.

@@ -147,6 +147,36 @@ func (b *InMemoryBackend) AbortTransaction(token, txID string) error {
 	return nil
 }
 
+// AbortAllTransactions clears all pending transactions for the given session.
+// AWS QLDB enforces one active transaction per session; this resets that state
+// so a new transaction can be started after an abort.
+func (b *InMemoryBackend) AbortAllTransactions(token string) error {
+	b.mu.Lock("AbortAllTransactions")
+	defer b.mu.Unlock()
+
+	sess, ok := b.sessions[token]
+	if !ok {
+		return fmt.Errorf("%w: session token not found", ErrSessionNotFound)
+	}
+
+	sess.TransactionIDs = make(map[string]bool)
+
+	return nil
+}
+
+// HasTransaction returns true if the given transaction ID is active for the session.
+func (b *InMemoryBackend) HasTransaction(token, txID string) bool {
+	b.mu.RLock("HasTransaction")
+	defer b.mu.RUnlock()
+
+	sess, ok := b.sessions[token]
+	if !ok {
+		return false
+	}
+
+	return sess.TransactionIDs[txID]
+}
+
 // EndSession removes the session with the given token.
 func (b *InMemoryBackend) EndSession(token string) error {
 	b.mu.Lock("EndSession")

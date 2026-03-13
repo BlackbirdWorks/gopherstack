@@ -217,9 +217,14 @@ func TestHandler_ExecuteStatement(t *testing.T) {
 			wantErrType: "BadRequestException",
 		},
 		{
-			name: "invalid session token",
-			setup: func(_ *qldbsession.Handler) (string, string) {
-				return "bad-token", "some-tx-id"
+			name: "invalid transaction",
+			setup: func(h *qldbsession.Handler) (string, string) {
+				sess, err := h.Backend.StartSession("my-ledger")
+				if err != nil {
+					return "", ""
+				}
+
+				return sess.Token, "nonexistent-tx"
 			},
 			wantStatus:  http.StatusBadRequest,
 			wantErrType: "InvalidSessionException",
@@ -254,6 +259,117 @@ func TestHandler_ExecuteStatement(t *testing.T) {
 				execStmt, ok := resp["ExecuteStatement"].(map[string]any)
 				require.True(t, ok, "ExecuteStatement should be present in response")
 				assert.NotNil(t, execStmt["FirstPage"])
+			}
+
+			if tt.wantErrType != "" {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantErrType, resp["__type"])
+			}
+		})
+	}
+}
+
+func TestHandler_FetchPage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(*qldbsession.Handler) (string, string)
+		name        string
+		wantErrType string
+		wantStatus  int
+		wantResult  bool
+	}{
+		{
+			name: "success",
+			setup: func(h *qldbsession.Handler) (string, string) {
+				sess, err := h.Backend.StartSession("my-ledger")
+				if err != nil {
+					return "", ""
+				}
+
+				txID, err := h.Backend.StartTransaction(sess.Token)
+				if err != nil {
+					return "", ""
+				}
+
+				return sess.Token, txID
+			},
+			wantStatus: http.StatusOK,
+			wantResult: true,
+		},
+		{
+			name: "missing session token",
+			setup: func(_ *qldbsession.Handler) (string, string) {
+				return "", "some-tx-id"
+			},
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "BadRequestException",
+		},
+		{
+			name: "invalid session token",
+			setup: func(_ *qldbsession.Handler) (string, string) {
+				return "bad-token", "some-tx-id"
+			},
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "InvalidSessionException",
+		},
+		{
+			name: "invalid transaction",
+			setup: func(h *qldbsession.Handler) (string, string) {
+				sess, err := h.Backend.StartSession("my-ledger")
+				if err != nil {
+					return "", ""
+				}
+
+				return sess.Token, "nonexistent-tx"
+			},
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "InvalidSessionException",
+		},
+		{
+			name: "missing transaction id",
+			setup: func(h *qldbsession.Handler) (string, string) {
+				sess, err := h.Backend.StartSession("my-ledger")
+				if err != nil {
+					return "", ""
+				}
+
+				return sess.Token, ""
+			},
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "BadRequestException",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			token, txID := tt.setup(h)
+
+			payload := map[string]any{
+				"FetchPage": map[string]any{
+					"TransactionId": txID,
+					"NextPageToken": "token",
+				},
+			}
+
+			if token != "" {
+				payload["SessionToken"] = token
+			}
+
+			rec := sendCommand(t, h, payload)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantResult {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				fetchPage, ok := resp["FetchPage"].(map[string]any)
+				require.True(t, ok, "FetchPage should be present in response")
+				assert.NotNil(t, fetchPage["Page"])
 			}
 
 			if tt.wantErrType != "" {
@@ -366,6 +482,25 @@ func TestHandler_AbortTransaction(t *testing.T) {
 			name: "success",
 			setup: func(h *qldbsession.Handler) string {
 				sess, err := h.Backend.StartSession("my-ledger")
+				if err != nil {
+					return ""
+				}
+
+				return sess.Token
+			},
+			wantStatus: http.StatusOK,
+			wantResult: true,
+		},
+		{
+			name: "clears pending transactions",
+			setup: func(h *qldbsession.Handler) string {
+				sess, err := h.Backend.StartSession("my-ledger")
+				if err != nil {
+					return ""
+				}
+
+				// Start a transaction so there's something to abort.
+				_, err = h.Backend.StartTransaction(sess.Token)
 				if err != nil {
 					return ""
 				}
