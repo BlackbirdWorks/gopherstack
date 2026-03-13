@@ -11,11 +11,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// Sentinel errors returned by the backend.
-var (
-	ErrAppNotFound = awserr.New("NotFoundException: app not found", awserr.ErrNotFound)
-	ErrAppExists   = awserr.New("ConflictException: app already exists", awserr.ErrAlreadyExists)
-)
+// ErrAppNotFound is returned when a Pinpoint application is not found.
+var ErrAppNotFound = awserr.New("NotFoundException: app not found", awserr.ErrNotFound)
 
 // StorageBackend is the storage interface for the Pinpoint service.
 type StorageBackend interface {

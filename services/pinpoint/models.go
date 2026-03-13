@@ -42,6 +42,12 @@ type tagResourceRequest struct {
 	Tags map[string]string `json:"tags"`
 }
 
+// appSettingsResponse is the JSON representation of ApplicationSettingsResource.
+type appSettingsResponse struct {
+	ApplicationID    string `json:"ApplicationId"`
+	LastModifiedDate string `json:"LastModifiedDate,omitempty"`
+}
+
 // nowRFC3339 returns the current UTC time formatted as RFC 3339.
 func nowRFC3339() string {
 	return time.Now().UTC().Format(time.RFC3339)

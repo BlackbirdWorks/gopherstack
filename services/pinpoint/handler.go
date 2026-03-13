@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -17,6 +18,7 @@ import (
 const (
 	pinpointService       = "mobiletargeting"
 	pinpointMatchPriority = 87
+	appSubPathParts       = 2
 )
 
 // Handler is the HTTP handler for the Amazon Pinpoint REST API.
@@ -41,6 +43,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetApp",
 		"DeleteApp",
 		"GetApps",
+		"GetApplicationSettings",
+		"UpdateApplicationSettings",
 		"TagResource",
 		"UntagResource",
 		"ListTagsForResource",
@@ -97,18 +101,28 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 			return "GetApps"
 		}
 	case strings.HasPrefix(path, "/v1/apps/"):
-		switch method {
-		case http.MethodGet:
-			return "GetApp"
-		case http.MethodDelete:
-			return "DeleteApp"
+		suffix := strings.TrimPrefix(path, "/v1/apps/")
+		if strings.HasSuffix(suffix, "/settings") {
+			switch method {
+			case http.MethodGet:
+				return "GetApplicationSettings"
+			case http.MethodPut:
+				return "UpdateApplicationSettings"
+			}
+		} else {
+			switch method {
+			case http.MethodGet:
+				return "GetApp"
+			case http.MethodDelete:
+				return "DeleteApp"
+			}
 		}
 	}
 
 	return "Unknown"
 }
 
-// ExtractResource extracts the app ID from the request path.
+// ExtractResource extracts the app ID or decoded ARN from the request path.
 func (h *Handler) ExtractResource(c *echo.Context) string {
 	path := c.Request().URL.Path
 
@@ -116,7 +130,13 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	case strings.HasPrefix(path, "/v1/apps/"):
 		return strings.TrimPrefix(path, "/v1/apps/")
 	case strings.HasPrefix(path, "/v1/tags/"):
-		return strings.TrimPrefix(path, "/v1/tags/")
+		escaped := strings.TrimPrefix(path, "/v1/tags/")
+		decoded, err := url.PathUnescape(escaped)
+		if err != nil {
+			return escaped
+		}
+
+		return decoded
 	}
 
 	return ""
@@ -137,7 +157,12 @@ func (h *Handler) ServeHTTP(c *echo.Context) error {
 	case path == "/v1/apps" || path == "/v1/apps/":
 		return h.dispatchApps(c)
 	case strings.HasPrefix(path, "/v1/apps/"):
-		return h.dispatchApp(c, path)
+		suffix := strings.TrimPrefix(path, "/v1/apps/")
+		if strings.Contains(suffix, "/") {
+			return h.dispatchAppSubPath(c, suffix)
+		}
+
+		return h.dispatchApp(c, suffix)
 	}
 
 	ctx := c.Request().Context()
@@ -147,8 +172,14 @@ func (h *Handler) ServeHTTP(c *echo.Context) error {
 	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
 }
 
+// dispatchTags routes tag-related requests, URL-decoding the resource ARN from the path.
 func (h *Handler) dispatchTags(c *echo.Context, path string) error {
-	resourceARN := strings.TrimPrefix(path, "/v1/tags/")
+	escaped := strings.TrimPrefix(path, "/v1/tags/")
+
+	resourceARN, err := url.PathUnescape(escaped)
+	if err != nil || resourceARN == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid resource ARN in path")
+	}
 
 	switch c.Request().Method {
 	case http.MethodGet:
@@ -173,14 +204,40 @@ func (h *Handler) dispatchApps(c *echo.Context) error {
 	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
 }
 
-func (h *Handler) dispatchApp(c *echo.Context, path string) error {
-	appID := strings.TrimPrefix(path, "/v1/apps/")
-
+func (h *Handler) dispatchApp(c *echo.Context, appID string) error {
 	switch c.Request().Method {
 	case http.MethodGet:
 		return h.handleGetApp(c, appID)
 	case http.MethodDelete:
 		return h.handleDeleteApp(c, appID)
+	}
+
+	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
+}
+
+// dispatchAppSubPath handles paths under /v1/apps/{appId}/ (e.g. settings).
+func (h *Handler) dispatchAppSubPath(c *echo.Context, suffix string) error {
+	parts := strings.SplitN(suffix, "/", appSubPathParts)
+	if len(parts) != appSubPathParts {
+		return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
+	}
+
+	appID, subPath := parts[0], parts[1]
+
+	if subPath == "settings" {
+		return h.dispatchAppSettings(c, appID)
+	}
+
+	return writeErrorResponse(c, http.StatusNotFound, "NotFoundException", "resource not found")
+}
+
+// dispatchAppSettings handles GET/PUT /v1/apps/{appId}/settings.
+func (h *Handler) dispatchAppSettings(c *echo.Context, appID string) error {
+	switch c.Request().Method {
+	case http.MethodGet:
+		return h.handleGetApplicationSettings(c, appID)
+	case http.MethodPut:
+		return h.handleUpdateApplicationSettings(c, appID)
 	}
 
 	return writeErrorResponse(c, http.StatusMethodNotAllowed, "MethodNotAllowedException", "method not allowed")
@@ -198,14 +255,14 @@ func (h *Handler) handleCreateApp(c *echo.Context) error {
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 
+	if strings.TrimSpace(req.Name) == "" {
+		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "Name is required")
+	}
+
 	region := httputils.ExtractRegionFromRequest(c.Request(), h.DefaultRegion)
 
 	app, err := h.Backend.CreateApp(region, h.AccountID, req.Name, req.Tags)
 	if err != nil {
-		if errors.Is(err, awserr.ErrAlreadyExists) {
-			return writeErrorResponse(c, http.StatusConflict, "ConflictException", err.Error())
-		}
-
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", err.Error())
 	}
 
@@ -257,6 +314,29 @@ func (h *Handler) handleGetApps(c *echo.Context) error {
 	}
 
 	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, appsResponse{Item: items})
+
+	return nil
+}
+
+// handleGetApplicationSettings handles GET /v1/apps/{appId}/settings.
+func (h *Handler) handleGetApplicationSettings(c *echo.Context, appID string) error {
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, appSettingsResponse{
+		ApplicationID:    appID,
+		LastModifiedDate: nowRFC3339(),
+	})
+
+	return nil
+}
+
+// handleUpdateApplicationSettings handles PUT /v1/apps/{appId}/settings.
+func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string) error {
+	// Read and discard the body; no settings are persisted in the mock backend.
+	_, _ = httputils.ReadBody(c.Request())
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, appSettingsResponse{
+		ApplicationID:    appID,
+		LastModifiedDate: nowRFC3339(),
+	})
 
 	return nil
 }

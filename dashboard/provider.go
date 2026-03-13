@@ -782,7 +782,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 func buildDashboardConfig(ec *extractedConfig, log *slog.Logger) Config {
 	cfg := buildBaseConfig(ec, log)
 	applyExtendedConfig(&cfg, ec)
-	applyMWAAConfig(&cfg, ec)
+	applyLatestServiceConfig(&cfg, ec)
 
 	return cfg
 }
@@ -896,9 +896,9 @@ func applyLatestConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MemoryDBOps = ec.memorydbOps
 }
 
-// applyMWAAConfig sets the MWAA, Neptune, and Pinpoint ops fields on the dashboard config.
+// applyLatestServiceConfig sets the MWAA, Neptune, and Pinpoint ops fields on the dashboard config.
 // Extracted from applyExtendedConfig to satisfy the funlen limit.
-func applyMWAAConfig(cfg *Config, ec *extractedConfig) {
+func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MWAAOps = ec.mwaaOps
 	cfg.PinpointOps = ec.pinpointOps
 	cfg.NeptuneOps = ec.neptuneOps

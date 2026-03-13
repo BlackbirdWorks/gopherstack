@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -80,6 +81,16 @@ func TestHandler_CreateApp(t *testing.T) {
 			body:       map[string]any{"Name": "tagged-app", "tags": map[string]string{"env": "prod"}},
 			wantStatus: http.StatusCreated,
 			wantID:     true,
+		},
+		{
+			name:       "rejects_empty_name",
+			body:       map[string]any{"Name": ""},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "rejects_whitespace_name",
+			body:       map[string]any{"Name": "   "},
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -247,10 +258,16 @@ func TestHandler_TagOperations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
+		name      string
+		encodeARN bool
 	}{
 		{
-			name: "tag_list_untag",
+			name:      "tag_list_untag",
+			encodeARN: false,
+		},
+		{
+			name:      "tag_list_untag_percent_encoded_arn",
+			encodeARN: true,
 		},
 	}
 
@@ -269,12 +286,17 @@ func TestHandler_TagOperations(t *testing.T) {
 			appARN, _ := appResp["Arn"].(string)
 			require.NotEmpty(t, appARN)
 
-			tagRec := doPinpointRequest(t, h, http.MethodPost, "/v1/tags/"+appARN, map[string]any{
+			tagPathARN := appARN
+			if tt.encodeARN {
+				tagPathARN = url.PathEscape(appARN)
+			}
+
+			tagRec := doPinpointRequest(t, h, http.MethodPost, "/v1/tags/"+tagPathARN, map[string]any{
 				"tags": map[string]string{"owner": "integration"},
 			})
 			assert.Equal(t, http.StatusNoContent, tagRec.Code)
 
-			listRec := doPinpointRequest(t, h, http.MethodGet, "/v1/tags/"+appARN, nil)
+			listRec := doPinpointRequest(t, h, http.MethodGet, "/v1/tags/"+tagPathARN, nil)
 			assert.Equal(t, http.StatusOK, listRec.Code)
 
 			var tagsResp map[string]any
@@ -283,9 +305,61 @@ func TestHandler_TagOperations(t *testing.T) {
 			tagsMap, _ := tagsResp["tags"].(map[string]any)
 			assert.Equal(t, "integration", tagsMap["owner"])
 
-			untagPath := "/v1/tags/" + appARN + "?tagKeys=owner"
+			untagPath := "/v1/tags/" + tagPathARN + "?tagKeys=owner"
 			untagRec := doPinpointRequest(t, h, http.MethodDelete, untagPath, nil)
 			assert.Equal(t, http.StatusNoContent, untagRec.Code)
+		})
+	}
+}
+
+func TestHandler_ApplicationSettings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		wantStatus int
+	}{
+		{
+			name:       "get_settings",
+			method:     http.MethodGet,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "put_settings",
+			method:     http.MethodPut,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandlerForTest(t)
+
+			rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": "settings-app"})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var appResp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&appResp))
+
+			appID, _ := appResp["Id"].(string)
+			require.NotEmpty(t, appID)
+
+			settingsPath := "/v1/apps/" + appID + "/settings"
+
+			var body any
+			if tt.method == http.MethodPut {
+				body = map[string]any{}
+			}
+
+			rec2 := doPinpointRequest(t, h, tt.method, settingsPath, body)
+			assert.Equal(t, tt.wantStatus, rec2.Code)
+
+			var settingsResp map[string]any
+			require.NoError(t, json.NewDecoder(rec2.Body).Decode(&settingsResp))
+			assert.Equal(t, appID, settingsResp["ApplicationId"])
 		})
 	}
 }
