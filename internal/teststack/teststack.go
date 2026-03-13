@@ -124,6 +124,7 @@ import (
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -286,10 +287,12 @@ type Stack struct {
 	ServerlessRepoHandler *serverlessrepobackend.Handler
 	// ShieldHandler provides access to the Shield backend.
 	ShieldHandler *shieldbackend.Handler
-	S3Client      *s3.Client
-	DDBClient     *dynamodb.Client
-	FaultStore    *chaos.FaultStore
-	Dashboard     *dashboard.DashboardHandler
+	// TextractHandler provides access to the Textract backend.
+	TextractHandler *textractbackend.Handler
+	S3Client        *s3.Client
+	DDBClient       *dynamodb.Client
+	FaultStore      *chaos.FaultStore
+	Dashboard       *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -502,6 +505,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.sagemakerRuntime)
 	_ = registry.Register(h.serverlessrepo)
 	_ = registry.Register(h.shield)
+	_ = registry.Register(h.textract)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -612,6 +616,7 @@ type handlers struct {
 	sagemakerRuntime   *sagemakerruntimebackend.Handler
 	serverlessrepo     *serverlessrepobackend.Handler
 	shield             *shieldbackend.Handler
+	textract           *textractbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -927,6 +932,7 @@ func populateLatestHandlers(h *handlers) {
 	h.shield = shieldbackend.NewHandler(
 		shieldbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.textract = textractbackend.NewHandler(textractbackend.NewInMemoryBackend())
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -1092,6 +1098,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.SageMakerRuntimeOps = h.sagemakerRuntime
 	cfg.ServerlessRepoOps = h.serverlessrepo
 	cfg.ShieldOps = h.shield
+	cfg.TextractOps = h.textract
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1304,6 +1311,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.SageMakerRuntimeHandler = h.sagemakerRuntime
 	s.ServerlessRepoHandler = h.serverlessrepo
 	s.ShieldHandler = h.shield
+	s.TextractHandler = h.textract
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

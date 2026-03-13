@@ -79,6 +79,7 @@ import (
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -231,6 +232,7 @@ type AWSSDKProvider interface {
 	GetServerlessRepoHandler() service.Registerable
 	GetShieldHandler() service.Registerable
 	GetSsoAdminHandler() service.Registerable
+	GetTextractHandler() service.Registerable
 	GetTimestreamQueryHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
@@ -356,6 +358,7 @@ type extractedConfig struct {
 	serverlessrepoOps         *serverlessrepobackend.Handler
 	shieldOps                 *shieldbackend.Handler
 	ssoadminOps               *ssoadminbackend.Handler
+	textractOps               *textractbackend.Handler
 	timestreamqueryOps        *timestreamquerybackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
@@ -864,12 +867,21 @@ func extractAdditionalHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.serverlessrepoOps, _ = h.(*serverlessrepobackend.Handler)
 	}
 
+	extractSsoAndMLHandlers(ap, ec)
+}
+
+// extractSsoAndMLHandlers populates Shield, SSO Admin and ML/document service handlers on ec.
+func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetShieldHandler(); h != nil {
 		ec.shieldOps, _ = h.(*shieldbackend.Handler)
 	}
 
 	if h := ap.GetSsoAdminHandler(); h != nil {
 		ec.ssoadminOps, _ = h.(*ssoadminbackend.Handler)
+	}
+
+	if h := ap.GetTextractHandler(); h != nil {
+		ec.textractOps, _ = h.(*textractbackend.Handler)
 	}
 
 	if h := ap.GetTimestreamQueryHandler(); h != nil {
@@ -1074,5 +1086,6 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.ServerlessRepoOps = ec.serverlessrepoOps
 	cfg.ShieldOps = ec.shieldOps
 	cfg.SsoAdminOps = ec.ssoadminOps
+	cfg.TextractOps = ec.textractOps
 	cfg.TimestreamQueryOps = ec.timestreamqueryOps
 }

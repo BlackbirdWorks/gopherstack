@@ -74,6 +74,7 @@ type docPageData struct {
 	SageMakerOps               []string
 	SageMakerRuntimeOps        []string
 	SsoAdminOps                []string
+	TextractOps                []string
 	TimestreamQueryOps         []string
 }
 
@@ -160,6 +161,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		SageMakerOps:               h.getSupportedOps(h.SageMakerOps),
 		SageMakerRuntimeOps:        h.getSupportedOps(h.SageMakerRuntimeOps),
 		SsoAdminOps:                h.getSupportedOps(h.SsoAdminOps),
+		TextractOps:                h.getSupportedOps(h.TextractOps),
 		TimestreamQueryOps:         h.getSupportedOps(h.TimestreamQueryOps),
 	}
 
