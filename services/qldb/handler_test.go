@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/qldb"
 )
 
@@ -461,4 +462,194 @@ func TestBackend_TagResource(t *testing.T) {
 	tags, err := b.ListTagsForResource(l.ARN)
 	require.NoError(t, err)
 	assert.Equal(t, "test", tags["env"])
+}
+
+func TestBackend_Region(t *testing.T) {
+	t.Parallel()
+
+	b := qldb.NewInMemoryBackend("000000000000", "eu-west-1")
+	assert.Equal(t, "eu-west-1", b.Region())
+}
+
+func TestHandler_ChaosInterface(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, "qldb", h.ChaosServiceName())
+	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
+	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
+}
+
+func TestHandler_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		path        string
+		authService string
+		want        bool
+	}{
+		{
+			name:        "matches_ledgers_path",
+			path:        "/ledgers",
+			authService: "qldb",
+			want:        true,
+		},
+		{
+			name:        "matches_ledger_by_name",
+			path:        "/ledgers/my-ledger",
+			authService: "qldb",
+			want:        true,
+		},
+		{
+			name:        "matches_tags_path",
+			path:        "/tags/arn:aws:qldb:us-east-1:000000000000:ledger/test",
+			authService: "qldb",
+			want:        true,
+		},
+		{
+			name:        "no_match_wrong_service",
+			path:        "/ledgers",
+			authService: "s3",
+			want:        false,
+		},
+		{
+			name:        "no_match_unrelated_path",
+			path:        "/api/v1/other",
+			authService: "qldb",
+			want:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+
+			if tt.authService != "" {
+				req.Header.Set("Authorization",
+					"AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/"+tt.authService+"/aws4_request")
+			}
+
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.want, h.RouteMatcher()(c))
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		path    string
+		wantRes string
+	}{
+		{
+			name:    "ledger_name_extracted",
+			path:    "/ledgers/my-ledger",
+			wantRes: "my-ledger",
+		},
+		{
+			name:    "only_ledgers_path_returns_empty",
+			path:    "/ledgers",
+			wantRes: "",
+		},
+		{
+			name:    "tags_path_returns_empty",
+			path:    "/tags/some-arn",
+			wantRes: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantRes, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestHandler_UpdateLedger_MissingName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// "/ledgers/" has a trailing slash producing an empty name segment,
+	// which triggers the missing-name validation path.
+	rec := doQLDBRequest(t, h, http.MethodPatch, "/ledgers/", map[string]any{
+		"DeletionProtection": false,
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_UpdateLedger_InvalidJSON(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doQLDBRequest(t, h, http.MethodPost, "/ledgers", map[string]any{
+		"Name":            "upd-invalid-json",
+		"PermissionsMode": "ALLOW_ALL",
+	})
+
+	rec := doQLDBRawRequest(t, h, http.MethodPatch, "/ledgers/upd-invalid-json", []byte("not-json"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_DeleteLedger_MissingName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doQLDBRequest(t, h, http.MethodDelete, "/ledgers/", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_DescribeLedger_MissingName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doQLDBRequest(t, h, http.MethodGet, "/ledgers/", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_DuplicateLedger_HTTP(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doQLDBRequest(t, h, http.MethodPost, "/ledgers", map[string]any{
+		"Name":            "conflict-ledger",
+		"PermissionsMode": "ALLOW_ALL",
+	})
+
+	rec := doQLDBRequest(t, h, http.MethodPost, "/ledgers", map[string]any{
+		"Name":            "conflict-ledger",
+		"PermissionsMode": "ALLOW_ALL",
+	})
+
+	assert.Equal(t, http.StatusConflict, rec.Code)
+}
+
+func TestProvider_Init(t *testing.T) {
+	t.Parallel()
+
+	p := &qldb.Provider{}
+	assert.Equal(t, "QLDB", p.Name())
+
+	svc, err := p.Init(&service.AppContext{})
+	require.NoError(t, err)
+	assert.NotNil(t, svc)
 }
