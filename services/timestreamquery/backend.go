@@ -224,6 +224,8 @@ func (b *InMemoryBackend) ExecuteScheduledQuery(arn string) error {
 }
 
 // Query runs a query and returns an empty result set (simulated).
+// The query string is accepted but not evaluated; this is an in-memory simulation
+// that returns empty results regardless of the query content.
 func (b *InMemoryBackend) Query(queryString string) *QueryResult {
 	b.mu.Lock("Query")
 	defer b.mu.Unlock()
@@ -238,6 +240,7 @@ func (b *InMemoryBackend) Query(queryString string) *QueryResult {
 
 	b.queries[queryID] = result
 
+	// queryString is intentionally not evaluated — this is a simulation.
 	_ = queryString
 
 	return result

@@ -855,11 +855,11 @@ func extractLatestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.sagemakerRuntimeOps, _ = h.(*sagemakerruntimebackend.Handler)
 	}
 
-	extractMostRecentHandlers(ap, ec)
+	extractAdditionalHandlers(ap, ec)
 }
 
-// extractMostRecentHandlers populates the newest service handlers on ec.
-func extractMostRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+// extractAdditionalHandlers populates the newest service handlers on ec.
+func extractAdditionalHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetServerlessRepoHandler(); h != nil {
 		ec.serverlessrepoOps, _ = h.(*serverlessrepobackend.Handler)
 	}

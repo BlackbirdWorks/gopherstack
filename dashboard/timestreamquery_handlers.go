@@ -5,6 +5,8 @@ import (
 	"sort"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // timestreamqueryScheduledQueryView is the view model for a single scheduled query row.
@@ -107,7 +109,7 @@ func (h *DashboardHandler) timestreamqueryIndex(c *echo.Context) error {
 // timestreamqueryCreate creates a scheduled query from the dashboard form.
 func (h *DashboardHandler) timestreamqueryCreate(c *echo.Context) error {
 	if h.TimestreamQueryOps == nil {
-		return c.String(http.StatusServiceUnavailable, "Timestream Query service not configured")
+		return c.NoContent(http.StatusServiceUnavailable)
 	}
 
 	name := c.FormValue("name")
@@ -115,15 +117,22 @@ func (h *DashboardHandler) timestreamqueryCreate(c *echo.Context) error {
 	scheduleExpression := c.FormValue("schedule_expression")
 
 	if name == "" || queryString == "" || scheduleExpression == "" {
-		return c.Redirect(http.StatusSeeOther, "/dashboard/timestreamquery")
+		return c.NoContent(http.StatusBadRequest)
 	}
 
-	_, _ = h.TimestreamQueryOps.Backend.CreateScheduledQuery(
+	ctx := c.Request().Context()
+
+	if _, err := h.TimestreamQueryOps.Backend.CreateScheduledQuery(
 		name, queryString, scheduleExpression,
 		"arn:aws:iam::000000000000:role/demo-role",
 		"", "", "", "",
 		nil,
-	)
+	); err != nil {
+		logger.Load(ctx).
+			ErrorContext(ctx, "timestreamquery: failed to create scheduled query", "name", name, "error", err)
+
+		return c.NoContent(http.StatusBadRequest)
+	}
 
 	return c.Redirect(http.StatusSeeOther, "/dashboard/timestreamquery")
 }
@@ -131,12 +140,19 @@ func (h *DashboardHandler) timestreamqueryCreate(c *echo.Context) error {
 // timestreamqueryDelete deletes a scheduled query from the dashboard.
 func (h *DashboardHandler) timestreamqueryDelete(c *echo.Context) error {
 	if h.TimestreamQueryOps == nil {
-		return c.String(http.StatusServiceUnavailable, "Timestream Query service not configured")
+		return c.NoContent(http.StatusServiceUnavailable)
 	}
 
 	arn := c.FormValue("arn")
-	if arn != "" {
-		_ = h.TimestreamQueryOps.Backend.DeleteScheduledQuery(arn)
+	if arn == "" {
+		return c.Redirect(http.StatusSeeOther, "/dashboard/timestreamquery")
+	}
+
+	ctx := c.Request().Context()
+
+	if err := h.TimestreamQueryOps.Backend.DeleteScheduledQuery(arn); err != nil {
+		logger.Load(ctx).
+			ErrorContext(ctx, "timestreamquery: failed to delete scheduled query", "arn", arn, "error", err)
 	}
 
 	return c.Redirect(http.StatusSeeOther, "/dashboard/timestreamquery")
