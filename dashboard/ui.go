@@ -279,7 +279,7 @@ type DashboardHandler struct {
 	// MemoryDBOps provides access to the MemoryDB backend.
 	MemoryDBOps *memorydbbackend.Handler
 	// MWAAOps provides access to the MWAA backend.
-	MWAAOps      *mwaabackend.Handler
+	MWAAOps *mwaabackend.Handler
 	// NeptuneOps provides access to the Neptune backend.
 	NeptuneOps   *neptunebackend.Handler
 	SubRouter    *echo.Echo
