@@ -240,15 +240,13 @@ func (h *Handler) dispatch(ctx context.Context, body []byte) ([]byte, error) {
 		token = *req.SessionToken
 	}
 
-	resp := &sendCommandResponse{}
-
 	switch {
 	case req.StartSession != nil:
 		return h.handleStartSession(ctx, req.StartSession)
 	case req.StartTransaction != nil:
 		return h.handleStartTransaction(ctx, token)
 	case req.ExecuteStatement != nil:
-		return h.handleExecuteStatement(ctx, token, req.ExecuteStatement, resp)
+		return h.handleExecuteStatement(ctx, token, req.ExecuteStatement)
 	case req.FetchPage != nil:
 		return h.handleFetchPage(ctx, token, req.FetchPage)
 	case req.CommitTransaction != nil:
@@ -306,7 +304,6 @@ func (h *Handler) handleExecuteStatement(
 	_ context.Context,
 	token string,
 	req *executeStatementRequest,
-	_ *sendCommandResponse,
 ) ([]byte, error) {
 	if token == "" {
 		return nil, fmt.Errorf("%w: SessionToken is required for ExecuteStatement", errInvalidRequest)
@@ -321,6 +318,8 @@ func (h *Handler) handleExecuteStatement(
 		return nil, err
 	}
 
+	// ExecuteStatement returns an empty result set in this mock implementation.
+	// Actual PartiQL query execution is not supported.
 	resp := &sendCommandResponse{
 		ExecuteStatement: &executeStatementResult{
 			FirstPage: &page{
