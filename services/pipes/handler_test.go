@@ -322,30 +322,45 @@ func TestBackend_DuplicatePipe(t *testing.T) {
 	require.Error(t, err)
 }
 
+// createTestPipeWithARN creates a pipe via the HTTP handler and returns its ARN.
+func createTestPipeWithARN(t *testing.T, h *pipes.Handler, pipeName string) string {
+	t.Helper()
+
+	rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/"+pipeName, map[string]any{
+		"RoleArn": "arn:aws:iam::000000000000:role/r",
+		"Source":  "arn:aws:sqs:us-east-1:000000000000:src",
+		"Target":  "arn:aws:lambda:us-east-1:000000000000:function:fn",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	return resp["Arn"].(string)
+}
+
+// addTagsToPipe tags a pipe via the HTTP handler.
+func addTagsToPipe(t *testing.T, h *pipes.Handler, arn string, tags map[string]string) {
+	t.Helper()
+
+	rec := doPipesRequest(t, h, http.MethodPost, "/tags/"+arn, map[string]any{"Tags": tags})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
 func TestHandler_TagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		setup      func(t *testing.T, h *pipes.Handler) string
 		name       string
-		pipeName   string
 		wantStatus int
 	}{
 		{
-			name:     "tag_resource",
-			pipeName: "tag-test-pipe",
+			name: "tag_resource",
 			setup: func(t *testing.T, h *pipes.Handler) string {
 				t.Helper()
-				rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/tag-test-pipe", map[string]any{
-					"RoleArn": "arn:aws:iam::000000000000:role/r",
-					"Source":  "arn:aws:sqs:us-east-1:000000000000:src",
-					"Target":  "arn:aws:lambda:us-east-1:000000000000:function:fn",
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
-				return resp["Arn"].(string)
+				return createTestPipeWithARN(t, h, "tag-test-pipe")
 			},
 			wantStatus: http.StatusOK,
 		},
@@ -386,18 +401,8 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 			name: "list_tags",
 			setup: func(t *testing.T, h *pipes.Handler) string {
 				t.Helper()
-				rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/list-tags-pipe", map[string]any{
-					"RoleArn": "arn:aws:iam::000000000000:role/r",
-					"Source":  "arn:aws:sqs:us-east-1:000000000000:src",
-					"Target":  "arn:aws:lambda:us-east-1:000000000000:function:fn",
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				arn := resp["Arn"].(string)
-				tagRec := doPipesRequest(t, h, http.MethodPost, "/tags/"+arn,
-					map[string]any{"Tags": map[string]string{"env": "prod"}})
-				require.Equal(t, http.StatusOK, tagRec.Code)
+				arn := createTestPipeWithARN(t, h, "list-tags-pipe")
+				addTagsToPipe(t, h, arn, map[string]string{"env": "prod"})
 
 				return arn
 			},
@@ -444,18 +449,8 @@ func TestHandler_UntagResource(t *testing.T) {
 			name: "untag_specific_key",
 			setup: func(t *testing.T, h *pipes.Handler) string {
 				t.Helper()
-				rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/untag-pipe", map[string]any{
-					"RoleArn": "arn:aws:iam::000000000000:role/r",
-					"Source":  "arn:aws:sqs:us-east-1:000000000000:src",
-					"Target":  "arn:aws:lambda:us-east-1:000000000000:function:fn",
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				arn := resp["Arn"].(string)
-				tagRec := doPipesRequest(t, h, http.MethodPost, "/tags/"+arn,
-					map[string]any{"Tags": map[string]string{"env": "test", "team": "platform"}})
-				require.Equal(t, http.StatusOK, tagRec.Code)
+				arn := createTestPipeWithARN(t, h, "untag-pipe")
+				addTagsToPipe(t, h, arn, map[string]string{"env": "test", "team": "platform"})
 
 				return arn
 			},
