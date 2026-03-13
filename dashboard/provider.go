@@ -66,6 +66,7 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
+	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -206,6 +207,7 @@ type AWSSDKProvider interface {
 	GetMWAAHandler() service.Registerable
 	GetPinpointHandler() service.Registerable
 	GetNeptuneHandler() service.Registerable
+	GetPipesHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -318,6 +320,7 @@ type extractedConfig struct {
 	mwaaOps                   *mwaabackend.Handler
 	pinpointOps               *pinpointbackend.Handler
 	neptuneOps                *neptunebackend.Handler
+	pipesOps                  *pipesbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -766,6 +769,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetNeptuneHandler(); h != nil {
 		ec.neptuneOps, _ = h.(*neptunebackend.Handler)
 	}
+
+	if h := ap.GetPipesHandler(); h != nil {
+		ec.pipesOps, _ = h.(*pipesbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -896,10 +903,11 @@ func applyLatestConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MemoryDBOps = ec.memorydbOps
 }
 
-// applyLatestServiceConfig sets the MWAA, Neptune, and Pinpoint ops fields on the dashboard config.
+// applyLatestServiceConfig sets the MWAA, Neptune, Pinpoint, and Pipes ops fields on the dashboard config.
 // Extracted from applyExtendedConfig to satisfy the funlen limit.
 func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MWAAOps = ec.mwaaOps
 	cfg.PinpointOps = ec.pinpointOps
 	cfg.NeptuneOps = ec.neptuneOps
+	cfg.PipesOps = ec.pipesOps
 }

@@ -127,6 +127,7 @@ import (
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
+	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -265,6 +266,7 @@ type CLI struct {
 	mwaaHandler                   service.Registerable
 	neptuneHandler                service.Registerable
 	pinpointHandler               service.Registerable
+	pipesHandler                  service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -691,6 +693,11 @@ func (c *CLI) GetMWAAHandler() service.Registerable { return c.mwaaHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetPinpointHandler() service.Registerable { return c.pinpointHandler }
+
+// GetPipesHandler returns the Pipes handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetPipesHandler() service.Registerable { return c.pipesHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1362,6 +1369,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 	cli.pinpointHandler = byName["Pinpoint"]
+	cli.pipesHandler = byName["Pipes"]
 }
 
 // initializeServices initializes all service providers.
@@ -1577,6 +1585,7 @@ func getServiceProviders() []service.Provider {
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},
 		&pinpointbackend.Provider{},
+		&pipesbackend.Provider{},
 	}
 }
 

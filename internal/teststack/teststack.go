@@ -94,6 +94,7 @@ import (
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
+	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -253,10 +254,12 @@ type Stack struct {
 	MWAAHandler *mwaabackend.Handler
 	// PinpointHandler provides access to the Pinpoint backend.
 	PinpointHandler *pinpointbackend.Handler
-	S3Client        *s3.Client
-	DDBClient       *dynamodb.Client
-	FaultStore      *chaos.FaultStore
-	Dashboard       *dashboard.DashboardHandler
+	// PipesHandler provides access to the EventBridge Pipes backend.
+	PipesHandler *pipesbackend.Handler
+	S3Client     *s3.Client
+	DDBClient    *dynamodb.Client
+	FaultStore   *chaos.FaultStore
+	Dashboard    *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -454,6 +457,13 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.memorydb)
 }
 
+// registerLatestServices registers the most recently added service handlers.
+// Extracted from New to satisfy the funlen limit.
+func registerLatestServices(registry *service.Registry, h handlers) {
+	_ = registry.Register(h.pinpoint)
+	_ = registry.Register(h.pipes)
+}
+
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
 	s3                 *s3backend.S3Handler
@@ -551,6 +561,7 @@ type handlers struct {
 	mwaa               *mwaabackend.Handler
 	pinpoint           *pinpointbackend.Handler
 	neptune            *neptunebackend.Handler
+	pipes              *pipesbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -839,6 +850,7 @@ func populateLatestHandlers(h *handlers) {
 	h.neptune = neptunebackend.NewHandler(
 		neptunebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -993,6 +1005,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.MWAAOps = h.mwaa
 	cfg.PinpointOps = h.pinpoint
 	cfg.NeptuneOps = h.neptune
+	cfg.PipesOps = h.pipes
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1054,7 +1067,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.mwaa)
-	_ = registry.Register(h.pinpoint)
+	registerLatestServices(registry, h)
 	registerMediaServices(registry, h)
 	_ = registry.Register(h.neptune)
 
@@ -1195,6 +1208,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.MWAAHandler = h.mwaa
 	s.PinpointHandler = h.pinpoint
 	s.NeptuneHandler = h.neptune
+	s.PipesHandler = h.pipes
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

@@ -103,6 +103,7 @@ import (
 	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	pinpointsvc "github.com/aws/aws-sdk-go-v2/service/pinpoint"
+	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -259,6 +260,7 @@ provider "aws" {
     mwaa            = %[1]q
     opensearch      = %[1]q
     pinpoint        = %[1]q
+    pipes           = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
     resourcegroupstaggingapi = %[1]q
@@ -5287,6 +5289,44 @@ func TestTerraform_Pinpoint(t *testing.T) {
 				}
 
 				assert.True(t, found, "created app should appear in GetApps output")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Pipes provisions an EventBridge Pipe and verifies it is described.
+func TestTerraform_Pipes(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "pipes/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"PipeName": "tf-pipe-" + id,
+					"RoleName": "tf-pipe-role-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createPipesClient(t)
+
+				out, err := client.DescribePipe(ctx, &pipessvc.DescribePipeInput{
+					Name: aws.String(vars["PipeName"].(string)),
+				})
+				require.NoError(t, err, "DescribePipe should succeed after terraform apply")
+				assert.Equal(t, vars["PipeName"].(string), aws.ToString(out.Name))
 			},
 		},
 	}
