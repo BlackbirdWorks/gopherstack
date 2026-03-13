@@ -93,6 +93,7 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -250,10 +251,12 @@ type Stack struct {
 	MemoryDBHandler *memorydbbackend.Handler
 	// MWAAHandler provides access to the MWAA backend.
 	MWAAHandler *mwaabackend.Handler
-	S3Client    *s3.Client
-	DDBClient   *dynamodb.Client
-	FaultStore  *chaos.FaultStore
-	Dashboard   *dashboard.DashboardHandler
+	// PipesHandler provides access to the EventBridge Pipes backend.
+	PipesHandler *pipesbackend.Handler
+	S3Client     *s3.Client
+	DDBClient    *dynamodb.Client
+	FaultStore   *chaos.FaultStore
+	Dashboard    *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -547,6 +550,7 @@ type handlers struct {
 	memorydb           *memorydbbackend.Handler
 	mwaa               *mwaabackend.Handler
 	neptune            *neptunebackend.Handler
+	pipes              *pipesbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -829,6 +833,7 @@ func populateLatestHandlers(h *handlers) {
 	h.neptune = neptunebackend.NewHandler(
 		neptunebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -982,6 +987,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.MemoryDBOps = h.memorydb
 	cfg.MWAAOps = h.mwaa
 	cfg.NeptuneOps = h.neptune
+	cfg.PipesOps = h.pipes
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1045,6 +1051,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.mwaa)
 	registerMediaServices(registry, h)
 	_ = registry.Register(h.neptune)
+	_ = registry.Register(h.pipes)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -1182,6 +1189,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.MemoryDBHandler = h.memorydb
 	s.MWAAHandler = h.mwaa
 	s.NeptuneHandler = h.neptune
+	s.PipesHandler = h.pipes
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

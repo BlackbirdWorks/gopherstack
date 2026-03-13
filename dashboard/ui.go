@@ -94,6 +94,7 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -281,7 +282,9 @@ type DashboardHandler struct {
 	// MWAAOps provides access to the MWAA backend.
 	MWAAOps *mwaabackend.Handler
 	// NeptuneOps provides access to the Neptune backend.
-	NeptuneOps   *neptunebackend.Handler
+	NeptuneOps *neptunebackend.Handler
+	// PipesOps provides access to the EventBridge Pipes backend.
+	PipesOps     *pipesbackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -480,6 +483,8 @@ type Config struct {
 	MWAAOps *mwaabackend.Handler
 	// NeptuneOps provides access to the Neptune backend.
 	NeptuneOps *neptunebackend.Handler
+	// PipesOps provides access to the EventBridge Pipes backend.
+	PipesOps *pipesbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -742,6 +747,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.MediaStoreDataOps = cfg.MediaStoreDataOps
 	h.MWAAOps = cfg.MWAAOps
 	h.NeptuneOps = cfg.NeptuneOps
+	h.PipesOps = cfg.PipesOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1245,6 +1251,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMemoryDBRoutes()
 	h.setupMWAARoutes()
 	h.setupNeptuneRoutes()
+	h.setupPipesRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
