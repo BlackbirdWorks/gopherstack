@@ -113,6 +113,7 @@ import (
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -252,6 +253,7 @@ type CLI struct {
 	glueHandler                   service.Registerable
 	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
+	kinesisanalyticsv2Handler     service.Registerable
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
 	mqHandler                     service.Registerable
@@ -633,6 +635,13 @@ func (c *CLI) GetGlueHandler() service.Registerable { return c.glueHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
+
+// GetKinesisAnalyticsV2Handler returns the Kinesis Data Analytics v2 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKinesisAnalyticsV2Handler() service.Registerable {
+	return c.kinesisanalyticsv2Handler
+}
 
 // GetManagedBlockchainHandler returns the Managed Blockchain handler (dashboard.AWSSDKProvider).
 //
@@ -1317,6 +1326,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.glueHandler = byName["Glue"]
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
+	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.mediaconvertHandler = byName["MediaConvert"]
 	cli.mqHandler = byName["MQ"]
@@ -1530,6 +1540,7 @@ func getServiceProviders() []service.Provider {
 		&iotwirelessbackend.Provider{},
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
+		&kinesisanalyticsv2backend.Provider{},
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},

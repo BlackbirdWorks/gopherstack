@@ -53,6 +53,7 @@ import (
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
@@ -190,6 +191,7 @@ type AWSSDKProvider interface {
 	GetIoTWirelessHandler() service.Registerable
 	GetKinesisAnalyticsHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
+	GetKinesisAnalyticsV2Handler() service.Registerable
 	GetLakeFormationHandler() service.Registerable
 	GetManagedBlockchainHandler() service.Registerable
 	GetMediaConvertHandler() service.Registerable
@@ -299,6 +301,7 @@ type extractedConfig struct {
 	iotwirelessOps            *iotwirelessbackend.Handler
 	kinesisanalyticsOps       *kinesisanalyticsbackend.Handler
 	kafkaOps                  *kafkabackend.Handler
+	kinesisanalyticsv2Ops     *kinesisanalyticsv2backend.Handler
 	lakeformationOps          *lakeformationbackend.Handler
 	managedblockchainOps      *managedblockchainbackend.Handler
 	mediaconvertOps           *mediaconvertbackend.Handler
@@ -709,6 +712,10 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.kafkaOps, _ = h.(*kafkabackend.Handler)
 	}
 
+	if h := ap.GetKinesisAnalyticsV2Handler(); h != nil {
+		ec.kinesisanalyticsv2Ops, _ = h.(*kinesisanalyticsv2backend.Handler)
+	}
+
 	if h := ap.GetLakeFormationHandler(); h != nil {
 		ec.lakeformationOps, _ = h.(*lakeformationbackend.Handler)
 	}
@@ -842,6 +849,7 @@ func buildProviderConfig(ec extractedConfig, ctx *service.AppContext) Config {
 		IoTWirelessOps:             ec.iotwirelessOps,
 		KinesisAnalyticsOps:        ec.kinesisanalyticsOps,
 		KafkaOps:                   ec.kafkaOps,
+		KinesisAnalyticsV2Ops:      ec.kinesisanalyticsv2Ops,
 		LakeFormationOps:           ec.lakeformationOps,
 		ManagedBlockchainOps:       ec.managedblockchainOps,
 		MediaConvertOps:            ec.mediaconvertOps,
