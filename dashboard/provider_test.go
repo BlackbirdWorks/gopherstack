@@ -137,6 +137,7 @@ func (m *mockAWSProvider) GetPipesHandler() service.Registerable                
 func (m *mockAWSProvider) GetQLDBHandler() service.Registerable                    { return nil }
 func (m *mockAWSProvider) GetQLDBSessionHandler() service.Registerable             { return nil }
 func (m *mockAWSProvider) GetRAMHandler() service.Registerable                     { return nil }
+func (m *mockAWSProvider) GetRDSDataHandler() service.Registerable                 { return nil }
 func (m *mockAWSProvider) GetRedshiftDataHandler() service.Registerable            { return nil }
 func (m *mockAWSProvider) GetSageMakerHandler() service.Registerable               { return nil }
 func (m *mockAWSProvider) GetServerlessRepoHandler() service.Registerable          { return nil }

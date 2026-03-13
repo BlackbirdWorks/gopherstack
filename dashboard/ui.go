@@ -101,6 +101,7 @@ import (
 	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -301,6 +302,8 @@ type DashboardHandler struct {
 	QLDBOps *qldbbackend.Handler
 	// QLDBSessionOps provides access to the QLDB Session backend.
 	QLDBSessionOps *qldbsessionbackend.Handler
+	// RDSDataOps provides access to the RDS Data backend.
+	RDSDataOps *rdsdatabackend.Handler
 	// RAMOps provides access to the RAM backend.
 	RAMOps *rambackend.Handler
 	// RedshiftDataOps provides access to the Redshift Data backend.
@@ -517,6 +520,8 @@ type Config struct {
 	QLDBOps *qldbbackend.Handler
 	// QLDBSessionOps provides access to the QLDB Session backend.
 	QLDBSessionOps *qldbsessionbackend.Handler
+	// RDSDataOps provides access to the RDS Data backend.
+	RDSDataOps *rdsdatabackend.Handler
 	// RAMOps provides access to the RAM backend.
 	RAMOps *rambackend.Handler
 	// RedshiftDataOps provides access to the Redshift Data backend.
@@ -673,6 +678,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/qldb/*.html",
 		"templates/qldbsession/*.html",
 		"templates/ram/*.html",
+		"templates/rdsdata/*.html",
 		"templates/redshiftdata/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -820,6 +826,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.PipesOps = cfg.PipesOps
 	h.QLDBOps = cfg.QLDBOps
 	h.QLDBSessionOps = cfg.QLDBSessionOps
+	h.RDSDataOps = cfg.RDSDataOps
 	h.RAMOps = cfg.RAMOps
 	h.RedshiftDataOps = cfg.RedshiftDataOps
 	h.SageMakerOps = cfg.SageMakerOps
@@ -1342,6 +1349,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupPipesRoutes()
 	h.setupQLDBRoutes()
 	h.setupQLDBSessionRoutes()
+	h.setupRDSDataRoutes()
 	h.setupRAMRoutes()
 	h.setupRedshiftDataRoutes()
 	h.setupSageMakerRoutes()
@@ -1473,6 +1481,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/neptune", "Neptune"},
 	{"/pipes", "Pipes"},
 	{"/qldb", "QLDB"},
+	{"/rdsdata", "RDSData"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

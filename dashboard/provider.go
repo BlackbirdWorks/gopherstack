@@ -71,6 +71,7 @@ import (
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
+	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
@@ -218,6 +219,7 @@ type AWSSDKProvider interface {
 	GetPipesHandler() service.Registerable
 	GetQLDBHandler() service.Registerable
 	GetQLDBSessionHandler() service.Registerable
+	GetRDSDataHandler() service.Registerable
 	GetRAMHandler() service.Registerable
 	GetRedshiftDataHandler() service.Registerable
 	GetSageMakerHandler() service.Registerable
@@ -338,6 +340,7 @@ type extractedConfig struct {
 	pipesOps                  *pipesbackend.Handler
 	qldbOps                   *qldbbackend.Handler
 	qldbsessionOps            *qldbsessionbackend.Handler
+	rdsdataOps                *rdsdatabackend.Handler
 	ramOps                    *rambackend.Handler
 	redshiftdataOps           *redshiftdatabackend.Handler
 	sagemakerOps              *sagemakerbackend.Handler
@@ -824,6 +827,10 @@ func extractLatestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.qldbsessionOps, _ = h.(*qldbsessionbackend.Handler)
 	}
 
+	if h := ap.GetRDSDataHandler(); h != nil {
+		ec.rdsdataOps, _ = h.(*rdsdatabackend.Handler)
+	}
+
 	if h := ap.GetRAMHandler(); h != nil {
 		ec.ramOps, _ = h.(*rambackend.Handler)
 	}
@@ -1026,6 +1033,7 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.PipesOps = ec.pipesOps
 	cfg.QLDBOps = ec.qldbOps
 	cfg.QLDBSessionOps = ec.qldbsessionOps
+	cfg.RDSDataOps = ec.rdsdataOps
 	cfg.RAMOps = ec.ramOps
 	cfg.RedshiftDataOps = ec.redshiftdataOps
 	cfg.SageMakerOps = ec.sagemakerOps

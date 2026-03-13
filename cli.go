@@ -133,6 +133,7 @@ import (
 	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -277,6 +278,7 @@ type CLI struct {
 	pipesHandler                  service.Registerable
 	qldbHandler                   service.Registerable
 	qldbsessionHandler            service.Registerable
+	rdsdataHandler                service.Registerable
 	ramHandler                    service.Registerable
 	redshiftdataHandler           service.Registerable
 	sagemakerHandler              service.Registerable
@@ -727,6 +729,11 @@ func (c *CLI) GetQLDBHandler() service.Registerable { return c.qldbHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetQLDBSessionHandler() service.Registerable { return c.qldbsessionHandler }
+
+// GetRDSDataHandler returns the RDS Data handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRDSDataHandler() service.Registerable { return c.rdsdataHandler }
 
 // GetRAMHandler returns the RAM handler (dashboard.AWSSDKProvider).
 //
@@ -1422,6 +1429,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.pipesHandler = byName["Pipes"]
 	cli.qldbHandler = byName["QLDB"]
 	cli.qldbsessionHandler = byName["QLDBSession"]
+	cli.rdsdataHandler = byName["RDSData"]
 	cli.ramHandler = byName["RAM"]
 	cli.redshiftdataHandler = byName["RedshiftData"]
 	cli.sagemakerHandler = byName["SageMaker"]
@@ -1665,6 +1673,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&qldbbackend.Provider{},
 		&qldbsessionbackend.Provider{},
 		&rambackend.Provider{},
+		&rdsdatabackend.Provider{},
 		&redshiftdatabackend.Provider{},
 		&sagemakerbackend.Provider{},
 		&serverlessrepobackend.Provider{},
