@@ -117,6 +117,7 @@ import (
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -316,6 +317,8 @@ type DashboardHandler struct {
 	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
+	// ShieldOps provides access to the Shield backend.
+	ShieldOps    *shieldbackend.Handler
 	// SsoAdminOps provides access to the SSO Admin backend.
 	SsoAdminOps  *ssoadminbackend.Handler
 	SubRouter    *echo.Echo
@@ -538,6 +541,8 @@ type Config struct {
 	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
+	// ShieldOps provides access to the Shield backend.
+	ShieldOps *shieldbackend.Handler
 	// SsoAdminOps provides access to the SSO Admin backend.
 	SsoAdminOps *ssoadminbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -845,6 +850,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.SageMakerOps = cfg.SageMakerOps
 	h.SageMakerRuntimeOps = cfg.SageMakerRuntimeOps
 	h.ServerlessRepoOps = cfg.ServerlessRepoOps
+	h.ShieldOps = cfg.ShieldOps
 	h.SsoAdminOps = cfg.SsoAdminOps
 }
 
@@ -1370,6 +1376,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupSageMakerRoutes()
 	h.setupSageMakerRuntimeRoutes()
 	h.setupServerlessRepoRoutes()
+	h.setupShieldRoutes()
 	h.setupSsoAdminRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
