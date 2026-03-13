@@ -141,6 +141,7 @@ import (
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
@@ -277,6 +278,7 @@ type CLI struct {
 	qldbsessionHandler            service.Registerable
 	ramHandler                    service.Registerable
 	redshiftdataHandler           service.Registerable
+	sagemakerHandler              service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -733,6 +735,11 @@ func (c *CLI) GetRAMHandler() service.Registerable { return c.ramHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetRedshiftDataHandler() service.Registerable { return c.redshiftdataHandler }
+
+// GetSageMakerHandler returns the SageMaker handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSageMakerHandler() service.Registerable { return c.sagemakerHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1410,6 +1417,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.qldbsessionHandler = byName["QLDBSession"]
 	cli.ramHandler = byName["RAM"]
 	cli.redshiftdataHandler = byName["RedshiftData"]
+	cli.sagemakerHandler = byName["SageMaker"]
 }
 
 // initializeServices initializes all service providers.
@@ -1650,6 +1658,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&qldbsessionbackend.Provider{},
 		&rambackend.Provider{},
 		&redshiftdatabackend.Provider{},
+		&sagemakerbackend.Provider{},
 	}
 }
 

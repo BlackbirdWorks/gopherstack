@@ -70,6 +70,7 @@ type docPageData struct {
 	QLDBOps                    []string
 	RedshiftDataOps            []string
 	QLDBSessionOps             []string
+	SageMakerOps               []string
 }
 
 // docIndex renders the documentation page.
@@ -151,6 +152,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		QLDBOps:                    h.getSupportedOps(h.QLDBOps),
 		QLDBSessionOps:             h.getSupportedOps(h.QLDBSessionOps),
 		RedshiftDataOps:            h.getSupportedOps(h.RedshiftDataOps),
+		SageMakerOps:               h.getSupportedOps(h.SageMakerOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)

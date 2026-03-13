@@ -120,6 +120,7 @@ import (
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
+	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
@@ -279,6 +280,7 @@ provider "aws" {
     route53resolver = %[1]q
     s3              = %[1]q
     s3control       = %[1]q
+    sagemaker       = %[1]q
     scheduler       = %[1]q
     secretsmanager  = %[1]q
     ses             = %[1]q
@@ -5572,6 +5574,44 @@ func TestTerraform_RedshiftData(t *testing.T) {
 				out, err := client.ListStatements(ctx, &redshiftdatasvc.ListStatementsInput{})
 				require.NoError(t, err, "ListStatements should succeed after terraform apply")
 				require.NotEmpty(t, out.Statements, "expected at least one statement after apply")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SageMaker provisions a SageMaker model and verifies it is described.
+func TestTerraform_SageMaker(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "sagemaker/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ModelName": "tf-sm-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createSageMakerClient(t)
+
+				out, err := client.DescribeModel(ctx, &sagemakersvc.DescribeModelInput{
+					ModelName: aws.String(vars["ModelName"].(string)),
+				})
+				require.NoError(t, err, "DescribeModel should succeed after terraform apply")
+				require.NotNil(t, out)
+				assert.Equal(t, vars["ModelName"].(string), aws.ToString(out.ModelName))
 			},
 		},
 	}
