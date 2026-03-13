@@ -91,6 +91,7 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -279,13 +280,15 @@ type DashboardHandler struct {
 	MemoryDBOps *memorydbbackend.Handler
 	// OrganizationsOps provides access to the Organizations backend.
 	OrganizationsOps *organizationsbackend.Handler
-	SubRouter        *echo.Echo
-	ddbProvider      *ddbbackend.DashboardProvider
-	s3Provider       *s3backend.DashboardProvider
-	FaultStore       *chaos.FaultStore
-	Logger           *slog.Logger
-	layout           *template.Template
-	GlobalConfig     config.GlobalConfig
+	// MWAAOps provides access to the MWAA backend.
+	MWAAOps      *mwaabackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -475,6 +478,8 @@ type Config struct {
 	MemoryDBOps *memorydbbackend.Handler
 	// OrganizationsOps provides access to the Organizations backend.
 	OrganizationsOps *organizationsbackend.Handler
+	// MWAAOps provides access to the MWAA backend.
+	MWAAOps *mwaabackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -594,6 +599,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/mediastore/*.html",
 		"templates/mediastoredata/*.html",
 		"templates/memorydb/*.html",
+		"templates/mwaa/*.html",
 		"templates/organizations/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -735,6 +741,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.MediaConvertOps = cfg.MediaConvertOps
 	h.MQOps = cfg.MQOps
 	h.MediaStoreDataOps = cfg.MediaStoreDataOps
+	h.MWAAOps = cfg.MWAAOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1236,6 +1243,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMediaStoreRoutes()
 	h.setupMediaStoreDataRoutes()
 	h.setupMemoryDBRoutes()
+	h.setupMWAARoutes()
 	h.setupOrganizationsRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {

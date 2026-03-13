@@ -123,6 +123,7 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -261,6 +262,7 @@ type CLI struct {
 	mediastoredataHandler         service.Registerable
 	memorydbHandler               service.Registerable
 	organizationsHandler          service.Registerable
+	mwaaHandler                   service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -677,6 +679,11 @@ func (c *CLI) GetMemoryDBHandler() service.Registerable { return c.memorydbHandl
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOrganizationsHandler() service.Registerable { return c.organizationsHandler }
+
+// GetMWAAHandler returns the MWAA handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMWAAHandler() service.Registerable { return c.mwaaHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1319,6 +1326,11 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.elbv2Handler = byName["ELBv2"]
 	cli.emrserverlessHandler = byName["EmrServerless"]
 	cli.emrHandler = byName["EMR"]
+	storeCLILatestHandlers(cli, byName)
+}
+
+// storeCLILatestHandlers assigns the newest service handlers to the CLI fields.
+func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.glacierHandler = byName["Glacier"]
 	cli.iotwirelessHandler = byName["IoTWireless"]
 	cli.kinesisanalyticsHandler = byName["KinesisAnalytics"]
@@ -1339,6 +1351,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 // storeCLINewestHandlers assigns the most recently added service handlers.
 func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.organizationsHandler = byName["Organizations"]
+	cli.mwaaHandler = byName["MWAA"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1554,6 +1567,7 @@ func getServiceProviders() []service.Provider {
 		&mediastorebackend.Provider{},
 		&mediastoredatabackend.Provider{},
 		&memorydbbackend.Provider{},
+		&mwaabackend.Provider{},
 	}
 }
 

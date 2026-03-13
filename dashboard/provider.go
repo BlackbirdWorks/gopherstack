@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"log/slog"
+
 	ddbsdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -61,6 +63,7 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -200,6 +203,7 @@ type AWSSDKProvider interface {
 	GetMediaStoreDataHandler() service.Registerable
 	GetMemoryDBHandler() service.Registerable
 	GetOrganizationsHandler() service.Registerable
+	GetMWAAHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -310,6 +314,7 @@ type extractedConfig struct {
 	mediastoredataOps         *mediastoredatabackend.Handler
 	memorydbOps               *memorydbbackend.Handler
 	organizationsOps          *organizationsbackend.Handler
+	mwaaOps                   *mwaabackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -704,6 +709,11 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 }
 
 func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+	extractNewestAnalyticsHandlers(ap, ec)
+	extractNewestStorageHandlers(ap, ec)
+}
+
+func extractNewestAnalyticsHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetIdentityStoreHandler(); h != nil {
 		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
@@ -719,7 +729,9 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetLakeFormationHandler(); h != nil {
 		ec.lakeformationOps, _ = h.(*lakeformationbackend.Handler)
 	}
+}
 
+func extractNewestStorageHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMediaStoreHandler(); h != nil {
 		ec.mediastoreOps, _ = h.(*mediastorebackend.Handler)
 	}
@@ -734,6 +746,10 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetOrganizationsHandler(); h != nil {
 		ec.organizationsOps, _ = h.(*organizationsbackend.Handler)
+	}
+
+	if h := ap.GetMWAAHandler(); h != nil {
+		ec.mwaaOps, _ = h.(*mwaabackend.Handler)
 	}
 }
 
@@ -755,14 +771,23 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 //nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	ec := extractFromProvider(ctx)
-
-	cfg := buildProviderConfig(ec, ctx)
+	cfg := buildDashboardConfig(&ec, ctx.Logger)
 	handler := NewHandler(cfg)
 
 	return handler, nil
 }
 
-func buildProviderConfig(ec extractedConfig, ctx *service.AppContext) Config {
+// buildDashboardConfig constructs the dashboard Config from an extractedConfig.
+// It is extracted from Init to satisfy the funlen limit.
+func buildDashboardConfig(ec *extractedConfig, log *slog.Logger) Config {
+	cfg := buildBaseConfig(ec, log)
+	applyExtendedConfig(&cfg, ec)
+	applyMWAAConfig(&cfg, ec)
+
+	return cfg
+}
+
+func buildBaseConfig(ec *extractedConfig, log *slog.Logger) Config {
 	return Config{
 		DDBClient:                  ec.ddbClient,
 		S3Client:                   ec.s3Client,
@@ -860,6 +885,71 @@ func buildProviderConfig(ec extractedConfig, ctx *service.AppContext) Config {
 		OrganizationsOps:           ec.organizationsOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
-		Logger:                     ctx.Logger,
+		Logger:                     log,
 	}
+}
+
+func applyExtendedConfig(cfg *Config, ec *extractedConfig) {
+	cfg.AppConfigDataOps = ec.appConfigDataOps
+	cfg.AmplifyOps = ec.amplifyOps
+	cfg.AthenaOps = ec.athenaOps
+	cfg.AutoscalingOps = ec.autoscalingOps
+	cfg.BackupOps = ec.backupOps
+	cfg.CloudTrailOps = ec.cloudtrailOps
+	cfg.AppConfigOps = ec.appConfigOps
+	cfg.ApplicationAutoscalingOps = ec.applicationAutoscalingOps
+	cfg.BatchOps = ec.batchOps
+	cfg.BedrockOps = ec.bedrockOps
+	cfg.BedrockRuntimeOps = ec.bedrockRuntimeOps
+	cfg.CeOps = ec.ceOps
+	cfg.CloudControlOps = ec.cloudcontrolOps
+	cfg.CloudFrontOps = ec.cloudFrontOps
+	cfg.CodeArtifactOps = ec.codeArtifactOps
+	cfg.CodeBuildOps = ec.codebuildOps
+	cfg.CodeCommitOps = ec.codeCommitOps
+	cfg.CodePipelineOps = ec.codePipelineOps
+	cfg.CodeConnectionsOps = ec.codeConnectionsOps
+	cfg.CodeDeployOps = ec.codeDeployOps
+	cfg.DMSOps = ec.dmsOps
+	cfg.CodeStarConnectionsOps = ec.codeStarConnectionsOps
+	cfg.DynamoDBStreamsOps = ec.dynamodbStreamsOps
+	cfg.DocDBOps = ec.docdbOps
+	cfg.ElasticbeanstalkOps = ec.elasticbeanstalkOps
+	cfg.ECROps = ec.ecrOps
+	cfg.ECSOps = ec.ecsOps
+	cfg.EFSOps = ec.efsOps
+	cfg.EKSOps = ec.eksOps
+	cfg.ELBOps = ec.elbOps
+	cfg.ELBv2Ops = ec.elbv2Ops
+	cfg.EmrServerlessOps = ec.emrServerlessOps
+	cfg.EMROps = ec.emrOps
+	cfg.GlueOps = ec.glueOps
+	cfg.IoTOps = ec.iotOps
+	cfg.FISOps = ec.fisOps
+	cfg.IdentityStoreOps = ec.identitystoreOps
+	cfg.ElasticTranscoderOps = ec.elasticTranscoderOps
+	applyLatestConfig(cfg, ec)
+}
+
+// applyLatestConfig assigns the newest dashboard service ops.
+func applyLatestConfig(cfg *Config, ec *extractedConfig) {
+	cfg.GlacierOps = ec.glacierOps
+	cfg.IoTAnalyticsOps = ec.iotanalyticsOps
+	cfg.IoTWirelessOps = ec.iotwirelessOps
+	cfg.KinesisAnalyticsOps = ec.kinesisanalyticsOps
+	cfg.KafkaOps = ec.kafkaOps
+	cfg.KinesisAnalyticsV2Ops = ec.kinesisanalyticsv2Ops
+	cfg.LakeFormationOps = ec.lakeformationOps
+	cfg.ManagedBlockchainOps = ec.managedblockchainOps
+	cfg.MediaConvertOps = ec.mediaconvertOps
+	cfg.MQOps = ec.mqOps
+	cfg.MediaStoreOps = ec.mediastoreOps
+	cfg.MediaStoreDataOps = ec.mediastoredataOps
+	cfg.MemoryDBOps = ec.memorydbOps
+}
+
+// applyMWAAConfig sets the MWAA ops field on the dashboard config.
+// Extracted from applyExtendedConfig to satisfy the funlen limit.
+func applyMWAAConfig(cfg *Config, ec *extractedConfig) {
+	cfg.MWAAOps = ec.mwaaOps
 }

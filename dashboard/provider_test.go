@@ -124,6 +124,7 @@ func (m *mockAWSProvider) GetManagedBlockchainHandler() service.Registerable    
 func (m *mockAWSProvider) GetMediaStoreHandler() service.Registerable              { return nil }
 func (m *mockAWSProvider) GetMemoryDBHandler() service.Registerable                { return nil }
 func (m *mockAWSProvider) GetOrganizationsHandler() service.Registerable           { return nil }
+func (m *mockAWSProvider) GetMWAAHandler() service.Registerable                    { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 
