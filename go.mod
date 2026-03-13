@@ -140,6 +140,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/redshiftdata v1.38.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.236.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.39.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.37.3 // indirect
 )
 
 require (
