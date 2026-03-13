@@ -363,31 +363,31 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	tests := []struct {
 		name  string
 		path  string
-		auth  string
 		match bool
 	}{
 		{
-			name:  "matches invocations with sagemaker-runtime auth",
+			name:  "matches invocations path",
 			path:  "/endpoints/my-endpoint/invocations",
-			auth:  "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/sagemaker-runtime/aws4_request",
 			match: true,
 		},
 		{
-			name:  "does not match without correct service in auth",
-			path:  "/endpoints/my-endpoint/invocations",
-			auth:  "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/sagemaker/aws4_request",
-			match: false,
+			name:  "matches async-invocations path",
+			path:  "/endpoints/my-endpoint/async-invocations",
+			match: true,
+		},
+		{
+			name:  "matches response-stream path",
+			path:  "/endpoints/my-endpoint/invocations-response-stream",
+			match: true,
 		},
 		{
 			name:  "does not match other path",
 			path:  "/queues/myqueue",
-			auth:  "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/sagemaker-runtime/aws4_request",
 			match: false,
 		},
 		{
-			name:  "does not match without auth header",
-			path:  "/endpoints/my-endpoint/invocations",
-			auth:  "",
+			name:  "does not match root path",
+			path:  "/",
 			match: false,
 		},
 	}
@@ -399,10 +399,6 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			t.Parallel()
 
 			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
-			if tt.auth != "" {
-				req.Header.Set("Authorization", tt.auth)
-			}
-
 			c := e.NewContext(req, httptest.NewRecorder())
 			assert.Equal(t, tt.match, matcher(c))
 		})

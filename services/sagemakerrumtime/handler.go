@@ -63,18 +63,10 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches SageMaker Runtime requests.
-// It matches requests to paths beginning with /endpoints/ for the sagemaker-runtime SigV4 service.
+// It matches all requests to paths beginning with /endpoints/.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		r := c.Request()
-
-		if !strings.HasPrefix(r.URL.Path, sagemakerRuntimePathPrefix) {
-			return false
-		}
-
-		svc := httputils.ExtractServiceFromRequest(r)
-
-		return svc == sagemakerRuntimeService
+		return strings.HasPrefix(c.Request().URL.Path, sagemakerRuntimePathPrefix)
 	}
 }
 
