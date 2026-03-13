@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/shield"
 )
 
@@ -56,6 +57,68 @@ func TestHandler_Name(t *testing.T) {
 
 	h := newTestHandler(t)
 	assert.Equal(t, "Shield", h.Name())
+}
+
+func TestBackend_Region(t *testing.T) {
+	t.Parallel()
+
+	b := shield.NewInMemoryBackend("000000000000", "eu-west-1")
+	assert.Equal(t, "eu-west-1", b.Region())
+}
+
+func TestHandler_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	tests := []struct {
+		name   string
+		target string
+		want   bool
+	}{
+		{name: "matching target", target: "AWSShield_20160616.GetSubscriptionState", want: true},
+		{name: "non-matching target", target: "SageMaker.ListModels", want: false},
+		{name: "empty target", target: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.want, h.RouteMatcher()(c))
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Header.Set("X-Amz-Target", "AWSShield_20160616.CreateProtection")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	assert.Equal(t, "CreateProtection", h.ExtractResource(c))
+}
+
+func TestProvider_InitAndName(t *testing.T) {
+	t.Parallel()
+
+	p := &shield.Provider{}
+	assert.Equal(t, "Shield", p.Name())
+
+	h, err := p.Init(&service.AppContext{})
+	require.NoError(t, err)
+	assert.NotNil(t, h)
 }
 
 func TestHandler_GetSupportedOperations(t *testing.T) {
@@ -205,6 +268,7 @@ func TestHandler_CreateProtection(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*shield.Handler)
 		body       map[string]any
 		name       string
 		wantStatus int
@@ -218,6 +282,17 @@ func TestHandler_CreateProtection(t *testing.T) {
 			},
 			wantStatus: http.StatusOK,
 			wantID:     true,
+		},
+		{
+			name: "duplicate name returns conflict",
+			setup: func(h *shield.Handler) {
+				_, _ = h.Backend.CreateProtection("my-protection", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
+			},
+			body: map[string]any{
+				"Name":        "my-protection",
+				"ResourceArn": "arn:aws:ec2:us-east-1:123456789012:eip-allocation/eipalloc-99",
+			},
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing name returns error",
@@ -240,6 +315,11 @@ func TestHandler_CreateProtection(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
 			rec := doShieldRequest(t, h, "CreateProtection", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
@@ -274,6 +354,19 @@ func TestHandler_DescribeProtection(t *testing.T) {
 			},
 			wantStatus: http.StatusOK,
 			wantName:   "my-protection",
+		},
+		{
+			name: "by resource arn",
+			setup: func(h *shield.Handler) string {
+				_, _ = h.Backend.CreateProtection("arn-protection", "arn:aws:ec2:us-east-1:123:eip/eipalloc-2", nil)
+
+				return "arn:aws:ec2:us-east-1:123:eip/eipalloc-2"
+			},
+			body: func(id string) map[string]any {
+				return map[string]any{"ResourceArn": id}
+			},
+			wantStatus: http.StatusOK,
+			wantName:   "arn-protection",
 		},
 		{
 			name: "not found",
@@ -440,6 +533,19 @@ func TestHandler_TagResource(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name: "protection not found",
+			setup: func(_ *shield.Handler) string {
+				return ""
+			},
+			body: func(_ string) map[string]any {
+				return map[string]any{
+					"ResourceARN": "nonexistent-protection-id",
+					"Tags":        []map[string]string{{"Key": "env", "Value": "test"}},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name: "missing resource arn",
 			setup: func(_ *shield.Handler) string {
 				return ""
@@ -486,6 +592,16 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 				return map[string]any{"ResourceARN": id}
 			},
 			wantStatus: http.StatusOK,
+		},
+		{
+			name: "protection not found",
+			setup: func(_ *shield.Handler) string {
+				return ""
+			},
+			body: func(_ string) map[string]any {
+				return map[string]any{"ResourceARN": "nonexistent-id"}
+			},
+			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing resource arn",
@@ -537,6 +653,19 @@ func TestHandler_UntagResource(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name: "protection not found",
+			setup: func(_ *shield.Handler) string {
+				return ""
+			},
+			body: func(_ string) map[string]any {
+				return map[string]any{
+					"ResourceARN": "nonexistent-id",
+					"TagKeys":     []string{"env"},
+				}
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name: "missing resource arn",
 			setup: func(_ *shield.Handler) string {
 				return ""
@@ -575,13 +704,6 @@ func TestHandler_ChaosInterface(t *testing.T) {
 	assert.NotEmpty(t, h.ChaosOperations())
 	assert.NotEmpty(t, h.ChaosRegions())
 	assert.Equal(t, "shield", h.ChaosServiceName())
-}
-
-func TestProvider_Init(t *testing.T) {
-	t.Parallel()
-
-	p := &shield.Provider{}
-	assert.Equal(t, "Shield", p.Name())
 }
 
 func TestBackend_ListProtections(t *testing.T) {
