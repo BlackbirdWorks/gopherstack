@@ -71,6 +71,7 @@ import (
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -216,6 +217,7 @@ type AWSSDKProvider interface {
 	GetQLDBHandler() service.Registerable
 	GetQLDBSessionHandler() service.Registerable
 	GetRAMHandler() service.Registerable
+	GetSageMakerHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -333,6 +335,7 @@ type extractedConfig struct {
 	qldbOps                   *qldbbackend.Handler
 	qldbsessionOps            *qldbsessionbackend.Handler
 	ramOps                    *rambackend.Handler
+	sagemakerOps              *sagemakerbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -802,12 +805,21 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.qldbOps, _ = h.(*qldbbackend.Handler)
 	}
 
+	extractLatestHandlers(ap, ec)
+}
+
+// extractLatestHandlers populates the most recently added service handlers on ec.
+func extractLatestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetQLDBSessionHandler(); h != nil {
 		ec.qldbsessionOps, _ = h.(*qldbsessionbackend.Handler)
 	}
 
 	if h := ap.GetRAMHandler(); h != nil {
 		ec.ramOps, _ = h.(*rambackend.Handler)
+	}
+
+	if h := ap.GetSageMakerHandler(); h != nil {
+		ec.sagemakerOps, _ = h.(*sagemakerbackend.Handler)
 	}
 }
 
@@ -1001,4 +1013,5 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.QLDBOps = ec.qldbOps
 	cfg.QLDBSessionOps = ec.qldbsessionOps
 	cfg.RAMOps = ec.ramOps
+	cfg.SageMakerOps = ec.sagemakerOps
 }

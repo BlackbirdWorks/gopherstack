@@ -275,6 +275,7 @@ type CLI struct {
 	qldbHandler                   service.Registerable
 	qldbsessionHandler            service.Registerable
 	ramHandler                    service.Registerable
+	sagemakerHandler              service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -726,6 +727,11 @@ func (c *CLI) GetQLDBSessionHandler() service.Registerable { return c.qldbsessio
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetRAMHandler() service.Registerable { return c.ramHandler }
+
+// GetSageMakerHandler returns the SageMaker handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSageMakerHandler() service.Registerable { return c.sagemakerHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1402,6 +1408,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.qldbHandler = byName["QLDB"]
 	cli.qldbsessionHandler = byName["QLDBSession"]
 	cli.ramHandler = byName["RAM"]
+	cli.sagemakerHandler = byName["SageMaker"]
 }
 
 // initializeServices initializes all service providers.
