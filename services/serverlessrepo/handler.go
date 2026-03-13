@@ -256,16 +256,24 @@ type createApplicationRequest struct {
 	SemanticVersion string            `json:"semanticVersion"`
 }
 
+// versionResponse represents the SAR Version type in API responses.
+// The botocore SAR model expects "version" to be a struct, not a plain string.
+type versionResponse struct {
+	ApplicationID   string `json:"applicationId,omitempty"`
+	CreationTime    string `json:"creationTime,omitempty"`
+	SemanticVersion string `json:"semanticVersion,omitempty"`
+}
+
 // applicationResponse represents the API response shape for a single application.
 type applicationResponse struct {
-	CreationTime    string            `json:"creationTime"`
-	Tags            map[string]string `json:"labels,omitempty"`
-	ApplicationID   string            `json:"applicationId"`
-	Name            string            `json:"name"`
-	Description     string            `json:"description"`
-	Author          string            `json:"author"`
-	SourceCodeURL   string            `json:"sourceCodeUrl,omitempty"`
-	SemanticVersion string            `json:"version,omitempty"`
+	Version       *versionResponse  `json:"version,omitempty"`
+	Tags          map[string]string `json:"labels,omitempty"`
+	CreationTime  string            `json:"creationTime"`
+	ApplicationID string            `json:"applicationId"`
+	Name          string            `json:"name"`
+	Description   string            `json:"description"`
+	Author        string            `json:"author"`
+	SourceCodeURL string            `json:"sourceCodeUrl,omitempty"`
 }
 
 // applicationSummary is a summary used in list responses.
@@ -278,16 +286,25 @@ type applicationSummary struct {
 }
 
 func toApplicationResponse(a *Application) applicationResponse {
-	return applicationResponse{
-		ApplicationID:   a.ApplicationID,
-		Name:            a.Name,
-		Description:     a.Description,
-		Author:          a.Author,
-		SourceCodeURL:   a.SourceCodeURL,
-		SemanticVersion: a.SemanticVersion,
-		CreationTime:    isoTimestamp(a.CreationTime),
-		Tags:            a.Tags,
+	resp := applicationResponse{
+		ApplicationID: a.ApplicationID,
+		Name:          a.Name,
+		Description:   a.Description,
+		Author:        a.Author,
+		SourceCodeURL: a.SourceCodeURL,
+		CreationTime:  isoTimestamp(a.CreationTime),
+		Tags:          a.Tags,
 	}
+
+	if a.SemanticVersion != "" {
+		resp.Version = &versionResponse{
+			ApplicationID:   a.ApplicationID,
+			CreationTime:    isoTimestamp(a.CreationTime),
+			SemanticVersion: a.SemanticVersion,
+		}
+	}
+
+	return resp
 }
 
 func (h *Handler) handleCreateApplication(ctx context.Context, body []byte) ([]byte, error) {

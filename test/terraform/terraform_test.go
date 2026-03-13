@@ -5723,10 +5723,11 @@ func TestTerraform_ServerlessRepo(t *testing.T) {
 
 				req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 				require.NoError(t, err)
-				req.Header.Set(
-					"Authorization",
-					"AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/serverlessrepo/aws4_request, SignedHeaders=host, Signature=fake",
-				)
+
+				// Use a fake SigV4 credential scoped to the "serverlessrepo" service.
+				const fakeAuth = "AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/" +
+					"serverlessrepo/aws4_request, SignedHeaders=host, Signature=fake"
+				req.Header.Set("Authorization", fakeAuth)
 
 				resp, err := http.DefaultClient.Do(req)
 				require.NoError(t, err, "GetApplication should succeed after terraform apply")
