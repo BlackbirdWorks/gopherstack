@@ -69,6 +69,7 @@ import (
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -214,6 +215,7 @@ type AWSSDKProvider interface {
 	GetPipesHandler() service.Registerable
 	GetQLDBHandler() service.Registerable
 	GetRDSDataHandler() service.Registerable
+	GetRAMHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -330,6 +332,7 @@ type extractedConfig struct {
 	pipesOps                  *pipesbackend.Handler
 	qldbOps                   *qldbbackend.Handler
 	rdsdataOps                *rdsdatabackend.Handler
+	ramOps                    *rambackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -801,6 +804,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetRDSDataHandler(); h != nil {
 		ec.rdsdataOps, _ = h.(*rdsdatabackend.Handler)
 	}
+
+	if h := ap.GetRAMHandler(); h != nil {
+		ec.ramOps, _ = h.(*rambackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -992,4 +999,5 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.PipesOps = ec.pipesOps
 	cfg.QLDBOps = ec.qldbOps
 	cfg.RDSDataOps = ec.rdsdataOps
+	cfg.RAMOps = ec.ramOps
 }

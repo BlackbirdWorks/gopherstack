@@ -91,6 +91,7 @@ import (
 	pinpointsvc "github.com/aws/aws-sdk-go-v2/service/pinpoint"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
 	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	ramsvc "github.com/aws/aws-sdk-go-v2/service/ram"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	rdsdatasvc "github.com/aws/aws-sdk-go-v2/service/rdsdata"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -2123,6 +2124,24 @@ func createRDSDataClient(t *testing.T) *rdsdatasvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return rdsdatasvc.NewFromConfig(cfg, func(o *rdsdatasvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRAMClient returns a RAM client pointed at the shared test container.
+func createRAMClient(t *testing.T) *ramsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return ramsvc.NewFromConfig(cfg, func(o *ramsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
