@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	mwaaService       = "mwaa"
+	mwaaService       = "airflow"
 	mwaaMatchPriority = 87
 )
 

@@ -47,7 +47,7 @@ func doMWAARequest(t *testing.T, h *mwaa.Handler, method, path string, body any)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(
 		"Authorization",
-		"AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/mwaa/aws4_request",
+		"AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/airflow/aws4_request",
 	)
 
 	rec := httptest.NewRecorder()
