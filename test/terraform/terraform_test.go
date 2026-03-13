@@ -112,6 +112,7 @@ import (
 	ramsvc_types "github.com/aws/aws-sdk-go-v2/service/ram/types"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
+	redshiftdatasvc "github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	taggingsvc "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
@@ -272,6 +273,7 @@ provider "aws" {
     qldb            = %[1]q
     ram             = %[1]q
     redshift        = %[1]q
+    redshiftdata    = %[1]q
     resourcegroups  = %[1]q
     resourcegroupstaggingapi = %[1]q
     route53         = %[1]q
@@ -5537,6 +5539,41 @@ func TestTerraform_RAM(t *testing.T) {
 				require.NoError(t, err, "GetResourceShares should succeed after terraform apply")
 				require.NotEmpty(t, out.ResourceShares, "expected at least one resource share")
 				assert.Equal(t, vars["ShareName"].(string), aws.ToString(out.ResourceShares[0].Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_RedshiftData provisions a Redshift Data SQL statement and verifies it was created.
+func TestTerraform_RedshiftData(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "redshiftdata/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ClusterID": "tf-cluster-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createRedshiftDataClient(t)
+
+				out, err := client.ListStatements(ctx, &redshiftdatasvc.ListStatementsInput{})
+				require.NoError(t, err, "ListStatements should succeed after terraform apply")
+				require.NotEmpty(t, out.Statements, "expected at least one statement after apply")
 			},
 		},
 	}

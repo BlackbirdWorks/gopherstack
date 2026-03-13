@@ -134,6 +134,7 @@ import (
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
@@ -276,6 +277,7 @@ type CLI struct {
 	qldbHandler                   service.Registerable
 	qldbsessionHandler            service.Registerable
 	ramHandler                    service.Registerable
+	redshiftdataHandler           service.Registerable
 	sagemakerHandler              service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
@@ -728,6 +730,11 @@ func (c *CLI) GetQLDBSessionHandler() service.Registerable { return c.qldbsessio
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetRAMHandler() service.Registerable { return c.ramHandler }
+
+// GetRedshiftDataHandler returns the Redshift Data handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRedshiftDataHandler() service.Registerable { return c.redshiftdataHandler }
 
 // GetSageMakerHandler returns the SageMaker handler (dashboard.AWSSDKProvider).
 //
@@ -1409,6 +1416,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.qldbHandler = byName["QLDB"]
 	cli.qldbsessionHandler = byName["QLDBSession"]
 	cli.ramHandler = byName["RAM"]
+	cli.redshiftdataHandler = byName["RedshiftData"]
 	cli.sagemakerHandler = byName["SageMaker"]
 }
 
@@ -1649,6 +1657,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&qldbbackend.Provider{},
 		&qldbsessionbackend.Provider{},
 		&rambackend.Provider{},
+		&redshiftdatabackend.Provider{},
 		&sagemakerbackend.Provider{},
 	}
 }

@@ -71,6 +71,7 @@ import (
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -217,6 +218,7 @@ type AWSSDKProvider interface {
 	GetQLDBHandler() service.Registerable
 	GetQLDBSessionHandler() service.Registerable
 	GetRAMHandler() service.Registerable
+	GetRedshiftDataHandler() service.Registerable
 	GetSageMakerHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
@@ -335,6 +337,7 @@ type extractedConfig struct {
 	qldbOps                   *qldbbackend.Handler
 	qldbsessionOps            *qldbsessionbackend.Handler
 	ramOps                    *rambackend.Handler
+	redshiftdataOps           *redshiftdatabackend.Handler
 	sagemakerOps              *sagemakerbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
@@ -776,10 +779,14 @@ func extractNewestStorageHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMWAAHandler(); h != nil {
 		ec.mwaaOps, _ = h.(*mwaabackend.Handler)
 	}
+
+	if h := ap.GetRedshiftDataHandler(); h != nil {
+		ec.redshiftdataOps, _ = h.(*redshiftdatabackend.Handler)
+	}
 }
 
 // extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, MQ, Neptune,
-// Pipes, QLDB, and QLDBSession handlers on ec.
+// Pipes, QLDB, QLDBSession, and RAM handlers on ec.
 func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
@@ -1013,5 +1020,6 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.QLDBOps = ec.qldbOps
 	cfg.QLDBSessionOps = ec.qldbsessionOps
 	cfg.RAMOps = ec.ramOps
+	cfg.RedshiftDataOps = ec.redshiftdataOps
 	cfg.SageMakerOps = ec.sagemakerOps
 }
