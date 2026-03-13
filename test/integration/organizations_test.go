@@ -4,6 +4,7 @@
 package integration_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -33,32 +34,40 @@ func createOrganizationsClient(t *testing.T) *organizationsSDK.Client {
 	})
 }
 
+// ensureOrg creates an org if none exists; returns without error if one already exists.
+func ensureOrg(t *testing.T, client *organizationsSDK.Client) {
+	t.Helper()
+
+	ctx := t.Context()
+
+	_, err := client.CreateOrganization(ctx, &organizationsSDK.CreateOrganizationInput{
+		FeatureSet: organizationsSDKtypes.OrganizationFeatureSetAll,
+	})
+	if err == nil {
+		return
+	}
+
+	var already *organizationsSDKtypes.AlreadyInOrganizationException
+	if !errors.As(err, &already) {
+		require.NoError(t, err, "CreateOrganization should succeed or be AlreadyInOrganizationException")
+	}
+}
+
 // TestIntegration_Organizations_OrgLifecycle tests org creation, description, and deletion.
 func TestIntegration_Organizations_OrgLifecycle(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
-		name       string
-		featureSet string
+		name string
 	}{
-		{
-			name:       "full_lifecycle_ALL",
-			featureSet: "ALL",
-		},
+		{name: "full_lifecycle_ALL"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			ctx := t.Context()
 			client := createOrganizationsClient(t)
 
-			// CreateOrganization.
-			_, err := client.CreateOrganization(ctx, &organizationsSDK.CreateOrganizationInput{
-				FeatureSet: organizationsSDKtypes.OrganizationFeatureSetAll,
-			})
-			require.NoError(t, err, "CreateOrganization should succeed")
+			// CreateOrganization (may already exist from another test run).
+			ensureOrg(t, client)
 
 			t.Cleanup(func() {
 				_, _ = client.DeleteOrganization(ctx, &organizationsSDK.DeleteOrganizationInput{})
@@ -83,8 +92,6 @@ func TestIntegration_Organizations_OrgLifecycle(t *testing.T) {
 
 // TestIntegration_Organizations_AccountLifecycle tests account creation and description.
 func TestIntegration_Organizations_AccountLifecycle(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		name        string
 		accountName string
@@ -99,15 +106,11 @@ func TestIntegration_Organizations_AccountLifecycle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			ctx := t.Context()
 			client := createOrganizationsClient(t)
 
 			// Ensure org exists.
-			_, _ = client.CreateOrganization(ctx, &organizationsSDK.CreateOrganizationInput{
-				FeatureSet: organizationsSDKtypes.OrganizationFeatureSetAll,
-			})
+			ensureOrg(t, client)
 
 			// CreateAccount.
 			createOut, err := client.CreateAccount(ctx, &organizationsSDK.CreateAccountInput{
@@ -150,8 +153,6 @@ func TestIntegration_Organizations_AccountLifecycle(t *testing.T) {
 
 // TestIntegration_Organizations_OULifecycle tests OU creation and description.
 func TestIntegration_Organizations_OULifecycle(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		name   string
 		ouName string
@@ -164,15 +165,11 @@ func TestIntegration_Organizations_OULifecycle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			ctx := t.Context()
 			client := createOrganizationsClient(t)
 
 			// Ensure org exists.
-			_, _ = client.CreateOrganization(ctx, &organizationsSDK.CreateOrganizationInput{
-				FeatureSet: organizationsSDKtypes.OrganizationFeatureSetAll,
-			})
+			ensureOrg(t, client)
 
 			// Get root ID.
 			rootsOut, err := client.ListRoots(ctx, &organizationsSDK.ListRootsInput{})

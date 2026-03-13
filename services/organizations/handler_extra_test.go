@@ -1,10 +1,13 @@
 package organizations_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -291,8 +294,8 @@ func TestHandler_MoveAccount(t *testing.T) {
 			ouID := ou["Id"].(string)
 
 			rec := doRequest(t, h, "MoveAccount", map[string]any{
-				"AccountId":         accountID,
-				"SourceParentId":    rootID,
+				"AccountId":           accountID,
+				"SourceParentId":      rootID,
 				"DestinationParentId": ouID,
 			})
 			assert.Equal(t, tt.wantStatus, rec.Code)
@@ -771,167 +774,166 @@ func TestHandler_ServiceMetadata(t *testing.T) {
 			assert.NotNil(t, h.ChaosOperations())
 			assert.NotNil(t, h.ChaosRegions())
 			assert.NotNil(t, h.RouteMatcher())
-			assert.Greater(t, h.MatchPriority(), 0)
+			assert.Positive(t, h.MatchPriority())
 		})
 	}
 }
 
 // TestBackend_ListParents_OU tests ListParents for an OU.
 func TestBackend_ListParents_OU(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name string
-}{
-{name: "ou_parent_is_root"},
-}
+	tests := []struct {
+		name string
+	}{
+		{name: "ou_parent_is_root"},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b, rootID := newOrgBackend(t)
+			b, rootID := newOrgBackend(t)
 
-ou, err := b.CreateOrganizationalUnit(rootID, "test-ou", nil)
-require.NoError(t, err)
+			ou, err := b.CreateOrganizationalUnit(rootID, "test-ou", nil)
+			require.NoError(t, err)
 
-parents, err := b.ListParents(ou.ID)
-require.NoError(t, err)
-require.Len(t, parents, 1)
-assert.Equal(t, rootID, parents[0].ID)
-})
-}
+			parents, err := b.ListParents(ou.ID)
+			require.NoError(t, err)
+			require.Len(t, parents, 1)
+			assert.Equal(t, rootID, parents[0].ID)
+		})
+	}
 }
 
 // TestBackend_ListParents_Error tests ListParents with invalid child.
 func TestBackend_ListParents_Error(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name    string
-wantErr bool
-}{
-{
-name:    "child_not_found",
-wantErr: true,
-},
-}
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{
+			name:    "child_not_found",
+			wantErr: true,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b, _ := newOrgBackend(t)
+			b, _ := newOrgBackend(t)
 
-_, err := b.ListParents("ou-doesnotexist")
+			_, err := b.ListParents("ou-doesnotexist")
 
-if tt.wantErr {
-require.Error(t, err)
-}
-})
-}
+			if tt.wantErr {
+				require.Error(t, err)
+			}
+		})
+	}
 }
 
 // TestHandler_ErrorPaths tests handler error paths.
 func TestHandler_ErrorPaths(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name       string
-op         string
-body       map[string]any
-wantStatus int
-}{
-{
-name:       "list_roots_no_org",
-op:         "ListRoots",
-body:       map[string]any{},
-wantStatus: http.StatusBadRequest,
-},
-{
-name:       "list_accounts_no_org",
-op:         "ListAccounts",
-body:       map[string]any{},
-wantStatus: http.StatusBadRequest,
-},
-{
-name:       "delete_org_no_org",
-op:         "DeleteOrganization",
-body:       map[string]any{},
-wantStatus: http.StatusBadRequest,
-},
-}
+	tests := []struct {
+		body       map[string]any
+		name       string
+		op         string
+		wantStatus int
+	}{
+		{
+			name:       "list_roots_no_org",
+			op:         "ListRoots",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "list_accounts_no_org",
+			op:         "ListAccounts",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "delete_org_no_org",
+			op:         "DeleteOrganization",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-rec := doRequest(t, h, tt.op, tt.body)
-assert.Equal(t, tt.wantStatus, rec.Code)
-})
-}
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.op, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
 
 // TestHandler_BadBodyReturns400 tests that all handler operations return 400 for bad JSON.
 func TestHandler_BadBodyReturns400(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-ops := []string{
-"CreateOrganization", "DescribeOrganization", "DeleteOrganization", "EnableAllFeatures",
-"ListAccounts", "CreateAccount", "DescribeCreateAccountStatus", "DescribeAccount",
-"RemoveAccountFromOrganization", "MoveAccount",
-"ListRoots", "CreateOrganizationalUnit", "DescribeOrganizationalUnit",
-"DeleteOrganizationalUnit", "UpdateOrganizationalUnit", "ListOrganizationalUnitsForParent",
-"ListAccountsForParent", "ListParents", "ListChildren",
-"CreatePolicy", "DescribePolicy", "UpdatePolicy", "DeletePolicy", "ListPolicies",
-"AttachPolicy", "DetachPolicy", "ListPoliciesForTarget", "ListTargetsForPolicy",
-"EnablePolicyType", "DisablePolicyType",
-"TagResource", "UntagResource", "ListTagsForResource",
-"EnableAWSServiceAccess", "DisableAWSServiceAccess",
-"ListAWSServiceAccessForOrganization",
-"RegisterDelegatedAdministrator", "DeregisterDelegatedAdministrator", "ListDelegatedAdministrators",
-}
+	ops := []string{
+		"CreateOrganization", "DescribeOrganization", "DeleteOrganization", "EnableAllFeatures",
+		"ListAccounts", "CreateAccount", "DescribeCreateAccountStatus", "DescribeAccount",
+		"RemoveAccountFromOrganization", "MoveAccount",
+		"ListRoots", "CreateOrganizationalUnit", "DescribeOrganizationalUnit",
+		"DeleteOrganizationalUnit", "UpdateOrganizationalUnit", "ListOrganizationalUnitsForParent",
+		"ListAccountsForParent", "ListParents", "ListChildren",
+		"CreatePolicy", "DescribePolicy", "UpdatePolicy", "DeletePolicy", "ListPolicies",
+		"AttachPolicy", "DetachPolicy", "ListPoliciesForTarget", "ListTargetsForPolicy",
+		"EnablePolicyType", "DisablePolicyType",
+		"TagResource", "UntagResource", "ListTagsForResource",
+		"EnableAWSServiceAccess", "DisableAWSServiceAccess",
+		"ListAWSServiceAccessForOrganization",
+		"RegisterDelegatedAdministrator", "DeregisterDelegatedAdministrator", "ListDelegatedAdministrators",
+	}
 
-for _, op := range ops {
-op := op
-t.Run(op, func(t *testing.T) {
-t.Parallel()
+	for _, op := range ops {
+		t.Run(op, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
+			h := newTestHandler(t)
 
-e := echo.New()
-req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("not-json{")))
-req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-req.Header.Set("X-Amz-Target", "AmazonOrganizationsV20161128."+op)
-rec := httptest.NewRecorder()
-c := e.NewContext(req, rec)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("not-json{")))
+			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+			req.Header.Set("X-Amz-Target", "AmazonOrganizationsV20161128."+op)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
 
-_ = h.Handler()(c)
-// Bad JSON should result in 400.
-assert.Equal(t, http.StatusBadRequest, rec.Code)
-})
-}
+			_ = h.Handler()(c)
+			// Bad JSON should result in 400.
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
 }
 
 // TestHandler_UnknownOperation tests routing with an unknown operation.
 func TestHandler_UnknownOperation(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name       string
-wantStatus int
-}{
-{name: "unknown_op", wantStatus: http.StatusBadRequest},
-}
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{name: "unknown_op", wantStatus: http.StatusBadRequest},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-rec := doRequest(t, h, "NonExistentOperation", map[string]any{})
-assert.Equal(t, tt.wantStatus, rec.Code)
-})
-}
+			h := newTestHandler(t)
+			rec := doRequest(t, h, "NonExistentOperation", map[string]any{})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }

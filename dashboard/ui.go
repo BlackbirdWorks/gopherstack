@@ -91,8 +91,8 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
-	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -276,16 +276,16 @@ type DashboardHandler struct {
 	// MediaStoreDataOps provides access to the MediaStore Data backend.
 	MediaStoreDataOps *mediastoredatabackend.Handler
 	// MemoryDBOps provides access to the MemoryDB backend.
-	MemoryDBOps  *memorydbbackend.Handler
+	MemoryDBOps *memorydbbackend.Handler
 	// OrganizationsOps provides access to the Organizations backend.
 	OrganizationsOps *organizationsbackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	SubRouter        *echo.Echo
+	ddbProvider      *ddbbackend.DashboardProvider
+	s3Provider       *s3backend.DashboardProvider
+	FaultStore       *chaos.FaultStore
+	Logger           *slog.Logger
+	layout           *template.Template
+	GlobalConfig     config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.

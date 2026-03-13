@@ -85,6 +85,7 @@ import (
 	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
 	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
+	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -103,7 +104,6 @@ import (
 	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
-	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	"github.com/docker/docker/api/types/build"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -1994,18 +1994,18 @@ func createMemoryDBClient(t *testing.T) *memorydbsvc.Client {
 
 // createOrganizationsClient returns an Organizations client pointed at the shared test container.
 func createOrganizationsClient(t *testing.T) *organizationssvc.Client {
-t.Helper()
+	t.Helper()
 
-cfg, err := config.LoadDefaultConfig(
-t.Context(),
-config.WithRegion("us-east-1"),
-config.WithCredentialsProvider(
-credentials.NewStaticCredentialsProvider("test", "test", ""),
-),
-)
-require.NoError(t, err, "unable to load SDK config")
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
 
-return organizationssvc.NewFromConfig(cfg, func(o *organizationssvc.Options) {
-o.BaseEndpoint = aws.String(endpoint)
-})
+	return organizationssvc.NewFromConfig(cfg, func(o *organizationssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
 }

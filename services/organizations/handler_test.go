@@ -27,6 +27,7 @@ func newTestHandler(t *testing.T) *organizations.Handler {
 	t.Helper()
 
 	b := newTestBackend()
+
 	return organizations.NewHandler(b)
 }
 
@@ -61,9 +62,9 @@ func TestBackend_OrgLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		featureSet  string
-		wantErr     bool
+		name         string
+		featureSet   string
+		wantErr      bool
 		doubleCreate bool
 	}{
 		{
@@ -425,8 +426,8 @@ func TestHandler_DescribeOrganization(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		wantStatus int
+		name        string
+		wantStatus  int
 		createFirst bool
 	}{
 		{

@@ -1333,6 +1333,11 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.mediastoreHandler = byName["MediaStore"]
 	cli.mediastoredataHandler = byName["MediaStoreData"]
 	cli.memorydbHandler = byName["MemoryDB"]
+	storeCLINewestHandlers(cli, byName)
+}
+
+// storeCLINewestHandlers assigns the most recently added service handlers.
+func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.organizationsHandler = byName["Organizations"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]

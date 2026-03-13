@@ -90,8 +90,8 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
-	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -248,10 +248,10 @@ type Stack struct {
 	MemoryDBHandler *memorydbbackend.Handler
 	// OrganizationsHandler provides access to the Organizations backend.
 	OrganizationsHandler *organizationsbackend.Handler
-	S3Client        *s3.Client
-	DDBClient       *dynamodb.Client
-	FaultStore      *chaos.FaultStore
-	Dashboard       *dashboard.DashboardHandler
+	S3Client             *s3.Client
+	DDBClient            *dynamodb.Client
+	FaultStore           *chaos.FaultStore
+	Dashboard            *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.

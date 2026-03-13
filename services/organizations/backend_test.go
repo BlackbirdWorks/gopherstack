@@ -346,7 +346,12 @@ func TestBackend_UpdatePolicy(t *testing.T) {
 			policy, err := b.CreatePolicy("original", "desc", `{}`, "SERVICE_CONTROL_POLICY", nil)
 			require.NoError(t, err)
 
-			updated, err := b.UpdatePolicy(policy.PolicySummary.ID, "updated-name", "updated-desc", `{"Version":"2012-10-17"}`)
+			updated, err := b.UpdatePolicy(
+				policy.PolicySummary.ID,
+				"updated-name",
+				"updated-desc",
+				`{"Version":"2012-10-17"}`,
+			)
 
 			if tt.wantErr {
 				require.Error(t, err)
