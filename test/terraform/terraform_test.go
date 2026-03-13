@@ -121,6 +121,7 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
 	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	sagemakerruntimesvc "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
@@ -5612,6 +5613,43 @@ func TestTerraform_SageMaker(t *testing.T) {
 				require.NoError(t, err, "DescribeModel should succeed after terraform apply")
 				require.NotNil(t, out)
 				assert.Equal(t, vars["ModelName"].(string), aws.ToString(out.ModelName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SageMakerRuntime verifies that the SageMaker Runtime service is reachable
+// and endpoint invocations succeed via the SDK directly (no Terraform-managed resources).
+func TestTerraform_SageMakerRuntime(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "sagemakerrumtime/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createSageMakerRuntimeClient(t)
+
+				out, err := client.InvokeEndpoint(ctx, &sagemakerruntimesvc.InvokeEndpointInput{
+					EndpointName: aws.String("tf-test-endpoint"),
+					Body:         []byte(`{"data": "test input"}`),
+					ContentType:  aws.String("application/json"),
+				})
+				require.NoError(t, err, "InvokeEndpoint should succeed")
+				assert.NotEmpty(t, out.Body, "InvokeEndpoint response body should not be empty")
 			},
 		},
 	}

@@ -37,12 +37,11 @@ func sagemakerruntimeSnippet() *SnippetData {
 
 import (
 	"context"
-	"io"
 	"log"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/sagemakerrumtime"
+	"github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 )
 
 func main() {
@@ -55,9 +54,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	client := sagemakerrumtime.NewFromConfig(cfg)
+	client := sagemakerruntime.NewFromConfig(cfg)
 
-	out, err := client.InvokeEndpoint(context.TODO(), &sagemakerrumtime.InvokeEndpointInput{
+	out, err := client.InvokeEndpoint(context.TODO(), &sagemakerruntime.InvokeEndpointInput{
 		EndpointName: aws.String("my-endpoint"),
 		Body:         []byte(` + "`" + `{"data": "test input"}` + "`" + `),
 		ContentType:  aws.String("application/json"),
@@ -66,12 +65,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	body, err := io.ReadAll(out.Body)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Printf("Response: %s\n", body)
+	log.Printf("Response: %s\n", out.Body)
 }`,
 		Python: `# Initialize boto3 client for SageMaker Runtime
 import boto3

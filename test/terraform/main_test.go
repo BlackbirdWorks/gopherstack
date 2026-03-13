@@ -103,6 +103,7 @@ import (
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
 	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	sagemakerruntimesvc "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
@@ -2180,6 +2181,24 @@ func createSageMakerClient(t *testing.T) *sagemakersvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return sagemakersvc.NewFromConfig(cfg, func(o *sagemakersvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSageMakerRuntimeClient returns a SageMaker Runtime client pointed at the shared test container.
+func createSageMakerRuntimeClient(t *testing.T) *sagemakerruntimesvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return sagemakerruntimesvc.NewFromConfig(cfg, func(o *sagemakerruntimesvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
