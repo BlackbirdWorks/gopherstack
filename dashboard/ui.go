@@ -111,6 +111,7 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
@@ -310,6 +311,8 @@ type DashboardHandler struct {
 	RedshiftDataOps *redshiftdatabackend.Handler
 	// SageMakerOps provides access to the SageMaker backend.
 	SageMakerOps *sagemakerbackend.Handler
+	// SageMakerRuntimeOps provides access to the SageMaker Runtime backend.
+	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
 	SubRouter         *echo.Echo
@@ -528,6 +531,8 @@ type Config struct {
 	RedshiftDataOps *redshiftdatabackend.Handler
 	// SageMakerOps provides access to the SageMaker backend.
 	SageMakerOps *sagemakerbackend.Handler
+	// SageMakerRuntimeOps provides access to the SageMaker Runtime backend.
+	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -680,6 +685,8 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/ram/*.html",
 		"templates/rdsdata/*.html",
 		"templates/redshiftdata/*.html",
+		"templates/sagemaker/*.html",
+		"templates/sagemakerrumtime/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -830,6 +837,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.RAMOps = cfg.RAMOps
 	h.RedshiftDataOps = cfg.RedshiftDataOps
 	h.SageMakerOps = cfg.SageMakerOps
+	h.SageMakerRuntimeOps = cfg.SageMakerRuntimeOps
 	h.ServerlessRepoOps = cfg.ServerlessRepoOps
 }
 
@@ -1353,6 +1361,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupRAMRoutes()
 	h.setupRedshiftDataRoutes()
 	h.setupSageMakerRoutes()
+	h.setupSageMakerRuntimeRoutes()
 	h.setupServerlessRepoRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
@@ -1482,6 +1491,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/pipes", "Pipes"},
 	{"/qldb", "QLDB"},
 	{"/rdsdata", "RDSData"},
+	{"/sagemakerrumtime", "SageMakerRuntime"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

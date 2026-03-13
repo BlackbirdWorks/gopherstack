@@ -110,6 +110,7 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
@@ -278,6 +279,8 @@ type Stack struct {
 	RedshiftDataHandler *redshiftdatabackend.Handler
 	// SageMakerHandler provides access to the SageMaker backend.
 	SageMakerHandler *sagemakerbackend.Handler
+	// SageMakerRuntimeHandler provides access to the SageMaker Runtime backend.
+	SageMakerRuntimeHandler *sagemakerruntimebackend.Handler
 	// ServerlessRepoHandler provides access to the Serverless Application Repository backend.
 	ServerlessRepoHandler *serverlessrepobackend.Handler
 	S3Client              *s3.Client
@@ -493,6 +496,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.rdsdata)
 	_ = registry.Register(h.redshiftdata)
 	_ = registry.Register(h.sagemaker)
+	_ = registry.Register(h.sagemakerRuntime)
 	_ = registry.Register(h.serverlessrepo)
 }
 
@@ -601,6 +605,7 @@ type handlers struct {
 	rdsdata            *rdsdatabackend.Handler
 	redshiftdata       *redshiftdatabackend.Handler
 	sagemaker          *sagemakerbackend.Handler
+	sagemakerRuntime   *sagemakerruntimebackend.Handler
 	serverlessrepo     *serverlessrepobackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
@@ -908,6 +913,9 @@ func populateLatestHandlers(h *handlers) {
 	h.sagemaker = sagemakerbackend.NewHandler(
 		sagemakerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.sagemakerRuntime = sagemakerruntimebackend.NewHandler(
+		sagemakerruntimebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.serverlessrepo = serverlessrepobackend.NewHandler(
 		serverlessrepobackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -1073,6 +1081,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.RAMOps = h.ram
 	cfg.RedshiftDataOps = h.redshiftdata
 	cfg.SageMakerOps = h.sagemaker
+	cfg.SageMakerRuntimeOps = h.sagemakerRuntime
 	cfg.ServerlessRepoOps = h.serverlessrepo
 }
 
@@ -1283,6 +1292,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.RDSDataHandler = h.rdsdata
 	s.RedshiftDataHandler = h.redshiftdata
 	s.SageMakerHandler = h.sagemaker
+	s.SageMakerRuntimeHandler = h.sagemakerRuntime
 	s.ServerlessRepoHandler = h.serverlessrepo
 }
 
