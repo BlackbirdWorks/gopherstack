@@ -5967,3 +5967,64 @@ func TestTerraform_Textract(t *testing.T) {
 		})
 	}
 }
+
+// TestTerraform_TimestreamWrite provisions a Timestream Write database and table, then verifies.
+func TestTerraform_TimestreamWrite(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "timestreamwrite/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Endpoint":     endpoint,
+					"DatabaseName": "tf-tswrite-db-" + id,
+					"TableName":    "tf-tswrite-tbl-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				databaseName, ok := vars["DatabaseName"].(string)
+				require.True(t, ok, "DatabaseName must be a string")
+
+				reqURL := endpoint + "/"
+				body := fmt.Sprintf(`{"DatabaseName":"%s"}`, databaseName)
+
+				req, err := http.NewRequestWithContext(
+					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+				require.NoError(t, err)
+
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				req.Header.Set("X-Amz-Target", "Timestream_20181101.DescribeDatabase")
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "DescribeDatabase should succeed")
+				defer resp.Body.Close()
+
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(respBody, &result))
+				db, ok := result["Database"].(map[string]any)
+				assert.True(t, ok, "expected Database in response")
+				assert.Equal(t, databaseName, db["DatabaseName"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}

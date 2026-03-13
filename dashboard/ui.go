@@ -127,6 +127,7 @@ import (
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -323,14 +324,16 @@ type DashboardHandler struct {
 	// SsoAdminOps provides access to the SSO Admin backend.
 	SsoAdminOps *ssoadminbackend.Handler
 	// TextractOps provides access to the Textract backend.
-	TextractOps  *textractbackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	TextractOps *textractbackend.Handler
+	// TimestreamWriteOps provides access to the Timestream Write backend.
+	TimestreamWriteOps *timestreamwritebackend.Handler
+	SubRouter          *echo.Echo
+	ddbProvider        *ddbbackend.DashboardProvider
+	s3Provider         *s3backend.DashboardProvider
+	FaultStore         *chaos.FaultStore
+	Logger             *slog.Logger
+	layout             *template.Template
+	GlobalConfig       config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -550,6 +553,8 @@ type Config struct {
 	SsoAdminOps *ssoadminbackend.Handler
 	// TextractOps provides access to the Textract backend.
 	TextractOps *textractbackend.Handler
+	// TimestreamWriteOps provides access to the Timestream Write backend.
+	TimestreamWriteOps *timestreamwritebackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -706,6 +711,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/textract/*.html",
+		"templates/timestreamwrite/*.html",
 		"templates/doc.html",
 		"templates/settings.html",
 		"templates/apiconsole.html",
@@ -859,6 +865,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.ShieldOps = cfg.ShieldOps
 	h.SsoAdminOps = cfg.SsoAdminOps
 	h.TextractOps = cfg.TextractOps
+	h.TimestreamWriteOps = cfg.TimestreamWriteOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1386,6 +1393,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupShieldRoutes()
 	h.setupSsoAdminRoutes()
 	h.setupTextractRoutes()
+	h.setupTimestreamWriteRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1516,6 +1524,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/rdsdata", "RDSData"},
 	{"/sagemakerrumtime", "SageMakerRuntime"},
 	{"/textract", "Textract"},
+	{"/timestreamwrite", "TimestreamWrite"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
