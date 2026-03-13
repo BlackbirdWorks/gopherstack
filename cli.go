@@ -124,6 +124,7 @@ import (
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
+	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -261,6 +262,7 @@ type CLI struct {
 	mediastoredataHandler         service.Registerable
 	memorydbHandler               service.Registerable
 	mwaaHandler                   service.Registerable
+	neptuneHandler                service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -672,6 +674,11 @@ func (c *CLI) GetMediaStoreDataHandler() service.Registerable { return c.mediast
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMemoryDBHandler() service.Registerable { return c.memorydbHandler }
+
+// GetNeptuneHandler returns the Neptune handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetNeptuneHandler() service.Registerable { return c.neptuneHandler }
 
 // GetMWAAHandler returns the MWAA handler (dashboard.AWSSDKProvider).
 //
@@ -1337,8 +1344,14 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.mqHandler = byName["MQ"]
 	cli.mediastoreHandler = byName["MediaStore"]
 	cli.mediastoredataHandler = byName["MediaStoreData"]
+	storeCLINewestHandlers(cli, byName)
+}
+
+// storeCLINewestHandlers assigns handlers for the most recently added services.
+func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.memorydbHandler = byName["MemoryDB"]
 	cli.mwaaHandler = byName["MWAA"]
+	cli.neptuneHandler = byName["Neptune"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }
@@ -1554,6 +1567,7 @@ func getServiceProviders() []service.Provider {
 		&mediastoredatabackend.Provider{},
 		&memorydbbackend.Provider{},
 		&mwaabackend.Provider{},
+		&neptunebackend.Provider{},
 	}
 }
 

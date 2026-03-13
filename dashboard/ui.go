@@ -92,6 +92,7 @@ import (
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
+	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -278,7 +279,9 @@ type DashboardHandler struct {
 	// MemoryDBOps provides access to the MemoryDB backend.
 	MemoryDBOps *memorydbbackend.Handler
 	// MWAAOps provides access to the MWAA backend.
-	MWAAOps      *mwaabackend.Handler
+	MWAAOps *mwaabackend.Handler
+	// NeptuneOps provides access to the Neptune backend.
+	NeptuneOps   *neptunebackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -475,6 +478,8 @@ type Config struct {
 	MemoryDBOps *memorydbbackend.Handler
 	// MWAAOps provides access to the MWAA backend.
 	MWAAOps *mwaabackend.Handler
+	// NeptuneOps provides access to the Neptune backend.
+	NeptuneOps *neptunebackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -595,6 +600,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/mediastoredata/*.html",
 		"templates/memorydb/*.html",
 		"templates/mwaa/*.html",
+		"templates/neptune/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -735,6 +741,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.MQOps = cfg.MQOps
 	h.MediaStoreDataOps = cfg.MediaStoreDataOps
 	h.MWAAOps = cfg.MWAAOps
+	h.NeptuneOps = cfg.NeptuneOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1237,6 +1244,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMediaStoreDataRoutes()
 	h.setupMemoryDBRoutes()
 	h.setupMWAARoutes()
+	h.setupNeptuneRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1361,6 +1369,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/mediaconvert", "MediaConvert"},
 	{"/mediastore", "MediaStore"},
 	{"/mediastoredata", "MediaStoreData"},
+	{"/neptune", "Neptune"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
