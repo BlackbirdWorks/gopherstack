@@ -66,6 +66,7 @@ type docPageData struct {
 	DMSOps                     []string
 	CodeStarConnectionsOps     []string
 	DynamoDBStreamsOps         []string
+	PipesOps                   []string
 }
 
 // docIndex renders the documentation page.
@@ -143,6 +144,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		DMSOps:                     h.getSupportedOps(h.DMSOps),
 		CodeStarConnectionsOps:     h.getSupportedOps(h.CodeStarConnectionsOps),
 		DynamoDBStreamsOps:         h.getSupportedOps(h.DynamoDBStreamsOps),
+		PipesOps:                   h.getSupportedOps(h.PipesOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)
