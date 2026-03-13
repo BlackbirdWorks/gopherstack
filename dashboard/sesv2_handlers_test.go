@@ -3,6 +3,7 @@ package dashboard_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -101,15 +102,24 @@ func TestDashboard_SESv2_CreateIdentity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func(*testing.T, *teststack.Stack)
-		name     string
-		identity string
-		wantCode int
+		setup        func(*testing.T, *teststack.Stack)
+		verify       func(*testing.T, *teststack.Stack)
+		name         string
+		identity     string
+		wantLocation string
+		wantCode     int
 	}{
 		{
-			name:     "creates email identity and redirects",
-			identity: "new@example.com",
-			wantCode: http.StatusFound,
+			name:         "creates email identity and redirects",
+			identity:     "new@example.com",
+			wantCode:     http.StatusFound,
+			wantLocation: "/dashboard/sesv2",
+			verify: func(t *testing.T, s *teststack.Stack) {
+				t.Helper()
+
+				_, err := s.SESv2Handler.Backend.GetEmailIdentity("new@example.com")
+				require.NoError(t, err, "identity should exist in backend after creation")
+			},
 		},
 		{
 			name:     "empty identity returns bad request",
@@ -139,13 +149,24 @@ func TestDashboard_SESv2_CreateIdentity(t *testing.T) {
 				tt.setup(t, s)
 			}
 
+			form := url.Values{}
+			if tt.identity != "" {
+				form.Set("identity", tt.identity)
+			}
+
 			req := httptest.NewRequest(http.MethodPost, "/dashboard/sesv2/identity/create",
-				strings.NewReader("identity="+tt.identity))
+				strings.NewReader(form.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
 			serveHandler(s.Dashboard, w, req)
 
 			assert.Equal(t, tt.wantCode, w.Code)
+			if tt.wantLocation != "" {
+				assert.Equal(t, tt.wantLocation, w.Header().Get("Location"))
+			}
+			if tt.verify != nil {
+				tt.verify(t, s)
+			}
 		})
 	}
 }
@@ -156,8 +177,9 @@ func TestDashboard_SESv2_CreateIdentity_NilOps(t *testing.T) {
 
 	h := dashboard.NewHandler(dashboard.Config{})
 
+	form := url.Values{"identity": {"test@example.com"}}
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/sesv2/identity/create",
-		strings.NewReader("identity=test@example.com"))
+		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	serveHandler(h, w, req)
@@ -170,10 +192,12 @@ func TestDashboard_SESv2_DeleteIdentity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func(*testing.T, *teststack.Stack)
-		name     string
-		identity string
-		wantCode int
+		setup        func(*testing.T, *teststack.Stack)
+		verify       func(*testing.T, *teststack.Stack)
+		name         string
+		identity     string
+		wantLocation string
+		wantCode     int
 	}{
 		{
 			name: "deletes existing identity and redirects",
@@ -183,8 +207,15 @@ func TestDashboard_SESv2_DeleteIdentity(t *testing.T) {
 				_, err := s.SESv2Handler.Backend.CreateEmailIdentity("todelete@example.com")
 				require.NoError(t, err)
 			},
-			identity: "todelete@example.com",
-			wantCode: http.StatusFound,
+			identity:     "todelete@example.com",
+			wantCode:     http.StatusFound,
+			wantLocation: "/dashboard/sesv2",
+			verify: func(t *testing.T, s *teststack.Stack) {
+				t.Helper()
+
+				_, err := s.SESv2Handler.Backend.GetEmailIdentity("todelete@example.com")
+				require.Error(t, err, "identity should be removed from backend after deletion")
+			},
 		},
 		{
 			name:     "empty identity returns bad request",
@@ -208,13 +239,24 @@ func TestDashboard_SESv2_DeleteIdentity(t *testing.T) {
 				tt.setup(t, s)
 			}
 
+			form := url.Values{}
+			if tt.identity != "" {
+				form.Set("identity", tt.identity)
+			}
+
 			req := httptest.NewRequest(http.MethodPost, "/dashboard/sesv2/identity/delete",
-				strings.NewReader("identity="+tt.identity))
+				strings.NewReader(form.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
 			serveHandler(s.Dashboard, w, req)
 
 			assert.Equal(t, tt.wantCode, w.Code)
+			if tt.wantLocation != "" {
+				assert.Equal(t, tt.wantLocation, w.Header().Get("Location"))
+			}
+			if tt.verify != nil {
+				tt.verify(t, s)
+			}
 		})
 	}
 }
@@ -225,8 +267,9 @@ func TestDashboard_SESv2_DeleteIdentity_NilOps(t *testing.T) {
 
 	h := dashboard.NewHandler(dashboard.Config{})
 
+	form := url.Values{"identity": {"test@example.com"}}
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/sesv2/identity/delete",
-		strings.NewReader("identity=test@example.com"))
+		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	serveHandler(h, w, req)
@@ -239,15 +282,24 @@ func TestDashboard_SESv2_CreateConfigSet(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func(*testing.T, *teststack.Stack)
-		name     string
-		setName  string
-		wantCode int
+		setup        func(*testing.T, *teststack.Stack)
+		verify       func(*testing.T, *teststack.Stack)
+		name         string
+		setName      string
+		wantLocation string
+		wantCode     int
 	}{
 		{
-			name:     "creates configuration set and redirects",
-			setName:  "new-config-set",
-			wantCode: http.StatusFound,
+			name:         "creates configuration set and redirects",
+			setName:      "new-config-set",
+			wantCode:     http.StatusFound,
+			wantLocation: "/dashboard/sesv2",
+			verify: func(t *testing.T, s *teststack.Stack) {
+				t.Helper()
+
+				_, err := s.SESv2Handler.Backend.GetConfigurationSet("new-config-set")
+				require.NoError(t, err, "configuration set should exist in backend after creation")
+			},
 		},
 		{
 			name:     "empty name returns bad request",
@@ -277,13 +329,24 @@ func TestDashboard_SESv2_CreateConfigSet(t *testing.T) {
 				tt.setup(t, s)
 			}
 
+			form := url.Values{}
+			if tt.setName != "" {
+				form.Set("name", tt.setName)
+			}
+
 			req := httptest.NewRequest(http.MethodPost, "/dashboard/sesv2/configuration-set/create",
-				strings.NewReader("name="+tt.setName))
+				strings.NewReader(form.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
 			serveHandler(s.Dashboard, w, req)
 
 			assert.Equal(t, tt.wantCode, w.Code)
+			if tt.wantLocation != "" {
+				assert.Equal(t, tt.wantLocation, w.Header().Get("Location"))
+			}
+			if tt.verify != nil {
+				tt.verify(t, s)
+			}
 		})
 	}
 }
@@ -294,8 +357,9 @@ func TestDashboard_SESv2_CreateConfigSet_NilOps(t *testing.T) {
 
 	h := dashboard.NewHandler(dashboard.Config{})
 
+	form := url.Values{"name": {"my-set"}}
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/sesv2/configuration-set/create",
-		strings.NewReader("name=my-set"))
+		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	serveHandler(h, w, req)
@@ -308,10 +372,12 @@ func TestDashboard_SESv2_DeleteConfigSet(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func(*testing.T, *teststack.Stack)
-		name     string
-		setName  string
-		wantCode int
+		setup        func(*testing.T, *teststack.Stack)
+		verify       func(*testing.T, *teststack.Stack)
+		name         string
+		setName      string
+		wantLocation string
+		wantCode     int
 	}{
 		{
 			name: "deletes existing configuration set and redirects",
@@ -321,8 +387,15 @@ func TestDashboard_SESv2_DeleteConfigSet(t *testing.T) {
 				_, err := s.SESv2Handler.Backend.CreateConfigurationSet("todelete-set")
 				require.NoError(t, err)
 			},
-			setName:  "todelete-set",
-			wantCode: http.StatusFound,
+			setName:      "todelete-set",
+			wantCode:     http.StatusFound,
+			wantLocation: "/dashboard/sesv2",
+			verify: func(t *testing.T, s *teststack.Stack) {
+				t.Helper()
+
+				_, err := s.SESv2Handler.Backend.GetConfigurationSet("todelete-set")
+				require.Error(t, err, "configuration set should be removed from backend after deletion")
+			},
 		},
 		{
 			name:     "empty name returns bad request",
@@ -346,13 +419,24 @@ func TestDashboard_SESv2_DeleteConfigSet(t *testing.T) {
 				tt.setup(t, s)
 			}
 
+			form := url.Values{}
+			if tt.setName != "" {
+				form.Set("name", tt.setName)
+			}
+
 			req := httptest.NewRequest(http.MethodPost, "/dashboard/sesv2/configuration-set/delete",
-				strings.NewReader("name="+tt.setName))
+				strings.NewReader(form.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			w := httptest.NewRecorder()
 			serveHandler(s.Dashboard, w, req)
 
 			assert.Equal(t, tt.wantCode, w.Code)
+			if tt.wantLocation != "" {
+				assert.Equal(t, tt.wantLocation, w.Header().Get("Location"))
+			}
+			if tt.verify != nil {
+				tt.verify(t, s)
+			}
 		})
 	}
 }
@@ -363,8 +447,9 @@ func TestDashboard_SESv2_DeleteConfigSet_NilOps(t *testing.T) {
 
 	h := dashboard.NewHandler(dashboard.Config{})
 
+	form := url.Values{"name": {"my-set"}}
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/sesv2/configuration-set/delete",
-		strings.NewReader("name=my-set"))
+		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	serveHandler(h, w, req)
