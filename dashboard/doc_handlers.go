@@ -72,6 +72,7 @@ type docPageData struct {
 	RDSDataOps                 []string
 	RedshiftDataOps            []string
 	SageMakerOps               []string
+	SageMakerRuntimeOps        []string
 }
 
 // docIndex renders the documentation page.
@@ -155,6 +156,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		RDSDataOps:                 h.getSupportedOps(h.RDSDataOps),
 		RedshiftDataOps:            h.getSupportedOps(h.RedshiftDataOps),
 		SageMakerOps:               h.getSupportedOps(h.SageMakerOps),
+		SageMakerRuntimeOps:        h.getSupportedOps(h.SageMakerRuntimeOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)

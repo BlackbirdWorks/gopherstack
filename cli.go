@@ -143,6 +143,7 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
@@ -282,6 +283,7 @@ type CLI struct {
 	ramHandler                    service.Registerable
 	redshiftdataHandler           service.Registerable
 	sagemakerHandler              service.Registerable
+	sagemakerRuntimeHandler       service.Registerable
 	serverlessrepoHandler         service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
@@ -749,6 +751,11 @@ func (c *CLI) GetRedshiftDataHandler() service.Registerable { return c.redshiftd
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSageMakerHandler() service.Registerable { return c.sagemakerHandler }
+
+// GetSageMakerRuntimeHandler returns the SageMaker Runtime handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSageMakerRuntimeHandler() service.Registerable { return c.sagemakerRuntimeHandler }
 
 // GetServerlessRepoHandler returns the Serverless Application Repository handler (dashboard.AWSSDKProvider).
 //
@@ -1433,6 +1440,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ramHandler = byName["RAM"]
 	cli.redshiftdataHandler = byName["RedshiftData"]
 	cli.sagemakerHandler = byName["SageMaker"]
+	cli.sagemakerRuntimeHandler = byName["SageMakerRuntime"]
 	cli.serverlessrepoHandler = byName["ServerlessRepo"]
 }
 
@@ -1676,6 +1684,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&rdsdatabackend.Provider{},
 		&redshiftdatabackend.Provider{},
 		&sagemakerbackend.Provider{},
+		&sagemakerruntimebackend.Provider{},
 		&serverlessrepobackend.Provider{},
 	}
 }
