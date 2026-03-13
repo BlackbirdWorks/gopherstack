@@ -289,6 +289,7 @@ provider "aws" {
     ses             = %[1]q
     sesv2           = %[1]q
     sfn             = %[1]q
+    shield          = %[1]q
     sns             = %[1]q
     sqs             = %[1]q
     ssm             = %[1]q
@@ -5779,6 +5780,61 @@ func TestTerraform_ServerlessRepo(t *testing.T) {
 				var result map[string]any
 				require.NoError(t, json.Unmarshal(body, &result))
 				assert.Equal(t, appName, result["name"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Shield provisions a Shield subscription and protection and verifies the subscription state.
+func TestTerraform_Shield(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "shield/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ProtectionName": "tf-shield-" + id,
+					"ResourceARN":    "arn:aws:ec2:us-east-1:123456789012:eip-allocation/eipalloc-" + id,
+					"Endpoint":       endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				reqURL := endpoint + "/"
+				body := `{}`
+
+				req, err := http.NewRequestWithContext(
+					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+				require.NoError(t, err)
+
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				req.Header.Set("X-Amz-Target", "AWSShield_20160616.GetSubscriptionState")
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "GetSubscriptionState should succeed after terraform apply")
+				defer resp.Body.Close()
+
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+
+				var result map[string]string
+				require.NoError(t, json.Unmarshal(respBody, &result))
+				assert.Equal(t, "ACTIVE", result["SubscriptionState"])
 			},
 		},
 	}

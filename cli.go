@@ -149,6 +149,7 @@ import (
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -285,6 +286,7 @@ type CLI struct {
 	sagemakerHandler              service.Registerable
 	sagemakerRuntimeHandler       service.Registerable
 	serverlessrepoHandler         service.Registerable
+	shieldHandler                 service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -761,6 +763,11 @@ func (c *CLI) GetSageMakerRuntimeHandler() service.Registerable { return c.sagem
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetServerlessRepoHandler() service.Registerable { return c.serverlessrepoHandler }
+
+// GetShieldHandler returns the Shield handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetShieldHandler() service.Registerable { return c.shieldHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1442,6 +1449,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.sagemakerHandler = byName["SageMaker"]
 	cli.sagemakerRuntimeHandler = byName["SageMakerRuntime"]
 	cli.serverlessrepoHandler = byName["ServerlessRepo"]
+	cli.shieldHandler = byName["Shield"]
 }
 
 // initializeServices initializes all service providers.
@@ -1686,6 +1694,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&sagemakerbackend.Provider{},
 		&sagemakerruntimebackend.Provider{},
 		&serverlessrepobackend.Provider{},
+		&shieldbackend.Provider{},
 	}
 }
 

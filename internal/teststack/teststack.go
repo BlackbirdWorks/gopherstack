@@ -116,6 +116,7 @@ import (
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -283,10 +284,12 @@ type Stack struct {
 	SageMakerRuntimeHandler *sagemakerruntimebackend.Handler
 	// ServerlessRepoHandler provides access to the Serverless Application Repository backend.
 	ServerlessRepoHandler *serverlessrepobackend.Handler
-	S3Client              *s3.Client
-	DDBClient             *dynamodb.Client
-	FaultStore            *chaos.FaultStore
-	Dashboard             *dashboard.DashboardHandler
+	// ShieldHandler provides access to the Shield backend.
+	ShieldHandler *shieldbackend.Handler
+	S3Client      *s3.Client
+	DDBClient     *dynamodb.Client
+	FaultStore    *chaos.FaultStore
+	Dashboard     *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -498,6 +501,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.sagemaker)
 	_ = registry.Register(h.sagemakerRuntime)
 	_ = registry.Register(h.serverlessrepo)
+	_ = registry.Register(h.shield)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -607,6 +611,7 @@ type handlers struct {
 	sagemaker          *sagemakerbackend.Handler
 	sagemakerRuntime   *sagemakerruntimebackend.Handler
 	serverlessrepo     *serverlessrepobackend.Handler
+	shield             *shieldbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -919,6 +924,9 @@ func populateLatestHandlers(h *handlers) {
 	h.serverlessrepo = serverlessrepobackend.NewHandler(
 		serverlessrepobackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.shield = shieldbackend.NewHandler(
+		shieldbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -1083,6 +1091,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.SageMakerOps = h.sagemaker
 	cfg.SageMakerRuntimeOps = h.sagemakerRuntime
 	cfg.ServerlessRepoOps = h.serverlessrepo
+	cfg.ShieldOps = h.shield
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1294,6 +1303,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.SageMakerHandler = h.sagemaker
 	s.SageMakerRuntimeHandler = h.sagemakerRuntime
 	s.ServerlessRepoHandler = h.serverlessrepo
+	s.ShieldHandler = h.shield
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".
