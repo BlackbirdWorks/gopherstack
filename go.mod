@@ -142,6 +142,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.39.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.37.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.36.13 // indirect
+	github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4 // indirect
 )
 
 require (

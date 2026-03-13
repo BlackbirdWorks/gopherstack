@@ -274,6 +274,8 @@ github.com/aws/aws-sdk-go-v2/service/swf v1.33.14 h1:sVUF4SC5BzVw4tiOXX/yaa7Gbru
 github.com/aws/aws-sdk-go-v2/service/swf v1.33.14/go.mod h1:STMeULZQteHh1BkdnUiTCdtvA5zKRyDk/b5nObwHKVA=
 github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.36.13 h1:Iu9ue+m7Ff/7S/QckPSB2kqkKHziyCwr/4DNuVvsCaE=
 github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.36.13/go.mod h1:CL79M20C9MGo2r0/MT7i9OcM/RY25wfNz043aG2fBvw=
+github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4 h1:A182zQlZOpGFdgw6hUSzS4Ew4H4YvEHBjS8ztPbjmlI=
+github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4/go.mod h1:uirylF9/pmoaUQBoMxNIj7zniwHtZJu8pA81LNCcqGM=
 github.com/aws/smithy-go v1.24.2 h1:FzA3bu/nt/vDvmnkg+R8Xl46gmzEDam6mZ1hzmwXFng=
 github.com/aws/smithy-go v1.24.2/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
 github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=
