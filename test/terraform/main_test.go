@@ -87,8 +87,10 @@ import (
 	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
 	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
+	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	pinpointsvc "github.com/aws/aws-sdk-go-v2/service/pinpoint"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
+	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -2016,6 +2018,24 @@ func createMemoryDBClient(t *testing.T) *memorydbsvc.Client {
 	})
 }
 
+// createOrganizationsClient returns an Organizations client pointed at the shared test container.
+func createOrganizationsClient(t *testing.T) *organizationssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return organizationssvc.NewFromConfig(cfg, func(o *organizationssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
 // createMWAAClient returns an MWAA client pointed at the shared test container.
 func createMWAAClient(t *testing.T) *mwaasvc.Client {
 	t.Helper()
@@ -2066,6 +2086,24 @@ func createPipesClient(t *testing.T) *pipessvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return pipessvc.NewFromConfig(cfg, func(o *pipessvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createQLDBClient returns a QLDB client pointed at the shared test container.
+func createQLDBClient(t *testing.T) *qldbsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return qldbsvc.NewFromConfig(cfg, func(o *qldbsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

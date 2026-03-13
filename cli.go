@@ -126,8 +126,10 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -263,10 +265,12 @@ type CLI struct {
 	mediastoreHandler             service.Registerable
 	mediastoredataHandler         service.Registerable
 	memorydbHandler               service.Registerable
+	organizationsHandler          service.Registerable
 	mwaaHandler                   service.Registerable
 	neptuneHandler                service.Registerable
 	pinpointHandler               service.Registerable
 	pipesHandler                  service.Registerable
+	qldbHandler                   service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -679,6 +683,11 @@ func (c *CLI) GetMediaStoreDataHandler() service.Registerable { return c.mediast
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMemoryDBHandler() service.Registerable { return c.memorydbHandler }
 
+// GetOrganizationsHandler returns the Organizations handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOrganizationsHandler() service.Registerable { return c.organizationsHandler }
+
 // GetNeptuneHandler returns the Neptune handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -698,6 +707,11 @@ func (c *CLI) GetPinpointHandler() service.Registerable { return c.pinpointHandl
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetPipesHandler() service.Registerable { return c.pipesHandler }
+
+// GetQLDBHandler returns the QLDB handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetQLDBHandler() service.Registerable { return c.qldbHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1364,12 +1378,14 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 // storeCLINewestHandlers assigns handlers for the most recently added services.
 func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.memorydbHandler = byName["MemoryDB"]
+	cli.organizationsHandler = byName["Organizations"]
 	cli.mwaaHandler = byName["MWAA"]
 	cli.neptuneHandler = byName["Neptune"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 	cli.pinpointHandler = byName["Pinpoint"]
 	cli.pipesHandler = byName["Pipes"]
+	cli.qldbHandler = byName["QLDB"]
 }
 
 // initializeServices initializes all service providers.
@@ -1529,6 +1545,7 @@ func getServiceProviders() []service.Provider {
 		&ecsbackend.Provider{},
 		&fisbackend.Provider{},
 		&identitystorebackend.Provider{},
+		&organizationsbackend.Provider{},
 		&cognitoidpbackend.Provider{},
 		&cognitoidentitybackend.Provider{},
 		&iotbackend.Provider{},
@@ -1586,6 +1603,7 @@ func getServiceProviders() []service.Provider {
 		&neptunebackend.Provider{},
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
+		&qldbbackend.Provider{},
 	}
 }
 

@@ -94,8 +94,10 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -280,6 +282,8 @@ type DashboardHandler struct {
 	MediaStoreDataOps *mediastoredatabackend.Handler
 	// MemoryDBOps provides access to the MemoryDB backend.
 	MemoryDBOps *memorydbbackend.Handler
+	// OrganizationsOps provides access to the Organizations backend.
+	OrganizationsOps *organizationsbackend.Handler
 	// MWAAOps provides access to the MWAA backend.
 	MWAAOps *mwaabackend.Handler
 	// PinpointOps provides access to the Pinpoint backend.
@@ -287,7 +291,9 @@ type DashboardHandler struct {
 	// NeptuneOps provides access to the Neptune backend.
 	NeptuneOps *neptunebackend.Handler
 	// PipesOps provides access to the EventBridge Pipes backend.
-	PipesOps     *pipesbackend.Handler
+	PipesOps *pipesbackend.Handler
+	// QLDBOps provides access to the QLDB backend.
+	QLDBOps      *qldbbackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -482,6 +488,8 @@ type Config struct {
 	MediaStoreDataOps *mediastoredatabackend.Handler
 	// MemoryDBOps provides access to the MemoryDB backend.
 	MemoryDBOps *memorydbbackend.Handler
+	// OrganizationsOps provides access to the Organizations backend.
+	OrganizationsOps *organizationsbackend.Handler
 	// MWAAOps provides access to the MWAA backend.
 	MWAAOps *mwaabackend.Handler
 	// PinpointOps provides access to the Pinpoint backend.
@@ -490,6 +498,8 @@ type Config struct {
 	NeptuneOps *neptunebackend.Handler
 	// PipesOps provides access to the EventBridge Pipes backend.
 	PipesOps *pipesbackend.Handler
+	// QLDBOps provides access to the QLDB backend.
+	QLDBOps *qldbbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -610,8 +620,11 @@ func dashboardTemplatePatterns() []string {
 		"templates/mediastoredata/*.html",
 		"templates/memorydb/*.html",
 		"templates/mwaa/*.html",
+		"templates/organizations/*.html",
 		"templates/pinpoint/*.html",
 		"templates/neptune/*.html",
+		"templates/pipes/*.html",
+		"templates/qldb/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -728,6 +741,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
 		MediaStoreOps:              cfg.MediaStoreOps,
 		MemoryDBOps:                cfg.MemoryDBOps,
+		OrganizationsOps:           cfg.OrganizationsOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -755,6 +769,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.PinpointOps = cfg.PinpointOps
 	h.NeptuneOps = cfg.NeptuneOps
 	h.PipesOps = cfg.PipesOps
+	h.QLDBOps = cfg.QLDBOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1257,9 +1272,11 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMediaStoreDataRoutes()
 	h.setupMemoryDBRoutes()
 	h.setupMWAARoutes()
+	h.setupOrganizationsRoutes()
 	h.setupPinpointRoutes()
 	h.setupNeptuneRoutes()
 	h.setupPipesRoutes()
+	h.setupQLDBRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1385,6 +1402,8 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/mediastore", "MediaStore"},
 	{"/mediastoredata", "MediaStoreData"},
 	{"/neptune", "Neptune"},
+	{"/pipes", "Pipes"},
+	{"/qldb", "QLDB"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
