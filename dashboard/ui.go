@@ -321,7 +321,7 @@ type DashboardHandler struct {
 	// ShieldOps provides access to the Shield backend.
 	ShieldOps *shieldbackend.Handler
 	// SsoAdminOps provides access to the SSO Admin backend.
-	SsoAdminOps  *ssoadminbackend.Handler
+	SsoAdminOps *ssoadminbackend.Handler
 	// TextractOps provides access to the Textract backend.
 	TextractOps  *textractbackend.Handler
 	SubRouter    *echo.Echo
