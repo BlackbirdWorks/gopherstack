@@ -131,6 +131,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/mwaa v1.39.20 // indirect
 	github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18 // indirect
+	github.com/aws/aws-sdk-go-v2/service/qldb v1.32.2 // indirect
 )
 
 require github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.18

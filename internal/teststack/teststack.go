@@ -94,6 +94,7 @@ import (
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -253,10 +254,12 @@ type Stack struct {
 	MWAAHandler *mwaabackend.Handler
 	// PipesHandler provides access to the EventBridge Pipes backend.
 	PipesHandler *pipesbackend.Handler
-	S3Client     *s3.Client
-	DDBClient    *dynamodb.Client
-	FaultStore   *chaos.FaultStore
-	Dashboard    *dashboard.DashboardHandler
+	// QLDBHandler provides access to the QLDB backend.
+	QLDBHandler *qldbbackend.Handler
+	S3Client    *s3.Client
+	DDBClient   *dynamodb.Client
+	FaultStore  *chaos.FaultStore
+	Dashboard   *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -454,6 +457,13 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.memorydb)
 }
 
+// registerLatestServices registers the most recently added service handlers.
+func registerLatestServices(registry *service.Registry, h handlers) {
+	_ = registry.Register(h.neptune)
+	_ = registry.Register(h.pipes)
+	_ = registry.Register(h.qldb)
+}
+
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
 	s3                 *s3backend.S3Handler
@@ -551,6 +561,7 @@ type handlers struct {
 	mwaa               *mwaabackend.Handler
 	neptune            *neptunebackend.Handler
 	pipes              *pipesbackend.Handler
+	qldb               *qldbbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -834,6 +845,7 @@ func populateLatestHandlers(h *handlers) {
 		neptunebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.qldb = qldbbackend.NewHandler(qldbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -988,6 +1000,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.MWAAOps = h.mwaa
 	cfg.NeptuneOps = h.neptune
 	cfg.PipesOps = h.pipes
+	cfg.QLDBOps = h.qldb
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1050,8 +1063,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.mwaa)
 	registerMediaServices(registry, h)
-	_ = registry.Register(h.neptune)
-	_ = registry.Register(h.pipes)
+	registerLatestServices(registry, h)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -1190,6 +1202,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.MWAAHandler = h.mwaa
 	s.NeptuneHandler = h.neptune
 	s.PipesHandler = h.pipes
+	s.QLDBHandler = h.qldb
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".
