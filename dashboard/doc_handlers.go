@@ -67,6 +67,7 @@ type docPageData struct {
 	CodeStarConnectionsOps     []string
 	DynamoDBStreamsOps         []string
 	PipesOps                   []string
+	QLDBOps                    []string
 	QLDBSessionOps             []string
 }
 
@@ -146,6 +147,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		CodeStarConnectionsOps:     h.getSupportedOps(h.CodeStarConnectionsOps),
 		DynamoDBStreamsOps:         h.getSupportedOps(h.DynamoDBStreamsOps),
 		PipesOps:                   h.getSupportedOps(h.PipesOps),
+		QLDBOps:                    h.getSupportedOps(h.QLDBOps),
 		QLDBSessionOps:             h.getSupportedOps(h.QLDBSessionOps),
 	}
 

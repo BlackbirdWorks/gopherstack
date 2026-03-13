@@ -89,6 +89,7 @@ import (
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
+	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb"               //nolint:staticcheck // AWS deprecated the SDK but service still works
 	qldbsessionsvc "github.com/aws/aws-sdk-go-v2/service/qldbsession" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -2072,8 +2073,6 @@ func createPipesClient(t *testing.T) *pipessvc.Client {
 }
 
 // createQLDBSessionClient returns a QLDB Session client pointed at the shared test container.
-//
-
 func createQLDBSessionClient(t *testing.T) *qldbsessionsvc.Client {
 	t.Helper()
 
@@ -2087,6 +2086,24 @@ func createQLDBSessionClient(t *testing.T) *qldbsessionsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return qldbsessionsvc.NewFromConfig(cfg, func(o *qldbsessionsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createQLDBClient returns a QLDB client pointed at the shared test container.
+func createQLDBClient(t *testing.T) *qldbsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return qldbsvc.NewFromConfig(cfg, func(o *qldbsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

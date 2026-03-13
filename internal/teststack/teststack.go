@@ -95,6 +95,7 @@ import (
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -257,6 +258,8 @@ type Stack struct {
 	MWAAHandler *mwaabackend.Handler
 	// PipesHandler provides access to the EventBridge Pipes backend.
 	PipesHandler *pipesbackend.Handler
+	// QLDBHandler provides access to the QLDB backend.
+	QLDBHandler *qldbbackend.Handler
 	// QLDBSessionHandler provides access to the QLDB Session backend.
 	QLDBSessionHandler *qldbsessionbackend.Handler
 	S3Client           *s3.Client
@@ -462,6 +465,13 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.qldbsession)
 }
 
+// registerLatestServices registers the most recently added service handlers.
+func registerLatestServices(registry *service.Registry, h handlers) {
+	_ = registry.Register(h.neptune)
+	_ = registry.Register(h.pipes)
+	_ = registry.Register(h.qldb)
+}
+
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
 	s3                 *s3backend.S3Handler
@@ -560,6 +570,7 @@ type handlers struct {
 	mwaa               *mwaabackend.Handler
 	neptune            *neptunebackend.Handler
 	pipes              *pipesbackend.Handler
+	qldb               *qldbbackend.Handler
 	qldbsession        *qldbsessionbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
@@ -847,6 +858,7 @@ func populateLatestHandlers(h *handlers) {
 		neptunebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.qldb = qldbbackend.NewHandler(qldbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	h.qldbsession = qldbsessionbackend.NewHandler(
 		qldbsessionbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -1005,6 +1017,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.MWAAOps = h.mwaa
 	cfg.NeptuneOps = h.neptune
 	cfg.PipesOps = h.pipes
+	cfg.QLDBOps = h.qldb
 	cfg.QLDBSessionOps = h.qldbsession
 }
 
@@ -1068,8 +1081,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.mwaa)
 	registerMediaServices(registry, h)
-	_ = registry.Register(h.neptune)
-	_ = registry.Register(h.pipes)
+	registerLatestServices(registry, h)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -1209,6 +1221,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.MWAAHandler = h.mwaa
 	s.NeptuneHandler = h.neptune
 	s.PipesHandler = h.pipes
+	s.QLDBHandler = h.qldb
 	s.QLDBSessionHandler = h.qldbsession
 }
 

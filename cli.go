@@ -128,6 +128,7 @@ import (
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -268,6 +269,7 @@ type CLI struct {
 	mwaaHandler                   service.Registerable
 	neptuneHandler                service.Registerable
 	pipesHandler                  service.Registerable
+	qldbHandler                   service.Registerable
 	qldbsessionHandler            service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
@@ -700,6 +702,11 @@ func (c *CLI) GetMWAAHandler() service.Registerable { return c.mwaaHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetPipesHandler() service.Registerable { return c.pipesHandler }
+
+// GetQLDBHandler returns the QLDB handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetQLDBHandler() service.Registerable { return c.qldbHandler }
 
 // GetQLDBSessionHandler returns the QLDB Session handler (dashboard.AWSSDKProvider).
 //
@@ -1377,6 +1384,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 	cli.pipesHandler = byName["Pipes"]
+	cli.qldbHandler = byName["QLDB"]
 	cli.qldbsessionHandler = byName["QLDBSession"]
 }
 
@@ -1496,7 +1504,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 // getServiceProviders returns the list of all available service providers.
 func getServiceProviders() []service.Provider {
-	return []service.Provider{
+	return append([]service.Provider{
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
@@ -1593,7 +1601,13 @@ func getServiceProviders() []service.Provider {
 		&memorydbbackend.Provider{},
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},
+	}, getNewestServiceProviders()...)
+}
+
+func getNewestServiceProviders() []service.Provider {
+	return []service.Provider{
 		&pipesbackend.Provider{},
+		&qldbbackend.Provider{},
 		&qldbsessionbackend.Provider{},
 	}
 }

@@ -96,6 +96,7 @@ import (
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -289,6 +290,8 @@ type DashboardHandler struct {
 	NeptuneOps *neptunebackend.Handler
 	// PipesOps provides access to the EventBridge Pipes backend.
 	PipesOps *pipesbackend.Handler
+	// QLDBOps provides access to the QLDB backend.
+	QLDBOps *qldbbackend.Handler
 	// QLDBSessionOps provides access to the QLDB Session backend.
 	QLDBSessionOps *qldbsessionbackend.Handler
 	SubRouter      *echo.Echo
@@ -493,6 +496,8 @@ type Config struct {
 	NeptuneOps *neptunebackend.Handler
 	// PipesOps provides access to the EventBridge Pipes backend.
 	PipesOps *pipesbackend.Handler
+	// QLDBOps provides access to the QLDB backend.
+	QLDBOps *qldbbackend.Handler
 	// QLDBSessionOps provides access to the QLDB Session backend.
 	QLDBSessionOps *qldbsessionbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -524,7 +529,7 @@ func parseDashboardTemplates() *template.Template {
 }
 
 func dashboardTemplatePatterns() []string {
-	return []string{
+	return append([]string{
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
@@ -617,6 +622,14 @@ func dashboardTemplatePatterns() []string {
 		"templates/mwaa/*.html",
 		"templates/organizations/*.html",
 		"templates/neptune/*.html",
+	}, newestDashboardTemplatePatterns()...)
+}
+
+func newestDashboardTemplatePatterns() []string {
+	return []string{
+		"templates/pipes/*.html",
+		"templates/qldb/*.html",
+		"templates/qldbsession/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -760,6 +773,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.MWAAOps = cfg.MWAAOps
 	h.NeptuneOps = cfg.NeptuneOps
 	h.PipesOps = cfg.PipesOps
+	h.QLDBOps = cfg.QLDBOps
 	h.QLDBSessionOps = cfg.QLDBSessionOps
 }
 
@@ -1266,6 +1280,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupOrganizationsRoutes()
 	h.setupNeptuneRoutes()
 	h.setupPipesRoutes()
+	h.setupQLDBRoutes()
 	h.setupQLDBSessionRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
@@ -1392,6 +1407,8 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/mediastore", "MediaStore"},
 	{"/mediastoredata", "MediaStoreData"},
 	{"/neptune", "Neptune"},
+	{"/pipes", "Pipes"},
+	{"/qldb", "QLDB"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
