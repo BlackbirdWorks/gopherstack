@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -255,6 +256,10 @@ func tagsToItems(tags map[string]string) []tagItem {
 	for k, v := range tags {
 		items = append(items, tagItem{Key: k, Value: v})
 	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Key < items[j].Key
+	})
 
 	return items
 }

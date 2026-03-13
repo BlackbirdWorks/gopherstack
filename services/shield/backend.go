@@ -131,6 +131,10 @@ func (b *InMemoryBackend) CreateProtection(name, resourceARN string, tags map[st
 				resourceARN,
 			)
 		}
+
+		if p.Name == name {
+			return nil, fmt.Errorf("%w: protection with name %q already exists", ErrProtectionAlreadyExists, name)
+		}
 	}
 
 	protectionARN := arn.Build("shield", b.region, b.accountID, "protection/"+name)

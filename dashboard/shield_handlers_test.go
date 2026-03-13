@@ -90,6 +90,7 @@ func TestDashboard_Shield_Subscribe(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup    func(*testing.T, *teststack.Stack)
 		name     string
 		wantCode int
 	}{
@@ -98,16 +99,26 @@ func TestDashboard_Shield_Subscribe(t *testing.T) {
 			wantCode: http.StatusSeeOther,
 		},
 		{
-			name:     "subscribe is idempotent",
+			name: "subscribe is idempotent when already subscribed",
+			setup: func(t *testing.T, s *teststack.Stack) {
+				t.Helper()
+
+				err := s.ShieldHandler.Backend.CreateSubscription()
+				require.NoError(t, err)
+			},
 			wantCode: http.StatusSeeOther,
 		},
 	}
 
-	s := newStack(t)
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			s := newStack(t)
+
+			if tt.setup != nil {
+				tt.setup(t, s)
+			}
 
 			req := httptest.NewRequest(http.MethodPost, "/dashboard/shield/subscribe", nil)
 			w := httptest.NewRecorder()
