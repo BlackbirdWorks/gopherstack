@@ -99,6 +99,7 @@ import (
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
@@ -293,7 +294,9 @@ type DashboardHandler struct {
 	// PipesOps provides access to the EventBridge Pipes backend.
 	PipesOps *pipesbackend.Handler
 	// QLDBOps provides access to the QLDB backend.
-	QLDBOps      *qldbbackend.Handler
+	QLDBOps *qldbbackend.Handler
+	// RDSDataOps provides access to the RDS Data backend.
+	RDSDataOps   *rdsdatabackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -500,6 +503,8 @@ type Config struct {
 	PipesOps *pipesbackend.Handler
 	// QLDBOps provides access to the QLDB backend.
 	QLDBOps *qldbbackend.Handler
+	// RDSDataOps provides access to the RDS Data backend.
+	RDSDataOps *rdsdatabackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -632,6 +637,7 @@ func latestDashboardTemplatePatterns() []string {
 		"templates/neptune/*.html",
 		"templates/pipes/*.html",
 		"templates/qldb/*.html",
+		"templates/rdsdata/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -777,6 +783,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.NeptuneOps = cfg.NeptuneOps
 	h.PipesOps = cfg.PipesOps
 	h.QLDBOps = cfg.QLDBOps
+	h.RDSDataOps = cfg.RDSDataOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1284,6 +1291,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupNeptuneRoutes()
 	h.setupPipesRoutes()
 	h.setupQLDBRoutes()
+	h.setupRDSDataRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1411,6 +1419,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/neptune", "Neptune"},
 	{"/pipes", "Pipes"},
 	{"/qldb", "QLDB"},
+	{"/rdsdata", "RDSData"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

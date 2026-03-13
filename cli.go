@@ -131,6 +131,7 @@ import (
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
@@ -271,6 +272,7 @@ type CLI struct {
 	pinpointHandler               service.Registerable
 	pipesHandler                  service.Registerable
 	qldbHandler                   service.Registerable
+	rdsdataHandler                service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -712,6 +714,11 @@ func (c *CLI) GetPipesHandler() service.Registerable { return c.pipesHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetQLDBHandler() service.Registerable { return c.qldbHandler }
+
+// GetRDSDataHandler returns the RDS Data handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRDSDataHandler() service.Registerable { return c.rdsdataHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1386,6 +1393,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.pinpointHandler = byName["Pinpoint"]
 	cli.pipesHandler = byName["Pipes"]
 	cli.qldbHandler = byName["QLDB"]
+	cli.rdsdataHandler = byName["RDSData"]
 }
 
 // initializeServices initializes all service providers.
@@ -1611,6 +1619,7 @@ func getLatestServiceProviders() []service.Provider {
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&qldbbackend.Provider{},
+		&rdsdatabackend.Provider{},
 	}
 }
 

@@ -107,6 +107,7 @@ import (
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
 	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
+	rdsdatasvc "github.com/aws/aws-sdk-go-v2/service/rdsdata"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	taggingsvc "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
@@ -265,6 +266,7 @@ provider "aws" {
     pinpoint        = %[1]q
     pipes           = %[1]q
     qldb            = %[1]q
+    rdsdata         = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
     resourcegroupstaggingapi = %[1]q
@@ -310,6 +312,35 @@ provider "aws" {
   endpoints {
     rds = %[1]q
     sts = %[1]q
+  }
+}
+`, addr)
+}
+
+// rdsdataProviderBlock returns an OpenTofu provider block that includes the rds and rdsdata endpoints.
+func rdsdataProviderBlock(addr string) string {
+	return fmt.Sprintf(`terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+  required_version = ">= 1.0"
+}
+
+provider "aws" {
+  region                      = "us-east-1"
+  access_key                  = "test"
+  secret_key                  = "test"
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+
+  endpoints {
+    rds     = %[1]q
+    rdsdata = %[1]q
+    sts     = %[1]q
   }
 }
 `, addr)
@@ -5442,6 +5473,50 @@ func TestTerraform_QLDB(t *testing.T) {
 					out.Name, //nolint:staticcheck // AWS deprecated the SDK but service still works
 				)
 				assert.Equal(t, vars["LedgerName"].(string), ledgerName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_RDSData provisions an Aurora cluster and verifies the RDS Data API is accessible.
+func TestTerraform_RDSData(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:       "success",
+			fixture:    "rdsdata/success",
+			providerFn: rdsdataProviderBlock,
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ClusterIdentifier": "tf-rdsdata-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				clusterID := vars["ClusterIdentifier"].(string)
+				resourceARN := "arn:aws:rds:us-east-1:000000000000:cluster:" + clusterID
+				secretARN := "arn:aws:secretsmanager:us-east-1:000000000000:secret:rdsdata-test"
+
+				client := createRDSDataClient(t)
+
+				out, err := client.ExecuteStatement(ctx, &rdsdatasvc.ExecuteStatementInput{
+					ResourceArn: aws.String(resourceARN),
+					SecretArn:   aws.String(secretARN),
+					Sql:         aws.String("SELECT 1"),
+				})
+				require.NoError(t, err, "ExecuteStatement should succeed after terraform apply")
+				assert.NotNil(t, out)
 			},
 		},
 	}
