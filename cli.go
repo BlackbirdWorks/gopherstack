@@ -1504,7 +1504,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 // getServiceProviders returns the list of all available service providers.
 func getServiceProviders() []service.Provider {
-	return []service.Provider{
+	return append([]service.Provider{
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
@@ -1598,6 +1598,13 @@ func getServiceProviders() []service.Provider {
 		&mqbackend.Provider{},
 		&mediastorebackend.Provider{},
 		&mediastoredatabackend.Provider{},
+	}, getLatestServiceProviders()...)
+}
+
+// getLatestServiceProviders returns providers for additional services.
+// Extracted from getServiceProviders to satisfy the funlen limit.
+func getLatestServiceProviders() []service.Provider {
+	return []service.Provider{
 		&memorydbbackend.Provider{},
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},

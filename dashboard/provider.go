@@ -976,7 +976,7 @@ func applyLatestConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MemoryDBOps = ec.memorydbOps
 }
 
-// applyLatestServiceConfig sets the MWAA, Neptune, Organizations, Pinpoint, and Pipes ops fields on the dashboard config.
+// applyLatestServiceConfig sets the most recently added service ops fields on the dashboard config.
 // Extracted from applyExtendedConfig to satisfy the funlen limit.
 func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MWAAOps = ec.mwaaOps

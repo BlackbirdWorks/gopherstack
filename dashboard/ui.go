@@ -529,7 +529,7 @@ func parseDashboardTemplates() *template.Template {
 }
 
 func dashboardTemplatePatterns() []string {
-	return []string{
+	return append([]string{
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
@@ -621,6 +621,13 @@ func dashboardTemplatePatterns() []string {
 		"templates/memorydb/*.html",
 		"templates/mwaa/*.html",
 		"templates/organizations/*.html",
+	}, latestDashboardTemplatePatterns()...)
+}
+
+// latestDashboardTemplatePatterns returns template glob patterns for additional services.
+// Extracted from dashboardTemplatePatterns to satisfy the funlen limit.
+func latestDashboardTemplatePatterns() []string {
+	return []string{
 		"templates/pinpoint/*.html",
 		"templates/neptune/*.html",
 		"templates/pipes/*.html",
