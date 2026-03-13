@@ -43,9 +43,28 @@ type tagResourceRequest struct {
 }
 
 // appSettingsResponse is the JSON representation of ApplicationSettingsResource.
+// CampaignHook, Limits, and QuietTime must be non-nil empty objects so the
+// Terraform provider's flatten helpers do not dereference nil pointers.
 type appSettingsResponse struct {
-	ApplicationID    string `json:"ApplicationId"`
-	LastModifiedDate string `json:"LastModifiedDate,omitempty"`
+	CampaignHook     map[string]any `json:"CampaignHook"`
+	Limits           map[string]any `json:"Limits"`
+	QuietTime        map[string]any `json:"QuietTime"`
+	ApplicationID    string         `json:"ApplicationId"`
+	LastModifiedDate string         `json:"LastModifiedDate,omitempty"`
+}
+
+// newAppSettingsResponse builds an ApplicationSettingsResource response with
+// empty (non-nil) nested objects for CampaignHook, Limits, and QuietTime.
+// The Terraform provider's flatten helpers dereference these pointers directly
+// and panic if they are nil, so we must always return non-nil empty structs.
+func newAppSettingsResponse(appID string) appSettingsResponse {
+	return appSettingsResponse{
+		ApplicationID:    appID,
+		LastModifiedDate: nowRFC3339(),
+		CampaignHook:     map[string]any{},
+		Limits:           map[string]any{},
+		QuietTime:        map[string]any{},
+	}
 }
 
 // nowRFC3339 returns the current UTC time formatted as RFC 3339.

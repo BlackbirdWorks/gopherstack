@@ -360,6 +360,11 @@ func TestHandler_ApplicationSettings(t *testing.T) {
 			var settingsResp map[string]any
 			require.NoError(t, json.NewDecoder(rec2.Body).Decode(&settingsResp))
 			assert.Equal(t, appID, settingsResp["ApplicationId"])
+			// CampaignHook, Limits, and QuietTime must be non-nil empty objects so
+			// the Terraform provider flatten helpers don't panic on nil dereferences.
+			assert.NotNil(t, settingsResp["CampaignHook"])
+			assert.NotNil(t, settingsResp["Limits"])
+			assert.NotNil(t, settingsResp["QuietTime"])
 		})
 	}
 }

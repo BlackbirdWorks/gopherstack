@@ -320,10 +320,7 @@ func (h *Handler) handleGetApps(c *echo.Context) error {
 
 // handleGetApplicationSettings handles GET /v1/apps/{appId}/settings.
 func (h *Handler) handleGetApplicationSettings(c *echo.Context, appID string) error {
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, appSettingsResponse{
-		ApplicationID:    appID,
-		LastModifiedDate: nowRFC3339(),
-	})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, newAppSettingsResponse(appID))
 
 	return nil
 }
@@ -333,10 +330,7 @@ func (h *Handler) handleUpdateApplicationSettings(c *echo.Context, appID string)
 	// Read and discard the body; no settings are persisted in the mock backend.
 	_, _ = httputils.ReadBody(c.Request())
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, appSettingsResponse{
-		ApplicationID:    appID,
-		LastModifiedDate: nowRFC3339(),
-	})
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, newAppSettingsResponse(appID))
 
 	return nil
 }
