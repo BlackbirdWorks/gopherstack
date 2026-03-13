@@ -111,6 +111,7 @@ import (
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
+	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
@@ -306,6 +307,8 @@ type DashboardHandler struct {
 	RedshiftDataOps *redshiftdatabackend.Handler
 	// SageMakerOps provides access to the SageMaker backend.
 	SageMakerOps *sagemakerbackend.Handler
+	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
+	ServerlessRepoOps *serverlessrepobackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -520,6 +523,8 @@ type Config struct {
 	RedshiftDataOps *redshiftdatabackend.Handler
 	// SageMakerOps provides access to the SageMaker backend.
 	SageMakerOps *sagemakerbackend.Handler
+	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
+	ServerlessRepoOps *serverlessrepobackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -818,6 +823,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.RAMOps = cfg.RAMOps
 	h.RedshiftDataOps = cfg.RedshiftDataOps
 	h.SageMakerOps = cfg.SageMakerOps
+	h.ServerlessRepoOps = cfg.ServerlessRepoOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1339,6 +1345,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupRAMRoutes()
 	h.setupRedshiftDataRoutes()
 	h.setupSageMakerRoutes()
+	h.setupServerlessRepoRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
