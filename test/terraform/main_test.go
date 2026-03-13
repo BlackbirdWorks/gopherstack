@@ -112,6 +112,7 @@ import (
 	snssvc "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssoadminsvc "github.com/aws/aws-sdk-go-v2/service/ssoadmin"
 	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
@@ -2218,6 +2219,24 @@ func createSageMakerRuntimeClient(t *testing.T) *sagemakerruntimesvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return sagemakerruntimesvc.NewFromConfig(cfg, func(o *sagemakerruntimesvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSsoAdminClient returns an SSO Admin client pointed at the shared test container.
+func createSsoAdminClient(t *testing.T) *ssoadminsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return ssoadminsvc.NewFromConfig(cfg, func(o *ssoadminsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

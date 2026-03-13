@@ -73,6 +73,7 @@ type docPageData struct {
 	RedshiftDataOps            []string
 	SageMakerOps               []string
 	SageMakerRuntimeOps        []string
+	SsoAdminOps                []string
 	TextractOps                []string
 }
 
@@ -158,6 +159,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		RedshiftDataOps:            h.getSupportedOps(h.RedshiftDataOps),
 		SageMakerOps:               h.getSupportedOps(h.SageMakerOps),
 		SageMakerRuntimeOps:        h.getSupportedOps(h.SageMakerRuntimeOps),
+		SsoAdminOps:                h.getSupportedOps(h.SsoAdminOps),
 		TextractOps:                h.getSupportedOps(h.TextractOps),
 	}
 

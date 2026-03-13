@@ -77,6 +77,7 @@ import (
 	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 
@@ -229,6 +230,7 @@ type AWSSDKProvider interface {
 	GetSageMakerRuntimeHandler() service.Registerable
 	GetServerlessRepoHandler() service.Registerable
 	GetShieldHandler() service.Registerable
+	GetSsoAdminHandler() service.Registerable
 	GetTextractHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
@@ -353,6 +355,7 @@ type extractedConfig struct {
 	sagemakerRuntimeOps       *sagemakerruntimebackend.Handler
 	serverlessrepoOps         *serverlessrepobackend.Handler
 	shieldOps                 *shieldbackend.Handler
+	ssoadminOps               *ssoadminbackend.Handler
 	textractOps               *textractbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
@@ -856,8 +859,17 @@ func extractLatestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.serverlessrepoOps, _ = h.(*serverlessrepobackend.Handler)
 	}
 
+	extractSsoAndMLHandlers(ap, ec)
+}
+
+// extractSsoAndMLHandlers populates Shield, SSO Admin and ML/document service handlers on ec.
+func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetShieldHandler(); h != nil {
 		ec.shieldOps, _ = h.(*shieldbackend.Handler)
+	}
+
+	if h := ap.GetSsoAdminHandler(); h != nil {
+		ec.ssoadminOps, _ = h.(*ssoadminbackend.Handler)
 	}
 
 	if h := ap.GetTextractHandler(); h != nil {
@@ -1061,5 +1073,6 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.SageMakerRuntimeOps = ec.sagemakerRuntimeOps
 	cfg.ServerlessRepoOps = ec.serverlessrepoOps
 	cfg.ShieldOps = ec.shieldOps
+	cfg.SsoAdminOps = ec.ssoadminOps
 	cfg.TextractOps = ec.textractOps
 }

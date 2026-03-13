@@ -121,6 +121,7 @@ import (
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
@@ -319,6 +320,8 @@ type DashboardHandler struct {
 	ServerlessRepoOps *serverlessrepobackend.Handler
 	// ShieldOps provides access to the Shield backend.
 	ShieldOps *shieldbackend.Handler
+	// SsoAdminOps provides access to the SSO Admin backend.
+	SsoAdminOps  *ssoadminbackend.Handler
 	// TextractOps provides access to the Textract backend.
 	TextractOps  *textractbackend.Handler
 	SubRouter    *echo.Echo
@@ -543,6 +546,8 @@ type Config struct {
 	ServerlessRepoOps *serverlessrepobackend.Handler
 	// ShieldOps provides access to the Shield backend.
 	ShieldOps *shieldbackend.Handler
+	// SsoAdminOps provides access to the SSO Admin backend.
+	SsoAdminOps *ssoadminbackend.Handler
 	// TextractOps provides access to the Textract backend.
 	TextractOps *textractbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -697,6 +702,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/redshiftdata/*.html",
 		"templates/sagemaker/*.html",
 		"templates/sagemakerrumtime/*.html",
+		"templates/ssoadmin/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/textract/*.html",
@@ -851,6 +857,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.SageMakerRuntimeOps = cfg.SageMakerRuntimeOps
 	h.ServerlessRepoOps = cfg.ServerlessRepoOps
 	h.ShieldOps = cfg.ShieldOps
+	h.SsoAdminOps = cfg.SsoAdminOps
 	h.TextractOps = cfg.TextractOps
 }
 
@@ -1377,6 +1384,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupSageMakerRuntimeRoutes()
 	h.setupServerlessRepoRoutes()
 	h.setupShieldRoutes()
+	h.setupSsoAdminRoutes()
 	h.setupTextractRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
