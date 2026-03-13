@@ -102,6 +102,7 @@ import (
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
@@ -301,6 +302,8 @@ type DashboardHandler struct {
 	QLDBSessionOps *qldbsessionbackend.Handler
 	// RAMOps provides access to the RAM backend.
 	RAMOps *rambackend.Handler
+	// RedshiftDataOps provides access to the Redshift Data backend.
+	RedshiftDataOps *redshiftdatabackend.Handler
 	// SageMakerOps provides access to the SageMaker backend.
 	SageMakerOps *sagemakerbackend.Handler
 	SubRouter    *echo.Echo
@@ -513,6 +516,8 @@ type Config struct {
 	QLDBSessionOps *qldbsessionbackend.Handler
 	// RAMOps provides access to the RAM backend.
 	RAMOps *rambackend.Handler
+	// RedshiftDataOps provides access to the Redshift Data backend.
+	RedshiftDataOps *redshiftdatabackend.Handler
 	// SageMakerOps provides access to the SageMaker backend.
 	SageMakerOps *sagemakerbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -663,6 +668,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/qldb/*.html",
 		"templates/qldbsession/*.html",
 		"templates/ram/*.html",
+		"templates/redshiftdata/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -810,6 +816,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.QLDBOps = cfg.QLDBOps
 	h.QLDBSessionOps = cfg.QLDBSessionOps
 	h.RAMOps = cfg.RAMOps
+	h.RedshiftDataOps = cfg.RedshiftDataOps
 	h.SageMakerOps = cfg.SageMakerOps
 }
 
@@ -1298,6 +1305,11 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEmrServerlessRoutes()
 	h.setupEMRRoutes()
 	h.setupIdentityStoreRoutes()
+	h.setupNewestServiceRoutes()
+}
+
+// setupNewestServiceRoutes sets up dashboard routes for the newest services.
+func (h *DashboardHandler) setupNewestServiceRoutes() {
 	h.setupGlacierRoutes()
 	h.setupIoTAnalyticsRoutes()
 	h.setupIoTWirelessRoutes()
@@ -1325,6 +1337,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupQLDBRoutes()
 	h.setupQLDBSessionRoutes()
 	h.setupRAMRoutes()
+	h.setupRedshiftDataRoutes()
 	h.setupSageMakerRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {

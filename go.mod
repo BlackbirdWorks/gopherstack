@@ -136,6 +136,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/qldb v1.32.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/qldbsession v1.32.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ram v1.36.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/redshiftdata v1.38.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.236.0 // indirect
 )
 

@@ -101,6 +101,7 @@ import (
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	rgtabackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
@@ -269,6 +270,8 @@ type Stack struct {
 	QLDBSessionHandler *qldbsessionbackend.Handler
 	// RAMHandler provides access to the RAM backend.
 	RAMHandler *rambackend.Handler
+	// RedshiftDataHandler provides access to the Redshift Data backend.
+	RedshiftDataHandler *redshiftdatabackend.Handler
 	// SageMakerHandler provides access to the SageMaker backend.
 	SageMakerHandler *sagemakerbackend.Handler
 	S3Client         *s3.Client
@@ -481,6 +484,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.pipes)
 	_ = registry.Register(h.qldb)
 	_ = registry.Register(h.ram)
+	_ = registry.Register(h.redshiftdata)
 	_ = registry.Register(h.sagemaker)
 }
 
@@ -586,6 +590,7 @@ type handlers struct {
 	qldb               *qldbbackend.Handler
 	qldbsession        *qldbsessionbackend.Handler
 	ram                *rambackend.Handler
+	redshiftdata       *redshiftdatabackend.Handler
 	sagemaker          *sagemakerbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
@@ -884,6 +889,9 @@ func populateLatestHandlers(h *handlers) {
 		qldbsessionbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.ram = rambackend.NewHandler(rambackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.redshiftdata = redshiftdatabackend.NewHandler(
+		redshiftdatabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.sagemaker = sagemakerbackend.NewHandler(
 		sagemakerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -1046,6 +1054,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.QLDBOps = h.qldb
 	cfg.QLDBSessionOps = h.qldbsession
 	cfg.RAMOps = h.ram
+	cfg.RedshiftDataOps = h.redshiftdata
 	cfg.SageMakerOps = h.sagemaker
 }
 
@@ -1253,6 +1262,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.QLDBHandler = h.qldb
 	s.QLDBSessionHandler = h.qldbsession
 	s.RAMHandler = h.ram
+	s.RedshiftDataHandler = h.redshiftdata
 	s.SageMakerHandler = h.sagemaker
 }
 
