@@ -93,6 +93,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -278,7 +279,9 @@ type DashboardHandler struct {
 	// MemoryDBOps provides access to the MemoryDB backend.
 	MemoryDBOps *memorydbbackend.Handler
 	// MWAAOps provides access to the MWAA backend.
-	MWAAOps      *mwaabackend.Handler
+	MWAAOps *mwaabackend.Handler
+	// PinpointOps provides access to the Pinpoint backend.
+	PinpointOps  *pinpointbackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -475,6 +478,8 @@ type Config struct {
 	MemoryDBOps *memorydbbackend.Handler
 	// MWAAOps provides access to the MWAA backend.
 	MWAAOps *mwaabackend.Handler
+	// PinpointOps provides access to the Pinpoint backend.
+	PinpointOps *pinpointbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -595,6 +600,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/mediastoredata/*.html",
 		"templates/memorydb/*.html",
 		"templates/mwaa/*.html",
+		"templates/pinpoint/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -735,6 +741,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.MQOps = cfg.MQOps
 	h.MediaStoreDataOps = cfg.MediaStoreDataOps
 	h.MWAAOps = cfg.MWAAOps
+	h.PinpointOps = cfg.PinpointOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1237,6 +1244,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMediaStoreDataRoutes()
 	h.setupMemoryDBRoutes()
 	h.setupMWAARoutes()
+	h.setupPinpointRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {

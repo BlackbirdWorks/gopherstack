@@ -64,6 +64,7 @@ import (
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -202,6 +203,7 @@ type AWSSDKProvider interface {
 	GetMediaStoreDataHandler() service.Registerable
 	GetMemoryDBHandler() service.Registerable
 	GetMWAAHandler() service.Registerable
+	GetPinpointHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -312,6 +314,7 @@ type extractedConfig struct {
 	mediastoredataOps         *mediastoredatabackend.Handler
 	memorydbOps               *memorydbbackend.Handler
 	mwaaOps                   *mwaabackend.Handler
+	pinpointOps               *pinpointbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -338,6 +341,10 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 	}
 
 	extractIntegrationHandlers(ap, &ec)
+
+	if h := ap.GetPinpointHandler(); h != nil {
+		ec.pinpointOps, _ = h.(*pinpointbackend.Handler)
+	}
 
 	return ec
 }
@@ -886,4 +893,5 @@ func applyLatestConfig(cfg *Config, ec *extractedConfig) {
 // Extracted from applyExtendedConfig to satisfy the funlen limit.
 func applyMWAAConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MWAAOps = ec.mwaaOps
+	cfg.PinpointOps = ec.pinpointOps
 }

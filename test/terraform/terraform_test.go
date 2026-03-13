@@ -101,6 +101,7 @@ import (
 	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
 	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
+	pinpointsvc "github.com/aws/aws-sdk-go-v2/service/pinpoint"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -255,6 +256,7 @@ provider "aws" {
     mq              = %[1]q
     mwaa            = %[1]q
     opensearch      = %[1]q
+    pinpoint        = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
     resourcegroupstaggingapi = %[1]q
@@ -5152,6 +5154,54 @@ func TestTerraform_MWAA(t *testing.T) {
 				found := slices.Contains(out.Environments, envName)
 
 				assert.True(t, found, "created environment should appear in ListEnvironments output")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Pinpoint provisions a Pinpoint app via Terraform, then verifies
+// it is listed via the Pinpoint SDK.
+func TestTerraform_Pinpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "pinpoint/app",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"AppName": "tfpp-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createPinpointClient(t)
+				appName := vars["AppName"].(string)
+
+				out, err := client.GetApps(ctx, &pinpointsvc.GetAppsInput{})
+				require.NoError(t, err, "GetApps should succeed after terraform apply")
+
+				found := false
+
+				for _, item := range out.ApplicationsResponse.Item {
+					if item.Name != nil && *item.Name == appName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "created app should appear in GetApps output")
 			},
 		},
 	}

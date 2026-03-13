@@ -125,6 +125,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -261,6 +262,7 @@ type CLI struct {
 	mediastoredataHandler         service.Registerable
 	memorydbHandler               service.Registerable
 	mwaaHandler                   service.Registerable
+	pinpointHandler               service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -677,6 +679,11 @@ func (c *CLI) GetMemoryDBHandler() service.Registerable { return c.memorydbHandl
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMWAAHandler() service.Registerable { return c.mwaaHandler }
+
+// GetPinpointHandler returns the Pinpoint handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetPinpointHandler() service.Registerable { return c.pinpointHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1341,6 +1348,7 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.mwaaHandler = byName["MWAA"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
+	cli.pinpointHandler = byName["Pinpoint"]
 }
 
 // initializeServices initializes all service providers.
@@ -1554,6 +1562,7 @@ func getServiceProviders() []service.Provider {
 		&mediastoredatabackend.Provider{},
 		&memorydbbackend.Provider{},
 		&mwaabackend.Provider{},
+		&pinpointbackend.Provider{},
 	}
 }
 
