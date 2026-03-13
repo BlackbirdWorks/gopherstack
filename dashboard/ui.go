@@ -95,6 +95,7 @@ import (
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -285,6 +286,8 @@ type DashboardHandler struct {
 	OrganizationsOps *organizationsbackend.Handler
 	// MWAAOps provides access to the MWAA backend.
 	MWAAOps *mwaabackend.Handler
+	// PinpointOps provides access to the Pinpoint backend.
+	PinpointOps *pinpointbackend.Handler
 	// NeptuneOps provides access to the Neptune backend.
 	NeptuneOps *neptunebackend.Handler
 	// PipesOps provides access to the EventBridge Pipes backend.
@@ -489,6 +492,8 @@ type Config struct {
 	OrganizationsOps *organizationsbackend.Handler
 	// MWAAOps provides access to the MWAA backend.
 	MWAAOps *mwaabackend.Handler
+	// PinpointOps provides access to the Pinpoint backend.
+	PinpointOps *pinpointbackend.Handler
 	// NeptuneOps provides access to the Neptune backend.
 	NeptuneOps *neptunebackend.Handler
 	// PipesOps provides access to the EventBridge Pipes backend.
@@ -524,7 +529,7 @@ func parseDashboardTemplates() *template.Template {
 }
 
 func dashboardTemplatePatterns() []string {
-	return []string{
+	return append([]string{
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
@@ -616,6 +621,14 @@ func dashboardTemplatePatterns() []string {
 		"templates/memorydb/*.html",
 		"templates/mwaa/*.html",
 		"templates/organizations/*.html",
+	}, latestDashboardTemplatePatterns()...)
+}
+
+// latestDashboardTemplatePatterns returns template glob patterns for additional services.
+// Extracted from dashboardTemplatePatterns to satisfy the funlen limit.
+func latestDashboardTemplatePatterns() []string {
+	return []string{
+		"templates/pinpoint/*.html",
 		"templates/neptune/*.html",
 		"templates/pipes/*.html",
 		"templates/qldb/*.html",
@@ -760,6 +773,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.MQOps = cfg.MQOps
 	h.MediaStoreDataOps = cfg.MediaStoreDataOps
 	h.MWAAOps = cfg.MWAAOps
+	h.PinpointOps = cfg.PinpointOps
 	h.NeptuneOps = cfg.NeptuneOps
 	h.PipesOps = cfg.PipesOps
 	h.QLDBOps = cfg.QLDBOps
@@ -1266,6 +1280,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMemoryDBRoutes()
 	h.setupMWAARoutes()
 	h.setupOrganizationsRoutes()
+	h.setupPinpointRoutes()
 	h.setupNeptuneRoutes()
 	h.setupPipesRoutes()
 	h.setupQLDBRoutes()

@@ -94,6 +94,7 @@ import (
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -255,6 +256,8 @@ type Stack struct {
 	OrganizationsHandler *organizationsbackend.Handler
 	// MWAAHandler provides access to the MWAA backend.
 	MWAAHandler *mwaabackend.Handler
+	// PinpointHandler provides access to the Pinpoint backend.
+	PinpointHandler *pinpointbackend.Handler
 	// PipesHandler provides access to the EventBridge Pipes backend.
 	PipesHandler *pipesbackend.Handler
 	// QLDBHandler provides access to the QLDB backend.
@@ -464,6 +467,7 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 // registerLatestServices registers the most recently added service handlers.
 func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.neptune)
+	_ = registry.Register(h.pinpoint)
 	_ = registry.Register(h.pipes)
 	_ = registry.Register(h.qldb)
 }
@@ -564,6 +568,7 @@ type handlers struct {
 	memorydb           *memorydbbackend.Handler
 	organizations      *organizationsbackend.Handler
 	mwaa               *mwaabackend.Handler
+	pinpoint           *pinpointbackend.Handler
 	neptune            *neptunebackend.Handler
 	pipes              *pipesbackend.Handler
 	qldb               *qldbbackend.Handler
@@ -849,6 +854,12 @@ func populateLatestHandlers(h *handlers) {
 	h.mwaa = mwaabackend.NewHandler(mwaabackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID))
 	h.mwaa.AccountID = config.DefaultAccountID
 	h.mwaa.DefaultRegion = config.DefaultRegion
+
+	h.pinpoint = pinpointbackend.NewHandler(
+		pinpointbackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID),
+	)
+	h.pinpoint.AccountID = config.DefaultAccountID
+	h.pinpoint.DefaultRegion = config.DefaultRegion
 	h.neptune = neptunebackend.NewHandler(
 		neptunebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -1007,6 +1018,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.MemoryDBOps = h.memorydb
 	cfg.OrganizationsOps = h.organizations
 	cfg.MWAAOps = h.mwaa
+	cfg.PinpointOps = h.pinpoint
 	cfg.NeptuneOps = h.neptune
 	cfg.PipesOps = h.pipes
 	cfg.QLDBOps = h.qldb
@@ -1071,8 +1083,8 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
 	_ = registry.Register(h.mwaa)
-	registerMediaServices(registry, h)
 	registerLatestServices(registry, h)
+	registerMediaServices(registry, h)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -1210,6 +1222,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.MemoryDBHandler = h.memorydb
 	s.OrganizationsHandler = h.organizations
 	s.MWAAHandler = h.mwaa
+	s.PinpointHandler = h.pinpoint
 	s.NeptuneHandler = h.neptune
 	s.PipesHandler = h.pipes
 	s.QLDBHandler = h.qldb

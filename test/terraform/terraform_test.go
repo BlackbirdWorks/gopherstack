@@ -103,6 +103,7 @@ import (
 	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
+	pinpointsvc "github.com/aws/aws-sdk-go-v2/service/pinpoint"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
 	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
@@ -261,6 +262,7 @@ provider "aws" {
     mwaa            = %[1]q
     opensearch      = %[1]q
     organizations   = %[1]q
+    pinpoint        = %[1]q
     pipes           = %[1]q
     qldb            = %[1]q
     redshift        = %[1]q
@@ -5311,6 +5313,54 @@ func TestTerraform_MWAA(t *testing.T) {
 				found := slices.Contains(out.Environments, envName)
 
 				assert.True(t, found, "created environment should appear in ListEnvironments output")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Pinpoint provisions a Pinpoint app via Terraform, then verifies
+// it is listed via the Pinpoint SDK.
+func TestTerraform_Pinpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "pinpoint/app",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"AppName": "tfpp-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createPinpointClient(t)
+				appName := vars["AppName"].(string)
+
+				out, err := client.GetApps(ctx, &pinpointsvc.GetAppsInput{})
+				require.NoError(t, err, "GetApps should succeed after terraform apply")
+
+				found := false
+
+				for _, item := range out.ApplicationsResponse.Item {
+					if item.Name != nil && *item.Name == appName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "created app should appear in GetApps output")
 			},
 		},
 	}
