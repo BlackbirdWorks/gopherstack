@@ -9,6 +9,7 @@ import (
 
 // ssoadminPermissionSetView is the view model for a single permission set row.
 type ssoadminPermissionSetView struct {
+	InstanceArn      string
 	PermissionSetArn string
 	Name             string
 	Description      string
@@ -106,6 +107,7 @@ func (h *DashboardHandler) ssoadminIndex(c *echo.Context) error {
 	for _, inst := range instances {
 		for _, ps := range h.SsoAdminOps.Backend.ListPermissionSets(inst.InstanceArn) {
 			psViews = append(psViews, ssoadminPermissionSetView{
+				InstanceArn:      inst.InstanceArn,
 				PermissionSetArn: ps.PermissionSetArn,
 				Name:             ps.Name,
 				Description:      ps.Description,

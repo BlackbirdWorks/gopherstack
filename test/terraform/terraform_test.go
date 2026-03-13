@@ -5849,7 +5849,7 @@ func TestTerraform_Shield(t *testing.T) {
 	}
 }
 
-// TestTerraform_SsoAdmin provisions an SSO Admin instance and verifies it was created.
+// TestTerraform_SsoAdmin provisions an SSO Admin permission set via Terraform and verifies it was created.
 func TestTerraform_SsoAdmin(t *testing.T) {
 	t.Parallel()
 
@@ -5862,17 +5862,41 @@ func TestTerraform_SsoAdmin(t *testing.T) {
 				id := uuid.NewString()[:8]
 
 				return map[string]any{
-					"InstanceName": "tf-sso-" + id,
-					"Endpoint":     endpoint,
+					"PermissionSetName": "tf-ps-" + id,
 				}
 			},
-			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 
 				client := createSsoAdminClient(t)
-				out, err := client.ListInstances(ctx, &ssoadminsvc.ListInstancesInput{})
+				psName := vars["PermissionSetName"].(string)
+
+				instancesOut, err := client.ListInstances(ctx, &ssoadminsvc.ListInstancesInput{})
 				require.NoError(t, err, "ListInstances should succeed after terraform apply")
-				assert.NotEmpty(t, out.Instances, "expected at least one instance")
+				require.NotEmpty(t, instancesOut.Instances, "expected at least one SSO instance")
+
+				instanceArn := aws.ToString(instancesOut.Instances[0].InstanceArn)
+
+				out, err := client.ListPermissionSets(ctx, &ssoadminsvc.ListPermissionSetsInput{
+					InstanceArn: &instanceArn,
+				})
+				require.NoError(t, err, "ListPermissionSets should succeed")
+
+				found := false
+
+				for _, psArn := range out.PermissionSets {
+					desc, descErr := client.DescribePermissionSet(ctx, &ssoadminsvc.DescribePermissionSetInput{
+						InstanceArn:      &instanceArn,
+						PermissionSetArn: &psArn,
+					})
+					if descErr == nil && aws.ToString(desc.PermissionSet.Name) == psName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "expected permission set %q to exist", psName)
 			},
 		},
 	}

@@ -287,7 +287,7 @@ func TestDeleteInstance(t *testing.T) {
 		{
 			name:        "delete non-existing instance",
 			instanceArn: "arn:aws:sso:::instance/ssoins-nonexistent",
-			wantStatus:  http.StatusBadRequest,
+			wantStatus:  http.StatusNotFound,
 		},
 	}
 
@@ -451,7 +451,7 @@ func TestDeletePermissionSet(t *testing.T) {
 		{
 			name:       "delete non-existing permission set",
 			useInvalid: true,
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 	}
 
@@ -888,7 +888,7 @@ func TestErrorCases(t *testing.T) {
 			name:       "describe non-existent instance",
 			op:         "DescribeInstance",
 			body:       map[string]any{"InstanceArn": "arn:aws:sso:::instance/ssoins-bad"},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name: "delete non-existent permission set",
@@ -897,7 +897,7 @@ func TestErrorCases(t *testing.T) {
 				"InstanceArn":      "arn:aws:sso:::instance/ssoins-bad",
 				"PermissionSetArn": "arn:aws:sso:::permissionSet/ssoins-bad/badid",
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "create permission set missing instance arn",
@@ -925,6 +925,50 @@ func TestErrorCases(t *testing.T) {
 			h := newTestHandler()
 			rec := doRequest(t, h, tt.op, tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestMissingTarget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		target     string
+		wantStatus int
+	}{
+		{
+			name:       "missing X-Amz-Target returns 400",
+			target:     "",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "wrong prefix returns 400",
+			target:     "OtherService.ListInstances",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte("{}")))
+			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+			rec := httptest.NewRecorder()
+
+			e := echo.New()
+			c := e.NewContext(req, rec)
+			err := h.Handler()(c)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			resp := parseResponse(t, rec)
+			assert.Equal(t, "UnrecognizedClientException", resp["__type"])
 		})
 	}
 }

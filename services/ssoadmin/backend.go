@@ -85,9 +85,9 @@ type InMemoryBackend struct {
 	region               string
 }
 
-// NewInMemoryBackend creates a new in-memory SSO Admin backend.
+// NewInMemoryBackend creates a new in-memory SSO Admin backend with a default instance.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
-	return &InMemoryBackend{
+	b := &InMemoryBackend{
 		instances:            make(map[string]*Instance),
 		permissionSets:       make(map[string]*PermissionSet),
 		assignments:          make(map[string][]*AccountAssignment),
@@ -98,6 +98,25 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		accountID:            accountID,
 		region:               region,
 	}
+
+	// Pre-seed a default instance to mimic AWS SSO behaviour where an instance
+	// is always present once SSO is enabled.
+	defaultID := "d-0000000001"
+	identityStoreID := "d-" + accountID
+	if len(identityStoreID) > identityStoreIDMaxLen {
+		identityStoreID = identityStoreID[:identityStoreIDMaxLen]
+	}
+	defaultArn := "arn:aws:sso:::instance/ssoins-" + defaultID
+	b.instances[defaultArn] = &Instance{
+		InstanceArn:     defaultArn,
+		Name:            "default",
+		OwnerAccountID:  accountID,
+		IdentityStoreID: identityStoreID,
+		Status:          "ACTIVE",
+		CreatedDate:     time.Now().UTC(),
+	}
+
+	return b
 }
 
 // AccountID returns the backend account ID.

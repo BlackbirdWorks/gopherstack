@@ -106,15 +106,24 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 // Handler returns the Echo handler function.
 func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		op := h.ExtractOperation(c)
-		log := logger.Load(c.Request().Context())
+		ctx := c.Request().Context()
+		log := logger.Load(ctx)
+
+		target := c.Request().Header.Get("X-Amz-Target")
+		op := strings.TrimPrefix(target, targetPrefix)
+		if op == "" || op == target {
+			return writeError(c, http.StatusBadRequest,
+				"UnrecognizedClientException", "missing or invalid X-Amz-Target header")
+		}
 
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
-			return writeError(c, http.StatusBadRequest, "ResourceNotFoundException", "failed to read request body")
+			log.ErrorContext(ctx, "ssoadmin: failed to read request body", "error", err)
+
+			return writeError(c, http.StatusInternalServerError, "InternalFailure", "failed to read request body")
 		}
 
-		log.Debug("ssoadmin request", "operation", op)
+		log.DebugContext(ctx, "ssoadmin request", "operation", op)
 
 		return h.dispatch(c, op, body)
 	}
@@ -264,7 +273,7 @@ func (h *Handler) handleCreateInstance(c *echo.Context, body []byte) error {
 
 	inst, err := h.Backend.CreateInstance(req.Name, req.OwnerAccountID, req.IdentityStoreID)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "failed to create instance")
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -285,7 +294,7 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 
 	inst, err := h.Backend.DescribeInstance(req.InstanceArn)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), "instance not found: "+req.InstanceArn)
+		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -309,7 +318,7 @@ func (h *Handler) handleDeleteInstance(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.DeleteInstance(req.InstanceArn); err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), "instance not found: "+req.InstanceArn)
+		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{})
@@ -352,7 +361,7 @@ func (h *Handler) handleCreatePermissionSet(c *echo.Context, body []byte) error 
 			return writeError(c, http.StatusConflict, "ConflictException", "permission set already exists: "+req.Name)
 		}
 
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "failed to create permission set: "+req.Name)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -378,7 +387,7 @@ func (h *Handler) handleDescribePermissionSet(c *echo.Context, body []byte) erro
 
 	ps, err := h.Backend.DescribePermissionSet(req.InstanceArn, req.PermissionSetArn)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), "permission set not found: "+req.PermissionSetArn)
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -427,7 +436,7 @@ func (h *Handler) handleDeletePermissionSet(c *echo.Context, body []byte) error 
 	}
 
 	if err := h.Backend.DeletePermissionSet(req.InstanceArn, req.PermissionSetArn); err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), "permission set not found: "+req.PermissionSetArn)
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{})
@@ -452,7 +461,7 @@ func (h *Handler) handleUpdatePermissionSet(c *echo.Context, body []byte) error 
 		req.SessionDuration,
 		req.RelayState,
 	); err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), "permission set not found: "+req.PermissionSetArn)
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{})
@@ -480,7 +489,7 @@ func (h *Handler) handleCreateAccountAssignment(c *echo.Context, body []byte) er
 		req.PrincipalType,
 	)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "failed to create account assignment")
 	}
 
 	status, _ := h.Backend.DescribeAccountAssignmentCreationStatus(req.InstanceArn, requestID)
@@ -508,12 +517,7 @@ func (h *Handler) handleDescribeAccountAssignmentCreationStatus(c *echo.Context,
 		req.AccountAssignmentCreationRequestID,
 	)
 	if err != nil {
-		return writeError(
-			c,
-			http.StatusBadRequest,
-			err.Error(),
-			"request not found: "+req.AccountAssignmentCreationRequestID,
-		)
+		return handleBackendError(c, err, "request not found: "+req.AccountAssignmentCreationRequestID)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -547,7 +551,7 @@ func (h *Handler) handleDeleteAccountAssignment(c *echo.Context, body []byte) er
 		req.PrincipalType,
 	)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "failed to delete account assignment")
 	}
 
 	status, _ := h.Backend.DescribeAccountAssignmentDeletionStatus(req.InstanceArn, requestID)
@@ -575,12 +579,7 @@ func (h *Handler) handleDescribeAccountAssignmentDeletionStatus(c *echo.Context,
 		req.AccountAssignmentDeletionRequestID,
 	)
 	if err != nil {
-		return writeError(
-			c,
-			http.StatusBadRequest,
-			err.Error(),
-			"request not found: "+req.AccountAssignmentDeletionRequestID,
-		)
+		return handleBackendError(c, err, "request not found: "+req.AccountAssignmentDeletionRequestID)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -642,7 +641,7 @@ func (h *Handler) handleAttachManagedPolicyToPermissionSet(c *echo.Context, body
 		req.ManagedPolicyArn,
 		name,
 	); err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{})
@@ -663,7 +662,7 @@ func (h *Handler) handleDetachManagedPolicyFromPermissionSet(c *echo.Context, bo
 		req.PermissionSetArn,
 		req.ManagedPolicyArn,
 	); err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{})
@@ -680,7 +679,7 @@ func (h *Handler) handleListManagedPoliciesInPermissionSet(c *echo.Context, body
 
 	policies, err := h.Backend.ListManagedPoliciesInPermissionSet(req.InstanceArn, req.PermissionSetArn)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
 	views := make([]managedPolicyView, 0, len(policies))
@@ -709,7 +708,7 @@ func (h *Handler) handlePutInlinePolicyToPermissionSet(c *echo.Context, body []b
 		req.PermissionSetArn,
 		req.InlinePolicy,
 	); err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{})
@@ -726,7 +725,7 @@ func (h *Handler) handleGetInlinePolicyForPermissionSet(c *echo.Context, body []
 
 	policy, err := h.Backend.GetInlinePolicyForPermissionSet(req.InstanceArn, req.PermissionSetArn)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -744,7 +743,7 @@ func (h *Handler) handleDeleteInlinePolicyFromPermissionSet(c *echo.Context, bod
 	}
 
 	if err := h.Backend.DeleteInlinePolicyFromPermissionSet(req.InstanceArn, req.PermissionSetArn); err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{})
@@ -763,7 +762,7 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 
 	requestID, err := h.Backend.ProvisionPermissionSet(req.InstanceArn, req.PermissionSetArn)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "permission set not found: "+req.PermissionSetArn)
 	}
 
 	status, _ := h.Backend.DescribePermissionSetProvisioningStatus(req.InstanceArn, requestID)
@@ -791,12 +790,7 @@ func (h *Handler) handleDescribePermissionSetProvisioningStatus(c *echo.Context,
 		req.ProvisionPermissionSetRequestID,
 	)
 	if err != nil {
-		return writeError(
-			c,
-			http.StatusBadRequest,
-			err.Error(),
-			"request not found: "+req.ProvisionPermissionSetRequestID,
-		)
+		return handleBackendError(c, err, "request not found: "+req.ProvisionPermissionSetRequestID)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
@@ -824,7 +818,7 @@ func (h *Handler) handleTagResource(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.TagResource(req.InstanceArn, req.ResourceArn, tags); err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "resource not found: "+req.ResourceArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{})
@@ -841,7 +835,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, body []byte) error {
 	}
 
 	if err := h.Backend.UntagResource(req.InstanceArn, req.ResourceArn, req.TagKeys); err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "resource not found: "+req.ResourceArn)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{})
@@ -858,7 +852,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 
 	tags, err := h.Backend.ListTagsForResource(req.InstanceArn, req.ResourceArn)
 	if err != nil {
-		return writeError(c, http.StatusBadRequest, err.Error(), err.Error())
+		return handleBackendError(c, err, "resource not found: "+req.ResourceArn)
 	}
 
 	tagList := make([]tagView, 0, len(tags))
@@ -874,6 +868,18 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, body []byte) error 
 }
 
 // --- helpers ---
+
+// handleBackendError maps a backend error to the appropriate HTTP response.
+func handleBackendError(c *echo.Context, err error, notFoundMsg string) error {
+	switch err.Error() {
+	case "ResourceNotFoundException":
+		return writeError(c, http.StatusNotFound, "ResourceNotFoundException", notFoundMsg)
+	case "ConflictException":
+		return writeError(c, http.StatusConflict, "ConflictException", notFoundMsg)
+	default:
+		return writeError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+}
 
 func writeJSON(c *echo.Context, status int, v any) error {
 	data, err := json.Marshal(v)

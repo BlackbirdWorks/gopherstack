@@ -318,7 +318,7 @@ type DashboardHandler struct {
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
 	// ShieldOps provides access to the Shield backend.
-	ShieldOps    *shieldbackend.Handler
+	ShieldOps *shieldbackend.Handler
 	// SsoAdminOps provides access to the SSO Admin backend.
 	SsoAdminOps  *ssoadminbackend.Handler
 	SubRouter    *echo.Echo

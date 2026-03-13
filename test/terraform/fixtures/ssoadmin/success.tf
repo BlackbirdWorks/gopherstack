@@ -1,15 +1,9 @@
-resource "terraform_data" "ssoadmin_instance" {
-  triggers_replace = {
-    name     = "{{.InstanceName}}"
-    endpoint = "{{.Endpoint}}"
-  }
+data "aws_ssoadmin_instances" "this" {}
 
-  provisioner "local-exec" {
-    environment = {
-      AWS_ACCESS_KEY_ID     = "test"
-      AWS_SECRET_ACCESS_KEY = "test"
-      AWS_DEFAULT_REGION    = "us-east-1"
-    }
-    command = "aws --endpoint-url '{{.Endpoint}}' sso-admin create-instance --name '{{.InstanceName}}' --output json > /tmp/ssoadmin_instance.json && cat /tmp/ssoadmin_instance.json"
-  }
+resource "aws_ssoadmin_permission_set" "this" {
+  name         = "{{.PermissionSetName}}"
+  description  = "Terraform test permission set"
+  instance_arn = tolist(data.aws_ssoadmin_instances.this.arns)[0]
+
+  session_duration = "PT1H"
 }
