@@ -465,6 +465,212 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "DescribeEndpoints")
 }
 
+func TestHandler_ChaosInfo(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	assert.Equal(t, "timestreamwrite", h.ChaosServiceName())
+	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
+	assert.NotEmpty(t, h.ChaosRegions())
+}
+
+func TestHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Positive(t, h.MatchPriority())
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	assert.Empty(t, h.ExtractResource(c))
+}
+
+func TestHandler_UpdateDatabase(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setupDB    string
+		updateDB   string
+		kmsKey     string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			setupDB:    "my-db",
+			updateDB:   "my-db",
+			kmsKey:     "arn:aws:kms:us-east-1:000000000000:key/1234",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not found",
+			setupDB:    "",
+			updateDB:   "missing",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing name",
+			setupDB:    "",
+			updateDB:   "",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.setupDB != "" {
+				rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": tt.setupDB})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, "UpdateDatabase", map[string]string{
+				"DatabaseName": tt.updateDB,
+				"KmsKeyId":     tt.kmsKey,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteTable(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	tests := []struct {
+		body       any
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			body:       map[string]string{"DatabaseName": "db", "TableName": "tbl"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not found",
+			body:       map[string]string{"DatabaseName": "db", "TableName": "missing"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing names",
+			body:       map[string]string{},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := doRequest(t, h, "DeleteTable", tt.body)
+			assert.Equal(t, tt.wantStatus, result.Code)
+		})
+	}
+}
+
+func TestHandler_UpdateTable(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "CreateDatabase", map[string]string{"DatabaseName": "db"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateTable", map[string]string{"DatabaseName": "db", "TableName": "tbl"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	tests := []struct {
+		body       any
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			body:       map[string]string{"DatabaseName": "db", "TableName": "tbl"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "not found",
+			body:       map[string]string{"DatabaseName": "db", "TableName": "missing"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing names",
+			body:       map[string]string{},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := doRequest(t, h, "UpdateTable", tt.body)
+			assert.Equal(t, tt.wantStatus, result.Code)
+		})
+	}
+}
+
+func TestHandler_TagResource_MissingARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "TagResource", map[string]any{
+		"ResourceARN": "",
+		"Tags":        []map[string]string{{"Key": "k", "Value": "v"}},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_UntagResource_MissingARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "UntagResource", map[string]any{
+		"ResourceARN": "",
+		"TagKeys":     []string{"k"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_ListTagsForResource_MissingARN(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "ListTagsForResource", map[string]string{"ResourceARN": ""})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_ListTables_MissingDBName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, "ListTables", map[string]string{})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
