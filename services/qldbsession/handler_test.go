@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/qldbsession"
 )
 
@@ -732,7 +733,10 @@ func TestHandler_FullSessionLifecycle(t *testing.T) {
 
 	var startResp map[string]any
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
-	sessionToken := startResp["StartSession"].(map[string]any)["SessionToken"].(string)
+	startSessData, ok := startResp["StartSession"].(map[string]any)
+	require.True(t, ok)
+	sessionToken, ok := startSessData["SessionToken"].(string)
+	require.True(t, ok)
 	require.NotEmpty(t, sessionToken)
 
 	// Start transaction.
@@ -745,7 +749,10 @@ func TestHandler_FullSessionLifecycle(t *testing.T) {
 
 	var txResp map[string]any
 	require.NoError(t, json.Unmarshal(txRec.Body.Bytes(), &txResp))
-	txID := txResp["StartTransaction"].(map[string]any)["TransactionId"].(string)
+	startTxData, ok := txResp["StartTransaction"].(map[string]any)
+	require.True(t, ok)
+	txID, ok := startTxData["TransactionId"].(string)
+	require.True(t, ok)
 	require.NotEmpty(t, txID)
 
 	// Execute statement.
@@ -777,4 +784,177 @@ func TestHandler_FullSessionLifecycle(t *testing.T) {
 	})
 
 	require.Equal(t, http.StatusOK, endRec.Code)
+}
+
+func TestHandler_ChaosInterface(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	assert.Equal(t, "qldb", h.ChaosServiceName())
+	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
+	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
+}
+
+func TestHandler_ServiceInterface(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	assert.Equal(t, "QLDBSession", h.Name())
+	assert.Equal(t, []string{"SendCommand"}, h.GetSupportedOperations())
+	assert.Equal(t, service.PriorityHeaderExact, h.MatchPriority())
+}
+
+func TestHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	e := echo.New()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/", nil)
+	require.NoError(t, err)
+	c := e.NewContext(req, httptest.NewRecorder())
+
+	assert.Equal(t, "SendCommand", h.ExtractOperation(c))
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		wantRes string
+		body    []byte
+	}{
+		{
+			name:    "start_session_returns_ledger_name",
+			body:    []byte(`{"StartSession":{"LedgerName":"my-ledger"}}`),
+			wantRes: "my-ledger",
+		},
+		{
+			name:    "other_command_returns_empty",
+			body:    []byte(`{"StartTransaction":{}}`),
+			wantRes: "",
+		},
+		{
+			name:    "invalid_json_returns_empty",
+			body:    []byte(`not-json`),
+			wantRes: "",
+		},
+		{
+			name:    "empty_body_returns_empty",
+			body:    []byte(`{}`),
+			wantRes: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			e := echo.New()
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/", bytes.NewReader(tt.body))
+			require.NoError(t, err)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantRes, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestProvider_Init(t *testing.T) {
+	t.Parallel()
+
+	p := &qldbsession.Provider{}
+	assert.Equal(t, "QLDBSession", p.Name())
+
+	svc, err := p.Init(&service.AppContext{})
+	require.NoError(t, err)
+	assert.NotNil(t, svc)
+}
+
+func TestBackend_Region(t *testing.T) {
+	t.Parallel()
+
+	backend := qldbsession.NewInMemoryBackend("000000000000", "us-west-2")
+	assert.Equal(t, "us-west-2", backend.Region())
+}
+
+func TestBackend_ListSessions(t *testing.T) {
+	t.Parallel()
+
+	backend := qldbsession.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Empty initially.
+	assert.Empty(t, backend.ListSessions())
+
+	// Start a session.
+	_, err := backend.StartSession("my-ledger")
+	require.NoError(t, err)
+
+	sessions := backend.ListSessions()
+	require.Len(t, sessions, 1)
+	assert.Equal(t, "my-ledger", sessions[0].LedgerName)
+}
+
+func TestBackend_AbortTransaction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*qldbsession.InMemoryBackend) (string, string)
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "success",
+			setup: func(b *qldbsession.InMemoryBackend) (string, string) {
+				sess, err := b.StartSession("my-ledger")
+				if err != nil {
+					return "", ""
+				}
+
+				txID, err := b.StartTransaction(sess.Token)
+				if err != nil {
+					return "", ""
+				}
+
+				return sess.Token, txID
+			},
+		},
+		{
+			name: "session_not_found",
+			setup: func(_ *qldbsession.InMemoryBackend) (string, string) {
+				return "bad-token", "some-tx"
+			},
+			wantErr: true,
+		},
+		{
+			name: "transaction_not_found",
+			setup: func(b *qldbsession.InMemoryBackend) (string, string) {
+				sess, err := b.StartSession("my-ledger")
+				if err != nil {
+					return "", ""
+				}
+
+				return sess.Token, "nonexistent-tx"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := qldbsession.NewInMemoryBackend("000000000000", "us-east-1")
+			token, txID := tt.setup(backend)
+
+			err := backend.AbortTransaction(token, txID)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
