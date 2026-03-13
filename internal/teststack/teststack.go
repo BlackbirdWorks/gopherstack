@@ -90,6 +90,7 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -247,10 +248,12 @@ type Stack struct {
 	MediaStoreDataHandler *mediastoredatabackend.Handler
 	// MemoryDBHandler provides access to the MemoryDB backend.
 	MemoryDBHandler *memorydbbackend.Handler
-	S3Client        *s3.Client
-	DDBClient       *dynamodb.Client
-	FaultStore      *chaos.FaultStore
-	Dashboard       *dashboard.DashboardHandler
+	// MWAAHandler provides access to the MWAA backend.
+	MWAAHandler *mwaabackend.Handler
+	S3Client    *s3.Client
+	DDBClient   *dynamodb.Client
+	FaultStore  *chaos.FaultStore
+	Dashboard   *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -533,8 +536,8 @@ type handlers struct {
 	glacier            *glacierbackend.Handler
 	iotanalytics       *iotanalyticsbackend.Handler
 	iotwireless        *iotwirelessbackend.Handler
-	kafka              *kafkabackend.Handler
 	kinesisanalytics   *kinesisanalyticsbackend.Handler
+	kafka              *kafkabackend.Handler
 	kinesisanalyticsv2 *kinesisanalyticsv2backend.Handler
 	lakeformation      *lakeformationbackend.Handler
 	mediaconvert       *mediaconvertbackend.Handler
@@ -542,6 +545,7 @@ type handlers struct {
 	mediastore         *mediastorebackend.Handler
 	mediastoredata     *mediastoredatabackend.Handler
 	memorydb           *memorydbbackend.Handler
+	mwaa               *mwaabackend.Handler
 	neptune            *neptunebackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
@@ -818,6 +822,10 @@ func populateLatestHandlers(h *handlers) {
 	h.memorydb = memorydbbackend.NewHandler(memorydbbackend.NewInMemoryBackend())
 	h.memorydb.AccountID = config.DefaultAccountID
 	h.memorydb.DefaultRegion = config.DefaultRegion
+
+	h.mwaa = mwaabackend.NewHandler(mwaabackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID))
+	h.mwaa.AccountID = config.DefaultAccountID
+	h.mwaa.DefaultRegion = config.DefaultRegion
 	h.neptune = neptunebackend.NewHandler(
 		neptunebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -972,6 +980,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.MediaStoreOps = h.mediastore
 	cfg.MediaStoreDataOps = h.mediastoredata
 	cfg.MemoryDBOps = h.memorydb
+	cfg.MWAAOps = h.mwaa
 	cfg.NeptuneOps = h.neptune
 }
 
@@ -1033,6 +1042,7 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.iotwireless)
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
+	_ = registry.Register(h.mwaa)
 	registerMediaServices(registry, h)
 	_ = registry.Register(h.neptune)
 
@@ -1170,6 +1180,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.MediaStoreHandler = h.mediastore
 	s.MediaStoreDataHandler = h.mediastoredata
 	s.MemoryDBHandler = h.memorydb
+	s.MWAAHandler = h.mwaa
 	s.NeptuneHandler = h.neptune
 }
 

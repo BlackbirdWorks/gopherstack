@@ -91,6 +91,7 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -277,6 +278,8 @@ type DashboardHandler struct {
 	MediaStoreDataOps *mediastoredatabackend.Handler
 	// MemoryDBOps provides access to the MemoryDB backend.
 	MemoryDBOps *memorydbbackend.Handler
+	// MWAAOps provides access to the MWAA backend.
+	MWAAOps      *mwaabackend.Handler
 	// NeptuneOps provides access to the Neptune backend.
 	NeptuneOps   *neptunebackend.Handler
 	SubRouter    *echo.Echo
@@ -473,6 +476,8 @@ type Config struct {
 	MediaStoreDataOps *mediastoredatabackend.Handler
 	// MemoryDBOps provides access to the MemoryDB backend.
 	MemoryDBOps *memorydbbackend.Handler
+	// MWAAOps provides access to the MWAA backend.
+	MWAAOps *mwaabackend.Handler
 	// NeptuneOps provides access to the Neptune backend.
 	NeptuneOps *neptunebackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -594,6 +599,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/mediastore/*.html",
 		"templates/mediastoredata/*.html",
 		"templates/memorydb/*.html",
+		"templates/mwaa/*.html",
 		"templates/neptune/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -734,6 +740,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.MediaConvertOps = cfg.MediaConvertOps
 	h.MQOps = cfg.MQOps
 	h.MediaStoreDataOps = cfg.MediaStoreDataOps
+	h.MWAAOps = cfg.MWAAOps
 	h.NeptuneOps = cfg.NeptuneOps
 }
 
@@ -1236,6 +1243,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMediaStoreRoutes()
 	h.setupMediaStoreDataRoutes()
 	h.setupMemoryDBRoutes()
+	h.setupMWAARoutes()
 	h.setupNeptuneRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
