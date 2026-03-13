@@ -135,6 +135,7 @@ func (m *mockAWSProvider) GetNeptuneHandler() service.Registerable              
 func (m *mockAWSProvider) GetPinpointHandler() service.Registerable                { return nil }
 func (m *mockAWSProvider) GetPipesHandler() service.Registerable                   { return nil }
 func (m *mockAWSProvider) GetQLDBHandler() service.Registerable                    { return nil }
+func (m *mockAWSProvider) GetQLDBSessionHandler() service.Registerable             { return nil }
 func (m *mockAWSProvider) GetRAMHandler() service.Registerable                     { return nil }
 func (m *mockAWSProvider) GetRedshiftDataHandler() service.Registerable            { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
