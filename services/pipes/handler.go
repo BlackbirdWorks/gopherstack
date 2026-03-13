@@ -160,7 +160,6 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		ctx := c.Request().Context()
 		log := logger.Load(ctx)
 
-		method := c.Request().Method
 		path := c.Request().URL.Path
 
 		body, err := httputils.ReadBody(c.Request())
@@ -172,7 +171,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		op := h.ExtractOperation(c)
 
-		result, dispErr := h.dispatch(ctx, op, method, path, body)
+		result, dispErr := h.dispatch(ctx, op, path, body)
 		if dispErr != nil {
 			return h.handleError(c, dispErr)
 		}
@@ -185,9 +184,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, op, method, path string, body []byte) ([]byte, error) {
-	_ = method
-
+func (h *Handler) dispatch(ctx context.Context, op, path string, body []byte) ([]byte, error) {
 	switch op {
 	case "CreatePipe":
 		return h.handleCreatePipe(ctx, path, body)
