@@ -60,11 +60,9 @@ type QueryResult struct {
 type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
 	scheduledQueries map[string]*ScheduledQuery
-	tags             map[string]map[string]string
 	queries          map[string]*QueryResult
 	accountID        string
 	region           string
-	queriesOrder     []string
 }
 
 // NewInMemoryBackend creates a new in-memory Timestream Query backend.
@@ -72,8 +70,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		mu:               lockmetrics.New("timestreamquery"),
 		scheduledQueries: make(map[string]*ScheduledQuery),
-		queriesOrder:     []string{},
-		tags:             make(map[string]map[string]string),
 		queries:          make(map[string]*QueryResult),
 		accountID:        accountID,
 		region:           region,
@@ -113,11 +109,14 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		TargetTable:             targetTable,
 		State:                   defaultQueryState,
 		CreationTime:            time.Now(),
-		Tags:                    tags,
+		Tags:                    make(map[string]string),
+	}
+
+	if tags != nil {
+		maps.Copy(sq.Tags, tags)
 	}
 
 	b.scheduledQueries[name] = sq
-	b.queriesOrder = append(b.queriesOrder, name)
 
 	cp := *sq
 
@@ -148,15 +147,6 @@ func (b *InMemoryBackend) DeleteScheduledQuery(arn string) error {
 	for name, sq := range b.scheduledQueries {
 		if sq.Arn == arn {
 			delete(b.scheduledQueries, name)
-			delete(b.tags, arn)
-
-			for i, n := range b.queriesOrder {
-				if n == name {
-					b.queriesOrder = append(b.queriesOrder[:i], b.queriesOrder[i+1:]...)
-
-					break
-				}
-			}
 
 			return nil
 		}
@@ -207,14 +197,14 @@ func (b *InMemoryBackend) UpdateScheduledQuery(arn, state string) error {
 	return fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arn)
 }
 
-// ExecuteScheduledQuery marks a scheduled query as executed (simulated).
-func (b *InMemoryBackend) ExecuteScheduledQuery(arn string) error {
+// ExecuteScheduledQuery marks a scheduled query as executed at the given invocation time.
+func (b *InMemoryBackend) ExecuteScheduledQuery(arn string, invocationTime time.Time) error {
 	b.mu.Lock("ExecuteScheduledQuery")
 	defer b.mu.Unlock()
 
 	for _, sq := range b.scheduledQueries {
 		if sq.Arn == arn {
-			sq.LastRunTime = time.Now()
+			sq.LastRunTime = invocationTime
 
 			return nil
 		}
@@ -260,16 +250,28 @@ func (b *InMemoryBackend) CancelQuery(queryID string) error {
 	return nil
 }
 
+// lookupByARN finds a scheduled query by ARN. Must be called with the lock held.
+func (b *InMemoryBackend) lookupByARN(arn string) (*ScheduledQuery, error) {
+	for _, sq := range b.scheduledQueries {
+		if sq.Arn == arn {
+			return sq, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arn)
+}
+
 // TagResource adds tags to a resource identified by its ARN.
 func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if _, exists := b.tags[arn]; !exists {
-		b.tags[arn] = make(map[string]string)
+	sq, err := b.lookupByARN(arn)
+	if err != nil {
+		return err
 	}
 
-	maps.Copy(b.tags[arn], tags)
+	maps.Copy(sq.Tags, tags)
 
 	return nil
 }
@@ -279,10 +281,13 @@ func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	if t, exists := b.tags[arn]; exists {
-		for _, k := range tagKeys {
-			delete(t, k)
-		}
+	sq, err := b.lookupByARN(arn)
+	if err != nil {
+		return err
+	}
+
+	for _, k := range tagKeys {
+		delete(sq.Tags, k)
 	}
 
 	return nil
@@ -293,13 +298,13 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) ([]map[string]string, 
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	t, exists := b.tags[arn]
-	if !exists {
-		return []map[string]string{}, nil
+	sq, err := b.lookupByARN(arn)
+	if err != nil {
+		return nil, err
 	}
 
-	keys := make([]string, 0, len(t))
-	for k := range t {
+	keys := make([]string, 0, len(sq.Tags))
+	for k := range sq.Tags {
 		keys = append(keys, k)
 	}
 
@@ -308,7 +313,7 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) ([]map[string]string, 
 	out := make([]map[string]string, 0, len(keys))
 
 	for _, k := range keys {
-		out = append(out, map[string]string{"Key": k, "Value": t[k]})
+		out = append(out, map[string]string{"Key": k, "Value": sq.Tags[k]})
 	}
 
 	return out, nil

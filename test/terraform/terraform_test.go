@@ -137,6 +137,7 @@ import (
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
 	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
+	timestreamquerytypes "github.com/aws/aws-sdk-go-v2/service/timestreamquery/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -5980,16 +5981,61 @@ func TestTerraform_TimestreamQuery(t *testing.T) {
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
-				return map[string]any{}
+				return map[string]any{
+					"Endpoint": endpoint,
+				}
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()
 
 				client := createTimestreamQueryClient(t)
 
-				out, err := client.ListScheduledQueries(ctx, &timestreamquerysvc.ListScheduledQueriesInput{})
-				require.NoError(t, err, "ListScheduledQueries should succeed after terraform apply")
-				assert.NotNil(t, out, "expected a valid response")
+				// Verify ListScheduledQueries returns an empty list.
+				listOut, err := client.ListScheduledQueries(ctx, &timestreamquerysvc.ListScheduledQueriesInput{})
+				require.NoError(t, err, "ListScheduledQueries should succeed")
+				require.NotNil(t, listOut)
+
+				// Create a scheduled query.
+				createOut, err := client.CreateScheduledQuery(ctx, &timestreamquerysvc.CreateScheduledQueryInput{
+					Name:        aws.String("tf-tsq-verify"),
+					QueryString: aws.String("SELECT 1"),
+					ScheduleConfiguration: &timestreamquerytypes.ScheduleConfiguration{
+						ScheduleExpression: aws.String("rate(1 hour)"),
+					},
+					ScheduledQueryExecutionRoleArn: aws.String("arn:aws:iam::000000000000:role/verify"),
+					NotificationConfiguration: &timestreamquerytypes.NotificationConfiguration{
+						SnsConfiguration: &timestreamquerytypes.SnsConfiguration{
+							TopicArn: aws.String("arn:aws:sns:us-east-1:000000000000:verify"),
+						},
+					},
+					ErrorReportConfiguration: &timestreamquerytypes.ErrorReportConfiguration{
+						S3Configuration: &timestreamquerytypes.S3Configuration{
+							BucketName: aws.String("verify-bucket"),
+						},
+					},
+				})
+				require.NoError(t, err, "CreateScheduledQuery should succeed")
+				require.NotNil(t, createOut.Arn)
+
+				arn := aws.ToString(createOut.Arn)
+
+				// Describe the created scheduled query.
+				descOut, err := client.DescribeScheduledQuery(ctx, &timestreamquerysvc.DescribeScheduledQueryInput{
+					ScheduledQueryArn: aws.String(arn),
+				})
+				require.NoError(t, err, "DescribeScheduledQuery should succeed")
+				assert.Equal(t, "tf-tsq-verify", aws.ToString(descOut.ScheduledQuery.Name))
+
+				// Delete the scheduled query.
+				_, err = client.DeleteScheduledQuery(ctx, &timestreamquerysvc.DeleteScheduledQueryInput{
+					ScheduledQueryArn: aws.String(arn),
+				})
+				require.NoError(t, err, "DeleteScheduledQuery should succeed")
+
+				// Verify the list is empty again.
+				listAfter, err := client.ListScheduledQueries(ctx, &timestreamquerysvc.ListScheduledQueriesInput{})
+				require.NoError(t, err, "ListScheduledQueries after delete should succeed")
+				assert.Empty(t, listAfter.ScheduledQueries)
 			},
 		},
 	}

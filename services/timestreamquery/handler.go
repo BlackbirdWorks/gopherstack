@@ -356,8 +356,8 @@ func (h *Handler) handleDescribeScheduledQuery(body []byte) ([]byte, error) {
 
 func (h *Handler) handleExecuteScheduledQuery(body []byte) ([]byte, error) {
 	var req struct {
-		ScheduledQueryArn string `json:"ScheduledQueryArn"`
-		InvocationTime    string `json:"InvocationTime"`
+		ScheduledQueryArn string  `json:"ScheduledQueryArn"`
+		InvocationTime    float64 `json:"InvocationTime"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -368,7 +368,13 @@ func (h *Handler) handleExecuteScheduledQuery(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: ScheduledQueryArn is required", ErrInvalidRequest)
 	}
 
-	if err := h.Backend.ExecuteScheduledQuery(req.ScheduledQueryArn); err != nil {
+	if req.InvocationTime == 0 {
+		return nil, fmt.Errorf("%w: InvocationTime is required", ErrInvalidRequest)
+	}
+
+	invocationTime := time.Unix(int64(req.InvocationTime), 0)
+
+	if err := h.Backend.ExecuteScheduledQuery(req.ScheduledQueryArn, invocationTime); err != nil {
 		return nil, err
 	}
 

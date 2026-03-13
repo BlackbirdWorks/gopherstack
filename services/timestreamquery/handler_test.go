@@ -245,7 +245,7 @@ func TestTimestreamQueryHandler_ScheduledQueryLifecycle(t *testing.T) {
 			// Execute
 			rec = doRequest(t, h, "ExecuteScheduledQuery", map[string]any{
 				"ScheduledQueryArn": arn,
-				"InvocationTime":    "2024-01-01T00:00:00Z",
+				"InvocationTime":    float64(1704067200), // 2024-01-01T00:00:00Z
 			})
 			assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -326,7 +326,7 @@ func TestTimestreamQueryHandler_Tags(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler()
 
-			// Create a scheduled query to get an ARN
+			// Create a scheduled query with create-time tags to get an ARN
 			createBody := map[string]any{
 				"Name":                           tt.sqName,
 				"QueryString":                    "SELECT 1",
@@ -338,12 +338,25 @@ func TestTimestreamQueryHandler_Tags(t *testing.T) {
 				"ErrorReportConfiguration": map[string]any{
 					"S3Configuration": map[string]any{"BucketName": "bucket"},
 				},
+				"Tags": []map[string]string{
+					{"Key": "created-by", "Value": "test"},
+				},
 			}
 
 			rec := doRequest(t, h, "CreateScheduledQuery", createBody)
 			require.Equal(t, http.StatusOK, rec.Code)
 			resp := parseResponse(t, rec)
 			arn := resp["Arn"].(string)
+
+			// Create-time tags must be visible via ListTagsForResource.
+			rec = doRequest(t, h, "ListTagsForResource", map[string]any{
+				"ResourceARN": arn,
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+			resp = parseResponse(t, rec)
+			createTimeTags, ok := resp["Tags"].([]any)
+			require.True(t, ok)
+			assert.Len(t, createTimeTags, 1, "create-time tags must be returned by ListTagsForResource")
 
 			// TagResource
 			tagItems := make([]map[string]string, 0, len(tt.tags))
@@ -357,7 +370,7 @@ func TestTimestreamQueryHandler_Tags(t *testing.T) {
 			})
 			assert.Equal(t, tt.wantCode, rec.Code)
 
-			// ListTagsForResource
+			// ListTagsForResource — should return create-time tag + added tags.
 			rec = doRequest(t, h, "ListTagsForResource", map[string]any{
 				"ResourceARN": arn,
 			})
@@ -365,7 +378,7 @@ func TestTimestreamQueryHandler_Tags(t *testing.T) {
 			resp = parseResponse(t, rec)
 			tags, ok := resp["Tags"].([]any)
 			require.True(t, ok)
-			assert.Len(t, tags, len(tt.tags))
+			assert.Len(t, tags, len(tt.tags)+1) // create-time tag plus added tags
 
 			// UntagResource
 			keys := make([]string, 0, len(tt.tags))
@@ -379,7 +392,7 @@ func TestTimestreamQueryHandler_Tags(t *testing.T) {
 			})
 			assert.Equal(t, http.StatusOK, rec.Code)
 
-			// ListTagsForResource after untag
+			// ListTagsForResource after untag — only create-time tag remains.
 			rec = doRequest(t, h, "ListTagsForResource", map[string]any{
 				"ResourceARN": arn,
 			})
@@ -387,7 +400,7 @@ func TestTimestreamQueryHandler_Tags(t *testing.T) {
 			resp = parseResponse(t, rec)
 			tags, ok = resp["Tags"].([]any)
 			require.True(t, ok)
-			assert.Empty(t, tags)
+			assert.Len(t, tags, 1, "only create-time tag should remain after untag")
 		})
 	}
 }
@@ -610,6 +623,12 @@ func TestTimestreamQueryHandler_ValidationErrors(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
+			name:     "execute - missing invocation time",
+			op:       "ExecuteScheduledQuery",
+			body:     map[string]any{"ScheduledQueryArn": "arn:aws:timestream:us-east-1:123:scheduled-query/q"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
 			name:     "update - missing arn",
 			op:       "UpdateScheduledQuery",
 			body:     map[string]any{"State": "ENABLED"},
@@ -688,6 +707,10 @@ func TestTimestreamQueryHandler_DeleteAndExecute_NotFound(t *testing.T) {
 			body := map[string]any{"ScheduledQueryArn": tt.arn}
 			if tt.op == "UpdateScheduledQuery" {
 				body["State"] = "DISABLED"
+			}
+
+			if tt.op == "ExecuteScheduledQuery" {
+				body["InvocationTime"] = float64(1704067200)
 			}
 
 			rec := doRequest(t, h, tt.op, body)
