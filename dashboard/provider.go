@@ -55,6 +55,7 @@ import (
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
@@ -192,6 +193,7 @@ type AWSSDKProvider interface {
 	GetIoTWirelessHandler() service.Registerable
 	GetKinesisAnalyticsHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
+	GetKinesisAnalyticsV2Handler() service.Registerable
 	GetLakeFormationHandler() service.Registerable
 	GetManagedBlockchainHandler() service.Registerable
 	GetMediaConvertHandler() service.Registerable
@@ -301,6 +303,7 @@ type extractedConfig struct {
 	iotwirelessOps            *iotwirelessbackend.Handler
 	kinesisanalyticsOps       *kinesisanalyticsbackend.Handler
 	kafkaOps                  *kafkabackend.Handler
+	kinesisanalyticsv2Ops     *kinesisanalyticsv2backend.Handler
 	lakeformationOps          *lakeformationbackend.Handler
 	managedblockchainOps      *managedblockchainbackend.Handler
 	mediaconvertOps           *mediaconvertbackend.Handler
@@ -711,6 +714,10 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.kafkaOps, _ = h.(*kafkabackend.Handler)
 	}
 
+	if h := ap.GetKinesisAnalyticsV2Handler(); h != nil {
+		ec.kinesisanalyticsv2Ops, _ = h.(*kinesisanalyticsv2backend.Handler)
+	}
+
 	if h := ap.GetLakeFormationHandler(); h != nil {
 		ec.lakeformationOps, _ = h.(*lakeformationbackend.Handler)
 	}
@@ -855,11 +862,17 @@ func applyExtendedConfig(cfg *Config, ec *extractedConfig) {
 	cfg.FISOps = ec.fisOps
 	cfg.IdentityStoreOps = ec.identitystoreOps
 	cfg.ElasticTranscoderOps = ec.elasticTranscoderOps
+	applyLatestConfig(cfg, ec)
+}
+
+// applyLatestConfig assigns the newest dashboard service ops.
+func applyLatestConfig(cfg *Config, ec *extractedConfig) {
 	cfg.GlacierOps = ec.glacierOps
 	cfg.IoTAnalyticsOps = ec.iotanalyticsOps
 	cfg.IoTWirelessOps = ec.iotwirelessOps
 	cfg.KinesisAnalyticsOps = ec.kinesisanalyticsOps
 	cfg.KafkaOps = ec.kafkaOps
+	cfg.KinesisAnalyticsV2Ops = ec.kinesisanalyticsv2Ops
 	cfg.LakeFormationOps = ec.lakeformationOps
 	cfg.ManagedBlockchainOps = ec.managedblockchainOps
 	cfg.MediaConvertOps = ec.mediaconvertOps

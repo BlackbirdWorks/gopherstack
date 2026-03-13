@@ -91,6 +91,7 @@ import (
 	kafkasvc "github.com/aws/aws-sdk-go-v2/service/kafka"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
+	kinesisanalyticsv2svc "github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -242,6 +243,7 @@ provider "aws" {
     identitystore   = %[1]q
     iot             = %[1]q
     kafka           = %[1]q
+    kinesisanalyticsv2 = %[1]q
     kinesis         = %[1]q
     kinesisanalytics = %[1]q
     kms             = %[1]q
@@ -4835,6 +4837,54 @@ func TestTerraform_Kafka(t *testing.T) {
 				}
 
 				assert.True(t, found, "cluster %q should be listed after terraform apply", clusterName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_KinesisAnalyticsV2 verifies that Kinesis Data Analytics v2 resources created
+// via Terraform are visible through the SDK.
+func TestTerraform_KinesisAnalyticsV2(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "kinesisanalyticsv2/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createKinesisAnalyticsV2Client(t)
+				suffix := vars["Suffix"].(string)
+				appName := "tf-kinesisanalyticsv2-" + suffix
+
+				out, err := client.ListApplications(ctx, &kinesisanalyticsv2svc.ListApplicationsInput{})
+				require.NoError(t, err, "ListApplications should succeed after terraform apply")
+
+				found := false
+				for _, app := range out.ApplicationSummaries {
+					if aws.ToString(app.ApplicationName) == appName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "application %q should be listed after terraform apply", appName)
 			},
 		},
 	}
