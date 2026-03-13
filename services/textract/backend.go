@@ -14,8 +14,6 @@ import (
 var (
 	// ErrJobNotFound is returned when a document job is not found.
 	ErrJobNotFound = awserr.New("InvalidJobIdException", awserr.ErrNotFound)
-	// ErrJobAlreadyExists is returned when a job with the same name already exists.
-	ErrJobAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 )
 
 // Block represents a detected text element returned by Textract.
@@ -161,7 +159,7 @@ func (b *InMemoryBackend) ListJobs() []DocumentJob {
 
 	out := make([]DocumentJob, 0, len(b.jobs))
 	for _, j := range b.jobs {
-		out = append(out, *j)
+		out = append(out, *cloneJob(j))
 	}
 
 	// Sort newest first by creation time.

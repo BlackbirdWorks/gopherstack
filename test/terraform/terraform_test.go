@@ -295,6 +295,7 @@ provider "aws" {
     ssm             = %[1]q
     sts             = %[1]q
     swf             = %[1]q
+    textract        = %[1]q
   }
 }
 `, addr)
@@ -5835,6 +5836,65 @@ func TestTerraform_Shield(t *testing.T) {
 				var result map[string]string
 				require.NoError(t, json.Unmarshal(respBody, &result))
 				assert.Equal(t, "ACTIVE", result["SubscriptionState"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Textract provisions a Textract text detection job and verifies the service responds.
+func TestTerraform_Textract(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "textract/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"Endpoint": endpoint,
+					"Bucket":   "tf-textract-bucket",
+					"Key":      "document-" + uuid.NewString()[:8] + ".pdf",
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				bucket, _ := vars["Bucket"].(string)
+				key, _ := vars["Key"].(string)
+
+				reqURL := endpoint + "/"
+				body := fmt.Sprintf(`{"Document":{"S3Object":{"Bucket":"%s","Name":"%s"}}}`, bucket, key)
+
+				req, err := http.NewRequestWithContext(
+					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+				require.NoError(t, err)
+
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				req.Header.Set("X-Amz-Target", "Textract.DetectDocumentText")
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "DetectDocumentText should succeed")
+				defer resp.Body.Close()
+
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(respBody, &result))
+				blocks, ok := result["Blocks"].([]any)
+				assert.True(t, ok, "expected Blocks in response")
+				assert.NotEmpty(t, blocks, "expected non-empty Blocks")
 			},
 		},
 	}
