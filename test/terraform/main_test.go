@@ -87,6 +87,7 @@ import (
 	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
 	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
+	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -2028,6 +2029,24 @@ func createMWAAClient(t *testing.T) *mwaasvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return mwaasvc.NewFromConfig(cfg, func(o *mwaasvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createPipesClient returns an EventBridge Pipes client pointed at the shared test container.
+func createPipesClient(t *testing.T) *pipessvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return pipessvc.NewFromConfig(cfg, func(o *pipessvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

@@ -1442,6 +1442,22 @@
                             </div>
                         </li>
                         <li>
+                            <a href="/dashboard/pipes"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-colors {{if eq .ActiveTab "pipes"}}bg-blue-50 text-blue-700 dark:bg-slate-800 dark:text-blue-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-pipes" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 3M21 7.5H7.5" />
+                                </svg>
+                                <span class="sidebar-text truncate" title="Pipes">Pipes</span>
+                            </a>
+                            <div id="tooltip-pipes" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                EventBridge Pipes
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
                             <a href="/dashboard/chaos"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-red-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-red-400 transition-colors {{if eq .ActiveTab "chaos"}}bg-red-50 text-red-700 dark:bg-slate-800 dark:text-red-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-chaos" data-tooltip-placement="right">
