@@ -104,6 +104,7 @@ import (
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
+	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -261,6 +262,7 @@ provider "aws" {
     opensearch      = %[1]q
     organizations   = %[1]q
     pipes           = %[1]q
+    qldb            = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
     resourcegroupstaggingapi = %[1]q
@@ -5347,6 +5349,49 @@ func TestTerraform_Pipes(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribePipe should succeed after terraform apply")
 				assert.Equal(t, vars["PipeName"].(string), aws.ToString(out.Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_QLDB provisions a QLDB ledger and verifies it is described.
+func TestTerraform_QLDB(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "qldb/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"LedgerName": "tf-qldb-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createQLDBClient(t)
+
+				out, err := client.DescribeLedger( //nolint:staticcheck // AWS deprecated the SDK but service still works
+					ctx,
+					&qldbsvc.DescribeLedgerInput{
+						Name: aws.String(vars["LedgerName"].(string)),
+					},
+				)
+				require.NoError(t, err, "DescribeLedger should succeed after terraform apply")
+				ledgerName := aws.ToString(
+					out.Name, //nolint:staticcheck // AWS deprecated the SDK but service still works
+				)
+				assert.Equal(t, vars["LedgerName"].(string), ledgerName)
 			},
 		},
 	}
