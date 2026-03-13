@@ -10,11 +10,6 @@ func epochSeconds(t time.Time) float64 {
 	return float64(t.Unix())
 }
 
-// epochSecondsNow returns the current Unix epoch seconds as float64.
-func epochSecondsNow() float64 {
-	return epochSeconds(time.Now())
-}
-
 // ----------------------------------------
 // Domain models
 // ----------------------------------------
@@ -117,9 +112,9 @@ type CreateAccountStatus struct {
 	AccountID          string  `json:"AccountId,omitempty"`
 	AccountName        string  `json:"AccountName"`
 	State              string  `json:"State"`
+	FailureReason      string  `json:"FailureReason,omitempty"`
 	RequestedTimestamp float64 `json:"RequestedTimestamp"`
 	CompletedTimestamp float64 `json:"CompletedTimestamp"`
-	FailureReason      string  `json:"FailureReason,omitempty"`
 }
 
 // ----------------------------------------
@@ -176,13 +171,13 @@ type describeAccountRequest struct {
 }
 
 type accountObject struct {
-	JoinedAt     float64 `json:"JoinedTimestamp"`
 	ID           string  `json:"Id"`
 	ARN          string  `json:"Arn"`
 	Name         string  `json:"Name"`
 	Email        string  `json:"Email"`
 	Status       string  `json:"Status"`
 	JoinedMethod string  `json:"JoinedMethod"`
+	JoinedAt     float64 `json:"JoinedTimestamp"`
 }
 
 type describeAccountResponse struct {
@@ -461,8 +456,8 @@ type disableAWSServiceAccessRequest struct {
 }
 
 type enabledServicePrincipalObject struct {
-	DateEnabled      float64 `json:"DateEnabled"`
 	ServicePrincipal string  `json:"ServicePrincipal"`
+	DateEnabled      float64 `json:"DateEnabled"`
 }
 
 type listAWSServiceAccessResponse struct {
@@ -488,14 +483,14 @@ type listDelegatedAdministratorsRequest struct {
 }
 
 type delegatedAdminObject struct {
-	JoinedAt       float64 `json:"JoinedTimestamp"`
-	DelegationTime float64 `json:"DelegationEnabledDate"`
 	ID             string  `json:"Id"`
 	ARN            string  `json:"Arn"`
 	Name           string  `json:"Name"`
 	Email          string  `json:"Email"`
 	Status         string  `json:"Status"`
 	JoinedMethod   string  `json:"JoinedMethod"`
+	JoinedAt       float64 `json:"JoinedTimestamp"`
+	DelegationTime float64 `json:"DelegationEnabledDate"`
 }
 
 type listDelegatedAdministratorsResponse struct {
