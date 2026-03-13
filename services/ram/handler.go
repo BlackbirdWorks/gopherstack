@@ -58,6 +58,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TagResource",
 		"UntagResource",
 		"ListTagsForResource",
+		"ListResourceSharePermissions",
 		"EnableSharingWithAwsOrganization",
 	}
 }
@@ -92,6 +93,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, "/tagresource") ||
 			strings.HasPrefix(path, "/untagresource") ||
 			strings.HasPrefix(path, "/listtagsforresource") ||
+			strings.HasPrefix(path, "/listresourcesharepermissions") ||
 			strings.HasPrefix(path, "/enablesharingwithawsorganization")
 	}
 }
@@ -103,6 +105,15 @@ func (h *Handler) MatchPriority() int { return ramMatchPriority }
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 
+	if op := extractCommonOperation(path); op != "" {
+		return op
+	}
+
+	return extractAssociationOperation(path)
+}
+
+// extractCommonOperation maps non-association RAM paths to their operation names.
+func extractCommonOperation(path string) string {
 	switch {
 	case strings.HasPrefix(path, "/createresourceshare"):
 		return "CreateResourceShare"
@@ -112,12 +123,6 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "UpdateResourceShare"
 	case strings.HasPrefix(path, "/deleteresourceshare"):
 		return "DeleteResourceShare"
-	case strings.HasPrefix(path, "/disassociateresourceshare") &&
-		!strings.HasPrefix(path, "/disassociateresourcesharepermission"):
-		return "DisassociateResourceShare"
-	case strings.HasPrefix(path, "/associateresourceshare") &&
-		!strings.HasPrefix(path, "/associateresourcesharepermission"):
-		return "AssociateResourceShare"
 	case strings.HasPrefix(path, "/getresourceshareassociations"):
 		return "GetResourceShareAssociations"
 	case strings.HasPrefix(path, "/tagresource"):
@@ -126,8 +131,24 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		return "UntagResource"
 	case strings.HasPrefix(path, "/listtagsforresource"):
 		return "ListTagsForResource"
+	case strings.HasPrefix(path, "/listresourcesharepermissions"):
+		return "ListResourceSharePermissions"
 	case strings.HasPrefix(path, "/enablesharingwithawsorganization"):
 		return "EnableSharingWithAwsOrganization"
+	default:
+		return ""
+	}
+}
+
+// extractAssociationOperation maps associate/disassociate RAM paths to their operation names.
+func extractAssociationOperation(path string) string {
+	switch {
+	case strings.HasPrefix(path, "/disassociateresourceshare") &&
+		!strings.HasPrefix(path, "/disassociateresourcesharepermission"):
+		return "DisassociateResourceShare"
+	case strings.HasPrefix(path, "/associateresourceshare") &&
+		!strings.HasPrefix(path, "/associateresourcesharepermission"):
+		return "AssociateResourceShare"
 	default:
 		return "Unknown"
 	}
@@ -188,6 +209,8 @@ func (h *Handler) dispatch(ctx context.Context, op string, c *echo.Context, body
 		return h.handleUntagResource(ctx, body)
 	case "ListTagsForResource":
 		return h.handleListTagsForResource(ctx, body)
+	case "ListResourceSharePermissions":
+		return h.handleListResourceSharePermissions(ctx, body)
 	case "EnableSharingWithAwsOrganization":
 		return h.handleEnableSharingWithAwsOrganization()
 	default:
@@ -643,6 +666,28 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 	}
 
 	return json.Marshal(listTagsForResourceResponse{Tags: toTagObjects(tags)})
+}
+
+type listResourceSharePermissionsRequest struct {
+	ResourceShareArn string `json:"resourceShareArn"`
+	NextToken        string `json:"nextToken"`
+}
+
+type listResourceSharePermissionsResponse struct {
+	NextToken   string `json:"nextToken,omitempty"`
+	Permissions []any  `json:"permissions"`
+}
+
+// handleListResourceSharePermissions returns an empty permissions list.
+// The Terraform AWS provider calls this after creating a resource share to read
+// its managed permissions. Returning an empty list is sufficient for the mock.
+func (h *Handler) handleListResourceSharePermissions(_ context.Context, body []byte) ([]byte, error) {
+	var req listResourceSharePermissionsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	return json.Marshal(listResourceSharePermissionsResponse{Permissions: []any{}})
 }
 
 type enableSharingWithAwsOrganizationResponse struct {

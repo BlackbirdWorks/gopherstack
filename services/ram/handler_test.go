@@ -109,7 +109,7 @@ func TestHandler_CreateResourceShare(t *testing.T) {
 
 	tests := []struct {
 		body       any
-		setup      func(*ram.Handler)
+		setup      func(*testing.T, *ram.Handler)
 		name       string
 		wantBody   string
 		wantStatus int
@@ -131,7 +131,8 @@ func TestHandler_CreateResourceShare(t *testing.T) {
 		},
 		{
 			name: "duplicate name",
-			setup: func(h *ram.Handler) {
+			setup: func(t *testing.T, h *ram.Handler) {
+				t.Helper()
 				_, err := h.Backend.CreateResourceShare("dup-share", true, nil, nil, nil)
 				require.NoError(t, err)
 			},
@@ -148,7 +149,7 @@ func TestHandler_CreateResourceShare(t *testing.T) {
 
 			h := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRAMRequest(t, h, "/createresourceshare", tt.body)
@@ -167,14 +168,15 @@ func TestHandler_GetResourceShares(t *testing.T) {
 
 	tests := []struct {
 		body       any
-		setup      func(*ram.Handler)
+		setup      func(*testing.T, *ram.Handler)
 		name       string
 		wantBody   string
 		wantStatus int
 	}{
 		{
 			name: "list all",
-			setup: func(h *ram.Handler) {
+			setup: func(t *testing.T, h *ram.Handler) {
+				t.Helper()
 				_, err := h.Backend.CreateResourceShare("list-share", true, nil, nil, nil)
 				require.NoError(t, err)
 			},
@@ -184,7 +186,8 @@ func TestHandler_GetResourceShares(t *testing.T) {
 		},
 		{
 			name: "by ARN",
-			setup: func(h *ram.Handler) {
+			setup: func(t *testing.T, h *ram.Handler) {
+				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("arn-share", true, nil, nil, nil)
 				require.NoError(t, err)
 				t.Cleanup(func() {
@@ -208,7 +211,7 @@ func TestHandler_GetResourceShares(t *testing.T) {
 
 			h := newTestHandler(t)
 			if tt.setup != nil {
-				tt.setup(h)
+				tt.setup(t, h)
 			}
 
 			rec := doRAMRequest(t, h, "/getresourceshares", tt.body)
@@ -226,13 +229,14 @@ func TestHandler_UpdateResourceShare(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*ram.Handler) string
+		setup      func(*testing.T, *ram.Handler) string
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "success",
-			setup: func(h *ram.Handler) string {
+			setup: func(t *testing.T, h *ram.Handler) string {
+				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("upd-share", true, nil, nil, nil)
 				require.NoError(t, err)
 
@@ -242,7 +246,7 @@ func TestHandler_UpdateResourceShare(t *testing.T) {
 		},
 		{
 			name: "not found",
-			setup: func(_ *ram.Handler) string {
+			setup: func(_ *testing.T, _ *ram.Handler) string {
 				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
 			},
 			wantStatus: http.StatusBadRequest,
@@ -254,7 +258,7 @@ func TestHandler_UpdateResourceShare(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			shareARN := tt.setup(h)
+			shareARN := tt.setup(t, h)
 
 			rec := doRAMRequest(t, h, "/updateresourceshare", map[string]any{
 				"resourceShareArn":        shareARN,
@@ -271,13 +275,14 @@ func TestHandler_DeleteResourceShare(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*ram.Handler) string
+		setup      func(*testing.T, *ram.Handler) string
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "success",
-			setup: func(h *ram.Handler) string {
+			setup: func(t *testing.T, h *ram.Handler) string {
+				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("del-share", true, nil, nil, nil)
 				require.NoError(t, err)
 
@@ -287,14 +292,14 @@ func TestHandler_DeleteResourceShare(t *testing.T) {
 		},
 		{
 			name: "not found",
-			setup: func(_ *ram.Handler) string {
+			setup: func(_ *testing.T, _ *ram.Handler) string {
 				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
 			},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name: "missing query param",
-			setup: func(_ *ram.Handler) string {
+			setup: func(_ *testing.T, _ *ram.Handler) string {
 				return ""
 			},
 			wantStatus: http.StatusBadRequest,
@@ -306,7 +311,7 @@ func TestHandler_DeleteResourceShare(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			shareARN := tt.setup(h)
+			shareARN := tt.setup(t, h)
 
 			path := "/deleteresourceshare"
 			if shareARN != "" {
@@ -323,13 +328,14 @@ func TestHandler_AssociateResourceShare(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*ram.Handler) string
+		setup      func(*testing.T, *ram.Handler) string
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "associate principal",
-			setup: func(h *ram.Handler) string {
+			setup: func(t *testing.T, h *ram.Handler) string {
+				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("assoc-share", true, nil, nil, nil)
 				require.NoError(t, err)
 
@@ -339,7 +345,7 @@ func TestHandler_AssociateResourceShare(t *testing.T) {
 		},
 		{
 			name: "not found",
-			setup: func(_ *ram.Handler) string {
+			setup: func(_ *testing.T, _ *ram.Handler) string {
 				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
 			},
 			wantStatus: http.StatusBadRequest,
@@ -351,7 +357,7 @@ func TestHandler_AssociateResourceShare(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			shareARN := tt.setup(h)
+			shareARN := tt.setup(t, h)
 
 			rec := doRAMRequest(t, h, "/associateresourceshare", map[string]any{
 				"resourceShareArn": shareARN,
@@ -367,13 +373,14 @@ func TestHandler_DisassociateResourceShare(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*ram.Handler) string
+		setup      func(*testing.T, *ram.Handler) string
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "disassociate principal",
-			setup: func(h *ram.Handler) string {
+			setup: func(t *testing.T, h *ram.Handler) string {
+				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("disassoc-share", true, nil, []string{"123456789012"}, nil)
 				require.NoError(t, err)
 
@@ -383,7 +390,7 @@ func TestHandler_DisassociateResourceShare(t *testing.T) {
 		},
 		{
 			name: "not found",
-			setup: func(_ *ram.Handler) string {
+			setup: func(_ *testing.T, _ *ram.Handler) string {
 				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
 			},
 			wantStatus: http.StatusBadRequest,
@@ -395,7 +402,7 @@ func TestHandler_DisassociateResourceShare(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			shareARN := tt.setup(h)
+			shareARN := tt.setup(t, h)
 
 			rec := doRAMRequest(t, h, "/disassociateresourceshare", map[string]any{
 				"resourceShareArn": shareARN,
@@ -411,14 +418,15 @@ func TestHandler_GetResourceShareAssociations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*ram.Handler) string
+		setup      func(*testing.T, *ram.Handler) string
 		name       string
 		wantBody   string
 		wantStatus int
 	}{
 		{
 			name: "list associations",
-			setup: func(h *ram.Handler) string {
+			setup: func(t *testing.T, h *ram.Handler) string {
+				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("assoc-list-share", true, nil, []string{"123456789012"}, nil)
 				require.NoError(t, err)
 
@@ -429,7 +437,7 @@ func TestHandler_GetResourceShareAssociations(t *testing.T) {
 		},
 		{
 			name: "empty",
-			setup: func(_ *ram.Handler) string {
+			setup: func(_ *testing.T, _ *ram.Handler) string {
 				return ""
 			},
 			wantStatus: http.StatusOK,
@@ -442,7 +450,7 @@ func TestHandler_GetResourceShareAssociations(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			shareARN := tt.setup(h)
+			shareARN := tt.setup(t, h)
 
 			body := map[string]any{"associationType": "PRINCIPAL"}
 			if shareARN != "" {
@@ -463,13 +471,14 @@ func TestHandler_TagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*ram.Handler) string
+		setup      func(*testing.T, *ram.Handler) string
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "success",
-			setup: func(h *ram.Handler) string {
+			setup: func(t *testing.T, h *ram.Handler) string {
+				t.Helper()
 				rs, err := h.Backend.CreateResourceShare("tag-share", true, nil, nil, nil)
 				require.NoError(t, err)
 
@@ -479,7 +488,7 @@ func TestHandler_TagResource(t *testing.T) {
 		},
 		{
 			name: "not found",
-			setup: func(_ *ram.Handler) string {
+			setup: func(_ *testing.T, _ *ram.Handler) string {
 				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
 			},
 			wantStatus: http.StatusBadRequest,
@@ -491,7 +500,7 @@ func TestHandler_TagResource(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			shareARN := tt.setup(h)
+			shareARN := tt.setup(t, h)
 
 			rec := doRAMRequest(t, h, "/tagresource", map[string]any{
 				"resourceShareArn": shareARN,
@@ -507,13 +516,14 @@ func TestHandler_UntagResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*ram.Handler) string
+		setup      func(*testing.T, *ram.Handler) string
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "success",
-			setup: func(h *ram.Handler) string {
+			setup: func(t *testing.T, h *ram.Handler) string {
+				t.Helper()
 				rs, err := h.Backend.CreateResourceShare(
 					"untag-share",
 					true,
@@ -529,7 +539,7 @@ func TestHandler_UntagResource(t *testing.T) {
 		},
 		{
 			name: "not found",
-			setup: func(_ *ram.Handler) string {
+			setup: func(_ *testing.T, _ *ram.Handler) string {
 				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
 			},
 			wantStatus: http.StatusBadRequest,
@@ -541,7 +551,7 @@ func TestHandler_UntagResource(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			shareARN := tt.setup(h)
+			shareARN := tt.setup(t, h)
 
 			rec := doRAMRequest(t, h, "/untagresource", map[string]any{
 				"resourceShareArn": shareARN,
@@ -557,14 +567,15 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*ram.Handler) string
+		setup      func(*testing.T, *ram.Handler) string
 		name       string
 		wantBody   string
 		wantStatus int
 	}{
 		{
 			name: "success",
-			setup: func(h *ram.Handler) string {
+			setup: func(t *testing.T, h *ram.Handler) string {
+				t.Helper()
 				rs, err := h.Backend.CreateResourceShare(
 					"listtag-share",
 					true,
@@ -581,7 +592,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 		},
 		{
 			name: "not found",
-			setup: func(_ *ram.Handler) string {
+			setup: func(_ *testing.T, _ *ram.Handler) string {
 				return "arn:aws:ram:us-east-1:000000000000:resource-share/nonexistent"
 			},
 			wantStatus: http.StatusBadRequest,
@@ -593,7 +604,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			shareARN := tt.setup(h)
+			shareARN := tt.setup(t, h)
 
 			rec := doRAMRequest(t, h, "/listtagsforresource", map[string]any{
 				"resourceShareArn": shareARN,
@@ -618,6 +629,22 @@ func TestHandler_EnableSharingWithAwsOrganization(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "returnValue")
 }
 
+func TestHandler_ListResourceSharePermissions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rs, err := h.Backend.CreateResourceShare("perm-share", true, nil, nil, nil)
+	require.NoError(t, err)
+
+	rec := doRAMRequest(t, h, "/listresourcesharepermissions", map[string]any{
+		"resourceShareArn": rs.ARN,
+	})
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "permissions")
+}
+
 func TestHandler_ExtractOperation(t *testing.T) {
 	t.Parallel()
 
@@ -636,6 +663,7 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{name: "tag", path: "/tagresource", want: "TagResource"},
 		{name: "untag", path: "/untagresource", want: "UntagResource"},
 		{name: "list tags", path: "/listtagsforresource", want: "ListTagsForResource"},
+		{name: "list permissions", path: "/listresourcesharepermissions", want: "ListResourceSharePermissions"},
 		{
 			name: "enable org sharing",
 			path: "/enablesharingwithawsorganization",
@@ -691,13 +719,14 @@ func TestBackend_GetResourceShare(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup   func(*ram.InMemoryBackend) string
+		setup   func(*testing.T, *ram.InMemoryBackend) string
 		name    string
 		wantErr bool
 	}{
 		{
 			name: "found",
-			setup: func(b *ram.InMemoryBackend) string {
+			setup: func(t *testing.T, b *ram.InMemoryBackend) string {
+				t.Helper()
 				rs, err := b.CreateResourceShare("found-share", true, nil, nil, nil)
 				require.NoError(t, err)
 
@@ -706,7 +735,7 @@ func TestBackend_GetResourceShare(t *testing.T) {
 		},
 		{
 			name: "not found",
-			setup: func(_ *ram.InMemoryBackend) string {
+			setup: func(_ *testing.T, _ *ram.InMemoryBackend) string {
 				return "arn:aws:ram:us-east-1:000000000000:resource-share/missing"
 			},
 			wantErr: true,
@@ -718,7 +747,7 @@ func TestBackend_GetResourceShare(t *testing.T) {
 			t.Parallel()
 
 			b := ram.NewInMemoryBackend("000000000000", "us-east-1")
-			shareARN := tt.setup(b)
+			shareARN := tt.setup(t, b)
 
 			rs, err := b.GetResourceShare(shareARN)
 

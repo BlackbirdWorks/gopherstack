@@ -5,6 +5,8 @@ import (
 	"maps"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -65,6 +67,13 @@ func cloneResourceShare(rs *ResourceShare) *ResourceShare {
 	return &cp
 }
 
+// cloneAssociation returns a deep copy of an association.
+func cloneAssociation(a *ResourceShareAssociation) *ResourceShareAssociation {
+	cp := *a
+
+	return &cp
+}
+
 // InMemoryBackend is an in-memory store for AWS RAM resources.
 type InMemoryBackend struct {
 	resourceShares map[string]*ResourceShare
@@ -106,7 +115,10 @@ func (b *InMemoryBackend) CreateResourceShare(
 	}
 
 	now := time.Now()
-	shareARN := arn.Build("ram", b.region, b.accountID, "resource-share/"+name)
+	// Use a stable UUID-based resource share ID so the ARN remains valid
+	// even if the share is later renamed via UpdateResourceShare.
+	shareID := uuid.NewString()
+	shareARN := arn.Build("ram", b.region, b.accountID, "resource-share/"+shareID)
 
 	rs := &ResourceShare{
 		Name:                    name,
@@ -184,6 +196,7 @@ func (b *InMemoryBackend) ListResourceShares(resourceOwner string) []*ResourceSh
 }
 
 // UpdateResourceShare updates an existing resource share.
+// If name is changed, all matching associations are updated to reflect the new name.
 func (b *InMemoryBackend) UpdateResourceShare(
 	shareARN, name string,
 	allowExternalPrincipals *bool,
@@ -198,6 +211,12 @@ func (b *InMemoryBackend) UpdateResourceShare(
 
 	if name != "" {
 		rs.Name = name
+		// Keep association ResourceShareName in sync.
+		for _, a := range b.associations {
+			if a.ResourceShareARN == shareARN {
+				a.ResourceShareName = name
+			}
+		}
 	}
 
 	if allowExternalPrincipals != nil {
@@ -226,6 +245,7 @@ func (b *InMemoryBackend) DeleteResourceShare(shareARN string) error {
 }
 
 // AssociateResourceShare associates principals or resource ARNs with a resource share.
+// Returns deep copies of the new associations so callers cannot mutate backend state.
 func (b *InMemoryBackend) AssociateResourceShare(
 	shareARN string,
 	principals, resourceARNs []string,
@@ -252,7 +272,7 @@ func (b *InMemoryBackend) AssociateResourceShare(
 			LastUpdatedTime:   now,
 		}
 		b.associations = append(b.associations, assoc)
-		added = append(added, assoc)
+		added = append(added, cloneAssociation(assoc))
 	}
 
 	for _, r := range resourceARNs {
@@ -266,7 +286,7 @@ func (b *InMemoryBackend) AssociateResourceShare(
 			LastUpdatedTime:   now,
 		}
 		b.associations = append(b.associations, assoc)
-		added = append(added, assoc)
+		added = append(added, cloneAssociation(assoc))
 	}
 
 	return added, nil
@@ -280,7 +300,8 @@ func (b *InMemoryBackend) DisassociateResourceShare(
 	b.mu.Lock("DisassociateResourceShare")
 	defer b.mu.Unlock()
 
-	if _, ok := b.resourceShares[shareARN]; !ok {
+	rs, ok := b.resourceShares[shareARN]
+	if !ok || rs.Status == statusDeleted {
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
 
@@ -298,13 +319,15 @@ func (b *InMemoryBackend) DisassociateResourceShare(
 
 	for _, a := range b.associations {
 		if a.ResourceShareARN == shareARN {
-			if _, ok := toRemove[a.AssociatedEntity]; ok {
+			if _, found := toRemove[a.AssociatedEntity]; found {
 				a.Status = associationStatusDisassociated
 				a.LastUpdatedTime = time.Now()
-				updated = append(updated, a)
+				updated = append(updated, cloneAssociation(a))
 			}
 		}
 	}
+
+	_ = rs // share lookup above ensures we return NotFound for deleted shares
 
 	return updated, nil
 }
@@ -340,9 +363,7 @@ func (b *InMemoryBackend) GetResourceShareAssociations(
 			}
 		}
 
-		cp := *a
-
-		result = append(result, &cp)
+		result = append(result, cloneAssociation(a))
 	}
 
 	return result
