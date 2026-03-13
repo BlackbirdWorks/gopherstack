@@ -37,8 +37,8 @@ func sagemakerruntimeSnippet() *SnippetData {
 
 import (
 	"context"
+	"io"
 	"log"
-	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -66,7 +66,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Printf("Response: %s\n", out.Body)
+	body, err := io.ReadAll(out.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("Response: %s\n", body)
 }`,
 		Python: `# Initialize boto3 client for SageMaker Runtime
 import boto3

@@ -176,6 +176,10 @@ func TestHandler_InvokeEndpointWithResponseStream(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "application/vnd.amazon.eventstream", rec.Header().Get("Content-Type"))
 
+	// Verify the response is a valid AWS event stream frame (at least minimum length).
+	body := rec.Body.Bytes()
+	assert.Greater(t, len(body), 12, "response should contain at least a prelude")
+
 	invocations := h.Backend.ListInvocations()
 	require.Len(t, invocations, 1)
 	assert.Equal(t, "InvokeEndpointWithResponseStream", invocations[0].Operation)

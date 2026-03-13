@@ -1,6 +1,9 @@
 package sagemakerrumtime
 
 import (
+	"encoding/binary"
+	"hash/crc32"
+	"math"
 	"net/http"
 	"strings"
 
@@ -15,6 +18,17 @@ const (
 	sagemakerRuntimeService       = "sagemaker-runtime"
 	sagemakerRuntimePathPrefix    = "/endpoints/"
 	sagemakerRuntimeMatchPriority = service.PriorityPathVersioned
+)
+
+// Event stream frame constants (AWS binary event stream protocol).
+const (
+	eventStreamPreludeLen = 12 // 4 (total-len) + 4 (headers-len) + 4 (prelude-CRC)
+	eventStreamMsgCRCLen  = 4
+
+	// eventStreamHeaderValueTypeString is the AWS event stream type byte for string headers.
+	eventStreamHeaderValueTypeString = 7
+	// eventStreamHeaderValueLenBytes is the number of bytes used to encode a header value length.
+	eventStreamHeaderValueLenBytes = 2
 )
 
 // Handler is the Echo HTTP handler for AWS SageMaker Runtime operations.
@@ -49,7 +63,7 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches SageMaker Runtime requests.
-// It matches POST requests to paths beginning with /endpoints/ for the sagemaker-runtime SigV4 service.
+// It matches requests to paths beginning with /endpoints/ for the sagemaker-runtime SigV4 service.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		r := c.Request()
@@ -149,6 +163,7 @@ func (h *Handler) handleInvokeEndpointAsync(
 }
 
 // handleInvokeEndpointWithResponseStream handles POST /endpoints/{EndpointName}/invocations-response-stream.
+// It returns a well-formed AWS event stream frame containing a single payload event.
 func (h *Handler) handleInvokeEndpointWithResponseStream(
 	c *echo.Context,
 	endpointName string,
@@ -158,9 +173,15 @@ func (h *Handler) handleInvokeEndpointWithResponseStream(
 
 	h.Backend.RecordInvocation("InvokeEndpointWithResponseStream", endpointName, string(body), string(out))
 
+	frame := encodeEventStreamMsg([][2]string{
+		{":message-type", "event"},
+		{":event-type", "PayloadPart"},
+		{":content-type", "application/octet-stream"},
+	}, out)
+
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
-	_, _ = c.Response().Write(out)
+	_, _ = c.Response().Write(frame)
 
 	return nil
 }
@@ -194,4 +215,57 @@ func pathToOperation(path string) string {
 
 func errorResponse(code, msg string) map[string]string {
 	return map[string]string{"__type": code, "message": msg}
+}
+
+// encodeEventStreamMsg encodes a single AWS event stream binary message.
+// Format: totalLen(4) | headersLen(4) | preludeCRC(4) | headers | payload | msgCRC(4).
+func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
+	hdrBytes := buildEventStreamHeaders(hdrs)
+	headerLen := len(hdrBytes)
+	payloadLen := len(payload)
+
+	// Guard against integer overflow: payloadLen must fit within the remaining frame space.
+	if headerLen > math.MaxInt32-eventStreamPreludeLen-payloadLen-eventStreamMsgCRCLen {
+		return nil
+	}
+
+	totalLen := eventStreamPreludeLen + headerLen + payloadLen + eventStreamMsgCRCLen
+	buf := make([]byte, totalLen)
+
+	//nolint:gosec // totalLen is bounded by the overflow check above
+	binary.BigEndian.PutUint32(buf[0:4], uint32(totalLen))
+	//nolint:gosec // headerLen is bounded by the overflow check above
+	binary.BigEndian.PutUint32(buf[4:8], uint32(headerLen))
+
+	preludeCRC := crc32.ChecksumIEEE(buf[0:8])
+	binary.BigEndian.PutUint32(buf[8:eventStreamPreludeLen], preludeCRC)
+
+	copy(buf[eventStreamPreludeLen:eventStreamPreludeLen+headerLen], hdrBytes)
+	copy(buf[eventStreamPreludeLen+headerLen:eventStreamPreludeLen+headerLen+payloadLen], payload)
+
+	msgCRC := crc32.ChecksumIEEE(buf[0 : eventStreamPreludeLen+headerLen+payloadLen])
+	binary.BigEndian.PutUint32(buf[eventStreamPreludeLen+headerLen+payloadLen:], msgCRC)
+
+	return buf
+}
+
+// buildEventStreamHeaders encodes name/value header pairs in AWS event stream binary format.
+func buildEventStreamHeaders(hdrs [][2]string) []byte {
+	var buf [512]byte
+	n := 0
+
+	for _, kv := range hdrs {
+		name, value := kv[0], kv[1]
+		buf[n] = byte(len(name)) //nolint:gosec // header name bounded by AWS event stream protocol
+		n++
+		n += copy(buf[n:], name)
+		buf[n] = eventStreamHeaderValueTypeString
+		n++
+		//nolint:gosec // header value length fits in uint16 by AWS event stream protocol
+		binary.BigEndian.PutUint16(buf[n:n+eventStreamHeaderValueLenBytes], uint16(len(value)))
+		n += eventStreamHeaderValueLenBytes
+		n += copy(buf[n:], value)
+	}
+
+	return buf[:n]
 }
