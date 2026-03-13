@@ -157,6 +157,7 @@ import (
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -287,6 +288,7 @@ type CLI struct {
 	sagemakerRuntimeHandler       service.Registerable
 	serverlessrepoHandler         service.Registerable
 	shieldHandler                 service.Registerable
+	textractHandler               service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -768,6 +770,11 @@ func (c *CLI) GetServerlessRepoHandler() service.Registerable { return c.serverl
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetShieldHandler() service.Registerable { return c.shieldHandler }
+
+// GetTextractHandler returns the Textract handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetTextractHandler() service.Registerable { return c.textractHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1450,6 +1457,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.sagemakerRuntimeHandler = byName["SageMakerRuntime"]
 	cli.serverlessrepoHandler = byName["ServerlessRepo"]
 	cli.shieldHandler = byName["Shield"]
+	cli.textractHandler = byName["Textract"]
 }
 
 // initializeServices initializes all service providers.
@@ -1695,6 +1703,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&sagemakerruntimebackend.Provider{},
 		&serverlessrepobackend.Provider{},
 		&shieldbackend.Provider{},
+		&textractbackend.Provider{},
 	}
 }
 

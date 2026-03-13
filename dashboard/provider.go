@@ -78,6 +78,7 @@ import (
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -228,6 +229,7 @@ type AWSSDKProvider interface {
 	GetSageMakerRuntimeHandler() service.Registerable
 	GetServerlessRepoHandler() service.Registerable
 	GetShieldHandler() service.Registerable
+	GetTextractHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -351,6 +353,7 @@ type extractedConfig struct {
 	sagemakerRuntimeOps       *sagemakerruntimebackend.Handler
 	serverlessrepoOps         *serverlessrepobackend.Handler
 	shieldOps                 *shieldbackend.Handler
+	textractOps               *textractbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -856,6 +859,10 @@ func extractLatestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetShieldHandler(); h != nil {
 		ec.shieldOps, _ = h.(*shieldbackend.Handler)
 	}
+
+	if h := ap.GetTextractHandler(); h != nil {
+		ec.textractOps, _ = h.(*textractbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -1054,4 +1061,5 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.SageMakerRuntimeOps = ec.sagemakerRuntimeOps
 	cfg.ServerlessRepoOps = ec.serverlessrepoOps
 	cfg.ShieldOps = ec.shieldOps
+	cfg.TextractOps = ec.textractOps
 }
