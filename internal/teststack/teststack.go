@@ -100,6 +100,7 @@ import (
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	rgtabackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
@@ -265,10 +266,12 @@ type Stack struct {
 	QLDBHandler *qldbbackend.Handler
 	// RAMHandler provides access to the RAM backend.
 	RAMHandler *rambackend.Handler
-	S3Client   *s3.Client
-	DDBClient  *dynamodb.Client
-	FaultStore *chaos.FaultStore
-	Dashboard  *dashboard.DashboardHandler
+	// RedshiftDataHandler provides access to the Redshift Data backend.
+	RedshiftDataHandler *redshiftdatabackend.Handler
+	S3Client            *s3.Client
+	DDBClient           *dynamodb.Client
+	FaultStore          *chaos.FaultStore
+	Dashboard           *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -474,6 +477,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.pipes)
 	_ = registry.Register(h.qldb)
 	_ = registry.Register(h.ram)
+	_ = registry.Register(h.redshiftdata)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -577,6 +581,7 @@ type handlers struct {
 	pipes              *pipesbackend.Handler
 	qldb               *qldbbackend.Handler
 	ram                *rambackend.Handler
+	redshiftdata       *redshiftdatabackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -871,6 +876,9 @@ func populateLatestHandlers(h *handlers) {
 	h.pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	h.qldb = qldbbackend.NewHandler(qldbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	h.ram = rambackend.NewHandler(rambackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.redshiftdata = redshiftdatabackend.NewHandler(
+		redshiftdatabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -1029,6 +1037,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.PipesOps = h.pipes
 	cfg.QLDBOps = h.qldb
 	cfg.RAMOps = h.ram
+	cfg.RedshiftDataOps = h.redshiftdata
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1234,6 +1243,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.PipesHandler = h.pipes
 	s.QLDBHandler = h.qldb
 	s.RAMHandler = h.ram
+	s.RedshiftDataHandler = h.redshiftdata
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

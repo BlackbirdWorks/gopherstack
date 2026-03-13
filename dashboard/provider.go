@@ -70,6 +70,7 @@ import (
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -214,6 +215,7 @@ type AWSSDKProvider interface {
 	GetPipesHandler() service.Registerable
 	GetQLDBHandler() service.Registerable
 	GetRAMHandler() service.Registerable
+	GetRedshiftDataHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -330,6 +332,7 @@ type extractedConfig struct {
 	pipesOps                  *pipesbackend.Handler
 	qldbOps                   *qldbbackend.Handler
 	ramOps                    *rambackend.Handler
+	redshiftdataOps           *redshiftdatabackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -801,6 +804,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetRAMHandler(); h != nil {
 		ec.ramOps, _ = h.(*rambackend.Handler)
 	}
+
+	if h := ap.GetRedshiftDataHandler(); h != nil {
+		ec.redshiftdataOps, _ = h.(*redshiftdatabackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -992,4 +999,5 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.PipesOps = ec.pipesOps
 	cfg.QLDBOps = ec.qldbOps
 	cfg.RAMOps = ec.ramOps
+	cfg.RedshiftDataOps = ec.redshiftdataOps
 }

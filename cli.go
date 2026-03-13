@@ -133,6 +133,7 @@ import (
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
@@ -273,6 +274,7 @@ type CLI struct {
 	pipesHandler                  service.Registerable
 	qldbHandler                   service.Registerable
 	ramHandler                    service.Registerable
+	redshiftdataHandler           service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -719,6 +721,11 @@ func (c *CLI) GetQLDBHandler() service.Registerable { return c.qldbHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetRAMHandler() service.Registerable { return c.ramHandler }
+
+// GetRedshiftDataHandler returns the Redshift Data handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRedshiftDataHandler() service.Registerable { return c.redshiftdataHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1394,6 +1401,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.pipesHandler = byName["Pipes"]
 	cli.qldbHandler = byName["QLDB"]
 	cli.ramHandler = byName["RAM"]
+	cli.redshiftdataHandler = byName["RedshiftData"]
 }
 
 // initializeServices initializes all service providers.
@@ -1627,6 +1635,7 @@ func getNewestServiceProviders() []service.Provider {
 		&pipesbackend.Provider{},
 		&qldbbackend.Provider{},
 		&rambackend.Provider{},
+		&redshiftdatabackend.Provider{},
 	}
 }
 

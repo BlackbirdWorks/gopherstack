@@ -101,6 +101,7 @@ import (
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
@@ -296,14 +297,16 @@ type DashboardHandler struct {
 	// QLDBOps provides access to the QLDB backend.
 	QLDBOps *qldbbackend.Handler
 	// RAMOps provides access to the RAM backend.
-	RAMOps       *rambackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	RAMOps *rambackend.Handler
+	// RedshiftDataOps provides access to the Redshift Data backend.
+	RedshiftDataOps *redshiftdatabackend.Handler
+	SubRouter       *echo.Echo
+	ddbProvider     *ddbbackend.DashboardProvider
+	s3Provider      *s3backend.DashboardProvider
+	FaultStore      *chaos.FaultStore
+	Logger          *slog.Logger
+	layout          *template.Template
+	GlobalConfig    config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -505,6 +508,8 @@ type Config struct {
 	QLDBOps *qldbbackend.Handler
 	// RAMOps provides access to the RAM backend.
 	RAMOps *rambackend.Handler
+	// RedshiftDataOps provides access to the Redshift Data backend.
+	RedshiftDataOps *redshiftdatabackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -647,6 +652,7 @@ func latestDashboardTemplatePatterns() []string {
 		"templates/pipes/*.html",
 		"templates/qldb/*.html",
 		"templates/ram/*.html",
+		"templates/redshiftdata/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -793,6 +799,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.PipesOps = cfg.PipesOps
 	h.QLDBOps = cfg.QLDBOps
 	h.RAMOps = cfg.RAMOps
+	h.RedshiftDataOps = cfg.RedshiftDataOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1301,6 +1308,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupPipesRoutes()
 	h.setupQLDBRoutes()
 	h.setupRAMRoutes()
+	h.setupRedshiftDataRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
