@@ -127,6 +127,14 @@ func (m *mockAWSProvider) GetOrganizationsHandler() service.Registerable        
 func (m *mockAWSProvider) GetMWAAHandler() service.Registerable                    { return nil }
 func (m *mockAWSProvider) GetNeptuneHandler() service.Registerable                 { return nil }
 func (m *mockAWSProvider) GetPipesHandler() service.Registerable                   { return nil }
+func (m *mockAWSProvider) GetGlueHandler() service.Registerable                    { return nil }
+func (m *mockAWSProvider) GetIdentityStoreHandler() service.Registerable           { return nil }
+func (m *mockAWSProvider) GetMQHandler() service.Registerable                      { return nil }
+func (m *mockAWSProvider) GetMediaConvertHandler() service.Registerable            { return nil }
+func (m *mockAWSProvider) GetMediaStoreDataHandler() service.Registerable          { return nil }
+func (m *mockAWSProvider) GetPinpointHandler() service.Registerable                { return nil }
+func (m *mockAWSProvider) GetQLDBHandler() service.Registerable                    { return nil }
+func (m *mockAWSProvider) GetRDSDataHandler() service.Registerable                 { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 
