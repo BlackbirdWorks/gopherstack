@@ -41,7 +41,14 @@ type Pipe struct {
 	Name             string            `json:"name"`
 }
 
-// InMemoryBackend is the in-memory storage for the Pipes service.
+// clonePipe returns a deep copy of p with the Tags map cloned.
+func clonePipe(p *Pipe) *Pipe {
+	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
+
+	return &cp
+}
+
 type InMemoryBackend struct {
 	pipes     map[string]*Pipe
 	mu        *lockmetrics.RWMutex
@@ -96,9 +103,8 @@ func (b *InMemoryBackend) CreatePipe(
 		Tags:             mergeTags(nil, tags),
 	}
 	b.pipes[name] = p
-	cp := *p
 
-	return &cp, nil
+	return clonePipe(p), nil
 }
 
 // GetPipe returns a pipe by name.
@@ -110,9 +116,8 @@ func (b *InMemoryBackend) GetPipe(name string) (*Pipe, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
-	cp := *p
 
-	return &cp, nil
+	return clonePipe(p), nil
 }
 
 // ListPipes returns all pipes.
@@ -122,8 +127,7 @@ func (b *InMemoryBackend) ListPipes() []*Pipe {
 
 	list := make([]*Pipe, 0, len(b.pipes))
 	for _, p := range b.pipes {
-		cp := *p
-		list = append(list, &cp)
+		list = append(list, clonePipe(p))
 	}
 
 	return list
@@ -149,9 +153,8 @@ func (b *InMemoryBackend) UpdatePipe(name, roleARN, target, description string) 
 
 	p.Description = description
 	p.LastModifiedTime = time.Now()
-	cp := *p
 
-	return &cp, nil
+	return clonePipe(p), nil
 }
 
 // DeletePipe deletes a pipe by name.
@@ -180,9 +183,8 @@ func (b *InMemoryBackend) StartPipe(name string) (*Pipe, error) {
 	p.DesiredState = stateRunning
 	p.CurrentState = stateRunning
 	p.LastModifiedTime = time.Now()
-	cp := *p
 
-	return &cp, nil
+	return clonePipe(p), nil
 }
 
 // StopPipe transitions a pipe to the STOPPED state.
@@ -198,9 +200,8 @@ func (b *InMemoryBackend) StopPipe(name string) (*Pipe, error) {
 	p.DesiredState = stateStopped
 	p.CurrentState = stateStopped
 	p.LastModifiedTime = time.Now()
-	cp := *p
 
-	return &cp, nil
+	return clonePipe(p), nil
 }
 
 // TagResource adds or updates tags on a pipe identified by ARN.

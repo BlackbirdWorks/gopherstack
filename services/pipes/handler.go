@@ -130,7 +130,7 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 		case http.MethodPut:
 			return "UpdatePipe"
 		}
-	case len(segments) == 4 && segments[0] == "v1" && segments[1] == pipeNameSegment:
+	case len(segments) == 4 && segments[0] == "v1" && segments[1] == pipeNameSegment && method == http.MethodPost:
 		switch segments[3] {
 		case "start":
 			return "StartPipe"
@@ -161,6 +161,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		log := logger.Load(ctx)
 
 		path := c.Request().URL.Path
+		query := c.Request().URL.Query()
 
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
@@ -171,7 +172,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		op := h.ExtractOperation(c)
 
-		result, dispErr := h.dispatch(ctx, op, path, body)
+		result, dispErr := h.dispatch(ctx, op, path, query, body)
 		if dispErr != nil {
 			return h.handleError(c, dispErr)
 		}
@@ -184,7 +185,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-func (h *Handler) dispatch(ctx context.Context, op, path string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, op, path string, query url.Values, body []byte) ([]byte, error) {
 	switch op {
 	case "CreatePipe":
 		return h.handleCreatePipe(ctx, path, body)
@@ -203,7 +204,7 @@ func (h *Handler) dispatch(ctx context.Context, op, path string, body []byte) ([
 	case "TagResource":
 		return h.handleTagResource(ctx, path, body)
 	case "UntagResource":
-		return h.handleUntagResource(ctx, path)
+		return h.handleUntagResource(ctx, path, query)
 	case "ListTagsForResource":
 		return h.handleListTagsForResource(ctx, path)
 	default:
@@ -257,9 +258,13 @@ type createPipeRequest struct {
 	DesiredState string            `json:"DesiredState"`
 }
 
+// epochSeconds converts a [time.Time] to Unix epoch seconds as float64,
+// as required by the AWS REST-JSON protocol for timestamp fields.
+func epochSeconds(t time.Time) float64 {
+	return float64(t.Unix())
+}
+
 type pipeResponse struct {
-	CreationTime     time.Time         `json:"CreationTime"`
-	LastModifiedTime time.Time         `json:"LastModifiedTime"`
 	Tags             map[string]string `json:"Tags,omitempty"`
 	Arn              string            `json:"Arn"`
 	Name             string            `json:"Name"`
@@ -269,6 +274,8 @@ type pipeResponse struct {
 	Description      string            `json:"Description,omitempty"`
 	DesiredState     string            `json:"DesiredState"`
 	CurrentState     string            `json:"CurrentState"`
+	CreationTime     float64           `json:"CreationTime"`
+	LastModifiedTime float64           `json:"LastModifiedTime"`
 }
 
 func toPipeResponse(p *Pipe) pipeResponse {
@@ -281,8 +288,8 @@ func toPipeResponse(p *Pipe) pipeResponse {
 		Description:      p.Description,
 		DesiredState:     p.DesiredState,
 		CurrentState:     p.CurrentState,
-		CreationTime:     p.CreationTime,
-		LastModifiedTime: p.LastModifiedTime,
+		CreationTime:     epochSeconds(p.CreationTime),
+		LastModifiedTime: epochSeconds(p.LastModifiedTime),
 		Tags:             p.Tags,
 	}
 }
@@ -446,14 +453,15 @@ func (h *Handler) handleTagResource(_ context.Context, path string, body []byte)
 	return nil, nil
 }
 
-func (h *Handler) handleUntagResource(_ context.Context, path string) ([]byte, error) {
+func (h *Handler) handleUntagResource(_ context.Context, path string, query url.Values) ([]byte, error) {
 	resourceARN, err := extractTagsARN(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	// TODO: parse tagKeys query parameter when needed; returning nil for now.
-	if untagErr := h.Backend.UntagResource(resourceARN, nil); untagErr != nil {
+	tagKeys := query["tagKeys"]
+
+	if untagErr := h.Backend.UntagResource(resourceARN, tagKeys); untagErr != nil {
 		return nil, untagErr
 	}
 

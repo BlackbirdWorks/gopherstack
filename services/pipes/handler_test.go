@@ -24,16 +24,21 @@ func doPipesRequest(t *testing.T, h *pipes.Handler, method, path string, body an
 	t.Helper()
 
 	var bodyBytes []byte
+
 	if body != nil {
 		var err error
 		bodyBytes, err = json.Marshal(body)
 		require.NoError(t, err)
-	} else {
-		bodyBytes = []byte("{}")
 	}
 
+	return doPipesRawRequest(t, h, method, path, bodyBytes)
+}
+
+func doPipesRawRequest(t *testing.T, h *pipes.Handler, method, path string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
 	e := echo.New()
-	req := httptest.NewRequest(method, path, bytes.NewReader(bodyBytes))
+	req := httptest.NewRequest(method, path, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/pipes/aws4_request")
 
@@ -86,6 +91,7 @@ func TestHandler_CreatePipe(t *testing.T) {
 		name       string
 		pipeName   string
 		wantBody   string
+		bodyRaw    []byte
 		wantStatus int
 	}{
 		{
@@ -102,8 +108,8 @@ func TestHandler_CreatePipe(t *testing.T) {
 		{
 			name:       "invalid_json",
 			pipeName:   "bad-pipe",
-			body:       nil,
-			wantStatus: http.StatusOK,
+			bodyRaw:    []byte("not-json"),
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -112,7 +118,13 @@ func TestHandler_CreatePipe(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/"+tt.pipeName, tt.body)
+
+			var rec *httptest.ResponseRecorder
+			if tt.bodyRaw != nil {
+				rec = doPipesRawRequest(t, h, http.MethodPost, "/v1/pipes/"+tt.pipeName, tt.bodyRaw)
+			} else {
+				rec = doPipesRequest(t, h, http.MethodPost, "/v1/pipes/"+tt.pipeName, tt.body)
+			}
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.wantBody != "" {
@@ -308,4 +320,167 @@ func TestBackend_DuplicatePipe(t *testing.T) {
 		"arn:aws:lambda:us-east-1:000000000000:function:fn",
 		"", "RUNNING", nil)
 	require.Error(t, err)
+}
+
+func TestHandler_TagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *pipes.Handler) string
+		name       string
+		pipeName   string
+		wantStatus int
+	}{
+		{
+			name:     "tag_resource",
+			pipeName: "tag-test-pipe",
+			setup: func(t *testing.T, h *pipes.Handler) string {
+				t.Helper()
+				rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/tag-test-pipe", map[string]any{
+					"RoleArn": "arn:aws:iam::000000000000:role/r",
+					"Source":  "arn:aws:sqs:us-east-1:000000000000:src",
+					"Target":  "arn:aws:lambda:us-east-1:000000000000:function:fn",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				return resp["Arn"].(string)
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_arn",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var arn string
+			if tt.setup != nil {
+				arn = tt.setup(t, h)
+			}
+
+			rec := doPipesRequest(t, h, http.MethodPost, "/tags/"+arn,
+				map[string]any{"Tags": map[string]string{"env": "test"}})
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *pipes.Handler) string
+		name       string
+		wantTag    string
+		wantStatus int
+	}{
+		{
+			name: "list_tags",
+			setup: func(t *testing.T, h *pipes.Handler) string {
+				t.Helper()
+				rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/list-tags-pipe", map[string]any{
+					"RoleArn": "arn:aws:iam::000000000000:role/r",
+					"Source":  "arn:aws:sqs:us-east-1:000000000000:src",
+					"Target":  "arn:aws:lambda:us-east-1:000000000000:function:fn",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				arn := resp["Arn"].(string)
+				tagRec := doPipesRequest(t, h, http.MethodPost, "/tags/"+arn,
+					map[string]any{"Tags": map[string]string{"env": "prod"}})
+				require.Equal(t, http.StatusOK, tagRec.Code)
+
+				return arn
+			},
+			wantStatus: http.StatusOK,
+			wantTag:    "prod",
+		},
+		{
+			name:       "missing_arn",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var arn string
+			if tt.setup != nil {
+				arn = tt.setup(t, h)
+			}
+
+			rec := doPipesRequest(t, h, http.MethodGet, "/tags/"+arn, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantTag != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantTag)
+			}
+		})
+	}
+}
+
+func TestHandler_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, h *pipes.Handler) string
+		tagKeys    string
+		wantStatus int
+	}{
+		{
+			name: "untag_specific_key",
+			setup: func(t *testing.T, h *pipes.Handler) string {
+				t.Helper()
+				rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/untag-pipe", map[string]any{
+					"RoleArn": "arn:aws:iam::000000000000:role/r",
+					"Source":  "arn:aws:sqs:us-east-1:000000000000:src",
+					"Target":  "arn:aws:lambda:us-east-1:000000000000:function:fn",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				arn := resp["Arn"].(string)
+				tagRec := doPipesRequest(t, h, http.MethodPost, "/tags/"+arn,
+					map[string]any{"Tags": map[string]string{"env": "test", "team": "platform"}})
+				require.Equal(t, http.StatusOK, tagRec.Code)
+
+				return arn
+			},
+			tagKeys:    "?tagKeys=env",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing_arn",
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			var arn string
+			if tt.setup != nil {
+				arn = tt.setup(t, h)
+			}
+
+			rec := doPipesRequest(t, h, http.MethodDelete, "/tags/"+arn+tt.tagKeys, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }

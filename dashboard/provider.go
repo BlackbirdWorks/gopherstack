@@ -743,10 +743,6 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMWAAHandler(); h != nil {
 		ec.mwaaOps, _ = h.(*mwaabackend.Handler)
 	}
-
-	if h := ap.GetPipesHandler(); h != nil {
-		ec.pipesOps, _ = h.(*pipesbackend.Handler)
-	}
 }
 
 // extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, MQ, and Neptune handlers on ec.
@@ -765,6 +761,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetNeptuneHandler(); h != nil {
 		ec.neptuneOps, _ = h.(*neptunebackend.Handler)
+	}
+
+	if h := ap.GetPipesHandler(); h != nil {
+		ec.pipesOps, _ = h.(*pipesbackend.Handler)
 	}
 }
 
