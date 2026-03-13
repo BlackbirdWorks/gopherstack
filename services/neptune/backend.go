@@ -29,6 +29,12 @@ const (
 	neptuneEngine        = "neptune"
 )
 
+// DBClusterMember represents a single DB instance member of a Neptune cluster.
+type DBClusterMember struct {
+	DBInstanceIdentifier string
+	IsClusterWriter      bool
+}
+
 // DBCluster represents an Amazon Neptune DB cluster.
 type DBCluster struct {
 	DBClusterIdentifier         string
@@ -36,6 +42,7 @@ type DBCluster struct {
 	Status                      string
 	DBClusterParameterGroupName string
 	Endpoint                    string
+	DBClusterMembers            []DBClusterMember
 	Port                        int
 }
 
@@ -260,12 +267,19 @@ func (b *InMemoryBackend) CreateDBInstance(id, clusterID, instanceClass string) 
 		Port:                 defaultNeptunePort,
 	}
 	b.instances[id] = inst
+	if clusterID != "" {
+		if cl, ok := b.clusters[clusterID]; ok {
+			isWriter := len(cl.DBClusterMembers) == 0
+			cl.DBClusterMembers = append(cl.DBClusterMembers, DBClusterMember{
+				DBInstanceIdentifier: id,
+				IsClusterWriter:      isWriter,
+			})
+		}
+	}
 	cp := *inst
 
 	return &cp, nil
 }
-
-// DescribeDBInstances returns all Neptune DB instances or a specific one.
 func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 	b.mu.RLock("DescribeDBInstances")
 	defer b.mu.RUnlock()
@@ -296,6 +310,17 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	}
 	cp := *inst
 	delete(b.instances, id)
+	if cp.DBClusterIdentifier != "" {
+		if cl, ok := b.clusters[cp.DBClusterIdentifier]; ok {
+			members := cl.DBClusterMembers[:0]
+			for _, m := range cl.DBClusterMembers {
+				if m.DBInstanceIdentifier != id {
+					members = append(members, m)
+				}
+			}
+			cl.DBClusterMembers = members
+		}
+	}
 
 	return &cp, nil
 }

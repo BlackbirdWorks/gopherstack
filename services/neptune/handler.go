@@ -711,6 +711,11 @@ func parseTagKeyMembers(vals url.Values) []string {
 }
 
 func toXMLCluster(c *DBCluster) xmlDBCluster {
+	memberItems := make([]xmlDBClusterMember, 0, len(c.DBClusterMembers))
+	for _, m := range c.DBClusterMembers {
+		memberItems = append(memberItems, xmlDBClusterMember(m))
+	}
+
 	return xmlDBCluster{
 		DBClusterIdentifier:         c.DBClusterIdentifier,
 		Engine:                      c.Engine,
@@ -718,6 +723,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 		DBClusterParameterGroupName: c.DBClusterParameterGroupName,
 		Endpoint:                    c.Endpoint,
 		Port:                        c.Port,
+		DBClusterMembers:            xmlDBClusterMemberList{Members: memberItems},
 	}
 }
 
@@ -777,13 +783,23 @@ type neptuneErrorResponse struct {
 	Error   neptuneError `xml:"Error"`
 }
 
+type xmlDBClusterMember struct {
+	DBInstanceIdentifier string `xml:"DBInstanceIdentifier"`
+	IsClusterWriter      bool   `xml:"IsClusterWriter"`
+}
+
+type xmlDBClusterMemberList struct {
+	Members []xmlDBClusterMember `xml:"DBClusterMember"`
+}
+
 type xmlDBCluster struct {
-	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
-	Engine                      string `xml:"Engine"`
-	Status                      string `xml:"Status"`
-	DBClusterParameterGroupName string `xml:"DBClusterParameterGroup,omitempty"`
-	Endpoint                    string `xml:"Endpoint,omitempty"`
-	Port                        int    `xml:"Port"`
+	DBClusterIdentifier         string                 `xml:"DBClusterIdentifier"`
+	Engine                      string                 `xml:"Engine"`
+	Status                      string                 `xml:"Status"`
+	DBClusterParameterGroupName string                 `xml:"DBClusterParameterGroup,omitempty"`
+	Endpoint                    string                 `xml:"Endpoint,omitempty"`
+	DBClusterMembers            xmlDBClusterMemberList `xml:"DBClusterMembers"`
+	Port                        int                    `xml:"Port"`
 }
 
 type xmlDBClusterList struct {
