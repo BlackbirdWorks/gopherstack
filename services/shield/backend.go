@@ -19,6 +19,8 @@ var (
 	ErrProtectionNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrProtectionAlreadyExists is returned when a protection for the resource already exists.
 	ErrProtectionAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrConflict)
+	// ErrSubscriptionAlreadyExists is returned when a Shield Advanced subscription already exists.
+	ErrSubscriptionAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrConflict)
 	// ErrSubscriptionNotFound is returned when no subscription exists.
 	ErrSubscriptionNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 )
@@ -76,7 +78,7 @@ func (b *InMemoryBackend) CreateSubscription() error {
 	defer b.mu.Unlock()
 
 	if b.subscription != nil {
-		return fmt.Errorf("%w: subscription already exists", ErrProtectionAlreadyExists)
+		return fmt.Errorf("%w: subscription already exists", ErrSubscriptionAlreadyExists)
 	}
 
 	now := time.Now()
