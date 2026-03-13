@@ -205,18 +205,18 @@ type instanceView struct {
 }
 
 type permissionSetView struct {
-	PermissionSetArn string `json:"PermissionSetArn"`
-	Name             string `json:"Name"`
-	Description      string `json:"Description,omitempty"`
-	SessionDuration  string `json:"SessionDuration,omitempty"`
-	RelayState       string `json:"RelayState,omitempty"`
-	CreatedDate      string `json:"CreatedDate,omitempty"`
+	PermissionSetArn string  `json:"PermissionSetArn"`
+	Name             string  `json:"Name"`
+	Description      string  `json:"Description,omitempty"`
+	SessionDuration  string  `json:"SessionDuration,omitempty"`
+	RelayState       string  `json:"RelayState,omitempty"`
+	CreatedDate      float64 `json:"CreatedDate,omitempty"`
 }
 
 type provisioningStatusView struct {
-	RequestID   string `json:"RequestId"`
-	Status      string `json:"Status"`
-	CreatedDate string `json:"CreatedDate,omitempty"`
+	RequestID   string  `json:"RequestId"`
+	Status      string  `json:"Status"`
+	CreatedDate float64 `json:"CreatedDate,omitempty"`
 }
 
 type assignmentView struct {
@@ -371,7 +371,7 @@ func (h *Handler) handleCreatePermissionSet(c *echo.Context, body []byte) error 
 			Description:      ps.Description,
 			SessionDuration:  ps.SessionDuration,
 			RelayState:       ps.RelayState,
-			CreatedDate:      ps.CreatedDate.Format("2006-01-02T15:04:05Z"),
+			CreatedDate:      float64(ps.CreatedDate.Unix()),
 		},
 	})
 }
@@ -397,7 +397,7 @@ func (h *Handler) handleDescribePermissionSet(c *echo.Context, body []byte) erro
 			Description:      ps.Description,
 			SessionDuration:  ps.SessionDuration,
 			RelayState:       ps.RelayState,
-			CreatedDate:      ps.CreatedDate.Format("2006-01-02T15:04:05Z"),
+			CreatedDate:      float64(ps.CreatedDate.Unix()),
 		},
 	})
 }
@@ -498,7 +498,7 @@ func (h *Handler) handleCreateAccountAssignment(c *echo.Context, body []byte) er
 		"AccountAssignmentCreationStatus": provisioningStatusView{
 			RequestID:   status.RequestID,
 			Status:      status.Status,
-			CreatedDate: status.CreatedDate.Format("2006-01-02T15:04:05Z"),
+			CreatedDate: float64(status.CreatedDate.Unix()),
 		},
 	})
 }
@@ -524,7 +524,7 @@ func (h *Handler) handleDescribeAccountAssignmentCreationStatus(c *echo.Context,
 		"AccountAssignmentCreationStatus": provisioningStatusView{
 			RequestID:   status.RequestID,
 			Status:      status.Status,
-			CreatedDate: status.CreatedDate.Format("2006-01-02T15:04:05Z"),
+			CreatedDate: float64(status.CreatedDate.Unix()),
 		},
 	})
 }
@@ -560,7 +560,7 @@ func (h *Handler) handleDeleteAccountAssignment(c *echo.Context, body []byte) er
 		"AccountAssignmentDeletionStatus": provisioningStatusView{
 			RequestID:   status.RequestID,
 			Status:      status.Status,
-			CreatedDate: status.CreatedDate.Format("2006-01-02T15:04:05Z"),
+			CreatedDate: float64(status.CreatedDate.Unix()),
 		},
 	})
 }
@@ -586,7 +586,7 @@ func (h *Handler) handleDescribeAccountAssignmentDeletionStatus(c *echo.Context,
 		"AccountAssignmentDeletionStatus": provisioningStatusView{
 			RequestID:   status.RequestID,
 			Status:      status.Status,
-			CreatedDate: status.CreatedDate.Format("2006-01-02T15:04:05Z"),
+			CreatedDate: float64(status.CreatedDate.Unix()),
 		},
 	})
 }
@@ -771,7 +771,7 @@ func (h *Handler) handleProvisionPermissionSet(c *echo.Context, body []byte) err
 		"PermissionSetProvisioningStatus": provisioningStatusView{
 			RequestID:   status.RequestID,
 			Status:      status.Status,
-			CreatedDate: status.CreatedDate.Format("2006-01-02T15:04:05Z"),
+			CreatedDate: float64(status.CreatedDate.Unix()),
 		},
 	})
 }
@@ -797,7 +797,7 @@ func (h *Handler) handleDescribePermissionSetProvisioningStatus(c *echo.Context,
 		"PermissionSetProvisioningStatus": provisioningStatusView{
 			RequestID:   status.RequestID,
 			Status:      status.Status,
-			CreatedDate: status.CreatedDate.Format("2006-01-02T15:04:05Z"),
+			CreatedDate: float64(status.CreatedDate.Unix()),
 		},
 	})
 }
