@@ -3,7 +3,6 @@ package rdsdata
 import (
 	"fmt"
 	"maps"
-	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -56,7 +55,6 @@ type InMemoryBackend struct {
 	region             string
 	executedStatements []ExecutedStatement
 	txCounter          int
-	txMu               sync.Mutex
 }
 
 // NewInMemoryBackend creates a new in-memory RDS Data backend.
@@ -121,13 +119,11 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 
 // BeginTransaction starts a new transaction and returns its ID.
 func (b *InMemoryBackend) BeginTransaction(_ string) (string, error) {
-	b.txMu.Lock()
-	b.txCounter++
-	id := fmt.Sprintf("txn-%06d", b.txCounter)
-	b.txMu.Unlock()
-
 	b.mu.Lock("BeginTransaction")
 	defer b.mu.Unlock()
+
+	b.txCounter++
+	id := fmt.Sprintf("txn-%06d", b.txCounter)
 
 	b.transactions[id] = &Transaction{
 		TransactionID: id,

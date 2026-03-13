@@ -5496,10 +5496,10 @@ func TestTerraform_RDSData(t *testing.T) {
 			providerFn: rdsdataProviderBlock,
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
-				id := uuid.NewString()[:8]
+				idSuffix := uuid.NewString()[:8]
 
 				return map[string]any{
-					"ClusterIdentifier": "tf-rdsdata-" + id,
+					"ClusterIdentifier": "tf-rdsdata-" + idSuffix,
 				}
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
