@@ -69,6 +69,7 @@ type docPageData struct {
 	PipesOps                   []string
 	QLDBOps                    []string
 	QLDBSessionOps             []string
+	SageMakerOps               []string
 }
 
 // docIndex renders the documentation page.
@@ -149,6 +150,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		PipesOps:                   h.getSupportedOps(h.PipesOps),
 		QLDBOps:                    h.getSupportedOps(h.QLDBOps),
 		QLDBSessionOps:             h.getSupportedOps(h.QLDBSessionOps),
+		SageMakerOps:               h.getSupportedOps(h.SageMakerOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)

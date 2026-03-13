@@ -108,6 +108,7 @@ import (
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
@@ -299,7 +300,9 @@ type DashboardHandler struct {
 	// QLDBSessionOps provides access to the QLDB Session backend.
 	QLDBSessionOps *qldbsessionbackend.Handler
 	// RAMOps provides access to the RAM backend.
-	RAMOps       *rambackend.Handler
+	RAMOps *rambackend.Handler
+	// SageMakerOps provides access to the SageMaker backend.
+	SageMakerOps *sagemakerbackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -510,6 +513,8 @@ type Config struct {
 	QLDBSessionOps *qldbsessionbackend.Handler
 	// RAMOps provides access to the RAM backend.
 	RAMOps *rambackend.Handler
+	// SageMakerOps provides access to the SageMaker backend.
+	SageMakerOps *sagemakerbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -805,6 +810,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.QLDBOps = cfg.QLDBOps
 	h.QLDBSessionOps = cfg.QLDBSessionOps
 	h.RAMOps = cfg.RAMOps
+	h.SageMakerOps = cfg.SageMakerOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1306,6 +1312,11 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMediaStoreRoutes()
 	h.setupMediaStoreDataRoutes()
 	h.setupMemoryDBRoutes()
+	h.setupLatestServiceRoutes()
+}
+
+// setupLatestServiceRoutes registers routes for the most recently added services.
+func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupMWAARoutes()
 	h.setupOrganizationsRoutes()
 	h.setupPinpointRoutes()
@@ -1314,6 +1325,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupQLDBRoutes()
 	h.setupQLDBSessionRoutes()
 	h.setupRAMRoutes()
+	h.setupSageMakerRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {

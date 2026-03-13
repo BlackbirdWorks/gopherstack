@@ -107,6 +107,7 @@ import (
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
@@ -268,10 +269,12 @@ type Stack struct {
 	QLDBSessionHandler *qldbsessionbackend.Handler
 	// RAMHandler provides access to the RAM backend.
 	RAMHandler *rambackend.Handler
-	S3Client   *s3.Client
-	DDBClient  *dynamodb.Client
-	FaultStore *chaos.FaultStore
-	Dashboard  *dashboard.DashboardHandler
+	// SageMakerHandler provides access to the SageMaker backend.
+	SageMakerHandler *sagemakerbackend.Handler
+	S3Client         *s3.Client
+	DDBClient        *dynamodb.Client
+	FaultStore       *chaos.FaultStore
+	Dashboard        *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -478,6 +481,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.pipes)
 	_ = registry.Register(h.qldb)
 	_ = registry.Register(h.ram)
+	_ = registry.Register(h.sagemaker)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -582,6 +586,7 @@ type handlers struct {
 	qldb               *qldbbackend.Handler
 	qldbsession        *qldbsessionbackend.Handler
 	ram                *rambackend.Handler
+	sagemaker          *sagemakerbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -879,6 +884,9 @@ func populateLatestHandlers(h *handlers) {
 		qldbsessionbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.ram = rambackend.NewHandler(rambackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.sagemaker = sagemakerbackend.NewHandler(
+		sagemakerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -1038,6 +1046,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.QLDBOps = h.qldb
 	cfg.QLDBSessionOps = h.qldbsession
 	cfg.RAMOps = h.ram
+	cfg.SageMakerOps = h.sagemaker
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1244,6 +1253,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.QLDBHandler = h.qldb
 	s.QLDBSessionHandler = h.qldbsession
 	s.RAMHandler = h.ram
+	s.SageMakerHandler = h.sagemaker
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

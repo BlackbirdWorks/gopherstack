@@ -101,6 +101,7 @@ import (
 	route53resolversvc "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
+	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
@@ -2142,6 +2143,24 @@ func createRAMClient(t *testing.T) *ramsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return ramsvc.NewFromConfig(cfg, func(o *ramsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSageMakerClient returns a SageMaker client pointed at the shared test container.
+func createSageMakerClient(t *testing.T) *sagemakersvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return sagemakersvc.NewFromConfig(cfg, func(o *sagemakersvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
