@@ -200,6 +200,8 @@ github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1 h1:Akp3PA62O+s8Tze5/4f3Ythr
 github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1/go.mod h1:YNCq3tFuuD8sxXKR9NC7n8gdafguPzxp+WFKuivplTw=
 github.com/aws/aws-sdk-go-v2/service/opensearch v1.59.0 h1:rhlLa2SwSeKva0DEUrbRc5DN2bAsIPvcmW7N/c2MUgI=
 github.com/aws/aws-sdk-go-v2/service/opensearch v1.59.0/go.mod h1:ONvZiWIqgJzRaqzynnqCZO7ofBDKJhmeRbrYiGtjFWM=
+github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18 h1:Ywl4E7YLP9IZbElcwN1toHt2RxOkTfJmKJLekrVjf98=
+github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18/go.mod h1:X9pSd75A+F35DzA8lbkuRdBzEt/T5hSo5kCfNMSndiM=
 github.com/aws/aws-sdk-go-v2/service/rds v1.116.2 h1:KQLPCn9BWXW0Y8DyzEokbTF9HOiOQoR77Eu9GKcjBWU=
 github.com/aws/aws-sdk-go-v2/service/rds v1.116.2/go.mod h1:aPw0arz1e+cZUbF4LU7ZMYB1ZSYsJKi/tsAq9wADfeE=
 github.com/aws/aws-sdk-go-v2/service/redshift v1.62.3 h1:kG21aB8DkKTRmN2oTQ+4tytibM9vIwW4vxQmtbCzs9E=
