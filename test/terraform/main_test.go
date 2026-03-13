@@ -106,6 +106,7 @@ import (
 	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	servicediscoverysvc "github.com/aws/aws-sdk-go-v2/service/servicediscovery"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
 	sfnsvc "github.com/aws/aws-sdk-go-v2/service/sfn"
 	snssvc "github.com/aws/aws-sdk-go-v2/service/sns"
@@ -2199,6 +2200,24 @@ func createSageMakerClient(t *testing.T) *sagemakersvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return sagemakersvc.NewFromConfig(cfg, func(o *sagemakersvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createServiceDiscoveryClient returns a Service Discovery client pointed at the shared test container.
+func createServiceDiscoveryClient(t *testing.T) *servicediscoverysvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return servicediscoverysvc.NewFromConfig(cfg, func(o *servicediscoverysvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

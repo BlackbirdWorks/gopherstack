@@ -112,6 +112,7 @@ import (
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
@@ -277,10 +278,12 @@ type Stack struct {
 	RedshiftDataHandler *redshiftdatabackend.Handler
 	// SageMakerHandler provides access to the SageMaker backend.
 	SageMakerHandler *sagemakerbackend.Handler
-	S3Client         *s3.Client
-	DDBClient        *dynamodb.Client
-	FaultStore       *chaos.FaultStore
-	Dashboard        *dashboard.DashboardHandler
+	// ServiceDiscoveryHandler provides access to the Service Discovery backend.
+	ServiceDiscoveryHandler *servicediscoverybackend.Handler
+	S3Client                *s3.Client
+	DDBClient               *dynamodb.Client
+	FaultStore              *chaos.FaultStore
+	Dashboard               *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -490,6 +493,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.rdsdata)
 	_ = registry.Register(h.redshiftdata)
 	_ = registry.Register(h.sagemaker)
+	_ = registry.Register(h.servicediscovery)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -597,6 +601,7 @@ type handlers struct {
 	rdsdata            *rdsdatabackend.Handler
 	redshiftdata       *redshiftdatabackend.Handler
 	sagemaker          *sagemakerbackend.Handler
+	servicediscovery   *servicediscoverybackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -903,6 +908,9 @@ func populateLatestHandlers(h *handlers) {
 	h.sagemaker = sagemakerbackend.NewHandler(
 		sagemakerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.servicediscovery = servicediscoverybackend.NewHandler(
+		servicediscoverybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -1065,6 +1073,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.RAMOps = h.ram
 	cfg.RedshiftDataOps = h.redshiftdata
 	cfg.SageMakerOps = h.sagemaker
+	cfg.ServiceDiscoveryOps = h.servicediscovery
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1274,6 +1283,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.RDSDataHandler = h.rdsdata
 	s.RedshiftDataHandler = h.redshiftdata
 	s.SageMakerHandler = h.sagemaker
+	s.ServiceDiscoveryHandler = h.servicediscovery
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

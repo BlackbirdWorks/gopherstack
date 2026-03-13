@@ -124,6 +124,7 @@ import (
 	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	servicediscoverysvc "github.com/aws/aws-sdk-go-v2/service/servicediscovery"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
 	sfnsvc "github.com/aws/aws-sdk-go-v2/service/sfn"
 	snssvc "github.com/aws/aws-sdk-go-v2/service/sns"
@@ -284,6 +285,7 @@ provider "aws" {
     sagemaker       = %[1]q
     scheduler       = %[1]q
     secretsmanager  = %[1]q
+    servicediscovery = %[1]q
     ses             = %[1]q
     sesv2           = %[1]q
     sfn             = %[1]q
@@ -5685,6 +5687,43 @@ func TestTerraform_SageMaker(t *testing.T) {
 				require.NoError(t, err, "DescribeModel should succeed after terraform apply")
 				require.NotNil(t, out)
 				assert.Equal(t, vars["ModelName"].(string), aws.ToString(out.ModelName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ServiceDiscovery provisions a Cloud Map namespace and service via Terraform,
+// then verifies they are listed.
+func TestTerraform_ServiceDiscovery(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "servicediscovery/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"NamespaceName": "tf-ns-" + id,
+					"ServiceName":   "tf-svc-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createServiceDiscoveryClient(t)
+
+				out, err := client.ListNamespaces(ctx, &servicediscoverysvc.ListNamespacesInput{})
+				require.NoError(t, err, "ListNamespaces should succeed after terraform apply")
+				require.NotEmpty(t, out.Namespaces, "expected at least one namespace after apply")
 			},
 		},
 	}

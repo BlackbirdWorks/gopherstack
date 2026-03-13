@@ -113,6 +113,7 @@ import (
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
@@ -309,13 +310,15 @@ type DashboardHandler struct {
 	RedshiftDataOps *redshiftdatabackend.Handler
 	// SageMakerOps provides access to the SageMaker backend.
 	SageMakerOps *sagemakerbackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	// ServiceDiscoveryOps provides access to the Service Discovery backend.
+	ServiceDiscoveryOps *servicediscoverybackend.Handler
+	SubRouter           *echo.Echo
+	ddbProvider         *ddbbackend.DashboardProvider
+	s3Provider          *s3backend.DashboardProvider
+	FaultStore          *chaos.FaultStore
+	Logger              *slog.Logger
+	layout              *template.Template
+	GlobalConfig        config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -525,6 +528,8 @@ type Config struct {
 	RedshiftDataOps *redshiftdatabackend.Handler
 	// SageMakerOps provides access to the SageMaker backend.
 	SageMakerOps *sagemakerbackend.Handler
+	// ServiceDiscoveryOps provides access to the Service Discovery backend.
+	ServiceDiscoveryOps *servicediscoverybackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -675,6 +680,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/ram/*.html",
 		"templates/rdsdata/*.html",
 		"templates/redshiftdata/*.html",
+		"templates/servicediscovery/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -825,6 +831,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.RAMOps = cfg.RAMOps
 	h.RedshiftDataOps = cfg.RedshiftDataOps
 	h.SageMakerOps = cfg.SageMakerOps
+	h.ServiceDiscoveryOps = cfg.ServiceDiscoveryOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1347,6 +1354,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupRAMRoutes()
 	h.setupRedshiftDataRoutes()
 	h.setupSageMakerRoutes()
+	h.setupServiceDiscoveryRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1475,6 +1483,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/pipes", "Pipes"},
 	{"/qldb", "QLDB"},
 	{"/rdsdata", "RDSData"},
+	{"/servicediscovery", "ServiceDiscovery"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
