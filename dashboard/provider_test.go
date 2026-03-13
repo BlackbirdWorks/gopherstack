@@ -139,6 +139,7 @@ func (m *mockAWSProvider) GetQLDBSessionHandler() service.Registerable          
 func (m *mockAWSProvider) GetRAMHandler() service.Registerable                     { return nil }
 func (m *mockAWSProvider) GetRedshiftDataHandler() service.Registerable            { return nil }
 func (m *mockAWSProvider) GetSageMakerHandler() service.Registerable               { return nil }
+func (m *mockAWSProvider) GetSageMakerRuntimeHandler() service.Registerable        { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 

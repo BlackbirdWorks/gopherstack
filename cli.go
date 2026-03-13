@@ -142,6 +142,7 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
@@ -279,6 +280,7 @@ type CLI struct {
 	ramHandler                    service.Registerable
 	redshiftdataHandler           service.Registerable
 	sagemakerHandler              service.Registerable
+	sagemakerRuntimeHandler       service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -740,6 +742,11 @@ func (c *CLI) GetRedshiftDataHandler() service.Registerable { return c.redshiftd
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSageMakerHandler() service.Registerable { return c.sagemakerHandler }
+
+// GetSageMakerRuntimeHandler returns the SageMaker Runtime handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSageMakerRuntimeHandler() service.Registerable { return c.sagemakerRuntimeHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1418,6 +1425,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ramHandler = byName["RAM"]
 	cli.redshiftdataHandler = byName["RedshiftData"]
 	cli.sagemakerHandler = byName["SageMaker"]
+	cli.sagemakerRuntimeHandler = byName["SageMakerRuntime"]
 }
 
 // initializeServices initializes all service providers.
@@ -1659,6 +1667,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&rambackend.Provider{},
 		&redshiftdatabackend.Provider{},
 		&sagemakerbackend.Provider{},
+		&sagemakerruntimebackend.Provider{},
 	}
 }
 
