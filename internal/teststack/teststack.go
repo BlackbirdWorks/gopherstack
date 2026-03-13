@@ -95,6 +95,7 @@ import (
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -256,10 +257,12 @@ type Stack struct {
 	MWAAHandler *mwaabackend.Handler
 	// PipesHandler provides access to the EventBridge Pipes backend.
 	PipesHandler *pipesbackend.Handler
-	S3Client     *s3.Client
-	DDBClient    *dynamodb.Client
-	FaultStore   *chaos.FaultStore
-	Dashboard    *dashboard.DashboardHandler
+	// QLDBSessionHandler provides access to the QLDB Session backend.
+	QLDBSessionHandler *qldbsessionbackend.Handler
+	S3Client           *s3.Client
+	DDBClient          *dynamodb.Client
+	FaultStore         *chaos.FaultStore
+	Dashboard          *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -446,7 +449,7 @@ func registerCloudfrontService(registry *service.Registry, cloudFrontHndlr *clou
 	_ = registry.Register(cloudFrontHndlr)
 }
 
-// registerMediaServices registers the analytics and media service handlers.
+// registerMediaServices registers the analytics, media, and newer service handlers.
 func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.kinesisanalyticsv2)
 	_ = registry.Register(h.lakeformation)
@@ -456,6 +459,7 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.mediastoredata)
 	_ = registry.Register(h.memorydb)
 	_ = registry.Register(h.organizations)
+	_ = registry.Register(h.qldbsession)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -556,6 +560,7 @@ type handlers struct {
 	mwaa               *mwaabackend.Handler
 	neptune            *neptunebackend.Handler
 	pipes              *pipesbackend.Handler
+	qldbsession        *qldbsessionbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -842,6 +847,9 @@ func populateLatestHandlers(h *handlers) {
 		neptunebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.qldbsession = qldbsessionbackend.NewHandler(
+		qldbsessionbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -997,6 +1005,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.MWAAOps = h.mwaa
 	cfg.NeptuneOps = h.neptune
 	cfg.PipesOps = h.pipes
+	cfg.QLDBSessionOps = h.qldbsession
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1200,6 +1209,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.MWAAHandler = h.mwaa
 	s.NeptuneHandler = h.neptune
 	s.PipesHandler = h.pipes
+	s.QLDBSessionHandler = h.qldbsession
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

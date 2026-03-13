@@ -104,6 +104,8 @@ import (
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
+	qldbsessionsvc "github.com/aws/aws-sdk-go-v2/service/qldbsession" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	qldbsessiontypes "github.com/aws/aws-sdk-go-v2/service/qldbsession/types"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -261,6 +263,7 @@ provider "aws" {
     opensearch      = %[1]q
     organizations   = %[1]q
     pipes           = %[1]q
+    qldb            = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
     resourcegroupstaggingapi = %[1]q
@@ -5347,6 +5350,55 @@ func TestTerraform_Pipes(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribePipe should succeed after terraform apply")
 				assert.Equal(t, vars["PipeName"].(string), aws.ToString(out.Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_QLDBSession starts a QLDB session and verifies the session token is returned.
+func TestTerraform_QLDBSession(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "qldbsession/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				client := createQLDBSessionClient(t)
+
+				out, err := client.SendCommand( //nolint:staticcheck // AWS deprecated the SDK but service still works
+					ctx,
+					&qldbsessionsvc.SendCommandInput{
+						StartSession: &qldbsessiontypes.StartSessionRequest{
+							LedgerName: aws.String("test-ledger"),
+						},
+					},
+				)
+				require.NoError(t, err, "SendCommand StartSession should succeed")
+				require.NotNil(
+					t,
+					out.StartSession, //nolint:staticcheck // AWS deprecated the SDK but service still works
+					"StartSession result should be present",
+				)
+				assert.NotEmpty(
+					t,
+					aws.ToString(out.StartSession.SessionToken), //nolint:staticcheck // deprecated SDK
+					"session token should not be empty",
+				)
 			},
 		},
 	}

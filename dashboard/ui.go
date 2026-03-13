@@ -96,6 +96,7 @@ import (
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -287,14 +288,16 @@ type DashboardHandler struct {
 	// NeptuneOps provides access to the Neptune backend.
 	NeptuneOps *neptunebackend.Handler
 	// PipesOps provides access to the EventBridge Pipes backend.
-	PipesOps     *pipesbackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	PipesOps *pipesbackend.Handler
+	// QLDBSessionOps provides access to the QLDB Session backend.
+	QLDBSessionOps *qldbsessionbackend.Handler
+	SubRouter      *echo.Echo
+	ddbProvider    *ddbbackend.DashboardProvider
+	s3Provider     *s3backend.DashboardProvider
+	FaultStore     *chaos.FaultStore
+	Logger         *slog.Logger
+	layout         *template.Template
+	GlobalConfig   config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -490,6 +493,8 @@ type Config struct {
 	NeptuneOps *neptunebackend.Handler
 	// PipesOps provides access to the EventBridge Pipes backend.
 	PipesOps *pipesbackend.Handler
+	// QLDBSessionOps provides access to the QLDB Session backend.
+	QLDBSessionOps *qldbsessionbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -755,6 +760,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.MWAAOps = cfg.MWAAOps
 	h.NeptuneOps = cfg.NeptuneOps
 	h.PipesOps = cfg.PipesOps
+	h.QLDBSessionOps = cfg.QLDBSessionOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1260,6 +1266,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupOrganizationsRoutes()
 	h.setupNeptuneRoutes()
 	h.setupPipesRoutes()
+	h.setupQLDBSessionRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {

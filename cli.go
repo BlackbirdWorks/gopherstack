@@ -128,6 +128,7 @@ import (
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -267,6 +268,7 @@ type CLI struct {
 	mwaaHandler                   service.Registerable
 	neptuneHandler                service.Registerable
 	pipesHandler                  service.Registerable
+	qldbsessionHandler            service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -698,6 +700,11 @@ func (c *CLI) GetMWAAHandler() service.Registerable { return c.mwaaHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetPipesHandler() service.Registerable { return c.pipesHandler }
+
+// GetQLDBSessionHandler returns the QLDB Session handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetQLDBSessionHandler() service.Registerable { return c.qldbsessionHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1370,6 +1377,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 	cli.pipesHandler = byName["Pipes"]
+	cli.qldbsessionHandler = byName["QLDBSession"]
 }
 
 // initializeServices initializes all service providers.
@@ -1586,6 +1594,7 @@ func getServiceProviders() []service.Provider {
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},
 		&pipesbackend.Provider{},
+		&qldbsessionbackend.Provider{},
 	}
 }
 
