@@ -521,9 +521,9 @@ type handlers struct {
 	codeDeploy         *codedeploybackend.Handler
 	dms                *dmsbackend.Handler
 	codeStarConn       *codestarconnectionsbackend.Handler
-	dynamodbStreams     *dynamodbstreamsbackend.Handler
-	elasticbeanstalk    *elasticbeanstalkbackend.Handler
-	elastictranscoder   *elastictranscoderbackend.Handler
+	dynamodbStreams    *dynamodbstreamsbackend.Handler
+	elasticbeanstalk   *elasticbeanstalkbackend.Handler
+	elastictranscoder  *elastictranscoderbackend.Handler
 	efs                *efsbackend.Handler
 	eks                *eksbackend.Handler
 	elb                *elbbackend.Handler

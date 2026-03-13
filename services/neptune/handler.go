@@ -64,6 +64,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RemoveTagsFromResource",
 		"DescribeDBEngineVersions",
 		"DescribeOrderableDBInstanceOptions",
+		"DescribeGlobalClusters",
 	}
 }
 
@@ -229,6 +230,8 @@ func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error)
 		return h.handleDescribeDBEngineVersions(vals)
 	case "DescribeOrderableDBInstanceOptions":
 		return h.handleDescribeOrderableDBInstanceOptions(vals)
+	case "DescribeGlobalClusters":
+		return h.handleDescribeGlobalClusters(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid Neptune action", ErrUnknownAction, action)
 	}
@@ -606,6 +609,10 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(_ url.Values) (any, e
 			OrderableDBInstanceOptions: xmlOrderableDBInstanceOptionList{Members: members},
 		},
 	}, nil
+}
+
+func (h *Handler) handleDescribeGlobalClusters(_ url.Values) (any, error) {
+	return &describeGlobalClustersResponse{Xmlns: neptuneXMLNS}, nil
 }
 
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {
@@ -1026,4 +1033,12 @@ type describeOrderableDBInstanceOptionsResponse struct {
 	XMLName xml.Name                                 `xml:"DescribeOrderableDBInstanceOptionsResponse"`
 	Xmlns   string                                   `xml:"xmlns,attr"`
 	Result  describeOrderableDBInstanceOptionsResult `xml:"DescribeOrderableDBInstanceOptionsResult"`
+}
+
+type describeGlobalClustersResponse struct {
+	Result struct {
+		GlobalClusters struct{} `xml:"GlobalClusters"`
+	} `xml:"DescribeGlobalClustersResult"`
+	XMLName xml.Name `xml:"DescribeGlobalClustersResponse"`
+	Xmlns   string   `xml:"xmlns,attr"`
 }

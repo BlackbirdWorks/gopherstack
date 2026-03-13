@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -93,17 +94,41 @@ func (h *DashboardHandler) neptuneIndex(c *echo.Context) error {
 
 	clusters, err := h.NeptuneOps.Backend.DescribeDBClusters("")
 	if err != nil {
-		return c.NoContent(http.StatusInternalServerError)
+		h.Logger.ErrorContext(context.Background(), "neptune: failed to describe clusters", "error", err)
+		h.renderTemplate(c.Response(), "neptune/index.html", neptuneIndexData{
+			PageData:     PageData{Title: "Neptune Clusters", ActiveTab: "neptune", Snippet: neptuneSnippet()},
+			Clusters:     []neptuneClusterView{},
+			Instances:    []neptuneInstanceView{},
+			SubnetGroups: []neptuneSubnetGroupView{},
+		})
+
+		return nil
 	}
 
 	instances, err := h.NeptuneOps.Backend.DescribeDBInstances("")
 	if err != nil {
-		return c.NoContent(http.StatusInternalServerError)
+		h.Logger.ErrorContext(context.Background(), "neptune: failed to describe instances", "error", err)
+		h.renderTemplate(c.Response(), "neptune/index.html", neptuneIndexData{
+			PageData:     PageData{Title: "Neptune Clusters", ActiveTab: "neptune", Snippet: neptuneSnippet()},
+			Clusters:     []neptuneClusterView{},
+			Instances:    []neptuneInstanceView{},
+			SubnetGroups: []neptuneSubnetGroupView{},
+		})
+
+		return nil
 	}
 
 	subnetGroups, err := h.NeptuneOps.Backend.DescribeDBSubnetGroups("")
 	if err != nil {
-		return c.NoContent(http.StatusInternalServerError)
+		h.Logger.ErrorContext(context.Background(), "neptune: failed to describe subnet groups", "error", err)
+		h.renderTemplate(c.Response(), "neptune/index.html", neptuneIndexData{
+			PageData:     PageData{Title: "Neptune Clusters", ActiveTab: "neptune", Snippet: neptuneSnippet()},
+			Clusters:     []neptuneClusterView{},
+			Instances:    []neptuneInstanceView{},
+			SubnetGroups: []neptuneSubnetGroupView{},
+		})
+
+		return nil
 	}
 
 	clusterViews := make([]neptuneClusterView, 0, len(clusters))

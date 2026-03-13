@@ -84,7 +84,7 @@ import (
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
 	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
 	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
-	neptuneSvc "github.com/aws/aws-sdk-go-v2/service/neptune"
+	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -328,7 +328,7 @@ func createDocDBClient(t *testing.T) *docdbsvc.Client {
 }
 
 // createNeptuneClient returns a Neptune client pointed at the shared test container.
-func createNeptuneClient(t *testing.T) *neptuneSvc.Client {
+func createNeptuneClient(t *testing.T) *neptunesvc.Client {
 	t.Helper()
 
 	cfg, err := config.LoadDefaultConfig(
@@ -342,7 +342,7 @@ func createNeptuneClient(t *testing.T) *neptuneSvc.Client {
 		require.NoError(t, err, "unable to load SDK config")
 	}
 
-	return neptuneSvc.NewFromConfig(cfg, func(o *neptuneSvc.Options) {
+	return neptunesvc.NewFromConfig(cfg, func(o *neptunesvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

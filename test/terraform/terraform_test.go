@@ -99,7 +99,7 @@ import (
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
 	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
 	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
-	neptuneSvc "github.com/aws/aws-sdk-go-v2/service/neptune"
+	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -945,12 +945,28 @@ func TestTerraform_Neptune(t *testing.T) {
 				suffix := vars["Suffix"].(string)
 				client := createNeptuneClient(t)
 				clusterID := "tf-neptune-" + suffix
-				out, err := client.DescribeDBClusters(ctx, &neptuneSvc.DescribeDBClustersInput{
+				out, err := client.DescribeDBClusters(ctx, &neptunesvc.DescribeDBClustersInput{
 					DBClusterIdentifier: &clusterID,
 				})
 				require.NoError(t, err, "DescribeDBClusters should succeed after terraform apply")
 				require.Len(t, out.DBClusters, 1)
 				assert.Equal(t, clusterID, *out.DBClusters[0].DBClusterIdentifier)
+
+				instanceID := "tf-neptune-inst-" + suffix
+				instOut, err := client.DescribeDBInstances(ctx, &neptunesvc.DescribeDBInstancesInput{
+					DBInstanceIdentifier: &instanceID,
+				})
+				require.NoError(t, err, "DescribeDBInstances should succeed after terraform apply")
+				require.Len(t, instOut.DBInstances, 1)
+				assert.Equal(t, instanceID, *instOut.DBInstances[0].DBInstanceIdentifier)
+
+				sgName := "tf-neptune-sg-" + suffix
+				sgOut, err := client.DescribeDBSubnetGroups(ctx, &neptunesvc.DescribeDBSubnetGroupsInput{
+					DBSubnetGroupName: &sgName,
+				})
+				require.NoError(t, err, "DescribeDBSubnetGroups should succeed after terraform apply")
+				require.Len(t, sgOut.DBSubnetGroups, 1)
+				assert.Equal(t, sgName, *sgOut.DBSubnetGroups[0].DBSubnetGroupName)
 			},
 		},
 	}
