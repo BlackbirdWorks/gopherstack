@@ -97,6 +97,7 @@ import (
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -263,6 +264,8 @@ type Stack struct {
 	PipesHandler *pipesbackend.Handler
 	// QLDBHandler provides access to the QLDB backend.
 	QLDBHandler *qldbbackend.Handler
+	// QLDBSessionHandler provides access to the QLDB Session backend.
+	QLDBSessionHandler *qldbsessionbackend.Handler
 	// RAMHandler provides access to the RAM backend.
 	RAMHandler *rambackend.Handler
 	S3Client   *s3.Client
@@ -455,7 +458,7 @@ func registerCloudfrontService(registry *service.Registry, cloudFrontHndlr *clou
 	_ = registry.Register(cloudFrontHndlr)
 }
 
-// registerMediaServices registers the analytics and media service handlers.
+// registerMediaServices registers the analytics, media, and newer service handlers.
 func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.kinesisanalyticsv2)
 	_ = registry.Register(h.lakeformation)
@@ -465,6 +468,7 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.mediastoredata)
 	_ = registry.Register(h.memorydb)
 	_ = registry.Register(h.organizations)
+	_ = registry.Register(h.qldbsession)
 }
 
 // registerLatestServices registers the most recently added service handlers.
@@ -576,6 +580,7 @@ type handlers struct {
 	neptune            *neptunebackend.Handler
 	pipes              *pipesbackend.Handler
 	qldb               *qldbbackend.Handler
+	qldbsession        *qldbsessionbackend.Handler
 	ram                *rambackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
@@ -870,6 +875,9 @@ func populateLatestHandlers(h *handlers) {
 	)
 	h.pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	h.qldb = qldbbackend.NewHandler(qldbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.qldbsession = qldbsessionbackend.NewHandler(
+		qldbsessionbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.ram = rambackend.NewHandler(rambackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 }
 
@@ -1028,6 +1036,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.NeptuneOps = h.neptune
 	cfg.PipesOps = h.pipes
 	cfg.QLDBOps = h.qldb
+	cfg.QLDBSessionOps = h.qldbsession
 	cfg.RAMOps = h.ram
 }
 
@@ -1233,6 +1242,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.NeptuneHandler = h.neptune
 	s.PipesHandler = h.pipes
 	s.QLDBHandler = h.qldb
+	s.QLDBSessionHandler = h.qldbsession
 	s.RAMHandler = h.ram
 }
 

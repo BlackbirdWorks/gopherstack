@@ -98,6 +98,7 @@ import (
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -295,6 +296,8 @@ type DashboardHandler struct {
 	PipesOps *pipesbackend.Handler
 	// QLDBOps provides access to the QLDB backend.
 	QLDBOps *qldbbackend.Handler
+	// QLDBSessionOps provides access to the QLDB Session backend.
+	QLDBSessionOps *qldbsessionbackend.Handler
 	// RAMOps provides access to the RAM backend.
 	RAMOps       *rambackend.Handler
 	SubRouter    *echo.Echo
@@ -503,6 +506,8 @@ type Config struct {
 	PipesOps *pipesbackend.Handler
 	// QLDBOps provides access to the QLDB backend.
 	QLDBOps *qldbbackend.Handler
+	// QLDBSessionOps provides access to the QLDB Session backend.
+	QLDBSessionOps *qldbsessionbackend.Handler
 	// RAMOps provides access to the RAM backend.
 	RAMOps *rambackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -641,11 +646,17 @@ func newestDashboardTemplatePatterns() []string {
 // latestDashboardTemplatePatterns returns template glob patterns for additional services.
 // Extracted from dashboardTemplatePatterns to satisfy the funlen limit.
 func latestDashboardTemplatePatterns() []string {
-	return []string{
+	return append([]string{
 		"templates/pinpoint/*.html",
 		"templates/neptune/*.html",
+	}, mostRecentDashboardTemplatePatterns()...)
+}
+
+func mostRecentDashboardTemplatePatterns() []string {
+	return []string{
 		"templates/pipes/*.html",
 		"templates/qldb/*.html",
+		"templates/qldbsession/*.html",
 		"templates/ram/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
@@ -792,6 +803,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.NeptuneOps = cfg.NeptuneOps
 	h.PipesOps = cfg.PipesOps
 	h.QLDBOps = cfg.QLDBOps
+	h.QLDBSessionOps = cfg.QLDBSessionOps
 	h.RAMOps = cfg.RAMOps
 }
 
@@ -1300,6 +1312,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupNeptuneRoutes()
 	h.setupPipesRoutes()
 	h.setupQLDBRoutes()
+	h.setupQLDBSessionRoutes()
 	h.setupRAMRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {

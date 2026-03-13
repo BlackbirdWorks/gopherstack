@@ -69,6 +69,7 @@ import (
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -213,6 +214,7 @@ type AWSSDKProvider interface {
 	GetNeptuneHandler() service.Registerable
 	GetPipesHandler() service.Registerable
 	GetQLDBHandler() service.Registerable
+	GetQLDBSessionHandler() service.Registerable
 	GetRAMHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
@@ -329,6 +331,7 @@ type extractedConfig struct {
 	neptuneOps                *neptunebackend.Handler
 	pipesOps                  *pipesbackend.Handler
 	qldbOps                   *qldbbackend.Handler
+	qldbsessionOps            *qldbsessionbackend.Handler
 	ramOps                    *rambackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
@@ -772,7 +775,8 @@ func extractNewestStorageHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	}
 }
 
-// extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, MQ, and Neptune handlers on ec.
+// extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, MQ, Neptune,
+// Pipes, QLDB, and QLDBSession handlers on ec.
 func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
@@ -796,6 +800,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetQLDBHandler(); h != nil {
 		ec.qldbOps, _ = h.(*qldbbackend.Handler)
+	}
+
+	if h := ap.GetQLDBSessionHandler(); h != nil {
+		ec.qldbsessionOps, _ = h.(*qldbsessionbackend.Handler)
 	}
 
 	if h := ap.GetRAMHandler(); h != nil {
@@ -991,5 +999,6 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.NeptuneOps = ec.neptuneOps
 	cfg.PipesOps = ec.pipesOps
 	cfg.QLDBOps = ec.qldbOps
+	cfg.QLDBSessionOps = ec.qldbsessionOps
 	cfg.RAMOps = ec.ramOps
 }

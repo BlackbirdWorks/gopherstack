@@ -134,6 +134,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/pinpoint v1.39.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18 // indirect
 	github.com/aws/aws-sdk-go-v2/service/qldb v1.32.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/qldbsession v1.32.2 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ram v1.36.1 // indirect
 )
 
