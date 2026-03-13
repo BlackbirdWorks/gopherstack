@@ -1304,6 +1304,21 @@
                             </div>
                         </li>
                         <li>
+                            <a href="/dashboard/kinesisanalyticsv2"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-colors {{if eq .ActiveTab "kinesisanalyticsv2"}}bg-blue-50 text-blue-700 dark:bg-slate-800 dark:text-blue-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-kinesisanalyticsv2" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                                </svg>
+                                <span class="sidebar-text truncate" title="Kinesis Analytics v2">Kinesis Analytics v2</span>
+                            </a>
+                            <div id="tooltip-kinesisanalyticsv2" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Kinesis Data Analytics v2
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
                             <a href="/dashboard/lakeformation"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-colors {{if eq .ActiveTab "lakeformation"}}bg-blue-50 text-blue-700 dark:bg-slate-800 dark:text-blue-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-lakeformation" data-tooltip-placement="right">
@@ -1360,6 +1375,209 @@
                             <div id="tooltip-mediastoredata" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
                                 AWS Elemental MediaStore Data
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/memorydb"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-teal-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-teal-400 transition-colors {{if eq .ActiveTab "memorydb"}}bg-teal-50 text-teal-700 dark:bg-slate-800 dark:text-teal-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-memorydb" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>
+                                </svg>
+                                <span class="sidebar-text truncate" title="MemoryDB">MemoryDB</span>
+                            </a>
+                            <div id="tooltip-memorydb" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Amazon MemoryDB
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/mq"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-teal-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-teal-400 transition-colors {{if eq .ActiveTab "mq"}}bg-teal-50 text-teal-700 dark:bg-slate-800 dark:text-teal-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-mq" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.294 48.294 0 005.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"/>
+                                </svg>
+                                <span class="sidebar-text truncate" title="MQ">MQ</span>
+                            </a>
+                            <div id="tooltip-mq" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Amazon MQ
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/neptune"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-purple-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-purple-400 transition-colors {{if eq .ActiveTab "neptune"}}bg-purple-50 text-purple-700 dark:bg-slate-800 dark:text-purple-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-neptune" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418"/>
+                                </svg>
+                                <span class="sidebar-text truncate" title="Neptune">Neptune</span>
+                            </a>
+                            <div id="tooltip-neptune" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Amazon Neptune
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/mwaa"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-teal-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-teal-400 transition-colors {{if eq .ActiveTab "mwaa"}}bg-teal-50 text-teal-700 dark:bg-slate-800 dark:text-teal-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-mwaa" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                                </svg>
+                                <span class="sidebar-text truncate" title="MWAA">MWAA</span>
+                            </a>
+                            <div id="tooltip-mwaa" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Amazon MWAA
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/organizations"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-teal-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-teal-400 transition-colors {{if eq .ActiveTab "organizations"}}bg-teal-50 text-teal-700 dark:bg-slate-800 dark:text-teal-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-organizations" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/>
+                                </svg>
+                                <span class="sidebar-text truncate" title="Organizations">Organizations</span>
+                            </a>
+                            <div id="tooltip-organizations" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                AWS Organizations
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/pinpoint"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-teal-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-teal-400 transition-colors {{if eq .ActiveTab "pinpoint"}}bg-teal-50 text-teal-700 dark:bg-slate-800 dark:text-teal-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-pinpoint" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                </svg>
+                                <span class="sidebar-text truncate" title="Pinpoint">Pinpoint</span>
+                            </a>
+                            <div id="tooltip-pinpoint" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Amazon Pinpoint
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-colors {{if eq .ActiveTab "pipes"}}bg-blue-50 text-blue-700 dark:bg-slate-800 dark:text-blue-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-pipes" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 3M21 7.5H7.5" />
+                                </svg>
+                                <span class="sidebar-text truncate" title="Pipes">Pipes</span>
+                            </a>
+                            <div id="tooltip-pipes" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                EventBridge Pipes
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/qldb"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "qldb"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-qldb" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                                </svg>
+                                <span class="sidebar-text truncate" title="QLDB">QLDB</span>
+                            </a>
+                            <div id="tooltip-qldb" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Quantum Ledger Database
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/qldbsession"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-colors {{if eq .ActiveTab "qldbsession"}}bg-blue-50 text-blue-700 dark:bg-slate-800 dark:text-blue-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-qldbsession" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125S3.75 11.278 3.75 9m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125S3.75 13.903 3.75 11.625" />
+                                </svg>
+                                <span class="sidebar-text truncate" title="QLDB Session">QLDB Session</span>
+                            </a>
+                            <div id="tooltip-qldbsession" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                QLDB Session
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/ram"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-blue-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-colors {{if eq .ActiveTab "ram"}}bg-blue-50 text-blue-700 dark:bg-slate-800 dark:text-blue-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-ram" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185z" />
+                                </svg>
+                                <span class="sidebar-text truncate" title="RAM">RAM</span>
+                            </a>
+                            <div id="tooltip-ram" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Resource Access Manager
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/redshiftdata"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-cyan-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-colors {{if eq .ActiveTab "redshiftdata"}}bg-cyan-50 text-cyan-700 dark:bg-slate-800 dark:text-cyan-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-redshiftdata" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+                                </svg>
+                                <span class="sidebar-text truncate" title="Redshift Data">Redshift Data</span>
+                            </a>
+                            <div id="tooltip-redshiftdata" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Redshift Data API
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/sagemaker"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-green-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-green-400 transition-colors {{if eq .ActiveTab "sagemaker"}}bg-green-50 text-green-700 dark:bg-slate-800 dark:text-green-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-sagemaker" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 1-6.23-.693L4.2 13.914m15.6 1.386-1.57.393m0 0-3.165.792A9.065 9.065 0 0 1 12 16.5a9.065 9.065 0 0 1-3.665-.809m7.33 1.586L12 21l-3.665-3.723" />
+                                </svg>
+                                <span class="sidebar-text truncate" title="SageMaker">SageMaker</span>
+                            </a>
+                            <div id="tooltip-sagemaker" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                SageMaker
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/shield"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-orange-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-orange-400 transition-colors {{if eq .ActiveTab "shield"}}bg-orange-50 text-orange-700 dark:bg-slate-800 dark:text-orange-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-shield" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                        d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>
+                                </svg>
+                                <span class="sidebar-text truncate" title="Shield">Shield</span>
+                            </a>
+                            <div id="tooltip-shield" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                AWS Shield Advanced
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
                         </li>

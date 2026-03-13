@@ -1,0 +1,122 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                </svg>
+                Shield Advanced
+                <span
+                    class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300">
+                    {{len .Protections}}
+                </span>
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">AWS Shield Advanced provides managed DDoS protection for your AWS resources.</p>
+        </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 flex items-center gap-3">
+            {{if eq .SubscriptionState "ACTIVE"}}
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+                Subscription Active
+            </span>
+            <button type="button" onclick="document.getElementById('create-protection-modal').classList.remove('hidden')"
+                class="text-white bg-orange-600 hover:bg-orange-700 focus:ring-4 focus:ring-orange-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-orange-500 dark:hover:bg-orange-600 focus:outline-none dark:focus:ring-orange-800">
+                + Add Protection
+            </button>
+            {{else}}
+            <form method="POST" action="/dashboard/shield/subscribe" hx-boost="false">
+                <button type="submit"
+                    class="text-white bg-orange-600 hover:bg-orange-700 focus:ring-4 focus:ring-orange-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-orange-500 dark:hover:bg-orange-600 focus:outline-none dark:focus:ring-orange-800">
+                    Enable Shield Advanced
+                </button>
+            </form>
+            {{end}}
+        </div>
+    </div>
+
+    <div
+        class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">Resource ARN</th>
+                    <th scope="col" class="px-6 py-3">Protection ID</th>
+                    <th scope="col" class="px-6 py-3">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Protections}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.ResourceARN}}">{{.ResourceARN}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.ID}}">{{.ID}}</td>
+                    <td class="px-6 py-4">
+                        <form method="POST" action="/dashboard/shield/delete" hx-boost="false"
+                            onsubmit="return confirm('Delete protection {{.Name}}?')">
+                            <input type="hidden" name="id" value="{{.ID}}">
+                            <button type="submit"
+                                class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 text-sm font-medium">
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr class="bg-white dark:bg-slate-800/50">
+                    <td colspan="4" class="px-6 py-8 text-center text-slate-500 dark:text-slate-400">
+                        {{if eq .SubscriptionState "ACTIVE"}}
+                        No protections found. Add one to get started.
+                        {{else}}
+                        Enable Shield Advanced to start protecting your resources.
+                        {{end}}
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Create Protection Modal -->
+<div id="create-protection-modal"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div
+        class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-lg mx-4">
+        <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-6">Add Protection</h2>
+        <form method="POST" action="/dashboard/shield/protect" hx-boost="false">
+            <div class="mb-4">
+                <label for="protection-name"
+                    class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Protection Name</label>
+                <input type="text" id="protection-name" name="name" required
+                    placeholder="my-protection"
+                    class="block w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 dark:focus:ring-orange-400">
+            </div>
+            <div class="mb-4">
+                <label for="protection-arn"
+                    class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Resource ARN</label>
+                <input type="text" id="protection-arn" name="resource_arn" required
+                    placeholder="arn:aws:ec2:us-east-1:123456789012:eip-allocation/eipalloc-12345678"
+                    class="block w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 dark:focus:ring-orange-400">
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button"
+                    onclick="document.getElementById('create-protection-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:bg-orange-500 dark:hover:bg-orange-600">
+                    Add Protection
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

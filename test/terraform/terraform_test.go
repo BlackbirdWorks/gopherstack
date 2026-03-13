@@ -91,14 +91,29 @@ import (
 	kafkasvc "github.com/aws/aws-sdk-go-v2/service/kafka"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
+	kinesisanalyticsv2svc "github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
+	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
+	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
+	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
+	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
+	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
+	pinpointsvc "github.com/aws/aws-sdk-go-v2/service/pinpoint"
+	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
+	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb"               //nolint:staticcheck // AWS deprecated the SDK but service still works
+	qldbsessionsvc "github.com/aws/aws-sdk-go-v2/service/qldbsession" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	qldbsessiontypes "github.com/aws/aws-sdk-go-v2/service/qldbsession/types"
+	ramsvc "github.com/aws/aws-sdk-go-v2/service/ram"
+	ramsvc_types "github.com/aws/aws-sdk-go-v2/service/ram/types"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
+	rdsdatasvc "github.com/aws/aws-sdk-go-v2/service/rdsdata"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
+	redshiftdatasvc "github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	taggingsvc "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
@@ -106,6 +121,8 @@ import (
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
+	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	sagemakerruntimesvc "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
@@ -114,6 +131,7 @@ import (
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssoadminsvc "github.com/aws/aws-sdk-go-v2/service/ssoadmin"
 	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
@@ -142,9 +160,10 @@ var tofuProviderCacheDir = filepath.Join(os.TempDir(), "gopherstack-tofu-provide
 //
 //nolint:gochecknoglobals // set once in TestMain, read-only during parallel tests
 var (
-	preInitDirMain  string
-	preInitDirRDS   string
-	preInitDirDocDB string
+	preInitDirMain    string
+	preInitDirRDS     string
+	preInitDirDocDB   string
+	preInitDirNeptune string
 )
 
 // tofuBinaryOnce ensures tofu is only downloaded once per test run.
@@ -239,6 +258,7 @@ provider "aws" {
     identitystore   = %[1]q
     iot             = %[1]q
     kafka           = %[1]q
+    kinesisanalyticsv2 = %[1]q
     kinesis         = %[1]q
     kinesisanalytics = %[1]q
     kms             = %[1]q
@@ -246,22 +266,35 @@ provider "aws" {
     lambda          = %[1]q
     mediaconvert    = %[1]q
     mediastore      = %[1]q
+    memorydb        = %[1]q
+    mq              = %[1]q
+    mwaa            = %[1]q
     opensearch      = %[1]q
+    organizations   = %[1]q
+    pinpoint        = %[1]q
+    pipes           = %[1]q
+    qldb            = %[1]q
+    ram             = %[1]q
     redshift        = %[1]q
+    redshiftdata    = %[1]q
     resourcegroups  = %[1]q
     resourcegroupstaggingapi = %[1]q
     route53         = %[1]q
     route53resolver = %[1]q
     s3              = %[1]q
     s3control       = %[1]q
+    sagemaker       = %[1]q
     scheduler       = %[1]q
     secretsmanager  = %[1]q
+    serverlessrepo  = %[1]q
     ses             = %[1]q
     sesv2           = %[1]q
     sfn             = %[1]q
+    shield          = %[1]q
     sns             = %[1]q
     sqs             = %[1]q
     ssm             = %[1]q
+    ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
   }
@@ -271,6 +304,34 @@ provider "aws" {
 
 // rdsProviderBlock returns an OpenTofu provider block that includes the rds endpoint.
 func rdsProviderBlock(addr string) string {
+	return fmt.Sprintf(`terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+  required_version = ">= 1.0"
+}
+
+provider "aws" {
+  region                      = "us-east-1"
+  access_key                  = "test"
+  secret_key                  = "test"
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+
+  endpoints {
+    rds = %[1]q
+    sts = %[1]q
+  }
+}
+`, addr)
+}
+
+// rdsdataProviderBlock returns an OpenTofu provider block that includes the rds and rdsdata endpoints.
+func rdsdataProviderBlock(addr string) string {
 	return fmt.Sprintf(`terraform {
   required_providers {
     aws = {
@@ -320,6 +381,34 @@ provider "aws" {
   endpoints {
     docdb = %[1]q
     sts   = %[1]q
+  }
+}
+`, addr)
+}
+
+// neptuneProviderBlock returns an OpenTofu provider block that includes the neptune endpoint.
+func neptuneProviderBlock(addr string) string {
+	return fmt.Sprintf(`terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+  required_version = ">= 1.0"
+}
+
+provider "aws" {
+  region                      = "us-east-1"
+  access_key                  = "test"
+  secret_key                  = "test"
+  skip_credentials_validation = true
+  skip_metadata_api_check     = true
+  skip_requesting_account_id  = true
+
+  endpoints {
+    neptune = %[1]q
+    sts     = %[1]q
   }
 }
 `, addr)
@@ -524,6 +613,8 @@ func selectPreInitDir(hcl string) string {
 	switch {
 	case strings.HasPrefix(hcl, docdbProviderBlock(endpoint)):
 		return preInitDirDocDB
+	case strings.HasPrefix(hcl, neptuneProviderBlock(endpoint)):
+		return preInitDirNeptune
 	case strings.HasPrefix(hcl, rdsProviderBlock(endpoint)):
 		return preInitDirRDS
 	case strings.HasPrefix(hcl, providerBlock(endpoint)):
@@ -876,6 +967,59 @@ func TestTerraform_DocDB(t *testing.T) {
 				require.NoError(t, err, "DescribeDBClusters should succeed after terraform apply")
 				require.Len(t, out.DBClusters, 1)
 				assert.Equal(t, clusterID, *out.DBClusters[0].DBClusterIdentifier)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Neptune provisions a Neptune cluster and instance and verifies they exist.
+func TestTerraform_Neptune(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:       "success",
+			fixture:    "neptune/success",
+			providerFn: neptuneProviderBlock,
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{"Suffix": uuid.NewString()[:8]}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				suffix := vars["Suffix"].(string)
+				client := createNeptuneClient(t)
+				clusterID := "tf-neptune-" + suffix
+				out, err := client.DescribeDBClusters(ctx, &neptunesvc.DescribeDBClustersInput{
+					DBClusterIdentifier: &clusterID,
+				})
+				require.NoError(t, err, "DescribeDBClusters should succeed after terraform apply")
+				require.Len(t, out.DBClusters, 1)
+				assert.Equal(t, clusterID, *out.DBClusters[0].DBClusterIdentifier)
+
+				instanceID := "tf-neptune-inst-" + suffix
+				instOut, err := client.DescribeDBInstances(ctx, &neptunesvc.DescribeDBInstancesInput{
+					DBInstanceIdentifier: &instanceID,
+				})
+				require.NoError(t, err, "DescribeDBInstances should succeed after terraform apply")
+				require.Len(t, instOut.DBInstances, 1)
+				assert.Equal(t, instanceID, *instOut.DBInstances[0].DBInstanceIdentifier)
+
+				sgName := "tf-neptune-sg-" + suffix
+				sgOut, err := client.DescribeDBSubnetGroups(ctx, &neptunesvc.DescribeDBSubnetGroupsInput{
+					DBSubnetGroupName: &sgName,
+				})
+				require.NoError(t, err, "DescribeDBSubnetGroups should succeed after terraform apply")
+				require.Len(t, sgOut.DBSubnetGroups, 1)
+				assert.Equal(t, sgName, *sgOut.DBSubnetGroups[0].DBSubnetGroupName)
 			},
 		},
 	}
@@ -4841,6 +4985,54 @@ func TestTerraform_Kafka(t *testing.T) {
 	}
 }
 
+// TestTerraform_KinesisAnalyticsV2 verifies that Kinesis Data Analytics v2 resources created
+// via Terraform are visible through the SDK.
+func TestTerraform_KinesisAnalyticsV2(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "kinesisanalyticsv2/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createKinesisAnalyticsV2Client(t)
+				suffix := vars["Suffix"].(string)
+				appName := "tf-kinesisanalyticsv2-" + suffix
+
+				out, err := client.ListApplications(ctx, &kinesisanalyticsv2svc.ListApplicationsInput{})
+				require.NoError(t, err, "ListApplications should succeed after terraform apply")
+
+				found := false
+				for _, app := range out.ApplicationSummaries {
+					if aws.ToString(app.ApplicationName) == appName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "application %q should be listed after terraform apply", appName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_MediaConvert provisions a MediaConvert queue via Terraform
 // and verifies it exists using the MediaConvert SDK.
 func TestTerraform_MediaConvert(t *testing.T) {
@@ -4880,6 +5072,55 @@ func TestTerraform_MediaConvert(t *testing.T) {
 				}
 
 				assert.True(t, found, "queue %q should be listed after terraform apply", queueName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_MQ provisions an Amazon MQ broker via Terraform, then verifies
+// it is listed via the Amazon MQ SDK.
+func TestTerraform_MQ(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "mq/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createMQClient(t)
+				suffix := vars["Suffix"].(string)
+				brokerName := "tf-mq-" + suffix
+
+				out, err := client.ListBrokers(ctx, &mqsvc.ListBrokersInput{})
+				require.NoError(t, err, "ListBrokers should succeed after terraform apply")
+
+				found := false
+
+				for _, br := range out.BrokerSummaries {
+					if aws.ToString(br.BrokerName) == brokerName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "broker %q should be listed after terraform apply", brokerName)
 			},
 		},
 	}
@@ -4960,6 +5201,761 @@ func TestTerraform_MediaStore(t *testing.T) {
 				}
 
 				assert.True(t, found, "container %q should be listed", containerName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_MemoryDB provisions a MemoryDB cluster via Terraform, then verifies
+// it is listed via the MemoryDB SDK.
+func TestTerraform_MemoryDB(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "memorydb/cluster",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ClusterName": "tfmdb-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createMemoryDBClient(t)
+				clusterName := vars["ClusterName"].(string)
+
+				out, err := client.DescribeClusters(ctx, &memorydbsvc.DescribeClustersInput{})
+				require.NoError(t, err, "DescribeClusters should succeed after terraform apply")
+
+				found := false
+				for _, c := range out.Clusters {
+					if aws.ToString(c.Name) == clusterName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "created cluster should appear in DescribeClusters output")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Organizations provisions an Organizations org and OU via Terraform,
+// then verifies it via the Organizations SDK.
+func TestTerraform_Organizations(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "organizations/org",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createOrganizationsClient(t)
+
+				out, err := client.DescribeOrganization(ctx, &organizationssvc.DescribeOrganizationInput{})
+				require.NoError(t, err, "DescribeOrganization should succeed after terraform apply")
+				require.NotNil(t, out.Organization)
+				assert.Equal(t, "ALL", string(out.Organization.FeatureSet))
+
+				rootsOut, err := client.ListRoots(ctx, &organizationssvc.ListRootsInput{})
+				require.NoError(t, err, "ListRoots should succeed after terraform apply")
+				require.NotEmpty(t, rootsOut.Roots, "organization should have at least one root")
+
+				suffix := vars["Suffix"].(string)
+				ouName := "development-" + suffix
+
+				ousOut, err := client.ListOrganizationalUnitsForParent(
+					ctx,
+					&organizationssvc.ListOrganizationalUnitsForParentInput{
+						ParentId: rootsOut.Roots[0].Id,
+					},
+				)
+				require.NoError(t, err, "ListOrganizationalUnitsForParent should succeed")
+
+				found := false
+
+				for _, ou := range ousOut.OrganizationalUnits {
+					if aws.ToString(ou.Name) == ouName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "created OU should appear in ListOrganizationalUnitsForParent output")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_MWAA provisions an MWAA environment via Terraform, then verifies
+// it is listed via the MWAA SDK.
+func TestTerraform_MWAA(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "mwaa/environment",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"EnvironmentName": "tfmwaa-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createMWAAClient(t)
+				envName := vars["EnvironmentName"].(string)
+
+				out, err := client.ListEnvironments(ctx, &mwaasvc.ListEnvironmentsInput{})
+				require.NoError(t, err, "ListEnvironments should succeed after terraform apply")
+
+				found := slices.Contains(out.Environments, envName)
+
+				assert.True(t, found, "created environment should appear in ListEnvironments output")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Pinpoint provisions a Pinpoint app via Terraform, then verifies
+// it is listed via the Pinpoint SDK.
+func TestTerraform_Pinpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "pinpoint/app",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"AppName": "tfpp-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createPinpointClient(t)
+				appName := vars["AppName"].(string)
+
+				out, err := client.GetApps(ctx, &pinpointsvc.GetAppsInput{})
+				require.NoError(t, err, "GetApps should succeed after terraform apply")
+
+				found := false
+
+				for _, item := range out.ApplicationsResponse.Item {
+					if item.Name != nil && *item.Name == appName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "created app should appear in GetApps output")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Pipes provisions an EventBridge Pipe and verifies it is described.
+func TestTerraform_Pipes(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "pipes/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"PipeName": "tf-pipe-" + id,
+					"RoleName": "tf-pipe-role-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createPipesClient(t)
+
+				out, err := client.DescribePipe(ctx, &pipessvc.DescribePipeInput{
+					Name: aws.String(vars["PipeName"].(string)),
+				})
+				require.NoError(t, err, "DescribePipe should succeed after terraform apply")
+				assert.Equal(t, vars["PipeName"].(string), aws.ToString(out.Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_QLDB provisions a QLDB ledger and verifies it is described.
+func TestTerraform_QLDBSession(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "qldbsession/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				client := createQLDBSessionClient(t)
+
+				out, err := client.SendCommand( //nolint:staticcheck // AWS deprecated the SDK but service still works
+					ctx,
+					&qldbsessionsvc.SendCommandInput{
+						StartSession: &qldbsessiontypes.StartSessionRequest{
+							LedgerName: aws.String("test-ledger"),
+						},
+					},
+				)
+				require.NoError(t, err, "SendCommand StartSession should succeed")
+				require.NotNil(
+					t,
+					out.StartSession, //nolint:staticcheck // AWS deprecated the SDK but service still works
+					"StartSession result should be present",
+				)
+				assert.NotEmpty(
+					t,
+					aws.ToString(out.StartSession.SessionToken), //nolint:staticcheck // deprecated SDK
+					"session token should not be empty",
+				)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_QLDB provisions a QLDB ledger and verifies it is described.
+func TestTerraform_QLDB(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "qldb/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"LedgerName": "tf-qldb-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createQLDBClient(t)
+
+				out, err := client.DescribeLedger( //nolint:staticcheck // AWS deprecated the SDK but service still works
+					ctx,
+					&qldbsvc.DescribeLedgerInput{
+						Name: aws.String(vars["LedgerName"].(string)),
+					},
+				)
+				require.NoError(t, err, "DescribeLedger should succeed after terraform apply")
+				ledgerName := aws.ToString(
+					out.Name, //nolint:staticcheck // AWS deprecated the SDK but service still works
+				)
+				assert.Equal(t, vars["LedgerName"].(string), ledgerName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_RDSData provisions an Aurora cluster and verifies the RDS Data API is accessible.
+func TestTerraform_RDSData(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:       "success",
+			fixture:    "rdsdata/success",
+			providerFn: rdsdataProviderBlock,
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				idSuffix := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ClusterIdentifier": "tf-rdsdata-" + idSuffix,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				clusterID := vars["ClusterIdentifier"].(string)
+				resourceARN := "arn:aws:rds:us-east-1:000000000000:cluster:" + clusterID
+				secretARN := "arn:aws:secretsmanager:us-east-1:000000000000:secret:rdsdata-test"
+
+				client := createRDSDataClient(t)
+
+				out, err := client.ExecuteStatement(ctx, &rdsdatasvc.ExecuteStatementInput{
+					ResourceArn: aws.String(resourceARN),
+					SecretArn:   aws.String(secretARN),
+					Sql:         aws.String("SELECT 1"),
+				})
+				require.NoError(t, err, "ExecuteStatement should succeed after terraform apply")
+				assert.NotNil(t, out)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_RAM provisions an AWS RAM resource share and verifies it is described.
+func TestTerraform_RAM(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ram/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ShareName": "tf-ram-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createRAMClient(t)
+
+				out, err := client.GetResourceShares(ctx, &ramsvc.GetResourceSharesInput{
+					ResourceOwner: ramsvc_types.ResourceOwnerSelf,
+					Name:          aws.String(vars["ShareName"].(string)),
+				})
+				require.NoError(t, err, "GetResourceShares should succeed after terraform apply")
+				require.NotEmpty(t, out.ResourceShares, "expected at least one resource share")
+				assert.Equal(t, vars["ShareName"].(string), aws.ToString(out.ResourceShares[0].Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_RedshiftData provisions a Redshift Data SQL statement and verifies it was created.
+func TestTerraform_RedshiftData(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "redshiftdata/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ClusterID": "tf-cluster-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createRedshiftDataClient(t)
+
+				out, err := client.ListStatements(ctx, &redshiftdatasvc.ListStatementsInput{})
+				require.NoError(t, err, "ListStatements should succeed after terraform apply")
+				require.NotEmpty(t, out.Statements, "expected at least one statement after apply")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SageMaker provisions a SageMaker model and verifies it is described.
+func TestTerraform_SageMaker(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "sagemaker/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ModelName": "tf-sm-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createSageMakerClient(t)
+
+				out, err := client.DescribeModel(ctx, &sagemakersvc.DescribeModelInput{
+					ModelName: aws.String(vars["ModelName"].(string)),
+				})
+				require.NoError(t, err, "DescribeModel should succeed after terraform apply")
+				require.NotNil(t, out)
+				assert.Equal(t, vars["ModelName"].(string), aws.ToString(out.ModelName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SageMakerRuntime verifies that the SageMaker Runtime service is reachable
+// and endpoint invocations succeed via the SDK directly (no Terraform-managed resources).
+func TestTerraform_SageMakerRuntime(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "sagemakerrumtime/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createSageMakerRuntimeClient(t)
+
+				out, err := client.InvokeEndpoint(ctx, &sagemakerruntimesvc.InvokeEndpointInput{
+					EndpointName: aws.String("tf-test-endpoint"),
+					Body:         []byte(`{"data": "test input"}`),
+					ContentType:  aws.String("application/json"),
+				})
+				require.NoError(t, err, "InvokeEndpoint should succeed")
+				assert.NotEmpty(t, out.Body, "InvokeEndpoint response body should not be empty")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ServerlessRepo provisions a Serverless Application Repository application and verifies it was created.
+func TestTerraform_ServerlessRepo(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "serverlessrepo/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ApplicationName": "tf-sar-" + id,
+					"Endpoint":        endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				appName := vars["ApplicationName"].(string)
+				reqURL := endpoint + "/applications/" + appName
+
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+				require.NoError(t, err)
+
+				// Use a fake SigV4 credential scoped to the "serverlessrepo" service.
+				const fakeAuth = "AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/" +
+					"serverlessrepo/aws4_request, SignedHeaders=host, Signature=fake"
+				req.Header.Set("Authorization", fakeAuth)
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "GetApplication should succeed after terraform apply")
+				defer resp.Body.Close()
+
+				body, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(body))
+
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(body, &result))
+				assert.Equal(t, appName, result["name"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Shield provisions a Shield subscription and protection and verifies the subscription state.
+func TestTerraform_Shield(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "shield/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ProtectionName": "tf-shield-" + id,
+					"ResourceARN":    "arn:aws:ec2:us-east-1:123456789012:eip-allocation/eipalloc-" + id,
+					"Endpoint":       endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				reqURL := endpoint + "/"
+				body := `{}`
+
+				req, err := http.NewRequestWithContext(
+					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+				require.NoError(t, err)
+
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				req.Header.Set("X-Amz-Target", "AWSShield_20160616.GetSubscriptionState")
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "GetSubscriptionState should succeed after terraform apply")
+				defer resp.Body.Close()
+
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+
+				var result map[string]string
+				require.NoError(t, json.Unmarshal(respBody, &result))
+				assert.Equal(t, "ACTIVE", result["SubscriptionState"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SsoAdmin provisions an SSO Admin permission set via Terraform and verifies it was created.
+func TestTerraform_SsoAdmin(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ssoadmin/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"PermissionSetName": "tf-ps-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createSsoAdminClient(t)
+				psName := vars["PermissionSetName"].(string)
+
+				instancesOut, err := client.ListInstances(ctx, &ssoadminsvc.ListInstancesInput{})
+				require.NoError(t, err, "ListInstances should succeed after terraform apply")
+				require.NotEmpty(t, instancesOut.Instances, "expected at least one SSO instance")
+
+				instanceArn := aws.ToString(instancesOut.Instances[0].InstanceArn)
+
+				out, err := client.ListPermissionSets(ctx, &ssoadminsvc.ListPermissionSetsInput{
+					InstanceArn: &instanceArn,
+				})
+				require.NoError(t, err, "ListPermissionSets should succeed")
+
+				found := false
+
+				for _, psArn := range out.PermissionSets {
+					desc, descErr := client.DescribePermissionSet(ctx, &ssoadminsvc.DescribePermissionSetInput{
+						InstanceArn:      &instanceArn,
+						PermissionSetArn: &psArn,
+					})
+					if descErr == nil && aws.ToString(desc.PermissionSet.Name) == psName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "expected permission set %q to exist", psName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Textract provisions a Textract text detection job and verifies the service responds.
+func TestTerraform_Textract(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "textract/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"Endpoint": endpoint,
+					"Bucket":   "tf-textract-bucket",
+					"Key":      "document-" + uuid.NewString()[:8] + ".pdf",
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				bucket, _ := vars["Bucket"].(string)
+				key, _ := vars["Key"].(string)
+
+				reqURL := endpoint + "/"
+				body := fmt.Sprintf(`{"Document":{"S3Object":{"Bucket":"%s","Name":"%s"}}}`, bucket, key)
+
+				req, err := http.NewRequestWithContext(
+					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+				require.NoError(t, err)
+
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				req.Header.Set("X-Amz-Target", "Textract.DetectDocumentText")
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "DetectDocumentText should succeed")
+				defer resp.Body.Close()
+
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(respBody, &result))
+				blocks, ok := result["Blocks"].([]any)
+				assert.True(t, ok, "expected Blocks in response")
+				assert.NotEmpty(t, blocks, "expected non-empty Blocks")
 			},
 		},
 	}

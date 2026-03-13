@@ -66,6 +66,15 @@ type docPageData struct {
 	DMSOps                     []string
 	CodeStarConnectionsOps     []string
 	DynamoDBStreamsOps         []string
+	PipesOps                   []string
+	QLDBOps                    []string
+	QLDBSessionOps             []string
+	RDSDataOps                 []string
+	RedshiftDataOps            []string
+	SageMakerOps               []string
+	SageMakerRuntimeOps        []string
+	SsoAdminOps                []string
+	TextractOps                []string
 }
 
 // docIndex renders the documentation page.
@@ -143,6 +152,15 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		DMSOps:                     h.getSupportedOps(h.DMSOps),
 		CodeStarConnectionsOps:     h.getSupportedOps(h.CodeStarConnectionsOps),
 		DynamoDBStreamsOps:         h.getSupportedOps(h.DynamoDBStreamsOps),
+		PipesOps:                   h.getSupportedOps(h.PipesOps),
+		QLDBOps:                    h.getSupportedOps(h.QLDBOps),
+		QLDBSessionOps:             h.getSupportedOps(h.QLDBSessionOps),
+		RDSDataOps:                 h.getSupportedOps(h.RDSDataOps),
+		RedshiftDataOps:            h.getSupportedOps(h.RedshiftDataOps),
+		SageMakerOps:               h.getSupportedOps(h.SageMakerOps),
+		SageMakerRuntimeOps:        h.getSupportedOps(h.SageMakerRuntimeOps),
+		SsoAdminOps:                h.getSupportedOps(h.SsoAdminOps),
+		TextractOps:                h.getSupportedOps(h.TextractOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)

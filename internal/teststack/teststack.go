@@ -81,25 +81,42 @@ import (
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
+	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
+	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	rgtabackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -107,6 +124,7 @@ import (
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -154,6 +172,7 @@ type Stack struct {
 	RedshiftHandler                *redshiftbackend.Handler
 	RDSHandler                     *rdsbackend.Handler
 	DocDBHandler                   *docdbbackend.Handler
+	NeptuneHandler                 *neptunebackend.Handler
 	AWSConfigHandler               *awsconfigbackend.Handler
 	S3ControlHandler               *s3controlbackend.Handler
 	ResourceGroupsHandler          *resourcegroupsbackend.Handler
@@ -228,18 +247,52 @@ type Stack struct {
 	KinesisAnalyticsHandler *kinesisanalyticsbackend.Handler
 	// KafkaHandler provides access to the MSK Kafka backend.
 	KafkaHandler *kafkabackend.Handler
+	// KinesisAnalyticsV2Handler provides access to the Kinesis Data Analytics v2 backend.
+	KinesisAnalyticsV2Handler *kinesisanalyticsv2backend.Handler
 	// LakeFormationHandler provides access to the Lake Formation backend.
 	LakeFormationHandler *lakeformationbackend.Handler
 	// MediaConvertHandler provides access to the MediaConvert backend.
 	MediaConvertHandler *mediaconvertbackend.Handler
+	// MQHandler provides access to the Amazon MQ backend.
+	MQHandler *mqbackend.Handler
 	// MediaStoreHandler provides access to the MediaStore backend.
 	MediaStoreHandler *mediastorebackend.Handler
 	// MediaStoreDataHandler provides access to the MediaStore Data backend.
 	MediaStoreDataHandler *mediastoredatabackend.Handler
-	S3Client              *s3.Client
-	DDBClient             *dynamodb.Client
-	FaultStore            *chaos.FaultStore
-	Dashboard             *dashboard.DashboardHandler
+	// MemoryDBHandler provides access to the MemoryDB backend.
+	MemoryDBHandler *memorydbbackend.Handler
+	// OrganizationsHandler provides access to the Organizations backend.
+	OrganizationsHandler *organizationsbackend.Handler
+	// MWAAHandler provides access to the MWAA backend.
+	MWAAHandler *mwaabackend.Handler
+	// PinpointHandler provides access to the Pinpoint backend.
+	PinpointHandler *pinpointbackend.Handler
+	// PipesHandler provides access to the EventBridge Pipes backend.
+	PipesHandler *pipesbackend.Handler
+	// QLDBHandler provides access to the QLDB backend.
+	QLDBHandler *qldbbackend.Handler
+	// QLDBSessionHandler provides access to the QLDB Session backend.
+	QLDBSessionHandler *qldbsessionbackend.Handler
+	// RDSDataHandler provides access to the RDS Data backend.
+	RDSDataHandler *rdsdatabackend.Handler
+	// RAMHandler provides access to the RAM backend.
+	RAMHandler *rambackend.Handler
+	// RedshiftDataHandler provides access to the Redshift Data backend.
+	RedshiftDataHandler *redshiftdatabackend.Handler
+	// SageMakerHandler provides access to the SageMaker backend.
+	SageMakerHandler *sagemakerbackend.Handler
+	// SageMakerRuntimeHandler provides access to the SageMaker Runtime backend.
+	SageMakerRuntimeHandler *sagemakerruntimebackend.Handler
+	// ServerlessRepoHandler provides access to the Serverless Application Repository backend.
+	ServerlessRepoHandler *serverlessrepobackend.Handler
+	// ShieldHandler provides access to the Shield backend.
+	ShieldHandler *shieldbackend.Handler
+	// TextractHandler provides access to the Textract backend.
+	TextractHandler *textractbackend.Handler
+	S3Client        *s3.Client
+	DDBClient       *dynamodb.Client
+	FaultStore      *chaos.FaultStore
+	Dashboard       *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -426,99 +479,146 @@ func registerCloudfrontService(registry *service.Registry, cloudFrontHndlr *clou
 	_ = registry.Register(cloudFrontHndlr)
 }
 
+// registerMediaServices registers the analytics, media, and newer service handlers.
+func registerMediaServices(registry *service.Registry, h handlers) {
+	_ = registry.Register(h.kinesisanalyticsv2)
+	_ = registry.Register(h.lakeformation)
+	_ = registry.Register(h.mediaconvert)
+	_ = registry.Register(h.mq)
+	_ = registry.Register(h.mediastore)
+	_ = registry.Register(h.mediastoredata)
+	_ = registry.Register(h.memorydb)
+	_ = registry.Register(h.organizations)
+	_ = registry.Register(h.qldbsession)
+}
+
+// registerLatestServices registers the most recently added service handlers.
+func registerLatestServices(registry *service.Registry, h handlers) {
+	_ = registry.Register(h.neptune)
+	_ = registry.Register(h.pinpoint)
+	_ = registry.Register(h.pipes)
+	_ = registry.Register(h.qldb)
+	_ = registry.Register(h.ram)
+	_ = registry.Register(h.rdsdata)
+	_ = registry.Register(h.redshiftdata)
+	_ = registry.Register(h.sagemaker)
+	_ = registry.Register(h.sagemakerRuntime)
+	_ = registry.Register(h.serverlessrepo)
+	_ = registry.Register(h.shield)
+	_ = registry.Register(h.textract)
+}
+
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
-	s3                *s3backend.S3Handler
-	ddb               *ddbbackend.DynamoDBHandler
-	ssm               *ssmbackend.Handler
-	iam               *iambackend.Handler
-	sts               *stsbackend.Handler
-	sns               *snsbackend.Handler
-	sqs               *sqsbackend.Handler
-	kms               *kmsbackend.Handler
-	sm                *smbackend.Handler
-	lambda            *lambdabackend.Handler
-	eb                *ebbackend.Handler
-	apigw             *apigwbackend.Handler
-	cwlogs            *cwlogsbackend.Handler
-	sfn               *sfnbackend.Handler
-	cw                *cwbackend.Handler
-	cfn               *cfnbackend.Handler
-	kinesis           *kinesisbackend.Handler
-	elasticache       *elasticachebackend.Handler
-	route53           *route53backend.Handler
-	ses               *sesbackend.Handler
-	sesv2             *sesv2backend.Handler
-	ec2               *ec2backend.Handler
-	ecr               *ecrbackend.Handler
-	ecs               *ecsbackend.Handler
-	iot               *iotbackend.Handler
-	fis               *fisbackend.Handler
-	identitystore     *identitystorebackend.Handler
-	opensearch        *opensearchbackend.Handler
-	acm               *acmbackend.Handler
-	acmpca            *acmpcabackend.Handler
-	redshift          *redshiftbackend.Handler
-	rds               *rdsbackend.Handler
-	docdb             *docdbbackend.Handler
-	awsconfig         *awsconfigbackend.Handler
-	s3control         *s3controlbackend.Handler
-	resourcegroups    *resourcegroupsbackend.Handler
-	rgtagging         *rgtabackend.Handler
-	swf               *swfbackend.Handler
-	firehose          *firehosebackend.Handler
-	scheduler         *schedulerbackend.Handler
-	route53resolver   *route53resolverbackend.Handler
-	transcribe        *transcribebackend.Handler
-	support           *supportbackend.Handler
-	cognitoIdentity   *cognitoidentitybackend.Handler
-	appSync           *appsyncbackend.Handler
-	cognitoIDP        *cognitoidpbackend.Handler
-	iotDataPlane      *iotdataplanebackend.Handler
-	apiGatewayMgmt    *apigwmgmtbackend.Handler
-	appConfigData     *appconfigdatabackend.Handler
-	amplify           *amplifybackend.Handler
-	apigwv2           *apigwv2backend.Handler
-	appConfig         *appconfigbackend.Handler
-	athena            *athenabackend.Handler
-	autoscaling       *autoscalingbackend.Handler
-	appAutoScaling    *applicationautoscalingbackend.Handler
-	backup            *backupbackend.Handler
-	cloudtrail        *cloudtrailbackend.Handler
-	batch             *batchbackend.Handler
-	bedrock           *bedrockbackend.Handler
-	bedrockruntime    *bedrockruntimebackend.Handler
-	ce                *cebackend.Handler
-	cloudcontrol      *cloudcontrolbackend.Handler
-	cloudFront        *cloudfrontbackend.Handler
-	codeArtifact      *codeartifactbackend.Handler
-	codebuild         *codebuildbackend.Handler
-	codeCommit        *codecommitbackend.Handler
-	codePipeline      *codepipelinebackend.Handler
-	codeConnections   *codeconnectionsbackend.Handler
-	codeDeploy        *codedeploybackend.Handler
-	dms               *dmsbackend.Handler
-	codeStarConn      *codestarconnectionsbackend.Handler
-	dynamodbStreams   *dynamodbstreamsbackend.Handler
-	elasticbeanstalk  *elasticbeanstalkbackend.Handler
-	elastictranscoder *elastictranscoderbackend.Handler
-	efs               *efsbackend.Handler
-	eks               *eksbackend.Handler
-	elb               *elbbackend.Handler
-	elbv2             *elbv2backend.Handler
-	emrserverless     *emrserverlessbackend.Handler
-	emr               *emrbackend.Handler
-	glacier           *glacierbackend.Handler
-	iotanalytics      *iotanalyticsbackend.Handler
-	iotwireless       *iotwirelessbackend.Handler
-	kinesisanalytics  *kinesisanalyticsbackend.Handler
-	kafka             *kafkabackend.Handler
-	lakeformation     *lakeformationbackend.Handler
-	mediaconvert      *mediaconvertbackend.Handler
-	mediastore        *mediastorebackend.Handler
-	mediastoredata    *mediastoredatabackend.Handler
-	iamBk             *iambackend.InMemoryBackend
-	s3Bk              *s3backend.InMemoryBackend
+	s3                 *s3backend.S3Handler
+	ddb                *ddbbackend.DynamoDBHandler
+	ssm                *ssmbackend.Handler
+	iam                *iambackend.Handler
+	sts                *stsbackend.Handler
+	sns                *snsbackend.Handler
+	sqs                *sqsbackend.Handler
+	kms                *kmsbackend.Handler
+	sm                 *smbackend.Handler
+	lambda             *lambdabackend.Handler
+	eb                 *ebbackend.Handler
+	apigw              *apigwbackend.Handler
+	cwlogs             *cwlogsbackend.Handler
+	sfn                *sfnbackend.Handler
+	cw                 *cwbackend.Handler
+	cfn                *cfnbackend.Handler
+	kinesis            *kinesisbackend.Handler
+	elasticache        *elasticachebackend.Handler
+	route53            *route53backend.Handler
+	ses                *sesbackend.Handler
+	sesv2              *sesv2backend.Handler
+	ec2                *ec2backend.Handler
+	ecr                *ecrbackend.Handler
+	ecs                *ecsbackend.Handler
+	iot                *iotbackend.Handler
+	fis                *fisbackend.Handler
+	identitystore      *identitystorebackend.Handler
+	opensearch         *opensearchbackend.Handler
+	acm                *acmbackend.Handler
+	acmpca             *acmpcabackend.Handler
+	redshift           *redshiftbackend.Handler
+	rds                *rdsbackend.Handler
+	docdb              *docdbbackend.Handler
+	awsconfig          *awsconfigbackend.Handler
+	s3control          *s3controlbackend.Handler
+	resourcegroups     *resourcegroupsbackend.Handler
+	rgtagging          *rgtabackend.Handler
+	swf                *swfbackend.Handler
+	firehose           *firehosebackend.Handler
+	scheduler          *schedulerbackend.Handler
+	route53resolver    *route53resolverbackend.Handler
+	transcribe         *transcribebackend.Handler
+	support            *supportbackend.Handler
+	cognitoIdentity    *cognitoidentitybackend.Handler
+	appSync            *appsyncbackend.Handler
+	cognitoIDP         *cognitoidpbackend.Handler
+	iotDataPlane       *iotdataplanebackend.Handler
+	apiGatewayMgmt     *apigwmgmtbackend.Handler
+	appConfigData      *appconfigdatabackend.Handler
+	amplify            *amplifybackend.Handler
+	apigwv2            *apigwv2backend.Handler
+	appConfig          *appconfigbackend.Handler
+	athena             *athenabackend.Handler
+	autoscaling        *autoscalingbackend.Handler
+	appAutoScaling     *applicationautoscalingbackend.Handler
+	backup             *backupbackend.Handler
+	cloudtrail         *cloudtrailbackend.Handler
+	batch              *batchbackend.Handler
+	bedrock            *bedrockbackend.Handler
+	bedrockruntime     *bedrockruntimebackend.Handler
+	ce                 *cebackend.Handler
+	cloudcontrol       *cloudcontrolbackend.Handler
+	cloudFront         *cloudfrontbackend.Handler
+	codeArtifact       *codeartifactbackend.Handler
+	codebuild          *codebuildbackend.Handler
+	codeCommit         *codecommitbackend.Handler
+	codePipeline       *codepipelinebackend.Handler
+	codeConnections    *codeconnectionsbackend.Handler
+	codeDeploy         *codedeploybackend.Handler
+	dms                *dmsbackend.Handler
+	codeStarConn       *codestarconnectionsbackend.Handler
+	dynamodbStreams    *dynamodbstreamsbackend.Handler
+	elasticbeanstalk   *elasticbeanstalkbackend.Handler
+	elastictranscoder  *elastictranscoderbackend.Handler
+	efs                *efsbackend.Handler
+	eks                *eksbackend.Handler
+	elb                *elbbackend.Handler
+	elbv2              *elbv2backend.Handler
+	emrserverless      *emrserverlessbackend.Handler
+	emr                *emrbackend.Handler
+	glacier            *glacierbackend.Handler
+	iotanalytics       *iotanalyticsbackend.Handler
+	iotwireless        *iotwirelessbackend.Handler
+	kafka              *kafkabackend.Handler
+	kinesisanalytics   *kinesisanalyticsbackend.Handler
+	kinesisanalyticsv2 *kinesisanalyticsv2backend.Handler
+	lakeformation      *lakeformationbackend.Handler
+	mediaconvert       *mediaconvertbackend.Handler
+	mq                 *mqbackend.Handler
+	mediastore         *mediastorebackend.Handler
+	mediastoredata     *mediastoredatabackend.Handler
+	memorydb           *memorydbbackend.Handler
+	organizations      *organizationsbackend.Handler
+	mwaa               *mwaabackend.Handler
+	pinpoint           *pinpointbackend.Handler
+	neptune            *neptunebackend.Handler
+	pipes              *pipesbackend.Handler
+	qldb               *qldbbackend.Handler
+	qldbsession        *qldbsessionbackend.Handler
+	ram                *rambackend.Handler
+	rdsdata            *rdsdatabackend.Handler
+	redshiftdata       *redshiftdatabackend.Handler
+	sagemaker          *sagemakerbackend.Handler
+	sagemakerRuntime   *sagemakerruntimebackend.Handler
+	serverlessrepo     *serverlessrepobackend.Handler
+	shield             *shieldbackend.Handler
+	textract           *textractbackend.Handler
+	iamBk              *iambackend.InMemoryBackend
+	s3Bk               *s3backend.InMemoryBackend
 }
 
 // newHandlers creates in-memory backends and handlers for all services.
@@ -770,6 +870,10 @@ func populateLatestHandlers(h *handlers) {
 		kafkabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 
+	h.kinesisanalyticsv2 = kinesisanalyticsv2backend.NewHandler(
+		kinesisanalyticsv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+
 	h.lakeformation = lakeformationbackend.NewHandler(lakeformationbackend.NewInMemoryBackend())
 	h.lakeformation.AccountID = config.DefaultAccountID
 	h.lakeformation.DefaultRegion = config.DefaultRegion
@@ -777,11 +881,58 @@ func populateLatestHandlers(h *handlers) {
 	h.mediaconvert = mediaconvertbackend.NewHandler(
 		mediaconvertbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.mq = mqbackend.NewHandler(
+		mqbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.mediastore = mediastorebackend.NewHandler(mediastorebackend.NewInMemoryBackend())
 	h.mediastore.AccountID = config.DefaultAccountID
 	h.mediastore.DefaultRegion = config.DefaultRegion
 
 	h.mediastoredata = mediastoredatabackend.NewHandler(mediastoredatabackend.NewInMemoryBackend())
+	h.memorydb = memorydbbackend.NewHandler(memorydbbackend.NewInMemoryBackend())
+	h.memorydb.AccountID = config.DefaultAccountID
+	h.memorydb.DefaultRegion = config.DefaultRegion
+
+	h.organizations = organizationsbackend.NewHandler(
+		organizationsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.mwaa = mwaabackend.NewHandler(mwaabackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID))
+	h.mwaa.AccountID = config.DefaultAccountID
+	h.mwaa.DefaultRegion = config.DefaultRegion
+
+	h.pinpoint = pinpointbackend.NewHandler(
+		pinpointbackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID),
+	)
+	h.pinpoint.AccountID = config.DefaultAccountID
+	h.pinpoint.DefaultRegion = config.DefaultRegion
+	h.neptune = neptunebackend.NewHandler(
+		neptunebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.qldb = qldbbackend.NewHandler(qldbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.rdsdata = rdsdatabackend.NewHandler(
+		rdsdatabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.qldbsession = qldbsessionbackend.NewHandler(
+		qldbsessionbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.ram = rambackend.NewHandler(rambackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.redshiftdata = redshiftdatabackend.NewHandler(
+		redshiftdatabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.sagemaker = sagemakerbackend.NewHandler(
+		sagemakerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.sagemakerRuntime = sagemakerruntimebackend.NewHandler(
+		sagemakerruntimebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.serverlessrepo = serverlessrepobackend.NewHandler(
+		serverlessrepobackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.shield = shieldbackend.NewHandler(
+		shieldbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.textract = textractbackend.NewHandler(textractbackend.NewInMemoryBackend())
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -899,6 +1050,13 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 		ElasticTranscoderOps:       h.elastictranscoder,
 		ELBOps:                     h.elb,
 		ELBv2Ops:                   h.elbv2,
+		EmrServerlessOps:           h.emrserverless,
+		EMROps:                     h.emr,
+		GlacierOps:                 h.glacier,
+		IoTAnalyticsOps:            h.iotanalytics,
+		IoTWirelessOps:             h.iotwireless,
+		KinesisAnalyticsOps:        h.kinesisanalytics,
+		KafkaOps:                   h.kafka,
 		GlobalConfig:               gc,
 		FaultStore:                 fs,
 		Logger:                     slog.Default(),
@@ -919,10 +1077,28 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.IoTWirelessOps = h.iotwireless
 	cfg.KinesisAnalyticsOps = h.kinesisanalytics
 	cfg.KafkaOps = h.kafka
+	cfg.KinesisAnalyticsV2Ops = h.kinesisanalyticsv2
 	cfg.LakeFormationOps = h.lakeformation
 	cfg.MediaConvertOps = h.mediaconvert
+	cfg.MQOps = h.mq
 	cfg.MediaStoreOps = h.mediastore
 	cfg.MediaStoreDataOps = h.mediastoredata
+	cfg.MemoryDBOps = h.memorydb
+	cfg.OrganizationsOps = h.organizations
+	cfg.MWAAOps = h.mwaa
+	cfg.PinpointOps = h.pinpoint
+	cfg.NeptuneOps = h.neptune
+	cfg.PipesOps = h.pipes
+	cfg.QLDBOps = h.qldb
+	cfg.QLDBSessionOps = h.qldbsession
+	cfg.RDSDataOps = h.rdsdata
+	cfg.RAMOps = h.ram
+	cfg.RedshiftDataOps = h.redshiftdata
+	cfg.SageMakerOps = h.sagemaker
+	cfg.SageMakerRuntimeOps = h.sagemakerRuntime
+	cfg.ServerlessRepoOps = h.serverlessrepo
+	cfg.ShieldOps = h.shield
+	cfg.TextractOps = h.textract
 }
 
 // New creates a fully wired integration stack for testing.
@@ -983,10 +1159,9 @@ func New(t *testing.T) *Stack {
 	_ = registry.Register(h.iotwireless)
 	_ = registry.Register(h.kinesisanalytics)
 	_ = registry.Register(h.kafka)
-	_ = registry.Register(h.lakeformation)
-	_ = registry.Register(h.mediaconvert)
-	_ = registry.Register(h.mediastore)
-	_ = registry.Register(h.mediastoredata)
+	_ = registry.Register(h.mwaa)
+	registerLatestServices(registry, h)
+	registerMediaServices(registry, h)
 
 	// Create AWS SDK clients routed through in-memory Echo, then wire dashboard.
 	clients := newSDKClients(t, e)
@@ -1093,11 +1268,11 @@ func buildStack(
 		ElasticTranscoderHandler:       h.elastictranscoder,
 		ELBHandler:                     h.elb,
 		ELBv2Handler:                   h.elbv2,
-		EmrServerlessHandler:           h.emrserverless,
-		EMRHandler:                     h.emr,
 		GlacierHandler:                 h.glacier,
 		IoTAnalyticsHandler:            h.iotanalytics,
 		IoTWirelessHandler:             h.iotwireless,
+		KinesisAnalyticsHandler:        h.kinesisanalytics,
+		KafkaHandler:                   h.kafka,
 		S3Client:                       clients.S3,
 		DDBClient:                      clients.DDB,
 		FaultStore:                     faultStore,
@@ -1111,12 +1286,32 @@ func buildStack(
 // setNewestStackHandlers sets the most recently added handler fields on a Stack.
 // It is extracted from buildStack to satisfy the funlen limit.
 func setNewestStackHandlers(s *Stack, h handlers) {
+	s.EmrServerlessHandler = h.emrserverless
+	s.EMRHandler = h.emr
 	s.KinesisAnalyticsHandler = h.kinesisanalytics
 	s.KafkaHandler = h.kafka
+	s.KinesisAnalyticsV2Handler = h.kinesisanalyticsv2
 	s.LakeFormationHandler = h.lakeformation
 	s.MediaConvertHandler = h.mediaconvert
+	s.MQHandler = h.mq
 	s.MediaStoreHandler = h.mediastore
 	s.MediaStoreDataHandler = h.mediastoredata
+	s.MemoryDBHandler = h.memorydb
+	s.OrganizationsHandler = h.organizations
+	s.MWAAHandler = h.mwaa
+	s.PinpointHandler = h.pinpoint
+	s.NeptuneHandler = h.neptune
+	s.PipesHandler = h.pipes
+	s.QLDBHandler = h.qldb
+	s.QLDBSessionHandler = h.qldbsession
+	s.RAMHandler = h.ram
+	s.RDSDataHandler = h.rdsdata
+	s.RedshiftDataHandler = h.redshiftdata
+	s.SageMakerHandler = h.sagemaker
+	s.SageMakerRuntimeHandler = h.sagemakerRuntime
+	s.ServerlessRepoHandler = h.serverlessrepo
+	s.ShieldHandler = h.shield
+	s.TextractHandler = h.textract
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

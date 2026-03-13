@@ -81,6 +81,7 @@ import (
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -88,26 +89,44 @@ import (
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
+	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
+	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -257,23 +276,61 @@ type DashboardHandler struct {
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
+	// KinesisAnalyticsV2Ops provides access to the Kinesis Data Analytics v2 backend.
+	KinesisAnalyticsV2Ops *kinesisanalyticsv2backend.Handler
 	// LakeFormationOps provides access to the Lake Formation backend.
 	LakeFormationOps *lakeformationbackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
 	ManagedBlockchainOps *managedblockchainbackend.Handler
 	// MediaConvertOps provides access to the MediaConvert backend.
 	MediaConvertOps *mediaconvertbackend.Handler
+	// MQOps provides access to the Amazon MQ backend.
+	MQOps *mqbackend.Handler
 	// MediaStoreOps provides access to the MediaStore backend.
 	MediaStoreOps *mediastorebackend.Handler
 	// MediaStoreDataOps provides access to the MediaStore Data backend.
 	MediaStoreDataOps *mediastoredatabackend.Handler
-	SubRouter         *echo.Echo
-	ddbProvider       *ddbbackend.DashboardProvider
-	s3Provider        *s3backend.DashboardProvider
-	FaultStore        *chaos.FaultStore
-	Logger            *slog.Logger
-	layout            *template.Template
-	GlobalConfig      config.GlobalConfig
+	// MemoryDBOps provides access to the MemoryDB backend.
+	MemoryDBOps *memorydbbackend.Handler
+	// OrganizationsOps provides access to the Organizations backend.
+	OrganizationsOps *organizationsbackend.Handler
+	// MWAAOps provides access to the MWAA backend.
+	MWAAOps *mwaabackend.Handler
+	// PinpointOps provides access to the Pinpoint backend.
+	PinpointOps *pinpointbackend.Handler
+	// NeptuneOps provides access to the Neptune backend.
+	NeptuneOps *neptunebackend.Handler
+	// PipesOps provides access to the EventBridge Pipes backend.
+	PipesOps *pipesbackend.Handler
+	// QLDBOps provides access to the QLDB backend.
+	QLDBOps *qldbbackend.Handler
+	// QLDBSessionOps provides access to the QLDB Session backend.
+	QLDBSessionOps *qldbsessionbackend.Handler
+	// RDSDataOps provides access to the RDS Data backend.
+	RDSDataOps *rdsdatabackend.Handler
+	// RAMOps provides access to the RAM backend.
+	RAMOps *rambackend.Handler
+	// RedshiftDataOps provides access to the Redshift Data backend.
+	RedshiftDataOps *redshiftdatabackend.Handler
+	// SageMakerOps provides access to the SageMaker backend.
+	SageMakerOps *sagemakerbackend.Handler
+	// SageMakerRuntimeOps provides access to the SageMaker Runtime backend.
+	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
+	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
+	ServerlessRepoOps *serverlessrepobackend.Handler
+	// ShieldOps provides access to the Shield backend.
+	ShieldOps *shieldbackend.Handler
+	// SsoAdminOps provides access to the SSO Admin backend.
+	SsoAdminOps *ssoadminbackend.Handler
+	// TextractOps provides access to the Textract backend.
+	TextractOps  *textractbackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -445,16 +502,54 @@ type Config struct {
 	KinesisAnalyticsOps *kinesisanalyticsbackend.Handler
 	// KafkaOps provides access to the MSK Kafka backend.
 	KafkaOps *kafkabackend.Handler
+	// KinesisAnalyticsV2Ops provides access to the Kinesis Data Analytics v2 backend.
+	KinesisAnalyticsV2Ops *kinesisanalyticsv2backend.Handler
 	// LakeFormationOps provides access to the Lake Formation backend.
 	LakeFormationOps *lakeformationbackend.Handler
 	// ManagedBlockchainOps provides access to the Managed Blockchain backend.
 	ManagedBlockchainOps *managedblockchainbackend.Handler
 	// MediaConvertOps provides access to the MediaConvert backend.
 	MediaConvertOps *mediaconvertbackend.Handler
+	// MQOps provides access to the Amazon MQ backend.
+	MQOps *mqbackend.Handler
 	// MediaStoreOps provides access to the MediaStore backend.
 	MediaStoreOps *mediastorebackend.Handler
 	// MediaStoreDataOps provides access to the MediaStore Data backend.
 	MediaStoreDataOps *mediastoredatabackend.Handler
+	// MemoryDBOps provides access to the MemoryDB backend.
+	MemoryDBOps *memorydbbackend.Handler
+	// OrganizationsOps provides access to the Organizations backend.
+	OrganizationsOps *organizationsbackend.Handler
+	// MWAAOps provides access to the MWAA backend.
+	MWAAOps *mwaabackend.Handler
+	// PinpointOps provides access to the Pinpoint backend.
+	PinpointOps *pinpointbackend.Handler
+	// NeptuneOps provides access to the Neptune backend.
+	NeptuneOps *neptunebackend.Handler
+	// PipesOps provides access to the EventBridge Pipes backend.
+	PipesOps *pipesbackend.Handler
+	// QLDBOps provides access to the QLDB backend.
+	QLDBOps *qldbbackend.Handler
+	// QLDBSessionOps provides access to the QLDB Session backend.
+	QLDBSessionOps *qldbsessionbackend.Handler
+	// RDSDataOps provides access to the RDS Data backend.
+	RDSDataOps *rdsdatabackend.Handler
+	// RAMOps provides access to the RAM backend.
+	RAMOps *rambackend.Handler
+	// RedshiftDataOps provides access to the Redshift Data backend.
+	RedshiftDataOps *redshiftdatabackend.Handler
+	// SageMakerOps provides access to the SageMaker backend.
+	SageMakerOps *sagemakerbackend.Handler
+	// SageMakerRuntimeOps provides access to the SageMaker Runtime backend.
+	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
+	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
+	ServerlessRepoOps *serverlessrepobackend.Handler
+	// ShieldOps provides access to the Shield backend.
+	ShieldOps *shieldbackend.Handler
+	// SsoAdminOps provides access to the SSO Admin backend.
+	SsoAdminOps *ssoadminbackend.Handler
+	// TextractOps provides access to the Textract backend.
+	TextractOps *textractbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -484,7 +579,7 @@ func parseDashboardTemplates() *template.Template {
 }
 
 func dashboardTemplatePatterns() []string {
-	return []string{
+	base := []string{ //nolint:prealloc // prealloc does not apply to literal slice initializations
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
@@ -568,12 +663,49 @@ func dashboardTemplatePatterns() []string {
 		"templates/kinesisanalytics/*.html",
 		"templates/glue/*.html",
 		"templates/kafka/*.html",
+		"templates/kinesisanalyticsv2/*.html",
 		"templates/managedblockchain/*.html",
 		"templates/mediaconvert/*.html",
 		"templates/mediastore/*.html",
 		"templates/mediastoredata/*.html",
+		"templates/memorydb/*.html",
+	}
+
+	return append(base, newestDashboardTemplatePatterns()...)
+}
+
+// newestDashboardTemplatePatterns returns template patterns for the most recently added services.
+// Extracted from dashboardTemplatePatterns to satisfy the funlen limit.
+func newestDashboardTemplatePatterns() []string {
+	return append([]string{
+		"templates/mwaa/*.html",
+		"templates/organizations/*.html",
+	}, latestDashboardTemplatePatterns()...)
+}
+
+// latestDashboardTemplatePatterns returns template glob patterns for additional services.
+// Extracted from dashboardTemplatePatterns to satisfy the funlen limit.
+func latestDashboardTemplatePatterns() []string {
+	return append([]string{
+		"templates/pinpoint/*.html",
+		"templates/neptune/*.html",
+	}, mostRecentDashboardTemplatePatterns()...)
+}
+
+func mostRecentDashboardTemplatePatterns() []string {
+	return []string{
+		"templates/pipes/*.html",
+		"templates/qldb/*.html",
+		"templates/qldbsession/*.html",
+		"templates/ram/*.html",
+		"templates/rdsdata/*.html",
+		"templates/redshiftdata/*.html",
+		"templates/sagemaker/*.html",
+		"templates/sagemakerrumtime/*.html",
+		"templates/ssoadmin/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
+		"templates/textract/*.html",
 		"templates/doc.html",
 		"templates/settings.html",
 		"templates/apiconsole.html",
@@ -683,9 +815,12 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		KinesisAnalyticsOps:        cfg.KinesisAnalyticsOps,
 		GlueOps:                    cfg.GlueOps,
 		KafkaOps:                   cfg.KafkaOps,
+		KinesisAnalyticsV2Ops:      cfg.KinesisAnalyticsV2Ops,
 		LakeFormationOps:           cfg.LakeFormationOps,
 		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
 		MediaStoreOps:              cfg.MediaStoreOps,
+		MemoryDBOps:                cfg.MemoryDBOps,
+		OrganizationsOps:           cfg.OrganizationsOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -703,10 +838,27 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 // It is extracted from newDashboardHandler to satisfy the funlen limit.
 func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.KafkaOps = cfg.KafkaOps
+	h.KinesisAnalyticsV2Ops = cfg.KinesisAnalyticsV2Ops
 	h.LakeFormationOps = cfg.LakeFormationOps
 	h.ManagedBlockchainOps = cfg.ManagedBlockchainOps
 	h.MediaConvertOps = cfg.MediaConvertOps
+	h.MQOps = cfg.MQOps
 	h.MediaStoreDataOps = cfg.MediaStoreDataOps
+	h.MWAAOps = cfg.MWAAOps
+	h.PinpointOps = cfg.PinpointOps
+	h.NeptuneOps = cfg.NeptuneOps
+	h.PipesOps = cfg.PipesOps
+	h.QLDBOps = cfg.QLDBOps
+	h.QLDBSessionOps = cfg.QLDBSessionOps
+	h.RDSDataOps = cfg.RDSDataOps
+	h.RAMOps = cfg.RAMOps
+	h.RedshiftDataOps = cfg.RedshiftDataOps
+	h.SageMakerOps = cfg.SageMakerOps
+	h.SageMakerRuntimeOps = cfg.SageMakerRuntimeOps
+	h.ServerlessRepoOps = cfg.ServerlessRepoOps
+	h.ShieldOps = cfg.ShieldOps
+	h.SsoAdminOps = cfg.SsoAdminOps
+	h.TextractOps = cfg.TextractOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1194,17 +1346,46 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEmrServerlessRoutes()
 	h.setupEMRRoutes()
 	h.setupIdentityStoreRoutes()
+	h.setupNewestServiceRoutes()
+}
+
+// setupNewestServiceRoutes sets up dashboard routes for the newest services.
+func (h *DashboardHandler) setupNewestServiceRoutes() {
 	h.setupGlacierRoutes()
 	h.setupIoTAnalyticsRoutes()
 	h.setupIoTWirelessRoutes()
 	h.setupKinesisAnalyticsRoutes()
 	h.setupGlueRoutes()
 	h.setupKafkaRoutes()
+	h.setupKinesisAnalyticsV2Routes()
 	h.setupLakeFormationRoutes()
 	h.setupManagedBlockchainRoutes()
 	h.setupMediaConvertRoutes()
+	h.setupMQRoutes()
 	h.setupMediaStoreRoutes()
 	h.setupMediaStoreDataRoutes()
+	h.setupMemoryDBRoutes()
+	h.setupLatestServiceRoutes()
+}
+
+// setupLatestServiceRoutes registers routes for the most recently added services.
+func (h *DashboardHandler) setupLatestServiceRoutes() {
+	h.setupMWAARoutes()
+	h.setupOrganizationsRoutes()
+	h.setupPinpointRoutes()
+	h.setupNeptuneRoutes()
+	h.setupPipesRoutes()
+	h.setupQLDBRoutes()
+	h.setupQLDBSessionRoutes()
+	h.setupRDSDataRoutes()
+	h.setupRAMRoutes()
+	h.setupRedshiftDataRoutes()
+	h.setupSageMakerRoutes()
+	h.setupSageMakerRuntimeRoutes()
+	h.setupServerlessRepoRoutes()
+	h.setupShieldRoutes()
+	h.setupSsoAdminRoutes()
+	h.setupTextractRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1329,6 +1510,12 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/mediaconvert", "MediaConvert"},
 	{"/mediastore", "MediaStore"},
 	{"/mediastoredata", "MediaStoreData"},
+	{"/neptune", "Neptune"},
+	{"/pipes", "Pipes"},
+	{"/qldb", "QLDB"},
+	{"/rdsdata", "RDSData"},
+	{"/sagemakerrumtime", "SageMakerRuntime"},
+	{"/textract", "Textract"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

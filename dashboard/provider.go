@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"log/slog"
+
 	ddbsdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -53,12 +55,31 @@ import (
 	iotwirelessbackend "github.com/blackbirdworks/gopherstack/services/iotwireless"
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
+	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
+	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
+	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
+	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -187,11 +208,30 @@ type AWSSDKProvider interface {
 	GetIoTWirelessHandler() service.Registerable
 	GetKinesisAnalyticsHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
+	GetKinesisAnalyticsV2Handler() service.Registerable
 	GetLakeFormationHandler() service.Registerable
 	GetManagedBlockchainHandler() service.Registerable
 	GetMediaConvertHandler() service.Registerable
+	GetMQHandler() service.Registerable
 	GetMediaStoreHandler() service.Registerable
 	GetMediaStoreDataHandler() service.Registerable
+	GetMemoryDBHandler() service.Registerable
+	GetOrganizationsHandler() service.Registerable
+	GetMWAAHandler() service.Registerable
+	GetPinpointHandler() service.Registerable
+	GetNeptuneHandler() service.Registerable
+	GetPipesHandler() service.Registerable
+	GetQLDBHandler() service.Registerable
+	GetQLDBSessionHandler() service.Registerable
+	GetRDSDataHandler() service.Registerable
+	GetRAMHandler() service.Registerable
+	GetRedshiftDataHandler() service.Registerable
+	GetSageMakerHandler() service.Registerable
+	GetSageMakerRuntimeHandler() service.Registerable
+	GetServerlessRepoHandler() service.Registerable
+	GetShieldHandler() service.Registerable
+	GetSsoAdminHandler() service.Registerable
+	GetTextractHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -293,11 +333,30 @@ type extractedConfig struct {
 	iotwirelessOps            *iotwirelessbackend.Handler
 	kinesisanalyticsOps       *kinesisanalyticsbackend.Handler
 	kafkaOps                  *kafkabackend.Handler
+	kinesisanalyticsv2Ops     *kinesisanalyticsv2backend.Handler
 	lakeformationOps          *lakeformationbackend.Handler
 	managedblockchainOps      *managedblockchainbackend.Handler
 	mediaconvertOps           *mediaconvertbackend.Handler
+	mqOps                     *mqbackend.Handler
 	mediastoreOps             *mediastorebackend.Handler
 	mediastoredataOps         *mediastoredatabackend.Handler
+	memorydbOps               *memorydbbackend.Handler
+	organizationsOps          *organizationsbackend.Handler
+	mwaaOps                   *mwaabackend.Handler
+	pinpointOps               *pinpointbackend.Handler
+	neptuneOps                *neptunebackend.Handler
+	pipesOps                  *pipesbackend.Handler
+	qldbOps                   *qldbbackend.Handler
+	qldbsessionOps            *qldbsessionbackend.Handler
+	rdsdataOps                *rdsdatabackend.Handler
+	ramOps                    *rambackend.Handler
+	redshiftdataOps           *redshiftdatabackend.Handler
+	sagemakerOps              *sagemakerbackend.Handler
+	sagemakerRuntimeOps       *sagemakerruntimebackend.Handler
+	serverlessrepoOps         *serverlessrepobackend.Handler
+	shieldOps                 *shieldbackend.Handler
+	ssoadminOps               *ssoadminbackend.Handler
+	textractOps               *textractbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -324,6 +383,10 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 	}
 
 	extractIntegrationHandlers(ap, &ec)
+
+	if h := ap.GetPinpointHandler(); h != nil {
+		ec.pinpointOps, _ = h.(*pinpointbackend.Handler)
+	}
 
 	return ec
 }
@@ -692,6 +755,11 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 }
 
 func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+	extractNewestAnalyticsHandlers(ap, ec)
+	extractNewestStorageHandlers(ap, ec)
+}
+
+func extractNewestAnalyticsHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetIdentityStoreHandler(); h != nil {
 		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
@@ -700,10 +768,16 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.kafkaOps, _ = h.(*kafkabackend.Handler)
 	}
 
+	if h := ap.GetKinesisAnalyticsV2Handler(); h != nil {
+		ec.kinesisanalyticsv2Ops, _ = h.(*kinesisanalyticsv2backend.Handler)
+	}
+
 	if h := ap.GetLakeFormationHandler(); h != nil {
 		ec.lakeformationOps, _ = h.(*lakeformationbackend.Handler)
 	}
+}
 
+func extractNewestStorageHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMediaStoreHandler(); h != nil {
 		ec.mediastoreOps, _ = h.(*mediastorebackend.Handler)
 	}
@@ -711,9 +785,26 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMediaStoreDataHandler(); h != nil {
 		ec.mediastoredataOps, _ = h.(*mediastoredatabackend.Handler)
 	}
+
+	if h := ap.GetMemoryDBHandler(); h != nil {
+		ec.memorydbOps, _ = h.(*memorydbbackend.Handler)
+	}
+
+	if h := ap.GetOrganizationsHandler(); h != nil {
+		ec.organizationsOps, _ = h.(*organizationsbackend.Handler)
+	}
+
+	if h := ap.GetMWAAHandler(); h != nil {
+		ec.mwaaOps, _ = h.(*mwaabackend.Handler)
+	}
+
+	if h := ap.GetRedshiftDataHandler(); h != nil {
+		ec.redshiftdataOps, _ = h.(*redshiftdatabackend.Handler)
+	}
 }
 
-// extractBlockchainHandlers populates ManagedBlockchain and MediaConvert handlers on ec.
+// extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, MQ, Neptune,
+// Pipes, QLDB, QLDBSession, and RAM handlers on ec.
 func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
@@ -722,13 +813,91 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMediaConvertHandler(); h != nil {
 		ec.mediaconvertOps, _ = h.(*mediaconvertbackend.Handler)
 	}
+
+	if h := ap.GetMQHandler(); h != nil {
+		ec.mqOps, _ = h.(*mqbackend.Handler)
+	}
+
+	if h := ap.GetNeptuneHandler(); h != nil {
+		ec.neptuneOps, _ = h.(*neptunebackend.Handler)
+	}
+
+	if h := ap.GetPipesHandler(); h != nil {
+		ec.pipesOps, _ = h.(*pipesbackend.Handler)
+	}
+
+	if h := ap.GetQLDBHandler(); h != nil {
+		ec.qldbOps, _ = h.(*qldbbackend.Handler)
+	}
+
+	extractLatestHandlers(ap, ec)
+}
+
+// extractLatestHandlers populates the most recently added service handlers on ec.
+func extractLatestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+	if h := ap.GetQLDBSessionHandler(); h != nil {
+		ec.qldbsessionOps, _ = h.(*qldbsessionbackend.Handler)
+	}
+
+	if h := ap.GetRDSDataHandler(); h != nil {
+		ec.rdsdataOps, _ = h.(*rdsdatabackend.Handler)
+	}
+
+	if h := ap.GetRAMHandler(); h != nil {
+		ec.ramOps, _ = h.(*rambackend.Handler)
+	}
+
+	if h := ap.GetSageMakerHandler(); h != nil {
+		ec.sagemakerOps, _ = h.(*sagemakerbackend.Handler)
+	}
+
+	if h := ap.GetSageMakerRuntimeHandler(); h != nil {
+		ec.sagemakerRuntimeOps, _ = h.(*sagemakerruntimebackend.Handler)
+	}
+
+	if h := ap.GetServerlessRepoHandler(); h != nil {
+		ec.serverlessrepoOps, _ = h.(*serverlessrepobackend.Handler)
+	}
+
+	extractSsoAndMLHandlers(ap, ec)
+}
+
+// extractSsoAndMLHandlers populates Shield, SSO Admin and ML/document service handlers on ec.
+func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+	if h := ap.GetShieldHandler(); h != nil {
+		ec.shieldOps, _ = h.(*shieldbackend.Handler)
+	}
+
+	if h := ap.GetSsoAdminHandler(); h != nil {
+		ec.ssoadminOps, _ = h.(*ssoadminbackend.Handler)
+	}
+
+	if h := ap.GetTextractHandler(); h != nil {
+		ec.textractOps, _ = h.(*textractbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	ec := extractFromProvider(ctx)
+	cfg := buildDashboardConfig(&ec, ctx.Logger)
+	handler := NewHandler(cfg)
 
-	handler := NewHandler(Config{
+	return handler, nil
+}
+
+// buildDashboardConfig constructs the dashboard Config from an extractedConfig.
+// It is extracted from Init to satisfy the funlen limit.
+func buildDashboardConfig(ec *extractedConfig, log *slog.Logger) Config {
+	cfg := buildBaseConfig(ec, log)
+	applyExtendedConfig(&cfg, ec)
+	applyLatestServiceConfig(&cfg, ec)
+
+	return cfg
+}
+
+func buildBaseConfig(ec *extractedConfig, log *slog.Logger) Config {
+	return Config{
 		DDBClient:                  ec.ddbClient,
 		S3Client:                   ec.s3Client,
 		SSMClient:                  ec.ssmClient,
@@ -814,15 +983,96 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		IoTWirelessOps:             ec.iotwirelessOps,
 		KinesisAnalyticsOps:        ec.kinesisanalyticsOps,
 		KafkaOps:                   ec.kafkaOps,
+		KinesisAnalyticsV2Ops:      ec.kinesisanalyticsv2Ops,
 		LakeFormationOps:           ec.lakeformationOps,
 		ManagedBlockchainOps:       ec.managedblockchainOps,
 		MediaConvertOps:            ec.mediaconvertOps,
+		MQOps:                      ec.mqOps,
 		MediaStoreOps:              ec.mediastoreOps,
 		MediaStoreDataOps:          ec.mediastoredataOps,
+		MemoryDBOps:                ec.memorydbOps,
+		OrganizationsOps:           ec.organizationsOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
-		Logger:                     ctx.Logger,
-	})
+		Logger:                     log,
+	}
+}
 
-	return handler, nil
+func applyExtendedConfig(cfg *Config, ec *extractedConfig) {
+	cfg.AppConfigDataOps = ec.appConfigDataOps
+	cfg.AmplifyOps = ec.amplifyOps
+	cfg.AthenaOps = ec.athenaOps
+	cfg.AutoscalingOps = ec.autoscalingOps
+	cfg.BackupOps = ec.backupOps
+	cfg.CloudTrailOps = ec.cloudtrailOps
+	cfg.AppConfigOps = ec.appConfigOps
+	cfg.ApplicationAutoscalingOps = ec.applicationAutoscalingOps
+	cfg.BatchOps = ec.batchOps
+	cfg.BedrockOps = ec.bedrockOps
+	cfg.BedrockRuntimeOps = ec.bedrockRuntimeOps
+	cfg.CeOps = ec.ceOps
+	cfg.CloudControlOps = ec.cloudcontrolOps
+	cfg.CloudFrontOps = ec.cloudFrontOps
+	cfg.CodeArtifactOps = ec.codeArtifactOps
+	cfg.CodeBuildOps = ec.codebuildOps
+	cfg.CodeCommitOps = ec.codeCommitOps
+	cfg.CodePipelineOps = ec.codePipelineOps
+	cfg.CodeConnectionsOps = ec.codeConnectionsOps
+	cfg.CodeDeployOps = ec.codeDeployOps
+	cfg.DMSOps = ec.dmsOps
+	cfg.CodeStarConnectionsOps = ec.codeStarConnectionsOps
+	cfg.DynamoDBStreamsOps = ec.dynamodbStreamsOps
+	cfg.DocDBOps = ec.docdbOps
+	cfg.ElasticbeanstalkOps = ec.elasticbeanstalkOps
+	cfg.ECROps = ec.ecrOps
+	cfg.ECSOps = ec.ecsOps
+	cfg.EFSOps = ec.efsOps
+	cfg.EKSOps = ec.eksOps
+	cfg.ELBOps = ec.elbOps
+	cfg.ELBv2Ops = ec.elbv2Ops
+	cfg.EmrServerlessOps = ec.emrServerlessOps
+	cfg.EMROps = ec.emrOps
+	cfg.GlueOps = ec.glueOps
+	cfg.IoTOps = ec.iotOps
+	cfg.FISOps = ec.fisOps
+	cfg.IdentityStoreOps = ec.identitystoreOps
+	cfg.ElasticTranscoderOps = ec.elasticTranscoderOps
+	applyLatestConfig(cfg, ec)
+}
+
+// applyLatestConfig assigns the newest dashboard service ops.
+func applyLatestConfig(cfg *Config, ec *extractedConfig) {
+	cfg.GlacierOps = ec.glacierOps
+	cfg.IoTAnalyticsOps = ec.iotanalyticsOps
+	cfg.IoTWirelessOps = ec.iotwirelessOps
+	cfg.KinesisAnalyticsOps = ec.kinesisanalyticsOps
+	cfg.KafkaOps = ec.kafkaOps
+	cfg.KinesisAnalyticsV2Ops = ec.kinesisanalyticsv2Ops
+	cfg.LakeFormationOps = ec.lakeformationOps
+	cfg.ManagedBlockchainOps = ec.managedblockchainOps
+	cfg.MediaConvertOps = ec.mediaconvertOps
+	cfg.MQOps = ec.mqOps
+	cfg.MediaStoreOps = ec.mediastoreOps
+	cfg.MediaStoreDataOps = ec.mediastoredataOps
+	cfg.MemoryDBOps = ec.memorydbOps
+}
+
+// applyLatestServiceConfig sets the most recently added service ops fields on the dashboard config.
+// Extracted from applyExtendedConfig to satisfy the funlen limit.
+func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
+	cfg.MWAAOps = ec.mwaaOps
+	cfg.PinpointOps = ec.pinpointOps
+	cfg.NeptuneOps = ec.neptuneOps
+	cfg.PipesOps = ec.pipesOps
+	cfg.QLDBOps = ec.qldbOps
+	cfg.QLDBSessionOps = ec.qldbsessionOps
+	cfg.RDSDataOps = ec.rdsdataOps
+	cfg.RAMOps = ec.ramOps
+	cfg.RedshiftDataOps = ec.redshiftdataOps
+	cfg.SageMakerOps = ec.sagemakerOps
+	cfg.SageMakerRuntimeOps = ec.sagemakerRuntimeOps
+	cfg.ServerlessRepoOps = ec.serverlessrepoOps
+	cfg.ShieldOps = ec.shieldOps
+	cfg.SsoAdminOps = ec.ssoadminOps
+	cfg.TextractOps = ec.textractOps
 }

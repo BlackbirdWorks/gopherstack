@@ -500,6 +500,20 @@
                 </li>{{end}}
             </ul>
         </div>
+
+        <!-- SSO Admin -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-purple-600 dark:text-purple-400 flex items-center gap-2 mb-4">
+                <span>🔐</span> SSO Admin
+            </h3>
+            <ul class="space-y-1">
+                {{range .SsoAdminOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
     </div>
 
     <!-- Category: Management & Governance -->
@@ -885,6 +899,102 @@
             </h3>
             <ul class="space-y-1">
                 {{range .CognitoIDPOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- EventBridge Pipes -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-violet-600 dark:text-violet-400 flex items-center gap-2 mb-4">
+                <span>🔗</span> EventBridge Pipes
+            </h3>
+            <ul class="space-y-1">
+                {{range .PipesOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- QLDB -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2 mb-4">
+                <span>🗄️</span> QLDB
+            </h3>
+            <ul class="space-y-1">
+                {{range .QLDBOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-violet-600 dark:text-violet-400 flex items-center gap-2 mb-4">
+                <span>🗄️</span> QLDB Session
+            </h3>
+            <ul class="space-y-1">
+                {{range .QLDBSessionOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- RDS Data -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2 mb-4">
+                <span>💾</span> RDS Data
+            </h3>
+            <ul class="space-y-1">
+                {{range .RDSDataOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- SageMaker -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-green-600 dark:text-green-400 flex items-center gap-2 mb-4">
+                <span>🤖</span> SageMaker
+            </h3>
+            <ul class="space-y-1">
+                {{range .SageMakerOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+        <!-- SageMaker Runtime -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-green-600 dark:text-green-400 flex items-center gap-2 mb-4">
+                <span>🚀</span> SageMaker Runtime
+            </h3>
+            <ul class="space-y-1">
+                {{range .SageMakerRuntimeOps}}<li
+                    class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
+                    {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
+                </li>{{end}}
+            </ul>
+        </div>
+
+        <!-- Textract -->
+        <div
+            class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl glass-panel">
+            <h3 class="text-xl font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2 mb-4">
+                <span>📄</span> Textract
+            </h3>
+            <ul class="space-y-1">
+                {{range .TextractOps}}<li
                     class="px-3 py-1 text-sm text-slate-600 dark:text-slate-300 rounded hover:bg-gray-50 dark:hover:bg-gray-700">
                     {{.}}</li>{{else}}<li class="text-sm text-slate-500 dark:text-slate-400 pl-3">No operations found
                 </li>{{end}}

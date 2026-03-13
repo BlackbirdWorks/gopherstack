@@ -115,6 +115,7 @@ import (
 	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kinesisanalyticsbackend "github.com/blackbirdworks/gopherstack/services/kinesisanalytics"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
@@ -122,26 +123,44 @@ import (
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
+	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
+	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -251,10 +270,29 @@ type CLI struct {
 	glueHandler                   service.Registerable
 	iotanalyticsHandler           service.Registerable
 	kafkaHandler                  service.Registerable
+	kinesisanalyticsv2Handler     service.Registerable
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
+	mqHandler                     service.Registerable
 	mediastoreHandler             service.Registerable
 	mediastoredataHandler         service.Registerable
+	memorydbHandler               service.Registerable
+	organizationsHandler          service.Registerable
+	mwaaHandler                   service.Registerable
+	neptuneHandler                service.Registerable
+	pinpointHandler               service.Registerable
+	pipesHandler                  service.Registerable
+	qldbHandler                   service.Registerable
+	qldbsessionHandler            service.Registerable
+	rdsdataHandler                service.Registerable
+	ramHandler                    service.Registerable
+	redshiftdataHandler           service.Registerable
+	sagemakerHandler              service.Registerable
+	sagemakerRuntimeHandler       service.Registerable
+	serverlessrepoHandler         service.Registerable
+	shieldHandler                 service.Registerable
+	ssoadminHandler               service.Registerable
+	textractHandler               service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -630,6 +668,13 @@ func (c *CLI) GetGlueHandler() service.Registerable { return c.glueHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetKafkaHandler() service.Registerable { return c.kafkaHandler }
 
+// GetKinesisAnalyticsV2Handler returns the Kinesis Data Analytics v2 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetKinesisAnalyticsV2Handler() service.Registerable {
+	return c.kinesisanalyticsv2Handler
+}
+
 // GetManagedBlockchainHandler returns the Managed Blockchain handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -640,6 +685,11 @@ func (c *CLI) GetManagedBlockchainHandler() service.Registerable { return c.mana
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMediaConvertHandler() service.Registerable { return c.mediaconvertHandler }
 
+// GetMQHandler returns the Amazon MQ handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMQHandler() service.Registerable { return c.mqHandler }
+
 // GetMediaStoreHandler returns the MediaStore handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -649,6 +699,91 @@ func (c *CLI) GetMediaStoreHandler() service.Registerable { return c.mediastoreH
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMediaStoreDataHandler() service.Registerable { return c.mediastoredataHandler }
+
+// GetMemoryDBHandler returns the MemoryDB handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMemoryDBHandler() service.Registerable { return c.memorydbHandler }
+
+// GetOrganizationsHandler returns the Organizations handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOrganizationsHandler() service.Registerable { return c.organizationsHandler }
+
+// GetNeptuneHandler returns the Neptune handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetNeptuneHandler() service.Registerable { return c.neptuneHandler }
+
+// GetMWAAHandler returns the MWAA handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMWAAHandler() service.Registerable { return c.mwaaHandler }
+
+// GetPinpointHandler returns the Pinpoint handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetPinpointHandler() service.Registerable { return c.pinpointHandler }
+
+// GetPipesHandler returns the Pipes handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetPipesHandler() service.Registerable { return c.pipesHandler }
+
+// GetQLDBHandler returns the QLDB handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetQLDBHandler() service.Registerable { return c.qldbHandler }
+
+// GetQLDBSessionHandler returns the QLDB Session handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetQLDBSessionHandler() service.Registerable { return c.qldbsessionHandler }
+
+// GetRDSDataHandler returns the RDS Data handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRDSDataHandler() service.Registerable { return c.rdsdataHandler }
+
+// GetRAMHandler returns the RAM handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRAMHandler() service.Registerable { return c.ramHandler }
+
+// GetRedshiftDataHandler returns the Redshift Data handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRedshiftDataHandler() service.Registerable { return c.redshiftdataHandler }
+
+// GetSageMakerHandler returns the SageMaker handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSageMakerHandler() service.Registerable { return c.sagemakerHandler }
+
+// GetSageMakerRuntimeHandler returns the SageMaker Runtime handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSageMakerRuntimeHandler() service.Registerable { return c.sagemakerRuntimeHandler }
+
+// GetServerlessRepoHandler returns the Serverless Application Repository handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetServerlessRepoHandler() service.Registerable { return c.serverlessrepoHandler }
+
+// GetShieldHandler returns the Shield handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetShieldHandler() service.Registerable { return c.shieldHandler }
+
+// GetSsoAdminHandler returns the SSO Admin handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSsoAdminHandler() service.Registerable { return c.ssoadminHandler }
+
+// GetTextractHandler returns the Textract handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetTextractHandler() service.Registerable { return c.textractHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1291,6 +1426,11 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.elbv2Handler = byName["ELBv2"]
 	cli.emrserverlessHandler = byName["EmrServerless"]
 	cli.emrHandler = byName["EMR"]
+	storeCLILatestHandlers(cli, byName)
+}
+
+// storeCLILatestHandlers assigns the newest service handlers to the CLI fields.
+func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.glacierHandler = byName["Glacier"]
 	cli.iotwirelessHandler = byName["IoTWireless"]
 	cli.kinesisanalyticsHandler = byName["KinesisAnalytics"]
@@ -1298,12 +1438,36 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.glueHandler = byName["Glue"]
 	cli.iotanalyticsHandler = byName["IoTAnalytics"]
 	cli.kafkaHandler = byName["Kafka"]
+	cli.kinesisanalyticsv2Handler = byName["KinesisAnalyticsV2"]
 	cli.managedblockchainHandler = byName["ManagedBlockchain"]
 	cli.mediaconvertHandler = byName["MediaConvert"]
+	cli.mqHandler = byName["MQ"]
 	cli.mediastoreHandler = byName["MediaStore"]
 	cli.mediastoredataHandler = byName["MediaStoreData"]
+	storeCLINewestHandlers(cli, byName)
+}
+
+// storeCLINewestHandlers assigns handlers for the most recently added services.
+func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
+	cli.memorydbHandler = byName["MemoryDB"]
+	cli.organizationsHandler = byName["Organizations"]
+	cli.mwaaHandler = byName["MWAA"]
+	cli.neptuneHandler = byName["Neptune"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
+	cli.pinpointHandler = byName["Pinpoint"]
+	cli.pipesHandler = byName["Pipes"]
+	cli.qldbHandler = byName["QLDB"]
+	cli.qldbsessionHandler = byName["QLDBSession"]
+	cli.rdsdataHandler = byName["RDSData"]
+	cli.ramHandler = byName["RAM"]
+	cli.redshiftdataHandler = byName["RedshiftData"]
+	cli.sagemakerHandler = byName["SageMaker"]
+	cli.sagemakerRuntimeHandler = byName["SageMakerRuntime"]
+	cli.serverlessrepoHandler = byName["ServerlessRepo"]
+	cli.shieldHandler = byName["Shield"]
+	cli.ssoadminHandler = byName["SsoAdmin"]
+	cli.textractHandler = byName["Textract"]
 }
 
 // initializeServices initializes all service providers.
@@ -1422,7 +1586,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 // getServiceProviders returns the list of all available service providers.
 func getServiceProviders() []service.Provider {
-	return []service.Provider{
+	return append([]service.Provider{
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
@@ -1463,6 +1627,7 @@ func getServiceProviders() []service.Provider {
 		&ecsbackend.Provider{},
 		&fisbackend.Provider{},
 		&identitystorebackend.Provider{},
+		&organizationsbackend.Provider{},
 		&cognitoidpbackend.Provider{},
 		&cognitoidentitybackend.Provider{},
 		&iotbackend.Provider{},
@@ -1508,11 +1673,48 @@ func getServiceProviders() []service.Provider {
 		&iotwirelessbackend.Provider{},
 		&kinesisanalyticsbackend.Provider{},
 		&kafkabackend.Provider{},
+		&kinesisanalyticsv2backend.Provider{},
 		&lakeformationbackend.Provider{},
 		&managedblockchainbackend.Provider{},
 		&mediaconvertbackend.Provider{},
+		&mqbackend.Provider{},
 		&mediastorebackend.Provider{},
 		&mediastoredatabackend.Provider{},
+	}, getLatestServiceProviders()...)
+}
+
+// getLatestServiceProviders returns providers for additional services.
+// Extracted from getServiceProviders to satisfy the funlen limit.
+func getLatestServiceProviders() []service.Provider {
+	return append([]service.Provider{
+		&memorydbbackend.Provider{},
+	}, getNewestServiceProviders()...)
+}
+
+// getNewestServiceProviders returns the most recently added service providers.
+// Extracted from getServiceProviders to satisfy the funlen limit.
+func getNewestServiceProviders() []service.Provider {
+	return append([]service.Provider{
+		&mwaabackend.Provider{},
+		&neptunebackend.Provider{},
+	}, getMostRecentServiceProviders()...)
+}
+
+func getMostRecentServiceProviders() []service.Provider {
+	return []service.Provider{
+		&pinpointbackend.Provider{},
+		&pipesbackend.Provider{},
+		&qldbbackend.Provider{},
+		&qldbsessionbackend.Provider{},
+		&rambackend.Provider{},
+		&rdsdatabackend.Provider{},
+		&redshiftdatabackend.Provider{},
+		&sagemakerbackend.Provider{},
+		&sagemakerruntimebackend.Provider{},
+		&serverlessrepobackend.Provider{},
+		&shieldbackend.Provider{},
+		&ssoadminbackend.Provider{},
+		&textractbackend.Provider{},
 	}
 }
 

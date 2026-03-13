@@ -76,20 +76,35 @@ import (
 	kafkasvc "github.com/aws/aws-sdk-go-v2/service/kafka"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
+	kinesisanalyticsv2svc "github.com/aws/aws-sdk-go-v2/service/kinesisanalyticsv2"
 	kmssvc "github.com/aws/aws-sdk-go-v2/service/kms"
 	lakeformationsvc "github.com/aws/aws-sdk-go-v2/service/lakeformation"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	mediaconvertsvc "github.com/aws/aws-sdk-go-v2/service/mediaconvert"
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
+	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
+	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
+	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
+	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
+	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
+	pinpointsvc "github.com/aws/aws-sdk-go-v2/service/pinpoint"
+	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
+	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb"               //nolint:staticcheck // AWS deprecated the SDK but service still works
+	qldbsessionsvc "github.com/aws/aws-sdk-go-v2/service/qldbsession" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	ramsvc "github.com/aws/aws-sdk-go-v2/service/ram"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
+	rdsdatasvc "github.com/aws/aws-sdk-go-v2/service/rdsdata"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
+	redshiftdatasvc "github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	taggingsvc "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
 	route53resolversvc "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
+	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	sagemakerruntimesvc "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
@@ -97,6 +112,7 @@ import (
 	snssvc "github.com/aws/aws-sdk-go-v2/service/sns"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssoadminsvc "github.com/aws/aws-sdk-go-v2/service/ssoadmin"
 	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
@@ -195,7 +211,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Clean up pre-initialized directories kept open for parallel tests.
-	for _, d := range []string{preInitDirMain, preInitDirRDS, preInitDirDocDB} {
+	for _, d := range []string{preInitDirMain, preInitDirRDS, preInitDirDocDB, preInitDirNeptune} {
 		if d != "" {
 			os.RemoveAll(d)
 		}
@@ -319,6 +335,26 @@ func createDocDBClient(t *testing.T) *docdbsvc.Client {
 	}
 
 	return docdbsvc.NewFromConfig(cfg, func(o *docdbsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createNeptuneClient returns a Neptune client pointed at the shared test container.
+func createNeptuneClient(t *testing.T) *neptunesvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	if err != nil {
+		require.NoError(t, err, "unable to load SDK config")
+	}
+
+	return neptunesvc.NewFromConfig(cfg, func(o *neptunesvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
@@ -769,6 +805,7 @@ func warmProviderCache(logger *slog.Logger) {
 	preInitDirMain = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, providerBlock(endpoint), logger)
 	preInitDirRDS = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, rdsProviderBlock(endpoint), logger)
 	preInitDirDocDB = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, docdbProviderBlock(endpoint), logger)
+	preInitDirNeptune = warmWithHCL(tofuBinaryPath, tofuProviderCacheDir, neptuneProviderBlock(endpoint), logger)
 }
 
 // warmWithHCL runs `tofu init` in a temporary directory with the given HCL to
@@ -1874,6 +1911,24 @@ func createKafkaClient(t *testing.T) *kafkasvc.Client {
 	})
 }
 
+// createKinesisAnalyticsV2Client returns a Kinesis Data Analytics v2 client pointed at the shared test container.
+func createKinesisAnalyticsV2Client(t *testing.T) *kinesisanalyticsv2svc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return kinesisanalyticsv2svc.NewFromConfig(cfg, func(o *kinesisanalyticsv2svc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
 // createMediaConvertClient returns a MediaConvert client pointed at the shared test container.
 func createMediaConvertClient(t *testing.T) *mediaconvertsvc.Client {
 	t.Helper()
@@ -1890,6 +1945,27 @@ func createMediaConvertClient(t *testing.T) *mediaconvertsvc.Client {
 	return mediaconvertsvc.NewFromConfig(
 		cfg,
 		func(o *mediaconvertsvc.Options) {
+			o.BaseEndpoint = aws.String(endpoint)
+		},
+	)
+}
+
+// createMQClient returns an Amazon MQ client pointed at the shared test container.
+func createMQClient(t *testing.T) *mqsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return mqsvc.NewFromConfig(
+		cfg,
+		func(o *mqsvc.Options) {
 			o.BaseEndpoint = aws.String(endpoint)
 		},
 	)
@@ -1927,6 +2003,240 @@ func createMediaStoreClient(t *testing.T) *mediastoresvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return mediastoresvc.NewFromConfig(cfg, func(o *mediastoresvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createMemoryDBClient returns a MemoryDB client pointed at the shared test container.
+func createMemoryDBClient(t *testing.T) *memorydbsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return memorydbsvc.NewFromConfig(cfg, func(o *memorydbsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createOrganizationsClient returns an Organizations client pointed at the shared test container.
+func createOrganizationsClient(t *testing.T) *organizationssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return organizationssvc.NewFromConfig(cfg, func(o *organizationssvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createMWAAClient returns an MWAA client pointed at the shared test container.
+func createMWAAClient(t *testing.T) *mwaasvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return mwaasvc.NewFromConfig(cfg, func(o *mwaasvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createPinpointClient returns a Pinpoint client pointed at the shared test container.
+func createPinpointClient(t *testing.T) *pinpointsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return pinpointsvc.NewFromConfig(cfg, func(o *pinpointsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createPipesClient returns an EventBridge Pipes client pointed at the shared test container.
+func createPipesClient(t *testing.T) *pipessvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return pipessvc.NewFromConfig(cfg, func(o *pipessvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createQLDBSessionClient returns a QLDB Session client pointed at the shared test container.
+func createQLDBSessionClient(t *testing.T) *qldbsessionsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return qldbsessionsvc.NewFromConfig(cfg, func(o *qldbsessionsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createQLDBClient returns a QLDB client pointed at the shared test container.
+func createQLDBClient(t *testing.T) *qldbsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return qldbsvc.NewFromConfig(cfg, func(o *qldbsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRDSDataClient returns an RDS Data client pointed at the shared test container.
+func createRDSDataClient(t *testing.T) *rdsdatasvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return rdsdatasvc.NewFromConfig(cfg, func(o *rdsdatasvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRAMClient returns a RAM client pointed at the shared test container.
+func createRAMClient(t *testing.T) *ramsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return ramsvc.NewFromConfig(cfg, func(o *ramsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRedshiftDataClient returns a Redshift Data client pointed at the shared test container.
+func createRedshiftDataClient(t *testing.T) *redshiftdatasvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return redshiftdatasvc.NewFromConfig(cfg, func(o *redshiftdatasvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSageMakerClient returns a SageMaker client pointed at the shared test container.
+func createSageMakerClient(t *testing.T) *sagemakersvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return sagemakersvc.NewFromConfig(cfg, func(o *sagemakersvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSageMakerRuntimeClient returns a SageMaker Runtime client pointed at the shared test container.
+func createSageMakerRuntimeClient(t *testing.T) *sagemakerruntimesvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return sagemakerruntimesvc.NewFromConfig(cfg, func(o *sagemakerruntimesvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createSsoAdminClient returns an SSO Admin client pointed at the shared test container.
+func createSsoAdminClient(t *testing.T) *ssoadminsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return ssoadminsvc.NewFromConfig(cfg, func(o *ssoadminsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
