@@ -106,6 +106,8 @@ import (
 	pinpointsvc "github.com/aws/aws-sdk-go-v2/service/pinpoint"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
 	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	ramsvc "github.com/aws/aws-sdk-go-v2/service/ram"
+	ramsvc_types "github.com/aws/aws-sdk-go-v2/service/ram/types"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -265,6 +267,7 @@ provider "aws" {
     pinpoint        = %[1]q
     pipes           = %[1]q
     qldb            = %[1]q
+    ram             = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
     resourcegroupstaggingapi = %[1]q
@@ -5442,6 +5445,45 @@ func TestTerraform_QLDB(t *testing.T) {
 					out.Name, //nolint:staticcheck // AWS deprecated the SDK but service still works
 				)
 				assert.Equal(t, vars["LedgerName"].(string), ledgerName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_RAM provisions an AWS RAM resource share and verifies it is described.
+func TestTerraform_RAM(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ram/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ShareName": "tf-ram-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createRAMClient(t)
+
+				out, err := client.GetResourceShares(ctx, &ramsvc.GetResourceSharesInput{
+					ResourceOwner: ramsvc_types.ResourceOwnerSelf,
+					Name:          aws.String(vars["ShareName"].(string)),
+				})
+				require.NoError(t, err, "GetResourceShares should succeed after terraform apply")
+				require.NotEmpty(t, out.ResourceShares, "expected at least one resource share")
+				assert.Equal(t, vars["ShareName"].(string), aws.ToString(out.ResourceShares[0].Name))
 			},
 		},
 	}

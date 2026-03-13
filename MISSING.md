@@ -63,7 +63,7 @@ The following services are supported by Localstack (either Free or Pro tier) but
 | **Pipes** | ❌ No | ❌ No | ❌ No |
 | **Qldb** | ❌ No | ❌ No | ❌ No |
 | **Qldb Session** | ❌ No | ❌ No | ❌ No |
-| **Ram** | ❌ No | ❌ No | ❌ No |
+| **Ram** | ✅ Yes | ✅ Yes | ✅ Yes |
 | **Rds Data** | ❌ No | ❌ No | ❌ No |
 | **Redshift Data** | ❌ No | ❌ No | ❌ No |
 | **Sagemaker** | ❌ No | ❌ No | ❌ No |

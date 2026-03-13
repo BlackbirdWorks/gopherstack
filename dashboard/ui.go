@@ -98,6 +98,7 @@ import (
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -293,7 +294,9 @@ type DashboardHandler struct {
 	// PipesOps provides access to the EventBridge Pipes backend.
 	PipesOps *pipesbackend.Handler
 	// QLDBOps provides access to the QLDB backend.
-	QLDBOps      *qldbbackend.Handler
+	QLDBOps *qldbbackend.Handler
+	// RAMOps provides access to the RAM backend.
+	RAMOps       *rambackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -500,6 +503,8 @@ type Config struct {
 	PipesOps *pipesbackend.Handler
 	// QLDBOps provides access to the QLDB backend.
 	QLDBOps *qldbbackend.Handler
+	// RAMOps provides access to the RAM backend.
+	RAMOps *rambackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -529,7 +534,7 @@ func parseDashboardTemplates() *template.Template {
 }
 
 func dashboardTemplatePatterns() []string {
-	return append([]string{
+	base := []string{ //nolint:prealloc // prealloc does not apply to literal slice initializations
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
@@ -619,6 +624,15 @@ func dashboardTemplatePatterns() []string {
 		"templates/mediastore/*.html",
 		"templates/mediastoredata/*.html",
 		"templates/memorydb/*.html",
+	}
+
+	return append(base, newestDashboardTemplatePatterns()...)
+}
+
+// newestDashboardTemplatePatterns returns template patterns for the most recently added services.
+// Extracted from dashboardTemplatePatterns to satisfy the funlen limit.
+func newestDashboardTemplatePatterns() []string {
+	return append([]string{
 		"templates/mwaa/*.html",
 		"templates/organizations/*.html",
 	}, latestDashboardTemplatePatterns()...)
@@ -632,6 +646,7 @@ func latestDashboardTemplatePatterns() []string {
 		"templates/neptune/*.html",
 		"templates/pipes/*.html",
 		"templates/qldb/*.html",
+		"templates/ram/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -777,6 +792,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.NeptuneOps = cfg.NeptuneOps
 	h.PipesOps = cfg.PipesOps
 	h.QLDBOps = cfg.QLDBOps
+	h.RAMOps = cfg.RAMOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1284,6 +1300,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupNeptuneRoutes()
 	h.setupPipesRoutes()
 	h.setupQLDBRoutes()
+	h.setupRAMRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
