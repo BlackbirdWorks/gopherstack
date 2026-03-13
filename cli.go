@@ -158,6 +158,7 @@ import (
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -289,6 +290,7 @@ type CLI struct {
 	serverlessrepoHandler         service.Registerable
 	shieldHandler                 service.Registerable
 	ssoadminHandler               service.Registerable
+	timestreamqueryHandler        service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -775,6 +777,11 @@ func (c *CLI) GetShieldHandler() service.Registerable { return c.shieldHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSsoAdminHandler() service.Registerable { return c.ssoadminHandler }
+
+// GetTimestreamQueryHandler returns the Timestream Query handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetTimestreamQueryHandler() service.Registerable { return c.timestreamqueryHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1458,6 +1465,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.serverlessrepoHandler = byName["ServerlessRepo"]
 	cli.shieldHandler = byName["Shield"]
 	cli.ssoadminHandler = byName["SsoAdmin"]
+	cli.timestreamqueryHandler = byName["TimestreamQuery"]
 }
 
 // initializeServices initializes all service providers.
@@ -1704,6 +1712,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&serverlessrepobackend.Provider{},
 		&shieldbackend.Provider{},
 		&ssoadminbackend.Provider{},
+		&timestreamquerybackend.Provider{},
 	}
 }
 

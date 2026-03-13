@@ -79,6 +79,7 @@ import (
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
+	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -230,6 +231,7 @@ type AWSSDKProvider interface {
 	GetServerlessRepoHandler() service.Registerable
 	GetShieldHandler() service.Registerable
 	GetSsoAdminHandler() service.Registerable
+	GetTimestreamQueryHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -354,6 +356,7 @@ type extractedConfig struct {
 	serverlessrepoOps         *serverlessrepobackend.Handler
 	shieldOps                 *shieldbackend.Handler
 	ssoadminOps               *ssoadminbackend.Handler
+	timestreamqueryOps        *timestreamquerybackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -852,6 +855,11 @@ func extractLatestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.sagemakerRuntimeOps, _ = h.(*sagemakerruntimebackend.Handler)
 	}
 
+	extractMostRecentHandlers(ap, ec)
+}
+
+// extractMostRecentHandlers populates the newest service handlers on ec.
+func extractMostRecentHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetServerlessRepoHandler(); h != nil {
 		ec.serverlessrepoOps, _ = h.(*serverlessrepobackend.Handler)
 	}
@@ -862,6 +870,10 @@ func extractLatestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetSsoAdminHandler(); h != nil {
 		ec.ssoadminOps, _ = h.(*ssoadminbackend.Handler)
+	}
+
+	if h := ap.GetTimestreamQueryHandler(); h != nil {
+		ec.timestreamqueryOps, _ = h.(*timestreamquerybackend.Handler)
 	}
 }
 
@@ -1062,4 +1074,5 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.ServerlessRepoOps = ec.serverlessrepoOps
 	cfg.ShieldOps = ec.shieldOps
 	cfg.SsoAdminOps = ec.ssoadminOps
+	cfg.TimestreamQueryOps = ec.timestreamqueryOps
 }

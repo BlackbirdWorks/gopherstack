@@ -136,6 +136,7 @@ import (
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
+	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -5897,6 +5898,39 @@ func TestTerraform_SsoAdmin(t *testing.T) {
 				}
 
 				assert.True(t, found, "expected permission set %q to exist", psName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_TimestreamQuery provisions Timestream Query resources via Terraform and verifies operations.
+func TestTerraform_TimestreamQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "timestreamquery/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				client := createTimestreamQueryClient(t)
+
+				out, err := client.ListScheduledQueries(ctx, &timestreamquerysvc.ListScheduledQueriesInput{})
+				require.NoError(t, err, "ListScheduledQueries should succeed after terraform apply")
+				assert.NotNil(t, out, "expected a valid response")
 			},
 		},
 	}

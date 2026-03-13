@@ -126,6 +126,7 @@ import (
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -320,14 +321,16 @@ type DashboardHandler struct {
 	// ShieldOps provides access to the Shield backend.
 	ShieldOps *shieldbackend.Handler
 	// SsoAdminOps provides access to the SSO Admin backend.
-	SsoAdminOps  *ssoadminbackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	SsoAdminOps *ssoadminbackend.Handler
+	// TimestreamQueryOps provides access to the Timestream Query backend.
+	TimestreamQueryOps *timestreamquerybackend.Handler
+	SubRouter          *echo.Echo
+	ddbProvider        *ddbbackend.DashboardProvider
+	s3Provider         *s3backend.DashboardProvider
+	FaultStore         *chaos.FaultStore
+	Logger             *slog.Logger
+	layout             *template.Template
+	GlobalConfig       config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -545,6 +548,8 @@ type Config struct {
 	ShieldOps *shieldbackend.Handler
 	// SsoAdminOps provides access to the SSO Admin backend.
 	SsoAdminOps *ssoadminbackend.Handler
+	// TimestreamQueryOps provides access to the Timestream Query backend.
+	TimestreamQueryOps *timestreamquerybackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -698,6 +703,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/sagemaker/*.html",
 		"templates/sagemakerrumtime/*.html",
 		"templates/ssoadmin/*.html",
+		"templates/timestreamquery/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -852,6 +858,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.ServerlessRepoOps = cfg.ServerlessRepoOps
 	h.ShieldOps = cfg.ShieldOps
 	h.SsoAdminOps = cfg.SsoAdminOps
+	h.TimestreamQueryOps = cfg.TimestreamQueryOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1378,6 +1385,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupServerlessRepoRoutes()
 	h.setupShieldRoutes()
 	h.setupSsoAdminRoutes()
+	h.setupTimestreamQueryRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1507,6 +1515,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/qldb", "QLDB"},
 	{"/rdsdata", "RDSData"},
 	{"/sagemakerrumtime", "SageMakerRuntime"},
+	{"/timestreamquery", "TimestreamQuery"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
