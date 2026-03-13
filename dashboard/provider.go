@@ -65,6 +65,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
@@ -203,6 +204,7 @@ type AWSSDKProvider interface {
 	GetMediaStoreHandler() service.Registerable
 	GetMediaStoreDataHandler() service.Registerable
 	GetMemoryDBHandler() service.Registerable
+	GetOrganizationsHandler() service.Registerable
 	GetMWAAHandler() service.Registerable
 	GetNeptuneHandler() service.Registerable
 	GetPipesHandler() service.Registerable
@@ -315,6 +317,7 @@ type extractedConfig struct {
 	mediastoreOps             *mediastorebackend.Handler
 	mediastoredataOps         *mediastoredatabackend.Handler
 	memorydbOps               *memorydbbackend.Handler
+	organizationsOps          *organizationsbackend.Handler
 	mwaaOps                   *mwaabackend.Handler
 	neptuneOps                *neptunebackend.Handler
 	pipesOps                  *pipesbackend.Handler
@@ -712,6 +715,11 @@ func extractNewestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 }
 
 func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+	extractNewestAnalyticsHandlers(ap, ec)
+	extractNewestStorageHandlers(ap, ec)
+}
+
+func extractNewestAnalyticsHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetIdentityStoreHandler(); h != nil {
 		ec.identitystoreOps, _ = h.(*identitystorebackend.Handler)
 	}
@@ -727,7 +735,9 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetLakeFormationHandler(); h != nil {
 		ec.lakeformationOps, _ = h.(*lakeformationbackend.Handler)
 	}
+}
 
+func extractNewestStorageHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMediaStoreHandler(); h != nil {
 		ec.mediastoreOps, _ = h.(*mediastorebackend.Handler)
 	}
@@ -738,6 +748,10 @@ func extractNewestDataHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetMemoryDBHandler(); h != nil {
 		ec.memorydbOps, _ = h.(*memorydbbackend.Handler)
+	}
+
+	if h := ap.GetOrganizationsHandler(); h != nil {
+		ec.organizationsOps, _ = h.(*organizationsbackend.Handler)
 	}
 
 	if h := ap.GetMWAAHandler(); h != nil {
@@ -831,6 +845,58 @@ func buildBaseConfig(ec *extractedConfig, log *slog.Logger) Config {
 		IoTDataPlaneOps:            ec.iotDataPlaneOps,
 		APIGatewayManagementAPIOps: ec.apiGatewayMgmtOps,
 		APIGatewayV2Ops:            ec.apiGatewayV2Ops,
+		AppConfigDataOps:           ec.appConfigDataOps,
+		AmplifyOps:                 ec.amplifyOps,
+		AthenaOps:                  ec.athenaOps,
+		AutoscalingOps:             ec.autoscalingOps,
+		BackupOps:                  ec.backupOps,
+		CloudTrailOps:              ec.cloudtrailOps,
+		AppConfigOps:               ec.appConfigOps,
+		ApplicationAutoscalingOps:  ec.applicationAutoscalingOps,
+		BatchOps:                   ec.batchOps,
+		BedrockOps:                 ec.bedrockOps,
+		BedrockRuntimeOps:          ec.bedrockRuntimeOps,
+		CeOps:                      ec.ceOps,
+		CloudControlOps:            ec.cloudcontrolOps,
+		CloudFrontOps:              ec.cloudFrontOps,
+		CodeArtifactOps:            ec.codeArtifactOps,
+		CodeBuildOps:               ec.codebuildOps,
+		CodeCommitOps:              ec.codeCommitOps,
+		CodePipelineOps:            ec.codePipelineOps,
+		CodeConnectionsOps:         ec.codeConnectionsOps,
+		CodeDeployOps:              ec.codeDeployOps,
+		DMSOps:                     ec.dmsOps,
+		CodeStarConnectionsOps:     ec.codeStarConnectionsOps,
+		DynamoDBStreamsOps:         ec.dynamodbStreamsOps,
+		DocDBOps:                   ec.docdbOps,
+		ElasticbeanstalkOps:        ec.elasticbeanstalkOps,
+		ECROps:                     ec.ecrOps,
+		ECSOps:                     ec.ecsOps,
+		EFSOps:                     ec.efsOps,
+		EKSOps:                     ec.eksOps,
+		ELBOps:                     ec.elbOps,
+		ELBv2Ops:                   ec.elbv2Ops,
+		EmrServerlessOps:           ec.emrServerlessOps,
+		EMROps:                     ec.emrOps,
+		GlueOps:                    ec.glueOps,
+		IoTOps:                     ec.iotOps,
+		FISOps:                     ec.fisOps,
+		IdentityStoreOps:           ec.identitystoreOps,
+		ElasticTranscoderOps:       ec.elasticTranscoderOps,
+		GlacierOps:                 ec.glacierOps,
+		IoTAnalyticsOps:            ec.iotanalyticsOps,
+		IoTWirelessOps:             ec.iotwirelessOps,
+		KinesisAnalyticsOps:        ec.kinesisanalyticsOps,
+		KafkaOps:                   ec.kafkaOps,
+		KinesisAnalyticsV2Ops:      ec.kinesisanalyticsv2Ops,
+		LakeFormationOps:           ec.lakeformationOps,
+		ManagedBlockchainOps:       ec.managedblockchainOps,
+		MediaConvertOps:            ec.mediaconvertOps,
+		MQOps:                      ec.mqOps,
+		MediaStoreOps:              ec.mediastoreOps,
+		MediaStoreDataOps:          ec.mediastoredataOps,
+		MemoryDBOps:                ec.memorydbOps,
+		OrganizationsOps:           ec.organizationsOps,
 		GlobalConfig:               ec.gCfg,
 		FaultStore:                 ec.faultStore,
 		Logger:                     log,

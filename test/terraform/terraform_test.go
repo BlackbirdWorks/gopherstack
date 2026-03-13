@@ -102,6 +102,7 @@ import (
 	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
 	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
+	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -258,6 +259,7 @@ provider "aws" {
     mq              = %[1]q
     mwaa            = %[1]q
     opensearch      = %[1]q
+    organizations   = %[1]q
     pipes           = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
@@ -5211,6 +5213,72 @@ func TestTerraform_MemoryDB(t *testing.T) {
 	}
 }
 
+// TestTerraform_Organizations provisions an Organizations org and OU via Terraform,
+// then verifies it via the Organizations SDK.
+func TestTerraform_Organizations(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "organizations/org",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix": id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createOrganizationsClient(t)
+
+				out, err := client.DescribeOrganization(ctx, &organizationssvc.DescribeOrganizationInput{})
+				require.NoError(t, err, "DescribeOrganization should succeed after terraform apply")
+				require.NotNil(t, out.Organization)
+				assert.Equal(t, "ALL", string(out.Organization.FeatureSet))
+
+				rootsOut, err := client.ListRoots(ctx, &organizationssvc.ListRootsInput{})
+				require.NoError(t, err, "ListRoots should succeed after terraform apply")
+				require.NotEmpty(t, rootsOut.Roots, "organization should have at least one root")
+
+				suffix := vars["Suffix"].(string)
+				ouName := "development-" + suffix
+
+				ousOut, err := client.ListOrganizationalUnitsForParent(
+					ctx,
+					&organizationssvc.ListOrganizationalUnitsForParentInput{
+						ParentId: rootsOut.Roots[0].Id,
+					},
+				)
+				require.NoError(t, err, "ListOrganizationalUnitsForParent should succeed")
+
+				found := false
+
+				for _, ou := range ousOut.OrganizationalUnits {
+					if aws.ToString(ou.Name) == ouName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "created OU should appear in ListOrganizationalUnitsForParent output")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_MWAA provisions an MWAA environment via Terraform, then verifies
 // it is listed via the MWAA SDK.
 func TestTerraform_MWAA(t *testing.T) {
@@ -5222,6 +5290,7 @@ func TestTerraform_MWAA(t *testing.T) {
 			fixture: "mwaa/environment",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
+
 				id := uuid.NewString()[:8]
 
 				return map[string]any{
@@ -5230,6 +5299,7 @@ func TestTerraform_MWAA(t *testing.T) {
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
+
 				client := createMWAAClient(t)
 				envName := vars["EnvironmentName"].(string)
 

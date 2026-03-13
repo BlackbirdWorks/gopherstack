@@ -126,6 +126,7 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -262,6 +263,7 @@ type CLI struct {
 	mediastoreHandler             service.Registerable
 	mediastoredataHandler         service.Registerable
 	memorydbHandler               service.Registerable
+	organizationsHandler          service.Registerable
 	mwaaHandler                   service.Registerable
 	neptuneHandler                service.Registerable
 	pipesHandler                  service.Registerable
@@ -676,6 +678,11 @@ func (c *CLI) GetMediaStoreDataHandler() service.Registerable { return c.mediast
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMemoryDBHandler() service.Registerable { return c.memorydbHandler }
+
+// GetOrganizationsHandler returns the Organizations handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOrganizationsHandler() service.Registerable { return c.organizationsHandler }
 
 // GetNeptuneHandler returns the Neptune handler (dashboard.AWSSDKProvider).
 //
@@ -1357,6 +1364,7 @@ func storeCLILatestHandlers(cli *CLI, byName map[string]service.Registerable) {
 // storeCLINewestHandlers assigns handlers for the most recently added services.
 func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.memorydbHandler = byName["MemoryDB"]
+	cli.organizationsHandler = byName["Organizations"]
 	cli.mwaaHandler = byName["MWAA"]
 	cli.neptuneHandler = byName["Neptune"]
 	cli.docdbHandler = byName["DocDB"]
@@ -1521,6 +1529,7 @@ func getServiceProviders() []service.Provider {
 		&ecsbackend.Provider{},
 		&fisbackend.Provider{},
 		&identitystorebackend.Provider{},
+		&organizationsbackend.Provider{},
 		&cognitoidpbackend.Provider{},
 		&cognitoidentitybackend.Provider{},
 		&iotbackend.Provider{},
