@@ -3,6 +3,18 @@ package organizations
 
 import "time"
 
+// epochSeconds returns t as Unix epoch seconds (float64).
+// The AWS SDK Go v2 deserializes JSON timestamps as float64 epoch seconds,
+// so all timestamp fields in JSON response types must use this type.
+func epochSeconds(t time.Time) float64 {
+	return float64(t.Unix())
+}
+
+// epochSecondsNow returns the current Unix epoch seconds as float64.
+func epochSecondsNow() float64 {
+	return epochSeconds(time.Now())
+}
+
 // ----------------------------------------
 // Domain models
 // ----------------------------------------
@@ -101,13 +113,13 @@ type DelegatedAdmin struct {
 
 // CreateAccountStatus is the result of a CreateAccount request.
 type CreateAccountStatus struct {
-	ID                 string    `json:"Id"`
-	AccountID          string    `json:"AccountId,omitempty"`
-	AccountName        string    `json:"AccountName"`
-	State              string    `json:"State"`
-	RequestedTimestamp time.Time `json:"RequestedTimestamp"`
-	CompletedTimestamp time.Time `json:"CompletedTimestamp"`
-	FailureReason      string    `json:"FailureReason,omitempty"`
+	ID                 string  `json:"Id"`
+	AccountID          string  `json:"AccountId,omitempty"`
+	AccountName        string  `json:"AccountName"`
+	State              string  `json:"State"`
+	RequestedTimestamp float64 `json:"RequestedTimestamp"`
+	CompletedTimestamp float64 `json:"CompletedTimestamp"`
+	FailureReason      string  `json:"FailureReason,omitempty"`
 }
 
 // ----------------------------------------
@@ -164,13 +176,13 @@ type describeAccountRequest struct {
 }
 
 type accountObject struct {
-	JoinedAt     time.Time `json:"JoinedTimestamp"`
-	ID           string    `json:"Id"`
-	ARN          string    `json:"Arn"`
-	Name         string    `json:"Name"`
-	Email        string    `json:"Email"`
-	Status       string    `json:"Status"`
-	JoinedMethod string    `json:"JoinedMethod"`
+	JoinedAt     float64 `json:"JoinedTimestamp"`
+	ID           string  `json:"Id"`
+	ARN          string  `json:"Arn"`
+	Name         string  `json:"Name"`
+	Email        string  `json:"Email"`
+	Status       string  `json:"Status"`
+	JoinedMethod string  `json:"JoinedMethod"`
 }
 
 type describeAccountResponse struct {
@@ -449,8 +461,8 @@ type disableAWSServiceAccessRequest struct {
 }
 
 type enabledServicePrincipalObject struct {
-	DateEnabled      time.Time `json:"DateEnabled"`
-	ServicePrincipal string    `json:"ServicePrincipal"`
+	DateEnabled      float64 `json:"DateEnabled"`
+	ServicePrincipal string  `json:"ServicePrincipal"`
 }
 
 type listAWSServiceAccessResponse struct {
@@ -476,14 +488,14 @@ type listDelegatedAdministratorsRequest struct {
 }
 
 type delegatedAdminObject struct {
-	JoinedAt       time.Time `json:"JoinedTimestamp"`
-	DelegationTime time.Time `json:"DelegationEnabledDate"`
-	ID             string    `json:"Id"`
-	ARN            string    `json:"Arn"`
-	Name           string    `json:"Name"`
-	Email          string    `json:"Email"`
-	Status         string    `json:"Status"`
-	JoinedMethod   string    `json:"JoinedMethod"`
+	JoinedAt       float64 `json:"JoinedTimestamp"`
+	DelegationTime float64 `json:"DelegationEnabledDate"`
+	ID             string  `json:"Id"`
+	ARN            string  `json:"Arn"`
+	Name           string  `json:"Name"`
+	Email          string  `json:"Email"`
+	Status         string  `json:"Status"`
+	JoinedMethod   string  `json:"JoinedMethod"`
 }
 
 type listDelegatedAdministratorsResponse struct {

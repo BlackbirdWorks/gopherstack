@@ -353,8 +353,8 @@ func (b *InMemoryBackend) CreateAccount(name, email string, tags []Tag) (*Create
 		AccountID:          acctID,
 		AccountName:        name,
 		State:              createAccountStateSucceeded,
-		RequestedTimestamp: now,
-		CompletedTimestamp: now,
+		RequestedTimestamp: epochSeconds(now),
+		CompletedTimestamp: epochSeconds(now),
 	}
 
 	b.createStatuses[statusID] = status

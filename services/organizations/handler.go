@@ -840,7 +840,10 @@ func (h *Handler) handleListAWSServiceAccessForOrganization(c *echo.Context, _ [
 
 	objs := make([]enabledServicePrincipalObject, 0, len(sps))
 	for _, sp := range sps {
-		objs = append(objs, enabledServicePrincipalObject(sp))
+		objs = append(objs, enabledServicePrincipalObject{
+			DateEnabled:      epochSeconds(sp.DateEnabled),
+			ServicePrincipal: sp.ServicePrincipal,
+		})
 	}
 
 	return c.JSON(http.StatusOK, listAWSServiceAccessResponse{EnabledServicePrincipals: objs})
@@ -896,8 +899,8 @@ func (h *Handler) handleListDelegatedAdministrators(c *echo.Context, body []byte
 			Email:          da.Email,
 			Status:         da.Status,
 			JoinedMethod:   da.JoinedMethod,
-			JoinedAt:       da.JoinedAt,
-			DelegationTime: da.DelegationTime,
+			JoinedAt:       epochSeconds(da.JoinedAt),
+			DelegationTime: epochSeconds(da.DelegationTime),
 		})
 	}
 
@@ -965,7 +968,7 @@ func toAccountObject(a *Account) accountObject {
 		Email:        a.Email,
 		Status:       a.Status,
 		JoinedMethod: a.JoinedMethod,
-		JoinedAt:     a.JoinedAt,
+		JoinedAt:     epochSeconds(a.JoinedAt),
 	}
 }
 

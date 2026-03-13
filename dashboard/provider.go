@@ -64,8 +64,8 @@ import (
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
-	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
