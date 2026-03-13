@@ -103,6 +103,7 @@ import (
 	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
+	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	"github.com/docker/docker/api/types/build"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -1989,4 +1990,22 @@ func createMemoryDBClient(t *testing.T) *memorydbsvc.Client {
 	return memorydbsvc.NewFromConfig(cfg, func(o *memorydbsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+// createOrganizationsClient returns an Organizations client pointed at the shared test container.
+func createOrganizationsClient(t *testing.T) *organizationssvc.Client {
+t.Helper()
+
+cfg, err := config.LoadDefaultConfig(
+t.Context(),
+config.WithRegion("us-east-1"),
+config.WithCredentialsProvider(
+credentials.NewStaticCredentialsProvider("test", "test", ""),
+),
+)
+require.NoError(t, err, "unable to load SDK config")
+
+return organizationssvc.NewFromConfig(cfg, func(o *organizationssvc.Options) {
+o.BaseEndpoint = aws.String(endpoint)
+})
 }

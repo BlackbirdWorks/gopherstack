@@ -260,6 +260,7 @@ type CLI struct {
 	mediastoreHandler             service.Registerable
 	mediastoredataHandler         service.Registerable
 	memorydbHandler               service.Registerable
+	organizationsHandler          service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -671,6 +672,11 @@ func (c *CLI) GetMediaStoreDataHandler() service.Registerable { return c.mediast
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMemoryDBHandler() service.Registerable { return c.memorydbHandler }
+
+// GetOrganizationsHandler returns the Organizations handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOrganizationsHandler() service.Registerable { return c.organizationsHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1327,6 +1333,7 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.mediastoreHandler = byName["MediaStore"]
 	cli.mediastoredataHandler = byName["MediaStoreData"]
 	cli.memorydbHandler = byName["MemoryDB"]
+	cli.organizationsHandler = byName["Organizations"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
 }

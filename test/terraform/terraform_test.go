@@ -99,6 +99,7 @@ import (
 	mediastoresvc "github.com/aws/aws-sdk-go-v2/service/mediastore"
 	memorydbsvc "github.com/aws/aws-sdk-go-v2/service/memorydb"
 	mqsvc "github.com/aws/aws-sdk-go-v2/service/mq"
+	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -5120,4 +5121,65 @@ func TestTerraform_MemoryDB(t *testing.T) {
 			runTFTest(t, tc)
 		})
 	}
+}
+
+// TestTerraform_Organizations provisions an Organizations org and OU via Terraform,
+// then verifies it via the Organizations SDK.
+func TestTerraform_Organizations(t *testing.T) {
+t.Parallel()
+
+tests := []tfTestCase{
+{
+name:    "success",
+fixture: "organizations/org",
+setup: func(t *testing.T, _ string) map[string]any {
+t.Helper()
+id := uuid.NewString()[:8]
+
+return map[string]any{
+"Suffix": id,
+}
+},
+verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+t.Helper()
+client := createOrganizationsClient(t)
+
+out, err := client.DescribeOrganization(ctx, &organizationssvc.DescribeOrganizationInput{})
+require.NoError(t, err, "DescribeOrganization should succeed after terraform apply")
+require.NotNil(t, out.Organization)
+assert.Equal(t, "ALL", string(out.Organization.FeatureSet))
+
+rootsOut, err := client.ListRoots(ctx, &organizationssvc.ListRootsInput{})
+require.NoError(t, err, "ListRoots should succeed after terraform apply")
+require.NotEmpty(t, rootsOut.Roots, "organization should have at least one root")
+
+suffix := vars["Suffix"].(string)
+ouName := "development-" + suffix
+
+ousOut, err := client.ListOrganizationalUnitsForParent(ctx, &organizationssvc.ListOrganizationalUnitsForParentInput{
+ParentId: rootsOut.Roots[0].Id,
+})
+require.NoError(t, err, "ListOrganizationalUnitsForParent should succeed")
+
+found := false
+
+for _, ou := range ousOut.OrganizationalUnits {
+if aws.ToString(ou.Name) == ouName {
+found = true
+
+break
+}
+}
+
+assert.True(t, found, "created OU should appear in ListOrganizationalUnitsForParent output")
+},
+},
+}
+
+for _, tc := range tests {
+t.Run(tc.name, func(t *testing.T) {
+t.Parallel()
+runTFTest(t, tc)
+})
+}
 }

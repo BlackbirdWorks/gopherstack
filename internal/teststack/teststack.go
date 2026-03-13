@@ -90,6 +90,7 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
@@ -245,6 +246,8 @@ type Stack struct {
 	MediaStoreDataHandler *mediastoredatabackend.Handler
 	// MemoryDBHandler provides access to the MemoryDB backend.
 	MemoryDBHandler *memorydbbackend.Handler
+	// OrganizationsHandler provides access to the Organizations backend.
+	OrganizationsHandler *organizationsbackend.Handler
 	S3Client        *s3.Client
 	DDBClient       *dynamodb.Client
 	FaultStore      *chaos.FaultStore
@@ -444,6 +447,7 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.mediastore)
 	_ = registry.Register(h.mediastoredata)
 	_ = registry.Register(h.memorydb)
+	_ = registry.Register(h.organizations)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -540,6 +544,7 @@ type handlers struct {
 	mediastore         *mediastorebackend.Handler
 	mediastoredata     *mediastoredatabackend.Handler
 	memorydb           *memorydbbackend.Handler
+	organizations      *organizationsbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -815,6 +820,10 @@ func populateLatestHandlers(h *handlers) {
 	h.memorydb = memorydbbackend.NewHandler(memorydbbackend.NewInMemoryBackend())
 	h.memorydb.AccountID = config.DefaultAccountID
 	h.memorydb.DefaultRegion = config.DefaultRegion
+
+	h.organizations = organizationsbackend.NewHandler(
+		organizationsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -966,6 +975,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.MediaStoreOps = h.mediastore
 	cfg.MediaStoreDataOps = h.mediastoredata
 	cfg.MemoryDBOps = h.memorydb
+	cfg.OrganizationsOps = h.organizations
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1162,6 +1172,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.MediaStoreHandler = h.mediastore
 	s.MediaStoreDataHandler = h.mediastoredata
 	s.MemoryDBHandler = h.memorydb
+	s.OrganizationsHandler = h.organizations
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

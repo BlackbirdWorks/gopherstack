@@ -371,6 +371,10 @@ func (h *Handler) handleCreateAccount(c *echo.Context, body []byte) error {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "AccountName is required")
 	}
 
+	if req.Email == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Email is required")
+	}
+
 	status, err := h.Backend.CreateAccount(req.AccountName, req.Email, req.Tags)
 	if err != nil {
 		return h.handleBackendError(c, err)
@@ -914,11 +918,11 @@ func (h *Handler) writeError(c *echo.Context, statusCode int, errType, message s
 func (h *Handler) handleBackendError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return h.writeError(c, http.StatusNotFound, extractErrorType(err), err.Error())
+		return h.writeError(c, http.StatusBadRequest, extractErrorType(err), err.Error())
 	case errors.Is(err, awserr.ErrAlreadyExists):
-		return h.writeError(c, http.StatusConflict, extractErrorType(err), err.Error())
+		return h.writeError(c, http.StatusBadRequest, extractErrorType(err), err.Error())
 	case errors.Is(err, awserr.ErrConflict):
-		return h.writeError(c, http.StatusConflict, extractErrorType(err), err.Error())
+		return h.writeError(c, http.StatusBadRequest, extractErrorType(err), err.Error())
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return h.writeError(c, http.StatusBadRequest, extractErrorType(err), err.Error())
 	default:
