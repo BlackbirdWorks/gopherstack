@@ -68,8 +68,9 @@ type docPageData struct {
 	DynamoDBStreamsOps         []string
 	PipesOps                   []string
 	QLDBOps                    []string
-	RedshiftDataOps            []string
 	QLDBSessionOps             []string
+	RDSDataOps                 []string
+	RedshiftDataOps            []string
 	SageMakerOps               []string
 }
 
@@ -151,6 +152,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		PipesOps:                   h.getSupportedOps(h.PipesOps),
 		QLDBOps:                    h.getSupportedOps(h.QLDBOps),
 		QLDBSessionOps:             h.getSupportedOps(h.QLDBSessionOps),
+		RDSDataOps:                 h.getSupportedOps(h.RDSDataOps),
 		RedshiftDataOps:            h.getSupportedOps(h.RedshiftDataOps),
 		SageMakerOps:               h.getSupportedOps(h.SageMakerOps),
 	}
