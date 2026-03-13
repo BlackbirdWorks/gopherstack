@@ -286,6 +286,7 @@ provider "aws" {
     scheduler       = %[1]q
     secretsmanager  = %[1]q
     servicediscovery = %[1]q
+    serverlessrepo  = %[1]q
     ses             = %[1]q
     sesv2           = %[1]q
     sfn             = %[1]q
@@ -5724,6 +5725,61 @@ func TestTerraform_ServiceDiscovery(t *testing.T) {
 				out, err := client.ListNamespaces(ctx, &servicediscoverysvc.ListNamespacesInput{})
 				require.NoError(t, err, "ListNamespaces should succeed after terraform apply")
 				require.NotEmpty(t, out.Namespaces, "expected at least one namespace after apply")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_ServerlessRepo provisions a Serverless Application Repository application and verifies it was created.
+func TestTerraform_ServerlessRepo(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "serverlessrepo/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ApplicationName": "tf-sar-" + id,
+					"Endpoint":        endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				appName := vars["ApplicationName"].(string)
+				reqURL := endpoint + "/applications/" + appName
+
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+				require.NoError(t, err)
+
+				// Use a fake SigV4 credential scoped to the "serverlessrepo" service.
+				const fakeAuth = "AWS4-HMAC-SHA256 Credential=test/20240101/us-east-1/" +
+					"serverlessrepo/aws4_request, SignedHeaders=host, Signature=fake"
+				req.Header.Set("Authorization", fakeAuth)
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "GetApplication should succeed after terraform apply")
+				defer resp.Body.Close()
+
+				body, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(body))
+
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(body, &result))
+				assert.Equal(t, appName, result["name"])
 			},
 		},
 	}

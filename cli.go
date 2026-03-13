@@ -145,6 +145,7 @@ import (
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
@@ -283,6 +284,7 @@ type CLI struct {
 	redshiftdataHandler           service.Registerable
 	sagemakerHandler              service.Registerable
 	servicediscoveryHandler       service.Registerable
+	serverlessrepoHandler         service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -754,6 +756,11 @@ func (c *CLI) GetSageMakerHandler() service.Registerable { return c.sagemakerHan
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetServiceDiscoveryHandler() service.Registerable { return c.servicediscoveryHandler }
+
+// GetServerlessRepoHandler returns the Serverless Application Repository handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetServerlessRepoHandler() service.Registerable { return c.serverlessrepoHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1434,6 +1441,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.redshiftdataHandler = byName["RedshiftData"]
 	cli.sagemakerHandler = byName["SageMaker"]
 	cli.servicediscoveryHandler = byName["ServiceDiscovery"]
+	cli.serverlessrepoHandler = byName["ServerlessRepo"]
 }
 
 // initializeServices initializes all service providers.
@@ -1677,6 +1685,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&redshiftdatabackend.Provider{},
 		&sagemakerbackend.Provider{},
 		&servicediscoverybackend.Provider{},
+		&serverlessrepobackend.Provider{},
 	}
 }
 
