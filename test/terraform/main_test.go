@@ -116,6 +116,7 @@ import (
 	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
+	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	"github.com/docker/docker/api/types/build"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -2238,5 +2239,24 @@ func createSsoAdminClient(t *testing.T) *ssoadminsvc.Client {
 
 	return ssoadminsvc.NewFromConfig(cfg, func(o *ssoadminsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createTimestreamQueryClient returns a Timestream Query client pointed at the shared test container.
+func createTimestreamQueryClient(t *testing.T) *timestreamquerysvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return timestreamquerysvc.NewFromConfig(cfg, func(o *timestreamquerysvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+		o.EndpointDiscovery.EnableEndpointDiscovery = aws.EndpointDiscoveryDisabled
 	})
 }
