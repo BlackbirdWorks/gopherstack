@@ -3,6 +3,7 @@ package sagemaker
 import (
 	"fmt"
 	"maps"
+	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -39,18 +40,28 @@ type Model struct {
 	Containers       []ContainerDefinition
 }
 
-// cloneModel returns a deep copy of m.
+// cloneContainer returns a deep copy of a ContainerDefinition, including its Environment map.
+func cloneContainer(c ContainerDefinition) ContainerDefinition {
+	c.Environment = maps.Clone(c.Environment)
+
+	return c
+}
+
+// cloneModel returns a deep copy of m, including nested maps and slices.
 func cloneModel(m *Model) *Model {
 	cp := *m
 	cp.Tags = maps.Clone(m.Tags)
 
 	if m.PrimaryContainer != nil {
-		pc := *m.PrimaryContainer
+		pc := cloneContainer(*m.PrimaryContainer)
 		cp.PrimaryContainer = &pc
 	}
 
 	cp.Containers = make([]ContainerDefinition, len(m.Containers))
-	copy(cp.Containers, m.Containers)
+
+	for i, c := range m.Containers {
+		cp.Containers[i] = cloneContainer(c)
+	}
 
 	return &cp
 }
@@ -122,12 +133,26 @@ func (b *InMemoryBackend) CreateModel(
 	}
 
 	modelARN := arn.Build("sagemaker", b.region, b.accountID, "model/"+name)
+
+	var storedPrimaryContainer *ContainerDefinition
+
+	if primaryContainer != nil {
+		pc := cloneContainer(*primaryContainer)
+		storedPrimaryContainer = &pc
+	}
+
+	storedContainers := make([]ContainerDefinition, len(containers))
+
+	for i, c := range containers {
+		storedContainers[i] = cloneContainer(c)
+	}
+
 	m := &Model{
 		ModelName:        name,
 		ModelARN:         modelARN,
 		ExecutionRoleARN: executionRoleARN,
-		PrimaryContainer: primaryContainer,
-		Containers:       containers,
+		PrimaryContainer: storedPrimaryContainer,
+		Containers:       storedContainers,
 		CreationTime:     time.Now(),
 		Tags:             mergeTags(nil, tags),
 	}
@@ -149,7 +174,7 @@ func (b *InMemoryBackend) DescribeModel(name string) (*Model, error) {
 	return cloneModel(m), nil
 }
 
-// ListModels returns all models.
+// ListModels returns all models sorted by name.
 func (b *InMemoryBackend) ListModels() []*Model {
 	b.mu.RLock("ListModels")
 	defer b.mu.RUnlock()
@@ -159,6 +184,10 @@ func (b *InMemoryBackend) ListModels() []*Model {
 	for _, m := range b.models {
 		list = append(list, cloneModel(m))
 	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ModelName < list[j].ModelName
+	})
 
 	return list
 }
@@ -191,10 +220,14 @@ func (b *InMemoryBackend) CreateEndpointConfig(
 	}
 
 	configARN := arn.Build("sagemaker", b.region, b.accountID, "endpoint-config/"+name)
+
+	storedVariants := make([]ProductionVariant, len(productionVariants))
+	copy(storedVariants, productionVariants)
+
 	ec := &EndpointConfig{
 		EndpointConfigName: name,
 		EndpointConfigARN:  configARN,
-		ProductionVariants: productionVariants,
+		ProductionVariants: storedVariants,
 		CreationTime:       time.Now(),
 		Tags:               mergeTags(nil, tags),
 	}
@@ -216,7 +249,7 @@ func (b *InMemoryBackend) DescribeEndpointConfig(name string) (*EndpointConfig, 
 	return cloneEndpointConfig(ec), nil
 }
 
-// ListEndpointConfigs returns all endpoint configurations.
+// ListEndpointConfigs returns all endpoint configurations sorted by name.
 func (b *InMemoryBackend) ListEndpointConfigs() []*EndpointConfig {
 	b.mu.RLock("ListEndpointConfigs")
 	defer b.mu.RUnlock()
@@ -226,6 +259,10 @@ func (b *InMemoryBackend) ListEndpointConfigs() []*EndpointConfig {
 	for _, ec := range b.endpointConfigs {
 		list = append(list, cloneEndpointConfig(ec))
 	}
+
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].EndpointConfigName < list[j].EndpointConfigName
+	})
 
 	return list
 }

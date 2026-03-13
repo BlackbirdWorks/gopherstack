@@ -140,6 +140,7 @@ import (
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
@@ -1648,6 +1649,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&qldbbackend.Provider{},
 		&qldbsessionbackend.Provider{},
 		&rambackend.Provider{},
+		&sagemakerbackend.Provider{},
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
@@ -600,10 +601,152 @@ func TestHandler_UnknownOperation(t *testing.T) {
 func TestProvider_Init(t *testing.T) {
 	t.Parallel()
 
+	p := &sagemaker.Provider{}
+
+	assert.Equal(t, "SageMaker", p.Name())
+
 	backend := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 	h := sagemaker.NewHandler(backend)
 
 	assert.NotNil(t, h)
 	assert.Equal(t, "SageMaker", h.Name())
 	assert.Equal(t, "us-east-1", backend.Region())
+}
+
+func TestHandler_ListEndpointConfigs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*testing.T, *sagemaker.Handler)
+		name       string
+		wantCode   int
+		wantLength int
+	}{
+		{
+			name:       "empty list",
+			wantCode:   http.StatusOK,
+			wantLength: 0,
+		},
+		{
+			name: "returns all configs",
+			setup: func(t *testing.T, h *sagemaker.Handler) {
+				t.Helper()
+
+				_, err := h.Backend.CreateEndpointConfig("config-a", nil, nil)
+				require.NoError(t, err)
+
+				_, err = h.Backend.CreateEndpointConfig("config-b", nil, nil)
+				require.NoError(t, err)
+			},
+			wantCode:   http.StatusOK,
+			wantLength: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doSageMakerRequest(t, h, "ListEndpointConfigs", map[string]any{})
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			configs, ok := resp["EndpointConfigs"].([]any)
+			require.True(t, ok)
+			assert.Len(t, configs, tt.wantLength)
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{
+			name:   "extract CreateModel operation",
+			target: "SageMaker.CreateModel",
+			want:   "CreateModel",
+		},
+		{
+			name:   "extract DescribeEndpointConfig operation",
+			target: "SageMaker.DescribeEndpointConfig",
+			want:   "DescribeEndpointConfig",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			resource := h.ExtractResource(c)
+			assert.Equal(t, tt.want, resource)
+		})
+	}
+}
+
+func TestHandler_Tags_EndpointConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	ec, err := h.Backend.CreateEndpointConfig("tagged-config", nil, nil)
+	require.NoError(t, err)
+
+	// Add tags to endpoint config.
+	rec := doSageMakerRequest(t, h, "AddTags", map[string]any{
+		"ResourceArn": ec.EndpointConfigARN,
+		"Tags":        []map[string]string{{"Key": "Env", "Value": "test"}},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// List tags for endpoint config.
+	rec = doSageMakerRequest(t, h, "ListTags", map[string]any{
+		"ResourceArn": ec.EndpointConfigARN,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	tags, ok := resp["Tags"].([]any)
+	require.True(t, ok)
+	require.Len(t, tags, 1)
+
+	// Delete tags from endpoint config.
+	rec = doSageMakerRequest(t, h, "DeleteTags", map[string]any{
+		"ResourceArn": ec.EndpointConfigARN,
+		"TagKeys":     []string{"Env"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestProvider_InitFull(t *testing.T) {
+	t.Parallel()
+
+	ctx := &service.AppContext{}
+	p := &sagemaker.Provider{}
+	reg, err := p.Init(ctx)
+
+	require.NoError(t, err)
+	require.NotNil(t, reg)
+	assert.Equal(t, "SageMaker", reg.Name())
 }

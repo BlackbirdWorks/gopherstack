@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -194,13 +195,17 @@ type tagObject struct {
 	Value string `json:"Value"`
 }
 
-// toTagObjects converts a map of tags to a slice of tag objects.
+// toTagObjects converts a map of tags to a slice of tag objects sorted by key.
 func toTagObjects(tags map[string]string) []tagObject {
 	result := make([]tagObject, 0, len(tags))
 
 	for k, v := range tags {
 		result = append(result, tagObject{Key: k, Value: v})
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Key < result[j].Key
+	})
 
 	return result
 }
@@ -488,7 +493,7 @@ func (h *Handler) handleAddTags(ctx context.Context, body []byte) ([]byte, error
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "sagemaker: added tags", "resource", req.ResourceArn)
 
-	return json.Marshal(map[string]any{"Tags": req.Tags})
+	return json.Marshal(map[string]any{})
 }
 
 func (h *Handler) handleListTags(_ context.Context, body []byte) ([]byte, error) {
