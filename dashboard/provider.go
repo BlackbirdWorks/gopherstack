@@ -776,10 +776,14 @@ func extractNewestStorageHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetMWAAHandler(); h != nil {
 		ec.mwaaOps, _ = h.(*mwaabackend.Handler)
 	}
+
+	if h := ap.GetRedshiftDataHandler(); h != nil {
+		ec.redshiftdataOps, _ = h.(*redshiftdatabackend.Handler)
+	}
 }
 
 // extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, MQ, Neptune,
-// Pipes, QLDB, and QLDBSession handlers on ec.
+// Pipes, QLDB, QLDBSession, and RAM handlers on ec.
 func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
@@ -811,10 +815,6 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetRAMHandler(); h != nil {
 		ec.ramOps, _ = h.(*rambackend.Handler)
-	}
-
-	if h := ap.GetRedshiftDataHandler(); h != nil {
-		ec.redshiftdataOps, _ = h.(*redshiftdatabackend.Handler)
 	}
 }
 

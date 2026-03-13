@@ -1299,6 +1299,11 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEmrServerlessRoutes()
 	h.setupEMRRoutes()
 	h.setupIdentityStoreRoutes()
+	h.setupNewestServiceRoutes()
+}
+
+// setupNewestServiceRoutes sets up dashboard routes for the newest services.
+func (h *DashboardHandler) setupNewestServiceRoutes() {
 	h.setupGlacierRoutes()
 	h.setupIoTAnalyticsRoutes()
 	h.setupIoTWirelessRoutes()
