@@ -127,6 +127,7 @@ import (
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
@@ -268,6 +269,7 @@ type CLI struct {
 	organizationsHandler          service.Registerable
 	mwaaHandler                   service.Registerable
 	neptuneHandler                service.Registerable
+	pinpointHandler               service.Registerable
 	pipesHandler                  service.Registerable
 	qldbHandler                   service.Registerable
 	ramHandler                    service.Registerable
@@ -697,6 +699,11 @@ func (c *CLI) GetNeptuneHandler() service.Registerable { return c.neptuneHandler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMWAAHandler() service.Registerable { return c.mwaaHandler }
+
+// GetPinpointHandler returns the Pinpoint handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetPinpointHandler() service.Registerable { return c.pinpointHandler }
 
 // GetPipesHandler returns the Pipes handler (dashboard.AWSSDKProvider).
 //
@@ -1383,6 +1390,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.neptuneHandler = byName["Neptune"]
 	cli.docdbHandler = byName["DocDB"]
 	cli.elastictranscoderHandler = byName["ElasticTranscoder"]
+	cli.pinpointHandler = byName["Pinpoint"]
 	cli.pipesHandler = byName["Pipes"]
 	cli.qldbHandler = byName["QLDB"]
 	cli.ramHandler = byName["RAM"]
@@ -1504,7 +1512,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 // getServiceProviders returns the list of all available service providers.
 func getServiceProviders() []service.Provider {
-	base := []service.Provider{ //nolint:prealloc // prealloc does not apply to literal slice initializations
+	return append([]service.Provider{
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},
@@ -1598,10 +1606,15 @@ func getServiceProviders() []service.Provider {
 		&mqbackend.Provider{},
 		&mediastorebackend.Provider{},
 		&mediastoredatabackend.Provider{},
-		&memorydbbackend.Provider{},
-	}
+	}, getLatestServiceProviders()...)
+}
 
-	return append(base, getNewestServiceProviders()...)
+// getLatestServiceProviders returns providers for additional services.
+// Extracted from getServiceProviders to satisfy the funlen limit.
+func getLatestServiceProviders() []service.Provider {
+	return append([]service.Provider{
+		&memorydbbackend.Provider{},
+	}, getNewestServiceProviders()...)
 }
 
 // getNewestServiceProviders returns the most recently added service providers.
@@ -1610,6 +1623,7 @@ func getNewestServiceProviders() []service.Provider {
 	return []service.Provider{
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},
+		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&qldbbackend.Provider{},
 		&rambackend.Provider{},

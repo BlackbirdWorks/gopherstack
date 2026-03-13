@@ -66,6 +66,7 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
@@ -208,6 +209,7 @@ type AWSSDKProvider interface {
 	GetMemoryDBHandler() service.Registerable
 	GetOrganizationsHandler() service.Registerable
 	GetMWAAHandler() service.Registerable
+	GetPinpointHandler() service.Registerable
 	GetNeptuneHandler() service.Registerable
 	GetPipesHandler() service.Registerable
 	GetQLDBHandler() service.Registerable
@@ -323,6 +325,7 @@ type extractedConfig struct {
 	memorydbOps               *memorydbbackend.Handler
 	organizationsOps          *organizationsbackend.Handler
 	mwaaOps                   *mwaabackend.Handler
+	pinpointOps               *pinpointbackend.Handler
 	neptuneOps                *neptunebackend.Handler
 	pipesOps                  *pipesbackend.Handler
 	qldbOps                   *qldbbackend.Handler
@@ -353,6 +356,10 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 	}
 
 	extractIntegrationHandlers(ap, &ec)
+
+	if h := ap.GetPinpointHandler(); h != nil {
+		ec.pinpointOps, _ = h.(*pinpointbackend.Handler)
+	}
 
 	return ec
 }
@@ -810,7 +817,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 func buildDashboardConfig(ec *extractedConfig, log *slog.Logger) Config {
 	cfg := buildBaseConfig(ec, log)
 	applyExtendedConfig(&cfg, ec)
-	applyMWAAConfig(&cfg, ec)
+	applyLatestServiceConfig(&cfg, ec)
 
 	return cfg
 }
@@ -976,10 +983,11 @@ func applyLatestConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MemoryDBOps = ec.memorydbOps
 }
 
-// applyMWAAConfig sets the MWAA, Neptune, Pipes, QLDB, and RAM ops fields on the dashboard config.
+// applyLatestServiceConfig sets the most recently added service ops fields on the dashboard config.
 // Extracted from applyExtendedConfig to satisfy the funlen limit.
-func applyMWAAConfig(cfg *Config, ec *extractedConfig) {
+func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MWAAOps = ec.mwaaOps
+	cfg.PinpointOps = ec.pinpointOps
 	cfg.NeptuneOps = ec.neptuneOps
 	cfg.PipesOps = ec.pipesOps
 	cfg.QLDBOps = ec.qldbOps
