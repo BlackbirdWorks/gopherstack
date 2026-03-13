@@ -153,6 +153,7 @@ import (
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
@@ -287,6 +288,7 @@ type CLI struct {
 	sagemakerRuntimeHandler       service.Registerable
 	serverlessrepoHandler         service.Registerable
 	shieldHandler                 service.Registerable
+	ssoadminHandler               service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -768,6 +770,11 @@ func (c *CLI) GetServerlessRepoHandler() service.Registerable { return c.serverl
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetShieldHandler() service.Registerable { return c.shieldHandler }
+
+// GetSsoAdminHandler returns the SSO Admin handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSsoAdminHandler() service.Registerable { return c.ssoadminHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1450,6 +1457,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.sagemakerRuntimeHandler = byName["SageMakerRuntime"]
 	cli.serverlessrepoHandler = byName["ServerlessRepo"]
 	cli.shieldHandler = byName["Shield"]
+	cli.ssoadminHandler = byName["SsoAdmin"]
 }
 
 // initializeServices initializes all service providers.
@@ -1695,6 +1703,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&sagemakerruntimebackend.Provider{},
 		&serverlessrepobackend.Provider{},
 		&shieldbackend.Provider{},
+		&ssoadminbackend.Provider{},
 	}
 }
 

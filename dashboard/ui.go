@@ -121,6 +121,7 @@ import (
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
@@ -317,7 +318,9 @@ type DashboardHandler struct {
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
 	// ShieldOps provides access to the Shield backend.
-	ShieldOps    *shieldbackend.Handler
+	ShieldOps *shieldbackend.Handler
+	// SsoAdminOps provides access to the SSO Admin backend.
+	SsoAdminOps  *ssoadminbackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -540,6 +543,8 @@ type Config struct {
 	ServerlessRepoOps *serverlessrepobackend.Handler
 	// ShieldOps provides access to the Shield backend.
 	ShieldOps *shieldbackend.Handler
+	// SsoAdminOps provides access to the SSO Admin backend.
+	SsoAdminOps *ssoadminbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -692,6 +697,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/redshiftdata/*.html",
 		"templates/sagemaker/*.html",
 		"templates/sagemakerrumtime/*.html",
+		"templates/ssoadmin/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -845,6 +851,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.SageMakerRuntimeOps = cfg.SageMakerRuntimeOps
 	h.ServerlessRepoOps = cfg.ServerlessRepoOps
 	h.ShieldOps = cfg.ShieldOps
+	h.SsoAdminOps = cfg.SsoAdminOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1370,6 +1377,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupSageMakerRuntimeRoutes()
 	h.setupServerlessRepoRoutes()
 	h.setupShieldRoutes()
+	h.setupSsoAdminRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
