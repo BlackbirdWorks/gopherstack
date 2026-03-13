@@ -126,6 +126,7 @@ import (
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -320,7 +321,9 @@ type DashboardHandler struct {
 	// ShieldOps provides access to the Shield backend.
 	ShieldOps *shieldbackend.Handler
 	// SsoAdminOps provides access to the SSO Admin backend.
-	SsoAdminOps  *ssoadminbackend.Handler
+	SsoAdminOps *ssoadminbackend.Handler
+	// TextractOps provides access to the Textract backend.
+	TextractOps  *textractbackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -545,6 +548,8 @@ type Config struct {
 	ShieldOps *shieldbackend.Handler
 	// SsoAdminOps provides access to the SSO Admin backend.
 	SsoAdminOps *ssoadminbackend.Handler
+	// TextractOps provides access to the Textract backend.
+	TextractOps *textractbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -700,6 +705,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/ssoadmin/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
+		"templates/textract/*.html",
 		"templates/doc.html",
 		"templates/settings.html",
 		"templates/apiconsole.html",
@@ -852,6 +858,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.ServerlessRepoOps = cfg.ServerlessRepoOps
 	h.ShieldOps = cfg.ShieldOps
 	h.SsoAdminOps = cfg.SsoAdminOps
+	h.TextractOps = cfg.TextractOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1378,6 +1385,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupServerlessRepoRoutes()
 	h.setupShieldRoutes()
 	h.setupSsoAdminRoutes()
+	h.setupTextractRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1507,6 +1515,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/qldb", "QLDB"},
 	{"/rdsdata", "RDSData"},
 	{"/sagemakerrumtime", "SageMakerRuntime"},
+	{"/textract", "Textract"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},
