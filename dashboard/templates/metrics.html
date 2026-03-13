@@ -505,16 +505,20 @@
     }
 
     // Server-Sent Events for live metrics
-    document.addEventListener('DOMContentLoaded', () => {
+    function initSSE() {
+        if (window.metricsEventSource) {
+            window.metricsEventSource.close();
+        }
+
         // Initial fetch to paint immediately
         fetch('/dashboard/api/metrics')
             .then(res => res.json())
             .then(data => window.dispatchEvent(new CustomEvent('metrics-updated', { detail: data })))
             .catch(console.error);
 
-        let eventSource = new EventSource('/dashboard/api/metrics/stream');
+        window.metricsEventSource = new EventSource('/dashboard/api/metrics/stream');
 
-        eventSource.onmessage = function (event) {
+        window.metricsEventSource.onmessage = function (event) {
             try {
                 const data = JSON.parse(event.data);
                 window.dispatchEvent(new CustomEvent('metrics-updated', { detail: data }));
@@ -523,19 +527,22 @@
             }
         };
 
-        eventSource.onerror = function (err) {
+        window.metricsEventSource.onerror = function (err) {
             console.error("Metrics SSE error", err);
         };
 
         // Clean up SSE connection if HTMX swaps out this content
         let cleanup = function () {
-            if (eventSource) {
-                eventSource.close();
-                eventSource = null;
+            if (window.metricsEventSource) {
+                window.metricsEventSource.close();
+                window.metricsEventSource = null;
             }
             document.body.removeEventListener('htmx:beforeSwap', cleanup);
         };
         document.body.addEventListener('htmx:beforeSwap', cleanup);
-    });
+    }
+
+    // Initialize immediately (works for both direct load and HTMX swap)
+    initSSE();
 </script>
 {{end}}
