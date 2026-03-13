@@ -94,6 +94,7 @@ import (
 	qldbsessionsvc "github.com/aws/aws-sdk-go-v2/service/qldbsession" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	ramsvc "github.com/aws/aws-sdk-go-v2/service/ram"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
+	rdsdatasvc "github.com/aws/aws-sdk-go-v2/service/rdsdata"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
 	redshiftdatasvc "github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -2127,6 +2128,24 @@ func createQLDBClient(t *testing.T) *qldbsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return qldbsvc.NewFromConfig(cfg, func(o *qldbsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createRDSDataClient returns an RDS Data client pointed at the shared test container.
+func createRDSDataClient(t *testing.T) *rdsdatasvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return rdsdatasvc.NewFromConfig(cfg, func(o *rdsdatasvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

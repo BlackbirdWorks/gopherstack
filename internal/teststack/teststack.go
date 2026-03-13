@@ -100,6 +100,7 @@ import (
 	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
+	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -269,6 +270,8 @@ type Stack struct {
 	QLDBHandler *qldbbackend.Handler
 	// QLDBSessionHandler provides access to the QLDB Session backend.
 	QLDBSessionHandler *qldbsessionbackend.Handler
+	// RDSDataHandler provides access to the RDS Data backend.
+	RDSDataHandler *rdsdatabackend.Handler
 	// RAMHandler provides access to the RAM backend.
 	RAMHandler *rambackend.Handler
 	// RedshiftDataHandler provides access to the Redshift Data backend.
@@ -487,6 +490,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.pipes)
 	_ = registry.Register(h.qldb)
 	_ = registry.Register(h.ram)
+	_ = registry.Register(h.rdsdata)
 	_ = registry.Register(h.redshiftdata)
 	_ = registry.Register(h.sagemaker)
 	_ = registry.Register(h.sagemakerRuntime)
@@ -594,6 +598,7 @@ type handlers struct {
 	qldb               *qldbbackend.Handler
 	qldbsession        *qldbsessionbackend.Handler
 	ram                *rambackend.Handler
+	rdsdata            *rdsdatabackend.Handler
 	redshiftdata       *redshiftdatabackend.Handler
 	sagemaker          *sagemakerbackend.Handler
 	sagemakerRuntime   *sagemakerruntimebackend.Handler
@@ -890,6 +895,9 @@ func populateLatestHandlers(h *handlers) {
 	)
 	h.pipes = pipesbackend.NewHandler(pipesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	h.qldb = qldbbackend.NewHandler(qldbbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.rdsdata = rdsdatabackend.NewHandler(
+		rdsdatabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.qldbsession = qldbsessionbackend.NewHandler(
 		qldbsessionbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -1061,6 +1069,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.PipesOps = h.pipes
 	cfg.QLDBOps = h.qldb
 	cfg.QLDBSessionOps = h.qldbsession
+	cfg.RDSDataOps = h.rdsdata
 	cfg.RAMOps = h.ram
 	cfg.RedshiftDataOps = h.redshiftdata
 	cfg.SageMakerOps = h.sagemaker
@@ -1271,6 +1280,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.QLDBHandler = h.qldb
 	s.QLDBSessionHandler = h.qldbsession
 	s.RAMHandler = h.ram
+	s.RDSDataHandler = h.rdsdata
 	s.RedshiftDataHandler = h.redshiftdata
 	s.SageMakerHandler = h.sagemaker
 	s.SageMakerRuntimeHandler = h.sagemakerRuntime
