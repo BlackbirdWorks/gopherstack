@@ -16,7 +16,7 @@ import (
 
 const (
 	orgService      = "organizations"
-	orgTargetPrefix = "AmazonOrganizationsV20161128."
+	orgTargetPrefix = "AWSOrganizationsV20161128."
 )
 
 // Handler is the HTTP handler for the AWS Organizations JSON 1.1 API.

@@ -46,7 +46,7 @@ func doRequest(t *testing.T, h *organizations.Handler, op string, body any) *htt
 
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
-	req.Header.Set("X-Amz-Target", "AmazonOrganizationsV20161128."+op)
+	req.Header.Set("X-Amz-Target", "AWSOrganizationsV20161128."+op)
 
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
