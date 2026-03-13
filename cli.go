@@ -145,6 +145,7 @@ import (
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
+	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
@@ -281,6 +282,7 @@ type CLI struct {
 	ramHandler                    service.Registerable
 	redshiftdataHandler           service.Registerable
 	sagemakerHandler              service.Registerable
+	serverlessrepoHandler         service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -747,6 +749,11 @@ func (c *CLI) GetRedshiftDataHandler() service.Registerable { return c.redshiftd
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSageMakerHandler() service.Registerable { return c.sagemakerHandler }
+
+// GetServerlessRepoHandler returns the Serverless Application Repository handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetServerlessRepoHandler() service.Registerable { return c.serverlessrepoHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1426,6 +1433,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ramHandler = byName["RAM"]
 	cli.redshiftdataHandler = byName["RedshiftData"]
 	cli.sagemakerHandler = byName["SageMaker"]
+	cli.serverlessrepoHandler = byName["ServerlessRepo"]
 }
 
 // initializeServices initializes all service providers.
@@ -1668,6 +1676,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&rdsdatabackend.Provider{},
 		&redshiftdatabackend.Provider{},
 		&sagemakerbackend.Provider{},
+		&serverlessrepobackend.Provider{},
 	}
 }
 
