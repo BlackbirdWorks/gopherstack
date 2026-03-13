@@ -295,7 +295,6 @@ provider "aws" {
     ssm             = %[1]q
     sts             = %[1]q
     swf             = %[1]q
-    textract        = %[1]q
   }
 }
 `, addr)
