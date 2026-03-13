@@ -1504,7 +1504,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 // getServiceProviders returns the list of all available service providers.
 func getServiceProviders() []service.Provider {
-	base := []service.Provider{ //nolint:prealloc // literal slice, capacity is implicit
+	base := []service.Provider{ //nolint:prealloc // prealloc does not apply to literal slice initializations
 		&ddbbackend.Provider{},
 		&s3backend.Provider{},
 		&ssmbackend.Provider{},

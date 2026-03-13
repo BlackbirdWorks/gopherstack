@@ -529,7 +529,7 @@ func parseDashboardTemplates() *template.Template {
 }
 
 func dashboardTemplatePatterns() []string {
-	base := []string{ //nolint:prealloc // literal slice, capacity is implicit
+	base := []string{ //nolint:prealloc // prealloc does not apply to literal slice initializations
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
