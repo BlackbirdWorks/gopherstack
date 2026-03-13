@@ -131,6 +131,7 @@ import (
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssoadminsvc "github.com/aws/aws-sdk-go-v2/service/ssoadmin"
 	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
@@ -292,6 +293,7 @@ provider "aws" {
     sns             = %[1]q
     sqs             = %[1]q
     ssm             = %[1]q
+    ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
   }
@@ -5779,6 +5781,42 @@ func TestTerraform_ServerlessRepo(t *testing.T) {
 				var result map[string]any
 				require.NoError(t, json.Unmarshal(body, &result))
 				assert.Equal(t, appName, result["name"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SsoAdmin provisions an SSO Admin instance and verifies it was created.
+func TestTerraform_SsoAdmin(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ssoadmin/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"InstanceName": "tf-sso-" + id,
+					"Endpoint":     endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				client := createSsoAdminClient(t)
+				out, err := client.ListInstances(ctx, &ssoadminsvc.ListInstancesInput{})
+				require.NoError(t, err, "ListInstances should succeed after terraform apply")
+				assert.NotEmpty(t, out.Instances, "expected at least one instance")
 			},
 		},
 	}

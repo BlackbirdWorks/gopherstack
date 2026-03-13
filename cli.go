@@ -152,6 +152,7 @@ import (
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
@@ -285,6 +286,7 @@ type CLI struct {
 	sagemakerHandler              service.Registerable
 	sagemakerRuntimeHandler       service.Registerable
 	serverlessrepoHandler         service.Registerable
+	ssoadminHandler               service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -761,6 +763,11 @@ func (c *CLI) GetSageMakerRuntimeHandler() service.Registerable { return c.sagem
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetServerlessRepoHandler() service.Registerable { return c.serverlessrepoHandler }
+
+// GetSsoAdminHandler returns the SSO Admin handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSsoAdminHandler() service.Registerable { return c.ssoadminHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1442,6 +1449,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.sagemakerHandler = byName["SageMaker"]
 	cli.sagemakerRuntimeHandler = byName["SageMakerRuntime"]
 	cli.serverlessrepoHandler = byName["ServerlessRepo"]
+	cli.ssoadminHandler = byName["SsoAdmin"]
 }
 
 // initializeServices initializes all service providers.
@@ -1686,6 +1694,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&sagemakerbackend.Provider{},
 		&sagemakerruntimebackend.Provider{},
 		&serverlessrepobackend.Provider{},
+		&ssoadminbackend.Provider{},
 	}
 }
 

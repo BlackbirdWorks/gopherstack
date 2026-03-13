@@ -1,0 +1,206 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M15.75 5.25a3 3 0 0 1 3 3m3 0a6 6 0 0 1-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 0 1 21.75 8.25Z" />
+                </svg>
+                SSO Admin
+                <span
+                    class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300">
+                    {{len .Instances}} instances
+                </span>
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">AWS IAM Identity Center (SSO Admin) manages SSO instances and permission sets.</p>
+        </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none flex gap-2">
+            <button type="button" onclick="document.getElementById('create-instance-modal').classList.remove('hidden')"
+                class="text-white bg-purple-700 hover:bg-purple-800 focus:ring-4 focus:ring-purple-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-purple-600 dark:hover:bg-purple-700 focus:outline-none dark:focus:ring-purple-800">
+                + Create Instance
+            </button>
+            <button type="button" onclick="document.getElementById('create-ps-modal').classList.remove('hidden')"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
+                + Create Permission Set
+            </button>
+        </div>
+    </div>
+
+    <!-- Instances Table -->
+    <h2 class="text-xl font-semibold text-slate-800 dark:text-slate-200 mb-3">Instances</h2>
+    <div
+        class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm mb-8">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">Status</th>
+                    <th scope="col" class="px-6 py-3">Identity Store ID</th>
+                    <th scope="col" class="px-6 py-3">Instance ARN</th>
+                    <th scope="col" class="px-6 py-3">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Instances}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{if .Name}}{{.Name}}{{else}}<span class="text-slate-400">—</span>{{end}}</td>
+                    <td class="px-6 py-4">
+                        <span class="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">{{.Status}}</span>
+                    </td>
+                    <td class="px-6 py-4 font-mono text-xs">{{.IdentityStoreId}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.InstanceArn}}">{{.InstanceArn}}</td>
+                    <td class="px-6 py-4">
+                        <form method="POST" action="/dashboard/ssoadmin/delete-instance" hx-boost="false"
+                            onsubmit="return confirm('Delete instance {{.InstanceArn}}?')">
+                            <input type="hidden" name="instance_arn" value="{{.InstanceArn}}">
+                            <button type="submit"
+                                class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 text-sm font-medium">
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr class="bg-white dark:bg-slate-800/50">
+                    <td colspan="5" class="px-6 py-8 text-center text-slate-500 dark:text-slate-400">No instances found. Create one to get started.</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Permission Sets Table -->
+    <h2 class="text-xl font-semibold text-slate-800 dark:text-slate-200 mb-3">Permission Sets
+        <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">{{len .PermissionSets}}</span>
+    </h2>
+    <div
+        class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">Description</th>
+                    <th scope="col" class="px-6 py-3">Session Duration</th>
+                    <th scope="col" class="px-6 py-3">Permission Set ARN</th>
+                    <th scope="col" class="px-6 py-3">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .PermissionSets}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
+                    <td class="px-6 py-4 text-xs truncate max-w-xs" title="{{.Description}}">{{if .Description}}{{.Description}}{{else}}<span class="text-slate-400">—</span>{{end}}</td>
+                    <td class="px-6 py-4 font-mono text-xs">{{if .SessionDuration}}{{.SessionDuration}}{{else}}<span class="text-slate-400">PT1H</span>{{end}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.PermissionSetArn}}">{{.PermissionSetArn}}</td>
+                    <td class="px-6 py-4">
+                        <form method="POST" action="/dashboard/ssoadmin/delete-permission-set" hx-boost="false"
+                            onsubmit="return confirm('Delete permission set {{.Name}}?')">
+                            <input type="hidden" name="instance_arn" value="">
+                            <input type="hidden" name="permission_set_arn" value="{{.PermissionSetArn}}">
+                            <button type="submit"
+                                class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 text-sm font-medium">
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr class="bg-white dark:bg-slate-800/50">
+                    <td colspan="5" class="px-6 py-8 text-center text-slate-500 dark:text-slate-400">No permission sets found. Create an instance first, then create a permission set.</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Create Instance Modal -->
+<div id="create-instance-modal"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div
+        class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-lg mx-4">
+        <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-6">Create SSO Instance</h2>
+        <form method="POST" action="/dashboard/ssoadmin/create-instance" hx-boost="false">
+            <div class="mb-4">
+                <label for="instance-name"
+                    class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Instance Name</label>
+                <input type="text" id="instance-name" name="name" required
+                    placeholder="my-sso-instance"
+                    class="block w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:focus:ring-purple-400">
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button"
+                    onclick="document.getElementById('create-instance-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-purple-700 rounded-lg hover:bg-purple-800 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-purple-600 dark:hover:bg-purple-700">
+                    Create
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Create Permission Set Modal -->
+<div id="create-ps-modal"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div
+        class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-lg mx-4">
+        <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-6">Create Permission Set</h2>
+        <form method="POST" action="/dashboard/ssoadmin/create-permission-set" hx-boost="false">
+            <div class="mb-4">
+                <label for="ps-instance-arn"
+                    class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Instance ARN</label>
+                <select id="ps-instance-arn" name="instance_arn" required
+                    class="block w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400">
+                    <option value="">Select an instance</option>
+                    {{range .Instances}}
+                    <option value="{{.InstanceArn}}">{{if .Name}}{{.Name}}{{else}}{{.InstanceArn}}{{end}}</option>
+                    {{end}}
+                </select>
+            </div>
+            <div class="mb-4">
+                <label for="ps-name"
+                    class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Permission Set Name</label>
+                <input type="text" id="ps-name" name="name" required
+                    placeholder="ReadOnlyAccess"
+                    class="block w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400">
+            </div>
+            <div class="mb-4">
+                <label for="ps-description"
+                    class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Description (optional)</label>
+                <input type="text" id="ps-description" name="description"
+                    placeholder="A description of the permission set"
+                    class="block w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400">
+            </div>
+            <div class="mb-4">
+                <label for="ps-session-duration"
+                    class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Session Duration (optional, ISO 8601)</label>
+                <input type="text" id="ps-session-duration" name="session_duration"
+                    placeholder="PT1H"
+                    class="block w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400">
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button"
+                    onclick="document.getElementById('create-ps-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-blue-600 dark:hover:bg-blue-700">
+                    Create
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}

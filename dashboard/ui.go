@@ -120,6 +120,7 @@ import (
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
@@ -315,13 +316,15 @@ type DashboardHandler struct {
 	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
-	SubRouter         *echo.Echo
-	ddbProvider       *ddbbackend.DashboardProvider
-	s3Provider        *s3backend.DashboardProvider
-	FaultStore        *chaos.FaultStore
-	Logger            *slog.Logger
-	layout            *template.Template
-	GlobalConfig      config.GlobalConfig
+	// SsoAdminOps provides access to the SSO Admin backend.
+	SsoAdminOps  *ssoadminbackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -535,6 +538,8 @@ type Config struct {
 	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
+	// SsoAdminOps provides access to the SSO Admin backend.
+	SsoAdminOps *ssoadminbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -687,6 +692,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/redshiftdata/*.html",
 		"templates/sagemaker/*.html",
 		"templates/sagemakerrumtime/*.html",
+		"templates/ssoadmin/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -839,6 +845,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.SageMakerOps = cfg.SageMakerOps
 	h.SageMakerRuntimeOps = cfg.SageMakerRuntimeOps
 	h.ServerlessRepoOps = cfg.ServerlessRepoOps
+	h.SsoAdminOps = cfg.SsoAdminOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1363,6 +1370,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupSageMakerRoutes()
 	h.setupSageMakerRuntimeRoutes()
 	h.setupServerlessRepoRoutes()
+	h.setupSsoAdminRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
