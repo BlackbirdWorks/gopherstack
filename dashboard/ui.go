@@ -98,16 +98,19 @@ import (
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	taggingbackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
@@ -296,10 +299,16 @@ type DashboardHandler struct {
 	PipesOps *pipesbackend.Handler
 	// QLDBOps provides access to the QLDB backend.
 	QLDBOps *qldbbackend.Handler
+	// QLDBSessionOps provides access to the QLDB Session backend.
+	QLDBSessionOps *qldbsessionbackend.Handler
 	// RDSDataOps provides access to the RDS Data backend.
 	RDSDataOps *rdsdatabackend.Handler
 	// RAMOps provides access to the RAM backend.
-	RAMOps       *rambackend.Handler
+	RAMOps *rambackend.Handler
+	// RedshiftDataOps provides access to the Redshift Data backend.
+	RedshiftDataOps *redshiftdatabackend.Handler
+	// SageMakerOps provides access to the SageMaker backend.
+	SageMakerOps *sagemakerbackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -506,10 +515,16 @@ type Config struct {
 	PipesOps *pipesbackend.Handler
 	// QLDBOps provides access to the QLDB backend.
 	QLDBOps *qldbbackend.Handler
+	// QLDBSessionOps provides access to the QLDB Session backend.
+	QLDBSessionOps *qldbsessionbackend.Handler
 	// RDSDataOps provides access to the RDS Data backend.
 	RDSDataOps *rdsdatabackend.Handler
 	// RAMOps provides access to the RAM backend.
 	RAMOps *rambackend.Handler
+	// RedshiftDataOps provides access to the Redshift Data backend.
+	RedshiftDataOps *redshiftdatabackend.Handler
+	// SageMakerOps provides access to the SageMaker backend.
+	SageMakerOps *sagemakerbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -646,13 +661,20 @@ func newestDashboardTemplatePatterns() []string {
 // latestDashboardTemplatePatterns returns template glob patterns for additional services.
 // Extracted from dashboardTemplatePatterns to satisfy the funlen limit.
 func latestDashboardTemplatePatterns() []string {
-	return []string{
+	return append([]string{
 		"templates/pinpoint/*.html",
 		"templates/neptune/*.html",
+	}, mostRecentDashboardTemplatePatterns()...)
+}
+
+func mostRecentDashboardTemplatePatterns() []string {
+	return []string{
 		"templates/pipes/*.html",
 		"templates/qldb/*.html",
+		"templates/qldbsession/*.html",
 		"templates/ram/*.html",
 		"templates/rdsdata/*.html",
+		"templates/redshiftdata/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -798,8 +820,11 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.NeptuneOps = cfg.NeptuneOps
 	h.PipesOps = cfg.PipesOps
 	h.QLDBOps = cfg.QLDBOps
+	h.QLDBSessionOps = cfg.QLDBSessionOps
 	h.RDSDataOps = cfg.RDSDataOps
 	h.RAMOps = cfg.RAMOps
+	h.RedshiftDataOps = cfg.RedshiftDataOps
+	h.SageMakerOps = cfg.SageMakerOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1287,6 +1312,11 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupEmrServerlessRoutes()
 	h.setupEMRRoutes()
 	h.setupIdentityStoreRoutes()
+	h.setupNewestServiceRoutes()
+}
+
+// setupNewestServiceRoutes sets up dashboard routes for the newest services.
+func (h *DashboardHandler) setupNewestServiceRoutes() {
 	h.setupGlacierRoutes()
 	h.setupIoTAnalyticsRoutes()
 	h.setupIoTWirelessRoutes()
@@ -1301,14 +1331,22 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMediaStoreRoutes()
 	h.setupMediaStoreDataRoutes()
 	h.setupMemoryDBRoutes()
+	h.setupLatestServiceRoutes()
+}
+
+// setupLatestServiceRoutes registers routes for the most recently added services.
+func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupMWAARoutes()
 	h.setupOrganizationsRoutes()
 	h.setupPinpointRoutes()
 	h.setupNeptuneRoutes()
 	h.setupPipesRoutes()
 	h.setupQLDBRoutes()
+	h.setupQLDBSessionRoutes()
 	h.setupRDSDataRoutes()
 	h.setupRAMRoutes()
+	h.setupRedshiftDataRoutes()
+	h.setupSageMakerRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {

@@ -105,12 +105,15 @@ import (
 	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	pinpointsvc "github.com/aws/aws-sdk-go-v2/service/pinpoint"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
-	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb"               //nolint:staticcheck // AWS deprecated the SDK but service still works
+	qldbsessionsvc "github.com/aws/aws-sdk-go-v2/service/qldbsession" //nolint:staticcheck // AWS deprecated the SDK but service still works
+	qldbsessiontypes "github.com/aws/aws-sdk-go-v2/service/qldbsession/types"
 	ramsvc "github.com/aws/aws-sdk-go-v2/service/ram"
 	ramsvc_types "github.com/aws/aws-sdk-go-v2/service/ram/types"
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	rdsdatasvc "github.com/aws/aws-sdk-go-v2/service/rdsdata"
 	redshiftsvc "github.com/aws/aws-sdk-go-v2/service/redshift"
+	redshiftdatasvc "github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 	resourcegroupssvc "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
 	taggingsvc "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
@@ -118,6 +121,7 @@ import (
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
+	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sessvc "github.com/aws/aws-sdk-go-v2/service/ses"
@@ -270,12 +274,14 @@ provider "aws" {
     qldb            = %[1]q
     ram             = %[1]q
     redshift        = %[1]q
+    redshiftdata    = %[1]q
     resourcegroups  = %[1]q
     resourcegroupstaggingapi = %[1]q
     route53         = %[1]q
     route53resolver = %[1]q
     s3              = %[1]q
     s3control       = %[1]q
+    sagemaker       = %[1]q
     scheduler       = %[1]q
     secretsmanager  = %[1]q
     ses             = %[1]q
@@ -5444,6 +5450,55 @@ func TestTerraform_Pipes(t *testing.T) {
 }
 
 // TestTerraform_QLDB provisions a QLDB ledger and verifies it is described.
+func TestTerraform_QLDBSession(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "qldbsession/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				client := createQLDBSessionClient(t)
+
+				out, err := client.SendCommand( //nolint:staticcheck // AWS deprecated the SDK but service still works
+					ctx,
+					&qldbsessionsvc.SendCommandInput{
+						StartSession: &qldbsessiontypes.StartSessionRequest{
+							LedgerName: aws.String("test-ledger"),
+						},
+					},
+				)
+				require.NoError(t, err, "SendCommand StartSession should succeed")
+				require.NotNil(
+					t,
+					out.StartSession, //nolint:staticcheck // AWS deprecated the SDK but service still works
+					"StartSession result should be present",
+				)
+				assert.NotEmpty(
+					t,
+					aws.ToString(out.StartSession.SessionToken), //nolint:staticcheck // deprecated SDK
+					"session token should not be empty",
+				)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_QLDB provisions a QLDB ledger and verifies it is described.
 func TestTerraform_QLDB(t *testing.T) {
 	t.Parallel()
 
@@ -5557,6 +5612,79 @@ func TestTerraform_RAM(t *testing.T) {
 				require.NoError(t, err, "GetResourceShares should succeed after terraform apply")
 				require.NotEmpty(t, out.ResourceShares, "expected at least one resource share")
 				assert.Equal(t, vars["ShareName"].(string), aws.ToString(out.ResourceShares[0].Name))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_RedshiftData provisions a Redshift Data SQL statement and verifies it was created.
+func TestTerraform_RedshiftData(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "redshiftdata/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ClusterID": "tf-cluster-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createRedshiftDataClient(t)
+
+				out, err := client.ListStatements(ctx, &redshiftdatasvc.ListStatementsInput{})
+				require.NoError(t, err, "ListStatements should succeed after terraform apply")
+				require.NotEmpty(t, out.Statements, "expected at least one statement after apply")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SageMaker provisions a SageMaker model and verifies it is described.
+func TestTerraform_SageMaker(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "sagemaker/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ModelName": "tf-sm-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createSageMakerClient(t)
+
+				out, err := client.DescribeModel(ctx, &sagemakersvc.DescribeModelInput{
+					ModelName: aws.String(vars["ModelName"].(string)),
+				})
+				require.NoError(t, err, "DescribeModel should succeed after terraform apply")
+				require.NotNil(t, out)
+				assert.Equal(t, vars["ModelName"].(string), aws.ToString(out.ModelName))
 			},
 		},
 	}

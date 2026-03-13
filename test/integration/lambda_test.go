@@ -268,6 +268,26 @@ func buildEchoLambdaImage(ctx context.Context, t *testing.T) {
 	buildOutput, _ := io.ReadAll(buildResp.Body)
 	t.Logf("Docker build output: %s", truncateOutput(string(buildOutput), buildOutputMaxBytes))
 
+	// Check each JSON line from the build stream for error messages.
+	// A failed pull (e.g. Docker Hub rate limit) does not cause ImageBuild to return an
+	// error — the failure is embedded in the output stream instead.  Skip the test when
+	// the image cannot be built due to an infrastructure issue so that CI is not broken
+	// by transient external dependencies.
+	for line := range strings.SplitSeq(string(buildOutput), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var msg struct {
+			Error string `json:"error"`
+		}
+
+		if jsonErr := json.Unmarshal([]byte(line), &msg); jsonErr == nil && msg.Error != "" {
+			t.Skipf("Docker image build failed (infrastructure error — skipping test): %s", msg.Error)
+		}
+	}
+
 	// Register cleanup: stop all containers descended from the test image, then remove the image.
 	t.Cleanup(func() { removeLambdaTestArtifacts(lambdaEchoImage) })
 }

@@ -208,6 +208,8 @@ github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18 h1:Ywl4E7YLP9IZbElcwN1toHt2R
 github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18/go.mod h1:X9pSd75A+F35DzA8lbkuRdBzEt/T5hSo5kCfNMSndiM=
 github.com/aws/aws-sdk-go-v2/service/qldb v1.32.2 h1:tSctQisNHgXnDmyoOdLXkSQmHYo5yPQuvYK+4c4QiNI=
 github.com/aws/aws-sdk-go-v2/service/qldb v1.32.2/go.mod h1:m6bmXbLs5XiGnTLcgKn9eNk5+GCO5e/wHQsIuN7d1Tw=
+github.com/aws/aws-sdk-go-v2/service/qldbsession v1.32.2 h1:xOPSXNmNYoPbLzZISo1YWP3fqsknf2Jg56NNS8b9IG8=
+github.com/aws/aws-sdk-go-v2/service/qldbsession v1.32.2/go.mod h1:5u5GtVH1vV/U0MTkT+G2yJuWz11hk/GUQMdtT4owIWA=
 github.com/aws/aws-sdk-go-v2/service/ram v1.36.1 h1:PuT05zgDY1DLZKqi0Oyk4iY1odmXufLFYqueTlaBE30=
 github.com/aws/aws-sdk-go-v2/service/ram v1.36.1/go.mod h1:ZY/1Be2qNhoS99aH57qXYUm9QZyNrN93ERDM+r9UTmY=
 github.com/aws/aws-sdk-go-v2/service/rds v1.116.2 h1:KQLPCn9BWXW0Y8DyzEokbTF9HOiOQoR77Eu9GKcjBWU=
@@ -216,6 +218,8 @@ github.com/aws/aws-sdk-go-v2/service/rdsdata v1.32.19 h1:2W92mwEFGYBXGDegtsESoV/
 github.com/aws/aws-sdk-go-v2/service/rdsdata v1.32.19/go.mod h1:5V7vGV1rmhIB7H4clYQSii2NgNhD+1E7Fj4Ad8O3eKI=
 github.com/aws/aws-sdk-go-v2/service/redshift v1.62.3 h1:kG21aB8DkKTRmN2oTQ+4tytibM9vIwW4vxQmtbCzs9E=
 github.com/aws/aws-sdk-go-v2/service/redshift v1.62.3/go.mod h1:oCsOzWYbbRFVlTYri72t9Pruq3EVOmVxhfBniqzZa7I=
+github.com/aws/aws-sdk-go-v2/service/redshiftdata v1.38.6 h1:aXOj23fu4bBMcKOCVkc2CpjoOw6hO8fqJfe8ZOhz3qg=
+github.com/aws/aws-sdk-go-v2/service/redshiftdata v1.38.6/go.mod h1:nhmdxp/vBaBBMMjv07tq+0gE5xbJGTYMH2HkK4qs0NM=
 github.com/aws/aws-sdk-go-v2/service/resourcegroups v1.33.22 h1:jBDyp8U20i5DrLNSShSrraW4D0BGHMdzMdQlP+kTNqY=
 github.com/aws/aws-sdk-go-v2/service/resourcegroups v1.33.22/go.mod h1:HtWUcDglvVRVkAt3jn2Q/iNG6CsZWArBcdnSkWoUUgY=
 github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.31.8 h1:mGgiunl7ZwOwhpJwJNF4JfsZFYJp08wjyS3NqFQe3ws=
@@ -228,6 +232,8 @@ github.com/aws/aws-sdk-go-v2/service/s3 v1.96.4 h1:4ExZyubQ6LQQVuF2Qp9OsfEvsTdAW
 github.com/aws/aws-sdk-go-v2/service/s3 v1.96.4/go.mod h1:NF3JcMGOiARAss1ld3WGORCw71+4ExDD2cbbdKS5PpA=
 github.com/aws/aws-sdk-go-v2/service/s3control v1.68.2 h1:7qomMtVCsX8SEdkwFAPWScpFnmK7+9v+JAdR8rRRlKM=
 github.com/aws/aws-sdk-go-v2/service/s3control v1.68.2/go.mod h1:c7w32mk42MjoP6pQtLznPJZ2Q3lTakKXxcVlxX9MiAg=
+github.com/aws/aws-sdk-go-v2/service/sagemaker v1.236.0 h1:DaYBfMCJsl7JrXyISRpXpp6Rj7xTDmZgWgde7wn4Ivo=
+github.com/aws/aws-sdk-go-v2/service/sagemaker v1.236.0/go.mod h1:VEV5i09+uTfuzV74iymdT+3DYzEsaIPQ0uqWoXu0iFw=
 github.com/aws/aws-sdk-go-v2/service/scheduler v1.17.20 h1:26W5e36ZRz5Lxag1aVBxv2ZHBPBMOTxxSVqPENob56Q=
 github.com/aws/aws-sdk-go-v2/service/scheduler v1.17.20/go.mod h1:AMTsHJXHLunksmCqfzhBLLyUQcxZ7d5zPbSIr839kbg=
 github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.3 h1:9bb0dEq1WzA0ZxIGG2EmwEgxfMAJpHyusxwbVN7f6iM=

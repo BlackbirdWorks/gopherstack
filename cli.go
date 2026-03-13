@@ -130,16 +130,19 @@ import (
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
@@ -273,8 +276,11 @@ type CLI struct {
 	pinpointHandler               service.Registerable
 	pipesHandler                  service.Registerable
 	qldbHandler                   service.Registerable
+	qldbsessionHandler            service.Registerable
 	rdsdataHandler                service.Registerable
 	ramHandler                    service.Registerable
+	redshiftdataHandler           service.Registerable
+	sagemakerHandler              service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -717,6 +723,11 @@ func (c *CLI) GetPipesHandler() service.Registerable { return c.pipesHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetQLDBHandler() service.Registerable { return c.qldbHandler }
 
+// GetQLDBSessionHandler returns the QLDB Session handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetQLDBSessionHandler() service.Registerable { return c.qldbsessionHandler }
+
 // GetRDSDataHandler returns the RDS Data handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -726,6 +737,16 @@ func (c *CLI) GetRDSDataHandler() service.Registerable { return c.rdsdataHandler
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetRAMHandler() service.Registerable { return c.ramHandler }
+
+// GetRedshiftDataHandler returns the Redshift Data handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRedshiftDataHandler() service.Registerable { return c.redshiftdataHandler }
+
+// GetSageMakerHandler returns the SageMaker handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSageMakerHandler() service.Registerable { return c.sagemakerHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1400,8 +1421,11 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.pinpointHandler = byName["Pinpoint"]
 	cli.pipesHandler = byName["Pipes"]
 	cli.qldbHandler = byName["QLDB"]
+	cli.qldbsessionHandler = byName["QLDBSession"]
 	cli.rdsdataHandler = byName["RDSData"]
 	cli.ramHandler = byName["RAM"]
+	cli.redshiftdataHandler = byName["RedshiftData"]
+	cli.sagemakerHandler = byName["SageMaker"]
 }
 
 // initializeServices initializes all service providers.
@@ -1628,14 +1652,22 @@ func getLatestServiceProviders() []service.Provider {
 // getNewestServiceProviders returns the most recently added service providers.
 // Extracted from getServiceProviders to satisfy the funlen limit.
 func getNewestServiceProviders() []service.Provider {
-	return []service.Provider{
+	return append([]service.Provider{
 		&mwaabackend.Provider{},
 		&neptunebackend.Provider{},
+	}, getMostRecentServiceProviders()...)
+}
+
+func getMostRecentServiceProviders() []service.Provider {
+	return []service.Provider{
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&qldbbackend.Provider{},
+		&qldbsessionbackend.Provider{},
 		&rambackend.Provider{},
 		&rdsdatabackend.Provider{},
+		&redshiftdatabackend.Provider{},
+		&sagemakerbackend.Provider{},
 	}
 }
 

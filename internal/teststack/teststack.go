@@ -97,16 +97,19 @@ import (
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
+	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	rgtabackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
@@ -264,14 +267,20 @@ type Stack struct {
 	PipesHandler *pipesbackend.Handler
 	// QLDBHandler provides access to the QLDB backend.
 	QLDBHandler *qldbbackend.Handler
+	// QLDBSessionHandler provides access to the QLDB Session backend.
+	QLDBSessionHandler *qldbsessionbackend.Handler
 	// RDSDataHandler provides access to the RDS Data backend.
 	RDSDataHandler *rdsdatabackend.Handler
 	// RAMHandler provides access to the RAM backend.
 	RAMHandler *rambackend.Handler
-	S3Client   *s3.Client
-	DDBClient  *dynamodb.Client
-	FaultStore *chaos.FaultStore
-	Dashboard  *dashboard.DashboardHandler
+	// RedshiftDataHandler provides access to the Redshift Data backend.
+	RedshiftDataHandler *redshiftdatabackend.Handler
+	// SageMakerHandler provides access to the SageMaker backend.
+	SageMakerHandler *sagemakerbackend.Handler
+	S3Client         *s3.Client
+	DDBClient        *dynamodb.Client
+	FaultStore       *chaos.FaultStore
+	Dashboard        *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -458,7 +467,7 @@ func registerCloudfrontService(registry *service.Registry, cloudFrontHndlr *clou
 	_ = registry.Register(cloudFrontHndlr)
 }
 
-// registerMediaServices registers the analytics and media service handlers.
+// registerMediaServices registers the analytics, media, and newer service handlers.
 func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.kinesisanalyticsv2)
 	_ = registry.Register(h.lakeformation)
@@ -468,6 +477,7 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.mediastoredata)
 	_ = registry.Register(h.memorydb)
 	_ = registry.Register(h.organizations)
+	_ = registry.Register(h.qldbsession)
 }
 
 // registerLatestServices registers the most recently added service handlers.
@@ -478,6 +488,8 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.qldb)
 	_ = registry.Register(h.ram)
 	_ = registry.Register(h.rdsdata)
+	_ = registry.Register(h.redshiftdata)
+	_ = registry.Register(h.sagemaker)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -580,8 +592,11 @@ type handlers struct {
 	neptune            *neptunebackend.Handler
 	pipes              *pipesbackend.Handler
 	qldb               *qldbbackend.Handler
+	qldbsession        *qldbsessionbackend.Handler
 	ram                *rambackend.Handler
 	rdsdata            *rdsdatabackend.Handler
+	redshiftdata       *redshiftdatabackend.Handler
+	sagemaker          *sagemakerbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -878,7 +893,16 @@ func populateLatestHandlers(h *handlers) {
 	h.rdsdata = rdsdatabackend.NewHandler(
 		rdsdatabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.qldbsession = qldbsessionbackend.NewHandler(
+		qldbsessionbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.ram = rambackend.NewHandler(rambackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
+	h.redshiftdata = redshiftdatabackend.NewHandler(
+		redshiftdatabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.sagemaker = sagemakerbackend.NewHandler(
+		sagemakerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -1036,8 +1060,11 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.NeptuneOps = h.neptune
 	cfg.PipesOps = h.pipes
 	cfg.QLDBOps = h.qldb
+	cfg.QLDBSessionOps = h.qldbsession
 	cfg.RDSDataOps = h.rdsdata
 	cfg.RAMOps = h.ram
+	cfg.RedshiftDataOps = h.redshiftdata
+	cfg.SageMakerOps = h.sagemaker
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1242,8 +1269,11 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.NeptuneHandler = h.neptune
 	s.PipesHandler = h.pipes
 	s.QLDBHandler = h.qldb
+	s.QLDBSessionHandler = h.qldbsession
 	s.RAMHandler = h.ram
 	s.RDSDataHandler = h.rdsdata
+	s.RedshiftDataHandler = h.redshiftdata
+	s.SageMakerHandler = h.sagemaker
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".
