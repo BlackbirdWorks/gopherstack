@@ -22,8 +22,8 @@ const (
 var (
 	// ErrNotFound is returned when a statement does not exist.
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
-	// ErrAlreadyAborted is returned when cancelling an already-finished statement.
-	ErrAlreadyAborted = awserr.New("ValidationException", awserr.ErrConflict)
+	// ErrTerminalState is returned when cancelling a statement that is already in a terminal state.
+	ErrTerminalState = awserr.New("ValidationException", awserr.ErrConflict)
 )
 
 // Statement represents an AWS Redshift Data API SQL statement.
@@ -146,7 +146,7 @@ func (b *InMemoryBackend) CancelStatement(id string) error {
 	}
 
 	if stmt.Status == statusFinished || stmt.Status == statusFailed {
-		return fmt.Errorf("%w: statement %s is already in terminal state %s", ErrAlreadyAborted, id, stmt.Status)
+		return fmt.Errorf("%w: statement %s is already in terminal state %s", ErrTerminalState, id, stmt.Status)
 	}
 
 	stmt.Status = statusAborted

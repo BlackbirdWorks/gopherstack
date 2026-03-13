@@ -309,6 +309,7 @@ func TestHandler_DescribeStatement(t *testing.T) {
 		name        string
 		requestID   string
 		wantStatus2 string
+		wantErrType string
 		wantStatus  int
 	}{
 		{
@@ -328,14 +329,16 @@ func TestHandler_DescribeStatement(t *testing.T) {
 			wantStatus2: "FINISHED",
 		},
 		{
-			name:       "not_found",
-			setup:      func(_ *redshiftdata.Handler) string { return "nonexistent-id" },
-			wantStatus: http.StatusBadRequest,
+			name:        "not_found",
+			setup:       func(_ *redshiftdata.Handler) string { return "nonexistent-id" },
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "ResourceNotFoundException",
 		},
 		{
-			name:       "missing_id",
-			setup:      func(_ *redshiftdata.Handler) string { return "" },
-			wantStatus: http.StatusBadRequest,
+			name:        "missing_id",
+			setup:       func(_ *redshiftdata.Handler) string { return "" },
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "ValidationException",
 		},
 	}
 
@@ -354,10 +357,15 @@ func TestHandler_DescribeStatement(t *testing.T) {
 			rec := doRequest(t, h, "DescribeStatement", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
 			if tt.wantStatus2 != "" {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.Equal(t, tt.wantStatus2, resp["Status"])
+			}
+
+			if tt.wantErrType != "" {
+				assert.Equal(t, tt.wantErrType, resp["__type"])
 			}
 		})
 	}
@@ -468,19 +476,22 @@ func TestHandler_CancelStatement(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*redshiftdata.Handler) string
-		name       string
-		wantStatus int
+		setup       func(*redshiftdata.Handler) string
+		name        string
+		wantErrType string
+		wantStatus  int
 	}{
 		{
-			name:       "not_found",
-			setup:      func(_ *redshiftdata.Handler) string { return "nonexistent-id" },
-			wantStatus: http.StatusBadRequest,
+			name:        "not_found",
+			setup:       func(_ *redshiftdata.Handler) string { return "nonexistent-id" },
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "ResourceNotFoundException",
 		},
 		{
-			name:       "missing_id",
-			setup:      func(_ *redshiftdata.Handler) string { return "" },
-			wantStatus: http.StatusBadRequest,
+			name:        "missing_id",
+			setup:       func(_ *redshiftdata.Handler) string { return "" },
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "ValidationException",
 		},
 	}
 
@@ -500,6 +511,10 @@ func TestHandler_CancelStatement(t *testing.T) {
 
 			rec := doRequest(t, h, "CancelStatement", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.wantErrType, resp["__type"])
 		})
 	}
 }
@@ -558,6 +573,10 @@ func TestHandler_UnknownOperation(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, "UnknownOperation", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "ValidationException", resp["__type"])
 }
 
 func TestProvider_Init(t *testing.T) {
@@ -595,6 +614,10 @@ func TestHandler_CancelStatement_AlreadyFinished(t *testing.T) {
 	// Cancelling a FINISHED statement should return an error.
 	cancelRec := doRequest(t, h, "CancelStatement", map[string]any{"Id": id})
 	assert.Equal(t, http.StatusBadRequest, cancelRec.Code)
+
+	var cancelResp map[string]any
+	require.NoError(t, json.Unmarshal(cancelRec.Body.Bytes(), &cancelResp))
+	assert.Equal(t, "ValidationException", cancelResp["__type"])
 }
 
 func TestHandler_ListStatements_WithFilter(t *testing.T) {

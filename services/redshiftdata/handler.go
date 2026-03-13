@@ -382,19 +382,29 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, ErrAlreadyAborted):
+	case errors.Is(err, ErrTerminalState):
 		payload, _ := json.Marshal(map[string]string{
 			"__type":  "ValidationException",
 			"message": err.Error(),
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.Is(err, errMissingID),
+	case errors.Is(err, errUnknownAction):
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"__type":  "ValidationException",
+			"message": err.Error(),
+		})
+	case errors.Is(err, errInvalidRequest), errors.Is(err, errMissingID),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"__type":  "ValidationException",
+			"message": err.Error(),
+		})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"__type":  "InternalServerException",
+			"message": err.Error(),
+		})
 	}
 }
 
