@@ -130,6 +130,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/mq v1.34.17 // indirect
 	github.com/aws/aws-sdk-go-v2/service/mwaa v1.39.20 // indirect
 	github.com/aws/aws-sdk-go-v2/service/pinpoint v1.39.19 // indirect
+	github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/pinpoint v1.39.19 // indirect
 )
 
 require github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.18

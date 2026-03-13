@@ -1,0 +1,198 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="40" height="40" rx="8" fill="#8B5CF6"/>
+                    <path d="M20 8C13.4 8 8 13.4 8 20s5.4 12 12 12 12-5.4 12-12S26.6 8 20 8zm0 22c-5.5 0-10-4.5-10-10S14.5 10 20 10s10 4.5 10 10-4.5 10-10 10z" fill="white"/>
+                    <circle cx="20" cy="20" r="4" fill="white"/>
+                </svg>
+
+                Neptune Clusters
+                <span
+                    class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300">
+                    {{len .Clusters}}
+                </span>
+
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">In-memory Amazon Neptune graph database clusters.</p>
+        </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
+            <button type="button" onclick="document.getElementById('create-cluster-modal').classList.remove('hidden')"
+                class="text-white bg-purple-700 hover:bg-purple-800 focus:ring-4 focus:ring-purple-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-purple-600 dark:hover:bg-purple-700 focus:outline-none dark:focus:ring-purple-800">
+                + Create Cluster
+            </button>
+        </div>
+    </div>
+
+    <div
+        class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Cluster ID</th>
+                    <th scope="col" class="px-6 py-3">Engine</th>
+                    <th scope="col" class="px-6 py-3">Status</th>
+                    <th scope="col" class="px-6 py-3">Endpoint</th>
+                    <th scope="col" class="px-6 py-3">Port</th>
+                    <th scope="col" class="px-6 py-3 text-right"><span class="sr-only">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Clusters}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white font-mono text-xs">{{.DBClusterIdentifier}}</td>
+                    <td class="px-6 py-4">
+                        <span
+                            class="bg-purple-100 text-purple-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-purple-900 dark:text-purple-300">{{.Engine}}</span>
+                    </td>
+                    <td class="px-6 py-4">
+                        <span
+                            class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.Status}}</span>
+                    </td>
+                    <td class="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-300 truncate max-w-xs">{{.Endpoint}}</td>
+                    <td class="px-6 py-4 text-xs">{{.Port}}</td>
+                    <td class="px-6 py-4 text-right">
+                        <form method="POST" action="/dashboard/neptune/delete" style="display:inline" hx-boost="false">
+                            <input type="hidden" name="cluster_id" value="{{.DBClusterIdentifier}}">
+                            <button type="submit"
+                                class="font-medium text-red-600 dark:text-red-500 hover:underline text-xs">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="6" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No Neptune clusters. Create one to get started.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Instances Section -->
+    <div class="mt-10">
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">
+            Instances
+            <span
+                class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                {{len .Instances}}
+            </span>
+        </h2>
+        <div
+            class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+            <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Instance ID</th>
+                        <th scope="col" class="px-6 py-3">Cluster ID</th>
+                        <th scope="col" class="px-6 py-3">Class</th>
+                        <th scope="col" class="px-6 py-3">Status</th>
+                        <th scope="col" class="px-6 py-3">Endpoint</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Instances}}
+                    <tr
+                        class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                        <td class="px-6 py-4 font-medium text-slate-900 dark:text-white font-mono text-xs">{{.DBInstanceIdentifier}}</td>
+                        <td class="px-6 py-4 text-xs font-mono">{{.DBClusterIdentifier}}</td>
+                        <td class="px-6 py-4 text-xs">{{.DBInstanceClass}}</td>
+                        <td class="px-6 py-4">
+                            <span
+                                class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.DBInstanceStatus}}</span>
+                        </td>
+                        <td class="px-6 py-4 font-mono text-xs text-gray-600 dark:text-gray-300">{{.Endpoint}}:{{.Port}}</td>
+                    </tr>
+                    {{else}}
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                        <td colspan="5" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No Neptune instances.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Subnet Groups Section -->
+    <div class="mt-10">
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">
+            Subnet Groups
+            <span
+                class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                {{len .SubnetGroups}}
+            </span>
+        </h2>
+        <div
+            class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+            <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+                <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                    <tr>
+                        <th scope="col" class="px-6 py-3">Name</th>
+                        <th scope="col" class="px-6 py-3">Description</th>
+                        <th scope="col" class="px-6 py-3">VPC ID</th>
+                        <th scope="col" class="px-6 py-3">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .SubnetGroups}}
+                    <tr
+                        class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                        <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.DBSubnetGroupName}}</td>
+                        <td class="px-6 py-4 text-xs">{{.DBSubnetGroupDescription}}</td>
+                        <td class="px-6 py-4 text-xs font-mono">{{.VpcID}}</td>
+                        <td class="px-6 py-4">
+                            <span
+                                class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-green-900 dark:text-green-300">{{.Status}}</span>
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                        <td colspan="4" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                            No subnet groups.
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Create Cluster Modal -->
+<div id="create-cluster-modal"
+    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
+        <h3 class="text-lg font-medium leading-6 text-slate-900 dark:text-white mb-4">Create Neptune Cluster</h3>
+        <form method="POST" action="/dashboard/neptune/create" hx-boost="false">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1"
+                    for="cluster_id">Cluster Identifier</label>
+                <input id="cluster_id" name="cluster_id" type="text" required
+                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-purple-500 focus:border-purple-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="my-neptune-cluster">
+            </div>
+            <div class="flex justify-end gap-3">
+                <button type="button"
+                    onclick="document.getElementById('create-cluster-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-purple-700 rounded-md hover:bg-purple-800 focus:outline-none dark:bg-purple-600 dark:hover:bg-purple-700">
+                    Create
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}
