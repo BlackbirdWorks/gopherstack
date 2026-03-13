@@ -332,9 +332,19 @@ func TestHandler_BatchExecuteStatement(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name: "missing_sql",
+			name: "missing_sql_batch",
 			body: map[string]any{
 				"resourceArn": "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "invalid_transaction_id",
+			body: map[string]any{
+				"resourceArn":   "arn:aws:rds:us-east-1:000000000000:cluster:my-cluster",
+				"secretArn":     "arn:aws:secretsmanager:us-east-1:000000000000:secret:my-secret",
+				"sql":           "INSERT INTO test VALUES (:val)",
+				"transactionId": "txn-does-not-exist",
 			},
 			wantStatus: http.StatusBadRequest,
 		},

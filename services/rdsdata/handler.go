@@ -111,9 +111,10 @@ func (h *Handler) ExtractOperation(c *echo.Context) string {
 	}
 }
 
-// ExtractResource extracts the resource ARN from the request body.
-// For RDS Data API, the resource is identified by the resourceArn in the body,
-// but we return the path as a simple identifier since body parsing is expensive here.
+// ExtractResource always returns an empty string for the RDS Data API.
+// The resource is identified by a resourceArn in the request body, but
+// parsing the body here would require double-buffering; metrics and logging
+// can rely on ExtractOperation instead.
 func (h *Handler) ExtractResource(_ *echo.Context) string {
 	return ""
 }
@@ -257,7 +258,7 @@ func (h *Handler) handleBatchExecuteStatement(_ context.Context, body []byte) ([
 		return nil, fmt.Errorf("%w: missing sql", errInvalidRequest)
 	}
 
-	results, err := h.Backend.BatchExecuteStatement(req.ResourceArn, req.SQL, req.ParameterSets)
+	results, err := h.Backend.BatchExecuteStatement(req.ResourceArn, req.SQL, req.TransactionID, req.ParameterSets)
 	if err != nil {
 		return nil, err
 	}

@@ -2,7 +2,6 @@ package rdsdata
 
 import (
 	"fmt"
-	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -94,15 +93,22 @@ func (b *InMemoryBackend) ExecuteStatement(
 
 // BatchExecuteStatement executes a batch of SQL statements and returns results for each.
 func (b *InMemoryBackend) BatchExecuteStatement(
-	resourceARN, sql string,
+	resourceARN, sql, transactionID string,
 	parameterSets [][]SQLParameter,
 ) ([]UpdateResult, error) {
 	b.mu.Lock("BatchExecuteStatement")
 	defer b.mu.Unlock()
 
+	if transactionID != "" {
+		if _, ok := b.transactions[transactionID]; !ok {
+			return nil, fmt.Errorf("%w: transaction %s not found", ErrTransactionNotFound, transactionID)
+		}
+	}
+
 	b.executedStatements = append(b.executedStatements, ExecutedStatement{
-		SQL:         sql,
-		ResourceARN: resourceARN,
+		SQL:           sql,
+		ResourceARN:   resourceARN,
+		TransactionID: transactionID,
 	})
 
 	results := make([]UpdateResult, len(parameterSets))
@@ -172,12 +178,17 @@ func (b *InMemoryBackend) ListExecutedStatements() []ExecutedStatement {
 	return result
 }
 
-// ListTransactions returns a copy of all active transactions.
-func (b *InMemoryBackend) ListTransactions() map[string]*Transaction {
+// ListTransactions returns a deep copy of all active transactions.
+func (b *InMemoryBackend) ListTransactions() map[string]Transaction {
 	b.mu.RLock("ListTransactions")
 	defer b.mu.RUnlock()
 
-	return maps.Clone(b.transactions)
+	result := make(map[string]Transaction, len(b.transactions))
+	for k, v := range b.transactions {
+		result[k] = *v
+	}
+
+	return result
 }
 
 // SQLParameter represents a named parameter for a SQL statement.

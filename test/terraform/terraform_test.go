@@ -266,7 +266,6 @@ provider "aws" {
     pinpoint        = %[1]q
     pipes           = %[1]q
     qldb            = %[1]q
-    rdsdata         = %[1]q
     redshift        = %[1]q
     resourcegroups  = %[1]q
     resourcegroupstaggingapi = %[1]q
@@ -338,9 +337,8 @@ provider "aws" {
   skip_requesting_account_id  = true
 
   endpoints {
-    rds     = %[1]q
-    rdsdata = %[1]q
-    sts     = %[1]q
+    rds = %[1]q
+    sts = %[1]q
   }
 }
 `, addr)
