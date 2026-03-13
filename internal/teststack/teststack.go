@@ -93,6 +93,7 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -250,6 +251,8 @@ type Stack struct {
 	MediaStoreDataHandler *mediastoredatabackend.Handler
 	// MemoryDBHandler provides access to the MemoryDB backend.
 	MemoryDBHandler *memorydbbackend.Handler
+	// OrganizationsHandler provides access to the Organizations backend.
+	OrganizationsHandler *organizationsbackend.Handler
 	// MWAAHandler provides access to the MWAA backend.
 	MWAAHandler *mwaabackend.Handler
 	// PipesHandler provides access to the EventBridge Pipes backend.
@@ -455,6 +458,7 @@ func registerMediaServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.mediastore)
 	_ = registry.Register(h.mediastoredata)
 	_ = registry.Register(h.memorydb)
+	_ = registry.Register(h.organizations)
 }
 
 // registerLatestServices registers the most recently added service handlers.
@@ -549,8 +553,8 @@ type handlers struct {
 	glacier            *glacierbackend.Handler
 	iotanalytics       *iotanalyticsbackend.Handler
 	iotwireless        *iotwirelessbackend.Handler
-	kinesisanalytics   *kinesisanalyticsbackend.Handler
 	kafka              *kafkabackend.Handler
+	kinesisanalytics   *kinesisanalyticsbackend.Handler
 	kinesisanalyticsv2 *kinesisanalyticsv2backend.Handler
 	lakeformation      *lakeformationbackend.Handler
 	mediaconvert       *mediaconvertbackend.Handler
@@ -558,6 +562,7 @@ type handlers struct {
 	mediastore         *mediastorebackend.Handler
 	mediastoredata     *mediastoredatabackend.Handler
 	memorydb           *memorydbbackend.Handler
+	organizations      *organizationsbackend.Handler
 	mwaa               *mwaabackend.Handler
 	neptune            *neptunebackend.Handler
 	pipes              *pipesbackend.Handler
@@ -838,6 +843,9 @@ func populateLatestHandlers(h *handlers) {
 	h.memorydb.AccountID = config.DefaultAccountID
 	h.memorydb.DefaultRegion = config.DefaultRegion
 
+	h.organizations = organizationsbackend.NewHandler(
+		organizationsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 	h.mwaa = mwaabackend.NewHandler(mwaabackend.NewInMemoryBackend(config.DefaultRegion, config.DefaultAccountID))
 	h.mwaa.AccountID = config.DefaultAccountID
 	h.mwaa.DefaultRegion = config.DefaultRegion
@@ -997,6 +1005,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.MediaStoreOps = h.mediastore
 	cfg.MediaStoreDataOps = h.mediastoredata
 	cfg.MemoryDBOps = h.memorydb
+	cfg.OrganizationsOps = h.organizations
 	cfg.MWAAOps = h.mwaa
 	cfg.NeptuneOps = h.neptune
 	cfg.PipesOps = h.pipes
@@ -1199,6 +1208,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.MediaStoreHandler = h.mediastore
 	s.MediaStoreDataHandler = h.mediastoredata
 	s.MemoryDBHandler = h.memorydb
+	s.OrganizationsHandler = h.organizations
 	s.MWAAHandler = h.mwaa
 	s.NeptuneHandler = h.neptune
 	s.PipesHandler = h.pipes

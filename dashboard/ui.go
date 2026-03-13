@@ -94,6 +94,7 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
@@ -280,6 +281,8 @@ type DashboardHandler struct {
 	MediaStoreDataOps *mediastoredatabackend.Handler
 	// MemoryDBOps provides access to the MemoryDB backend.
 	MemoryDBOps *memorydbbackend.Handler
+	// OrganizationsOps provides access to the Organizations backend.
+	OrganizationsOps *organizationsbackend.Handler
 	// MWAAOps provides access to the MWAA backend.
 	MWAAOps *mwaabackend.Handler
 	// NeptuneOps provides access to the Neptune backend.
@@ -482,6 +485,8 @@ type Config struct {
 	MediaStoreDataOps *mediastoredatabackend.Handler
 	// MemoryDBOps provides access to the MemoryDB backend.
 	MemoryDBOps *memorydbbackend.Handler
+	// OrganizationsOps provides access to the Organizations backend.
+	OrganizationsOps *organizationsbackend.Handler
 	// MWAAOps provides access to the MWAA backend.
 	MWAAOps *mwaabackend.Handler
 	// NeptuneOps provides access to the Neptune backend.
@@ -610,6 +615,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/mediastoredata/*.html",
 		"templates/memorydb/*.html",
 		"templates/mwaa/*.html",
+		"templates/organizations/*.html",
 		"templates/neptune/*.html",
 		"templates/pipes/*.html",
 		"templates/qldb/*.html",
@@ -729,6 +735,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		ManagedBlockchainOps:       cfg.ManagedBlockchainOps,
 		MediaStoreOps:              cfg.MediaStoreOps,
 		MemoryDBOps:                cfg.MemoryDBOps,
+		OrganizationsOps:           cfg.OrganizationsOps,
 		GlobalConfig:               cfg.GlobalConfig,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
@@ -1258,6 +1265,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupMediaStoreDataRoutes()
 	h.setupMemoryDBRoutes()
 	h.setupMWAARoutes()
+	h.setupOrganizationsRoutes()
 	h.setupNeptuneRoutes()
 	h.setupPipesRoutes()
 	h.setupQLDBRoutes()

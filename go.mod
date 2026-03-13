@@ -129,12 +129,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/mq v1.34.17 // indirect
 	github.com/aws/aws-sdk-go-v2/service/mwaa v1.39.20 // indirect
+	github.com/aws/aws-sdk-go-v2/service/organizations v1.50.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18 // indirect
 	github.com/aws/aws-sdk-go-v2/service/qldb v1.32.2 // indirect
 )
-
-require github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.18
 
 require (
 	dario.cat/mergo v1.0.2 // indirect

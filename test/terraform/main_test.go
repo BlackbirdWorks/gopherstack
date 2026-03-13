@@ -87,6 +87,7 @@ import (
 	mwaasvc "github.com/aws/aws-sdk-go-v2/service/mwaa"
 	neptunesvc "github.com/aws/aws-sdk-go-v2/service/neptune"
 	opensearchsvc "github.com/aws/aws-sdk-go-v2/service/opensearch"
+	organizationssvc "github.com/aws/aws-sdk-go-v2/service/organizations"
 	pipessvc "github.com/aws/aws-sdk-go-v2/service/pipes"
 	qldbsvc "github.com/aws/aws-sdk-go-v2/service/qldb" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
@@ -2012,6 +2013,24 @@ func createMemoryDBClient(t *testing.T) *memorydbsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return memorydbsvc.NewFromConfig(cfg, func(o *memorydbsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createOrganizationsClient returns an Organizations client pointed at the shared test container.
+func createOrganizationsClient(t *testing.T) *organizationssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return organizationssvc.NewFromConfig(cfg, func(o *organizationssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
