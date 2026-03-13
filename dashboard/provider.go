@@ -75,6 +75,7 @@ import (
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
+	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -224,6 +225,7 @@ type AWSSDKProvider interface {
 	GetRedshiftDataHandler() service.Registerable
 	GetSageMakerHandler() service.Registerable
 	GetSageMakerRuntimeHandler() service.Registerable
+	GetServerlessRepoHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -345,6 +347,7 @@ type extractedConfig struct {
 	redshiftdataOps           *redshiftdatabackend.Handler
 	sagemakerOps              *sagemakerbackend.Handler
 	sagemakerRuntimeOps       *sagemakerruntimebackend.Handler
+	serverlessrepoOps         *serverlessrepobackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -842,6 +845,10 @@ func extractLatestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetSageMakerRuntimeHandler(); h != nil {
 		ec.sagemakerRuntimeOps, _ = h.(*sagemakerruntimebackend.Handler)
 	}
+
+	if h := ap.GetServerlessRepoHandler(); h != nil {
+		ec.serverlessrepoOps, _ = h.(*serverlessrepobackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -1038,4 +1045,5 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.RedshiftDataOps = ec.redshiftdataOps
 	cfg.SageMakerOps = ec.sagemakerOps
 	cfg.SageMakerRuntimeOps = ec.sagemakerRuntimeOps
+	cfg.ServerlessRepoOps = ec.serverlessrepoOps
 }
