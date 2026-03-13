@@ -65,6 +65,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -204,6 +205,7 @@ type AWSSDKProvider interface {
 	GetMemoryDBHandler() service.Registerable
 	GetOrganizationsHandler() service.Registerable
 	GetMWAAHandler() service.Registerable
+	GetNeptuneHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -315,6 +317,7 @@ type extractedConfig struct {
 	memorydbOps               *memorydbbackend.Handler
 	organizationsOps          *organizationsbackend.Handler
 	mwaaOps                   *mwaabackend.Handler
+	neptuneOps                *neptunebackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -753,7 +756,7 @@ func extractNewestStorageHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	}
 }
 
-// extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, and MQ handlers on ec.
+// extractBlockchainHandlers populates ManagedBlockchain, MediaConvert, MQ, and Neptune handlers on ec.
 func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetManagedBlockchainHandler(); h != nil {
 		ec.managedblockchainOps, _ = h.(*managedblockchainbackend.Handler)
@@ -765,6 +768,10 @@ func extractBlockchainHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetMQHandler(); h != nil {
 		ec.mqOps, _ = h.(*mqbackend.Handler)
+	}
+
+	if h := ap.GetNeptuneHandler(); h != nil {
+		ec.neptuneOps, _ = h.(*neptunebackend.Handler)
 	}
 }
 
@@ -948,8 +955,9 @@ func applyLatestConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MemoryDBOps = ec.memorydbOps
 }
 
-// applyMWAAConfig sets the MWAA ops field on the dashboard config.
+// applyMWAAConfig sets the MWAA and Neptune ops fields on the dashboard config.
 // Extracted from applyExtendedConfig to satisfy the funlen limit.
 func applyMWAAConfig(cfg *Config, ec *extractedConfig) {
 	cfg.MWAAOps = ec.mwaaOps
+	cfg.NeptuneOps = ec.neptuneOps
 }
