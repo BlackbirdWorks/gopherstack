@@ -131,6 +131,7 @@ import (
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -273,6 +274,7 @@ type CLI struct {
 	pipesHandler                  service.Registerable
 	qldbHandler                   service.Registerable
 	qldbsessionHandler            service.Registerable
+	ramHandler                    service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -719,6 +721,11 @@ func (c *CLI) GetQLDBHandler() service.Registerable { return c.qldbHandler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetQLDBSessionHandler() service.Registerable { return c.qldbsessionHandler }
+
+// GetRAMHandler returns the RAM handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetRAMHandler() service.Registerable { return c.ramHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1394,6 +1401,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.pipesHandler = byName["Pipes"]
 	cli.qldbHandler = byName["QLDB"]
 	cli.qldbsessionHandler = byName["QLDBSession"]
+	cli.ramHandler = byName["RAM"]
 }
 
 // initializeServices initializes all service providers.
@@ -1614,17 +1622,25 @@ func getServiceProviders() []service.Provider {
 func getLatestServiceProviders() []service.Provider {
 	return append([]service.Provider{
 		&memorydbbackend.Provider{},
-		&mwaabackend.Provider{},
-		&neptunebackend.Provider{},
 	}, getNewestServiceProviders()...)
 }
 
+// getNewestServiceProviders returns the most recently added service providers.
+// Extracted from getServiceProviders to satisfy the funlen limit.
 func getNewestServiceProviders() []service.Provider {
+	return append([]service.Provider{
+		&mwaabackend.Provider{},
+		&neptunebackend.Provider{},
+	}, getMostRecentServiceProviders()...)
+}
+
+func getMostRecentServiceProviders() []service.Provider {
 	return []service.Provider{
 		&pinpointbackend.Provider{},
 		&pipesbackend.Provider{},
 		&qldbbackend.Provider{},
 		&qldbsessionbackend.Provider{},
+		&rambackend.Provider{},
 	}
 }
 

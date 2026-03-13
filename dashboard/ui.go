@@ -99,6 +99,7 @@ import (
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	qldbbackend "github.com/blackbirdworks/gopherstack/services/qldb"
 	qldbsessionbackend "github.com/blackbirdworks/gopherstack/services/qldbsession"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
@@ -297,13 +298,15 @@ type DashboardHandler struct {
 	QLDBOps *qldbbackend.Handler
 	// QLDBSessionOps provides access to the QLDB Session backend.
 	QLDBSessionOps *qldbsessionbackend.Handler
-	SubRouter      *echo.Echo
-	ddbProvider    *ddbbackend.DashboardProvider
-	s3Provider     *s3backend.DashboardProvider
-	FaultStore     *chaos.FaultStore
-	Logger         *slog.Logger
-	layout         *template.Template
-	GlobalConfig   config.GlobalConfig
+	// RAMOps provides access to the RAM backend.
+	RAMOps       *rambackend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -505,6 +508,8 @@ type Config struct {
 	QLDBOps *qldbbackend.Handler
 	// QLDBSessionOps provides access to the QLDB Session backend.
 	QLDBSessionOps *qldbsessionbackend.Handler
+	// RAMOps provides access to the RAM backend.
+	RAMOps *rambackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -534,7 +539,7 @@ func parseDashboardTemplates() *template.Template {
 }
 
 func dashboardTemplatePatterns() []string {
-	return append([]string{
+	base := []string{ //nolint:prealloc // prealloc does not apply to literal slice initializations
 		"templates/layout.html",
 		"templates/components/*.html",
 		"templates/s3/*.html",
@@ -624,6 +629,15 @@ func dashboardTemplatePatterns() []string {
 		"templates/mediastore/*.html",
 		"templates/mediastoredata/*.html",
 		"templates/memorydb/*.html",
+	}
+
+	return append(base, newestDashboardTemplatePatterns()...)
+}
+
+// newestDashboardTemplatePatterns returns template patterns for the most recently added services.
+// Extracted from dashboardTemplatePatterns to satisfy the funlen limit.
+func newestDashboardTemplatePatterns() []string {
+	return append([]string{
 		"templates/mwaa/*.html",
 		"templates/organizations/*.html",
 	}, latestDashboardTemplatePatterns()...)
@@ -635,14 +649,15 @@ func latestDashboardTemplatePatterns() []string {
 	return append([]string{
 		"templates/pinpoint/*.html",
 		"templates/neptune/*.html",
-	}, newestDashboardTemplatePatterns()...)
+	}, mostRecentDashboardTemplatePatterns()...)
 }
 
-func newestDashboardTemplatePatterns() []string {
+func mostRecentDashboardTemplatePatterns() []string {
 	return []string{
 		"templates/pipes/*.html",
 		"templates/qldb/*.html",
 		"templates/qldbsession/*.html",
+		"templates/ram/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/doc.html",
@@ -789,6 +804,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.PipesOps = cfg.PipesOps
 	h.QLDBOps = cfg.QLDBOps
 	h.QLDBSessionOps = cfg.QLDBSessionOps
+	h.RAMOps = cfg.RAMOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1297,6 +1313,7 @@ func (h *DashboardHandler) setupRecentServiceRoutes() {
 	h.setupPipesRoutes()
 	h.setupQLDBRoutes()
 	h.setupQLDBSessionRoutes()
+	h.setupRAMRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
