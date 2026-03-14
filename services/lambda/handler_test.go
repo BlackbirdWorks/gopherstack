@@ -2883,3 +2883,112 @@ func TestHandler_ChaosProvider(t *testing.T) {
 	assert.NotEmpty(t, h.ChaosOperations())
 	assert.NotEmpty(t, h.ChaosRegions())
 }
+
+// TestRuntimeServer_InvokeTimeoutRace verifies that when a container response arrives
+// concurrently with a timeout, the result is not silently discarded — invoke either
+// returns the result or returns the timeout error, but never panics or deadlocks.
+func TestRuntimeServer_InvokeTimeoutRace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		responseBody string
+		port         int
+		// responseDelay is injected between receiving /next and posting the result.
+		// When it is shorter than the invoke timeout, the response should win.
+		// When it is longer, the timeout should win.
+		responseDelay time.Duration
+		invokeTimeout time.Duration
+		wantTimeout   bool
+	}{
+		{
+			name:          "response_arrives_before_timeout",
+			port:          18150,
+			responseBody:  `{"ok":true}`,
+			responseDelay: 0,
+			invokeTimeout: 500 * time.Millisecond,
+			wantTimeout:   false,
+		},
+		{
+			name:          "response_arrives_after_timeout",
+			port:          18151,
+			responseBody:  `{"ok":true}`,
+			responseDelay: 300 * time.Millisecond,
+			invokeTimeout: 50 * time.Millisecond,
+			wantTimeout:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := newTestRuntimeServer(t, tt.port)
+			ctx := t.Context()
+
+			resultCh := make(chan []byte, 1)
+			errCh := make(chan error, 1)
+
+			go func() {
+				result, _, invokeErr := srv.Invoke(ctx, []byte(`{}`), tt.invokeTimeout)
+				if invokeErr != nil {
+					errCh <- invokeErr
+
+					return
+				}
+
+				resultCh <- result
+			}()
+
+			requestID := simulateContainerNext(t, tt.port)
+
+			// Optionally delay the container response to force a timeout race.
+			if tt.responseDelay > 0 {
+				time.Sleep(tt.responseDelay)
+			}
+
+			// Send the response without asserting the status code — in the timeout
+			// case the invocation is already gone so the runtime API returns 404.
+			sendContainerResponse(t, tt.port, requestID, tt.responseBody)
+
+			select {
+			case result := <-resultCh:
+				if tt.wantTimeout {
+					// Result arrived before we expected — acceptable since timing is not exact.
+					assert.NotEmpty(t, result)
+				} else {
+					assert.JSONEq(t, tt.responseBody, string(result))
+				}
+			case err := <-errCh:
+				if tt.wantTimeout {
+					require.ErrorIs(t, err, lambda.ErrInvocationTimeout)
+				} else {
+					require.NoError(t, err, "unexpected invoke error")
+				}
+			case <-time.After(5 * time.Second):
+				require.FailNow(t, "test timed out — possible deadlock in invoke")
+			}
+		})
+	}
+}
+
+// sendContainerResponse posts a response to the runtime API without asserting the HTTP status.
+// This is used when the response may legitimately race with a timeout (404 is acceptable).
+func sendContainerResponse(t *testing.T, port int, requestID, responseBody string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx,
+		http.MethodPost,
+		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/%s/response", port, requestID),
+		strings.NewReader(responseBody),
+	)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	_ = resp.Body.Close()
+}

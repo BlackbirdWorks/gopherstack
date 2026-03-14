@@ -56,6 +56,10 @@ const invocationPathParts = 2
 // runtimeReadHeaderTimeout limits time to read request headers, guarding against Slowloris.
 const runtimeReadHeaderTimeout = 10 * time.Second
 
+// containerResponseGracePeriod is the brief window to wait for a container response
+// that arrived concurrently with a timeout or context cancellation.
+const containerResponseGracePeriod = 100 * time.Millisecond
+
 // newRuntimeServer creates a runtimeServer for the given port. Call start() to begin listening.
 func newRuntimeServer(port int) *runtimeServer {
 	return &runtimeServer{
@@ -114,15 +118,45 @@ func (s *runtimeServer) invoke(ctx context.Context, payload []byte, timeout time
 		return nil, false, ctx.Err()
 	}
 
+	timeoutTimer := time.NewTimer(timeout)
+	defer timeoutTimer.Stop()
+
 	select {
 	case res := <-inv.result:
 		return res.payload, res.isError, nil
-	case <-time.After(timeout):
-		s.pending.Delete(inv.requestID)
+	case <-timeoutTimer.C:
+		// Atomically remove the invocation from the pending map.
+		// If LoadAndDelete returns false, handleInvocationResult already claimed it
+		// and will send on inv.result; wait briefly to avoid losing the result.
+		if _, claimed := s.pending.LoadAndDelete(inv.requestID); !claimed {
+			graceTimer := time.NewTimer(containerResponseGracePeriod)
+
+			select {
+			case res := <-inv.result:
+				if !graceTimer.Stop() {
+					<-graceTimer.C
+				}
+
+				return res.payload, res.isError, nil
+			case <-graceTimer.C:
+			}
+		}
 
 		return nil, false, fmt.Errorf("%w after %s", ErrInvocationTimeout, timeout)
 	case <-ctx.Done():
-		s.pending.Delete(inv.requestID)
+		if _, claimed := s.pending.LoadAndDelete(inv.requestID); !claimed {
+			graceTimer := time.NewTimer(containerResponseGracePeriod)
+
+			select {
+			case res := <-inv.result:
+				if !graceTimer.Stop() {
+					<-graceTimer.C
+				}
+
+				return res.payload, res.isError, nil
+			case <-graceTimer.C:
+			}
+		}
 
 		return nil, false, ctx.Err()
 	}
