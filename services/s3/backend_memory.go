@@ -88,7 +88,7 @@ func (b *InMemoryBackend) getBucket(name string) (*StoredBucket, error) {
 	}
 
 	bucket := b.buckets[region][name]
-	if bucket.DeletePending {
+	if bucket == nil || bucket.DeletePending {
 		return nil, ErrNoSuchBucket
 	}
 
@@ -127,7 +127,8 @@ func (b *InMemoryBackend) CreateBucket(
 	// Pending-delete buckets are still in the index but are logically gone,
 	// so they are treated the same as non-existent (allow re-creation).
 	if existingRegion, exists := b.bucketIndex[bucketName]; exists {
-		if !b.buckets[existingRegion][bucketName].DeletePending {
+		existing := b.buckets[existingRegion][bucketName]
+		if existing != nil && !existing.DeletePending {
 			return nil, ErrBucketAlreadyOwnedByYou
 		}
 	}
@@ -168,6 +169,9 @@ func (b *InMemoryBackend) DeleteBucket(
 	}
 
 	bucket := b.buckets[region][bucketName]
+	if bucket == nil {
+		return nil, ErrNoSuchBucket
+	}
 
 	// If already pending deletion, return success (idempotent).
 	if bucket.DeletePending {
