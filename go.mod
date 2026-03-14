@@ -147,6 +147,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.35.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.71.2 // indirect
 )
 
 require (
