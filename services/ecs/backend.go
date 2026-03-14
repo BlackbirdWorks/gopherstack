@@ -88,16 +88,17 @@ type TaskDefinition struct {
 
 // Service represents an ECS service.
 type Service struct {
-	CreatedAt      time.Time `json:"createdAt"`
-	ServiceArn     string    `json:"serviceArn"`
-	ServiceName    string    `json:"serviceName"`
-	ClusterArn     string    `json:"clusterArn"`
-	TaskDefinition string    `json:"taskDefinition"`
-	Status         string    `json:"status"`
-	LaunchType     string    `json:"launchType,omitempty"`
-	DesiredCount   int       `json:"desiredCount"`
-	PendingCount   int       `json:"pendingCount"`
-	RunningCount   int       `json:"runningCount"`
+	CreatedAt          time.Time `json:"createdAt"`
+	ServiceArn         string    `json:"serviceArn"`
+	ServiceName        string    `json:"serviceName"`
+	ClusterArn         string    `json:"clusterArn"`
+	TaskDefinition     string    `json:"taskDefinition"`
+	Status             string    `json:"status"`
+	LaunchType         string    `json:"launchType,omitempty"`
+	SchedulingStrategy string    `json:"schedulingStrategy,omitempty"`
+	DesiredCount       int       `json:"desiredCount"`
+	PendingCount       int       `json:"pendingCount"`
+	RunningCount       int       `json:"runningCount"`
 }
 
 // Task represents an ECS task.
@@ -129,11 +130,12 @@ type RegisterTaskDefinitionInput struct {
 
 // CreateServiceInput holds input for CreateService.
 type CreateServiceInput struct {
-	ServiceName    string `json:"serviceName"`
-	Cluster        string `json:"cluster,omitempty"`
-	TaskDefinition string `json:"taskDefinition"`
-	LaunchType     string `json:"launchType,omitempty"`
-	DesiredCount   int    `json:"desiredCount"`
+	ServiceName        string `json:"serviceName"`
+	Cluster            string `json:"cluster,omitempty"`
+	TaskDefinition     string `json:"taskDefinition"`
+	LaunchType         string `json:"launchType,omitempty"`
+	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
+	DesiredCount       int    `json:"desiredCount"`
 }
 
 // UpdateServiceInput holds input for UpdateService.
@@ -158,14 +160,16 @@ var _ Backend = (*InMemoryBackend)(nil)
 
 // InMemoryBackend stores ECS state in memory.
 type InMemoryBackend struct {
-	runner          TaskRunner
-	clusters        map[string]*Cluster
-	taskDefinitions map[string][]*TaskDefinition
-	services        map[string]map[string]*Service
-	tasks           map[string]map[string]*Task
-	mu              *lockmetrics.RWMutex
-	accountID       string
-	region          string
+	runner             TaskRunner
+	clusters           map[string]*Cluster
+	taskDefinitions    map[string][]*TaskDefinition
+	services           map[string]map[string]*Service
+	tasks              map[string]map[string]*Task
+	containerInstances map[string]map[string]*ContainerInstance
+	taskSets           map[string]map[string]*TaskSet
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
 }
 
 // TaskRunner is the interface for launching container tasks.
@@ -178,14 +182,16 @@ type TaskRunner interface {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string, runner TaskRunner) *InMemoryBackend {
 	return &InMemoryBackend{
-		clusters:        make(map[string]*Cluster),
-		taskDefinitions: make(map[string][]*TaskDefinition),
-		services:        make(map[string]map[string]*Service),
-		tasks:           make(map[string]map[string]*Task),
-		mu:              lockmetrics.New("ecs"),
-		accountID:       accountID,
-		region:          region,
-		runner:          runner,
+		clusters:           make(map[string]*Cluster),
+		taskDefinitions:    make(map[string][]*TaskDefinition),
+		services:           make(map[string]map[string]*Service),
+		tasks:              make(map[string]map[string]*Task),
+		containerInstances: make(map[string]map[string]*ContainerInstance),
+		taskSets:           make(map[string]map[string]*TaskSet),
+		mu:                 lockmetrics.New("ecs"),
+		accountID:          accountID,
+		region:             region,
+		runner:             runner,
 	}
 }
 
@@ -236,6 +242,7 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 	b.clusters[name] = cluster
 	b.services[name] = make(map[string]*Service)
 	b.tasks[name] = make(map[string]*Task)
+	b.containerInstances[name] = make(map[string]*ContainerInstance)
 
 	cp := *cluster
 
@@ -304,9 +311,18 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
 	}
 
+	// Delete task sets for all services in this cluster before removing the services map,
+	// preventing stale task set entries on cluster recreation.
+	if svcs, exists := b.services[key]; exists {
+		for _, svc := range svcs {
+			delete(b.taskSets, svc.ServiceArn)
+		}
+	}
+
 	delete(b.clusters, key)
 	delete(b.services, key)
 	delete(b.tasks, key)
+	delete(b.containerInstances, key)
 
 	cp := *c
 
@@ -445,6 +461,7 @@ func (b *InMemoryBackend) ensureClusterLocked(clusterName string) {
 		}
 		b.services[clusterName] = make(map[string]*Service)
 		b.tasks[clusterName] = make(map[string]*Task)
+		b.containerInstances[clusterName] = make(map[string]*ContainerInstance)
 	}
 }
 
@@ -479,6 +496,11 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		launchType = launchTypeFargate
 	}
 
+	schedulingStrategy := input.SchedulingStrategy
+	if schedulingStrategy == "" {
+		schedulingStrategy = "REPLICA"
+	}
+
 	svc := &Service{
 		CreatedAt: time.Now(),
 		ServiceArn: fmt.Sprintf(
@@ -488,12 +510,13 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 			clusterName,
 			input.ServiceName,
 		),
-		ServiceName:    input.ServiceName,
-		ClusterArn:     fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName),
-		TaskDefinition: td.TaskDefinitionArn,
-		Status:         statusActive,
-		LaunchType:     launchType,
-		DesiredCount:   input.DesiredCount,
+		ServiceName:        input.ServiceName,
+		ClusterArn:         fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName),
+		TaskDefinition:     td.TaskDefinitionArn,
+		Status:             statusActive,
+		LaunchType:         launchType,
+		SchedulingStrategy: schedulingStrategy,
+		DesiredCount:       input.DesiredCount,
 	}
 
 	b.services[clusterName][input.ServiceName] = svc
@@ -636,6 +659,7 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string) (*Service, 
 	}
 
 	delete(svcs, key)
+	delete(b.taskSets, svc.ServiceArn)
 
 	cp := *svc
 
