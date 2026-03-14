@@ -525,9 +525,7 @@ func (h *Handler) handleGetTableBucketEncryption(ctx context.Context, r *http.Re
 	log.InfoContext(ctx, "s3tables: got table bucket encryption", "arn", bucketARN)
 
 	return json.Marshal(map[string]any{
-		"encryptionConfiguration": map[string]string{
-			"sseAlgorithm": "AES256",
-		},
+		"encryptionConfiguration": nil,
 	})
 }
 

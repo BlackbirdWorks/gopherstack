@@ -810,6 +810,62 @@ func TestHandler_MaintenanceConfiguration(t *testing.T) {
 	}
 }
 
+func TestHandler_Encryption(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		pathType          string // "bucket" or "table"
+		wantStatus        int
+		wantNullEncConfig bool
+	}{
+		{
+			name:              "get_bucket_encryption_returns_null",
+			pathType:          "bucket",
+			wantStatus:        http.StatusOK,
+			wantNullEncConfig: true,
+		},
+		{
+			name:       "get_table_encryption_returns_aes256",
+			pathType:   "table",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			bucketARN := createBucketHelper(t, h, "enc-bucket-"+tt.name)
+			encodedARN := url.PathEscape(bucketARN)
+
+			var path string
+
+			if tt.pathType == "bucket" {
+				path = "/buckets/" + encodedARN + "/encryption"
+			} else {
+				createNamespaceHelper(t, h, bucketARN, []string{"enc-ns"})
+				_ = createTableHelper(t, h, bucketARN, "enc-ns", "enc-table")
+				path = "/tables/" + encodedARN + "/enc-ns/enc-table/encryption"
+			}
+
+			rec := doS3TablesRequest(t, h, http.MethodGet, path, nil)
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			result := parseResponse(t, rec)
+
+			if tt.wantNullEncConfig {
+				assert.Nil(t, result["encryptionConfiguration"], "bucket encryption_configuration should be null")
+			} else {
+				encCfg, ok := result["encryptionConfiguration"].(map[string]any)
+				require.True(t, ok, "expected encryptionConfiguration to be an object")
+				assert.Equal(t, "AES256", encCfg["sseAlgorithm"])
+			}
+		})
+	}
+}
+
 func TestHandler_UnknownPath(t *testing.T) {
 	t.Parallel()
 
