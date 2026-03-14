@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"html/template"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 )
 
 func TestInternal_ToAttributeValue(t *testing.T) {
@@ -610,8 +614,11 @@ func TestInMemClient_RoundTrip(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 			_ = ctx
+			var capturedHeader string
+
 			mux := http.NewServeMux()
-			mux.HandleFunc("/test", func(w http.ResponseWriter, _ *http.Request) {
+			mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+				capturedHeader = r.Header.Get(chaos.HeaderDashboard)
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte("ok"))
 			})
@@ -620,10 +627,60 @@ func TestInMemClient_RoundTrip(t *testing.T) {
 			resp, err := c.RoundTrip(req)
 			require.NoError(t, err)
 			require.Equal(t, tt.expectedStatus, resp.StatusCode)
+			assert.Equal(t, "true", capturedHeader, "expected dashboard bypass header to be set")
+
 			if tt.expectedBodyText != "" {
-				body := make([]byte, 2)
-				resp.Body.Read(body)
+				body, readErr := io.ReadAll(resp.Body)
+				require.NoError(t, readErr)
 				require.Equal(t, tt.expectedBodyText, string(body))
+			}
+		})
+	}
+}
+
+func TestInMemClient_Do(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		path           string
+		wantBodyText   string
+		wantDashHeader string
+		wantStatus     int
+	}{
+		{
+			name:           "sets dashboard bypass header",
+			path:           "/test",
+			wantStatus:     http.StatusOK,
+			wantBodyText:   "ok",
+			wantDashHeader: "true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var capturedHeader string
+
+			mux := http.NewServeMux()
+			mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+				capturedHeader = r.Header.Get(chaos.HeaderDashboard)
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("ok"))
+			})
+
+			c := &InMemClient{Handler: mux}
+			req := httptest.NewRequest(http.MethodGet, "http://localhost"+tt.path, nil)
+			resp, err := c.Do(req)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantStatus, resp.StatusCode)
+			assert.Equal(t, tt.wantDashHeader, capturedHeader, "expected dashboard bypass header to be set")
+
+			if tt.wantBodyText != "" {
+				body, readErr := io.ReadAll(resp.Body)
+				require.NoError(t, readErr)
+				require.Equal(t, tt.wantBodyText, string(body))
 			}
 		})
 	}
