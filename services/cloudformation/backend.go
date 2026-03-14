@@ -17,13 +17,14 @@ import (
 )
 
 var (
-	ErrStackNotFound      = errors.New("stack with id does not exist")
-	ErrStackAlreadyExists = errors.New("stack already exists")
-	ErrChangeSetNotFound  = errors.New("change set not found")
-	ErrChangeSetExists    = errors.New("change set already exists")
-	ErrResourceNotFound   = errors.New("resource not found in stack")
-	ErrExportNotFound     = errors.New("export with given name not found")
-	ErrDuplicateExport    = errors.New("export already exists and is owned by another stack")
+	ErrStackNotFound          = errors.New("stack with id does not exist")
+	ErrStackAlreadyExists     = errors.New("stack already exists")
+	ErrChangeSetNotFound      = errors.New("change set not found")
+	ErrChangeSetExists        = errors.New("change set already exists")
+	ErrResourceNotFound       = errors.New("resource not found in stack")
+	ErrExportNotFound         = errors.New("export with given name not found")
+	ErrDuplicateExport        = errors.New("export already exists and is owned by another stack")
+	ErrDriftDetectionNotFound = errors.New("drift detection not found")
 )
 
 // StorageBackend defines the interface for the CloudFormation in-memory backend.
@@ -50,38 +51,57 @@ type StorageBackend interface {
 	ListChangeSets(stackName, nextToken string) (page.Page[ChangeSetSummary], error)
 	GetTemplate(nameOrID string) (string, error)
 	ListAll() []*Stack
+	// Drift detection
+	DetectStackDrift(nameOrID string) (string, error)
+	DetectStackResourceDrift(nameOrID, logicalID string) (string, error)
+	DescribeStackDriftDetectionStatus(detectionID string) (*DriftDetectionStatus, error)
+	DescribeStackResourceDrifts(nameOrID string) ([]StackResourceDrift, error)
+	// Stack policy
+	SetStackPolicy(nameOrID, policy string) error
+	GetStackPolicy(nameOrID string) (string, error)
+	// Template analysis
+	GetTemplateSummary(templateBody, stackName string) (*TemplateSummary, error)
+	EstimateTemplateCost(templateBody string, params []Parameter) (string, error)
+	// Stack management
+	ContinueUpdateRollback(ctx context.Context, nameOrID string) error
+	CancelUpdateStack(ctx context.Context, nameOrID string) error
+	DescribeAccountLimits() []AccountLimit
 }
 
 // InMemoryBackend is a concurrency-safe in-memory CloudFormation backend.
 type InMemoryBackend struct {
-	stacks     map[string]*Stack
-	events     map[string][]StackEvent
-	resources  map[string]map[string]*StackResource
-	changeSets map[string]map[string]*ChangeSet
-	exports    map[string]*Export
-	creator    *ResourceCreator
-	resolver   DynamicRefResolver
-	mu         *lockmetrics.RWMutex
-	accountID  string
-	region     string
+	stacks          map[string]*Stack
+	events          map[string][]StackEvent
+	resources       map[string]map[string]*StackResource
+	changeSets      map[string]map[string]*ChangeSet
+	exports         map[string]*Export
+	driftDetections map[string]*DriftDetectionStatus
+	stackPolicies   map[string]string
+	creator         *ResourceCreator
+	resolver        DynamicRefResolver
+	mu              *lockmetrics.RWMutex
+	accountID       string
+	region          string
 }
 
 const (
 	MockAccountID = config.DefaultAccountID
 	MockRegion    = config.DefaultRegion
 
-	cfnStackType             = "AWS::CloudFormation::Stack"
-	statusCreateInProgress   = "CREATE_IN_PROGRESS"
-	statusCreateComplete     = "CREATE_COMPLETE"
-	statusCreateFailed       = "CREATE_FAILED"
-	statusUpdateInProgress   = "UPDATE_IN_PROGRESS"
-	statusUpdateComplete     = "UPDATE_COMPLETE"
-	statusUpdateFailed       = "UPDATE_FAILED"
-	statusDeleteInProgress   = "DELETE_IN_PROGRESS"
-	statusDeleteComplete     = "DELETE_COMPLETE"
-	statusRollbackInProgress = "ROLLBACK_IN_PROGRESS"
-	statusRollbackComplete   = "ROLLBACK_COMPLETE"
-	reasonUserInitiated      = "User Initiated"
+	cfnStackType                   = "AWS::CloudFormation::Stack"
+	statusCreateInProgress         = "CREATE_IN_PROGRESS"
+	statusCreateComplete           = "CREATE_COMPLETE"
+	statusCreateFailed             = "CREATE_FAILED"
+	statusUpdateInProgress         = "UPDATE_IN_PROGRESS"
+	statusUpdateComplete           = "UPDATE_COMPLETE"
+	statusUpdateFailed             = "UPDATE_FAILED"
+	statusUpdateRollbackInProgress = "UPDATE_ROLLBACK_IN_PROGRESS"
+	statusUpdateRollbackComplete   = "UPDATE_ROLLBACK_COMPLETE"
+	statusDeleteInProgress         = "DELETE_IN_PROGRESS"
+	statusDeleteComplete           = "DELETE_COMPLETE"
+	statusRollbackInProgress       = "ROLLBACK_IN_PROGRESS"
+	statusRollbackComplete         = "ROLLBACK_COMPLETE"
+	reasonUserInitiated            = "User Initiated"
 )
 
 // NewInMemoryBackend creates a new empty CloudFormation backend.
@@ -97,16 +117,18 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 	}
 
 	return &InMemoryBackend{
-		stacks:     make(map[string]*Stack),
-		events:     make(map[string][]StackEvent),
-		resources:  make(map[string]map[string]*StackResource),
-		changeSets: make(map[string]map[string]*ChangeSet),
-		exports:    make(map[string]*Export),
-		creator:    creator,
-		resolver:   resolver,
-		accountID:  accountID,
-		region:     region,
-		mu:         lockmetrics.New("cloudformation"),
+		stacks:          make(map[string]*Stack),
+		events:          make(map[string][]StackEvent),
+		resources:       make(map[string]map[string]*StackResource),
+		changeSets:      make(map[string]map[string]*ChangeSet),
+		exports:         make(map[string]*Export),
+		driftDetections: make(map[string]*DriftDetectionStatus),
+		stackPolicies:   make(map[string]string),
+		creator:         creator,
+		resolver:        resolver,
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("cloudformation"),
 	}
 }
 
