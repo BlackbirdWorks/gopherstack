@@ -446,3 +446,302 @@ func TestVPHandler_UnknownAction(t *testing.T) {
 	rec := doVPRequest(t, h, "UnknownOperation", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestVPHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{
+			name:   "valid target",
+			target: "VerifiedPermissions.CreatePolicyStore",
+			want:   "CreatePolicyStore",
+		},
+		{
+			name:   "empty target",
+			target: "",
+			want:   "Unknown",
+		},
+		{
+			name:   "wrong prefix",
+			target: "SomeOther.Operation",
+			want:   "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			req.Header.Set("X-Amz-Target", tt.target)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			h := newTestVPHandler(t)
+			assert.Equal(t, tt.want, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestVPHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+		want string
+	}{
+		{
+			name: "policy store and policy id",
+			body: map[string]any{"policyStoreId": "store-1", "policyId": "policy-1"},
+			want: "store-1/policy-1",
+		},
+		{
+			name: "policy store and template id",
+			body: map[string]any{"policyStoreId": "store-1", "policyTemplateId": "tpl-1"},
+			want: "store-1/tpl-1",
+		},
+		{
+			name: "policy store id only",
+			body: map[string]any{"policyStoreId": "store-1"},
+			want: "store-1",
+		},
+		{
+			name: "empty body",
+			body: map[string]any{},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			h := newTestVPHandler(t)
+			assert.Equal(t, tt.want, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestVPHandler_UpdatePolicyStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(*testing.T, *verifiedpermissions.Handler) string
+		name     string
+		wantCode int
+	}{
+		{
+			name: "update existing store",
+			setup: func(t *testing.T, h *verifiedpermissions.Handler) string {
+				t.Helper()
+
+				rec := doVPRequest(t, h, "CreatePolicyStore", map[string]any{"description": "original"})
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+				return resp["policyStoreId"].(string)
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "update non-existent store",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) string {
+				return "nonexistent-id"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "missing policyStoreId",
+			setup: func(_ *testing.T, _ *verifiedpermissions.Handler) string {
+				return ""
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			id := tt.setup(t, h)
+
+			rec := doVPRequest(t, h, "UpdatePolicyStore", map[string]any{
+				"policyStoreId": id,
+				"description":   "updated",
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestVPHandler_PolicyValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "create policy missing store id",
+			action:   "CreatePolicy",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "create policy template linked",
+			action: "CreatePolicy",
+			body: map[string]any{
+				"policyStoreId": "",
+				"definition": map[string]any{
+					"templateLinked": map[string]any{"policyTemplateId": "tpl-1"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "get policy missing store id",
+			action:   "GetPolicy",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "get policy missing policy id",
+			action:   "GetPolicy",
+			body:     map[string]any{"policyStoreId": "store-1"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "list policies missing store id",
+			action:   "ListPolicies",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "update policy missing store id",
+			action:   "UpdatePolicy",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "update policy missing policy id",
+			action:   "UpdatePolicy",
+			body:     map[string]any{"policyStoreId": "store-1"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "delete policy missing store id",
+			action:   "DeletePolicy",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "delete policy missing policy id",
+			action:   "DeletePolicy",
+			body:     map[string]any{"policyStoreId": "store-1"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			rec := doVPRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestVPHandler_PolicyTemplateValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "create template missing store id",
+			action:   "CreatePolicyTemplate",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "create template missing statement",
+			action:   "CreatePolicyTemplate",
+			body:     map[string]any{"policyStoreId": "store-1"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "get template missing store id",
+			action:   "GetPolicyTemplate",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "get template missing template id",
+			action:   "GetPolicyTemplate",
+			body:     map[string]any{"policyStoreId": "store-1"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "list templates missing store id",
+			action:   "ListPolicyTemplates",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "update template missing store id",
+			action:   "UpdatePolicyTemplate",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "update template missing template id",
+			action:   "UpdatePolicyTemplate",
+			body:     map[string]any{"policyStoreId": "store-1"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "delete template missing store id",
+			action:   "DeletePolicyTemplate",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "delete template missing template id",
+			action:   "DeletePolicyTemplate",
+			body:     map[string]any{"policyStoreId": "store-1"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			rec := doVPRequest(t, h, tt.action, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
