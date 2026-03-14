@@ -305,9 +305,9 @@ type Stack struct {
 	// XrayHandler provides access to the X-Ray backend.
 	XrayHandler *xraybackend.Handler
 	S3Client    *s3.Client
-	DDBClient       *dynamodb.Client
-	FaultStore      *chaos.FaultStore
-	Dashboard       *dashboard.DashboardHandler
+	DDBClient   *dynamodb.Client
+	FaultStore  *chaos.FaultStore
+	Dashboard   *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.

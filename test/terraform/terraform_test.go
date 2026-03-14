@@ -6197,36 +6197,36 @@ func TestTerraform_Transfer(t *testing.T) {
 
 // TestTerraform_Xray provisions an X-Ray group via Terraform and verifies the service responds.
 func TestTerraform_Xray(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []tfTestCase{
-{
-name:    "success",
-fixture: "xray/success",
-setup: func(t *testing.T, _ string) map[string]any {
-t.Helper()
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "xray/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
 
-return map[string]any{
-"Endpoint": endpoint,
-}
-},
-verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
-t.Helper()
+				return map[string]any{
+					"Endpoint": endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
 
-client := createXrayClient(t)
+				client := createXrayClient(t)
 
-// GetGroups - should have at least one from Terraform provisioning.
-listOut, err := client.GetGroups(ctx, &xraysvc.GetGroupsInput{})
-require.NoError(t, err, "GetGroups should succeed")
-assert.NotEmpty(t, listOut.Groups, "expected at least one group")
-},
-},
-}
+				// GetGroups - should have at least one from Terraform provisioning.
+				listOut, err := client.GetGroups(ctx, &xraysvc.GetGroupsInput{})
+				require.NoError(t, err, "GetGroups should succeed")
+				assert.NotEmpty(t, listOut.Groups, "expected at least one group")
+			},
+		},
+	}
 
-for _, tc := range tests {
-t.Run(tc.name, func(t *testing.T) {
-t.Parallel()
-runTFTest(t, tc)
-})
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
 }

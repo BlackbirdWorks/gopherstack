@@ -237,8 +237,10 @@ func TestHandler_CreateSamplingRule(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name:       "creates rule",
-			body:       map[string]any{"SamplingRule": map[string]any{"RuleName": "my-rule", "FixedRate": 0.05, "Priority": 1}},
+			name: "creates rule",
+			body: map[string]any{
+				"SamplingRule": map[string]any{"RuleName": "my-rule", "FixedRate": 0.05, "Priority": 1},
+			},
 			wantStatus: http.StatusOK,
 		},
 		{

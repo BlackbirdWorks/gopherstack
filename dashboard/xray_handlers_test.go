@@ -73,8 +73,8 @@ func TestDashboard_Xray_CreateGroup(t *testing.T) {
 	tests := []struct {
 		formValues   url.Values
 		name         string
-		wantCode     int
 		wantLocation string
+		wantCode     int
 	}{
 		{
 			name:         "creates group and redirects",
@@ -127,8 +127,8 @@ func TestDashboard_Xray_DeleteGroup(t *testing.T) {
 		setup        func(*testing.T, *teststack.Stack)
 		formValues   url.Values
 		name         string
-		wantCode     int
 		wantLocation string
+		wantCode     int
 	}{
 		{
 			name: "deletes group and redirects",

@@ -336,7 +336,7 @@ type DashboardHandler struct {
 	// TimestreamQueryOps provides access to the Timestream Query backend.
 	TimestreamQueryOps *timestreamquerybackend.Handler
 	// TransferOps provides access to the Transfer backend.
-	TransferOps  *transferbackend.Handler
+	TransferOps *transferbackend.Handler
 	// XrayOps provides access to the X-Ray backend.
 	XrayOps      *xraybackend.Handler
 	SubRouter    *echo.Echo

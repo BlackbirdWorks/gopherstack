@@ -83,11 +83,13 @@ func samplingRuleARN(name string) string {
 
 func cloneGroup(g *Group) *Group {
 	cp := *g
+
 	return &cp
 }
 
 func cloneRule(r *SamplingRule) *SamplingRule {
 	cp := *r
+
 	return &cp
 }
 

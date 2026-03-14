@@ -20,12 +20,12 @@ func TestInMemoryBackend_CreateGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		groupName    string
-		filterExpr   string
-		createFirst  bool
-		wantErr      bool
-		wantErrIs    error
+		wantErrIs   error
+		name        string
+		groupName   string
+		filterExpr  string
+		createFirst bool
+		wantErr     bool
 	}{
 		{
 			name:      "creates group",
@@ -61,7 +61,7 @@ func TestInMemoryBackend_CreateGroup(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrIs != nil {
-					assert.ErrorIs(t, err, tt.wantErrIs)
+					require.ErrorIs(t, err, tt.wantErrIs)
 				}
 
 				return
@@ -79,11 +79,11 @@ func TestInMemoryBackend_GetGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErrIs error
 		name      string
 		groupName string
 		create    bool
 		wantErr   bool
-		wantErrIs error
 	}{
 		{
 			name:      "gets existing group",
@@ -114,7 +114,7 @@ func TestInMemoryBackend_GetGroup(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrIs != nil {
-					assert.ErrorIs(t, err, tt.wantErrIs)
+					require.ErrorIs(t, err, tt.wantErrIs)
 				}
 
 				return
@@ -170,12 +170,12 @@ func TestInMemoryBackend_UpdateGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		groupName    string
-		newFilter    string
-		create       bool
-		wantErr      bool
-		wantErrIs    error
+		wantErrIs error
+		name      string
+		groupName string
+		newFilter string
+		create    bool
+		wantErr   bool
 	}{
 		{
 			name:      "updates filter expression",
@@ -207,7 +207,7 @@ func TestInMemoryBackend_UpdateGroup(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrIs != nil {
-					assert.ErrorIs(t, err, tt.wantErrIs)
+					require.ErrorIs(t, err, tt.wantErrIs)
 				}
 
 				return
@@ -223,11 +223,11 @@ func TestInMemoryBackend_DeleteGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErrIs error
 		name      string
 		groupName string
 		create    bool
 		wantErr   bool
-		wantErrIs error
 	}{
 		{
 			name:      "deletes existing group",
@@ -258,7 +258,7 @@ func TestInMemoryBackend_DeleteGroup(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrIs != nil {
-					assert.ErrorIs(t, err, tt.wantErrIs)
+					require.ErrorIs(t, err, tt.wantErrIs)
 				}
 
 				return
@@ -276,11 +276,11 @@ func TestInMemoryBackend_CreateSamplingRule(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErrIs   error
 		name        string
 		rule        xray.SamplingRule
 		createFirst bool
 		wantErr     bool
-		wantErrIs   error
 	}{
 		{
 			name: "creates rule",
@@ -311,7 +311,7 @@ func TestInMemoryBackend_CreateSamplingRule(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrIs != nil {
-					assert.ErrorIs(t, err, tt.wantErrIs)
+					require.ErrorIs(t, err, tt.wantErrIs)
 				}
 
 				return
@@ -368,12 +368,12 @@ func TestInMemoryBackend_UpdateSamplingRule(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		updates   xray.SamplingRule
+		wantErrIs error
 		name      string
 		ruleName  string
+		updates   xray.SamplingRule
 		create    bool
 		wantErr   bool
-		wantErrIs error
 	}{
 		{
 			name:     "updates service name",
@@ -405,7 +405,7 @@ func TestInMemoryBackend_UpdateSamplingRule(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrIs != nil {
-					assert.ErrorIs(t, err, tt.wantErrIs)
+					require.ErrorIs(t, err, tt.wantErrIs)
 				}
 
 				return
@@ -421,11 +421,11 @@ func TestInMemoryBackend_DeleteSamplingRule(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErrIs error
 		name      string
 		ruleName  string
 		create    bool
 		wantErr   bool
-		wantErrIs error
 	}{
 		{
 			name:     "deletes existing rule",
@@ -456,7 +456,7 @@ func TestInMemoryBackend_DeleteSamplingRule(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrIs != nil {
-					assert.ErrorIs(t, err, tt.wantErrIs)
+					require.ErrorIs(t, err, tt.wantErrIs)
 				}
 
 				return
@@ -475,9 +475,9 @@ func TestInMemoryBackend_PutTraceSegments(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name             string
-		segments         []string
-		wantUnprocessed  int
+		name            string
+		segments        []string
+		wantUnprocessed int
 	}{
 		{
 			name:            "valid segment stored",
