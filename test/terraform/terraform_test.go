@@ -121,6 +121,7 @@ import (
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
+	s3tablessvc "github.com/aws/aws-sdk-go-v2/service/s3tables"
 	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	sagemakerruntimesvc "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
@@ -288,6 +289,7 @@ provider "aws" {
     route53resolver = %[1]q
     s3              = %[1]q
     s3control       = %[1]q
+    s3tables        = %[1]q
     sagemaker       = %[1]q
     scheduler       = %[1]q
     secretsmanager  = %[1]q
@@ -6294,6 +6296,59 @@ func TestTerraform_Wafv2(t *testing.T) {
 				}
 
 				assert.True(t, found, "expected to find web ACL %q in list", vars["WebACLName"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_S3Tables provisions an S3 Tables table bucket via Terraform and verifies the service responds.
+func TestTerraform_S3Tables(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "s3tables/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix":   id,
+					"Endpoint": endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createS3TablesClient(t)
+
+				// ListTableBuckets should return at least one bucket.
+				listOut, err := client.ListTableBuckets(ctx, &s3tablessvc.ListTableBucketsInput{})
+				require.NoError(t, err, "ListTableBuckets should succeed")
+				assert.NotEmpty(t, listOut.TableBuckets, "expected at least one table bucket")
+
+				suffix, _ := vars["Suffix"].(string)
+				expectedName := "tf-s3t-" + suffix
+
+				found := false
+				for _, b := range listOut.TableBuckets {
+					if aws.ToString(b.Name) == expectedName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "expected to find table bucket %q in list", expectedName)
 			},
 		},
 	}

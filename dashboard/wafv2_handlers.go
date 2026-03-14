@@ -136,6 +136,8 @@ func (h *DashboardHandler) wafv2Create(c *echo.Context) error {
 }
 
 // wafv2Delete handles POST /dashboard/wafv2/delete.
+//
+//nolint:dupl // intentional: each handler has unique service data despite similar structure
 func (h *DashboardHandler) wafv2Delete(c *echo.Context) error {
 	if h.Wafv2Ops == nil {
 		return c.NoContent(http.StatusServiceUnavailable)

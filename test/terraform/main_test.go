@@ -103,6 +103,7 @@ import (
 	route53resolversvc "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
+	s3tablessvc "github.com/aws/aws-sdk-go-v2/service/s3tables"
 	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	sagemakerruntimesvc "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
@@ -2314,6 +2315,23 @@ func createXrayClient(t *testing.T) *xraysvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return xraysvc.NewFromConfig(cfg, func(o *xraysvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+func createS3TablesClient(t *testing.T) *s3tablessvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return s3tablessvc.NewFromConfig(cfg, func(o *s3tablessvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

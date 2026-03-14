@@ -110,6 +110,7 @@ import (
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
@@ -341,7 +342,9 @@ type DashboardHandler struct {
 	// Wafv2Ops provides access to the WAFv2 backend.
 	Wafv2Ops *wafv2backend.Handler
 	// XrayOps provides access to the X-Ray backend.
-	XrayOps      *xraybackend.Handler
+	XrayOps *xraybackend.Handler
+	// S3TablesOps provides access to the S3 Tables backend.
+	S3TablesOps  *s3tablesbackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -580,6 +583,8 @@ type Config struct {
 	Wafv2Ops *wafv2backend.Handler
 	// XrayOps provides access to the X-Ray backend.
 	XrayOps *xraybackend.Handler
+	// S3TablesOps provides access to the S3 Tables backend.
+	S3TablesOps *s3tablesbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -742,6 +747,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/timestreamwrite/*.html",
 		"templates/wafv2/*.html",
 		"templates/xray/*.html",
+		"templates/s3tables/*.html",
 		"templates/doc.html",
 		"templates/settings.html",
 		"templates/apiconsole.html",
@@ -901,6 +907,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.TransferOps = cfg.TransferOps
 	h.Wafv2Ops = cfg.Wafv2Ops
 	h.XrayOps = cfg.XrayOps
+	h.S3TablesOps = cfg.S3TablesOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1434,6 +1441,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupTransferRoutes()
 	h.setupWafv2Routes()
 	h.setupXrayRoutes()
+	h.setupS3TablesRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1569,6 +1577,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/timestreamquery", "TimestreamQuery"},
 	{"/transfer", "Transfer"},
 	{"/wafv2", "Wafv2"},
+	{"/s3tables", "S3Tables"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

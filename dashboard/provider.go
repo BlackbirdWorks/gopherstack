@@ -73,6 +73,7 @@ import (
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
+	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
@@ -244,6 +245,7 @@ type AWSSDKProvider interface {
 	GetTransferHandler() service.Registerable
 	GetWafv2Handler() service.Registerable
 	GetXrayHandler() service.Registerable
+	GetS3TablesHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -375,6 +377,7 @@ type extractedConfig struct {
 	transferOps               *transferbackend.Handler
 	wafv2Ops                  *wafv2backend.Handler
 	xrayOps                   *xraybackend.Handler
+	s3tablesOps               *s3tablesbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -450,6 +453,7 @@ func extractIntegrationHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 // extractMonitoringHandlers populates integration/monitoring service handlers on ec.
 //
 
+//nolint:dupl // intentional: extraction helpers follow identical patterns; each assigns unique handler fields
 func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetEventBridgeHandler(); h != nil {
 		ec.eventBridgeOps, _ = h.(*ebbackend.Handler)
@@ -890,6 +894,8 @@ func extractAdditionalHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 }
 
 // extractSsoAndMLHandlers populates Shield, SSO Admin and ML/document service handlers on ec.
+//
+//nolint:dupl // intentional: extraction helpers follow identical patterns; each assigns unique handler fields
 func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetShieldHandler(); h != nil {
 		ec.shieldOps, _ = h.(*shieldbackend.Handler)
@@ -921,6 +927,10 @@ func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetXrayHandler(); h != nil {
 		ec.xrayOps, _ = h.(*xraybackend.Handler)
+	}
+
+	if h := ap.GetS3TablesHandler(); h != nil {
+		ec.s3tablesOps, _ = h.(*s3tablesbackend.Handler)
 	}
 }
 
@@ -1128,4 +1138,5 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.TransferOps = ec.transferOps
 	cfg.Wafv2Ops = ec.wafv2Ops
 	cfg.XrayOps = ec.xrayOps
+	cfg.S3TablesOps = ec.s3tablesOps
 }

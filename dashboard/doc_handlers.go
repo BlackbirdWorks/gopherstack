@@ -79,6 +79,7 @@ type docPageData struct {
 	TransferOps                []string
 	Wafv2Ops                   []string
 	XrayOps                    []string
+	S3TablesOps                []string
 }
 
 // docIndex renders the documentation page.
@@ -169,6 +170,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		TransferOps:                h.getSupportedOps(h.TransferOps),
 		Wafv2Ops:                   h.getSupportedOps(h.Wafv2Ops),
 		XrayOps:                    h.getSupportedOps(h.XrayOps),
+		S3TablesOps:                h.getSupportedOps(h.S3TablesOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)

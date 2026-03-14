@@ -42,6 +42,7 @@ import (
 	route53sdk "github.com/aws/aws-sdk-go-v2/service/route53"
 	route53resolversdk "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3tablesclientsdk "github.com/aws/aws-sdk-go-v2/service/s3tables"
 	schedulersdk "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretsmanagersdk "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	sfnsdk "github.com/aws/aws-sdk-go-v2/service/sfn"
@@ -756,6 +757,23 @@ func createWafv2Client(t *testing.T) *wafv2sdk.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return wafv2sdk.NewFromConfig(cfg, func(o *wafv2sdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+func createS3TablesClient(t *testing.T) *s3tablesclientsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return s3tablesclientsdk.NewFromConfig(cfg, func(o *s3tablesclientsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
