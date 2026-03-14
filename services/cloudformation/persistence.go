@@ -3,13 +3,15 @@ package cloudformation
 import "encoding/json"
 
 type backendSnapshot struct {
-	Stacks     map[string]*Stack                    `json:"stacks"`
-	Events     map[string][]StackEvent              `json:"events"`
-	Resources  map[string]map[string]*StackResource `json:"resources"`
-	ChangeSets map[string]map[string]*ChangeSet     `json:"changeSets"`
-	Exports    map[string]*Export                   `json:"exports"`
-	AccountID  string                               `json:"accountID"`
-	Region     string                               `json:"region"`
+	Stacks          map[string]*Stack                    `json:"stacks"`
+	Events          map[string][]StackEvent              `json:"events"`
+	Resources       map[string]map[string]*StackResource `json:"resources"`
+	ChangeSets      map[string]map[string]*ChangeSet     `json:"changeSets"`
+	Exports         map[string]*Export                   `json:"exports"`
+	DriftDetections map[string]*DriftDetectionStatus     `json:"driftDetections"`
+	StackPolicies   map[string]string                    `json:"stackPolicies"`
+	AccountID       string                               `json:"accountID"`
+	Region          string                               `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -19,13 +21,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Stacks:     b.stacks,
-		Events:     b.events,
-		Resources:  b.resources,
-		ChangeSets: b.changeSets,
-		Exports:    b.exports,
-		AccountID:  b.accountID,
-		Region:     b.region,
+		Stacks:          b.stacks,
+		Events:          b.events,
+		Resources:       b.resources,
+		ChangeSets:      b.changeSets,
+		Exports:         b.exports,
+		DriftDetections: b.driftDetections,
+		StackPolicies:   b.stackPolicies,
+		AccountID:       b.accountID,
+		Region:          b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -68,11 +72,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Exports = make(map[string]*Export)
 	}
 
+	if snap.DriftDetections == nil {
+		snap.DriftDetections = make(map[string]*DriftDetectionStatus)
+	}
+
+	if snap.StackPolicies == nil {
+		snap.StackPolicies = make(map[string]string)
+	}
+
 	b.stacks = snap.Stacks
 	b.events = snap.Events
 	b.resources = snap.Resources
 	b.changeSets = snap.ChangeSets
 	b.exports = snap.Exports
+	b.driftDetections = snap.DriftDetections
+	b.stackPolicies = snap.StackPolicies
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

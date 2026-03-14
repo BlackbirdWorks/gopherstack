@@ -53,6 +53,21 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListChangeSets",
 		"GetTemplate",
 		"DescribeType",
+		// Drift detection
+		"DetectStackDrift",
+		"DetectStackResourceDrift",
+		"DescribeStackDriftDetectionStatus",
+		"DescribeStackResourceDrifts",
+		// Stack policy
+		"SetStackPolicy",
+		"GetStackPolicy",
+		// Template analysis
+		"GetTemplateSummary",
+		"EstimateTemplateCost",
+		// Stack management
+		"ContinueUpdateRollback",
+		"CancelUpdateStack",
+		"DescribeAccountLimits",
 	}
 }
 
@@ -142,6 +157,10 @@ func (h *Handler) dispatch(action string, form url.Values, c *echo.Context) erro
 	}
 
 	if handled, err := h.dispatchChangeSetOps(action, form, c); handled {
+		return err
+	}
+
+	if handled, err := h.dispatchExtOps(action, form, c); handled {
 		return err
 	}
 
