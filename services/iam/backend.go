@@ -47,6 +47,20 @@ var (
 	ErrDeleteConflict = errors.New("DeleteConflict")
 	// ErrInlinePolicyNotFound is returned when a requested inline policy does not exist.
 	ErrInlinePolicyNotFound = errors.New("NoSuchEntity")
+	// ErrSAMLProviderNotFound is returned when a requested SAML provider does not exist.
+	ErrSAMLProviderNotFound = errors.New("NoSuchEntity")
+	// ErrSAMLProviderAlreadyExists is returned when creating a SAML provider that already exists.
+	ErrSAMLProviderAlreadyExists = errors.New("EntityAlreadyExists")
+	// ErrOIDCProviderNotFound is returned when a requested OIDC provider does not exist.
+	ErrOIDCProviderNotFound = errors.New("NoSuchEntity")
+	// ErrOIDCProviderAlreadyExists is returned when creating an OIDC provider that already exists.
+	ErrOIDCProviderAlreadyExists = errors.New("EntityAlreadyExists")
+	// ErrLoginProfileNotFound is returned when a requested login profile does not exist.
+	ErrLoginProfileNotFound = errors.New("NoSuchEntity")
+	// ErrLoginProfileAlreadyExists is returned when creating a login profile that already exists.
+	ErrLoginProfileAlreadyExists = errors.New("EntityAlreadyExists")
+	// ErrInvalidOIDCProviderURL is returned when an OIDC provider URL cannot be parsed.
+	ErrInvalidOIDCProviderURL = errors.New("InvalidInput")
 )
 
 // StorageBackend defines the interface for the IAM in-memory store.
@@ -129,6 +143,26 @@ type StorageBackend interface {
 	DeleteInstanceProfile(name string) error
 	ListInstanceProfiles(marker string, maxItems int) (page.Page[InstanceProfile], error)
 
+	// SAML Providers
+	CreateSAMLProvider(name, samlMetadataDocument string) (*SAMLProvider, error)
+	UpdateSAMLProvider(providerArn, samlMetadataDocument string) (*SAMLProvider, error)
+	DeleteSAMLProvider(providerArn string) error
+	GetSAMLProvider(providerArn string) (*SAMLProvider, error)
+	ListSAMLProviders() ([]SAMLProvider, error)
+
+	// OIDC Providers
+	CreateOpenIDConnectProvider(rawURL string, clientIDs, thumbprints []string) (*OIDCProvider, error)
+	UpdateOpenIDConnectProviderThumbprint(providerArn string, thumbprints []string) error
+	DeleteOpenIDConnectProvider(providerArn string) error
+	GetOpenIDConnectProvider(providerArn string) (*OIDCProvider, error)
+	ListOpenIDConnectProviders() ([]OIDCProvider, error)
+
+	// Login Profiles
+	CreateLoginProfile(userName, password string, passwordResetRequired bool) (*LoginProfile, error)
+	UpdateLoginProfile(userName, password string, passwordResetRequired bool) error
+	DeleteLoginProfile(userName string) error
+	GetLoginProfile(userName string) (*LoginProfile, error)
+
 	// Dashboard helpers
 	ListAllUsers() []User
 	ListAllRoles() []Role
@@ -153,6 +187,9 @@ type InMemoryBackend struct {
 	groups           map[string]Group
 	accessKeys       map[string]AccessKey
 	instanceProfiles map[string]InstanceProfile
+	samlProviders    map[string]SAMLProvider // ARN → SAMLProvider
+	oidcProviders    map[string]OIDCProvider // ARN → OIDCProvider
+	loginProfiles    map[string]LoginProfile // userName → LoginProfile
 	// userPolicies, rolePolicies, and groupPolicies track attached policy ARNs keyed by entity name.
 	userPolicies        map[string][]string          // userName → []policyArn
 	rolePolicies        map[string][]string          // roleName → []policyArn
@@ -178,6 +215,9 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		groups:              make(map[string]Group),
 		accessKeys:          make(map[string]AccessKey),
 		instanceProfiles:    make(map[string]InstanceProfile),
+		samlProviders:       make(map[string]SAMLProvider),
+		oidcProviders:       make(map[string]OIDCProvider),
+		loginProfiles:       make(map[string]LoginProfile),
 		userPolicies:        make(map[string][]string),
 		rolePolicies:        make(map[string][]string),
 		groupPolicies:       make(map[string][]string),
