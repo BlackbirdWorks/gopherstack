@@ -242,6 +242,8 @@ github.com/aws/aws-sdk-go-v2/service/s3 v1.96.4 h1:4ExZyubQ6LQQVuF2Qp9OsfEvsTdAW
 github.com/aws/aws-sdk-go-v2/service/s3 v1.96.4/go.mod h1:NF3JcMGOiARAss1ld3WGORCw71+4ExDD2cbbdKS5PpA=
 github.com/aws/aws-sdk-go-v2/service/s3control v1.68.2 h1:7qomMtVCsX8SEdkwFAPWScpFnmK7+9v+JAdR8rRRlKM=
 github.com/aws/aws-sdk-go-v2/service/s3control v1.68.2/go.mod h1:c7w32mk42MjoP6pQtLznPJZ2Q3lTakKXxcVlxX9MiAg=
+github.com/aws/aws-sdk-go-v2/service/s3tables v1.14.3 h1:jVYVKb0mALLNF93tikVjsN+SPeQ4r8DJLrisZF47N5k=
+github.com/aws/aws-sdk-go-v2/service/s3tables v1.14.3/go.mod h1:/AbO1A91f6AUkAhvph1wF8eIrbZYmNbFNeSttP0Lwwo=
 github.com/aws/aws-sdk-go-v2/service/sagemaker v1.236.0 h1:DaYBfMCJsl7JrXyISRpXpp6Rj7xTDmZgWgde7wn4Ivo=
 github.com/aws/aws-sdk-go-v2/service/sagemaker v1.236.0/go.mod h1:VEV5i09+uTfuzV74iymdT+3DYzEsaIPQ0uqWoXu0iFw=
 github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.39.3 h1:e1A452Wi9MDNdRrWCMPfPzCE3dsgst/nLrf3HrnB5WY=

@@ -122,6 +122,7 @@ import (
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
+	s3tablessvc "github.com/aws/aws-sdk-go-v2/service/s3tables"
 	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	sagemakerruntimesvc "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
@@ -300,6 +301,7 @@ provider "aws" {
     route53resolver = %[1]q
     s3              = %[1]q
     s3control       = %[1]q
+    s3tables        = %[1]q
     sagemaker       = %[1]q
     scheduler       = %[1]q
     secretsmanager  = %[1]q
@@ -6361,6 +6363,79 @@ func TestTerraform_Wafv2(t *testing.T) {
 				}
 
 				assert.True(t, found, "expected to find web ACL %q in list", vars["WebACLName"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_S3Tables provisions S3 Tables resources via Terraform and verifies the service responds.
+func TestTerraform_S3Tables(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "s3tables/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"Suffix":   id,
+					"Endpoint": endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createS3TablesClient(t)
+
+				suffix, ok := vars["Suffix"].(string)
+				require.True(t, ok, "Suffix must be a string")
+
+				bucketName := "tf-s3t-" + suffix
+				tableName := "tftable" + suffix
+				nsName := "tfns" + suffix
+
+				// ListTableBuckets should include our bucket.
+				listOut, err := client.ListTableBuckets(ctx, &s3tablessvc.ListTableBucketsInput{})
+				require.NoError(t, err, "ListTableBuckets should succeed")
+
+				var bucketARN string
+
+				for _, b := range listOut.TableBuckets {
+					if aws.ToString(b.Name) == bucketName {
+						bucketARN = aws.ToString(b.Arn)
+
+						break
+					}
+				}
+
+				require.NotEmpty(t, bucketARN, "expected to find table bucket %q in list", bucketName)
+
+				// GetTableBucket should return the bucket.
+				getOut, err := client.GetTableBucket(ctx, &s3tablessvc.GetTableBucketInput{
+					TableBucketARN: aws.String(bucketARN),
+				})
+				require.NoError(t, err)
+				assert.Equal(t, bucketName, aws.ToString(getOut.Name))
+
+				// GetTable should return the table created by TF.
+				getTblOut, err := client.GetTable(ctx, &s3tablessvc.GetTableInput{
+					TableBucketARN: aws.String(bucketARN),
+					Namespace:      aws.String(nsName),
+					Name:           aws.String(tableName),
+				})
+				require.NoError(t, err)
+				assert.Equal(t, tableName, aws.ToString(getTblOut.Name))
 			},
 		},
 	}

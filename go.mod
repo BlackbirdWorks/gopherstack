@@ -140,6 +140,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ram v1.36.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/rdsdata v1.32.19 // indirect
 	github.com/aws/aws-sdk-go-v2/service/redshiftdata v1.38.6 // indirect
+	github.com/aws/aws-sdk-go-v2/service/s3tables v1.14.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.236.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.39.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/servicediscovery v1.39.24 // indirect
