@@ -2379,14 +2379,14 @@ func TestTerraform_EC2(t *testing.T) {
 
 				var vpcID string
 				for _, vpc := range vpcsOut.Vpcs {
-					if aws.ToString(vpc.CidrBlock) == "10.0.0.0/16" && !aws.ToBool(vpc.IsDefault) {
+					if aws.ToString(vpc.CidrBlock) == "10.2.0.0/16" && !aws.ToBool(vpc.IsDefault) {
 						vpcID = aws.ToString(vpc.VpcId)
 
 						break
 					}
 				}
 
-				require.NotEmpty(t, vpcID, "VPC with CIDR 10.0.0.0/16 should exist after terraform apply")
+				require.NotEmpty(t, vpcID, "VPC with CIDR 10.2.0.0/16 should exist after terraform apply")
 
 				// DescribeTags with resource-id filter to get tags for the fixture's VPC.
 				tagsOut, err := client.DescribeTags(ctx, &ec2svc.DescribeTagsInput{
