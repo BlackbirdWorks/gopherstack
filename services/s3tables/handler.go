@@ -176,17 +176,6 @@ func (h *Handler) routeRequest(r *http.Request) (string, dispatchFunc) {
 		if method == http.MethodGet {
 			return "GetTable", h.handleGetTable
 		}
-	case "tag":
-		if len(segs) >= 2 {
-			switch method {
-			case http.MethodGet:
-				return "ListTagsForResource", nil
-			case http.MethodPost:
-				return "TagResource", nil
-			case http.MethodDelete:
-				return "UntagResource", nil
-			}
-		}
 	}
 
 	return "", nil
@@ -202,14 +191,14 @@ func (h *Handler) routeBuckets(segs []string, method string, r *http.Request) (s
 		case http.MethodGet:
 			return "ListTableBuckets", h.handleListTableBuckets
 		}
-	case 2:
+	case 2: //nolint:mnd // bucket ARN segment
 		switch method {
 		case http.MethodGet:
 			return "GetTableBucket", h.handleGetTableBucket
 		case http.MethodDelete:
 			return "DeleteTableBucket", h.handleDeleteTableBucket
 		}
-	case 3:
+	case 3: //nolint:mnd // bucket ARN + sub-resource
 		sub := segs[2]
 		switch sub {
 		case segMaintenance:
@@ -228,7 +217,7 @@ func (h *Handler) routeBuckets(segs []string, method string, r *http.Request) (s
 		}
 
 		_ = r
-	case 4:
+	case 4: //nolint:mnd // bucket ARN + maintenance + config type
 		if segs[2] == segMaintenance && method == http.MethodPut {
 			return "PutTableBucketMaintenanceConfiguration", h.handlePutTableBucketMaintenanceConfiguration
 		}
@@ -239,14 +228,14 @@ func (h *Handler) routeBuckets(segs []string, method string, r *http.Request) (s
 
 func (h *Handler) routeNamespaces(segs []string, method string) (string, dispatchFunc) {
 	switch len(segs) {
-	case 2:
+	case 2: //nolint:mnd // bucket ARN + namespace name prefix
 		switch method {
 		case http.MethodPut:
 			return "CreateNamespace", h.handleCreateNamespace
 		case http.MethodGet:
 			return "ListNamespaces", h.handleListNamespaces
 		}
-	case 3:
+	case 3: //nolint:mnd // bucket ARN + namespace name
 		switch method {
 		case http.MethodGet:
 			return "GetNamespace", h.handleGetNamespace
@@ -260,21 +249,21 @@ func (h *Handler) routeNamespaces(segs []string, method string) (string, dispatc
 
 func (h *Handler) routeTables(segs []string, method string, r *http.Request) (string, dispatchFunc) {
 	switch len(segs) {
-	case 2:
+	case 2: //nolint:mnd // bucket ARN prefix (list tables)
 		if method == http.MethodGet {
 			return "ListTables", h.handleListTables
 		}
-	case 3:
+	case 3: //nolint:mnd // bucket ARN + namespace (create table)
 		if method == http.MethodPut {
 			return "CreateTable", h.handleCreateTable
 		}
-	case 4:
+	case 4: //nolint:mnd // bucket ARN + namespace + name (delete table)
 		if method == http.MethodDelete {
 			return "DeleteTable", h.handleDeleteTable
 		}
-	case 5:
+	case 5: //nolint:mnd // bucket ARN + namespace + name + subresource
 		return h.routeTableSubResource(segs[4], method, r)
-	case 6:
+	case 6: //nolint:mnd // bucket ARN + namespace + name + maintenance + type
 		if segs[4] == segMaintenance && method == http.MethodPut {
 			return "PutTableMaintenanceConfiguration", h.handlePutTableMaintenanceConfiguration
 		}
@@ -903,11 +892,11 @@ func (h *Handler) handleUpdateTableMetadataLocation(ctx context.Context, r *http
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: updated table metadata location", "name", name)
 
-	return json.Marshal(map[string]string{
+	return json.Marshal(map[string]any{
 		"name":             table.Name,
 		"tableARN":         table.ARN,
 		"tableBucketARN":   table.TableBucketARN,
-		"namespace":        joinNamespace(table.Namespace),
+		"namespace":        table.Namespace,
 		"versionToken":     table.VersionToken,
 		"metadataLocation": table.MetadataLocation,
 	})

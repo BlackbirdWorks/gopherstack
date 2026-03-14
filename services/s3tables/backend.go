@@ -138,13 +138,27 @@ func (b *InMemoryBackend) GetTableBucket(bucketARN string) (*TableBucket, error)
 	return cloneTableBucket(tb), nil
 }
 
-// DeleteTableBucket deletes a TableBucket by ARN.
+// DeleteTableBucket deletes a TableBucket by ARN, cascading to namespaces and tables.
 func (b *InMemoryBackend) DeleteTableBucket(bucketARN string) error {
 	b.mu.Lock("DeleteTableBucket")
 	defer b.mu.Unlock()
 
 	if _, ok := b.tableBuckets[bucketARN]; !ok {
 		return fmt.Errorf("%w: table bucket %q not found", ErrTableBucketNotFound, bucketARN)
+	}
+
+	// Cascade: delete all tables belonging to this bucket.
+	for arn, t := range b.tables {
+		if t.TableBucketARN == bucketARN {
+			delete(b.tables, arn)
+		}
+	}
+
+	// Cascade: delete all namespaces belonging to this bucket.
+	for key, ns := range b.namespaces {
+		if ns.TableBucketARN == bucketARN {
+			delete(b.namespaces, key)
+		}
 	}
 
 	delete(b.tableBuckets, bucketARN)
@@ -490,6 +504,10 @@ func (b *InMemoryBackend) RenameTable(
 	tb := b.tableBuckets[tableBucketARN]
 	newARN := b.TableARN(tb.Name, newNamespace, newName)
 
+	if _, exists := b.tables[newARN]; exists {
+		return fmt.Errorf("%w: table %q already exists in namespace %s", ErrTableAlreadyExists, newName, newNamespace)
+	}
+
 	found.Name = newName
 	found.Namespace = splitNamespace(newNamespace)
 	found.ARN = newARN
@@ -670,32 +688,16 @@ func cloneAnyMap(m map[string]any) map[string]any {
 	return maps.Clone(m)
 }
 
-// joinNamespace joins a namespace slice with "." for use as a key.
+// joinNamespace joins a namespace slice with "." for use as a map key.
 func joinNamespace(ns []string) string {
-	if len(ns) == 0 {
-		return ""
-	}
-
-	result := ""
-
-	var resultSb655 strings.Builder
-	for i, part := range ns {
-		if i > 0 {
-			resultSb655.WriteString(".")
-		}
-
-		resultSb655.WriteString(part)
-	}
-	result += resultSb655.String()
-
-	return result
+	return strings.Join(ns, ".")
 }
 
-// splitNamespace splits a namespace string back into a slice.
+// splitNamespace splits a dot-separated namespace string back into a slice.
 func splitNamespace(ns string) []string {
 	if ns == "" {
 		return []string{}
 	}
 
-	return []string{ns}
+	return strings.Split(ns, ".")
 }

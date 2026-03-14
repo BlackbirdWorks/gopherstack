@@ -6336,7 +6336,8 @@ func TestTerraform_S3Tables(t *testing.T) {
 				require.NoError(t, err, "ListTableBuckets should succeed")
 				assert.NotEmpty(t, listOut.TableBuckets, "expected at least one table bucket")
 
-				suffix, _ := vars["Suffix"].(string)
+				suffix, ok := vars["Suffix"].(string)
+				require.True(t, ok, "Suffix must be a string")
 				expectedName := "tf-s3t-" + suffix
 
 				found := false
