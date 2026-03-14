@@ -150,6 +150,7 @@ func (m *mockAWSProvider) GetTimestreamQueryHandler() service.Registerable      
 func (m *mockAWSProvider) GetTimestreamWriteHandler() service.Registerable         { return nil }
 func (m *mockAWSProvider) GetTransferHandler() service.Registerable                { return nil }
 func (m *mockAWSProvider) GetWafv2Handler() service.Registerable                   { return nil }
+func (m *mockAWSProvider) GetXrayHandler() service.Registerable                    { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 

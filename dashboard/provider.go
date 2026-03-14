@@ -85,6 +85,7 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
+	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -242,6 +243,7 @@ type AWSSDKProvider interface {
 	GetTimestreamQueryHandler() service.Registerable
 	GetTransferHandler() service.Registerable
 	GetWafv2Handler() service.Registerable
+	GetXrayHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -372,6 +374,7 @@ type extractedConfig struct {
 	timestreamqueryOps        *timestreamquerybackend.Handler
 	transferOps               *transferbackend.Handler
 	wafv2Ops                  *wafv2backend.Handler
+	xrayOps                   *xraybackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -915,6 +918,10 @@ func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetWafv2Handler(); h != nil {
 		ec.wafv2Ops, _ = h.(*wafv2backend.Handler)
 	}
+
+	if h := ap.GetXrayHandler(); h != nil {
+		ec.xrayOps, _ = h.(*xraybackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -1120,4 +1127,5 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.TimestreamQueryOps = ec.timestreamqueryOps
 	cfg.TransferOps = ec.transferOps
 	cfg.Wafv2Ops = ec.wafv2Ops
+	cfg.XrayOps = ec.xrayOps
 }

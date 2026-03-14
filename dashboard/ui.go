@@ -133,6 +133,7 @@ import (
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
+	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 )
 
 const (
@@ -338,7 +339,9 @@ type DashboardHandler struct {
 	// TransferOps provides access to the Transfer backend.
 	TransferOps *transferbackend.Handler
 	// Wafv2Ops provides access to the WAFv2 backend.
-	Wafv2Ops     *wafv2backend.Handler
+	Wafv2Ops *wafv2backend.Handler
+	// XrayOps provides access to the X-Ray backend.
+	XrayOps      *xraybackend.Handler
 	SubRouter    *echo.Echo
 	ddbProvider  *ddbbackend.DashboardProvider
 	s3Provider   *s3backend.DashboardProvider
@@ -575,6 +578,8 @@ type Config struct {
 	TransferOps *transferbackend.Handler
 	// Wafv2Ops provides access to the WAFv2 backend.
 	Wafv2Ops *wafv2backend.Handler
+	// XrayOps provides access to the X-Ray backend.
+	XrayOps *xraybackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -736,6 +741,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/transfer/*.html",
 		"templates/timestreamwrite/*.html",
 		"templates/wafv2/*.html",
+		"templates/xray/*.html",
 		"templates/doc.html",
 		"templates/settings.html",
 		"templates/apiconsole.html",
@@ -894,6 +900,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.TimestreamQueryOps = cfg.TimestreamQueryOps
 	h.TransferOps = cfg.TransferOps
 	h.Wafv2Ops = cfg.Wafv2Ops
+	h.XrayOps = cfg.XrayOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1426,6 +1433,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupTimestreamQueryRoutes()
 	h.setupTransferRoutes()
 	h.setupWafv2Routes()
+	h.setupXrayRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
