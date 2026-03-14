@@ -493,7 +493,7 @@ func (h *Handler) buildTagActions() map[string]kmsActionFn {
 
 			sort.Slice(tagList, func(i, j int) bool { return tagList[i].TagKey < tagList[j].TagKey })
 
-			startIdx := parseKMSMarker(input.Marker)
+			startIdx := parseMarker(input.Marker)
 			limit := defaultKMSTagsLimit
 
 			if input.Limit != nil && *input.Limit > 0 {
@@ -672,18 +672,4 @@ func (h *Handler) UntagKeyByARN(keyARN string, tagKeys []string) error {
 	}
 
 	return fmt.Errorf("%w: %s", ErrKeyNotFound, keyARN)
-}
-
-// parseKMSMarker converts a Marker string to an integer start index.
-func parseKMSMarker(marker string) int {
-	if marker == "" {
-		return 0
-	}
-
-	idx, err := strconv.Atoi(marker)
-	if err != nil || idx < 0 {
-		return 0
-	}
-
-	return idx
 }

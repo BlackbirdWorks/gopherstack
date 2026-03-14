@@ -79,8 +79,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.smExecutions[exec.StateMachineArn] = append(b.smExecutions[exec.StateMachineArn], execARN)
 	}
 
-	// cancelFns is intentionally empty after restore: restored executions are
-	// in a terminal state so no running goroutines need to be tracked.
+	// cancelFns is intentionally empty after restore. Executions are snapshotted
+	// only in terminal states (SUCCEEDED, FAILED, ABORTED, TIMED_OUT), so no
+	// running goroutines are active after a restore — there are no functions to
+	// cancel. Any execution still in RUNNING state at snapshot time is treated as
+	// timed out on the next Snapshot() call.
 	b.cancelFns = make(map[string]context.CancelFunc)
 
 	return nil

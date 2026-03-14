@@ -480,7 +480,6 @@ func (b *InMemoryBackend) ListHostedConfigurationVersions(
 		return nil, "", fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
 	}
 
-	// A single lookup covers both "no profiles for app" and "profile not found".
 	if _, ok := b.configProfiles[applicationID][profileID]; !ok {
 		return nil, "", fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
 	}

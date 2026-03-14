@@ -569,6 +569,8 @@ func (b *InMemoryBackend) ListExecutions(
 	for _, execARN := range execARNs {
 		exec := b.executions[execARN]
 		if exec == nil {
+			// Defensive guard: the smExecutions index should always be consistent
+			// with b.executions, but skip any stale references just in case.
 			continue
 		}
 
