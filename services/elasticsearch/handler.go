@@ -146,15 +146,23 @@ type domainJSON struct {
 
 // domainStatusJSON is the JSON response for domain operations.
 type domainStatusJSON struct {
-	DomainName                 string            `json:"DomainName"`
-	DomainID                   string            `json:"DomainId"`
-	ARN                        string            `json:"ARN"`
-	ElasticsearchVersion       string            `json:"ElasticsearchVersion"`
-	Endpoint                   string            `json:"Endpoint"`
-	DomainProcessingStatus     string            `json:"DomainProcessingStatus"`
-	ElasticsearchClusterConfig clusterConfigJSON `json:"ElasticsearchClusterConfig"`
-	EBSOptions                 ebsOptionsJSON    `json:"EBSOptions"`
-	Processing                 bool              `json:"Processing"`
+	DomainName                 string             `json:"DomainName"`
+	DomainID                   string             `json:"DomainId"`
+	ARN                        string             `json:"ARN"`
+	ElasticsearchVersion       string             `json:"ElasticsearchVersion"`
+	Endpoint                   string             `json:"Endpoint"`
+	DomainProcessingStatus     string             `json:"DomainProcessingStatus"`
+	ElasticsearchClusterConfig clusterConfigJSON  `json:"ElasticsearchClusterConfig"`
+	EBSOptions                 ebsOptionsJSON     `json:"EBSOptions"`
+	CognitoOptions             cognitoOptionsJSON `json:"CognitoOptions"`
+	Processing                 bool               `json:"Processing"`
+}
+
+// cognitoOptionsJSON is the JSON representation of Cognito options.
+// The Terraform provider's flattenCognitoOptions does not guard against nil,
+// so we always return this field with Enabled=false when Cognito is not configured.
+type cognitoOptionsJSON struct {
+	Enabled bool `json:"Enabled"`
 }
 
 // ebsOptionsJSON is the JSON representation of EBS options.
@@ -510,6 +518,9 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 		ElasticsearchClusterConfig: clusterConfigJSON{
 			InstanceType:  d.ClusterConfig.InstanceType,
 			InstanceCount: d.ClusterConfig.InstanceCount,
+		},
+		CognitoOptions: cognitoOptionsJSON{
+			Enabled: false,
 		},
 	}
 }

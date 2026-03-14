@@ -87,7 +87,7 @@ func TestElasticsearchHandler_CreateDomain(t *testing.T) {
 			domainName:           "test-domain",
 			elasticsearchVersion: "7.10",
 			wantCode:             http.StatusOK,
-			wantContains:         []string{"test-domain", "7.10", "ARN", "Endpoint"},
+			wantContains:         []string{"test-domain", "7.10", "ARN", "Endpoint", "CognitoOptions"},
 		},
 		{
 			name:       "already_exists",
@@ -184,7 +184,7 @@ func TestElasticsearchHandler_DescribeDomain(t *testing.T) {
 				resp.Body.Close()
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"my-domain"},
+			wantContains: []string{"my-domain", "CognitoOptions"},
 		},
 		{
 			name:       "not_found",
