@@ -3,6 +3,7 @@ package cloudwatchlogs_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -968,12 +969,131 @@ func TestCloudWatchLogsBackend_PutLogEvents_SubscriptionDelivery(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Give the goroutine a moment to deliver.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the delivery goroutine to finish before asserting.
+	b.Drain()
 
 	assert.Len(t, delivered, 1)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:123456789012:function:target", delivered[0].destinationArn)
 	assert.NotEmpty(t, delivered[0].payload)
+}
+
+func TestCloudWatchLogsBackend_PutLogEvents_BoundedWorkerPool(t *testing.T) {
+	t.Parallel()
+
+	const (
+		numEvents  = 20
+		workersCap = 4
+	)
+
+	// concurrencyHigh tracks the highest observed concurrent delivery count.
+	var mu sync.Mutex
+	var inFlight, concurrencyHigh int
+
+	ready := make(chan struct{})
+
+	// reachedCap is closed once workersCap goroutines are simultaneously in the deliverer.
+	var atCap sync.Once
+	reachedCap := make(chan struct{})
+
+	deliverer := cloudwatchlogs.SubscriptionDelivererFunc(func(ctx context.Context, _ string, _ []byte) error {
+		mu.Lock()
+		inFlight++
+		if inFlight > concurrencyHigh {
+			concurrencyHigh = inFlight
+		}
+		if inFlight >= workersCap {
+			atCap.Do(func() { close(reachedCap) })
+		}
+		mu.Unlock()
+
+		// Hold until the test signals all goroutines to proceed.
+		select {
+		case <-ready:
+		case <-ctx.Done():
+		}
+
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+
+		return nil
+	})
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	// Limit to workersCap concurrent workers so we can verify the cap is respected.
+	b.SetDeliveryWorkers(workersCap)
+	b.SetDeliveryTimeout(0) // disable timeout so the hold above doesn't race
+	b.SetSubscriptionDeliverer(deliverer)
+
+	_, _ = b.CreateLogGroup("grp")
+	_, _ = b.CreateLogStream("grp", "stream")
+	_ = b.PutSubscriptionFilter("grp", "f", "", "arn:aws:lambda:us-east-1:123456789012:function:fn")
+
+	for i := range numEvents {
+		_, err := b.PutLogEvents("grp", "stream", []cloudwatchlogs.InputLogEvent{
+			{Message: fmt.Sprintf("msg-%d", i), Timestamp: int64(i)},
+		})
+		require.NoError(t, err)
+	}
+
+	// Wait until the semaphore is full before inspecting peak concurrency.
+	<-reachedCap
+
+	mu.Lock()
+	peak := concurrencyHigh
+	mu.Unlock()
+
+	// The peak concurrency must not exceed the configured worker cap.
+	assert.LessOrEqual(t, peak, workersCap)
+
+	close(ready)
+	b.Drain()
+}
+
+func TestCloudWatchLogsBackend_Close_CancelsInFlightDeliveries(t *testing.T) {
+	t.Parallel()
+
+	started := make(chan struct{})
+	deliveryCancelled := make(chan struct{}, 1)
+
+	deliverer := cloudwatchlogs.SubscriptionDelivererFunc(func(ctx context.Context, _ string, _ []byte) error {
+		// Signal that the delivery goroutine has started and is in progress.
+		close(started)
+		// Block until the context is cancelled.
+		<-ctx.Done()
+		select {
+		case deliveryCancelled <- struct{}{}:
+		default:
+		}
+
+		return ctx.Err()
+	})
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	b.SetDeliveryTimeout(0) // disable timeout so Close() is the only cancellation source
+	b.SetSubscriptionDeliverer(deliverer)
+
+	_, _ = b.CreateLogGroup("grp")
+	_, _ = b.CreateLogStream("grp", "stream")
+	_ = b.PutSubscriptionFilter("grp", "f", "", "arn:aws:lambda:us-east-1:123456789012:function:fn")
+
+	_, err := b.PutLogEvents("grp", "stream", []cloudwatchlogs.InputLogEvent{
+		{Message: "hello", Timestamp: 1},
+	})
+	require.NoError(t, err)
+
+	// Wait until the goroutine has started and is blocking inside the deliverer before closing.
+	<-started
+
+	// Close cancels the lifecycle context and waits for the goroutine to exit.
+	b.Close()
+
+	select {
+	case <-deliveryCancelled:
+		// goroutine observed context cancellation — expected
+	default:
+		require.FailNow(t, "expected in-flight delivery to be cancelled by Close()")
+	}
 }
 
 func TestCloudWatchLogsBackend_DeleteLogGroup_ClearsSubscriptionFilters(t *testing.T) {
