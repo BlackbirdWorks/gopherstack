@@ -121,6 +121,8 @@ type InMemoryBackend struct {
 	routeTables        map[string]*RouteTable
 	natGateways        map[string]*NatGateway
 	networkInterfaces  map[string]*NetworkInterface
+	spotRequests       map[string]*SpotInstanceRequest
+	placementGroups    map[string]*PlacementGroup
 	tags               map[string]map[string]string // resourceID → key → value
 	mu                 *lockmetrics.RWMutex
 	AccountID          string
@@ -143,6 +145,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		routeTables:       make(map[string]*RouteTable),
 		natGateways:       make(map[string]*NatGateway),
 		networkInterfaces: make(map[string]*NetworkInterface),
+		spotRequests:      make(map[string]*SpotInstanceRequest),
+		placementGroups:   make(map[string]*PlacementGroup),
 		tags:              make(map[string]map[string]string),
 		AccountID:         accountID,
 		Region:            region,

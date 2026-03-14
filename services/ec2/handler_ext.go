@@ -425,12 +425,32 @@ type deleteNatGatewayResponse struct {
 	NatGatewayID string   `xml:"natGatewayId"`
 }
 
+type networkInterfacePrivateIPItem struct {
+	PrivateIPAddress string `xml:"privateIpAddress"`
+	Primary          bool   `xml:"primary"`
+}
+
+type networkInterfacePrivateIPSet struct {
+	Items []networkInterfacePrivateIPItem `xml:"item"`
+}
+
+type networkInterfaceAttachment struct {
+	AttachmentID string `xml:"attachmentId,omitempty"`
+	InstanceID   string `xml:"instanceId,omitempty"`
+	Status       string `xml:"status,omitempty"`
+	DeviceIndex  int    `xml:"deviceIndex,omitempty"`
+}
+
 type networkInterfaceItem struct {
-	NetworkInterfaceID string `xml:"networkInterfaceId"`
-	SubnetID           string `xml:"subnetId"`
-	VPCID              string `xml:"vpcId"`
-	PrivateIPAddress   string `xml:"privateIpAddress"`
-	Status             string `xml:"status"`
+	Attachment            *networkInterfaceAttachment  `xml:"attachment,omitempty"`
+	NetworkInterfaceID    string                       `xml:"networkInterfaceId"`
+	SubnetID              string                       `xml:"subnetId"`
+	VPCID                 string                       `xml:"vpcId"`
+	PrivateIPAddress      string                       `xml:"privateIpAddress"`
+	Description           string                       `xml:"description"`
+	Status                string                       `xml:"status"`
+	PrivateIPAddressesSet networkInterfacePrivateIPSet `xml:"privateIpAddressesSet"`
+	SourceDestCheck       bool                         `xml:"sourceDestCheck"`
 }
 
 type networkInterfaceItemSet struct {
@@ -1242,13 +1262,7 @@ func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string)
 
 	items := make([]networkInterfaceItem, 0, len(enis))
 	for _, eni := range enis {
-		items = append(items, networkInterfaceItem{
-			NetworkInterfaceID: eni.ID,
-			SubnetID:           eni.SubnetID,
-			VPCID:              eni.VPCID,
-			PrivateIPAddress:   eni.PrivateIP,
-			Status:             eni.Status,
-		})
+		items = append(items, toNetworkInterfaceItem(eni))
 	}
 
 	return &describeNetworkInterfacesResponse{
@@ -1423,4 +1437,634 @@ func (h *Handler) handleDescribeImageAttribute(vals url.Values, reqID string) (a
 	}
 
 	return resp, nil
+}
+
+// ---- network interface helpers ----
+
+func toNetworkInterfaceItem(eni *NetworkInterface) networkInterfaceItem {
+	privateIPs := make([]networkInterfacePrivateIPItem, 0, 1+len(eni.SecondaryPrivateIPs))
+	privateIPs = append(privateIPs, networkInterfacePrivateIPItem{
+		PrivateIPAddress: eni.PrivateIP,
+		Primary:          true,
+	})
+
+	for _, ip := range eni.SecondaryPrivateIPs {
+		privateIPs = append(privateIPs, networkInterfacePrivateIPItem{
+			PrivateIPAddress: ip,
+			Primary:          false,
+		})
+	}
+
+	item := networkInterfaceItem{
+		NetworkInterfaceID:    eni.ID,
+		SubnetID:              eni.SubnetID,
+		VPCID:                 eni.VPCID,
+		PrivateIPAddress:      eni.PrivateIP,
+		Description:           eni.Description,
+		Status:                eni.Status,
+		SourceDestCheck:       eni.SourceDestCheck,
+		PrivateIPAddressesSet: networkInterfacePrivateIPSet{Items: privateIPs},
+	}
+
+	if eni.AttachmentID != "" {
+		item.Attachment = &networkInterfaceAttachment{
+			AttachmentID: eni.AttachmentID,
+			InstanceID:   eni.InstanceID,
+			DeviceIndex:  eni.DeviceIndex,
+			Status:       "attached",
+		}
+	}
+
+	return item
+}
+
+// ---- network interface CRUD handlers ----
+
+func (h *Handler) handleCreateNetworkInterface(vals url.Values, reqID string) (any, error) {
+	subnetID := vals.Get("SubnetId")
+	if subnetID == "" {
+		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
+	}
+
+	description := vals.Get("Description")
+
+	eni, err := h.Backend.CreateNetworkInterface(subnetID, description)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createNetworkInterfaceResponse{
+		Xmlns:            ec2XMLNS,
+		RequestID:        reqID,
+		NetworkInterface: toNetworkInterfaceItem(eni),
+	}, nil
+}
+
+type createNetworkInterfaceResponse struct {
+	XMLName          xml.Name             `xml:"CreateNetworkInterfaceResponse"`
+	Xmlns            string               `xml:"xmlns,attr"`
+	RequestID        string               `xml:"requestId"`
+	NetworkInterface networkInterfaceItem `xml:"networkInterface"`
+}
+
+func (h *Handler) handleDeleteNetworkInterface(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("NetworkInterfaceId")
+	if id == "" {
+		return nil, fmt.Errorf("%w: NetworkInterfaceId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeleteNetworkInterface(id); err != nil {
+		return nil, err
+	}
+
+	return &deleteNetworkInterfaceResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type deleteNetworkInterfaceResponse struct {
+	XMLName   xml.Name `xml:"DeleteNetworkInterfaceResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleAttachNetworkInterface(vals url.Values, reqID string) (any, error) {
+	eniID := vals.Get("NetworkInterfaceId")
+	instanceID := vals.Get("InstanceId")
+
+	if eniID == "" || instanceID == "" {
+		return nil, fmt.Errorf("%w: NetworkInterfaceId and InstanceId are required", ErrInvalidParameter)
+	}
+
+	deviceIndex := 1
+	if v := vals.Get("DeviceIndex"); v != "" {
+		fmt.Sscan(v, &deviceIndex) //nolint:errcheck,gosec // parse best-effort; invalid values fall back to 1
+	}
+
+	attachmentID, err := h.Backend.AttachNetworkInterface(eniID, instanceID, deviceIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	return &attachNetworkInterfaceResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		AttachmentID: attachmentID,
+	}, nil
+}
+
+type attachNetworkInterfaceResponse struct {
+	XMLName      xml.Name `xml:"AttachNetworkInterfaceResponse"`
+	Xmlns        string   `xml:"xmlns,attr"`
+	RequestID    string   `xml:"requestId"`
+	AttachmentID string   `xml:"attachmentId"`
+}
+
+func (h *Handler) handleDetachNetworkInterface(vals url.Values, reqID string) (any, error) {
+	attachmentID := vals.Get("AttachmentId")
+	if attachmentID == "" {
+		return nil, fmt.Errorf("%w: AttachmentId is required", ErrInvalidParameter)
+	}
+
+	force := vals.Get("Force") == ec2BooleanTrue
+
+	if err := h.Backend.DetachNetworkInterface(attachmentID, force); err != nil {
+		return nil, err
+	}
+
+	return &detachNetworkInterfaceResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type detachNetworkInterfaceResponse struct {
+	XMLName   xml.Name `xml:"DetachNetworkInterfaceResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleAssignPrivateIPAddresses(vals url.Values, reqID string) (any, error) {
+	eniID := vals.Get("NetworkInterfaceId")
+	if eniID == "" {
+		return nil, fmt.Errorf("%w: NetworkInterfaceId is required", ErrInvalidParameter)
+	}
+
+	count := 0
+	if v := vals.Get("SecondaryPrivateIpAddressCount"); v != "" {
+		fmt.Sscan(v, &count) //nolint:errcheck,gosec // parse best-effort
+	}
+
+	ips := parseMemberList(vals, "PrivateIpAddress")
+
+	if err := h.Backend.AssignPrivateIPAddresses(eniID, count, ips); err != nil {
+		return nil, err
+	}
+
+	return &assignPrivateIPAddressesResponse{
+		Xmlns:              ec2XMLNS,
+		RequestID:          reqID,
+		NetworkInterfaceID: eniID,
+		Return:             true,
+	}, nil
+}
+
+type assignPrivateIPAddressesResponse struct {
+	XMLName            xml.Name `xml:"AssignPrivateIPAddressesResponse"`
+	Xmlns              string   `xml:"xmlns,attr"`
+	RequestID          string   `xml:"requestId"`
+	NetworkInterfaceID string   `xml:"networkInterfaceId"`
+	Return             bool     `xml:"return"`
+}
+
+func (h *Handler) handleUnassignPrivateIPAddresses(vals url.Values, reqID string) (any, error) {
+	eniID := vals.Get("NetworkInterfaceId")
+	if eniID == "" {
+		return nil, fmt.Errorf("%w: NetworkInterfaceId is required", ErrInvalidParameter)
+	}
+
+	ips := parseMemberList(vals, "PrivateIpAddress")
+
+	if err := h.Backend.UnassignPrivateIPAddresses(eniID, ips); err != nil {
+		return nil, err
+	}
+
+	return &unassignPrivateIPAddressesResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type unassignPrivateIPAddressesResponse struct {
+	XMLName   xml.Name `xml:"UnassignPrivateIPAddressesResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleModifyNetworkInterfaceAttribute(vals url.Values, reqID string) (any, error) {
+	eniID := vals.Get("NetworkInterfaceId")
+	if eniID == "" {
+		return nil, fmt.Errorf("%w: NetworkInterfaceId is required", ErrInvalidParameter)
+	}
+
+	// Determine which attribute is being modified.
+	// AWS sends the attribute as a nested element: e.g. Description.Value, SourceDestCheck.Value
+	attr := ""
+	value := ""
+
+	if desc := vals.Get("Description.Value"); desc != "" {
+		attr = "description"
+		value = desc
+	} else if sdc := vals.Get("SourceDestCheck.Value"); sdc != "" {
+		attr = attrSourceDest
+		value = sdc
+	}
+
+	if err := h.Backend.ModifyNetworkInterfaceAttribute(eniID, attr, value); err != nil {
+		return nil, err
+	}
+
+	return &modifyNetworkInterfaceAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type modifyNetworkInterfaceAttributeResponse struct {
+	XMLName   xml.Name `xml:"ModifyNetworkInterfaceAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+// ---- instance attribute stubs ----
+
+func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (any, error) {
+	instanceID := vals.Get("InstanceId")
+	if instanceID == "" {
+		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
+	}
+
+	return &modifyInstanceAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type modifyInstanceAttributeResponse struct {
+	XMLName   xml.Name `xml:"ModifyInstanceAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleResetInstanceAttribute(vals url.Values, reqID string) (any, error) {
+	instanceID := vals.Get("InstanceId")
+	if instanceID == "" {
+		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
+	}
+
+	return &resetInstanceAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+type resetInstanceAttributeResponse struct {
+	XMLName   xml.Name `xml:"ResetInstanceAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+// ---- spot instances ----
+
+type spotLaunchSpecItem struct {
+	ImageID      string `xml:"imageId"`
+	InstanceType string `xml:"instanceType"`
+	SubnetID     string `xml:"subnetId,omitempty"`
+}
+
+type spotInstanceRequestItem struct {
+	LaunchSpecification   spotLaunchSpecItem `xml:"launchSpecification"`
+	SpotInstanceRequestID string             `xml:"spotInstanceRequestId"`
+	InstanceID            string             `xml:"instanceId,omitempty"`
+	State                 string             `xml:"state"`
+	SpotPrice             string             `xml:"spotPrice"`
+	Type                  string             `xml:"type"`
+	CreateTime            string             `xml:"createTime"`
+}
+
+type spotInstanceRequestSet struct {
+	Items []spotInstanceRequestItem `xml:"item"`
+}
+
+type requestSpotInstancesResponse struct {
+	XMLName                xml.Name               `xml:"RequestSpotInstancesResponse"`
+	Xmlns                  string                 `xml:"xmlns,attr"`
+	RequestID              string                 `xml:"requestId"`
+	SpotInstanceRequestSet spotInstanceRequestSet `xml:"spotInstanceRequestSet"`
+}
+
+type describeSpotInstanceRequestsResponse struct {
+	XMLName                xml.Name               `xml:"DescribeSpotInstanceRequestsResponse"`
+	Xmlns                  string                 `xml:"xmlns,attr"`
+	RequestID              string                 `xml:"requestId"`
+	SpotInstanceRequestSet spotInstanceRequestSet `xml:"spotInstanceRequestSet"`
+}
+
+type cancelledSpotItem struct {
+	SpotInstanceRequestID string `xml:"spotInstanceRequestId"`
+	State                 string `xml:"state"`
+}
+
+type cancelledSpotSet struct {
+	Items []cancelledSpotItem `xml:"item"`
+}
+
+type cancelSpotInstanceRequestsResponse struct {
+	XMLName                xml.Name         `xml:"CancelSpotInstanceRequestsResponse"`
+	Xmlns                  string           `xml:"xmlns,attr"`
+	RequestID              string           `xml:"requestId"`
+	SpotInstanceRequestSet cancelledSpotSet `xml:"spotInstanceRequestSet"`
+}
+
+type describeSpotPriceHistoryResponse struct {
+	SpotPriceHistorySet struct{} `xml:"spotPriceHistorySet"`
+	XMLName             xml.Name `xml:"DescribeSpotPriceHistoryResponse"`
+	Xmlns               string   `xml:"xmlns,attr"`
+	RequestID           string   `xml:"requestId"`
+}
+
+func toSpotRequestItem(req *SpotInstanceRequest) spotInstanceRequestItem {
+	return spotInstanceRequestItem{
+		SpotInstanceRequestID: req.ID,
+		InstanceID:            req.InstanceID,
+		State:                 req.State,
+		SpotPrice:             req.SpotPrice,
+		Type:                  req.Type,
+		CreateTime:            req.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+		LaunchSpecification: spotLaunchSpecItem{
+			ImageID:      req.LaunchSpec.ImageID,
+			InstanceType: req.LaunchSpec.InstanceType,
+			SubnetID:     req.LaunchSpec.SubnetID,
+		},
+	}
+}
+
+func (h *Handler) handleRequestSpotInstances(vals url.Values, reqID string) (any, error) {
+	imageID := vals.Get("LaunchSpecification.ImageId")
+	instanceType := vals.Get("LaunchSpecification.InstanceType")
+	subnetID := vals.Get("LaunchSpecification.SubnetId")
+	spotPrice := vals.Get("SpotPrice")
+
+	if imageID == "" {
+		return nil, fmt.Errorf("%w: LaunchSpecification.ImageId is required", ErrInvalidParameter)
+	}
+
+	req, err := h.Backend.RequestSpotInstances(imageID, instanceType, subnetID, spotPrice)
+	if err != nil {
+		return nil, err
+	}
+
+	return &requestSpotInstancesResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		SpotInstanceRequestSet: spotInstanceRequestSet{
+			Items: []spotInstanceRequestItem{toSpotRequestItem(req)},
+		},
+	}, nil
+}
+
+func (h *Handler) handleDescribeSpotInstanceRequests(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "SpotInstanceRequestId")
+	reqs := h.Backend.DescribeSpotInstanceRequests(ids)
+
+	items := make([]spotInstanceRequestItem, 0, len(reqs))
+	for _, req := range reqs {
+		items = append(items, toSpotRequestItem(req))
+	}
+
+	return &describeSpotInstanceRequestsResponse{
+		Xmlns:                  ec2XMLNS,
+		RequestID:              reqID,
+		SpotInstanceRequestSet: spotInstanceRequestSet{Items: items},
+	}, nil
+}
+
+func (h *Handler) handleCancelSpotInstanceRequests(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "SpotInstanceRequestId")
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: at least one SpotInstanceRequestId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.CancelSpotInstanceRequests(ids); err != nil {
+		return nil, err
+	}
+
+	items := make([]cancelledSpotItem, 0, len(ids))
+	for _, id := range ids {
+		items = append(items, cancelledSpotItem{SpotInstanceRequestID: id, State: "cancelled"})
+	}
+
+	return &cancelSpotInstanceRequestsResponse{
+		Xmlns:                  ec2XMLNS,
+		RequestID:              reqID,
+		SpotInstanceRequestSet: cancelledSpotSet{Items: items},
+	}, nil
+}
+
+// handleDescribeSpotPriceHistory returns an empty stub response.
+// Real spot price history is region/AZ/instance-type dependent and not modelled.
+func (h *Handler) handleDescribeSpotPriceHistory(_ url.Values, reqID string) (any, error) {
+	return &describeSpotPriceHistoryResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+// ---- placement groups ----
+
+type placementGroupItem struct {
+	GroupName string `xml:"groupName"`
+	Strategy  string `xml:"strategy"`
+	State     string `xml:"state"`
+}
+
+type placementGroupSet struct {
+	Items []placementGroupItem `xml:"item"`
+}
+
+type describePlacementGroupsResponse struct {
+	XMLName           xml.Name          `xml:"DescribePlacementGroupsResponse"`
+	Xmlns             string            `xml:"xmlns,attr"`
+	RequestID         string            `xml:"requestId"`
+	PlacementGroupSet placementGroupSet `xml:"placementGroupSet"`
+}
+
+type createPlacementGroupResponse struct {
+	XMLName   xml.Name `xml:"CreatePlacementGroupResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+type deletePlacementGroupResponse struct {
+	XMLName   xml.Name `xml:"DeletePlacementGroupResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+func (h *Handler) handleCreatePlacementGroup(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("GroupName")
+	strategy := vals.Get("Strategy")
+
+	if name == "" {
+		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
+	}
+
+	if _, err := h.Backend.CreatePlacementGroup(name, strategy); err != nil {
+		return nil, err
+	}
+
+	return &createPlacementGroupResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleDescribePlacementGroups(vals url.Values, reqID string) (any, error) {
+	names := parseMemberList(vals, "GroupName")
+	pgs := h.Backend.DescribePlacementGroups(names)
+
+	items := make([]placementGroupItem, 0, len(pgs))
+	for _, pg := range pgs {
+		items = append(items, placementGroupItem{
+			GroupName: pg.Name,
+			Strategy:  pg.Strategy,
+			State:     pg.State,
+		})
+	}
+
+	return &describePlacementGroupsResponse{
+		Xmlns:             ec2XMLNS,
+		RequestID:         reqID,
+		PlacementGroupSet: placementGroupSet{Items: items},
+	}, nil
+}
+
+func (h *Handler) handleDeletePlacementGroup(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("GroupName")
+	if name == "" {
+		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeletePlacementGroup(name); err != nil {
+		return nil, err
+	}
+
+	return &deletePlacementGroupResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+// ---- volume / snapshot attribute stubs ----
+
+type describeVolumeAttributeResponse struct {
+	XMLName   xml.Name `xml:"DescribeVolumeAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	VolumeID  string   `xml:"volumeId"`
+	Attribute namedBoolAttr
+}
+
+type modifyVolumeAttributeResponse struct {
+	XMLName   xml.Name `xml:"ModifyVolumeAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+type describeSnapshotAttributeResponse struct {
+	XMLName    xml.Name `xml:"DescribeSnapshotAttributeResponse"`
+	Xmlns      string   `xml:"xmlns,attr"`
+	RequestID  string   `xml:"requestId"`
+	SnapshotID string   `xml:"snapshotId"`
+	// createVolumePermission is the only attribute modelled; others return empty.
+	CreateVolumePermission launchPermissionList `xml:"createVolumePermission"`
+}
+
+type modifySnapshotAttributeResponse struct {
+	XMLName   xml.Name `xml:"ModifySnapshotAttributeResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+// handleDescribeVolumeAttribute returns a stub value for the requested volume attribute.
+// autoEnableIO is the only attribute modelled; others return false.
+func (h *Handler) handleDescribeVolumeAttribute(vals url.Values, reqID string) (any, error) {
+	volumeID := vals.Get("VolumeId")
+	if volumeID == "" {
+		return nil, fmt.Errorf("%w: VolumeId is required", ErrInvalidParameter)
+	}
+
+	attr := vals.Get("Attribute")
+	if attr == "" {
+		return nil, fmt.Errorf("%w: Attribute is required", ErrInvalidParameter)
+	}
+
+	return &describeVolumeAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		VolumeID:  volumeID,
+		Attribute: namedBoolAttr{XMLName: xml.Name{Local: attr}, Value: "false"},
+	}, nil
+}
+
+// handleModifyVolumeAttribute is a stub that accepts any attribute modification and returns success.
+func (h *Handler) handleModifyVolumeAttribute(vals url.Values, reqID string) (any, error) {
+	if vals.Get("VolumeId") == "" {
+		return nil, fmt.Errorf("%w: VolumeId is required", ErrInvalidParameter)
+	}
+
+	return &modifyVolumeAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+// handleDescribeSnapshotAttribute returns stub snapshot attribute data.
+func (h *Handler) handleDescribeSnapshotAttribute(vals url.Values, reqID string) (any, error) {
+	snapshotID := vals.Get("SnapshotId")
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: SnapshotId is required", ErrInvalidParameter)
+	}
+
+	attr := vals.Get("Attribute")
+	if attr == "" {
+		return nil, fmt.Errorf("%w: Attribute is required", ErrInvalidParameter)
+	}
+
+	resp := &describeSnapshotAttributeResponse{
+		Xmlns:      ec2XMLNS,
+		RequestID:  reqID,
+		SnapshotID: snapshotID,
+	}
+
+	if attr == "createVolumePermission" {
+		resp.CreateVolumePermission = launchPermissionList{
+			Items: []launchPermissionItem{{Group: "all"}},
+		}
+	}
+
+	return resp, nil
+}
+
+// handleModifySnapshotAttribute is a stub that accepts any attribute modification and returns success.
+func (h *Handler) handleModifySnapshotAttribute(vals url.Values, reqID string) (any, error) {
+	if vals.Get("SnapshotId") == "" {
+		return nil, fmt.Errorf("%w: SnapshotId is required", ErrInvalidParameter)
+	}
+
+	return &modifySnapshotAttributeResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
 }
