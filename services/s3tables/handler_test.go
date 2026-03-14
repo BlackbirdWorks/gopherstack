@@ -142,7 +142,7 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		{name: "matches /namespaces/arn", path: "/namespaces/arn:aws:s3tables:us-east-1:123:bucket/test", want: true},
 		{name: "matches /tables/arn", path: "/tables/arn:aws:s3tables:us-east-1:123:bucket/test", want: true},
 		{name: "matches /get-table", path: "/get-table", want: true},
-		{name: "matches /tag/arn", path: "/tag/arn:aws:s3tables:us-east-1:123:bucket/test", want: true},
+		{name: "matches /tag/arn", path: "/tag/arn:aws:s3tables:us-east-1:123:bucket/test", want: false},
 		{name: "no match /s3", path: "/s3", want: false},
 		{name: "no match /", path: "/", want: false},
 	}

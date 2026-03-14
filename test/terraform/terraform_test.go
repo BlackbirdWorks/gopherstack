@@ -6308,7 +6308,7 @@ func TestTerraform_Wafv2(t *testing.T) {
 	}
 }
 
-// TestTerraform_S3Tables provisions an S3 Tables table bucket via Terraform and verifies the service responds.
+// TestTerraform_S3Tables provisions S3 Tables resources via Terraform and verifies the service responds.
 func TestTerraform_S3Tables(t *testing.T) {
 	t.Parallel()
 
@@ -6331,25 +6331,44 @@ func TestTerraform_S3Tables(t *testing.T) {
 
 				client := createS3TablesClient(t)
 
-				// ListTableBuckets should return at least one bucket.
-				listOut, err := client.ListTableBuckets(ctx, &s3tablessvc.ListTableBucketsInput{})
-				require.NoError(t, err, "ListTableBuckets should succeed")
-				assert.NotEmpty(t, listOut.TableBuckets, "expected at least one table bucket")
-
 				suffix, ok := vars["Suffix"].(string)
 				require.True(t, ok, "Suffix must be a string")
-				expectedName := "tf-s3t-" + suffix
 
-				found := false
+				bucketName := "tf-s3t-" + suffix
+				tableName := "tf-table-" + suffix
+				nsName := "tf-ns-" + suffix
+
+				// ListTableBuckets should include our bucket.
+				listOut, err := client.ListTableBuckets(ctx, &s3tablessvc.ListTableBucketsInput{})
+				require.NoError(t, err, "ListTableBuckets should succeed")
+
+				var bucketARN string
+
 				for _, b := range listOut.TableBuckets {
-					if aws.ToString(b.Name) == expectedName {
-						found = true
+					if aws.ToString(b.Name) == bucketName {
+						bucketARN = aws.ToString(b.Arn)
 
 						break
 					}
 				}
 
-				assert.True(t, found, "expected to find table bucket %q in list", expectedName)
+				require.NotEmpty(t, bucketARN, "expected to find table bucket %q in list", bucketName)
+
+				// GetTableBucket should return the bucket.
+				getOut, err := client.GetTableBucket(ctx, &s3tablessvc.GetTableBucketInput{
+					TableBucketARN: aws.String(bucketARN),
+				})
+				require.NoError(t, err)
+				assert.Equal(t, bucketName, aws.ToString(getOut.Name))
+
+				// GetTable should return the table created by TF.
+				getTblOut, err := client.GetTable(ctx, &s3tablessvc.GetTableInput{
+					TableBucketARN: aws.String(bucketARN),
+					Namespace:      aws.String(nsName),
+					Name:           aws.String(tableName),
+				})
+				require.NoError(t, err)
+				assert.Equal(t, tableName, aws.ToString(getTblOut.Name))
 			},
 		},
 	}

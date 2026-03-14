@@ -100,6 +100,9 @@ func (b *InMemoryBackend) TableARN(bucketName, namespaceName, tableName string) 
 		"bucket/"+bucketName+"/table/"+namespaceName+"/"+tableName)
 }
 
+// Region returns the AWS region this backend is configured for.
+func (b *InMemoryBackend) Region() string { return b.region }
+
 func namespaceKey(tableBucketARN, namespace string) string {
 	return tableBucketARN + "::" + namespace
 }

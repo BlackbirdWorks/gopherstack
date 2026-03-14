@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	s3tablesclientsdk "github.com/aws/aws-sdk-go-v2/service/s3tables"
+	"github.com/aws/aws-sdk-go-v2/service/s3tables/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -286,6 +287,322 @@ func TestIntegration_S3Tables_TableLifecycle(t *testing.T) {
 				Name:           aws.String(tt.tableName),
 			})
 			require.Error(t, err)
+		})
+	}
+}
+
+func TestIntegration_S3Tables_TableBucket_Policy(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createS3TablesClient(t)
+	ctx := t.Context()
+
+	bucketName := "integ-pol-bucket-" + uuid.NewString()[:8]
+
+	bucketOut, createErr := client.CreateTableBucket(ctx, &s3tablesclientsdk.CreateTableBucketInput{
+		Name: aws.String(bucketName),
+	})
+	require.NoError(t, createErr)
+
+	bucketARN := aws.ToString(bucketOut.Arn)
+	policy := `{"Version":"2012-10-17","Statement":[]}`
+
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{name: "put_get_delete_bucket_policy", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// PutTableBucketPolicy
+			_, err := client.PutTableBucketPolicy(ctx, &s3tablesclientsdk.PutTableBucketPolicyInput{
+				TableBucketARN: aws.String(bucketARN),
+				ResourcePolicy: aws.String(policy),
+			})
+			require.NoError(t, err)
+
+			// GetTableBucketPolicy
+			getOut, err := client.GetTableBucketPolicy(ctx, &s3tablesclientsdk.GetTableBucketPolicyInput{
+				TableBucketARN: aws.String(bucketARN),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, policy, aws.ToString(getOut.ResourcePolicy))
+
+			// DeleteTableBucketPolicy
+			_, err = client.DeleteTableBucketPolicy(ctx, &s3tablesclientsdk.DeleteTableBucketPolicyInput{
+				TableBucketARN: aws.String(bucketARN),
+			})
+			require.NoError(t, err)
+
+			// GetTableBucketPolicy after delete should return an error
+			_, err = client.GetTableBucketPolicy(ctx, &s3tablesclientsdk.GetTableBucketPolicyInput{
+				TableBucketARN: aws.String(bucketARN),
+			})
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestIntegration_S3Tables_Table_Policy(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createS3TablesClient(t)
+	ctx := t.Context()
+
+	bucketName := "integ-tpol-bucket-" + uuid.NewString()[:8]
+	nsName := "integ-tpol-ns-" + uuid.NewString()[:8]
+	tableName := "integ-tpol-tbl-" + uuid.NewString()[:8]
+
+	bucketOut, setupErr := client.CreateTableBucket(ctx, &s3tablesclientsdk.CreateTableBucketInput{
+		Name: aws.String(bucketName),
+	})
+	require.NoError(t, setupErr)
+
+	bucketARN := aws.ToString(bucketOut.Arn)
+
+	_, setupErr = client.CreateNamespace(ctx, &s3tablesclientsdk.CreateNamespaceInput{
+		TableBucketARN: aws.String(bucketARN),
+		Namespace:      []string{nsName},
+	})
+	require.NoError(t, setupErr)
+
+	_, setupErr = client.CreateTable(ctx, &s3tablesclientsdk.CreateTableInput{
+		TableBucketARN: aws.String(bucketARN),
+		Namespace:      aws.String(nsName),
+		Name:           aws.String(tableName),
+		Format:         "ICEBERG",
+	})
+	require.NoError(t, setupErr)
+
+	policy := `{"Version":"2012-10-17","Statement":[]}`
+
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{name: "put_get_delete_table_policy", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				err    error
+				getOut *s3tablesclientsdk.GetTablePolicyOutput
+			)
+
+			// PutTablePolicy
+			_, err = client.PutTablePolicy(ctx, &s3tablesclientsdk.PutTablePolicyInput{
+				TableBucketARN: aws.String(bucketARN),
+				Namespace:      aws.String(nsName),
+				Name:           aws.String(tableName),
+				ResourcePolicy: aws.String(policy),
+			})
+			require.NoError(t, err)
+
+			// GetTablePolicy
+			getOut, err = client.GetTablePolicy(ctx, &s3tablesclientsdk.GetTablePolicyInput{
+				TableBucketARN: aws.String(bucketARN),
+				Namespace:      aws.String(nsName),
+				Name:           aws.String(tableName),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, policy, aws.ToString(getOut.ResourcePolicy))
+
+			// DeleteTablePolicy
+			_, err = client.DeleteTablePolicy(ctx, &s3tablesclientsdk.DeleteTablePolicyInput{
+				TableBucketARN: aws.String(bucketARN),
+				Namespace:      aws.String(nsName),
+				Name:           aws.String(tableName),
+			})
+			require.NoError(t, err)
+
+			// GetTablePolicy after delete should return an error
+			_, err = client.GetTablePolicy(ctx, &s3tablesclientsdk.GetTablePolicyInput{
+				TableBucketARN: aws.String(bucketARN),
+				Namespace:      aws.String(nsName),
+				Name:           aws.String(tableName),
+			})
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestIntegration_S3Tables_MaintenanceConfig(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createS3TablesClient(t)
+	ctx := t.Context()
+
+	bucketName := "integ-maint-bucket-" + uuid.NewString()[:8]
+	nsName := "integ-maint-ns-" + uuid.NewString()[:8]
+	tableName := "integ-maint-tbl-" + uuid.NewString()[:8]
+
+	bucketOut, setupErr := client.CreateTableBucket(ctx, &s3tablesclientsdk.CreateTableBucketInput{
+		Name: aws.String(bucketName),
+	})
+	require.NoError(t, setupErr)
+
+	bucketARN := aws.ToString(bucketOut.Arn)
+
+	_, setupErr = client.CreateNamespace(ctx, &s3tablesclientsdk.CreateNamespaceInput{
+		TableBucketARN: aws.String(bucketARN),
+		Namespace:      []string{nsName},
+	})
+	require.NoError(t, setupErr)
+
+	_, setupErr = client.CreateTable(ctx, &s3tablesclientsdk.CreateTableInput{
+		TableBucketARN: aws.String(bucketARN),
+		Namespace:      aws.String(nsName),
+		Name:           aws.String(tableName),
+		Format:         "ICEBERG",
+	})
+	require.NoError(t, setupErr)
+
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{name: "bucket_and_table_maintenance_config", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				err               error
+				getBucketMaintOut *s3tablesclientsdk.GetTableBucketMaintenanceConfigurationOutput
+				getTableMaintOut  *s3tablesclientsdk.GetTableMaintenanceConfigurationOutput
+			)
+
+			// GetTableBucketMaintenanceConfiguration (default empty config)
+			getBucketMaintOut, err = client.GetTableBucketMaintenanceConfiguration(
+				ctx,
+				&s3tablesclientsdk.GetTableBucketMaintenanceConfigurationInput{
+					TableBucketARN: aws.String(bucketARN),
+				},
+			)
+			require.NoError(t, err)
+			assert.NotNil(t, getBucketMaintOut)
+
+			// PutTableBucketMaintenanceConfiguration
+			_, err = client.PutTableBucketMaintenanceConfiguration(
+				ctx,
+				&s3tablesclientsdk.PutTableBucketMaintenanceConfigurationInput{
+					TableBucketARN: aws.String(bucketARN),
+					Type:           types.TableBucketMaintenanceTypeIcebergUnreferencedFileRemoval,
+					Value: &types.TableBucketMaintenanceConfigurationValue{
+						Status: types.MaintenanceStatusEnabled,
+					},
+				},
+			)
+			require.NoError(t, err)
+
+			// GetTableMaintenanceConfiguration (default empty config)
+			getTableMaintOut, err = client.GetTableMaintenanceConfiguration(
+				ctx,
+				&s3tablesclientsdk.GetTableMaintenanceConfigurationInput{
+					TableBucketARN: aws.String(bucketARN),
+					Namespace:      aws.String(nsName),
+					Name:           aws.String(tableName),
+				},
+			)
+			require.NoError(t, err)
+			assert.NotNil(t, getTableMaintOut)
+
+			// PutTableMaintenanceConfiguration
+			_, err = client.PutTableMaintenanceConfiguration(
+				ctx,
+				&s3tablesclientsdk.PutTableMaintenanceConfigurationInput{
+					TableBucketARN: aws.String(bucketARN),
+					Namespace:      aws.String(nsName),
+					Name:           aws.String(tableName),
+					Type:           types.TableMaintenanceTypeIcebergCompaction,
+					Value: &types.TableMaintenanceConfigurationValue{
+						Status: types.MaintenanceStatusEnabled,
+					},
+				},
+			)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestIntegration_S3Tables_NotFound(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createS3TablesClient(t)
+	ctx := t.Context()
+
+	nonExistentARN := "arn:aws:s3tables:us-east-1:000000000000:bucket/does-not-exist"
+
+	tests := []struct {
+		fn   func(t *testing.T)
+		name string
+	}{
+		{
+			name: "GetTableBucket_NotFound",
+			fn: func(t *testing.T) {
+				t.Helper()
+
+				_, err := client.GetTableBucket(ctx, &s3tablesclientsdk.GetTableBucketInput{
+					TableBucketARN: aws.String(nonExistentARN),
+				})
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "GetNamespace_NotFound",
+			fn: func(t *testing.T) {
+				t.Helper()
+
+				_, err := client.GetNamespace(ctx, &s3tablesclientsdk.GetNamespaceInput{
+					TableBucketARN: aws.String(nonExistentARN),
+					Namespace:      aws.String("no-such-ns"),
+				})
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "GetTable_NotFound",
+			fn: func(t *testing.T) {
+				t.Helper()
+
+				_, err := client.GetTable(ctx, &s3tablesclientsdk.GetTableInput{
+					TableBucketARN: aws.String(nonExistentARN),
+					Namespace:      aws.String("no-such-ns"),
+					Name:           aws.String("no-such-table"),
+				})
+				require.Error(t, err)
+			},
+		},
+		{
+			name: "DeleteTableBucket_NotFound",
+			fn: func(t *testing.T) {
+				t.Helper()
+
+				_, err := client.DeleteTableBucket(ctx, &s3tablesclientsdk.DeleteTableBucketInput{
+					TableBucketARN: aws.String(nonExistentARN),
+				})
+				require.Error(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.fn(t)
 		})
 	}
 }

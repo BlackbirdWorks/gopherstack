@@ -94,8 +94,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		return strings.HasPrefix(path, "/buckets") ||
 			strings.HasPrefix(path, "/namespaces") ||
 			strings.HasPrefix(path, "/tables") ||
-			strings.HasPrefix(path, "/get-table") ||
-			strings.HasPrefix(path, "/tag/")
+			strings.HasPrefix(path, "/get-table")
 	}
 }
 
