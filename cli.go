@@ -144,6 +144,7 @@ import (
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
@@ -307,6 +308,7 @@ type CLI struct {
 	verifiedPermissionsHandler    service.Registerable
 	wafv2Handler                  service.Registerable
 	xrayHandler                   service.Registerable
+	s3tablesHandler               service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -835,6 +837,11 @@ func (c *CLI) GetWafv2Handler() service.Registerable { return c.wafv2Handler }
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetXrayHandler() service.Registerable { return c.xrayHandler }
+
+// GetS3TablesHandler returns the S3 Tables handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetS3TablesHandler() service.Registerable { return c.s3tablesHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1556,6 +1563,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.verifiedPermissionsHandler = byName["VerifiedPermissions"]
 	cli.wafv2Handler = byName["Wafv2"]
 	cli.xrayHandler = byName["Xray"]
+	cli.s3tablesHandler = byName["S3tables"]
 }
 
 // initializeServices initializes all service providers.
@@ -1810,6 +1818,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&verifiedpermissionsbackend.Provider{},
 		&wafv2backend.Provider{},
 		&xraybackend.Provider{},
+		&s3tablesbackend.Provider{},
 	}
 }
 
