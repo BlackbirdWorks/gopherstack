@@ -6336,7 +6336,7 @@ func TestTerraform_S3Tables(t *testing.T) {
 
 				bucketName := "tf-s3t-" + suffix
 				tableName := "tf-table-" + suffix
-				nsName := "tf-ns-" + suffix
+				nsName := "tfns" + suffix
 
 				// ListTableBuckets should include our bucket.
 				listOut, err := client.ListTableBuckets(ctx, &s3tablessvc.ListTableBucketsInput{})
