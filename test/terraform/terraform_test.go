@@ -141,6 +141,7 @@ import (
 	timestreamquerytypes "github.com/aws/aws-sdk-go-v2/service/timestreamquery/types"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
 	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
+	xraysvc "github.com/aws/aws-sdk-go-v2/service/xray"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -185,6 +186,15 @@ var (
 	errNoTofuVersions = errors.New("no stable versions found in OpenTofu API response")
 	errTofuNotInZip   = errors.New("tofu binary not found in zip archive")
 )
+
+// setupEndpoint is a shared helper for tfTestCase setup that only needs the Endpoint.
+func setupEndpoint(t *testing.T, _ string) map[string]any {
+	t.Helper()
+
+	return map[string]any{
+		"Endpoint": endpoint,
+	}
+}
 
 // providerBlock returns the OpenTofu required_providers + provider "aws" block
 // pointing all service endpoints at addr (e.g. "http://localhost:32768").
@@ -303,6 +313,7 @@ provider "aws" {
     ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
+    wafv2           = %[1]q
   }
 }
 `, addr)
@@ -790,6 +801,21 @@ func runTFTest(t *testing.T, tc tfTestCase) {
 	if tc.verify != nil {
 		tc.verify(t, ctx, vars)
 	}
+}
+
+// runTfTestWithEndpoint is a specialized runner for tests using setupEndpoint.
+func runTfTestWithEndpoint(t *testing.T, fixture string, verify func(t *testing.T, ctx context.Context)) {
+	t.Helper()
+
+	runTFTest(t, tfTestCase{
+		name:    "success",
+		fixture: fixture,
+		setup:   setupEndpoint,
+		verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+			t.Helper()
+			verify(t, ctx)
+		},
+	})
 }
 
 // TestTerraform_DynamoDB provisions a DynamoDB table and verifies key schema.
@@ -6200,35 +6226,105 @@ func TestTerraform_Transfer(t *testing.T) {
 func TestTerraform_VerifiedPermissions(t *testing.T) {
 	t.Parallel()
 
+	runTfTestWithEndpoint(t, "verifiedpermissions/success", func(t *testing.T, ctx context.Context) {
+		t.Helper()
+
+		client := createVerifiedPermissionsClient(t)
+
+		// List policy stores - should have at least one from Terraform provisioning.
+		listOut, err := client.ListPolicyStores(ctx, &verifiedpermissionssvc.ListPolicyStoresInput{})
+		require.NoError(t, err, "ListPolicyStores should succeed")
+		assert.NotEmpty(t, listOut.PolicyStores, "expected at least one policy store")
+
+		policyStoreID := *listOut.PolicyStores[0].PolicyStoreId
+
+		// Get the policy store.
+		getOut, err := client.GetPolicyStore(ctx, &verifiedpermissionssvc.GetPolicyStoreInput{
+			PolicyStoreId: &policyStoreID,
+		})
+		require.NoError(t, err, "GetPolicyStore should succeed")
+		assert.Equal(t, policyStoreID, *getOut.PolicyStoreId)
+	})
+}
+
+// TestTerraform_Xray provisions an X-Ray group via Terraform and verifies the service responds.
+func TestTerraform_Xray(t *testing.T) {
+	t.Parallel()
+
+	runTfTestWithEndpoint(t, "xray/success", func(t *testing.T, ctx context.Context) {
+		t.Helper()
+
+		client := createXrayClient(t)
+
+		// GetGroups - should have at least one from Terraform provisioning.
+		groupsOut, err := client.GetGroups(ctx, &xraysvc.GetGroupsInput{})
+		require.NoError(t, err, "GetGroups should succeed")
+		assert.NotEmpty(t, groupsOut.Groups, "expected at least one group")
+	})
+}
+
+// TestTerraform_Wafv2 provisions a WAFv2 Web ACL via Terraform and verifies it was created.
+func TestTerraform_Wafv2(t *testing.T) {
+	t.Parallel()
+
 	tests := []tfTestCase{
 		{
 			name:    "success",
-			fixture: "verifiedpermissions/success",
+			fixture: "wafv2/success",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
+				id := uuid.NewString()[:8]
 
 				return map[string]any{
-					"Endpoint": endpoint,
+					"WebACLName": "tf-wafv2-" + id,
+					"Endpoint":   endpoint,
 				}
 			},
-			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()
 
-				client := createVerifiedPermissionsClient(t)
+				reqURL := endpoint + "/"
+				body := `{"Scope":"REGIONAL"}`
 
-				// List policy stores - should have at least one from Terraform provisioning.
-				listOut, err := client.ListPolicyStores(ctx, &verifiedpermissionssvc.ListPolicyStoresInput{})
-				require.NoError(t, err, "ListPolicyStores should succeed")
-				assert.NotEmpty(t, listOut.PolicyStores, "expected at least one policy store")
+				req, err := http.NewRequestWithContext(
+					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+				require.NoError(t, err)
 
-				policyStoreID := *listOut.PolicyStores[0].PolicyStoreId
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				req.Header.Set("X-Amz-Target", "AWSWAF_20190729.ListWebACLs")
 
-				// Get the policy store.
-				getOut, err := client.GetPolicyStore(ctx, &verifiedpermissionssvc.GetPolicyStoreInput{
-					PolicyStoreId: &policyStoreID,
-				})
-				require.NoError(t, err, "GetPolicyStore should succeed")
-				assert.Equal(t, policyStoreID, *getOut.PolicyStoreId)
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "ListWebACLs should succeed after terraform apply")
+				defer resp.Body.Close()
+
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(respBody, &result))
+
+				webACLs, ok := result["WebACLs"].([]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, webACLs, "expected at least one Web ACL")
+
+				found := false
+
+				for _, item := range webACLs {
+					acl, isACL := item.(map[string]any)
+					if !isACL {
+						continue
+					}
+
+					if acl["Name"] == vars["WebACLName"] {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "expected to find web ACL %q in list", vars["WebACLName"])
 			},
 		},
 	}

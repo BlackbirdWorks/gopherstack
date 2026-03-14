@@ -14,6 +14,8 @@ import (
 
 	"log/slog"
 
+	"reflect"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -120,6 +122,8 @@ import (
 	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
 	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
+	xraysvc "github.com/aws/aws-sdk-go-v2/service/xray"
+
 	"github.com/docker/docker/api/types/build"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -2282,8 +2286,8 @@ func createTimestreamQueryClient(t *testing.T) *timestreamquerysvc.Client {
 	})
 }
 
-// createTransferClient returns a Transfer client pointed at the shared test container.
-func createTransferClient(t *testing.T) *transfersvc.Client {
+// createTestConfig returns an AWS SDK configuration pointed at the shared test container.
+func createTestConfig(t *testing.T) aws.Config {
 	t.Helper()
 
 	cfg, err := config.LoadDefaultConfig(
@@ -2295,25 +2299,36 @@ func createTransferClient(t *testing.T) *transfersvc.Client {
 	)
 	require.NoError(t, err, "unable to load SDK config")
 
-	return transfersvc.NewFromConfig(cfg, func(o *transfersvc.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-	})
+	return cfg
+}
+
+// createTransferClient returns a Transfer client pointed at the shared test container.
+func createTransferClient(t *testing.T) *transfersvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, transfersvc.NewFromConfig, endpoint)
 }
 
 // createVerifiedPermissionsClient returns a Verified Permissions client pointed at the shared test container.
 func createVerifiedPermissionsClient(t *testing.T) *verifiedpermissionssvc.Client {
 	t.Helper()
 
-	cfg, err := config.LoadDefaultConfig(
-		t.Context(),
-		config.WithRegion("us-east-1"),
-		config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider("test", "test", ""),
-		),
-	)
-	require.NoError(t, err, "unable to load SDK config")
+	return createClientWithEndpoint(t, verifiedpermissionssvc.NewFromConfig, endpoint)
+}
 
-	return verifiedpermissionssvc.NewFromConfig(cfg, func(o *verifiedpermissionssvc.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
+// createXrayClient returns an X-Ray client pointed at the shared test container.
+func createXrayClient(t *testing.T) *xraysvc.Client {
+	t.Helper()
+
+	return createClientWithEndpoint(t, xraysvc.NewFromConfig, endpoint)
+}
+
+// createClientWithEndpoint is a helper to create an AWS client with a base endpoint.
+func createClientWithEndpoint[T any, O any](t *testing.T, newFn func(aws.Config, ...func(*O)) *T, endpoint string) *T {
+	t.Helper()
+
+	return newFn(createTestConfig(t), func(o *O) {
+		// Use reflection to set BaseEndpoint because service options are not common interfaces.
+		reflect.ValueOf(o).Elem().FieldByName("BaseEndpoint").Set(reflect.ValueOf(aws.String(endpoint)))
 	})
 }

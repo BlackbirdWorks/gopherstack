@@ -85,6 +85,8 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
+	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
+	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -242,6 +244,8 @@ type AWSSDKProvider interface {
 	GetTimestreamQueryHandler() service.Registerable
 	GetTransferHandler() service.Registerable
 	GetVerifiedPermissionsHandler() service.Registerable
+	GetWafv2Handler() service.Registerable
+	GetXrayHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -372,6 +376,8 @@ type extractedConfig struct {
 	timestreamqueryOps        *timestreamquerybackend.Handler
 	transferOps               *transferbackend.Handler
 	verifiedPermissionsOps    *verifiedpermissionsbackend.Handler
+	wafv2Ops                  *wafv2backend.Handler
+	xrayOps                   *xraybackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -447,6 +453,7 @@ func extractIntegrationHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 // extractMonitoringHandlers populates integration/monitoring service handlers on ec.
 //
 
+//nolint:dupl // hierarchical handler extraction
 func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetEventBridgeHandler(); h != nil {
 		ec.eventBridgeOps, _ = h.(*ebbackend.Handler)
@@ -887,6 +894,8 @@ func extractAdditionalHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 }
 
 // extractSsoAndMLHandlers populates Shield, SSO Admin and ML/document service handlers on ec.
+//
+//nolint:dupl // hierarchical handler extraction
 func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetShieldHandler(); h != nil {
 		ec.shieldOps, _ = h.(*shieldbackend.Handler)
@@ -914,6 +923,14 @@ func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetVerifiedPermissionsHandler(); h != nil {
 		ec.verifiedPermissionsOps, _ = h.(*verifiedpermissionsbackend.Handler)
+	}
+
+	if h := ap.GetWafv2Handler(); h != nil {
+		ec.wafv2Ops, _ = h.(*wafv2backend.Handler)
+	}
+
+	if h := ap.GetXrayHandler(); h != nil {
+		ec.xrayOps, _ = h.(*xraybackend.Handler)
 	}
 }
 
@@ -1120,4 +1137,6 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.TimestreamQueryOps = ec.timestreamqueryOps
 	cfg.TransferOps = ec.transferOps
 	cfg.VerifiedPermissionsOps = ec.verifiedPermissionsOps
+	cfg.Wafv2Ops = ec.wafv2Ops
+	cfg.XrayOps = ec.xrayOps
 }

@@ -167,6 +167,8 @@ import (
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
+	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
+	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -303,6 +305,8 @@ type CLI struct {
 	timestreamqueryHandler        service.Registerable
 	transferHandler               service.Registerable
 	verifiedPermissionsHandler    service.Registerable
+	wafv2Handler                  service.Registerable
+	xrayHandler                   service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -822,6 +826,16 @@ func (c *CLI) GetVerifiedPermissionsHandler() service.Registerable {
 	return c.verifiedPermissionsHandler
 }
 
+// GetWafv2Handler returns the WAFv2 handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetWafv2Handler() service.Registerable { return c.wafv2Handler }
+
+// GetXrayHandler returns the X-Ray handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetXrayHandler() service.Registerable { return c.xrayHandler }
+
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -1203,13 +1217,43 @@ func run(ctx context.Context, cli CLI) error {
 		loadDemoData(ctx, &cli)
 	}
 
-	// --- Init hooks ---
-	if len(cli.InitScripts) > 0 {
-		runner := inithooks.New(cli.InitScripts, cli.InitScriptTimeout, log)
-		runner.Run(ctx)
+	runInitHooks(ctx, &cli, log)
+	// Shut down Lambda sub-servers after the main server exits to prevent resource leaks.
+	if closeFn := lambdaCloseFn(cli.lambdaHandler); closeFn != nil {
+		defer closeFn()
 	}
 
 	return startServer(ctx, cli.Port, e)
+}
+
+// runInitHooks runs init scripts after all services are ready, if any are configured.
+func runInitHooks(ctx context.Context, cli *CLI, log *slog.Logger) {
+	if len(cli.InitScripts) == 0 {
+		return
+	}
+
+	runner := inithooks.New(cli.InitScripts, cli.InitScriptTimeout, log)
+	runner.Run(ctx)
+}
+
+// lambdaCloseFn returns a cleanup function that shuts down the Lambda backend's
+// function URL servers and runtime API servers, or nil if the handler is not a Lambda backend.
+func lambdaCloseFn(lambdaReg service.Registerable) func() {
+	lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler)
+	if !lambdaOk {
+		return nil
+	}
+
+	lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !bkOk {
+		return nil
+	}
+
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		lambdaBk.Close(ctx)
+	}
 }
 
 // wireDNSRegistrars connects DNS-aware backends to the embedded DNS server.
@@ -1510,6 +1554,8 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.timestreamqueryHandler = byName["TimestreamQuery"]
 	cli.transferHandler = byName["Transfer"]
 	cli.verifiedPermissionsHandler = byName["VerifiedPermissions"]
+	cli.wafv2Handler = byName["Wafv2"]
+	cli.xrayHandler = byName["Xray"]
 }
 
 // initializeServices initializes all service providers.
@@ -1762,6 +1808,8 @@ func getMostRecentServiceProviders() []service.Provider {
 		&timestreamquerybackend.Provider{},
 		&transferbackend.Provider{},
 		&verifiedpermissionsbackend.Provider{},
+		&wafv2backend.Provider{},
+		&xraybackend.Provider{},
 	}
 }
 

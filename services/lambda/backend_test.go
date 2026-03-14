@@ -749,3 +749,163 @@ func TestInMemoryBackend_PublishVersion_WithLayers(t *testing.T) {
 	assert.Equal(t, "arn:aws:lambda:us-east-1:0:layer:my-layer:1", v.Layers[0].Arn)
 	assert.Equal(t, "arn:aws:lambda:us-east-1:0:layer:other-layer:2", v.Layers[1].Arn)
 }
+
+// TestInMemoryBackend_Close_StopsFunctionURLServers verifies that Close shuts down
+// active function URL HTTP servers so they no longer accept connections.
+func TestInMemoryBackend_Close_StopsFunctionURLServers(t *testing.T) {
+	t.Parallel()
+
+	pa, paErr := portalloc.New(20460, 20490)
+	require.NoError(t, paErr)
+
+	backend := lambda.NewInMemoryBackend(
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
+	)
+
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "close-url-fn",
+		PackageType:  lambda.PackageTypeImage,
+		ImageURI:     "test:latest",
+	}
+	require.NoError(t, backend.CreateFunction(fn))
+
+	cfg, err := backend.CreateFunctionURLConfig("close-url-fn", "NONE")
+	require.NoError(t, err)
+
+	// Server should be reachable before Close.
+	client := &http.Client{Timeout: 2 * time.Second}
+	req, reqErr := http.NewRequestWithContext(t.Context(), http.MethodGet, cfg.FunctionURL, nil)
+	require.NoError(t, reqErr)
+
+	resp, doErr := client.Do(req)
+	require.NoError(t, doErr, "server should respond before Close")
+
+	resp.Body.Close()
+
+	// Close the backend — this should shut down the URL server.
+	closeCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	backend.Close(closeCtx)
+
+	// After Close, the server should no longer accept connections.
+	reqAfter, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, cfg.FunctionURL, nil)
+	_, afterErr := client.Do(reqAfter)
+	require.Error(t, afterErr, "server should be unreachable after Close")
+}
+
+// TestInMemoryBackend_Close_NoServers verifies that Close is safe to call
+// when no function URL servers or runtime servers are running.
+func TestInMemoryBackend_Close_NoServers(t *testing.T) {
+	t.Parallel()
+
+	backend := newSimpleBackend()
+
+	// Should not panic or deadlock.
+	closeCtx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	backend.Close(closeCtx)
+}
+
+// TestInMemoryBackend_Close_MultipleURLServers verifies that Close shuts down
+// all function URL servers when multiple functions have URLs configured.
+func TestInMemoryBackend_Close_MultipleURLServers(t *testing.T) {
+	t.Parallel()
+
+	pa, paErr := portalloc.New(20491, 20530)
+	require.NoError(t, paErr)
+
+	backend := lambda.NewInMemoryBackend(
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
+	)
+
+	fnNames := []string{"close-multi-fn-1", "close-multi-fn-2", "close-multi-fn-3"}
+
+	urls := make([]string, 0, len(fnNames))
+
+	for _, name := range fnNames {
+		fn := &lambda.FunctionConfiguration{
+			FunctionName: name,
+			PackageType:  lambda.PackageTypeImage,
+			ImageURI:     "test:latest",
+		}
+		require.NoError(t, backend.CreateFunction(fn))
+
+		cfg, cfgErr := backend.CreateFunctionURLConfig(name, "NONE")
+		require.NoError(t, cfgErr)
+
+		urls = append(urls, cfg.FunctionURL)
+	}
+
+	// All servers should respond before Close.
+	client := &http.Client{Timeout: 2 * time.Second}
+
+	for _, u := range urls {
+		req, reqErr := http.NewRequestWithContext(t.Context(), http.MethodGet, u, nil)
+		require.NoError(t, reqErr)
+
+		resp, doErr := client.Do(req)
+		require.NoError(t, doErr, "server should respond before Close: %s", u)
+		resp.Body.Close()
+	}
+
+	closeCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	backend.Close(closeCtx)
+
+	// All servers should be unreachable after Close.
+	for _, u := range urls {
+		req, reqErr := http.NewRequestWithContext(t.Context(), http.MethodGet, u, nil)
+		require.NoError(t, reqErr)
+
+		_, afterErr := client.Do(req)
+		require.Error(t, afterErr, "server should be unreachable after Close: %s", u)
+	}
+}
+
+// TestInMemoryBackend_Close_RuntimeCleanup verifies that Close() removes temporary zip and layer
+// directories and releases ports for synthetic runtime entries.
+func TestInMemoryBackend_Close_RuntimeCleanup(t *testing.T) {
+	t.Parallel()
+
+	pa, paErr := portalloc.New(20540, 20560)
+	require.NoError(t, paErr)
+
+	backend := lambda.NewInMemoryBackend(
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
+	)
+
+	// Create real temp directories that Close() should remove.
+	zipDir := t.TempDir()
+	layerDir1 := t.TempDir()
+	layerDir2 := t.TempDir()
+
+	// Acquire a port so Close() can release it.
+	port, portErr := pa.Acquire("lambda:close-rt-fn")
+	require.NoError(t, portErr)
+
+	// Inject a synthetic runtime entry (no real container needed).
+	lambda.InjectRuntimeEntry(backend, "close-rt-fn", zipDir, []string{layerDir1, layerDir2}, port)
+
+	// Directories and port exist before Close.
+	require.DirExists(t, zipDir)
+	require.DirExists(t, layerDir1)
+	require.DirExists(t, layerDir2)
+
+	closeCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	backend.Close(closeCtx)
+
+	// Close() should have removed the temp dirs.
+	require.NoDirExists(t, zipDir)
+	require.NoDirExists(t, layerDir1)
+	require.NoDirExists(t, layerDir2)
+
+	// The port should have been released — re-acquiring it should succeed.
+	releasedPort, reacquireErr := pa.Acquire("lambda:reacquire-check")
+	require.NoError(t, reacquireErr, "port should be available after Close() released it")
+	_ = pa.Release(releasedPort)
+}
