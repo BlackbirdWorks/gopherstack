@@ -1208,13 +1208,43 @@ func run(ctx context.Context, cli CLI) error {
 		loadDemoData(ctx, &cli)
 	}
 
-	// --- Init hooks ---
-	if len(cli.InitScripts) > 0 {
-		runner := inithooks.New(cli.InitScripts, cli.InitScriptTimeout, log)
-		runner.Run(ctx)
+	runInitHooks(ctx, &cli, log)
+	// Shut down Lambda sub-servers after the main server exits to prevent resource leaks.
+	if closeFn := lambdaCloseFn(cli.lambdaHandler); closeFn != nil {
+		defer closeFn()
 	}
 
 	return startServer(ctx, cli.Port, e)
+}
+
+// runInitHooks runs init scripts after all services are ready, if any are configured.
+func runInitHooks(ctx context.Context, cli *CLI, log *slog.Logger) {
+	if len(cli.InitScripts) == 0 {
+		return
+	}
+
+	runner := inithooks.New(cli.InitScripts, cli.InitScriptTimeout, log)
+	runner.Run(ctx)
+}
+
+// lambdaCloseFn returns a cleanup function that shuts down the Lambda backend's
+// function URL servers and runtime API servers, or nil if the handler is not a Lambda backend.
+func lambdaCloseFn(lambdaReg service.Registerable) func() {
+	lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler)
+	if !lambdaOk {
+		return nil
+	}
+
+	lambdaBk, bkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend)
+	if !bkOk {
+		return nil
+	}
+
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		lambdaBk.Close(ctx)
+	}
 }
 
 // wireDNSRegistrars connects DNS-aware backends to the embedded DNS server.

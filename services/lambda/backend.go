@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -197,6 +198,65 @@ func NewInMemoryBackend(
 		region:                   region,
 		mu:                       lockmetrics.New("lambda"),
 	}
+}
+
+// Close shuts down all active function URL servers and runtime API servers.
+// It is safe to call concurrently and should be called when the backend is no longer needed.
+func (b *InMemoryBackend) Close(ctx context.Context) {
+	b.mu.Lock("Close")
+
+	urlServers := make([]*functionURLServer, 0, len(b.functionURLServers))
+	for _, srv := range b.functionURLServers {
+		urlServers = append(urlServers, srv)
+	}
+
+	rts := make([]*functionRuntime, 0, len(b.runtimes))
+	for _, rt := range b.runtimes {
+		rts = append(rts, rt)
+	}
+
+	b.mu.Unlock()
+
+	var wg sync.WaitGroup
+
+	for _, srv := range urlServers {
+		wg.Add(1)
+
+		go func(s *functionURLServer) {
+			defer wg.Done()
+			_ = s.server.Shutdown(ctx)
+
+			if b.portAlloc != nil {
+				_ = b.portAlloc.Release(s.port)
+			}
+		}(srv)
+	}
+
+	for _, rt := range rts {
+		wg.Add(1)
+
+		go func(r *functionRuntime) {
+			defer wg.Done()
+
+			if r.srv != nil {
+				r.srv.stop(ctx)
+			}
+
+			if r.port > 0 && b.portAlloc != nil {
+				_ = b.portAlloc.Release(r.port)
+			}
+
+			if r.zipDir != "" {
+				_ = os.RemoveAll(r.zipDir)
+			}
+
+			for _, d := range r.layerDirs {
+				_ = os.RemoveAll(d)
+			}
+		}(rt)
+	}
+
+	wg.Wait()
 }
 
 // SetDNSRegistrar sets the optional DNS registrar used to register function URL hostnames.
