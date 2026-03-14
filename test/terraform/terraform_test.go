@@ -2305,6 +2305,38 @@ func TestTerraform_EC2(t *testing.T) {
 
 	tests := []tfTestCase{
 		{
+			name:    "network_interface",
+			fixture: "ec2/network_interface",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"ENIDescription": "tf-eni-" + uuid.NewString()[:8],
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createEC2Client(t)
+
+				// Verify the network interface exists.
+				descOut, err := client.DescribeNetworkInterfaces(ctx, &ec2svc.DescribeNetworkInterfacesInput{})
+				require.NoError(t, err, "DescribeNetworkInterfaces should succeed after terraform apply")
+
+				eniDesc := vars["ENIDescription"].(string)
+				var found bool
+
+				for _, eni := range descOut.NetworkInterfaces {
+					if aws.ToString(eni.Description) == eniDesc {
+						found = true
+
+						break
+					}
+				}
+
+				require.True(t, found, "network interface with description %q should exist", eniDesc)
+			},
+		},
+		{
 			name:    "success",
 			fixture: "ec2/success",
 			setup: func(t *testing.T, _ string) map[string]any {
