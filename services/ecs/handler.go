@@ -416,11 +416,12 @@ func (h *Handler) handleListTaskDefinitions(
 // ----- Service handlers -----
 
 type createServiceInput struct {
-	ServiceName    string `json:"serviceName"`
-	Cluster        string `json:"cluster,omitempty"`
-	TaskDefinition string `json:"taskDefinition"`
-	LaunchType     string `json:"launchType,omitempty"`
-	DesiredCount   int    `json:"desiredCount"`
+	ServiceName        string `json:"serviceName"`
+	Cluster            string `json:"cluster,omitempty"`
+	TaskDefinition     string `json:"taskDefinition"`
+	LaunchType         string `json:"launchType,omitempty"`
+	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
+	DesiredCount       int    `json:"desiredCount"`
 }
 
 type createServiceOutput struct {
@@ -429,11 +430,12 @@ type createServiceOutput struct {
 
 func (h *Handler) handleCreateService(_ context.Context, in *createServiceInput) (*createServiceOutput, error) {
 	svc, err := h.Backend.CreateService(CreateServiceInput{
-		ServiceName:    in.ServiceName,
-		Cluster:        in.Cluster,
-		TaskDefinition: in.TaskDefinition,
-		LaunchType:     in.LaunchType,
-		DesiredCount:   in.DesiredCount,
+		ServiceName:        in.ServiceName,
+		Cluster:            in.Cluster,
+		TaskDefinition:     in.TaskDefinition,
+		LaunchType:         in.LaunchType,
+		SchedulingStrategy: in.SchedulingStrategy,
+		DesiredCount:       in.DesiredCount,
 	})
 	if err != nil {
 		return nil, err
@@ -512,7 +514,9 @@ func (h *Handler) handleDeleteService(_ context.Context, in *deleteServiceInput)
 }
 
 type listServicesInput struct {
-	Cluster string `json:"cluster,omitempty"`
+	Cluster            string `json:"cluster,omitempty"`
+	LaunchType         string `json:"launchType,omitempty"`
+	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
 }
 
 type listServicesOutput struct {
@@ -520,7 +524,7 @@ type listServicesOutput struct {
 }
 
 func (h *Handler) handleListServices(_ context.Context, in *listServicesInput) (*listServicesOutput, error) {
-	arns, err := h.Backend.ListServices(in.Cluster)
+	arns, err := h.Backend.ListServices(in.Cluster, in.LaunchType, in.SchedulingStrategy)
 	if err != nil {
 		return nil, err
 	}
@@ -678,30 +682,32 @@ func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 }
 
 type serviceView struct {
-	ServiceArn     string  `json:"serviceArn"`
-	ServiceName    string  `json:"serviceName"`
-	ClusterArn     string  `json:"clusterArn"`
-	TaskDefinition string  `json:"taskDefinition"`
-	Status         string  `json:"status"`
-	LaunchType     string  `json:"launchType,omitempty"`
-	CreatedAt      float64 `json:"createdAt"`
-	DesiredCount   int     `json:"desiredCount"`
-	PendingCount   int     `json:"pendingCount"`
-	RunningCount   int     `json:"runningCount"`
+	ServiceArn         string  `json:"serviceArn"`
+	ServiceName        string  `json:"serviceName"`
+	ClusterArn         string  `json:"clusterArn"`
+	TaskDefinition     string  `json:"taskDefinition"`
+	Status             string  `json:"status"`
+	LaunchType         string  `json:"launchType,omitempty"`
+	SchedulingStrategy string  `json:"schedulingStrategy,omitempty"`
+	CreatedAt          float64 `json:"createdAt"`
+	DesiredCount       int     `json:"desiredCount"`
+	PendingCount       int     `json:"pendingCount"`
+	RunningCount       int     `json:"runningCount"`
 }
 
 func toServiceView(s Service) serviceView {
 	return serviceView{
-		ServiceArn:     s.ServiceArn,
-		ServiceName:    s.ServiceName,
-		ClusterArn:     s.ClusterArn,
-		TaskDefinition: s.TaskDefinition,
-		Status:         s.Status,
-		LaunchType:     s.LaunchType,
-		CreatedAt:      float64(s.CreatedAt.Unix()),
-		DesiredCount:   s.DesiredCount,
-		PendingCount:   s.PendingCount,
-		RunningCount:   s.RunningCount,
+		ServiceArn:         s.ServiceArn,
+		ServiceName:        s.ServiceName,
+		ClusterArn:         s.ClusterArn,
+		TaskDefinition:     s.TaskDefinition,
+		Status:             s.Status,
+		LaunchType:         s.LaunchType,
+		SchedulingStrategy: s.SchedulingStrategy,
+		CreatedAt:          float64(s.CreatedAt.Unix()),
+		DesiredCount:       s.DesiredCount,
+		PendingCount:       s.PendingCount,
+		RunningCount:       s.RunningCount,
 	}
 }
 

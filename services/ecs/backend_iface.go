@@ -23,7 +23,7 @@ type Backend interface {
 	DescribeServices(cluster string, serviceNames []string) ([]Service, error)
 	UpdateService(input UpdateServiceInput) (*Service, error)
 	DeleteService(cluster, serviceName string) (*Service, error)
-	ListServices(cluster string) ([]string, error)
+	ListServices(cluster, launchType, schedulingStrategy string) ([]string, error)
 
 	// Tasks
 

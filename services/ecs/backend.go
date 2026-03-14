@@ -88,16 +88,17 @@ type TaskDefinition struct {
 
 // Service represents an ECS service.
 type Service struct {
-	CreatedAt      time.Time `json:"createdAt"`
-	ServiceArn     string    `json:"serviceArn"`
-	ServiceName    string    `json:"serviceName"`
-	ClusterArn     string    `json:"clusterArn"`
-	TaskDefinition string    `json:"taskDefinition"`
-	Status         string    `json:"status"`
-	LaunchType     string    `json:"launchType,omitempty"`
-	DesiredCount   int       `json:"desiredCount"`
-	PendingCount   int       `json:"pendingCount"`
-	RunningCount   int       `json:"runningCount"`
+	CreatedAt          time.Time `json:"createdAt"`
+	ServiceArn         string    `json:"serviceArn"`
+	ServiceName        string    `json:"serviceName"`
+	ClusterArn         string    `json:"clusterArn"`
+	TaskDefinition     string    `json:"taskDefinition"`
+	Status             string    `json:"status"`
+	LaunchType         string    `json:"launchType,omitempty"`
+	SchedulingStrategy string    `json:"schedulingStrategy,omitempty"`
+	DesiredCount       int       `json:"desiredCount"`
+	PendingCount       int       `json:"pendingCount"`
+	RunningCount       int       `json:"runningCount"`
 }
 
 // Task represents an ECS task.
@@ -129,11 +130,12 @@ type RegisterTaskDefinitionInput struct {
 
 // CreateServiceInput holds input for CreateService.
 type CreateServiceInput struct {
-	ServiceName    string `json:"serviceName"`
-	Cluster        string `json:"cluster,omitempty"`
-	TaskDefinition string `json:"taskDefinition"`
-	LaunchType     string `json:"launchType,omitempty"`
-	DesiredCount   int    `json:"desiredCount"`
+	ServiceName        string `json:"serviceName"`
+	Cluster            string `json:"cluster,omitempty"`
+	TaskDefinition     string `json:"taskDefinition"`
+	LaunchType         string `json:"launchType,omitempty"`
+	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
+	DesiredCount       int    `json:"desiredCount"`
 }
 
 // UpdateServiceInput holds input for UpdateService.
@@ -494,6 +496,11 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 		launchType = launchTypeFargate
 	}
 
+	schedulingStrategy := input.SchedulingStrategy
+	if schedulingStrategy == "" {
+		schedulingStrategy = "REPLICA"
+	}
+
 	svc := &Service{
 		CreatedAt: time.Now(),
 		ServiceArn: fmt.Sprintf(
@@ -503,12 +510,13 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 			clusterName,
 			input.ServiceName,
 		),
-		ServiceName:    input.ServiceName,
-		ClusterArn:     fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName),
-		TaskDefinition: td.TaskDefinitionArn,
-		Status:         statusActive,
-		LaunchType:     launchType,
-		DesiredCount:   input.DesiredCount,
+		ServiceName:        input.ServiceName,
+		ClusterArn:         fmt.Sprintf("arn:aws:ecs:%s:%s:cluster/%s", b.region, b.accountID, clusterName),
+		TaskDefinition:     td.TaskDefinitionArn,
+		Status:             statusActive,
+		LaunchType:         launchType,
+		SchedulingStrategy: schedulingStrategy,
+		DesiredCount:       input.DesiredCount,
 	}
 
 	b.services[clusterName][input.ServiceName] = svc

@@ -576,8 +576,8 @@ func (b *InMemoryBackend) ExecuteCommand(
 	}, nil
 }
 
-// ListServices returns service ARNs for a cluster.
-func (b *InMemoryBackend) ListServices(cluster string) ([]string, error) {
+// ListServices returns service ARNs for a cluster, optionally filtered by launch type and scheduling strategy.
+func (b *InMemoryBackend) ListServices(cluster, launchType, schedulingStrategy string) ([]string, error) {
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.RLock("ListServices")
@@ -589,7 +589,16 @@ func (b *InMemoryBackend) ListServices(cluster string) ([]string, error) {
 	}
 
 	arns := make([]string, 0, len(svcs))
+
 	for _, svc := range svcs {
+		if launchType != "" && svc.LaunchType != launchType {
+			continue
+		}
+
+		if schedulingStrategy != "" && svc.SchedulingStrategy != schedulingStrategy {
+			continue
+		}
+
 		arns = append(arns, svc.ServiceArn)
 	}
 

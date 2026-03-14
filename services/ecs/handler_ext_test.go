@@ -404,8 +404,8 @@ func TestECS_ListServices(t *testing.T) {
 
 	tests := []struct {
 		setup    func(*ecs.Handler)
+		input    map[string]any
 		name     string
-		cluster  string
 		wantCode int
 		wantLen  int
 	}{
@@ -414,7 +414,7 @@ func TestECS_ListServices(t *testing.T) {
 			setup: func(h *ecs.Handler) {
 				doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "list-svc-empty"})
 			},
-			cluster:  "list-svc-empty",
+			input:    map[string]any{"cluster": "list-svc-empty"},
 			wantCode: http.StatusOK,
 			wantLen:  0,
 		},
@@ -430,14 +430,50 @@ func TestECS_ListServices(t *testing.T) {
 					"cluster": "list-svc-two", "serviceName": "svc-b", "taskDefinition": tdArn, "desiredCount": 1,
 				})
 			},
-			cluster:  "list-svc-two",
+			input:    map[string]any{"cluster": "list-svc-two"},
 			wantCode: http.StatusOK,
 			wantLen:  2,
 		},
 		{
+			name: "filter by launchType returns subset",
+			setup: func(h *ecs.Handler) {
+				tdArn := registerTestTaskDef(t, h, "list-svc-lt-td")
+				doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "list-svc-lt"})
+				doECSRequest(t, h, "CreateService", map[string]any{
+					"cluster": "list-svc-lt", "serviceName": "svc-fargate", "taskDefinition": tdArn,
+					"desiredCount": 1, "launchType": "FARGATE",
+				})
+				doECSRequest(t, h, "CreateService", map[string]any{
+					"cluster": "list-svc-lt", "serviceName": "svc-ec2", "taskDefinition": tdArn,
+					"desiredCount": 1, "launchType": "EC2",
+				})
+			},
+			input:    map[string]any{"cluster": "list-svc-lt", "launchType": "FARGATE"},
+			wantCode: http.StatusOK,
+			wantLen:  1,
+		},
+		{
+			name: "filter by schedulingStrategy returns subset",
+			setup: func(h *ecs.Handler) {
+				tdArn := registerTestTaskDef(t, h, "list-svc-ss-td")
+				doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "list-svc-ss"})
+				doECSRequest(t, h, "CreateService", map[string]any{
+					"cluster": "list-svc-ss", "serviceName": "svc-replica", "taskDefinition": tdArn,
+					"desiredCount": 1, "schedulingStrategy": "REPLICA",
+				})
+				doECSRequest(t, h, "CreateService", map[string]any{
+					"cluster": "list-svc-ss", "serviceName": "svc-daemon", "taskDefinition": tdArn,
+					"desiredCount": 0, "schedulingStrategy": "DAEMON",
+				})
+			},
+			input:    map[string]any{"cluster": "list-svc-ss", "schedulingStrategy": "DAEMON"},
+			wantCode: http.StatusOK,
+			wantLen:  1,
+		},
+		{
 			name:     "unknown cluster",
 			setup:    func(_ *ecs.Handler) {},
-			cluster:  "nonexistent",
+			input:    map[string]any{"cluster": "nonexistent"},
 			wantCode: http.StatusBadRequest,
 		},
 	}
@@ -448,7 +484,7 @@ func TestECS_ListServices(t *testing.T) {
 
 			h := newTestHandler(t)
 			tt.setup(h)
-			rec := doECSRequest(t, h, "ListServices", map[string]any{"cluster": tt.cluster})
+			rec := doECSRequest(t, h, "ListServices", tt.input)
 
 			require.Equal(t, tt.wantCode, rec.Code)
 

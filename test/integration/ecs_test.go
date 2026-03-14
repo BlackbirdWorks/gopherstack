@@ -277,10 +277,11 @@ func TestIntegration_ECS_DescribeServices(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = client.CreateService(ctx, &ecs.CreateServiceInput{
-		ServiceName:    aws.String(serviceName),
-		Cluster:        aws.String(clusterName),
-		TaskDefinition: regOut.TaskDefinition.TaskDefinitionArn,
-		DesiredCount:   aws.Int32(1),
+		ServiceName:        aws.String(serviceName),
+		Cluster:            aws.String(clusterName),
+		TaskDefinition:     regOut.TaskDefinition.TaskDefinitionArn,
+		DesiredCount:       aws.Int32(1),
+		SchedulingStrategy: ecstypes.SchedulingStrategyReplica,
 	})
 	require.NoError(t, err)
 
@@ -291,6 +292,7 @@ func TestIntegration_ECS_DescribeServices(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.Services, 1)
 	assert.Equal(t, serviceName, aws.ToString(out.Services[0].ServiceName))
+	assert.Equal(t, ecstypes.SchedulingStrategyReplica, out.Services[0].SchedulingStrategy)
 }
 
 func TestIntegration_ECS_UpdateService(t *testing.T) {
@@ -562,21 +564,50 @@ func TestIntegration_ECS_ListServices(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	for _, svcName := range []string{"svc-a-" + suffix, "svc-b-" + suffix} {
-		_, err = client.CreateService(ctx, &ecs.CreateServiceInput{
-			Cluster:        aws.String(clusterName),
-			ServiceName:    aws.String(svcName),
-			TaskDefinition: tdOut.TaskDefinition.TaskDefinitionArn,
-			DesiredCount:   aws.Int32(1),
-		})
-		require.NoError(t, err)
-	}
+	// Create a FARGATE/REPLICA service.
+	_, err = client.CreateService(ctx, &ecs.CreateServiceInput{
+		Cluster:            aws.String(clusterName),
+		ServiceName:        aws.String("svc-a-" + suffix),
+		TaskDefinition:     tdOut.TaskDefinition.TaskDefinitionArn,
+		DesiredCount:       aws.Int32(1),
+		LaunchType:         ecstypes.LaunchTypeFargate,
+		SchedulingStrategy: ecstypes.SchedulingStrategyReplica,
+	})
+	require.NoError(t, err)
 
+	// Create an EC2/DAEMON service.
+	_, err = client.CreateService(ctx, &ecs.CreateServiceInput{
+		Cluster:            aws.String(clusterName),
+		ServiceName:        aws.String("svc-b-" + suffix),
+		TaskDefinition:     tdOut.TaskDefinition.TaskDefinitionArn,
+		DesiredCount:       aws.Int32(0),
+		LaunchType:         ecstypes.LaunchTypeEc2,
+		SchedulingStrategy: ecstypes.SchedulingStrategyDaemon,
+	})
+	require.NoError(t, err)
+
+	// No filter — all 2 services.
 	out, err := client.ListServices(ctx, &ecs.ListServicesInput{
 		Cluster: aws.String(clusterName),
 	})
 	require.NoError(t, err)
 	assert.Len(t, out.ServiceArns, 2)
+
+	// Filter by FARGATE — only 1 service.
+	outFargate, err := client.ListServices(ctx, &ecs.ListServicesInput{
+		Cluster:    aws.String(clusterName),
+		LaunchType: ecstypes.LaunchTypeFargate,
+	})
+	require.NoError(t, err)
+	assert.Len(t, outFargate.ServiceArns, 1)
+
+	// Filter by DAEMON scheduling strategy — only 1 service.
+	outDaemon, err := client.ListServices(ctx, &ecs.ListServicesInput{
+		Cluster:            aws.String(clusterName),
+		SchedulingStrategy: ecstypes.SchedulingStrategyDaemon,
+	})
+	require.NoError(t, err)
+	assert.Len(t, outDaemon.ServiceArns, 1)
 }
 
 func TestIntegration_ECS_ContainerInstances(t *testing.T) {
