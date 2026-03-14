@@ -36,6 +36,8 @@ type opensearchDomainDetailData struct {
 }
 
 // opensearchIndex renders the list of all OpenSearch domains.
+//
+//nolint:dupl // intentionally similar to elasticsearchIndex with different service fields
 func (h *DashboardHandler) opensearchIndex(c *echo.Context) error {
 	w := c.Response()
 

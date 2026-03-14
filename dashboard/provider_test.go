@@ -114,6 +114,7 @@ func (m *mockAWSProvider) GetCodeStarConnectionsHandler() service.Registerable  
 func (m *mockAWSProvider) GetDynamoDBStreamsHandler() service.Registerable         { return nil }
 func (m *mockAWSProvider) GetDocDBHandler() service.Registerable                   { return nil }
 func (m *mockAWSProvider) GetElasticbeanstalkHandler() service.Registerable        { return nil }
+func (m *mockAWSProvider) GetElasticsearchHandler() service.Registerable           { return nil }
 func (m *mockAWSProvider) GetElasticTranscoderHandler() service.Registerable       { return nil }
 func (m *mockAWSProvider) GetEmrServerlessHandler() service.Registerable           { return nil }
 func (m *mockAWSProvider) GetEMRHandler() service.Registerable                     { return nil }

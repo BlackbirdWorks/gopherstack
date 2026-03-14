@@ -62,6 +62,7 @@ import (
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
+	elasticsearchbackend "github.com/blackbirdworks/gopherstack/services/elasticsearch"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
@@ -262,6 +263,8 @@ type DashboardHandler struct {
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
 	// ElasticbeanstalkOps provides access to the Elastic Beanstalk backend.
 	ElasticbeanstalkOps *elasticbeanstalkbackend.Handler
+	// ElasticsearchOps provides access to the Elasticsearch backend.
+	ElasticsearchOps *elasticsearchbackend.Handler
 	// EKSOps provides access to the EKS backend.
 	EKSOps *eksbackend.Handler
 	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
@@ -504,6 +507,8 @@ type Config struct {
 	DynamoDBStreamsOps *dynamodbstreamsbackend.Handler
 	// ElasticbeanstalkOps provides access to the Elastic Beanstalk backend.
 	ElasticbeanstalkOps *elasticbeanstalkbackend.Handler
+	// ElasticsearchOps provides access to the Elasticsearch backend.
+	ElasticsearchOps *elasticsearchbackend.Handler
 	// EKSOps provides access to the EKS backend.
 	EKSOps *eksbackend.Handler
 	// ElasticTranscoderOps provides access to the Elastic Transcoder backend.
@@ -649,6 +654,7 @@ func dashboardTemplatePatterns() []string {
 		"templates/ecs/*.html",
 		"templates/iot/*.html",
 		"templates/fis/*.html",
+		"templates/elasticsearch/*.html",
 		"templates/opensearch/*.html",
 		"templates/acm/*.html",
 		"templates/acmpca/*.html",
@@ -851,6 +857,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		CodeStarConnectionsOps:     cfg.CodeStarConnectionsOps,
 		DynamoDBStreamsOps:         cfg.DynamoDBStreamsOps,
 		ElasticbeanstalkOps:        cfg.ElasticbeanstalkOps,
+		ElasticsearchOps:           cfg.ElasticsearchOps,
 		EKSOps:                     cfg.EKSOps,
 		ElasticTranscoderOps:       cfg.ElasticTranscoderOps,
 		ELBOps:                     cfg.ELBOps,
@@ -1109,6 +1116,12 @@ func (h *DashboardHandler) setupOpenSearchRoutes() {
 	h.SubRouter.POST("/dashboard/opensearch/delete", h.opensearchDeleteDomain)
 }
 
+func (h *DashboardHandler) setupElasticsearchRoutes() {
+	h.SubRouter.GET("/dashboard/elasticsearch", h.elasticsearchIndex)
+	h.SubRouter.POST("/dashboard/elasticsearch/create", h.elasticsearchCreateDomain)
+	h.SubRouter.POST("/dashboard/elasticsearch/delete", h.elasticsearchDeleteDomain)
+}
+
 func (h *DashboardHandler) setupACMRoutes() {
 	h.SubRouter.GET("/dashboard/acm", h.acmIndex)
 	h.SubRouter.POST("/dashboard/acm/request", h.acmRequestCertificate)
@@ -1336,6 +1349,7 @@ func (h *DashboardHandler) setupSubRouter() {
 	h.setupECSRoutes()
 	h.setupIoTRoutes()
 	h.setupFISRoutes()
+	h.setupElasticsearchRoutes()
 	h.setupOpenSearchRoutes()
 	h.setupACMRoutes()
 	h.setupACMPCARoutes()
@@ -1522,6 +1536,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/ecs", "ECS"},
 	{"/iot", "IoT"},
 	{"/fis", "FIS"},
+	{"/elasticsearch", "Elasticsearch"},
 	{"/opensearch", "OpenSearch"},
 	{"/acmpca", "ACMPCA"},
 	{"/acm", "ACM"},
