@@ -167,6 +167,7 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 
@@ -305,6 +306,7 @@ type CLI struct {
 	timestreamwriteHandler        service.Registerable
 	timestreamqueryHandler        service.Registerable
 	transferHandler               service.Registerable
+	verifiedPermissionsHandler    service.Registerable
 	wafv2Handler                  service.Registerable
 	xrayHandler                   service.Registerable
 	faultStore                    *chaos.FaultStore
@@ -827,6 +829,13 @@ func (c *CLI) GetTimestreamQueryHandler() service.Registerable { return c.timest
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetTransferHandler() service.Registerable { return c.transferHandler }
+
+// GetVerifiedPermissionsHandler returns the Verified Permissions handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetVerifiedPermissionsHandler() service.Registerable {
+	return c.verifiedPermissionsHandler
+}
 
 // GetWafv2Handler returns the WAFv2 handler (dashboard.AWSSDKProvider).
 //
@@ -1557,6 +1566,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.timestreamwriteHandler = byName["TimestreamWrite"]
 	cli.timestreamqueryHandler = byName["TimestreamQuery"]
 	cli.transferHandler = byName["Transfer"]
+	cli.verifiedPermissionsHandler = byName["VerifiedPermissions"]
 	cli.wafv2Handler = byName["Wafv2"]
 	cli.xrayHandler = byName["Xray"]
 }
@@ -1811,6 +1821,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&timestreamwritebackend.Provider{},
 		&timestreamquerybackend.Provider{},
 		&transferbackend.Provider{},
+		&verifiedpermissionsbackend.Provider{},
 		&wafv2backend.Provider{},
 		&xraybackend.Provider{},
 	}

@@ -133,6 +133,7 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 )
@@ -341,6 +342,8 @@ type DashboardHandler struct {
 	TimestreamQueryOps *timestreamquerybackend.Handler
 	// TransferOps provides access to the Transfer backend.
 	TransferOps *transferbackend.Handler
+	// VerifiedPermissionsOps provides access to the Verified Permissions backend.
+	VerifiedPermissionsOps *verifiedpermissionsbackend.Handler
 	// Wafv2Ops provides access to the WAFv2 backend.
 	Wafv2Ops *wafv2backend.Handler
 	// XrayOps provides access to the X-Ray backend.
@@ -581,6 +584,8 @@ type Config struct {
 	TimestreamQueryOps *timestreamquerybackend.Handler
 	// TransferOps provides access to the Transfer backend.
 	TransferOps *transferbackend.Handler
+	// VerifiedPermissionsOps provides access to the Verified Permissions backend.
+	VerifiedPermissionsOps *verifiedpermissionsbackend.Handler
 	// Wafv2Ops provides access to the WAFv2 backend.
 	Wafv2Ops *wafv2backend.Handler
 	// XrayOps provides access to the X-Ray backend.
@@ -746,6 +751,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/textract/*.html",
 		"templates/transfer/*.html",
 		"templates/timestreamwrite/*.html",
+		"templates/verifiedpermissions/*.html",
 		"templates/wafv2/*.html",
 		"templates/xray/*.html",
 		"templates/doc.html",
@@ -906,6 +912,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.TimestreamWriteOps = cfg.TimestreamWriteOps
 	h.TimestreamQueryOps = cfg.TimestreamQueryOps
 	h.TransferOps = cfg.TransferOps
+	h.VerifiedPermissionsOps = cfg.VerifiedPermissionsOps
 	h.Wafv2Ops = cfg.Wafv2Ops
 	h.XrayOps = cfg.XrayOps
 }
@@ -1446,6 +1453,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupTimestreamWriteRoutes()
 	h.setupTimestreamQueryRoutes()
 	h.setupTransferRoutes()
+	h.setupVerifiedPermissionsRoutes()
 	h.setupWafv2Routes()
 	h.setupXrayRoutes()
 }
@@ -1583,7 +1591,9 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/timestreamwrite", "TimestreamWrite"},
 	{"/timestreamquery", "TimestreamQuery"},
 	{"/transfer", "Transfer"},
+	{"/verifiedpermissions", "VerifiedPermissions"},
 	{"/wafv2", "Wafv2"},
+	{"/xray", "Xray"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

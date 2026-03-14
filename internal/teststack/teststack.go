@@ -131,6 +131,7 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 )
@@ -305,6 +306,8 @@ type Stack struct {
 	TimestreamQueryHandler *timestreamquerybackend.Handler
 	// TransferHandler provides access to the Transfer backend.
 	TransferHandler *transferbackend.Handler
+	// VerifiedPermissionsHandler provides access to the Verified Permissions backend.
+	VerifiedPermissionsHandler *verifiedpermissionsbackend.Handler
 	// Wafv2Handler provides access to the WAFv2 backend.
 	Wafv2Handler *wafv2backend.Handler
 	// XrayHandler provides access to the X-Ray backend.
@@ -530,128 +533,130 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.timestreamwrite)
 	_ = registry.Register(h.timestreamquery)
 	_ = registry.Register(h.transfer)
+	_ = registry.Register(h.verifiedpermissions)
 	_ = registry.Register(h.wafv2)
 	_ = registry.Register(h.xray)
 }
 
 // handlers bundles all service handlers created for a test stack.
 type handlers struct {
-	s3                 *s3backend.S3Handler
-	ddb                *ddbbackend.DynamoDBHandler
-	ssm                *ssmbackend.Handler
-	iam                *iambackend.Handler
-	sts                *stsbackend.Handler
-	sns                *snsbackend.Handler
-	sqs                *sqsbackend.Handler
-	kms                *kmsbackend.Handler
-	sm                 *smbackend.Handler
-	lambda             *lambdabackend.Handler
-	eb                 *ebbackend.Handler
-	apigw              *apigwbackend.Handler
-	cwlogs             *cwlogsbackend.Handler
-	sfn                *sfnbackend.Handler
-	cw                 *cwbackend.Handler
-	cfn                *cfnbackend.Handler
-	kinesis            *kinesisbackend.Handler
-	elasticache        *elasticachebackend.Handler
-	route53            *route53backend.Handler
-	ses                *sesbackend.Handler
-	sesv2              *sesv2backend.Handler
-	ec2                *ec2backend.Handler
-	ecr                *ecrbackend.Handler
-	ecs                *ecsbackend.Handler
-	iot                *iotbackend.Handler
-	fis                *fisbackend.Handler
-	identitystore      *identitystorebackend.Handler
-	elasticsearch      *elasticsearchbackend.Handler
-	opensearch         *opensearchbackend.Handler
-	acm                *acmbackend.Handler
-	acmpca             *acmpcabackend.Handler
-	redshift           *redshiftbackend.Handler
-	rds                *rdsbackend.Handler
-	docdb              *docdbbackend.Handler
-	awsconfig          *awsconfigbackend.Handler
-	s3control          *s3controlbackend.Handler
-	resourcegroups     *resourcegroupsbackend.Handler
-	rgtagging          *rgtabackend.Handler
-	swf                *swfbackend.Handler
-	firehose           *firehosebackend.Handler
-	scheduler          *schedulerbackend.Handler
-	route53resolver    *route53resolverbackend.Handler
-	transcribe         *transcribebackend.Handler
-	support            *supportbackend.Handler
-	cognitoIdentity    *cognitoidentitybackend.Handler
-	appSync            *appsyncbackend.Handler
-	cognitoIDP         *cognitoidpbackend.Handler
-	iotDataPlane       *iotdataplanebackend.Handler
-	apiGatewayMgmt     *apigwmgmtbackend.Handler
-	appConfigData      *appconfigdatabackend.Handler
-	amplify            *amplifybackend.Handler
-	apigwv2            *apigwv2backend.Handler
-	appConfig          *appconfigbackend.Handler
-	athena             *athenabackend.Handler
-	autoscaling        *autoscalingbackend.Handler
-	appAutoScaling     *applicationautoscalingbackend.Handler
-	backup             *backupbackend.Handler
-	cloudtrail         *cloudtrailbackend.Handler
-	batch              *batchbackend.Handler
-	bedrock            *bedrockbackend.Handler
-	bedrockruntime     *bedrockruntimebackend.Handler
-	ce                 *cebackend.Handler
-	cloudcontrol       *cloudcontrolbackend.Handler
-	cloudFront         *cloudfrontbackend.Handler
-	codeArtifact       *codeartifactbackend.Handler
-	codebuild          *codebuildbackend.Handler
-	codeCommit         *codecommitbackend.Handler
-	codePipeline       *codepipelinebackend.Handler
-	codeConnections    *codeconnectionsbackend.Handler
-	codeDeploy         *codedeploybackend.Handler
-	dms                *dmsbackend.Handler
-	codeStarConn       *codestarconnectionsbackend.Handler
-	dynamodbStreams    *dynamodbstreamsbackend.Handler
-	elasticbeanstalk   *elasticbeanstalkbackend.Handler
-	elastictranscoder  *elastictranscoderbackend.Handler
-	efs                *efsbackend.Handler
-	eks                *eksbackend.Handler
-	elb                *elbbackend.Handler
-	elbv2              *elbv2backend.Handler
-	emrserverless      *emrserverlessbackend.Handler
-	emr                *emrbackend.Handler
-	glacier            *glacierbackend.Handler
-	iotanalytics       *iotanalyticsbackend.Handler
-	iotwireless        *iotwirelessbackend.Handler
-	kafka              *kafkabackend.Handler
-	kinesisanalytics   *kinesisanalyticsbackend.Handler
-	kinesisanalyticsv2 *kinesisanalyticsv2backend.Handler
-	lakeformation      *lakeformationbackend.Handler
-	mediaconvert       *mediaconvertbackend.Handler
-	mq                 *mqbackend.Handler
-	mediastore         *mediastorebackend.Handler
-	mediastoredata     *mediastoredatabackend.Handler
-	memorydb           *memorydbbackend.Handler
-	organizations      *organizationsbackend.Handler
-	mwaa               *mwaabackend.Handler
-	pinpoint           *pinpointbackend.Handler
-	neptune            *neptunebackend.Handler
-	pipes              *pipesbackend.Handler
-	qldb               *qldbbackend.Handler
-	qldbsession        *qldbsessionbackend.Handler
-	ram                *rambackend.Handler
-	rdsdata            *rdsdatabackend.Handler
-	redshiftdata       *redshiftdatabackend.Handler
-	sagemaker          *sagemakerbackend.Handler
-	sagemakerRuntime   *sagemakerruntimebackend.Handler
-	servicediscovery   *servicediscoverybackend.Handler
-	serverlessrepo     *serverlessrepobackend.Handler
-	shield             *shieldbackend.Handler
-	textract           *textractbackend.Handler
-	timestreamwrite    *timestreamwritebackend.Handler
-	timestreamquery    *timestreamquerybackend.Handler
-	transfer           *transferbackend.Handler
-	wafv2              *wafv2backend.Handler
-	xray               *xraybackend.Handler
-	iamBk              *iambackend.InMemoryBackend
-	s3Bk               *s3backend.InMemoryBackend
+	s3                  *s3backend.S3Handler
+	ddb                 *ddbbackend.DynamoDBHandler
+	ssm                 *ssmbackend.Handler
+	iam                 *iambackend.Handler
+	sts                 *stsbackend.Handler
+	sns                 *snsbackend.Handler
+	sqs                 *sqsbackend.Handler
+	kms                 *kmsbackend.Handler
+	sm                  *smbackend.Handler
+	lambda              *lambdabackend.Handler
+	eb                  *ebbackend.Handler
+	apigw               *apigwbackend.Handler
+	cwlogs              *cwlogsbackend.Handler
+	sfn                 *sfnbackend.Handler
+	cw                  *cwbackend.Handler
+	cfn                 *cfnbackend.Handler
+	kinesis             *kinesisbackend.Handler
+	elasticache         *elasticachebackend.Handler
+	route53             *route53backend.Handler
+	ses                 *sesbackend.Handler
+	sesv2               *sesv2backend.Handler
+	ec2                 *ec2backend.Handler
+	ecr                 *ecrbackend.Handler
+	ecs                 *ecsbackend.Handler
+	iot                 *iotbackend.Handler
+	fis                 *fisbackend.Handler
+	identitystore       *identitystorebackend.Handler
+	elasticsearch       *elasticsearchbackend.Handler
+	opensearch          *opensearchbackend.Handler
+	acm                 *acmbackend.Handler
+	acmpca              *acmpcabackend.Handler
+	redshift            *redshiftbackend.Handler
+	rds                 *rdsbackend.Handler
+	docdb               *docdbbackend.Handler
+	awsconfig           *awsconfigbackend.Handler
+	s3control           *s3controlbackend.Handler
+	resourcegroups      *resourcegroupsbackend.Handler
+	rgtagging           *rgtabackend.Handler
+	swf                 *swfbackend.Handler
+	firehose            *firehosebackend.Handler
+	scheduler           *schedulerbackend.Handler
+	route53resolver     *route53resolverbackend.Handler
+	transcribe          *transcribebackend.Handler
+	support             *supportbackend.Handler
+	cognitoIdentity     *cognitoidentitybackend.Handler
+	appSync             *appsyncbackend.Handler
+	cognitoIDP          *cognitoidpbackend.Handler
+	iotDataPlane        *iotdataplanebackend.Handler
+	apiGatewayMgmt      *apigwmgmtbackend.Handler
+	appConfigData       *appconfigdatabackend.Handler
+	amplify             *amplifybackend.Handler
+	apigwv2             *apigwv2backend.Handler
+	appConfig           *appconfigbackend.Handler
+	athena              *athenabackend.Handler
+	autoscaling         *autoscalingbackend.Handler
+	appAutoScaling      *applicationautoscalingbackend.Handler
+	backup              *backupbackend.Handler
+	cloudtrail          *cloudtrailbackend.Handler
+	batch               *batchbackend.Handler
+	bedrock             *bedrockbackend.Handler
+	bedrockruntime      *bedrockruntimebackend.Handler
+	ce                  *cebackend.Handler
+	cloudcontrol        *cloudcontrolbackend.Handler
+	cloudFront          *cloudfrontbackend.Handler
+	codeArtifact        *codeartifactbackend.Handler
+	codebuild           *codebuildbackend.Handler
+	codeCommit          *codecommitbackend.Handler
+	codePipeline        *codepipelinebackend.Handler
+	codeConnections     *codeconnectionsbackend.Handler
+	codeDeploy          *codedeploybackend.Handler
+	dms                 *dmsbackend.Handler
+	codeStarConn        *codestarconnectionsbackend.Handler
+	dynamodbStreams      *dynamodbstreamsbackend.Handler
+	elasticbeanstalk    *elasticbeanstalkbackend.Handler
+	elastictranscoder   *elastictranscoderbackend.Handler
+	efs                 *efsbackend.Handler
+	eks                 *eksbackend.Handler
+	elb                 *elbbackend.Handler
+	elbv2               *elbv2backend.Handler
+	emrserverless       *emrserverlessbackend.Handler
+	emr                 *emrbackend.Handler
+	glacier             *glacierbackend.Handler
+	iotanalytics        *iotanalyticsbackend.Handler
+	iotwireless         *iotwirelessbackend.Handler
+	kafka               *kafkabackend.Handler
+	kinesisanalytics    *kinesisanalyticsbackend.Handler
+	kinesisanalyticsv2  *kinesisanalyticsv2backend.Handler
+	lakeformation       *lakeformationbackend.Handler
+	mediaconvert        *mediaconvertbackend.Handler
+	mq                  *mqbackend.Handler
+	mediastore          *mediastorebackend.Handler
+	mediastoredata      *mediastoredatabackend.Handler
+	memorydb            *memorydbbackend.Handler
+	organizations       *organizationsbackend.Handler
+	mwaa                *mwaabackend.Handler
+	pinpoint            *pinpointbackend.Handler
+	neptune             *neptunebackend.Handler
+	pipes               *pipesbackend.Handler
+	qldb                *qldbbackend.Handler
+	qldbsession         *qldbsessionbackend.Handler
+	ram                 *rambackend.Handler
+	rdsdata             *rdsdatabackend.Handler
+	redshiftdata        *redshiftdatabackend.Handler
+	sagemaker           *sagemakerbackend.Handler
+	sagemakerRuntime    *sagemakerruntimebackend.Handler
+	servicediscovery    *servicediscoverybackend.Handler
+	serverlessrepo      *serverlessrepobackend.Handler
+	shield              *shieldbackend.Handler
+	textract            *textractbackend.Handler
+	timestreamwrite     *timestreamwritebackend.Handler
+	timestreamquery     *timestreamquerybackend.Handler
+	transfer            *transferbackend.Handler
+	verifiedpermissions *verifiedpermissionsbackend.Handler
+	wafv2               *wafv2backend.Handler
+	xray                *xraybackend.Handler
+	iamBk               *iambackend.InMemoryBackend
+	s3Bk                *s3backend.InMemoryBackend
 }
 
 // newHandlers creates in-memory backends and handlers for all services.
@@ -982,11 +987,14 @@ func populateLatestMLHandlers(h *handlers) {
 	populateTransferHandlers(h)
 }
 
-// populateTransferHandlers initializes the Transfer and X-Ray service handlers.
+// populateTransferHandlers initializes the Transfer, VerifiedPermissions, and X-Ray service handlers.
 // Extracted from populateLatestHandlers to satisfy the funlen limit.
 func populateTransferHandlers(h *handlers) {
 	h.transfer = transferbackend.NewHandler(
 		transferbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.verifiedpermissions = verifiedpermissionsbackend.NewHandler(
+		verifiedpermissionsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.xray = xraybackend.NewHandler(xraybackend.NewInMemoryBackend())
 }
@@ -1160,6 +1168,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.TimestreamWriteOps = h.timestreamwrite
 	cfg.TimestreamQueryOps = h.timestreamquery
 	cfg.TransferOps = h.transfer
+	cfg.VerifiedPermissionsOps = h.verifiedpermissions
 	cfg.Wafv2Ops = h.wafv2
 	cfg.XrayOps = h.xray
 }
@@ -1381,6 +1390,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.TimestreamWriteHandler = h.timestreamwrite
 	s.TimestreamQueryHandler = h.timestreamquery
 	s.TransferHandler = h.transfer
+	s.VerifiedPermissionsHandler = h.verifiedpermissions
 	s.Wafv2Handler = h.wafv2
 	s.XrayHandler = h.xray
 }
