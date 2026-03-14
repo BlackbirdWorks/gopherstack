@@ -113,3 +113,41 @@ func InjectRuntimeEntry(b *InMemoryBackend, functionName, zipDir string, layerDi
 		started:   true,
 	}
 }
+
+// FunctionNamesFromARNs exports functionNamesFromARNs for testing.
+func FunctionNamesFromARNs(arns []string) []string { return functionNamesFromARNs(arns) }
+
+// ParseInvocationPercentage exports parseInvocationPercentage for testing.
+func ParseInvocationPercentage(s string) float64 { return parseInvocationPercentage(s) }
+
+// ParseInvocationDelayMs exports parseInvocationDelayMs for testing.
+func ParseInvocationDelayMs(s string) int { return parseInvocationDelayMs(s) }
+
+// ParseIntSafe exports parseIntSafe for testing.
+func ParseIntSafe(s string, out *int) error { return parseIntSafe(s, out) }
+
+// ExpiryFromDuration exports expiryFromDuration for testing.
+func ExpiryFromDuration(d time.Duration) time.Time { return expiryFromDuration(d) }
+
+// SetFISFault exports setFISFault for testing.
+func SetFISFault(b *InMemoryBackend, name string, fault *FISInvocationFault) {
+	b.setFISFault(name, fault)
+}
+
+// ClearFISFault exports clearFISFault for testing.
+func ClearFISFault(b *InMemoryBackend, name string) { b.clearFISFault(name) }
+
+// CheckFISFault exports checkFISFault for testing.
+func CheckFISFault(b *InMemoryBackend, name string) *FISInvocationFault {
+	return b.checkFISFault(name)
+}
+
+// ReleaseConcurrencySlot exports releaseConcurrencySlot for testing.
+func ReleaseConcurrencySlot(b *InMemoryBackend, functionName string) {
+	b.releaseConcurrencySlot(functionName)
+}
+
+// AcquireConcurrencySlot exports acquireConcurrencySlot for testing.
+func AcquireConcurrencySlot(b *InMemoryBackend, functionName string, invocationType InvocationType) (bool, error) {
+	return b.acquireConcurrencySlot(functionName, invocationType)
+}
