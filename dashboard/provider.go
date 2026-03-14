@@ -83,6 +83,7 @@ import (
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
+	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -238,6 +239,7 @@ type AWSSDKProvider interface {
 	GetTextractHandler() service.Registerable
 	GetTimestreamWriteHandler() service.Registerable
 	GetTimestreamQueryHandler() service.Registerable
+	GetTransferHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -366,6 +368,7 @@ type extractedConfig struct {
 	textractOps               *textractbackend.Handler
 	timestreamwriteOps        *timestreamwritebackend.Handler
 	timestreamqueryOps        *timestreamquerybackend.Handler
+	transferOps               *transferbackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -901,6 +904,10 @@ func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetTimestreamQueryHandler(); h != nil {
 		ec.timestreamqueryOps, _ = h.(*timestreamquerybackend.Handler)
 	}
+
+	if h := ap.GetTransferHandler(); h != nil {
+		ec.transferOps, _ = h.(*transferbackend.Handler)
+	}
 }
 
 //nolint:ireturn // architecturally required to return interface
@@ -1104,4 +1111,5 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.TextractOps = ec.textractOps
 	cfg.TimestreamWriteOps = ec.timestreamwriteOps
 	cfg.TimestreamQueryOps = ec.timestreamqueryOps
+	cfg.TransferOps = ec.transferOps
 }

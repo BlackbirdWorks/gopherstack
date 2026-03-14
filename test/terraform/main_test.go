@@ -118,6 +118,7 @@ import (
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
+	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
 	"github.com/docker/docker/api/types/build"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -2277,5 +2278,23 @@ func createTimestreamQueryClient(t *testing.T) *timestreamquerysvc.Client {
 	return timestreamquerysvc.NewFromConfig(cfg, func(o *timestreamquerysvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 		o.EndpointDiscovery.EnableEndpointDiscovery = aws.EndpointDiscoveryDisabled
+	})
+}
+
+// createTransferClient returns a Transfer client pointed at the shared test container.
+func createTransferClient(t *testing.T) *transfersvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return transfersvc.NewFromConfig(cfg, func(o *transfersvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
