@@ -41,9 +41,10 @@ func TestIntegration_CloudFormation_DriftDetection(t *testing.T) {
 	assert.NotEmpty(t, detectOut.StackDriftDetectionId)
 
 	// DescribeStackDriftDetectionStatus
-	statusOut, err := client.DescribeStackDriftDetectionStatus(ctx, &cloudformationsdk.DescribeStackDriftDetectionStatusInput{
+	statusInput := &cloudformationsdk.DescribeStackDriftDetectionStatusInput{
 		StackDriftDetectionId: detectOut.StackDriftDetectionId,
-	})
+	}
+	statusOut, err := client.DescribeStackDriftDetectionStatus(ctx, statusInput)
 	require.NoError(t, err)
 	assert.NotEmpty(t, statusOut.DetectionStatus)
 

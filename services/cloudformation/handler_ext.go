@@ -197,6 +197,9 @@ func (h *Handler) handleSetStackPolicy(form url.Values, c *echo.Context) error {
 	}
 
 	policy := form.Get("StackPolicyBody")
+	if policy == "" {
+		return h.xmlError(c, "ValidationError", "StackPolicyBody is required")
+	}
 
 	if err := h.Backend.SetStackPolicy(stackName, policy); err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())

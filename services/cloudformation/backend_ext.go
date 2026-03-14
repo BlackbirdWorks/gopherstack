@@ -12,7 +12,7 @@ import (
 const (
 	driftStatusInSync  = "IN_SYNC"
 	detectionComplete  = "DETECTION_COMPLETE"
-	cfnEstimateCostURL = "http://calculator.s3.amazonaws.com/calc5.html?key=mock-estimate"
+	cfnEstimateCostURL = "https://calculator.s3.amazonaws.com/calc5.html?key=mock-estimate"
 )
 
 // DetectStackDrift initiates drift detection for all resources in a stack.
@@ -122,7 +122,7 @@ func (b *InMemoryBackend) SetStackPolicy(nameOrID, policy string) error {
 		return ErrStackNotFound
 	}
 
-	b.stackPolicies[stack.StackName] = policy
+	b.stackPolicies[stack.StackID] = policy
 
 	return nil
 }
@@ -138,7 +138,7 @@ func (b *InMemoryBackend) GetStackPolicy(nameOrID string) (string, error) {
 		return "", ErrStackNotFound
 	}
 
-	return b.stackPolicies[stack.StackName], nil
+	return b.stackPolicies[stack.StackID], nil
 }
 
 // GetTemplateSummary returns summary information about a template body or an existing stack's template.

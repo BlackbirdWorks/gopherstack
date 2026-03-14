@@ -592,6 +592,7 @@ func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) erro
 	stack.DeletionTime = &now
 	stack.StackStatus = statusDeleteComplete
 	b.removeExports(stack.StackID)
+	delete(b.stackPolicies, stack.StackID)
 	b.addEvent(
 		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
 		cfnStackType, statusDeleteComplete, "",

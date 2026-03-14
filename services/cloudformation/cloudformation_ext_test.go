@@ -567,10 +567,9 @@ func TestHandler_DetectStackDrift(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		body       string
-		wantIDPath string
-		wantCode   int
+		name     string
+		body     string
+		wantCode int
 	}{
 		{
 			name: "success",
@@ -784,6 +783,11 @@ func TestHandler_StackPolicy(t *testing.T) {
 		{
 			name:     "set_missing_stack_name",
 			body:     "Action=SetStackPolicy&StackPolicyBody=" + policy,
+			wantCode: 400,
+		},
+		{
+			name:     "set_empty_policy_body",
+			body:     "Action=SetStackPolicy&StackName=any-stack",
 			wantCode: 400,
 		},
 		{
