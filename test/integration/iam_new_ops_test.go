@@ -174,10 +174,8 @@ func TestIntegration_IAM_LoginProfile(t *testing.T) {
 	require.NoError(t, err)
 
 	// Cleanup user
-	t.Cleanup(func() {
-		_, cleanupErr := client.DeleteUser(ctx, &iamsdk.DeleteUserInput{UserName: aws.String(userName)})
-		require.NoError(t, cleanupErr)
-	})
+	_, err = client.DeleteUser(ctx, &iamsdk.DeleteUserInput{UserName: aws.String(userName)})
+	require.NoError(t, err)
 }
 
 func TestIntegration_IAM_Misc(t *testing.T) {
