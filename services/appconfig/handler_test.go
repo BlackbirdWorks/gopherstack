@@ -492,7 +492,7 @@ func TestBackend_ListApplications_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend()
-	apps := b.ListApplications()
+	apps, _ := b.ListApplications("", 0)
 	assert.Empty(t, apps)
 }
 
@@ -521,7 +521,7 @@ func TestBackend_CreateDeploymentStrategy(t *testing.T) {
 	assert.Equal(t, "strat", s.Name)
 	assert.NotEmpty(t, s.ID)
 
-	strategies := b.ListDeploymentStrategies()
+	strategies, _ := b.ListDeploymentStrategies("", 0)
 	assert.Len(t, strategies, 1)
 }
 
@@ -604,7 +604,7 @@ func TestBackend_ListEnvironments_AppNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend()
-	_, err := b.ListEnvironments("nonexistent")
+	_, _, err := b.ListEnvironments("nonexistent", "", 0)
 	require.Error(t, err)
 }
 
@@ -620,7 +620,7 @@ func TestBackend_ListConfigurationProfiles_AppNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend()
-	_, err := b.ListConfigurationProfiles("nonexistent")
+	_, _, err := b.ListConfigurationProfiles("nonexistent", "", 0)
 	require.Error(t, err)
 }
 

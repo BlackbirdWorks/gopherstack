@@ -166,7 +166,7 @@ func TestInMemoryBackend_ListApps(t *testing.T) {
 
 			b := newTestBackend()
 			tt.setup(b)
-			apps, err := b.ListApps()
+			apps, _, err := b.ListApps("", 0)
 
 			require.NoError(t, err)
 			assert.Len(t, apps, tt.wantCount)
@@ -428,7 +428,7 @@ func TestInMemoryBackend_ListBranches(t *testing.T) {
 
 			b := newTestBackend()
 			appID := tt.setup(b)
-			branches, err := b.ListBranches(appID)
+			branches, _, err := b.ListBranches(appID, "", 0)
 
 			if tt.wantErr {
 				require.Error(t, err)

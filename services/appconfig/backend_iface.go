@@ -6,8 +6,8 @@ type StorageBackend interface {
 	CreateApplication(name, description string) (*Application, error)
 	// GetApplication retrieves an application by ID.
 	GetApplication(applicationID string) (*Application, error)
-	// ListApplications returns all applications.
-	ListApplications() []Application
+	// ListApplications returns paginated applications.
+	ListApplications(nextToken string, maxResults int) ([]Application, string)
 	// UpdateApplication updates an application's name and description.
 	UpdateApplication(applicationID, name, description string) (*Application, error)
 	// DeleteApplication deletes an application by ID.
@@ -17,8 +17,8 @@ type StorageBackend interface {
 	CreateEnvironment(applicationID, name, description string) (*Environment, error)
 	// GetEnvironment retrieves an environment by application and environment ID.
 	GetEnvironment(applicationID, environmentID string) (*Environment, error)
-	// ListEnvironments returns all environments for an application.
-	ListEnvironments(applicationID string) ([]Environment, error)
+	// ListEnvironments returns paginated environments for an application.
+	ListEnvironments(applicationID, nextToken string, maxResults int) ([]Environment, string, error)
 	// UpdateEnvironment updates an environment's name and description.
 	UpdateEnvironment(applicationID, environmentID, name, description string) (*Environment, error)
 	// DeleteEnvironment deletes an environment.
@@ -30,8 +30,8 @@ type StorageBackend interface {
 	) (*ConfigurationProfile, error)
 	// GetConfigurationProfile retrieves a configuration profile.
 	GetConfigurationProfile(applicationID, profileID string) (*ConfigurationProfile, error)
-	// ListConfigurationProfiles returns all profiles for an application.
-	ListConfigurationProfiles(applicationID string) ([]ConfigurationProfile, error)
+	// ListConfigurationProfiles returns paginated profiles for an application.
+	ListConfigurationProfiles(applicationID, nextToken string, maxResults int) ([]ConfigurationProfile, string, error)
 	// UpdateConfigurationProfile updates a configuration profile.
 	UpdateConfigurationProfile(applicationID, profileID, name, description string) (*ConfigurationProfile, error)
 	// DeleteConfigurationProfile deletes a configuration profile.
@@ -47,8 +47,11 @@ type StorageBackend interface {
 		applicationID, profileID string,
 		versionNumber int32,
 	) (*HostedConfigurationVersion, error)
-	// ListHostedConfigurationVersions returns all versions for a profile.
-	ListHostedConfigurationVersions(applicationID, profileID string) ([]HostedConfigurationVersion, error)
+	// ListHostedConfigurationVersions returns paginated versions for a profile.
+	ListHostedConfigurationVersions(
+		applicationID, profileID, nextToken string,
+		maxResults int,
+	) ([]HostedConfigurationVersion, string, error)
 	// DeleteHostedConfigurationVersion deletes a hosted configuration version.
 	DeleteHostedConfigurationVersion(applicationID, profileID string, versionNumber int32) error
 
@@ -61,8 +64,8 @@ type StorageBackend interface {
 	) (*DeploymentStrategy, error)
 	// GetDeploymentStrategy retrieves a deployment strategy by ID.
 	GetDeploymentStrategy(strategyID string) (*DeploymentStrategy, error)
-	// ListDeploymentStrategies returns all deployment strategies.
-	ListDeploymentStrategies() []DeploymentStrategy
+	// ListDeploymentStrategies returns paginated deployment strategies.
+	ListDeploymentStrategies(nextToken string, maxResults int) ([]DeploymentStrategy, string)
 	// UpdateDeploymentStrategy updates a deployment strategy.
 	UpdateDeploymentStrategy(
 		strategyID, name, description string,
@@ -78,8 +81,8 @@ type StorageBackend interface {
 	) (*Deployment, error)
 	// GetDeployment retrieves a deployment by application, environment, and deployment number.
 	GetDeployment(applicationID, environmentID string, deploymentNumber int32) (*Deployment, error)
-	// ListDeployments returns all deployments for an environment.
-	ListDeployments(applicationID, environmentID string) ([]Deployment, error)
+	// ListDeployments returns paginated deployments for an environment.
+	ListDeployments(applicationID, environmentID, nextToken string, maxResults int) ([]Deployment, string, error)
 	// StopDeployment stops an in-progress deployment.
 	StopDeployment(applicationID, environmentID string, deploymentNumber int32) error
 

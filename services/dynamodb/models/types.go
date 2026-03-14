@@ -192,11 +192,13 @@ type UpdateTableOutput struct {
 }
 
 type ListTablesInput struct {
-	Limit int `json:"Limit"`
+	ExclusiveStartTableName string `json:"ExclusiveStartTableName,omitempty"`
+	Limit                   int    `json:"Limit"`
 }
 
 type ListTablesOutput struct {
-	TableNames []string `json:"TableNames"`
+	LastEvaluatedTableName string   `json:"LastEvaluatedTableName,omitempty"`
+	TableNames             []string `json:"TableNames"`
 }
 
 // --- Item Operations ---

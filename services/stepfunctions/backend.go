@@ -56,10 +56,16 @@ type InMemoryBackend struct {
 	stateMachines  map[string]*StateMachine
 	executions     map[string]*Execution
 	history        map[string][]*HistoryEvent
-	logger         *slog.Logger
-	mu             *lockmetrics.RWMutex
-	accountID      string
-	region         string
+	// nameIndex maps state machine name → ARN for O(1) duplicate detection.
+	nameIndex map[string]string
+	// smExecutions maps state machine ARN → execution ARNs for O(1) scoped listing.
+	smExecutions map[string][]string
+	// cancelFns holds the cancel function for each running execution goroutine.
+	cancelFns map[string]context.CancelFunc
+	logger    *slog.Logger
+	mu        *lockmetrics.RWMutex
+	accountID string
+	region    string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -75,6 +81,9 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		stateMachines: make(map[string]*StateMachine),
 		executions:    make(map[string]*Execution),
 		history:       make(map[string][]*HistoryEvent),
+		nameIndex:     make(map[string]string),
+		smExecutions:  make(map[string][]string),
+		cancelFns:     make(map[string]context.CancelFunc),
 		logger:        slog.Default(),
 		mu:            lockmetrics.New("stepfunctions"),
 	}
@@ -83,6 +92,17 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string {
 	return b.region
+}
+
+// Destroy cancels all running execution goroutines and releases resources.
+func (b *InMemoryBackend) Destroy() {
+	b.mu.Lock("Destroy")
+	defer b.mu.Unlock()
+
+	for execARN, cancel := range b.cancelFns {
+		cancel()
+		delete(b.cancelFns, execARN)
+	}
 }
 
 // SetLambdaInvoker configures the Lambda invoker for Task states.
@@ -144,8 +164,8 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 	b.mu.Lock("CreateStateMachine")
 	defer b.mu.Unlock()
 
-	for _, sm := range b.stateMachines {
-		if sm.Name == name && sm.Status != "DELETING" {
+	if existingARN, exists := b.nameIndex[name]; exists {
+		if sm := b.stateMachines[existingARN]; sm != nil && sm.Status != "DELETING" {
 			return nil, fmt.Errorf("%w: %s", ErrStateMachineAlreadyExists, name)
 		}
 	}
@@ -160,6 +180,7 @@ func (b *InMemoryBackend) CreateStateMachine(name, definition, roleArn, smType s
 		RoleArn:         roleArn,
 	}
 	b.stateMachines[arn] = sm
+	b.nameIndex[name] = arn
 
 	return sm, nil
 }
@@ -176,6 +197,20 @@ func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 
 	sm.Status = "DELETING"
 	delete(b.stateMachines, arn)
+	delete(b.nameIndex, sm.Name)
+
+	// Cancel running goroutines and clean up all executions and history for this SM.
+	for _, execARN := range b.smExecutions[arn] {
+		if cancelFn, ok := b.cancelFns[execARN]; ok {
+			cancelFn()
+			delete(b.cancelFns, execARN)
+		}
+
+		delete(b.executions, execARN)
+		delete(b.history, execARN)
+	}
+
+	delete(b.smExecutions, arn)
 
 	return nil
 }
@@ -260,11 +295,18 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 	snsIntegration := b.snsIntegration
 	ddbIntegration := b.ddbIntegration
 
+	// Register the execution in the SM→executions index and store a cancel fn
+	// so StopExecution and DeleteStateMachine can cancel the goroutine.
+	//nolint:gosec // G118: cancel is stored in b.cancelFns and called by StopExecution/DeleteStateMachine/Destroy
+	ctx, cancel := context.WithCancel(context.Background())
+	b.cancelFns[execArn] = cancel
+	b.smExecutions[stateMachineArn] = append(b.smExecutions[stateMachineArn], execArn)
+
 	b.mu.Unlock()
 
 	// Run the ASL interpreter asynchronously.
 	go b.runParsedExecution(
-		context.Background(), execArn, parsedSM, input,
+		ctx, execArn, parsedSM, input,
 		lambdaInvoker, sqsIntegration, snsIntegration, ddbIntegration,
 	)
 
@@ -421,6 +463,9 @@ func (b *InMemoryBackend) runParsedExecution(
 	b.mu.Lock("runParsedExecution")
 	defer b.mu.Unlock()
 
+	// Clean up the cancel function now that the goroutine has exited.
+	delete(b.cancelFns, execARN)
+
 	exec := b.executions[execARN]
 	if exec == nil {
 		return
@@ -482,6 +527,12 @@ func (b *InMemoryBackend) StopExecution(executionArn, errCode, cause string) err
 	exec.Error = errCode
 	exec.Cause = cause
 
+	// Cancel the running goroutine for this execution.
+	if cancelFn, ok := b.cancelFns[executionArn]; ok {
+		cancelFn()
+		delete(b.cancelFns, executionArn)
+	}
+
 	nextID := int64(len(b.history[executionArn]) + 1)
 	b.history[executionArn] = append(b.history[executionArn], &HistoryEvent{
 		Timestamp: now, Type: "ExecutionAborted", ID: nextID, PreviousEventID: nextID - 1,
@@ -512,14 +563,19 @@ func (b *InMemoryBackend) ListExecutions(
 	b.mu.RLock("ListExecutions")
 	defer b.mu.RUnlock()
 
-	all := make([]Execution, 0)
-	for _, exec := range b.executions {
-		if exec.StateMachineArn != stateMachineArn {
+	execARNs := b.smExecutions[stateMachineArn]
+	all := make([]Execution, 0, len(execARNs))
+
+	for _, execARN := range execARNs {
+		exec := b.executions[execARN]
+		if exec == nil {
 			continue
 		}
+
 		if statusFilter != "" && exec.Status != statusFilter {
 			continue
 		}
+
 		all = append(all, *exec)
 	}
 

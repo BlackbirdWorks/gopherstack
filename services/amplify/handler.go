@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -381,12 +382,27 @@ func (h *Handler) getApp(ctx context.Context, c *echo.Context, appID string) err
 
 // listApps handles GET /apps.
 func (h *Handler) listApps(ctx context.Context, c *echo.Context) error {
-	apps, err := h.Backend.ListApps()
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+
+	maxResults := 0
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
+
+	apps, outToken, err := h.Backend.ListApps(nextToken, maxResults)
 	if err != nil {
 		return h.handleBackendError(ctx, c, "ListApps", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"apps": toAppViews(apps)})
+	resp := map[string]any{"apps": toAppViews(apps)}
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // deleteApp handles DELETE /apps/{appId}.
@@ -448,12 +464,27 @@ func (h *Handler) getBranch(ctx context.Context, c *echo.Context, appID, branchN
 
 // listBranches handles GET /apps/{appId}/branches.
 func (h *Handler) listBranches(ctx context.Context, c *echo.Context, appID string) error {
-	branches, err := h.Backend.ListBranches(appID)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+
+	maxResults := 0
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
+
+	branches, outToken, err := h.Backend.ListBranches(appID, nextToken, maxResults)
 	if err != nil {
 		return h.handleBackendError(ctx, c, "ListBranches", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"branches": toBranchViews(branches)})
+	resp := map[string]any{"branches": toBranchViews(branches)}
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // deleteBranch handles DELETE /apps/{appId}/branches/{branchName}.

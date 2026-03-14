@@ -1,6 +1,7 @@
 package stepfunctions
 
 import (
+	"context"
 	"encoding/json"
 )
 
@@ -66,6 +67,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.history = snap.History
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	// Rebuild secondary indexes from the restored state.
+	b.nameIndex = make(map[string]string, len(b.stateMachines))
+	for smARN, sm := range b.stateMachines {
+		b.nameIndex[sm.Name] = smARN
+	}
+
+	b.smExecutions = make(map[string][]string)
+	for execARN, exec := range b.executions {
+		b.smExecutions[exec.StateMachineArn] = append(b.smExecutions[exec.StateMachineArn], execARN)
+	}
+
+	// cancelFns is intentionally empty after restore: restored executions are
+	// in a terminal state so no running goroutines need to be tracked.
+	b.cancelFns = make(map[string]context.CancelFunc)
 
 	return nil
 }

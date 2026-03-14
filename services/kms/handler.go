@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -21,8 +23,13 @@ import (
 // ErrUnknownOperation is returned when the requested KMS operation is not supported.
 var ErrUnknownOperation = errors.New("UnknownOperationException")
 
+// defaultKMSTagsLimit is the default maximum number of tags returned by ListResourceTags.
+const defaultKMSTagsLimit int32 = 50
+
 type listResourceTagsInput struct {
-	KeyID string `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
+	Limit  *int32 `json:"Limit,omitempty"`
+	KeyID  string `json:"KeyId"` //nolint:tagliatelle // AWS API uses KeyId
+	Marker string `json:"Marker,omitempty"`
 }
 
 type kmsTagEntry struct {
@@ -36,8 +43,9 @@ type tagResourceInput struct {
 }
 
 type listResourceTagsOutput struct {
-	Tags      []kmsTagEntry `json:"Tags"`
-	Truncated bool          `json:"Truncated"`
+	NextMarker string        `json:"NextMarker,omitempty"`
+	Tags       []kmsTagEntry `json:"Tags"`
+	Truncated  bool          `json:"Truncated"`
 }
 
 type untagResourceInput struct {
@@ -477,13 +485,39 @@ func (h *Handler) buildTagActions() map[string]kmsActionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			tags := h.getTags(input.KeyID)
-			tagList := make([]kmsTagEntry, 0, len(tags))
-			for k, v := range tags {
+			tagMap := h.getTags(input.KeyID)
+			tagList := make([]kmsTagEntry, 0, len(tagMap))
+			for k, v := range tagMap {
 				tagList = append(tagList, kmsTagEntry{TagKey: k, TagValue: v})
 			}
 
-			return &listResourceTagsOutput{Tags: tagList, Truncated: false}, nil
+			sort.Slice(tagList, func(i, j int) bool { return tagList[i].TagKey < tagList[j].TagKey })
+
+			startIdx := parseKMSMarker(input.Marker)
+			limit := defaultKMSTagsLimit
+
+			if input.Limit != nil && *input.Limit > 0 {
+				limit = *input.Limit
+			}
+
+			if startIdx >= len(tagList) {
+				return &listResourceTagsOutput{Tags: []kmsTagEntry{}, Truncated: false}, nil
+			}
+
+			end := startIdx + int(limit)
+
+			var nextMarker string
+			if end < len(tagList) {
+				nextMarker = strconv.Itoa(end)
+			} else {
+				end = len(tagList)
+			}
+
+			return &listResourceTagsOutput{
+				Tags:       tagList[startIdx:end],
+				NextMarker: nextMarker,
+				Truncated:  nextMarker != "",
+			}, nil
 		},
 		"TagResource": func(_ string, b []byte) (any, error) {
 			var input tagResourceInput
@@ -638,4 +672,18 @@ func (h *Handler) UntagKeyByARN(keyARN string, tagKeys []string) error {
 	}
 
 	return fmt.Errorf("%w: %s", ErrKeyNotFound, keyARN)
+}
+
+// parseKMSMarker converts a Marker string to an integer start index.
+func parseKMSMarker(marker string) int {
+	if marker == "" {
+		return 0
+	}
+
+	idx, err := strconv.Atoi(marker)
+	if err != nil || idx < 0 {
+		return 0
+	}
+
+	return idx
 }
