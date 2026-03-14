@@ -119,6 +119,7 @@ import (
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
+	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
 	"github.com/docker/docker/api/types/build"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -2295,6 +2296,24 @@ func createTransferClient(t *testing.T) *transfersvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return transfersvc.NewFromConfig(cfg, func(o *transfersvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createVerifiedPermissionsClient returns a Verified Permissions client pointed at the shared test container.
+func createVerifiedPermissionsClient(t *testing.T) *verifiedpermissionssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return verifiedpermissionssvc.NewFromConfig(cfg, func(o *verifiedpermissionssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

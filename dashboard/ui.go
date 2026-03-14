@@ -132,6 +132,7 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 )
 
 const (
@@ -335,14 +336,16 @@ type DashboardHandler struct {
 	// TimestreamQueryOps provides access to the Timestream Query backend.
 	TimestreamQueryOps *timestreamquerybackend.Handler
 	// TransferOps provides access to the Transfer backend.
-	TransferOps  *transferbackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	TransferOps *transferbackend.Handler
+	// VerifiedPermissionsOps provides access to the Verified Permissions backend.
+	VerifiedPermissionsOps *verifiedpermissionsbackend.Handler
+	SubRouter              *echo.Echo
+	ddbProvider            *ddbbackend.DashboardProvider
+	s3Provider             *s3backend.DashboardProvider
+	FaultStore             *chaos.FaultStore
+	Logger                 *slog.Logger
+	layout                 *template.Template
+	GlobalConfig           config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -570,6 +573,8 @@ type Config struct {
 	TimestreamQueryOps *timestreamquerybackend.Handler
 	// TransferOps provides access to the Transfer backend.
 	TransferOps *transferbackend.Handler
+	// VerifiedPermissionsOps provides access to the Verified Permissions backend.
+	VerifiedPermissionsOps *verifiedpermissionsbackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -730,6 +735,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/textract/*.html",
 		"templates/transfer/*.html",
 		"templates/timestreamwrite/*.html",
+		"templates/verifiedpermissions/*.html",
 		"templates/doc.html",
 		"templates/settings.html",
 		"templates/apiconsole.html",
@@ -887,6 +893,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.TimestreamWriteOps = cfg.TimestreamWriteOps
 	h.TimestreamQueryOps = cfg.TimestreamQueryOps
 	h.TransferOps = cfg.TransferOps
+	h.VerifiedPermissionsOps = cfg.VerifiedPermissionsOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1418,6 +1425,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupTimestreamWriteRoutes()
 	h.setupTimestreamQueryRoutes()
 	h.setupTransferRoutes()
+	h.setupVerifiedPermissionsRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1552,6 +1560,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/timestreamwrite", "TimestreamWrite"},
 	{"/timestreamquery", "TimestreamQuery"},
 	{"/transfer", "Transfer"},
+	{"/verifiedpermissions", "VerifiedPermissions"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

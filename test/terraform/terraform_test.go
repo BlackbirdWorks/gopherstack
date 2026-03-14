@@ -140,6 +140,7 @@ import (
 	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	timestreamquerytypes "github.com/aws/aws-sdk-go-v2/service/timestreamquery/types"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
+	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -6182,6 +6183,52 @@ func TestTerraform_Transfer(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeServer should succeed")
 				assert.Equal(t, serverID, *descOut.Server.ServerId)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_VerifiedPermissions provisions a Verified Permissions policy store
+// via Terraform and verifies the service responds.
+func TestTerraform_VerifiedPermissions(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "verifiedpermissions/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"Endpoint": endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				client := createVerifiedPermissionsClient(t)
+
+				// List policy stores - should have at least one from Terraform provisioning.
+				listOut, err := client.ListPolicyStores(ctx, &verifiedpermissionssvc.ListPolicyStoresInput{})
+				require.NoError(t, err, "ListPolicyStores should succeed")
+				assert.NotEmpty(t, listOut.PolicyStores, "expected at least one policy store")
+
+				policyStoreID := *listOut.PolicyStores[0].PolicyStoreId
+
+				// Get the policy store.
+				getOut, err := client.GetPolicyStore(ctx, &verifiedpermissionssvc.GetPolicyStoreInput{
+					PolicyStoreId: &policyStoreID,
+				})
+				require.NoError(t, err, "GetPolicyStore should succeed")
+				assert.Equal(t, policyStoreID, *getOut.PolicyStoreId)
 			},
 		},
 	}
