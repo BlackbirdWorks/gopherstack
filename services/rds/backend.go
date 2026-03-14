@@ -1122,6 +1122,9 @@ func (b *InMemoryBackend) DownloadDBLogFilePortion(instanceID, _ string) (string
 
 // StartDBCluster starts a stopped DB cluster.
 func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
 	b.mu.Lock("StartDBCluster")
 	defer b.mu.Unlock()
 	cluster, exists := b.clusters[id]
@@ -1136,6 +1139,9 @@ func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
 
 // StopDBCluster stops a running DB cluster.
 func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
 	b.mu.Lock("StopDBCluster")
 	defer b.mu.Unlock()
 	cluster, exists := b.clusters[id]
@@ -1150,6 +1156,9 @@ func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
 
 // DeleteDBClusterSnapshot removes the given cluster snapshot.
 func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error) {
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier must not be empty", ErrInvalidParameter)
+	}
 	b.mu.Lock("DeleteDBClusterSnapshot")
 	defer b.mu.Unlock()
 	snap, exists := b.clusterSnapshots[snapshotID]
@@ -1166,6 +1175,9 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine string) (*DBCluster, error) {
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: SnapshotIdentifier must not be empty", ErrInvalidParameter)
 	}
 	b.mu.Lock("RestoreDBClusterFromSnapshot")
 	defer b.mu.Unlock()
@@ -1199,6 +1211,9 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(clusterID, sourceCluster
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
+	if sourceClusterID == "" {
+		return nil, fmt.Errorf("%w: SourceDBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
 	b.mu.Lock("RestoreDBClusterToPointInTime")
 	defer b.mu.Unlock()
 	if _, exists := b.clusters[clusterID]; exists {
@@ -1227,6 +1242,9 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(clusterID, sourceCluster
 
 // CopyDBClusterSnapshot creates a copy of the given cluster snapshot.
 func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID string) (*DBClusterSnapshot, error) {
+	if sourceSnapshotID == "" {
+		return nil, fmt.Errorf("%w: SourceDBClusterSnapshotIdentifier must not be empty", ErrInvalidParameter)
+	}
 	if targetSnapshotID == "" {
 		return nil, fmt.Errorf("%w: TargetDBClusterSnapshotIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -1261,6 +1279,9 @@ func (b *InMemoryBackend) CreateDBClusterEndpoint(
 ) (*DBClusterEndpoint, error) {
 	if endpointID == "" {
 		return nil, fmt.Errorf("%w: DBClusterEndpointIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
 	b.mu.Lock("CreateDBClusterEndpoint")
 	defer b.mu.Unlock()

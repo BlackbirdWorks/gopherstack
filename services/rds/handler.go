@@ -1416,8 +1416,6 @@ func (h *Handler) handleCopyDBClusterSnapshot(vals url.Values) (any, error) {
 	}, nil
 }
 
-// ---- Cluster endpoint handlers ----
-
 func (h *Handler) handleCreateDBClusterEndpoint(vals url.Values) (any, error) {
 	endpointID := vals.Get("DBClusterEndpointIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
@@ -1428,8 +1426,8 @@ func (h *Handler) handleCreateDBClusterEndpoint(vals url.Values) (any, error) {
 	}
 
 	return &createDBClusterEndpointResponse{
-		Xmlns:             rdsXMLNS,
-		DBClusterEndpoint: toXMLClusterEndpoint(ep),
+		Xmlns:  rdsXMLNS,
+		Result: createDBClusterEndpointResult{toXMLClusterEndpointFields(ep)},
 	}, nil
 }
 
@@ -1440,10 +1438,10 @@ func (h *Handler) handleDescribeDBClusterEndpoints(vals url.Values) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBClusterEndpoint, 0, len(endpoints))
+	members := make([]xmlDBClusterEndpointFields, 0, len(endpoints))
 	for _, ep := range endpoints {
 		cp := ep
-		members = append(members, toXMLClusterEndpoint(&cp))
+		members = append(members, toXMLClusterEndpointFields(&cp))
 	}
 
 	return &describeDBClusterEndpointsResponse{
@@ -1460,8 +1458,8 @@ func (h *Handler) handleDeleteDBClusterEndpoint(vals url.Values) (any, error) {
 	}
 
 	return &deleteDBClusterEndpointResponse{
-		Xmlns:             rdsXMLNS,
-		DBClusterEndpoint: toXMLClusterEndpoint(ep),
+		Xmlns:  rdsXMLNS,
+		Result: deleteDBClusterEndpointResult{toXMLClusterEndpointFields(ep)},
 	}, nil
 }
 
@@ -1469,25 +1467,20 @@ func (h *Handler) handleDeleteDBClusterEndpoint(vals url.Values) (any, error) {
 
 func (h *Handler) handleDescribeValidDBInstanceModifications(vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-	inst, err := h.Backend.DescribeValidDBInstanceModifications(id)
-	if err != nil {
+	if _, err := h.Backend.DescribeValidDBInstanceModifications(id); err != nil {
 		return nil, err
 	}
 
-	validClasses := []string{"db.t3.micro", "db.t3.small", "db.t3.medium", "db.r5.large", "db.r5.xlarge"}
-	members := make([]xmlValidDBInstanceModification, 0, len(validClasses))
-	for _, class := range validClasses {
-		members = append(members, xmlValidDBInstanceModification{
-			DBInstanceClass: class,
-		})
+	features := []xmlAvailableProcessorFeature{
+		{Name: "coreCount", DefaultValue: "2", AllowedValues: "1,2,4,8"},
+		{Name: "threadsPerCore", DefaultValue: "2", AllowedValues: "1,2"},
 	}
 
 	return &describeValidDBInstanceModificationsResponse{
 		Xmlns: rdsXMLNS,
-		Result: describeValidDBInstanceModificationsResult{
-			DBInstanceIdentifier: inst.DBInstanceIdentifier,
-			ValidDBInstanceModifications: validDBInstanceModificationsMessage{
-				ValidProcessorFeatures: xmlValidDBInstanceModificationList{Members: members},
+		Result: xmlValidDBInstanceModificationsWrapper{
+			Message: xmlValidDBInstanceModificationsMessage{
+				ValidProcessorFeatures: xmlAvailableProcessorFeatureList{Members: features},
 			},
 		},
 	}, nil
@@ -1503,8 +1496,8 @@ func (h *Handler) handleStartExportTask(vals url.Values) (any, error) {
 	}
 
 	return &startExportTaskResponse{
-		Xmlns:      rdsXMLNS,
-		ExportTask: toXMLExportTask(task),
+		Xmlns:  rdsXMLNS,
+		Result: startExportTaskResult{toXMLExportTask(task)},
 	}, nil
 }
 
@@ -1526,8 +1519,8 @@ func (h *Handler) handleDescribeExportTasks(vals url.Values) (any, error) {
 	}, nil
 }
 
-func toXMLClusterEndpoint(ep *DBClusterEndpoint) xmlDBClusterEndpoint {
-	return xmlDBClusterEndpoint{
+func toXMLClusterEndpointFields(ep *DBClusterEndpoint) xmlDBClusterEndpointFields {
+	return xmlDBClusterEndpointFields{
 		DBClusterEndpointIdentifier: ep.DBClusterEndpointIdentifier,
 		DBClusterIdentifier:         ep.DBClusterIdentifier,
 		EndpointType:                ep.EndpointType,
@@ -1917,7 +1910,10 @@ type copyDBClusterSnapshotResponse struct {
 
 // ---- Cluster endpoint XML types ----
 
-type xmlDBClusterEndpoint struct {
+// xmlDBClusterEndpointFields contains the individual fields of a cluster endpoint.
+// It is used both standalone (for Create/Delete, whose results inline all fields) and
+// inside the DescribeDBClusterEndpoints list (as DBClusterEndpointList items).
+type xmlDBClusterEndpointFields struct {
 	DBClusterEndpointIdentifier string `xml:"DBClusterEndpointIdentifier"`
 	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
 	EndpointType                string `xml:"EndpointType"`
@@ -1926,13 +1922,19 @@ type xmlDBClusterEndpoint struct {
 }
 
 type xmlDBClusterEndpointList struct {
-	Members []xmlDBClusterEndpoint `xml:"DBClusterEndpoint"`
+	Members []xmlDBClusterEndpointFields `xml:"DBClusterEndpointList"`
+}
+
+// createDBClusterEndpointResult wraps fields directly inside CreateDBClusterEndpointResult.
+// The SDK deserializes these fields directly (no inner DBClusterEndpoint element).
+type createDBClusterEndpointResult struct {
+	xmlDBClusterEndpointFields
 }
 
 type createDBClusterEndpointResponse struct {
-	XMLName           xml.Name             `xml:"CreateDBClusterEndpointResponse"`
-	Xmlns             string               `xml:"xmlns,attr"`
-	DBClusterEndpoint xmlDBClusterEndpoint `xml:"CreateDBClusterEndpointResult>DBClusterEndpoint"`
+	XMLName xml.Name                      `xml:"CreateDBClusterEndpointResponse"`
+	Xmlns   string                        `xml:"xmlns,attr"`
+	Result  createDBClusterEndpointResult `xml:"CreateDBClusterEndpointResult"`
 }
 
 type describeDBClusterEndpointsResponse struct {
@@ -1941,35 +1943,41 @@ type describeDBClusterEndpointsResponse struct {
 	DBClusterEndpoints xmlDBClusterEndpointList `xml:"DescribeDBClusterEndpointsResult>DBClusterEndpoints"`
 }
 
+// deleteDBClusterEndpointResult wraps fields directly inside DeleteDBClusterEndpointResult.
+type deleteDBClusterEndpointResult struct {
+	xmlDBClusterEndpointFields
+}
+
 type deleteDBClusterEndpointResponse struct {
-	XMLName           xml.Name             `xml:"DeleteDBClusterEndpointResponse"`
-	Xmlns             string               `xml:"xmlns,attr"`
-	DBClusterEndpoint xmlDBClusterEndpoint `xml:"DeleteDBClusterEndpointResult>DBClusterEndpoint"`
+	XMLName xml.Name                      `xml:"DeleteDBClusterEndpointResponse"`
+	Xmlns   string                        `xml:"xmlns,attr"`
+	Result  deleteDBClusterEndpointResult `xml:"DeleteDBClusterEndpointResult"`
 }
 
 // ---- Valid DB instance modifications XML types ----
 
-type xmlValidDBInstanceModification struct {
-	DBInstanceClass string `xml:"DBInstanceClass"`
+type xmlAvailableProcessorFeature struct {
+	Name          string `xml:"Name"`
+	DefaultValue  string `xml:"DefaultValue"`
+	AllowedValues string `xml:"AllowedValues"`
 }
 
-type xmlValidDBInstanceModificationList struct {
-	Members []xmlValidDBInstanceModification `xml:"ValidDBInstanceModification"`
+type xmlAvailableProcessorFeatureList struct {
+	Members []xmlAvailableProcessorFeature `xml:"AvailableProcessorFeature"`
 }
 
-type validDBInstanceModificationsMessage struct {
-	ValidProcessorFeatures xmlValidDBInstanceModificationList `xml:"ValidProcessorFeatures"`
+type xmlValidDBInstanceModificationsMessage struct {
+	ValidProcessorFeatures xmlAvailableProcessorFeatureList `xml:"ValidProcessorFeatures"`
 }
 
-type describeValidDBInstanceModificationsResult struct {
-	DBInstanceIdentifier         string                              `xml:"DBInstanceIdentifier"`
-	ValidDBInstanceModifications validDBInstanceModificationsMessage `xml:"ValidDBInstanceModificationsMessage"`
+type xmlValidDBInstanceModificationsWrapper struct {
+	Message xmlValidDBInstanceModificationsMessage `xml:"ValidDBInstanceModificationsMessage"`
 }
 
 type describeValidDBInstanceModificationsResponse struct {
-	XMLName xml.Name                                   `xml:"DescribeValidDBInstanceModificationsResponse"`
-	Xmlns   string                                     `xml:"xmlns,attr"`
-	Result  describeValidDBInstanceModificationsResult `xml:"DescribeValidDBInstanceModificationsResult"`
+	XMLName xml.Name                               `xml:"DescribeValidDBInstanceModificationsResponse"`
+	Xmlns   string                                 `xml:"xmlns,attr"`
+	Result  xmlValidDBInstanceModificationsWrapper `xml:"DescribeValidDBInstanceModificationsResult"`
 }
 
 // ---- Export task XML types ----
@@ -1985,10 +1993,16 @@ type xmlExportTaskList struct {
 	Members []xmlExportTask `xml:"ExportTask"`
 }
 
+// startExportTaskResult inlines export task fields directly inside StartExportTaskResult.
+// The SDK deserializes fields directly (no nested ExportTask element).
+type startExportTaskResult struct {
+	xmlExportTask
+}
+
 type startExportTaskResponse struct {
-	XMLName    xml.Name      `xml:"StartExportTaskResponse"`
-	Xmlns      string        `xml:"xmlns,attr"`
-	ExportTask xmlExportTask `xml:"StartExportTaskResult>ExportTask"`
+	XMLName xml.Name              `xml:"StartExportTaskResponse"`
+	Xmlns   string                `xml:"xmlns,attr"`
+	Result  startExportTaskResult `xml:"StartExportTaskResult"`
 }
 
 type describeExportTasksResponse struct {

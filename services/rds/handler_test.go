@@ -714,6 +714,12 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			wantContains: []string{"DBClusterNotFound"},
 		},
 		{
+			name:         "StartDBCluster_EmptyID",
+			body:         "Action=StartDBCluster&Version=2014-10-31&DBClusterIdentifier=",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
 			name: "StopDBCluster",
 			setupBodies: []string{
 				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=stop-cluster&Engine=aurora-postgresql",
@@ -727,6 +733,12 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			body:         "Action=StopDBCluster&Version=2014-10-31&DBClusterIdentifier=nonexistent",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"DBClusterNotFound"},
+		},
+		{
+			name:         "StopDBCluster_EmptyID",
+			body:         "Action=StopDBCluster&Version=2014-10-31&DBClusterIdentifier=",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
 		},
 		// DeleteDBClusterSnapshot tests
 		{
@@ -745,6 +757,12 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			body:         "Action=DeleteDBClusterSnapshot&Version=2014-10-31&DBClusterSnapshotIdentifier=nonexistent",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"DBClusterSnapshotNotFound"},
+		},
+		{
+			name:         "DeleteDBClusterSnapshot_EmptyID",
+			body:         "Action=DeleteDBClusterSnapshot&Version=2014-10-31&DBClusterSnapshotIdentifier=",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
 		},
 		// RestoreDBClusterFromSnapshot tests
 		{
@@ -773,6 +791,13 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},
+		{
+			name: "RestoreDBClusterFromSnapshot_EmptySnapshotID",
+			body: "Action=RestoreDBClusterFromSnapshot&Version=2014-10-31" +
+				"&DBClusterIdentifier=some-cluster&SnapshotIdentifier=",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
 		// RestoreDBClusterToPointInTime tests
 		{
 			name: "RestoreDBClusterToPointInTime",
@@ -791,6 +816,13 @@ func TestRDSHandler_FormActions(t *testing.T) {
 				"&DBClusterIdentifier=pitr-new&SourceDBClusterIdentifier=nonexistent",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"DBClusterNotFound"},
+		},
+		{
+			name: "RestoreDBClusterToPointInTime_EmptySourceID",
+			body: "Action=RestoreDBClusterToPointInTime&Version=2014-10-31" +
+				"&DBClusterIdentifier=pitr-new&SourceDBClusterIdentifier=",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
 		},
 		// CopyDBClusterSnapshot tests
 		{
@@ -811,6 +843,13 @@ func TestRDSHandler_FormActions(t *testing.T) {
 				"&SourceDBClusterSnapshotIdentifier=nonexistent&TargetDBClusterSnapshotIdentifier=dst-snap",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"DBClusterSnapshotNotFound"},
+		},
+		{
+			name: "CopyDBClusterSnapshot_EmptySourceID",
+			body: "Action=CopyDBClusterSnapshot&Version=2014-10-31" +
+				"&SourceDBClusterSnapshotIdentifier=&TargetDBClusterSnapshotIdentifier=dst-snap",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
 		},
 		// CreateDBClusterEndpoint tests
 		{
@@ -834,6 +873,13 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			name: "CreateDBClusterEndpoint_EmptyID",
 			body: "Action=CreateDBClusterEndpoint&Version=2014-10-31" +
 				"&DBClusterEndpointIdentifier=&DBClusterIdentifier=some-cluster&EndpointType=READER",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "CreateDBClusterEndpoint_EmptyClusterID",
+			body: "Action=CreateDBClusterEndpoint&Version=2014-10-31" +
+				"&DBClusterEndpointIdentifier=my-ep&DBClusterIdentifier=&EndpointType=READER",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},
@@ -881,7 +927,7 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			},
 			body:         "Action=DescribeValidDBInstanceModifications&Version=2014-10-31&DBInstanceIdentifier=mod-valid-db",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DescribeValidDBInstanceModificationsResponse", "db.t3.micro"},
+			wantContains: []string{"DescribeValidDBInstanceModificationsResponse", "coreCount", "threadsPerCore"},
 		},
 		{
 			name:         "DescribeValidDBInstanceModifications_NotFound",

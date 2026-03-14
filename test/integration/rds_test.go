@@ -362,7 +362,9 @@ func TestSDK_RDS_ValidDBInstanceModifications(t *testing.T) {
 			DBInstanceIdentifier: aws.String(id),
 		})
 	require.NoError(t, err, "DescribeValidDBInstanceModifications should succeed")
-	assert.NotNil(t, descOut.ValidDBInstanceModificationsMessage)
+	require.NotNil(t, descOut.ValidDBInstanceModificationsMessage)
+	assert.NotEmpty(t, descOut.ValidDBInstanceModificationsMessage.ValidProcessorFeatures,
+		"ValidProcessorFeatures should contain at least one entry")
 
 	// Cleanup
 	_, err = client.DeleteDBInstance(ctx, &rdssdk.DeleteDBInstanceInput{
