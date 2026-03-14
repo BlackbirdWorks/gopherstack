@@ -266,3 +266,166 @@ func TestSupport_Provider_Init(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
 }
+
+func TestSupport_AddCommunicationToCase(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSupportHandler(t)
+
+	createRec := doSupportRequest(t, h, "CreateCase", map[string]any{
+		"subject": "Comm test",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	caseID := createResp["caseId"].(string)
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "add communication",
+			body:     map[string]any{"caseId": caseID, "communicationBody": "Hello support"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "missing caseId",
+			body:     map[string]any{"communicationBody": "Hello"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "unknown caseId",
+			body:     map[string]any{"caseId": "nonexistent", "communicationBody": "Hello"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doSupportRequest(t, h, "AddCommunicationToCase", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestSupport_DescribeCommunications(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSupportHandler(t)
+
+	createRec := doSupportRequest(t, h, "CreateCase", map[string]any{
+		"subject": "Comm test",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	caseID := createResp["caseId"].(string)
+
+	addRec := doSupportRequest(t, h, "AddCommunicationToCase", map[string]any{
+		"caseId":            caseID,
+		"communicationBody": "Hello support",
+	})
+	require.Equal(t, http.StatusOK, addRec.Code)
+
+	tests := []struct {
+		body          map[string]any
+		name          string
+		wantCode      int
+		wantCommCount int
+	}{
+		{
+			name:          "describe communications",
+			body:          map[string]any{"caseId": caseID},
+			wantCode:      http.StatusOK,
+			wantCommCount: 1,
+		},
+		{
+			name:     "missing caseId",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "unknown caseId",
+			body:     map[string]any{"caseId": "nonexistent"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doSupportRequest(t, h, "DescribeCommunications", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCommCount > 0 {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				comms, ok := resp["communications"].([]any)
+				require.True(t, ok)
+				assert.Len(t, comms, tt.wantCommCount)
+			}
+		})
+	}
+}
+
+func TestSupport_DescribeTrustedAdvisorChecks(t *testing.T) {
+	t.Parallel()
+
+	h := newTestSupportHandler(t)
+
+	rec := doSupportRequest(t, h, "DescribeTrustedAdvisorChecks", map[string]any{
+		"language": "en",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	checks, ok := resp["checks"].([]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, checks)
+}
+
+func TestSupport_AddAttachmentsToSet(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name:     "new attachment set",
+			body:     map[string]any{},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "with existing set id",
+			body:     map[string]any{"attachmentSetId": "existing-set-id"},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestSupportHandler(t)
+			rec := doSupportRequest(t, h, "AddAttachmentsToSet", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp["attachmentSetId"])
+				assert.NotEmpty(t, resp["expiryTime"])
+			}
+		})
+	}
+}

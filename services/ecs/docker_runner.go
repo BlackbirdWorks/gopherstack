@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync"
 
 	dockertypes "github.com/docker/docker/api/types/container"
 	dockerimage "github.com/docker/docker/api/types/image"
@@ -27,8 +28,9 @@ func NewDockerRunner() (TaskRunner, error) {
 
 // realDockerRunner is a TaskRunner that launches Docker containers.
 type realDockerRunner struct {
-	containers map[string]string // taskArn -> containerID
+	containers map[string]string
 	cli        *client.Client
+	mu         sync.Mutex
 }
 
 func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
@@ -48,7 +50,9 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 			return fmt.Errorf("start container %s: %w", containerID, startErr)
 		}
 
+		r.mu.Lock()
 		r.containers[task.TaskArn] = containerID
+		r.mu.Unlock()
 	}
 
 	return nil
@@ -139,7 +143,10 @@ func buildEnv(kvs []KeyValuePair) []string {
 }
 
 func (r *realDockerRunner) StopTask(task *Task) error {
+	r.mu.Lock()
 	containerID, ok := r.containers[task.TaskArn]
+	r.mu.Unlock()
+
 	if !ok {
 		return nil
 	}
@@ -151,7 +158,9 @@ func (r *realDockerRunner) StopTask(task *Task) error {
 		return fmt.Errorf("stop container %s: %w", containerID, err)
 	}
 
+	r.mu.Lock()
 	delete(r.containers, task.TaskArn)
+	r.mu.Unlock()
 
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -266,9 +267,14 @@ func (h *Handler) handleDescribeDBClusters(vals url.Values) (any, error) {
 		members = append(members, toXMLCluster(&cp))
 	}
 
+	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
 	return &describeDBClustersResponse{
-		Xmlns:      docdbXMLNS,
-		DBClusters: xmlDBClusterList{Members: members},
+		Xmlns: docdbXMLNS,
+		Result: describeDBClustersResult{
+			DBClusters: xmlDBClusterList{Members: members},
+			Marker:     nextMarker,
+		},
 	}, nil
 }
 
@@ -366,9 +372,14 @@ func (h *Handler) handleDescribeDBInstances(vals url.Values) (any, error) {
 		members = append(members, toXMLInstance(&cp))
 	}
 
+	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
 	return &describeDBInstancesResponse{
-		Xmlns:       docdbXMLNS,
-		DBInstances: xmlDBInstanceList{Members: members},
+		Xmlns: docdbXMLNS,
+		Result: describeDBInstancesResult{
+			DBInstances: xmlDBInstanceList{Members: members},
+			Marker:      nextMarker,
+		},
 	}, nil
 }
 
@@ -440,9 +451,14 @@ func (h *Handler) handleDescribeDBSubnetGroups(vals url.Values) (any, error) {
 		members = append(members, toXMLSubnetGroup(&cp))
 	}
 
+	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
 	return &describeDBSubnetGroupsResponse{
-		Xmlns:          docdbXMLNS,
-		DBSubnetGroups: xmlDBSubnetGroupList{Members: members},
+		Xmlns: docdbXMLNS,
+		Result: describeDBSubnetGroupsResult{
+			DBSubnetGroups: xmlDBSubnetGroupList{Members: members},
+			Marker:         nextMarker,
+		},
 	}, nil
 }
 
@@ -538,9 +554,14 @@ func (h *Handler) handleDescribeDBClusterSnapshots(vals url.Values) (any, error)
 		members = append(members, toXMLClusterSnapshot(&cp))
 	}
 
+	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
 	return &describeDBClusterSnapshotsResponse{
-		Xmlns:              docdbXMLNS,
-		DBClusterSnapshots: xmlDBClusterSnapshotList{Members: members},
+		Xmlns: docdbXMLNS,
+		Result: describeDBClusterSnapshotsResult{
+			DBClusterSnapshots: xmlDBClusterSnapshotList{Members: members},
+			Marker:             nextMarker,
+		},
 	}, nil
 }
 
@@ -807,10 +828,15 @@ type createDBClusterResponse struct {
 	DBCluster xmlDBCluster `xml:"CreateDBClusterResult>DBCluster"`
 }
 
+type describeDBClustersResult struct {
+	Marker     string           `xml:"Marker,omitempty"`
+	DBClusters xmlDBClusterList `xml:"DBClusters"`
+}
+
 type describeDBClustersResponse struct {
-	XMLName    xml.Name         `xml:"DescribeDBClustersResponse"`
-	Xmlns      string           `xml:"xmlns,attr"`
-	DBClusters xmlDBClusterList `xml:"DescribeDBClustersResult>DBClusters"`
+	XMLName xml.Name                 `xml:"DescribeDBClustersResponse"`
+	Xmlns   string                   `xml:"xmlns,attr"`
+	Result  describeDBClustersResult `xml:"DescribeDBClustersResult"`
 }
 
 type deleteDBClusterResponse struct {
@@ -863,10 +889,15 @@ type createDBInstanceResponse struct {
 	DBInstance xmlDBInstance `xml:"CreateDBInstanceResult>DBInstance"`
 }
 
+type describeDBInstancesResult struct {
+	Marker      string            `xml:"Marker,omitempty"`
+	DBInstances xmlDBInstanceList `xml:"DBInstances"`
+}
+
 type describeDBInstancesResponse struct {
-	XMLName     xml.Name          `xml:"DescribeDBInstancesResponse"`
-	Xmlns       string            `xml:"xmlns,attr"`
-	DBInstances xmlDBInstanceList `xml:"DescribeDBInstancesResult>DBInstances"`
+	XMLName xml.Name                  `xml:"DescribeDBInstancesResponse"`
+	Xmlns   string                    `xml:"xmlns,attr"`
+	Result  describeDBInstancesResult `xml:"DescribeDBInstancesResult"`
 }
 
 type deleteDBInstanceResponse struct {
@@ -913,10 +944,15 @@ type createDBSubnetGroupResponse struct {
 	DBSubnetGroup xmlDBSubnetGroup `xml:"CreateDBSubnetGroupResult>DBSubnetGroup"`
 }
 
+type describeDBSubnetGroupsResult struct {
+	Marker         string               `xml:"Marker,omitempty"`
+	DBSubnetGroups xmlDBSubnetGroupList `xml:"DBSubnetGroups"`
+}
+
 type describeDBSubnetGroupsResponse struct {
-	XMLName        xml.Name             `xml:"DescribeDBSubnetGroupsResponse"`
-	Xmlns          string               `xml:"xmlns,attr"`
-	DBSubnetGroups xmlDBSubnetGroupList `xml:"DescribeDBSubnetGroupsResult>DBSubnetGroups"`
+	XMLName xml.Name                     `xml:"DescribeDBSubnetGroupsResponse"`
+	Xmlns   string                       `xml:"xmlns,attr"`
+	Result  describeDBSubnetGroupsResult `xml:"DescribeDBSubnetGroupsResult"`
 }
 
 type deleteDBSubnetGroupResponse struct {
@@ -978,10 +1014,15 @@ type createDBClusterSnapshotResponse struct {
 	DBClusterSnapshot xmlDBClusterSnapshot `xml:"CreateDBClusterSnapshotResult>DBClusterSnapshot"`
 }
 
+type describeDBClusterSnapshotsResult struct {
+	Marker             string                   `xml:"Marker,omitempty"`
+	DBClusterSnapshots xmlDBClusterSnapshotList `xml:"DBClusterSnapshots"`
+}
+
 type describeDBClusterSnapshotsResponse struct {
-	XMLName            xml.Name                 `xml:"DescribeDBClusterSnapshotsResponse"`
-	Xmlns              string                   `xml:"xmlns,attr"`
-	DBClusterSnapshots xmlDBClusterSnapshotList `xml:"DescribeDBClusterSnapshotsResult>DBClusterSnapshots"`
+	XMLName xml.Name                         `xml:"DescribeDBClusterSnapshotsResponse"`
+	Xmlns   string                           `xml:"xmlns,attr"`
+	Result  describeDBClusterSnapshotsResult `xml:"DescribeDBClusterSnapshotsResult"`
 }
 
 type deleteDBClusterSnapshotResponse struct {
@@ -1054,4 +1095,37 @@ type describeGlobalClustersResponse struct {
 	XMLName        xml.Name             `xml:"DescribeGlobalClustersResponse"`
 	Xmlns          string               `xml:"xmlns,attr"`
 	GlobalClusters xmlGlobalClusterList `xml:"DescribeGlobalClustersResult>GlobalClusters"`
+}
+
+const defaultDocDBMaxRecords = 100
+
+// applyDocDBMarker applies Marker/MaxRecords-based pagination to a slice.
+// marker is the starting index as a string, maxRecordsStr is the limit as a string.
+func applyDocDBMarker[T any](items []T, marker, maxRecordsStr string) ([]T, string) {
+	start := 0
+	if marker != "" {
+		idx, err := strconv.Atoi(marker)
+		if err == nil && idx > 0 {
+			start = idx
+		}
+	}
+
+	if start >= len(items) {
+		return []T{}, ""
+	}
+
+	items = items[start:]
+
+	limit := defaultDocDBMaxRecords
+	if maxRecordsStr != "" {
+		if n, err := strconv.Atoi(maxRecordsStr); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	if len(items) <= limit {
+		return items, ""
+	}
+
+	return items[:limit], strconv.Itoa(start + limit)
 }

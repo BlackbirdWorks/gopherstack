@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -233,7 +234,13 @@ func (h *Handler) handleDescribeServer(_ context.Context, in *serverIDInput) (*d
 }
 
 type listServersOutput struct {
-	Servers []serverListItem `json:"Servers"`
+	NextToken string           `json:"NextToken,omitempty"`
+	Servers   []serverListItem `json:"Servers"`
+}
+
+type listServersInput struct {
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type serverListItem struct {
@@ -243,7 +250,7 @@ type serverListItem struct {
 	Domain   string `json:"Domain"`
 }
 
-func (h *Handler) handleListServers(_ context.Context, _ *struct{}) (*listServersOutput, error) {
+func (h *Handler) handleListServers(_ context.Context, in *listServersInput) (*listServersOutput, error) {
 	servers := h.Backend.ListServers()
 	items := make([]serverListItem, 0, len(servers))
 
@@ -257,7 +264,9 @@ func (h *Handler) handleListServers(_ context.Context, _ *struct{}) (*listServer
 		})
 	}
 
-	return &listServersOutput{Servers: items}, nil
+	items, nextToken := applyNextTokenItems(items, in.NextToken, in.MaxResults)
+
+	return &listServersOutput{Servers: items, NextToken: nextToken}, nil
 }
 
 func (h *Handler) handleStartServer(_ context.Context, in *serverIDInput) (*struct{}, error) {
@@ -391,7 +400,9 @@ func (h *Handler) handleDescribeUser(_ context.Context, in *describeUserInput) (
 }
 
 type listUsersInput struct {
-	ServerID string `json:"ServerId"`
+	ServerID   string `json:"ServerId"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int    `json:"MaxResults,omitempty"`
 }
 
 type userListItem struct {
@@ -402,8 +413,9 @@ type userListItem struct {
 }
 
 type listUsersOutput struct {
-	ServerID string         `json:"ServerId"`
-	Users    []userListItem `json:"Users"`
+	ServerID  string         `json:"ServerId"`
+	NextToken string         `json:"NextToken,omitempty"`
+	Users     []userListItem `json:"Users"`
 }
 
 func (h *Handler) handleListUsers(_ context.Context, in *listUsersInput) (*listUsersOutput, error) {
@@ -428,7 +440,9 @@ func (h *Handler) handleListUsers(_ context.Context, in *listUsersInput) (*listU
 		})
 	}
 
-	return &listUsersOutput{ServerID: in.ServerID, Users: items}, nil
+	items, nextToken := applyNextTokenItems(items, in.NextToken, in.MaxResults)
+
+	return &listUsersOutput{ServerID: in.ServerID, Users: items, NextToken: nextToken}, nil
 }
 
 func (h *Handler) handleDeleteUser(_ context.Context, in *describeUserInput) (*struct{}, error) {
@@ -524,4 +538,14 @@ func tagsFromList(tags []map[string]string) map[string]string {
 	}
 
 	return m
+}
+
+const defaultTransferMaxResults = 1000
+
+// applyNextTokenItems applies NextToken-based pagination to a slice using the
+// shared pkgs/page opaque token format.
+func applyNextTokenItems[T any](items []T, nextToken string, maxResults int) ([]T, string) {
+	p := page.New(items, nextToken, maxResults, defaultTransferMaxResults)
+
+	return p.Data, p.Next
 }
