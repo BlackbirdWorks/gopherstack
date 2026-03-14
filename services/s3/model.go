@@ -385,3 +385,61 @@ type ServerSideEncryptionByDefault struct {
 	SSEAlgorithm   string `xml:"SSEAlgorithm"`
 	KMSMasterKeyID string `xml:"KMSMasterKeyID,omitempty"`
 }
+
+// PublicAccessBlockConfiguration is the XML body for PutPublicAccessBlock / GetPublicAccessBlock.
+type PublicAccessBlockConfiguration struct {
+	XMLName               xml.Name `xml:"PublicAccessBlockConfiguration"`
+	Xmlns                 string   `xml:"xmlns,attr,omitempty"`
+	BlockPublicAcls       bool     `xml:"BlockPublicAcls"`
+	IgnorePublicAcls      bool     `xml:"IgnorePublicAcls"`
+	BlockPublicPolicy     bool     `xml:"BlockPublicPolicy"`
+	RestrictPublicBuckets bool     `xml:"RestrictPublicBuckets"`
+}
+
+// OwnershipControlsRule represents a single ownership controls rule.
+type OwnershipControlsRule struct {
+	ObjectOwnership string `xml:"ObjectOwnership"`
+}
+
+// OwnershipControls is the XML body for PutBucketOwnershipControls / GetBucketOwnershipControls.
+type OwnershipControls struct {
+	XMLName xml.Name                `xml:"OwnershipControls"`
+	Xmlns   string                  `xml:"xmlns,attr,omitempty"`
+	Rules   []OwnershipControlsRule `xml:"Rule"`
+}
+
+// BucketLoggingStatus is the full XML body for PutBucketLogging / GetBucketLogging.
+type BucketLoggingStatus struct {
+	LoggingEnabled *LoggingEnabled `xml:"LoggingEnabled,omitempty"`
+	XMLName        xml.Name        `xml:"BucketLoggingStatus"`
+	Xmlns          string          `xml:"xmlns,attr,omitempty"`
+}
+
+// LoggingEnabled holds the logging target configuration for a bucket.
+type LoggingEnabled struct {
+	TargetBucket string `xml:"TargetBucket"`
+	TargetPrefix string `xml:"TargetPrefix"`
+}
+
+// ReplicationConfiguration is the XML body for PutBucketReplication / GetBucketReplication.
+// The full structure is complex; we store and return the raw XML for fidelity.
+type ReplicationConfiguration struct {
+	XMLName xml.Name          `xml:"ReplicationConfiguration"`
+	Xmlns   string            `xml:"xmlns,attr,omitempty"`
+	Role    string            `xml:"Role"`
+	Rules   []ReplicationRule `xml:"Rule"`
+}
+
+// ReplicationRule is a single replication rule within a ReplicationConfiguration.
+type ReplicationRule struct {
+	Destination ReplicationDestination `xml:"Destination"`
+	ID          string                 `xml:"ID,omitempty"`
+	Prefix      string                 `xml:"Prefix,omitempty"`
+	Status      string                 `xml:"Status"`
+}
+
+// ReplicationDestination specifies the destination bucket for replication.
+type ReplicationDestination struct {
+	Bucket       string `xml:"Bucket"`
+	StorageClass string `xml:"StorageClass,omitempty"`
+}

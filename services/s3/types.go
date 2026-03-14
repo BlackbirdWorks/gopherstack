@@ -14,18 +14,22 @@ const NullVersion = "null"
 
 // StoredBucket represents an S3 bucket in memory.
 type StoredBucket struct {
-	Objects            map[string]*StoredObject `json:"objects,omitempty"`
-	mu                 *lockmetrics.RWMutex
-	Name               string    `json:"name"`
-	Policy             string    `json:"policy,omitempty"`
-	CORSConfig         string    `json:"corsConfig,omitempty"`
-	LifecycleConfig    string    `json:"lifecycleConfig,omitempty"`
-	NotificationConfig string    `json:"notificationConfig,omitempty"`
-	ObjectLockConfig   string    `json:"objectLockConfig,omitempty"`
-	WebsiteConfig      string    `json:"websiteConfig,omitempty"`
-	EncryptionConfig   string    `json:"encryptionConfig,omitempty"`
-	CreationDate       time.Time `json:"creationDate"`
-	ACL                string    `json:"acl,omitempty"`
+	Objects                 map[string]*StoredObject `json:"objects,omitempty"`
+	mu                      *lockmetrics.RWMutex
+	Name                    string    `json:"name"`
+	Policy                  string    `json:"policy,omitempty"`
+	CORSConfig              string    `json:"corsConfig,omitempty"`
+	LifecycleConfig         string    `json:"lifecycleConfig,omitempty"`
+	NotificationConfig      string    `json:"notificationConfig,omitempty"`
+	ObjectLockConfig        string    `json:"objectLockConfig,omitempty"`
+	WebsiteConfig           string    `json:"websiteConfig,omitempty"`
+	EncryptionConfig        string    `json:"encryptionConfig,omitempty"`
+	PublicAccessBlockConfig string    `json:"publicAccessBlockConfig,omitempty"`
+	OwnershipControlsConfig string    `json:"ownershipControlsConfig,omitempty"`
+	LoggingConfig           string    `json:"loggingConfig,omitempty"`
+	ReplicationConfig       string    `json:"replicationConfig,omitempty"`
+	CreationDate            time.Time `json:"creationDate"`
+	ACL                     string    `json:"acl,omitempty"`
 	// Versioning must precede non-pointer fields so its trailing len word falls
 	// outside the GC scan range, reducing pointer bytes to 64.
 	Versioning types.BucketVersioningStatus `json:"versioning,omitempty"`

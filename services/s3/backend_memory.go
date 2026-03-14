@@ -1822,7 +1822,208 @@ func (b *InMemoryBackend) DeleteBucketEncryption(_ context.Context, bucketName s
 	return nil
 }
 
-// PutBucketNotificationConfiguration stores the notification configuration for a bucket.
+// PutPublicAccessBlock stores the public access block configuration for a bucket.
+func (b *InMemoryBackend) PutPublicAccessBlock(_ context.Context, bucketName, configXML string) error {
+	b.mu.RLock("PutPublicAccessBlock")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutPublicAccessBlock")
+	defer bucket.mu.Unlock()
+
+	bucket.PublicAccessBlockConfig = configXML
+
+	return nil
+}
+
+// GetPublicAccessBlock returns the public access block configuration for a bucket.
+func (b *InMemoryBackend) GetPublicAccessBlock(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetPublicAccessBlock")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetPublicAccessBlock")
+	defer bucket.mu.RUnlock()
+
+	if bucket.PublicAccessBlockConfig == "" {
+		return "", ErrNoPublicAccessBlock
+	}
+
+	return bucket.PublicAccessBlockConfig, nil
+}
+
+// DeletePublicAccessBlock removes the public access block configuration for a bucket.
+func (b *InMemoryBackend) DeletePublicAccessBlock(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeletePublicAccessBlock")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeletePublicAccessBlock")
+	defer bucket.mu.Unlock()
+
+	bucket.PublicAccessBlockConfig = ""
+
+	return nil
+}
+
+// PutBucketOwnershipControls stores the ownership controls configuration for a bucket.
+func (b *InMemoryBackend) PutBucketOwnershipControls(_ context.Context, bucketName, configXML string) error {
+	b.mu.RLock("PutBucketOwnershipControls")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketOwnershipControls")
+	defer bucket.mu.Unlock()
+
+	bucket.OwnershipControlsConfig = configXML
+
+	return nil
+}
+
+// GetBucketOwnershipControls returns the ownership controls configuration for a bucket.
+func (b *InMemoryBackend) GetBucketOwnershipControls(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketOwnershipControls")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketOwnershipControls")
+	defer bucket.mu.RUnlock()
+
+	if bucket.OwnershipControlsConfig == "" {
+		return "", ErrNoOwnershipControls
+	}
+
+	return bucket.OwnershipControlsConfig, nil
+}
+
+// DeleteBucketOwnershipControls removes the ownership controls configuration for a bucket.
+func (b *InMemoryBackend) DeleteBucketOwnershipControls(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketOwnershipControls")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketOwnershipControls")
+	defer bucket.mu.Unlock()
+
+	bucket.OwnershipControlsConfig = ""
+
+	return nil
+}
+
+// PutBucketLogging stores the logging configuration for a bucket.
+func (b *InMemoryBackend) PutBucketLogging(_ context.Context, bucketName, loggingXML string) error {
+	b.mu.RLock("PutBucketLogging")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketLogging")
+	defer bucket.mu.Unlock()
+
+	bucket.LoggingConfig = loggingXML
+
+	return nil
+}
+
+// GetBucketLogging returns the logging configuration for a bucket.
+// Returns an empty BucketLoggingStatus when no logging is configured (matching AWS behaviour).
+func (b *InMemoryBackend) GetBucketLogging(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketLogging")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketLogging")
+	defer bucket.mu.RUnlock()
+
+	return bucket.LoggingConfig, nil
+}
+
+// PutBucketReplication stores the replication configuration for a bucket.
+func (b *InMemoryBackend) PutBucketReplication(_ context.Context, bucketName, replicationXML string) error {
+	b.mu.RLock("PutBucketReplication")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketReplication")
+	defer bucket.mu.Unlock()
+
+	bucket.ReplicationConfig = replicationXML
+
+	return nil
+}
+
+// GetBucketReplication returns the replication configuration for a bucket.
+func (b *InMemoryBackend) GetBucketReplication(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketReplication")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketReplication")
+	defer bucket.mu.RUnlock()
+
+	if bucket.ReplicationConfig == "" {
+		return "", ErrNoReplicationConfig
+	}
+
+	return bucket.ReplicationConfig, nil
+}
+
+// DeleteBucketReplication removes the replication configuration for a bucket.
+func (b *InMemoryBackend) DeleteBucketReplication(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketReplication")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketReplication")
+	defer bucket.mu.Unlock()
+
+	bucket.ReplicationConfig = ""
+
+	return nil
+}
 func (b *InMemoryBackend) PutBucketNotificationConfiguration(_ context.Context, bucketName, notifXML string) error {
 	b.mu.RLock("PutBucketNotificationConfiguration")
 	bucket, err := b.getBucket(bucketName)
