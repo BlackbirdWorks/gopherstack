@@ -92,7 +92,7 @@ type Queue struct {
 	Attributes          map[string]string
 	Tags                *tags.Tags
 	dlq                 *Queue        // resolved DLQ queue pointer; nil = no DLQ
-	notify              chan struct{} // buffered(1); signalled when a message is enqueued
+	notify              chan struct{} // buffered(1); non-blocking send on enqueue; never closed
 	Name                string
 	URL                 string
 	messages            []*Message

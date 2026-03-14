@@ -3,6 +3,7 @@ package sqs_test
 import (
 	"fmt"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -559,6 +560,64 @@ func TestLongPollingTimesOutWithNoMessages(t *testing.T) {
 	assert.Empty(t, out.Messages)
 	// Should have waited approximately WaitTimeSeconds.
 	assert.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
+}
+
+// TestLongPollingConcurrentReceivers verifies that concurrent long-poll receivers
+// do not race or panic due to the old close/recreate channel pattern.
+// With the fixed buffered(1) notify channel, receivers are woken without closing
+// the channel, so no stale reference can cause a tight loop or panic.
+func TestLongPollingConcurrentReceivers(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	qURL := createTestQueue(t, b, "concurrent-recv-queue")
+
+	const numReceivers = 3
+	const numMessages = 3
+
+	results := make(chan *sqs.ReceiveMessageOutput, numReceivers)
+	errs := make(chan error, numReceivers)
+
+	// ready is closed once all receiver goroutines have been launched;
+	// each goroutine is guaranteed to start before the first send.
+	ready := make(chan struct{})
+
+	var wg sync.WaitGroup
+
+	wg.Add(numReceivers)
+
+	for range numReceivers {
+		go func() {
+			wg.Done()
+			<-ready
+			out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+				QueueURL:            qURL,
+				MaxNumberOfMessages: 1,
+				VisibilityTimeout:   30,
+				WaitTimeSeconds:     5,
+			})
+			errs <- err
+			results <- out
+		}()
+	}
+
+	// Block until all receiver goroutines have started, then signal and send.
+	wg.Wait()
+	close(ready)
+
+	for i := range numMessages {
+		_, err := b.SendMessage(&sqs.SendMessageInput{
+			QueueURL:    qURL,
+			MessageBody: fmt.Sprintf("msg-%d", i),
+		})
+		require.NoError(t, err)
+	}
+
+	for range numReceivers {
+		require.NoError(t, <-errs)
+		out := <-results
+		require.Len(t, out.Messages, 1)
+	}
 }
 
 func TestReceiveMessageDefaultVisibility(t *testing.T) {
