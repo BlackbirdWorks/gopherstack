@@ -100,6 +100,7 @@ func New(cfg Config) (*Server, error) {
 		resolveIP:  ip,
 		listenAddr: cfg.ListenAddr,
 		mu:         lockmetrics.New("dns"),
+		stopCh:     make(chan struct{}),
 	}, nil
 }
 
@@ -182,8 +183,6 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	// Watch for context cancellation to trigger shutdown.
-	s.stopCh = make(chan struct{})
-
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -228,9 +227,7 @@ func (s *Server) Stop() error {
 	var udpErr, tcpErr error
 
 	s.stopOnce.Do(func() {
-		if s.stopCh != nil {
-			close(s.stopCh)
-		}
+		close(s.stopCh)
 
 		if s.udpServer != nil {
 			udpErr = s.udpServer.Shutdown()
