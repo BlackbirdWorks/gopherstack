@@ -68,9 +68,16 @@ func (b *Broker) Start(ctx context.Context) error {
 	// Store the server atomically before Serve() so Publish() can access it concurrently.
 	b.server.Store(s)
 
+	done := make(chan struct{})
+	defer close(done)
+
 	go func() {
-		<-ctx.Done()
-		_ = s.Close()
+		select {
+		case <-ctx.Done():
+			_ = s.Close()
+		case <-done:
+			// Serve() returned; goroutine exits cleanly.
+		}
 	}()
 
 	if err := s.Serve(); err != nil {

@@ -323,3 +323,24 @@ func TestServer_ContextCancellation(t *testing.T) {
 	cancel()
 	time.Sleep(100 * time.Millisecond)
 }
+
+// TestServer_StopBeforeStart verifies that calling Stop() before Start() does not corrupt the
+// [sync.Once] state, preventing a subsequent Stop() (triggered by the context-watcher goroutine)
+// from becoming a no-op.
+func TestServer_StopBeforeStart(t *testing.T) {
+	t.Parallel()
+
+	srv, err := gopherDNS.New(gopherDNS.Config{
+		ListenAddr: "127.0.0.1:0",
+		ResolveIP:  "127.0.0.1",
+	})
+	require.NoError(t, err)
+
+	// Stop before Start should not panic or corrupt state.
+	err = srv.Stop()
+	require.NoError(t, err)
+
+	// A second Stop() call must also be safe (idempotent).
+	err = srv.Stop()
+	require.NoError(t, err)
+}
