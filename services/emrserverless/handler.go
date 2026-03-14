@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -389,14 +390,29 @@ func (h *Handler) handleGetApplication(c *echo.Context, applicationID string) er
 }
 
 func (h *Handler) handleListApplications(c *echo.Context) error {
-	apps := h.Backend.ListApplications()
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+
+	maxResults := 0
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
+
+	apps, outToken := h.Backend.ListApplications(nextToken, maxResults)
 	list := make([]map[string]any, 0, len(apps))
 
 	for _, app := range apps {
 		list = append(list, applicationToMap(app))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"applications": list})
+	resp := map[string]any{"applications": list}
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 type updateApplicationBody struct {
@@ -491,7 +507,17 @@ func (h *Handler) handleGetJobRun(c *echo.Context, applicationID, jobRunID strin
 }
 
 func (h *Handler) handleListJobRuns(c *echo.Context, applicationID string) error {
-	runs, err := h.Backend.ListJobRuns(applicationID)
+	q := c.Request().URL.Query()
+	nextToken := q.Get("nextToken")
+
+	maxResults := 0
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
+
+	runs, outToken, err := h.Backend.ListJobRuns(applicationID, nextToken, maxResults)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -502,7 +528,12 @@ func (h *Handler) handleListJobRuns(c *echo.Context, applicationID string) error
 		list = append(list, jobRunToMap(jr))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"jobRuns": list})
+	resp := map[string]any{"jobRuns": list}
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleCancelJobRun(c *echo.Context, applicationID, jobRunID string) error {

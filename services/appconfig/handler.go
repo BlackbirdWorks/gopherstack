@@ -528,9 +528,15 @@ func (h *Handler) handleGetApplication(c *echo.Context, applicationID string) er
 }
 
 func (h *Handler) handleListApplications(c *echo.Context) error {
-	apps := h.Backend.ListApplications()
+	nextToken, maxResults := appConfigPaginationParams(c)
+	apps, outToken := h.Backend.ListApplications(nextToken, maxResults)
 
-	return c.JSON(http.StatusOK, map[string]any{"Items": apps})
+	resp := map[string]any{"Items": apps}
+	if outToken != "" {
+		resp["NextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateApplication(c *echo.Context, applicationID string) error {
@@ -601,7 +607,9 @@ func (h *Handler) handleGetEnvironment(c *echo.Context, applicationID, environme
 }
 
 func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) error {
-	envs, err := h.Backend.ListEnvironments(applicationID)
+	nextToken, maxResults := appConfigPaginationParams(c)
+	envs, outToken, err := h.Backend.ListEnvironments(applicationID, nextToken, maxResults)
+
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -610,7 +618,12 @@ func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) 
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Items": envs})
+	resp := map[string]any{"Items": envs}
+	if outToken != "" {
+		resp["NextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateEnvironment(c *echo.Context, applicationID, environmentID string) error {
@@ -689,7 +702,9 @@ func (h *Handler) handleGetConfigurationProfile(c *echo.Context, applicationID, 
 }
 
 func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID string) error {
-	profiles, err := h.Backend.ListConfigurationProfiles(applicationID)
+	nextToken, maxResults := appConfigPaginationParams(c)
+	profiles, outToken, err := h.Backend.ListConfigurationProfiles(applicationID, nextToken, maxResults)
+
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -698,7 +713,12 @@ func (h *Handler) handleListConfigurationProfiles(c *echo.Context, applicationID
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Items": profiles})
+	resp := map[string]any{"Items": profiles}
+	if outToken != "" {
+		resp["NextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateConfigurationProfile(c *echo.Context, applicationID, profileID string) error {
@@ -780,7 +800,14 @@ func (h *Handler) handleGetHostedConfigurationVersion(
 }
 
 func (h *Handler) handleListHostedConfigurationVersions(c *echo.Context, applicationID, profileID string) error {
-	versions, err := h.Backend.ListHostedConfigurationVersions(applicationID, profileID)
+	nextToken, maxResults := appConfigPaginationParams(c)
+	versions, outToken, err := h.Backend.ListHostedConfigurationVersions(
+		applicationID,
+		profileID,
+		nextToken,
+		maxResults,
+	)
+
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -789,7 +816,12 @@ func (h *Handler) handleListHostedConfigurationVersions(c *echo.Context, applica
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Items": versions})
+	resp := map[string]any{"Items": versions}
+	if outToken != "" {
+		resp["NextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteHostedConfigurationVersion(
@@ -848,9 +880,15 @@ func (h *Handler) handleGetDeploymentStrategy(c *echo.Context, strategyID string
 }
 
 func (h *Handler) handleListDeploymentStrategies(c *echo.Context) error {
-	strategies := h.Backend.ListDeploymentStrategies()
+	nextToken, maxResults := appConfigPaginationParams(c)
+	strategies, outToken := h.Backend.ListDeploymentStrategies(nextToken, maxResults)
 
-	return c.JSON(http.StatusOK, map[string]any{"Items": strategies})
+	resp := map[string]any{"Items": strategies}
+	if outToken != "" {
+		resp["NextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateDeploymentStrategy(c *echo.Context, strategyID string) error {
@@ -962,7 +1000,9 @@ func (h *Handler) handleGetDeployment(
 }
 
 func (h *Handler) handleListDeployments(c *echo.Context, applicationID, environmentID string) error {
-	deployments, err := h.Backend.ListDeployments(applicationID, environmentID)
+	nextToken, maxResults := appConfigPaginationParams(c)
+	deployments, outToken, err := h.Backend.ListDeployments(applicationID, environmentID, nextToken, maxResults)
+
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return notFoundResponse(c, err)
@@ -971,7 +1011,12 @@ func (h *Handler) handleListDeployments(c *echo.Context, applicationID, environm
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Items": deployments})
+	resp := map[string]any{"Items": deployments}
+	if outToken != "" {
+		resp["NextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleStopDeployment(
@@ -1022,4 +1067,20 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string) error
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+// appConfigPaginationParams reads the next_token and max_results query parameters.
+func appConfigPaginationParams(c *echo.Context) (string, int) {
+	q := c.Request().URL.Query()
+	nextToken := q.Get("next_token")
+
+	maxResults := 0
+
+	if s := q.Get("max_results"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			maxResults = n
+		}
+	}
+
+	return nextToken, maxResults
 }

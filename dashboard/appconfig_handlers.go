@@ -87,7 +87,7 @@ func (h *DashboardHandler) appConfigIndex(c *echo.Context) error {
 	if h.AppConfigOps == nil {
 		pkgslogger.Load(ctx).WarnContext(ctx, "AppConfig handler not available")
 	} else {
-		applications = h.AppConfigOps.Backend.ListApplications()
+		applications, _ = h.AppConfigOps.Backend.ListApplications("", 0)
 	}
 
 	h.renderTemplate(w, "appconfig/index.html", appConfigIndexData{
