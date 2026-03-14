@@ -62,7 +62,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeVpcAttribute",
 		"DescribeSubnets",
 		"CreateVpc",
+		"DeleteVpc",
 		"CreateSubnet",
+		"DeleteSubnet",
 		"CreateKeyPair",
 		"DescribeKeyPairs",
 		"DeleteKeyPair",
@@ -266,7 +268,9 @@ func (h *Handler) dispatchTable() map[string]ec2ActionFn {
 		"DescribeVpcAttribute":            h.handleDescribeVpcAttribute,
 		"DescribeSubnets":                 h.handleDescribeSubnets,
 		"CreateVpc":                       h.handleCreateVpc,
+		"DeleteVpc":                       h.handleDeleteVpc,
 		"CreateSubnet":                    h.handleCreateSubnet,
+		"DeleteSubnet":                    h.handleDeleteSubnet,
 		"DescribeInstanceTypes":           h.handleDescribeInstanceTypes,
 		"DescribeTags":                    h.handleDescribeTags,
 		"CreateTags":                      h.handleCreateTags,
@@ -601,6 +605,40 @@ func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error)
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
 		Subnet:    toSubnetItem(s),
+	}, nil
+}
+
+func (h *Handler) handleDeleteVpc(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("VpcId")
+	if id == "" {
+		return nil, fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeleteVpc(id); err != nil {
+		return nil, err
+	}
+
+	return &deleteVpcResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
+	}, nil
+}
+
+func (h *Handler) handleDeleteSubnet(vals url.Values, reqID string) (any, error) {
+	id := vals.Get("SubnetId")
+	if id == "" {
+		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
+	}
+
+	if err := h.Backend.DeleteSubnet(id); err != nil {
+		return nil, err
+	}
+
+	return &deleteSubnetResponse{
+		Xmlns:     ec2XMLNS,
+		RequestID: reqID,
+		Return:    true,
 	}, nil
 }
 
@@ -1112,6 +1150,20 @@ type createSubnetResponse struct {
 	Xmlns     string     `xml:"xmlns,attr"`
 	RequestID string     `xml:"requestId"`
 	Subnet    subnetItem `xml:"subnet"`
+}
+
+type deleteVpcResponse struct {
+	XMLName   xml.Name `xml:"DeleteVpcResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
+}
+
+type deleteSubnetResponse struct {
+	XMLName   xml.Name `xml:"DeleteSubnetResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Return    bool     `xml:"return"`
 }
 
 type revokeSecurityGroupEgressResponse struct {
