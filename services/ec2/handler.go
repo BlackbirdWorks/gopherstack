@@ -17,11 +17,9 @@ import (
 )
 
 const (
-	ec2APIVersion  = "2016-11-15"
-	ec2XMLNS       = "http://ec2.amazonaws.com/doc/2016-11-15/"
-	unknownOp      = "Unknown"
-	attrSourceDest = "sourceDestCheck"
-	ec2BooleanTrue = "true"
+	ec2APIVersion = "2016-11-15"
+	ec2XMLNS      = "http://ec2.amazonaws.com/doc/2016-11-15/"
+	unknownOp     = "Unknown"
 )
 
 // Handler is the Echo HTTP handler for EC2 operations.

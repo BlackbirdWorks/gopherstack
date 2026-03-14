@@ -1541,7 +1541,7 @@ func (h *Handler) handleAttachNetworkInterface(vals url.Values, reqID string) (a
 
 	deviceIndex := 1
 	if v := vals.Get("DeviceIndex"); v != "" {
-		fmt.Sscan(v, &deviceIndex) //nolint:errcheck,gosec // parse best-effort; invalid values fall back to 1
+		_, _ = fmt.Sscan(v, &deviceIndex) // parse best-effort; deviceIndex stays 1 on error
 	}
 
 	attachmentID, err := h.Backend.AttachNetworkInterface(eniID, instanceID, deviceIndex)
@@ -1597,7 +1597,7 @@ func (h *Handler) handleAssignPrivateIPAddresses(vals url.Values, reqID string) 
 
 	count := 0
 	if v := vals.Get("SecondaryPrivateIpAddressCount"); v != "" {
-		fmt.Sscan(v, &count) //nolint:errcheck,gosec // parse best-effort
+		_, _ = fmt.Sscan(v, &count) // parse best-effort; count stays 0 on error
 	}
 
 	ips := parseMemberList(vals, "PrivateIpAddress")

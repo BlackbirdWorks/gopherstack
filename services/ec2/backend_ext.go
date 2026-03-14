@@ -34,6 +34,12 @@ var (
 	ErrAssociationNotFound         = errors.New("InvalidAssociationID.NotFound")
 )
 
+// Attribute name and boolean-string constants shared across backend and handler.
+const (
+	attrSourceDest = "sourceDestCheck"
+	ec2BooleanTrue = "true"
+)
+
 // KeyPair represents an EC2 key pair.
 type KeyPair struct {
 	Name        string `json:"name"`
