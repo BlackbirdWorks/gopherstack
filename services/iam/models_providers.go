@@ -108,7 +108,7 @@ type CreateOpenIDConnectProviderResult struct {
 type CreateOpenIDConnectProviderResponse struct {
 	XMLName                           xml.Name                          `xml:"CreateOpenIDConnectProviderResponse"`
 	Xmlns                             string                            `xml:"xmlns,attr"`
-	CreateOpenIDConnectProviderResult CreateOpenIDConnectProviderResult `xml:"CreateOpenIDConnectProviderResult"` //nolint:lll // long XML element name
+	CreateOpenIDConnectProviderResult CreateOpenIDConnectProviderResult `xml:"CreateOpenIDConnectProviderResult"`
 	ResponseMetadata                  ResponseMetadata                  `xml:"ResponseMetadata"`
 }
 

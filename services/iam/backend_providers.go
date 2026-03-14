@@ -98,20 +98,26 @@ func (b *InMemoryBackend) ListSAMLProviders() ([]SAMLProvider, error) {
 // For example, "https://token.actions.githubusercontent.com" → "token.actions.githubusercontent.com".
 func oidcProviderHostFromURL(rawURL string) (string, error) {
 	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
-		// Treat a URL without a scheme/host as a bare hostname.
-		host := strings.TrimPrefix(rawURL, "https://")
-		host = strings.TrimPrefix(host, "http://")
-		host = strings.TrimSuffix(host, "/")
-
-		if host == "" {
-			return "", fmt.Errorf("%w: %q", ErrInvalidOIDCProviderURL, rawURL)
-		}
-
-		return host, nil
+	if err == nil && u.Host != "" {
+		return u.Host, nil
 	}
 
-	return u.Host, nil
+	// Treat a URL without a scheme as a bare hostname (strip any path/query).
+	bare := strings.TrimPrefix(rawURL, "https://")
+	bare = strings.TrimPrefix(bare, "http://")
+
+	// Retain only the host portion (before the first '/').
+	if idx := strings.IndexByte(bare, '/'); idx >= 0 {
+		bare = bare[:idx]
+	}
+
+	bare = strings.TrimSpace(bare)
+
+	if bare == "" {
+		return "", fmt.Errorf("%w: %q", ErrInvalidOIDCProviderURL, rawURL)
+	}
+
+	return bare, nil
 }
 
 // CreateOpenIDConnectProvider creates a new IAM OIDC identity provider.
@@ -207,7 +213,9 @@ func (b *InMemoryBackend) ListOpenIDConnectProviders() ([]OIDCProvider, error) {
 // CreateLoginProfile creates a console login profile for an IAM user.
 // The password parameter is accepted for API compatibility but not stored;
 // this is an in-memory mock and passwords are not persisted.
-func (b *InMemoryBackend) CreateLoginProfile(userName, _ /*password*/ string, passwordResetRequired bool) (*LoginProfile, error) {
+func (b *InMemoryBackend) CreateLoginProfile(
+	userName, _ string, passwordResetRequired bool,
+) (*LoginProfile, error) {
 	b.mu.Lock("CreateLoginProfile")
 	defer b.mu.Unlock()
 
@@ -232,7 +240,9 @@ func (b *InMemoryBackend) CreateLoginProfile(userName, _ /*password*/ string, pa
 // UpdateLoginProfile updates the console login profile for an IAM user.
 // The password parameter is accepted for API compatibility but not stored;
 // this is an in-memory mock and passwords are not persisted.
-func (b *InMemoryBackend) UpdateLoginProfile(userName, _ /*password*/ string, passwordResetRequired bool) error {
+func (b *InMemoryBackend) UpdateLoginProfile(
+	userName, _ string, passwordResetRequired bool,
+) error {
 	b.mu.Lock("UpdateLoginProfile")
 	defer b.mu.Unlock()
 

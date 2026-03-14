@@ -235,7 +235,7 @@ func (h *Handler) iamLoginProfileDispatchTable() map[string]iamActionFn {
 func (h *Handler) iamMiscDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"GetServiceLastAccessedDetails": func(_ url.Values, reqID string) (any, error) {
-			now := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+			now := isoTime(time.Now().UTC())
 
 			return &GetServiceLastAccessedDetailsResponse{
 				Xmlns: iamXMLNS,

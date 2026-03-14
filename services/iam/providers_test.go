@@ -144,6 +144,16 @@ func TestInMemoryBackend_OIDCProvider(t *testing.T) {
 		assert.Contains(t, p.Arn, "oidc-provider/token.actions.githubusercontent.com")
 	})
 
+	t.Run("CreateOIDCProvider_BareHostnameWithPath", func(t *testing.T) {
+		t.Parallel()
+		b := iam.NewInMemoryBackend()
+		// Bare hostname with a trailing path should strip the path.
+		p, err := b.CreateOpenIDConnectProvider("example.com/v1/oidc", nil, nil)
+		require.NoError(t, err)
+		assert.Contains(t, p.Arn, "oidc-provider/example.com")
+		assert.NotContains(t, p.Arn, "/v1/oidc")
+	})
+
 	t.Run("CreateOIDCProvider_AlreadyExists", func(t *testing.T) {
 		t.Parallel()
 		b := iam.NewInMemoryBackend()
@@ -322,7 +332,7 @@ func TestIAMHandler_SAMLProvider(t *testing.T) {
 	tests := []struct {
 		params map[string]string
 		setup  func(*iam.InMemoryBackend) string
-		check  func(*testing.T, *httptest.ResponseRecorder)
+		check  func(*testing.T, *httptest.ResponseRecorder, *iam.InMemoryBackend)
 		name   string
 		action string
 	}{
@@ -333,7 +343,7 @@ func TestIAMHandler_SAMLProvider(t *testing.T) {
 				"Name":                 "MySAML",
 				"SAMLMetadataDocument": "<EntityDescriptor/>",
 			},
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ *iam.InMemoryBackend) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, rec.Code)
 				var resp iam.CreateSAMLProviderResponse
@@ -344,17 +354,23 @@ func TestIAMHandler_SAMLProvider(t *testing.T) {
 		{
 			name:   "UpdateSAMLProvider",
 			action: "UpdateSAMLProvider",
+			params: map[string]string{"SAMLMetadataDocument": "<updated/>"},
 			setup: func(b *iam.InMemoryBackend) string {
 				p, _ := b.CreateSAMLProvider("MySAML", "<old/>")
 
 				return p.Arn
 			},
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, b *iam.InMemoryBackend) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, rec.Code)
 				var resp iam.UpdateSAMLProviderResponse
 				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.Contains(t, resp.UpdateSAMLProviderResult.SAMLProviderArn, "saml-provider/MySAML")
+
+				// Verify the metadata was actually updated in the backend.
+				got, err := b.GetSAMLProvider(resp.UpdateSAMLProviderResult.SAMLProviderArn)
+				require.NoError(t, err)
+				assert.Equal(t, "<updated/>", got.SAMLMetadataDocument)
 			},
 		},
 		{
@@ -365,7 +381,7 @@ func TestIAMHandler_SAMLProvider(t *testing.T) {
 
 				return p.Arn
 			},
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ *iam.InMemoryBackend) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, rec.Code)
 				var resp iam.DeleteSAMLProviderResponse
@@ -381,7 +397,7 @@ func TestIAMHandler_SAMLProvider(t *testing.T) {
 
 				return p.Arn
 			},
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ *iam.InMemoryBackend) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, rec.Code)
 				var resp iam.GetSAMLProviderResponse
@@ -398,7 +414,7 @@ func TestIAMHandler_SAMLProvider(t *testing.T) {
 
 				return ""
 			},
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ *iam.InMemoryBackend) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, rec.Code)
 				var resp iam.ListSAMLProvidersResponse
@@ -433,7 +449,7 @@ func TestIAMHandler_SAMLProvider(t *testing.T) {
 			req := iamRequest(tt.action, params)
 			rec := httptest.NewRecorder()
 			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-			tt.check(t, rec)
+			tt.check(t, rec, b)
 		})
 	}
 }
@@ -511,7 +527,7 @@ func TestIAMHandler_OIDCProvider(t *testing.T) {
 	tests := []struct {
 		params map[string]string
 		setup  func(*iam.InMemoryBackend) string
-		check  func(*testing.T, *httptest.ResponseRecorder)
+		check  func(*testing.T, *httptest.ResponseRecorder, *iam.InMemoryBackend)
 		name   string
 		action string
 	}{
@@ -523,7 +539,7 @@ func TestIAMHandler_OIDCProvider(t *testing.T) {
 				"ClientIDList.member.1":   "sts.amazonaws.com",
 				"ThumbprintList.member.1": "6938fd4d98bab03faadb97b34396831e3780aea1",
 			},
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ *iam.InMemoryBackend) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, rec.Code)
 				var resp iam.CreateOpenIDConnectProviderResponse
@@ -541,7 +557,7 @@ func TestIAMHandler_OIDCProvider(t *testing.T) {
 
 				return p.Arn
 			},
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ *iam.InMemoryBackend) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, rec.Code)
 				var resp iam.GetOpenIDConnectProviderResponse
@@ -559,12 +575,18 @@ func TestIAMHandler_OIDCProvider(t *testing.T) {
 
 				return p.Arn
 			},
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, b *iam.InMemoryBackend) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, rec.Code)
 				var resp iam.UpdateOpenIDConnectProviderThumbprintResponse
 				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.NotEmpty(t, resp.ResponseMetadata.RequestID)
+
+				// Verify thumbprint was actually updated in the backend.
+				providers, err := b.ListOpenIDConnectProviders()
+				require.NoError(t, err)
+				require.Len(t, providers, 1)
+				assert.Equal(t, []string{"new-thumb"}, providers[0].ThumbprintList)
 			},
 		},
 		{
@@ -575,7 +597,7 @@ func TestIAMHandler_OIDCProvider(t *testing.T) {
 
 				return p.Arn
 			},
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ *iam.InMemoryBackend) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, rec.Code)
 				var resp iam.DeleteOpenIDConnectProviderResponse
@@ -591,7 +613,7 @@ func TestIAMHandler_OIDCProvider(t *testing.T) {
 
 				return ""
 			},
-			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
+			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ *iam.InMemoryBackend) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, rec.Code)
 				var resp iam.ListOpenIDConnectProvidersResponse
@@ -625,7 +647,7 @@ func TestIAMHandler_OIDCProvider(t *testing.T) {
 			req := iamRequest(tt.action, params)
 			rec := httptest.NewRecorder()
 			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
-			tt.check(t, rec)
+			tt.check(t, rec, b)
 		})
 	}
 }
