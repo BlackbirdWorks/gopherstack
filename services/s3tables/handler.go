@@ -524,9 +524,7 @@ func (h *Handler) handleGetTableBucketEncryption(ctx context.Context, r *http.Re
 	log := logger.Load(ctx)
 	log.InfoContext(ctx, "s3tables: got table bucket encryption", "arn", bucketARN)
 
-	return json.Marshal(map[string]any{
-		"encryptionConfiguration": nil,
-	})
+	return nil, awserr.ErrNotFound
 }
 
 func (h *Handler) handleGetTableEncryption(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {

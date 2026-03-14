@@ -814,16 +814,14 @@ func TestHandler_Encryption(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		pathType          string // "bucket" or "table"
-		wantStatus        int
-		wantNullEncConfig bool
+		name       string
+		pathType   string // "bucket" or "table"
+		wantStatus int
 	}{
 		{
-			name:              "get_bucket_encryption_returns_null",
-			pathType:          "bucket",
-			wantStatus:        http.StatusOK,
-			wantNullEncConfig: true,
+			name:       "get_bucket_encryption_returns_not_found",
+			pathType:   "bucket",
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:       "get_table_encryption_returns_aes256",
@@ -853,11 +851,8 @@ func TestHandler_Encryption(t *testing.T) {
 			rec := doS3TablesRequest(t, h, http.MethodGet, path, nil)
 			require.Equal(t, tt.wantStatus, rec.Code)
 
-			result := parseResponse(t, rec)
-
-			if tt.wantNullEncConfig {
-				assert.Nil(t, result["encryptionConfiguration"], "bucket encryption_configuration should be null")
-			} else {
+			if tt.wantStatus == http.StatusOK {
+				result := parseResponse(t, rec)
 				encCfg, ok := result["encryptionConfiguration"].(map[string]any)
 				require.True(t, ok, "expected encryptionConfiguration to be an object")
 				assert.Equal(t, "AES256", encCfg["sseAlgorithm"])
