@@ -2,6 +2,7 @@ package s3
 
 import (
 	"encoding/json"
+	"maps"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -47,6 +48,20 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	normalizeSnapshot(&snap)
+	reinitBucketMutexes(snap.Buckets)
+
+	b.buckets = snap.Buckets
+	b.tags = snap.Tags
+	b.uploads = snap.Uploads
+	b.defaultRegion = snap.DefaultRegion
+	b.bucketIndex = buildBucketIndex(snap.Buckets)
+
+	return nil
+}
+
+// normalizeSnapshot ensures nil maps in the snapshot are replaced with empty maps.
+func normalizeSnapshot(snap *backendSnapshot) {
 	if snap.Buckets == nil {
 		snap.Buckets = make(map[string]map[string]*StoredBucket)
 	}
@@ -58,9 +73,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.Uploads == nil {
 		snap.Uploads = make(map[string]*StoredMultipartUpload)
 	}
+}
 
-	// Reinitialise per-bucket and per-object mutexes after deserialisation.
-	for _, regionBuckets := range snap.Buckets {
+// reinitBucketMutexes reinitialises per-bucket and per-object mutexes after
+// deserialisation, since [sync.Mutex] values cannot be serialised.
+func reinitBucketMutexes(buckets map[string]map[string]*StoredBucket) {
+	for _, regionBuckets := range buckets {
 		for _, bucket := range regionBuckets {
 			if bucket.mu == nil {
 				bucket.mu = lockmetrics.New("s3-bucket")
@@ -77,13 +95,39 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			}
 		}
 	}
+}
 
-	b.buckets = snap.Buckets
-	b.tags = snap.Tags
-	b.uploads = snap.Uploads
-	b.defaultRegion = snap.DefaultRegion
+// buildBucketIndex constructs the name→region index from the bucket map.
+// Active (non-pending) buckets take precedence over pending-delete entries
+// to ensure getBucket resolves to the live bucket after a Restore. Pending
+// buckets are included only when no active entry exists for that name, so
+// that idempotent DeleteBucket calls still work after a Restore.
+func buildBucketIndex(buckets map[string]map[string]*StoredBucket) map[string]string {
+	index := make(map[string]string)
 
-	return nil
+	// Two-pass approach: first register active buckets, then fill in any
+	// pending-only names. This makes the result deterministic regardless of
+	// map iteration order.
+	pendingOnly := make(map[string]string)
+
+	for region, regionBuckets := range buckets {
+		for bucketName, bucket := range regionBuckets {
+			if bucket.DeletePending {
+				// Record as pending-only candidate; active entry wins.
+				if _, activeExists := index[bucketName]; !activeExists {
+					pendingOnly[bucketName] = region
+				}
+			} else {
+				index[bucketName] = region
+				// Remove any pending-only candidate now that active is known.
+				delete(pendingOnly, bucketName)
+			}
+		}
+	}
+
+	maps.Copy(index, pendingOnly)
+
+	return index
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

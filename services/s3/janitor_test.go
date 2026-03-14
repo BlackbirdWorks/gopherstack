@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	sdk_s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -105,6 +106,56 @@ func TestS3Janitor_BucketDeletion(t *testing.T) {
 				require.NoError(t, err)
 			},
 			verify: func(_ *testing.T, _ *s3.InMemoryBackend) {},
+		},
+		{
+			name: "orphaned uploads and tags cleaned up when bucket is fully drained",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "cleanup-bucket")
+
+				// Put an object and tag it so there is a tag entry in b.tags.
+				mustPutObject(t, b, "cleanup-bucket", "tagged-key", []byte("data"))
+				_, err := b.PutObjectTagging(t.Context(), &sdk_s3.PutObjectTaggingInput{
+					Bucket: aws.String("cleanup-bucket"),
+					Key:    aws.String("tagged-key"),
+					Tagging: &sdk_s3types.Tagging{
+						TagSet: []sdk_s3types.Tag{{
+							Key:   aws.String("env"),
+							Value: aws.String("test"),
+						}},
+					},
+				})
+				require.NoError(t, err)
+
+				// Start (but do not complete) a multipart upload.
+				_, err = b.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
+					Bucket: aws.String("cleanup-bucket"),
+					Key:    aws.String("mpu-key"),
+				})
+				require.NoError(t, err)
+
+				// Verify preconditions.
+				assert.Equal(t, 1, b.UploadsForBucket("cleanup-bucket"))
+				assert.Equal(t, 1, b.TagsForBucket("cleanup-bucket"))
+			},
+			act: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				_, err := b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String("cleanup-bucket")})
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+
+				go newFastJanitor(b).Run(ctx)
+
+				// Wait until the janitor has fully removed the bucket.
+				require.Eventually(t, func() bool {
+					return b.UploadsForBucket("cleanup-bucket") == 0 &&
+						b.TagsForBucket("cleanup-bucket") == 0
+				}, 500*time.Millisecond, 10*time.Millisecond, "orphaned uploads/tags must be cleaned up")
+			},
 		},
 		{
 			name: "list buckets excludes pending-delete bucket",
