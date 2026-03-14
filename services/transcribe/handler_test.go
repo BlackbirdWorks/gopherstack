@@ -296,24 +296,68 @@ func TestTranscribe_DeleteTranscriptionJob(t *testing.T) {
 func TestTranscribe_ListTranscriptionJobsPagination(t *testing.T) {
 	t.Parallel()
 
-	h := newTestTranscribeHandler(t)
-
-	for i := range 5 {
-		_, err := h.Backend.StartTranscriptionJob(
-			fmt.Sprintf("job-%02d", i),
-			"en-US",
-			fmt.Sprintf("s3://bucket/file%d.mp4", i),
-		)
-		require.NoError(t, err)
+	tests := []struct {
+		name          string
+		count         int
+		wantNextToken bool
+	}{
+		{
+			name:          "single_page",
+			count:         5,
+			wantNextToken: false,
+		},
+		{
+			name:          "multi_page",
+			count:         105, // exceeds transcribeDefaultPageSize=100
+			wantNextToken: true,
+		},
 	}
 
-	rec := doTranscribeRequest(t, h, "ListTranscriptionJobs", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			h := newTestTranscribeHandler(t)
 
-	summaries, ok := resp["TranscriptionJobSummaries"].([]any)
-	require.True(t, ok)
-	assert.Len(t, summaries, 5)
+			for i := range tt.count {
+				_, err := h.Backend.StartTranscriptionJob(
+					fmt.Sprintf("job-%04d", i),
+					"en-US",
+					fmt.Sprintf("s3://bucket/file%d.mp4", i),
+				)
+				require.NoError(t, err)
+			}
+
+			rec := doTranscribeRequest(t, h, "ListTranscriptionJobs", map[string]any{})
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			summaries, summariesOK := resp["TranscriptionJobSummaries"].([]any)
+			require.True(t, summariesOK)
+
+			if tt.wantNextToken {
+				assert.Len(t, summaries, 100)
+				nextToken, tokenOK := resp["NextToken"].(string)
+				require.True(t, tokenOK, "NextToken should be present")
+				assert.NotEmpty(t, nextToken)
+
+				// Second page using the token.
+				rec2 := doTranscribeRequest(t, h, "ListTranscriptionJobs", map[string]any{"NextToken": nextToken})
+				assert.Equal(t, http.StatusOK, rec2.Code)
+
+				var resp2 map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+
+				summaries2, summaries2OK := resp2["TranscriptionJobSummaries"].([]any)
+				require.True(t, summaries2OK)
+				assert.Len(t, summaries2, tt.count-100)
+				assert.Empty(t, resp2["NextToken"])
+			} else {
+				assert.Len(t, summaries, tt.count)
+				assert.Empty(t, resp["NextToken"])
+			}
+		})
+	}
 }

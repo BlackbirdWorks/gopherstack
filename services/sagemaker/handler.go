@@ -315,7 +315,10 @@ func (h *Handler) handleListModels(body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
-	_ = json.Unmarshal(body, &req)
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
 
 	models, nextToken := h.Backend.ListModels(req.NextToken)
 	summaries := make([]modelSummary, 0, len(models))
@@ -447,7 +450,10 @@ func (h *Handler) handleListEndpointConfigs(body []byte) ([]byte, error) {
 	var req struct {
 		NextToken string `json:"NextToken"`
 	}
-	_ = json.Unmarshal(body, &req)
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
 
 	configs, nextToken := h.Backend.ListEndpointConfigs(req.NextToken)
 	summaries := make([]endpointConfigSummary, 0, len(configs))

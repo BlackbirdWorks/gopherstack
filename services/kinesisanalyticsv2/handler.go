@@ -134,7 +134,7 @@ func (h *Handler) dispatch(c *echo.Context, op string, body []byte) error {
 	case "DescribeApplication":
 		return h.handleDescribeApplication(c, body)
 	case "ListApplications":
-		return h.handleListApplications(c)
+		return h.handleListApplications(c, body)
 	case "UpdateApplication":
 		return h.handleUpdateApplication(c, body)
 	case "DeleteApplication":
@@ -198,6 +198,10 @@ type describeApplicationInput struct {
 
 type describeApplicationOutput struct {
 	ApplicationDetail applicationDetailOutput `json:"ApplicationDetail"`
+}
+
+type listApplicationsInput struct {
+	NextToken string `json:"NextToken,omitempty"`
 }
 
 type listApplicationsOutput struct {
@@ -321,9 +325,13 @@ func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error 
 	})
 }
 
-func (h *Handler) handleListApplications(c *echo.Context) error {
-	nextToken := c.Request().URL.Query().Get("nextToken")
-	apps, outToken := h.Backend.ListApplications(nextToken)
+func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
+	var in listApplicationsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
+	}
+
+	apps, outToken := h.Backend.ListApplications(in.NextToken)
 	summaries := make([]applicationSummary, 0, len(apps))
 
 	for _, app := range apps {

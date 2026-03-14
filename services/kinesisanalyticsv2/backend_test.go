@@ -414,36 +414,106 @@ func TestBackend_Tags_NotFound(t *testing.T) {
 func TestBackend_ListApplicationsPagination(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend(t)
-
-	for i := range 5 {
-		_, err := b.CreateApplication(
-			fmt.Sprintf("paged-app-%02d", i),
-			"FLINK-1_18", "", "", "", nil,
-		)
-		require.NoError(t, err)
+	tests := []struct {
+		name          string
+		count         int
+		wantNextToken bool
+	}{
+		{
+			name:          "single_page",
+			count:         5,
+			wantNextToken: false,
+		},
+		{
+			name:          "multi_page",
+			count:         55, // exceeds kav2DefaultPageSize=50
+			wantNextToken: true,
+		},
 	}
 
-	apps, outToken := b.ListApplications("")
-	assert.Len(t, apps, 5)
-	assert.Empty(t, outToken)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+
+			for i := range tt.count {
+				_, err := b.CreateApplication(
+					fmt.Sprintf("paged-app-%04d", i),
+					"FLINK-1_18", "", "", "", nil,
+				)
+				require.NoError(t, err)
+			}
+
+			apps, outToken := b.ListApplications("")
+			if tt.wantNextToken {
+				assert.Len(t, apps, 50)
+				assert.NotEmpty(t, outToken)
+
+				// Second page.
+				apps2, outToken2 := b.ListApplications(outToken)
+				assert.Len(t, apps2, tt.count-50)
+				assert.Empty(t, outToken2)
+			} else {
+				assert.Len(t, apps, tt.count)
+				assert.Empty(t, outToken)
+			}
+		})
+	}
 }
 
 func TestBackend_ListApplicationSnapshotsPagination(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend(t)
-
-	_, err := b.CreateApplication("paged-snap-app", "FLINK-1_18", "", "", "", nil)
-	require.NoError(t, err)
-
-	for i := range 5 {
-		_, err = b.CreateApplicationSnapshot("paged-snap-app", fmt.Sprintf("snap-%02d", i))
-		require.NoError(t, err)
+	tests := []struct {
+		name          string
+		count         int
+		wantNextToken bool
+	}{
+		{
+			name:          "single_page",
+			count:         5,
+			wantNextToken: false,
+		},
+		{
+			name:          "multi_page",
+			count:         55, // exceeds kav2DefaultPageSize=50
+			wantNextToken: true,
+		},
 	}
 
-	snaps, outToken, err := b.ListApplicationSnapshots("paged-snap-app", "")
-	require.NoError(t, err)
-	assert.Len(t, snaps, 5)
-	assert.Empty(t, outToken)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+
+			_, err := b.CreateApplication("paged-snap-app", "FLINK-1_18", "", "", "", nil)
+			require.NoError(t, err)
+
+			for i := range tt.count {
+				_, err = b.CreateApplicationSnapshot("paged-snap-app", fmt.Sprintf("snap-%04d", i))
+				require.NoError(t, err)
+			}
+
+			snaps, outToken, err := b.ListApplicationSnapshots("paged-snap-app", "")
+			require.NoError(t, err)
+
+			if tt.wantNextToken {
+				assert.Len(t, snaps, 50)
+				assert.NotEmpty(t, outToken)
+
+				// Second page.
+				var snaps2 []*kinesisanalyticsv2.Snapshot
+				var outToken2 string
+				snaps2, outToken2, err = b.ListApplicationSnapshots("paged-snap-app", outToken)
+				require.NoError(t, err)
+				assert.Len(t, snaps2, tt.count-50)
+				assert.Empty(t, outToken2)
+			} else {
+				assert.Len(t, snaps, tt.count)
+				assert.Empty(t, outToken)
+			}
+		})
+	}
 }
