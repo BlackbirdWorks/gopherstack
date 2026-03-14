@@ -243,3 +243,66 @@ func TestMiddleware_ServiceRuleNoAuthDoesNotMatch(t *testing.T) {
 	assert.True(t, handlerCalled)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestMiddleware_DashboardHeaderBypassesChaos(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		auth  string
+		rules []chaos.FaultRule
+	}{
+		{
+			name:  "broad rule with no service: dashboard header bypasses",
+			rules: []chaos.FaultRule{{}},
+			auth:  "",
+		},
+		{
+			name:  "service-specific rule: dashboard header bypasses even with matching auth",
+			rules: []chaos.FaultRule{{Service: "s3"}},
+			auth:  buildSigV4Auth("s3", "us-east-1"),
+		},
+		{
+			name:  "network effects only: dashboard header still bypasses",
+			rules: []chaos.FaultRule{},
+			auth:  buildSigV4Auth("dynamodb", "us-east-1"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := chaos.NewFaultStore()
+			store.SetRules(tt.rules)
+			store.SetEffects(chaos.NetworkEffects{Latency: 1000})
+
+			mw := chaos.Middleware(store)
+			handlerCalled := false
+
+			inner := func(c *echo.Context) error {
+				handlerCalled = true
+
+				return c.String(http.StatusOK, "ok")
+			}
+
+			wrapped := mw(inner)
+
+			e := echo.New()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/dashboard/", nil)
+			req.Header.Set(chaos.HeaderDashboard, "true")
+
+			if tt.auth != "" {
+				req.Header.Set("Authorization", tt.auth)
+			}
+
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			err := wrapped(c)
+			require.NoError(t, err)
+			assert.True(t, handlerCalled, "expected handler to be called when dashboard header is set")
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+	}
+}

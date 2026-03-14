@@ -3,6 +3,8 @@ package dashboard
 import (
 	"net/http"
 	"net/http/httptest"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 )
 
 // InMemClient adapts an [http.Handler] to be used as an HTTP client.
@@ -20,6 +22,10 @@ func (c *InMemClient) Do(req *http.Request) (*http.Response, error) {
 	if req.Body == nil {
 		req.Body = http.NoBody
 	}
+
+	// Mark request as originating from the dashboard so the chaos middleware
+	// skips fault injection and network effects for all dashboard SDK calls.
+	req.Header.Set(chaos.HeaderDashboard, "true")
 
 	rec := httptest.NewRecorder()
 	c.Handler.ServeHTTP(rec, req)
@@ -40,6 +46,10 @@ func (c *InMemClient) RoundTrip(req *http.Request) (*http.Response, error) {
 	if clone.Body == nil {
 		clone.Body = http.NoBody
 	}
+
+	// Mark request as originating from the dashboard so the chaos middleware
+	// skips fault injection and network effects for all dashboard SDK calls.
+	clone.Header.Set(chaos.HeaderDashboard, "true")
 
 	rec := httptest.NewRecorder()
 	c.Handler.ServeHTTP(rec, clone)
