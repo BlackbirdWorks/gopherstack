@@ -3,6 +3,7 @@ package sagemaker_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -749,4 +750,143 @@ func TestProvider_InitFull(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, reg)
 	assert.Equal(t, "SageMaker", reg.Name())
+}
+
+func TestHandler_ListModelsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		count         int
+		wantNextToken bool
+	}{
+		{
+			name:          "single_page",
+			count:         5,
+			wantNextToken: false,
+		},
+		{
+			name:          "multi_page",
+			count:         105, // exceeds sagemakerDefaultPageSize=100
+			wantNextToken: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for i := range tt.count {
+				_, err := h.Backend.CreateModel(
+					fmt.Sprintf("model-%04d", i),
+					"arn:aws:iam::000000000000:role/test",
+					nil, nil, nil,
+				)
+				require.NoError(t, err)
+			}
+
+			// First page.
+			rec := doSageMakerRequest(t, h, "ListModels", map[string]any{})
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			models, modelsOK := resp["Models"].([]any)
+			require.True(t, modelsOK)
+
+			if tt.wantNextToken {
+				assert.Len(t, models, 100)
+				nextToken, tokenOK := resp["NextToken"].(string)
+				require.True(t, tokenOK, "NextToken should be present")
+				assert.NotEmpty(t, nextToken)
+
+				// Second page using the token.
+				rec2 := doSageMakerRequest(t, h, "ListModels", map[string]any{"NextToken": nextToken})
+				assert.Equal(t, http.StatusOK, rec2.Code)
+
+				var resp2 map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+
+				models2, models2OK := resp2["Models"].([]any)
+				require.True(t, models2OK)
+				assert.Len(t, models2, tt.count-100)
+				assert.Empty(t, resp2["NextToken"])
+			} else {
+				assert.Len(t, models, tt.count)
+				assert.Empty(t, resp["NextToken"])
+			}
+		})
+	}
+}
+
+func TestHandler_ListEndpointConfigsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		count         int
+		wantNextToken bool
+	}{
+		{
+			name:          "single_page",
+			count:         3,
+			wantNextToken: false,
+		},
+		{
+			name:          "multi_page",
+			count:         105, // exceeds sagemakerDefaultPageSize=100
+			wantNextToken: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for i := range tt.count {
+				_, err := h.Backend.CreateEndpointConfig(
+					fmt.Sprintf("cfg-%04d", i),
+					nil,
+					nil,
+				)
+				require.NoError(t, err)
+			}
+
+			rec := doSageMakerRequest(t, h, "ListEndpointConfigs", map[string]any{})
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			configs, configsOK := resp["EndpointConfigs"].([]any)
+			require.True(t, configsOK)
+
+			if tt.wantNextToken {
+				assert.Len(t, configs, 100)
+				nextToken, tokenOK := resp["NextToken"].(string)
+				require.True(t, tokenOK, "NextToken should be present")
+				assert.NotEmpty(t, nextToken)
+
+				// Second page.
+				rec2 := doSageMakerRequest(t, h, "ListEndpointConfigs", map[string]any{"NextToken": nextToken})
+				assert.Equal(t, http.StatusOK, rec2.Code)
+
+				var resp2 map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
+
+				configs2, configs2OK := resp2["EndpointConfigs"].([]any)
+				require.True(t, configs2OK)
+				assert.Len(t, configs2, tt.count-100)
+				assert.Empty(t, resp2["NextToken"])
+			} else {
+				assert.Len(t, configs, tt.count)
+				assert.Empty(t, resp["NextToken"])
+			}
+		})
+	}
 }

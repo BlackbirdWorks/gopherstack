@@ -71,7 +71,7 @@ func (h *DashboardHandler) sagemakerIndex(c *echo.Context) error {
 		return nil
 	}
 
-	list := h.SageMakerOps.Backend.ListModels()
+	list, _ := h.SageMakerOps.Backend.ListModels("")
 	views := make([]sagemakerModelView, 0, len(list))
 
 	for _, m := range list {

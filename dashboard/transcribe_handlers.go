@@ -55,7 +55,7 @@ client = boto3.client('transcribe', endpoint_url='http://localhost:8000')`,
 		return nil
 	}
 
-	jobs := h.TranscribeOps.Backend.ListTranscriptionJobs("")
+	jobs, _ := h.TranscribeOps.Backend.ListTranscriptionJobs("", "")
 	views := make([]transcribeJobView, 0, len(jobs))
 
 	for _, j := range jobs {

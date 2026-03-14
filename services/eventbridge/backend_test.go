@@ -314,3 +314,42 @@ func TestPutRule(t *testing.T) {
 		})
 	}
 }
+
+func TestScheduler_LastFiredCleanupOnDeleteRule(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	defer b.Close()
+
+	rule, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:               "sched-rule",
+		ScheduleExpression: "rate(1 minute)",
+		State:              "ENABLED",
+		EventBusName:       "default",
+	})
+	require.NoError(t, err)
+
+	// Seed lastFired as the scheduler would after init.
+	lastFired := map[string]time.Time{
+		rule.Arn: time.Now().Add(-2 * time.Minute),
+	}
+
+	// Delete the rule then run a scheduler tick.
+	err = b.DeleteRule("sched-rule", "default")
+	require.NoError(t, err)
+
+	sched := eventbridge.NewScheduler(b, 0)
+	sched.ProcessTickForTest(t.Context(), time.Now(), lastFired)
+
+	// The stale entry for the deleted rule must have been purged.
+	_, still := lastFired[rule.Arn]
+	assert.False(t, still, "lastFired should not contain entries for deleted rules")
+}
+
+func TestBackend_Close(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	// Close should return without blocking even when no goroutines are active.
+	b.Close()
+}
