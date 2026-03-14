@@ -64,6 +64,7 @@ import (
 	elasticbeanstalksvc "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2svc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	elasticsearchsvc "github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	emrsvc "github.com/aws/aws-sdk-go-v2/service/emr"
 	emrserverlesssvc "github.com/aws/aws-sdk-go-v2/service/emrserverless"
@@ -1714,6 +1715,24 @@ func createElasticbeanstalkClient(t *testing.T) *elasticbeanstalksvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return elasticbeanstalksvc.NewFromConfig(cfg, func(o *elasticbeanstalksvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createElasticsearchClient returns an Elasticsearch client pointed at the shared test container.
+func createElasticsearchClient(t *testing.T) *elasticsearchsvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return elasticsearchsvc.NewFromConfig(cfg, func(o *elasticsearchsvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

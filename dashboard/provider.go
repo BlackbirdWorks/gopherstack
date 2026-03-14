@@ -97,6 +97,7 @@ import (
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
+	elasticsearchbackend "github.com/blackbirdworks/gopherstack/services/elasticsearch"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
@@ -156,6 +157,7 @@ type AWSSDKProvider interface {
 	GetSESHandler() service.Registerable
 	GetSESv2Handler() service.Registerable
 	GetEC2Handler() service.Registerable
+	GetElasticsearchHandler() service.Registerable
 	GetOpenSearchHandler() service.Registerable
 	GetACMHandler() service.Registerable
 	GetACMPCAHandler() service.Registerable
@@ -289,6 +291,7 @@ type extractedConfig struct {
 	sesOps                    *sesbackend.Handler
 	sesv2Ops                  *sesv2backend.Handler
 	ec2Ops                    *ec2backend.Handler
+	elasticsearchOps          *elasticsearchbackend.Handler
 	opensearchOps             *opensearchbackend.Handler
 	acmOps                    *acmbackend.Handler
 	acmpcaOps                 *acmpcabackend.Handler
@@ -498,6 +501,10 @@ func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 //
 
 func extractLongTailHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+	if h := ap.GetElasticsearchHandler(); h != nil {
+		ec.elasticsearchOps, _ = h.(*elasticsearchbackend.Handler)
+	}
+
 	if h := ap.GetOpenSearchHandler(); h != nil {
 		ec.opensearchOps, _ = h.(*opensearchbackend.Handler)
 	}
@@ -986,6 +993,7 @@ func buildBaseConfig(ec *extractedConfig, log *slog.Logger) Config {
 		SESOps:                     ec.sesOps,
 		SESv2Ops:                   ec.sesv2Ops,
 		EC2Ops:                     ec.ec2Ops,
+		ElasticsearchOps:           ec.elasticsearchOps,
 		OpenSearchOps:              ec.opensearchOps,
 		ACMOps:                     ec.acmOps,
 		ACMPCAOps:                  ec.acmpcaOps,
