@@ -5,22 +5,24 @@ import (
 )
 
 type backendSnapshot struct {
-	Instances          map[string]*Instance         `json:"instances"`
-	SecurityGroups     map[string]*SecurityGroup    `json:"securityGroups"`
-	VPCs               map[string]*VPC              `json:"vpcs"`
-	Subnets            map[string]*Subnet           `json:"subnets"`
-	KeyPairs           map[string]*KeyPair          `json:"keyPairs"`
-	Volumes            map[string]*Volume           `json:"volumes"`
-	Addresses          map[string]*Address          `json:"addresses"`
-	InternetGateways   map[string]*InternetGateway  `json:"internetGateways"`
-	RouteTables        map[string]*RouteTable       `json:"routeTables"`
-	NatGateways        map[string]*NatGateway       `json:"natGateways"`
-	NetworkInterfaces  map[string]*NetworkInterface `json:"networkInterfaces"`
-	Tags               map[string]map[string]string `json:"tags"`
-	AccountID          string                       `json:"accountID"`
-	Region             string                       `json:"region"`
-	NextPrivateIPIndex int                          `json:"nextPrivateIPIndex"`
-	NextElasticIPIndex int                          `json:"nextElasticIPIndex"`
+	Instances          map[string]*Instance            `json:"instances"`
+	SecurityGroups     map[string]*SecurityGroup       `json:"securityGroups"`
+	VPCs               map[string]*VPC                 `json:"vpcs"`
+	Subnets            map[string]*Subnet              `json:"subnets"`
+	KeyPairs           map[string]*KeyPair             `json:"keyPairs"`
+	Volumes            map[string]*Volume              `json:"volumes"`
+	Addresses          map[string]*Address             `json:"addresses"`
+	InternetGateways   map[string]*InternetGateway     `json:"internetGateways"`
+	RouteTables        map[string]*RouteTable          `json:"routeTables"`
+	NatGateways        map[string]*NatGateway          `json:"natGateways"`
+	NetworkInterfaces  map[string]*NetworkInterface    `json:"networkInterfaces"`
+	SpotRequests       map[string]*SpotInstanceRequest `json:"spotRequests"`
+	PlacementGroups    map[string]*PlacementGroup      `json:"placementGroups"`
+	Tags               map[string]map[string]string    `json:"tags"`
+	AccountID          string                          `json:"accountID"`
+	Region             string                          `json:"region"`
+	NextPrivateIPIndex int                             `json:"nextPrivateIPIndex"`
+	NextElasticIPIndex int                             `json:"nextElasticIPIndex"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -41,6 +43,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		RouteTables:        b.routeTables,
 		NatGateways:        b.natGateways,
 		NetworkInterfaces:  b.networkInterfaces,
+		SpotRequests:       b.spotRequests,
+		PlacementGroups:    b.placementGroups,
 		Tags:               b.tags,
 		AccountID:          b.AccountID,
 		Region:             b.Region,
@@ -65,56 +69,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	snap.initMissingMaps()
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
-
-	if snap.Instances == nil {
-		snap.Instances = make(map[string]*Instance)
-	}
-
-	if snap.SecurityGroups == nil {
-		snap.SecurityGroups = make(map[string]*SecurityGroup)
-	}
-
-	if snap.VPCs == nil {
-		snap.VPCs = make(map[string]*VPC)
-	}
-
-	if snap.Subnets == nil {
-		snap.Subnets = make(map[string]*Subnet)
-	}
-
-	if snap.KeyPairs == nil {
-		snap.KeyPairs = make(map[string]*KeyPair)
-	}
-
-	if snap.Volumes == nil {
-		snap.Volumes = make(map[string]*Volume)
-	}
-
-	if snap.Addresses == nil {
-		snap.Addresses = make(map[string]*Address)
-	}
-
-	if snap.InternetGateways == nil {
-		snap.InternetGateways = make(map[string]*InternetGateway)
-	}
-
-	if snap.RouteTables == nil {
-		snap.RouteTables = make(map[string]*RouteTable)
-	}
-
-	if snap.NatGateways == nil {
-		snap.NatGateways = make(map[string]*NatGateway)
-	}
-
-	if snap.NetworkInterfaces == nil {
-		snap.NetworkInterfaces = make(map[string]*NetworkInterface)
-	}
-
-	if snap.Tags == nil {
-		snap.Tags = make(map[string]map[string]string)
-	}
 
 	b.instances = snap.Instances
 	b.securityGroups = snap.SecurityGroups
@@ -127,6 +85,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.routeTables = snap.RouteTables
 	b.natGateways = snap.NatGateways
 	b.networkInterfaces = snap.NetworkInterfaces
+	b.spotRequests = snap.SpotRequests
+	b.placementGroups = snap.PlacementGroups
 	b.tags = snap.Tags
 	b.AccountID = snap.AccountID
 	b.Region = snap.Region
@@ -134,6 +94,67 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.nextElasticIPIndex = snap.NextElasticIPIndex
 
 	return nil
+}
+
+// initMissingMaps ensures all map fields in the snapshot are non-nil.
+// This prevents nil-map panics when the snapshot was created from a backend
+// that never populated a particular resource type.
+func (s *backendSnapshot) initMissingMaps() {
+	if s.Instances == nil {
+		s.Instances = make(map[string]*Instance)
+	}
+
+	if s.SecurityGroups == nil {
+		s.SecurityGroups = make(map[string]*SecurityGroup)
+	}
+
+	if s.VPCs == nil {
+		s.VPCs = make(map[string]*VPC)
+	}
+
+	if s.Subnets == nil {
+		s.Subnets = make(map[string]*Subnet)
+	}
+
+	if s.KeyPairs == nil {
+		s.KeyPairs = make(map[string]*KeyPair)
+	}
+
+	if s.Volumes == nil {
+		s.Volumes = make(map[string]*Volume)
+	}
+
+	if s.Addresses == nil {
+		s.Addresses = make(map[string]*Address)
+	}
+
+	if s.InternetGateways == nil {
+		s.InternetGateways = make(map[string]*InternetGateway)
+	}
+
+	if s.RouteTables == nil {
+		s.RouteTables = make(map[string]*RouteTable)
+	}
+
+	if s.NatGateways == nil {
+		s.NatGateways = make(map[string]*NatGateway)
+	}
+
+	if s.NetworkInterfaces == nil {
+		s.NetworkInterfaces = make(map[string]*NetworkInterface)
+	}
+
+	if s.SpotRequests == nil {
+		s.SpotRequests = make(map[string]*SpotInstanceRequest)
+	}
+
+	if s.PlacementGroups == nil {
+		s.PlacementGroups = make(map[string]*PlacementGroup)
+	}
+
+	if s.Tags == nil {
+		s.Tags = make(map[string]map[string]string)
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
