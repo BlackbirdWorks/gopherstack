@@ -86,12 +86,11 @@ func (db *InMemoryDB) CreateTable(
 	if db.createDelay > 0 {
 		newTable.Status = string(types.TableStatusCreating)
 
-		go func() {
-			time.Sleep(db.createDelay)
+		newTable.activateTimer = time.AfterFunc(db.createDelay, func() {
 			newTable.mu.Lock("activate")
 			newTable.Status = string(types.TableStatusActive)
 			newTable.mu.Unlock()
-		}()
+		})
 	} else {
 		newTable.Status = string(types.TableStatusActive)
 	}
@@ -211,6 +210,15 @@ func (db *InMemoryDB) DeleteTable(
 	}
 
 	// Move to the deleting map — the Janitor will do the final removal.
+	// Cancel any pending activation timer. Stop() is called while db.mu is held, which
+	// prevents a concurrent CreateTable from racing with us. If the timer has already fired
+	// and the callback is in progress, Stop() returns false but the callback only writes
+	// table.Status (guarded by table.mu) on an object that is about to move to
+	// deletingTables — this is benign; the janitor will clean it up regardless.
+	if table.activateTimer != nil {
+		table.activateTimer.Stop()
+	}
+
 	delete(db.Tables[region], tableName)
 	if _, deletingExists := db.deletingTables[region]; !deletingExists {
 		db.deletingTables[region] = make(map[string]*Table)
