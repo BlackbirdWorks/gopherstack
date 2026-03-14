@@ -1598,6 +1598,22 @@
                             </div>
                         </li>
                         <li>
+                            <a href="/dashboard/s3tables"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-green-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-green-400 transition-colors {{if eq .ActiveTab "s3tables"}}bg-green-50 text-green-700 dark:bg-slate-800 dark:text-green-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-s3tables" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375z" />
+                                </svg>
+                                <span class="sidebar-text truncate" title="S3 Tables">S3 Tables</span>
+                            </a>
+                            <div id="tooltip-s3tables" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Amazon S3 Tables
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
                             <a href="/dashboard/chaos"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-red-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-red-400 transition-colors {{if eq .ActiveTab "chaos"}}bg-red-50 text-red-700 dark:bg-slate-800 dark:text-red-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-chaos" data-tooltip-placement="right">

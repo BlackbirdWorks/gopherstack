@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64px" height="64px" viewBox="0 0 64 64" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>Amazon S3 Tables</title>
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect fill="#7AA116" x="0" y="0" width="64" height="64"></rect>
+        <path d="M12,16 L52,16 L52,48 L12,48 Z M12,24 L52,24 M12,32 L52,32 M12,40 L52,40 M28,16 L28,48 M44,16 L44,48"
+            stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+    </g>
+</svg>

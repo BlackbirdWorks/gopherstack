@@ -105,6 +105,7 @@ import (
 	route53resolversvc "github.com/aws/aws-sdk-go-v2/service/route53resolver"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
+	s3tablessvc "github.com/aws/aws-sdk-go-v2/service/s3tables"
 	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
 	sagemakerruntimesvc "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
@@ -2330,5 +2331,22 @@ func createClientWithEndpoint[T any, O any](t *testing.T, newFn func(aws.Config,
 	return newFn(createTestConfig(t), func(o *O) {
 		// Use reflection to set BaseEndpoint because service options are not common interfaces.
 		reflect.ValueOf(o).Elem().FieldByName("BaseEndpoint").Set(reflect.ValueOf(aws.String(endpoint)))
+	})
+}
+
+func createS3TablesClient(t *testing.T) *s3tablessvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return s3tablessvc.NewFromConfig(cfg, func(o *s3tablessvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

@@ -109,6 +109,7 @@ import (
 	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
+	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
@@ -310,10 +311,12 @@ type Stack struct {
 	Wafv2Handler *wafv2backend.Handler
 	// XrayHandler provides access to the X-Ray backend.
 	XrayHandler *xraybackend.Handler
-	S3Client    *s3.Client
-	DDBClient   *dynamodb.Client
-	FaultStore  *chaos.FaultStore
-	Dashboard   *dashboard.DashboardHandler
+	// S3TablesHandler provides access to the S3 Tables backend.
+	S3TablesHandler *s3tablesbackend.Handler
+	S3Client        *s3.Client
+	DDBClient       *dynamodb.Client
+	FaultStore      *chaos.FaultStore
+	Dashboard       *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -534,6 +537,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.verifiedpermissions)
 	_ = registry.Register(h.wafv2)
 	_ = registry.Register(h.xray)
+	_ = registry.Register(h.s3tables)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -652,6 +656,7 @@ type handlers struct {
 	verifiedpermissions *verifiedpermissionsbackend.Handler
 	wafv2               *wafv2backend.Handler
 	xray                *xraybackend.Handler
+	s3tables            *s3tablesbackend.Handler
 	iamBk               *iambackend.InMemoryBackend
 	s3Bk                *s3backend.InMemoryBackend
 }
@@ -981,7 +986,7 @@ func populateLatestMLHandlers(h *handlers) {
 	populateTransferHandlers(h)
 }
 
-// populateTransferHandlers initializes the Transfer, VerifiedPermissions, and X-Ray service handlers.
+// populateTransferHandlers initializes the Transfer, VerifiedPermissions, X-Ray, and S3 Tables service handlers.
 // Extracted from populateLatestHandlers to satisfy the funlen limit.
 func populateTransferHandlers(h *handlers) {
 	h.transfer = transferbackend.NewHandler(
@@ -991,6 +996,9 @@ func populateTransferHandlers(h *handlers) {
 		verifiedpermissionsbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.xray = xraybackend.NewHandler(xraybackend.NewInMemoryBackend())
+	h.s3tables = s3tablesbackend.NewHandler(
+		s3tablesbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -1164,6 +1172,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.VerifiedPermissionsOps = h.verifiedpermissions
 	cfg.Wafv2Ops = h.wafv2
 	cfg.XrayOps = h.xray
+	cfg.S3TablesOps = h.s3tables
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1384,6 +1393,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.VerifiedPermissionsHandler = h.verifiedpermissions
 	s.Wafv2Handler = h.wafv2
 	s.XrayHandler = h.xray
+	s.S3TablesHandler = h.s3tables
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".
