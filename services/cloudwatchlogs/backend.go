@@ -86,8 +86,6 @@ type storedQuery struct {
 	results   [][]ResultField
 	logGroups []string
 	stats     QueryStatistics
-	startTime int64
-	endTime   int64
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -817,8 +815,6 @@ func (b *InMemoryBackend) StartQuery(
 		results:   results,
 		stats:     stats,
 		logGroups: logGroupNames,
-		startTime: startTime,
-		endTime:   endTime,
 		createdAt: time.Now(),
 	}
 
