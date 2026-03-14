@@ -39,6 +39,7 @@ type EBSOptions struct {
 type Domain struct {
 	Tags                 *tags.Tags    `json:"tags,omitempty"`
 	Name                 string        `json:"name"`
+	DomainID             string        `json:"domainID"`
 	ARN                  string        `json:"arn"`
 	ElasticsearchVersion string        `json:"elasticsearchVersion"`
 	Endpoint             string        `json:"endpoint"`
@@ -101,6 +102,7 @@ func (b *InMemoryBackend) CreateDomain(
 	}
 
 	domainARN := arn.Build("es", b.region, b.accountID, "domain/"+name)
+	domainID := b.accountID + "/" + name
 	endpoint := fmt.Sprintf("search-%s-%s.%s.es.amazonaws.com", name, b.accountID, b.region)
 
 	if clusterConfig.InstanceCount == 0 {
@@ -113,6 +115,7 @@ func (b *InMemoryBackend) CreateDomain(
 
 	d := &Domain{
 		Name:                 name,
+		DomainID:             domainID,
 		ARN:                  domainARN,
 		ElasticsearchVersion: esVersion,
 		Endpoint:             endpoint,

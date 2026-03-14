@@ -46,6 +46,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		path := c.Request().URL.Path
 
 		return strings.HasPrefix(path, elasticsearchPathPrefix) ||
+			path == elasticsearchDomainInfo ||
 			path == elasticsearchTagsPath ||
 			path == elasticsearchTagsRemove
 	}
@@ -60,6 +61,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListDomainNames",
 		"DescribeElasticsearchDomains",
 		"UpdateElasticsearchDomainConfig",
+		"DescribeElasticsearchDomainConfig",
 	}
 }
 
@@ -136,7 +138,7 @@ type domainEBSOptions struct {
 
 // domainJSON is the JSON request body for CreateElasticsearchDomain.
 type domainJSON struct {
-	ClusterConfig        *domainClusterConfig `json:"ClusterConfig"`
+	ClusterConfig        *domainClusterConfig `json:"ElasticsearchClusterConfig"`
 	EBSOptions           *domainEBSOptions    `json:"EBSOptions"`
 	DomainName           string               `json:"DomainName"`
 	ElasticsearchVersion string               `json:"ElasticsearchVersion"`
@@ -144,14 +146,15 @@ type domainJSON struct {
 
 // domainStatusJSON is the JSON response for domain operations.
 type domainStatusJSON struct {
-	DomainName             string            `json:"DomainName"`
-	ARN                    string            `json:"ARN"`
-	ElasticsearchVersion   string            `json:"ElasticsearchVersion"`
-	Endpoint               string            `json:"Endpoint"`
-	DomainProcessingStatus string            `json:"DomainProcessingStatus"`
-	ClusterConfig          clusterConfigJSON `json:"ClusterConfig"`
-	EBSOptions             ebsOptionsJSON    `json:"EBSOptions"`
-	Processing             bool              `json:"Processing"`
+	DomainName                 string            `json:"DomainName"`
+	DomainID                   string            `json:"DomainId"`
+	ARN                        string            `json:"ARN"`
+	ElasticsearchVersion       string            `json:"ElasticsearchVersion"`
+	Endpoint                   string            `json:"Endpoint"`
+	DomainProcessingStatus     string            `json:"DomainProcessingStatus"`
+	ElasticsearchClusterConfig clusterConfigJSON `json:"ElasticsearchClusterConfig"`
+	EBSOptions                 ebsOptionsJSON    `json:"EBSOptions"`
+	Processing                 bool              `json:"Processing"`
 }
 
 // ebsOptionsJSON is the JSON representation of EBS options.
@@ -195,7 +198,7 @@ type describeDomainsResponse struct {
 
 // updateDomainConfigRequest is the request body for UpdateElasticsearchDomainConfig.
 type updateDomainConfigRequest struct {
-	ClusterConfig *domainClusterConfig `json:"ClusterConfig"`
+	ClusterConfig *domainClusterConfig `json:"ElasticsearchClusterConfig"`
 	EBSOptions    *domainEBSOptions    `json:"EBSOptions"`
 }
 
@@ -475,7 +478,7 @@ func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Reques
 		Options: domain.ElasticsearchVersion,
 		Status:  activeStatus,
 	}
-	out.DomainConfig.ClusterConfig = elasticsearchConfigValue{Options: map[string]any{
+	out.DomainConfig.ElasticsearchClusterConfig = elasticsearchConfigValue{Options: map[string]any{
 		"InstanceType":  domain.ClusterConfig.InstanceType,
 		"InstanceCount": domain.ClusterConfig.InstanceCount,
 	}, Status: activeStatus}
@@ -493,6 +496,7 @@ func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Reques
 func toDomainStatusJSON(d *Domain) domainStatusJSON {
 	return domainStatusJSON{
 		DomainName:             d.Name,
+		DomainID:               d.DomainID,
 		ARN:                    d.ARN,
 		ElasticsearchVersion:   d.ElasticsearchVersion,
 		Endpoint:               d.Endpoint,
@@ -503,7 +507,7 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 			VolumeSize: d.EBSOptions.VolumeSize,
 			VolumeType: d.EBSOptions.VolumeType,
 		},
-		ClusterConfig: clusterConfigJSON{
+		ElasticsearchClusterConfig: clusterConfigJSON{
 			InstanceType:  d.ClusterConfig.InstanceType,
 			InstanceCount: d.ClusterConfig.InstanceCount,
 		},
@@ -540,11 +544,11 @@ type elasticsearchConfigValue struct {
 
 // domainConfigFields holds the per-feature configuration values for a domain.
 type domainConfigFields struct {
-	ElasticsearchVersion elasticsearchConfigValue `json:"ElasticsearchVersion"`
-	ClusterConfig        elasticsearchConfigValue `json:"ClusterConfig"`
-	EBSOptions           elasticsearchConfigValue `json:"EBSOptions"`
-	AccessPolicies       elasticsearchConfigValue `json:"AccessPolicies"`
-	AdvancedOptions      elasticsearchConfigValue `json:"AdvancedOptions"`
+	ElasticsearchVersion        elasticsearchConfigValue `json:"ElasticsearchVersion"`
+	ElasticsearchClusterConfig  elasticsearchConfigValue `json:"ElasticsearchClusterConfig"`
+	EBSOptions                  elasticsearchConfigValue `json:"EBSOptions"`
+	AccessPolicies              elasticsearchConfigValue `json:"AccessPolicies"`
+	AdvancedOptions             elasticsearchConfigValue `json:"AdvancedOptions"`
 }
 
 type describeDomainConfigOutput struct {
@@ -641,8 +645,15 @@ func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Requ
 		Options: d.ElasticsearchVersion,
 		Status:  activeStatus,
 	}
-	out.DomainConfig.ClusterConfig = elasticsearchConfigValue{Options: map[string]any{}, Status: activeStatus}
-	out.DomainConfig.EBSOptions = elasticsearchConfigValue{Options: map[string]any{}, Status: activeStatus}
+	out.DomainConfig.ElasticsearchClusterConfig = elasticsearchConfigValue{Options: map[string]any{
+		"InstanceType":  d.ClusterConfig.InstanceType,
+		"InstanceCount": d.ClusterConfig.InstanceCount,
+	}, Status: activeStatus}
+	out.DomainConfig.EBSOptions = elasticsearchConfigValue{Options: map[string]any{
+		"EBSEnabled": d.EBSOptions.EBSEnabled,
+		"VolumeSize": d.EBSOptions.VolumeSize,
+		"VolumeType": d.EBSOptions.VolumeType,
+	}, Status: activeStatus}
 	out.DomainConfig.AccessPolicies = elasticsearchConfigValue{Options: "", Status: activeStatus}
 	out.DomainConfig.AdvancedOptions = elasticsearchConfigValue{Options: map[string]any{}, Status: activeStatus}
 	h.writeJSON(r, w, &out)

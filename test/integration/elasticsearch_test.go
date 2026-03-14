@@ -60,7 +60,7 @@ func TestIntegration_Elasticsearch_Domain_CRUD(t *testing.T) {
 	statusCode, body := doElasticsearchRequest(t, http.MethodPost, basePath, map[string]any{
 		"DomainName":           domainName,
 		"ElasticsearchVersion": "7.10",
-		"ClusterConfig": map[string]any{
+		"ElasticsearchClusterConfig": map[string]any{
 			"InstanceType":  "t3.small.elasticsearch",
 			"InstanceCount": 1,
 		},
@@ -120,7 +120,7 @@ func TestIntegration_Elasticsearch_Domain_CRUD(t *testing.T) {
 		http.MethodPost,
 		fmt.Sprintf("%s/%s/config", basePath, domainName),
 		map[string]any{
-			"ClusterConfig": map[string]any{
+			"ElasticsearchClusterConfig": map[string]any{
 				"InstanceType":  "r5.large.elasticsearch",
 				"InstanceCount": 2,
 			},

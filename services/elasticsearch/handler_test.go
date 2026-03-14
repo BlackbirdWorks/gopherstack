@@ -397,7 +397,7 @@ func TestElasticsearchHandler_UpdateElasticsearchDomainConfig(t *testing.T) {
 			}
 
 			resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain/"+tt.domainName+"/config", map[string]any{
-				"ClusterConfig": map[string]any{
+				"ElasticsearchClusterConfig": map[string]any{
 					"InstanceType":  "r5.large.elasticsearch",
 					"InstanceCount": 2,
 				},
@@ -442,7 +442,7 @@ func TestElasticsearchHandler_DescribeDomainConfig(t *testing.T) {
 				r.Body.Close()
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DomainConfig", "ElasticsearchVersion", "ClusterConfig"},
+			wantContains: []string{"DomainConfig", "ElasticsearchVersion", "ElasticsearchClusterConfig"},
 		},
 		{
 			name:       "not_found",
@@ -705,7 +705,7 @@ func TestElasticsearchHandler_Metadata(t *testing.T) {
 	assert.Equal(t, "es", h.ChaosServiceName())
 	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
 	assert.Equal(t, h.GetSupportedOperations(), h.ChaosOperations())
-	assert.Len(t, h.GetSupportedOperations(), 6)
+	assert.Len(t, h.GetSupportedOperations(), 7)
 
 	c := newEchoContext(http.MethodGet, "/2015-01-01/es/domain/my-domain")
 	assert.Equal(t, "my-domain", h.ExtractResource(c))
@@ -731,7 +731,7 @@ func TestElasticsearchHandler_CreateDomain_WithEBSOptions(t *testing.T) {
 	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/es/domain", map[string]any{
 		"DomainName":           "ebs-domain",
 		"ElasticsearchVersion": "7.10",
-		"ClusterConfig": map[string]any{
+		"ElasticsearchClusterConfig": map[string]any{
 			"InstanceType":  "r5.large.elasticsearch",
 			"InstanceCount": 3,
 		},
