@@ -631,7 +631,7 @@ func TestIntegration_ECS_ContainerInstances(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, drainOut.ContainerInstances, 1)
-	assert.Equal(t, ecstypes.ContainerInstanceStatusDraining, drainOut.ContainerInstances[0].Status)
+	assert.Equal(t, "DRAINING", aws.ToString(drainOut.ContainerInstances[0].Status))
 
 	// Deregister the instance.
 	deregOut, err := client.DeregisterContainerInstance(ctx, &ecs.DeregisterContainerInstanceInput{

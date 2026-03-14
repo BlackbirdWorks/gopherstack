@@ -248,6 +248,12 @@ func (b *InMemoryBackend) UpdateContainerInstancesState(
 	containerInstances []string,
 	status string,
 ) ([]ContainerInstance, error) {
+	switch status {
+	case "ACTIVE", "DRAINING":
+	default:
+		return nil, fmt.Errorf("%w: status must be ACTIVE or DRAINING, got %q", ErrInvalidParameter, status)
+	}
+
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.Lock("UpdateContainerInstancesState")
@@ -441,6 +447,10 @@ func (b *InMemoryBackend) DescribeTaskSets(cluster, service string, taskSets []s
 
 // UpdateTaskSet updates the scale of a task set.
 func (b *InMemoryBackend) UpdateTaskSet(cluster, service, taskSet string, scale TaskSetScale) (*TaskSet, error) {
+	if scale.Unit != "PERCENT" {
+		return nil, fmt.Errorf("%w: scale unit must be PERCENT, got %q", ErrInvalidParameter, scale.Unit)
+	}
+
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.Lock("UpdateTaskSet")

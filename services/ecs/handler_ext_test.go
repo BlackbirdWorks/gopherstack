@@ -287,7 +287,7 @@ func TestECS_DeregisterContainerInstance_NotFound(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "ContainerInstanceNotFoundException")
 }
 
-func TestECS_DeregisterContainerInstance_WithRunningTask_Blocked(t *testing.T) {
+func TestECS_DeregisterContainerInstance_WithoutForce_NoLinkedTasks(t *testing.T) {
 	t.Parallel()
 
 	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
@@ -304,20 +304,15 @@ func TestECS_DeregisterContainerInstance_WithRunningTask_Blocked(t *testing.T) {
 	ci, err := backend.RegisterContainerInstance("ci-running-cluster", "i-running")
 	require.NoError(t, err)
 
-	// Run a task and assign to this container instance by manipulating directly via RunTask.
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
+	// RunTask doesn't set ContainerInstanceArn, so this task is not linked to the CI.
+	_, err = backend.RunTask(ecs.RunTaskInput{
 		Cluster:        "ci-running-cluster",
 		TaskDefinition: td.TaskDefinitionArn,
 		Count:          1,
 	})
 	require.NoError(t, err)
 
-	// Manually associate task with container instance by describing/updating.
-	// The backend's RunTask doesn't set ContainerInstanceArn for CI, so we test
-	// the force flag works correctly when there are no running tasks associated.
-	_ = tasks
-
-	// Deregister without force - should succeed when no CI-linked tasks.
+	// Deregister without force succeeds because no tasks are linked to this CI.
 	_, err = backend.DeregisterContainerInstance("ci-running-cluster", ci.ContainerInstanceArn, false)
 	require.NoError(t, err)
 }
@@ -342,6 +337,11 @@ func TestECS_UpdateContainerInstancesState(t *testing.T) {
 			newStatus:  "ACTIVE",
 			wantCode:   http.StatusOK,
 			wantStatus: "ACTIVE",
+		},
+		{
+			name:      "invalid status rejected",
+			newStatus: "INVALID",
+			wantCode:  http.StatusBadRequest,
 		},
 	}
 
@@ -371,12 +371,14 @@ func TestECS_UpdateContainerInstancesState(t *testing.T) {
 
 			require.Equal(t, tt.wantCode, rec2.Code)
 
-			var resp map[string]any
-			require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+			if tt.wantCode == http.StatusOK {
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
 
-			cis := resp["containerInstances"].([]any)
-			require.Len(t, cis, 1)
-			assert.Equal(t, tt.wantStatus, cis[0].(map[string]any)["status"])
+				cis := resp["containerInstances"].([]any)
+				require.Len(t, cis, 1)
+				assert.Equal(t, tt.wantStatus, cis[0].(map[string]any)["status"])
+			}
 		})
 	}
 }
@@ -705,6 +707,31 @@ func TestECS_UpdateTaskSet(t *testing.T) {
 			},
 			wantCode: http.StatusBadRequest,
 		},
+		{
+			name: "invalid scale unit rejected",
+			setup: func(h *ecs.Handler) map[string]any {
+				tdArn := createTestServiceForTaskSet(t, h, "uts-invalid-cluster", "uts-invalid-svc")
+				rec := doECSRequest(t, h, "CreateTaskSet", map[string]any{
+					"cluster":        "uts-invalid-cluster",
+					"service":        "uts-invalid-svc",
+					"taskDefinition": tdArn,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var createResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+
+				tsArn := createResp["taskSet"].(map[string]any)["taskSetArn"].(string)
+
+				return map[string]any{
+					"cluster": "uts-invalid-cluster",
+					"service": "uts-invalid-svc",
+					"taskSet": tsArn,
+					"scale":   map[string]any{"unit": "", "value": 50.0},
+				}
+			},
+			wantCode: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1015,4 +1042,101 @@ func TestECS_ExtractResource_NewFields(t *testing.T) {
 			assert.Equal(t, tt.want, h.ExtractResource(c))
 		})
 	}
+}
+
+func TestECS_DeleteCluster_CleansUpTaskSets(t *testing.T) {
+	t.Parallel()
+
+	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+
+	_, err := backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "cleanup-cluster"})
+	require.NoError(t, err)
+
+	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
+		Family:               "cleanup-td",
+		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
+	})
+	require.NoError(t, err)
+
+	svc, err := backend.CreateService(ecs.CreateServiceInput{
+		Cluster:        "cleanup-cluster",
+		ServiceName:    "cleanup-svc",
+		TaskDefinition: td.TaskDefinitionArn,
+		DesiredCount:   1,
+	})
+	require.NoError(t, err)
+
+	_, err = backend.CreateTaskSet(ecs.CreateTaskSetInput{
+		Cluster:        "cleanup-cluster",
+		Service:        svc.ServiceArn,
+		TaskDefinition: td.TaskDefinitionArn,
+	})
+	require.NoError(t, err)
+
+	// Delete the cluster — should clean up the task set too.
+	_, err = backend.DeleteCluster("cleanup-cluster")
+	require.NoError(t, err)
+
+	// Recreate the cluster and service with the same names — no stale task sets.
+	_, err = backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "cleanup-cluster"})
+	require.NoError(t, err)
+
+	svc2, err := backend.CreateService(ecs.CreateServiceInput{
+		Cluster:        "cleanup-cluster",
+		ServiceName:    "cleanup-svc",
+		TaskDefinition: td.TaskDefinitionArn,
+		DesiredCount:   1,
+	})
+	require.NoError(t, err)
+
+	sets, err := backend.DescribeTaskSets("cleanup-cluster", svc2.ServiceArn, nil)
+	require.NoError(t, err)
+	assert.Empty(t, sets, "no stale task sets after cluster delete+recreate")
+}
+
+func TestECS_DeleteService_CleansUpTaskSets(t *testing.T) {
+	t.Parallel()
+
+	backend := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
+
+	_, err := backend.CreateCluster(ecs.CreateClusterInput{ClusterName: "svccleanup-cluster"})
+	require.NoError(t, err)
+
+	td, err := backend.RegisterTaskDefinition(ecs.RegisterTaskDefinitionInput{
+		Family:               "svccleanup-td",
+		ContainerDefinitions: []ecs.ContainerDefinition{{Name: "app", Image: "nginx"}},
+	})
+	require.NoError(t, err)
+
+	svc, err := backend.CreateService(ecs.CreateServiceInput{
+		Cluster:        "svccleanup-cluster",
+		ServiceName:    "svccleanup-svc",
+		TaskDefinition: td.TaskDefinitionArn,
+		DesiredCount:   1,
+	})
+	require.NoError(t, err)
+
+	_, err = backend.CreateTaskSet(ecs.CreateTaskSetInput{
+		Cluster:        "svccleanup-cluster",
+		Service:        svc.ServiceArn,
+		TaskDefinition: td.TaskDefinitionArn,
+	})
+	require.NoError(t, err)
+
+	// Delete the service — task sets should be cleaned up.
+	_, err = backend.DeleteService("svccleanup-cluster", "svccleanup-svc")
+	require.NoError(t, err)
+
+	// Recreate the service with the same name — no stale task sets.
+	svc2, err := backend.CreateService(ecs.CreateServiceInput{
+		Cluster:        "svccleanup-cluster",
+		ServiceName:    "svccleanup-svc",
+		TaskDefinition: td.TaskDefinitionArn,
+		DesiredCount:   1,
+	})
+	require.NoError(t, err)
+
+	sets, err := backend.DescribeTaskSets("svccleanup-cluster", svc2.ServiceArn, nil)
+	require.NoError(t, err)
+	assert.Empty(t, sets, "no stale task sets after service delete+recreate")
 }

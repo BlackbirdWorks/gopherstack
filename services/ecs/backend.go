@@ -309,6 +309,14 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
 	}
 
+	// Delete task sets for all services in this cluster before removing the services map,
+	// preventing stale task set entries on cluster recreation.
+	if svcs, exists := b.services[key]; exists {
+		for _, svc := range svcs {
+			delete(b.taskSets, svc.ServiceArn)
+		}
+	}
+
 	delete(b.clusters, key)
 	delete(b.services, key)
 	delete(b.tasks, key)
@@ -643,6 +651,7 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string) (*Service, 
 	}
 
 	delete(svcs, key)
+	delete(b.taskSets, svc.ServiceArn)
 
 	cp := *svc
 
