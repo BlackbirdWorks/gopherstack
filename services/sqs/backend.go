@@ -224,7 +224,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		Attributes:          attrs,
 		DeduplicationIDs:    make(map[string]time.Time),
 		deduplicationMsgIDs: make(map[string]string),
-		notify:              make(chan struct{}),
+		notify:              make(chan struct{}, 1),
 	}
 
 	b.queues[input.QueueName] = q
@@ -418,13 +418,15 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	q.messages = append(q.messages, msg)
 
-	// Close the current notify channel to broadcast to all long-polling receivers,
-	// then replace it with a fresh channel for the next wait cycle.
-	// Only broadcast on empty→non-empty transition; if the queue already had
-	// messages, receivers would not have been waiting.
+	// Signal long-polling receivers on the empty→non-empty transition.
+	// The notify channel is a buffered(1), never-closed channel; a non-blocking
+	// send avoids the close/recreate race where a receiver holding a stale
+	// reference would immediately drain a closed channel and spin.
 	if len(q.messages) == 1 {
-		close(q.notify)
-		q.notify = make(chan struct{})
+		select {
+		case q.notify <- struct{}{}:
+		default:
+		}
 	}
 
 	return &SendMessageOutput{MessageID: msgID, MD5OfBody: md5Body, MD5OfMessageAttributes: md5Attrs}, nil
@@ -494,10 +496,11 @@ func pruneDedup(q *Queue, now time.Time) {
 
 // ReceiveMessage retrieves messages from the queue, with optional long-poll wait.
 //
-// Long polling uses a close-and-recreate broadcast: receiveOnce captures the
-// queue's notify channel under the write lock. When SendMessage transitions the
-// queue from empty to non-empty it closes the channel, waking all blocked
-// receivers simultaneously, then creates a fresh channel for the next cycle.
+// Long polling uses a single long-lived buffered(1) notify channel: receiveOnce
+// captures q.notify under the write lock. When SendMessage transitions the queue
+// from empty to non-empty it writes a value to the channel (non-blocking), waking
+// one blocked receiver. The channel is never closed, eliminating the stale-reference
+// race of the old close/recreate pattern.
 // A 1-second recheck interval is also applied so that messages which reappear
 // due to visibility-timeout expiry (reQueueExpired) are picked up promptly even
 // when no new SendMessage occurs.
