@@ -69,12 +69,13 @@ func TestIntegration_EFS_FileSystemLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify deleted
-	descOut2, err := client.DescribeFileSystems(ctx, &efs.DescribeFileSystemsInput{
-		FileSystemId: aws.String(fsID),
-	})
+	// Verify deleted — list all and ensure FS is absent
+	listOut2, err := client.DescribeFileSystems(ctx, &efs.DescribeFileSystemsInput{})
 	require.NoError(t, err)
-	assert.Empty(t, descOut2.FileSystems)
+
+	for _, fs := range listOut2.FileSystems {
+		assert.NotEqual(t, fsID, aws.ToString(fs.FileSystemId), "deleted FS should not appear in list")
+	}
 }
 
 func TestIntegration_EFS_MountTargetLifecycle(t *testing.T) {

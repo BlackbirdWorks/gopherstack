@@ -182,11 +182,12 @@ func TestIntegration_Batch_JobDefinitionLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify inactive after deregister
+	// Verify inactive after deregister — status filter is not supported by the handler,
+	// so query by name and check the status field directly.
 	descOut2, err := client.DescribeJobDefinitions(ctx, &batch.DescribeJobDefinitionsInput{
 		JobDefinitionName: aws.String(jdName),
-		Status:            aws.String("ACTIVE"),
 	})
 	require.NoError(t, err)
-	assert.Empty(t, descOut2.JobDefinitions)
+	require.Len(t, descOut2.JobDefinitions, 1)
+	assert.Equal(t, "INACTIVE", aws.ToString(descOut2.JobDefinitions[0].Status))
 }

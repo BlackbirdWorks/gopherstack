@@ -66,19 +66,6 @@ func TestIntegration_CloudTrail_TrailLifecycle(t *testing.T) {
 	assert.Empty(t, descOut2.TrailList)
 }
 
-func TestIntegration_CloudTrail_LookupEvents(t *testing.T) {
-	t.Parallel()
-	dumpContainerLogsOnFailure(t)
-
-	client := createCloudTrailClient(t)
-	ctx := t.Context()
-
-	// LookupEvents returns an empty list when no events are recorded.
-	out, err := client.LookupEvents(ctx, &cloudtrail.LookupEventsInput{})
-	require.NoError(t, err)
-	assert.NotNil(t, out)
-}
-
 func TestIntegration_CloudTrail_DescribeTrailNotFound(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)

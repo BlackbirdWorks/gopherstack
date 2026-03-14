@@ -51,11 +51,12 @@ func TestIntegration_AutoScaling_LaunchConfigurationLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify gone
-	descOut2, err := client.DescribeLaunchConfigurations(ctx, &autoscaling.DescribeLaunchConfigurationsInput{
-		LaunchConfigurationNames: []string{lcName},
-	})
+	descOut2, err := client.DescribeLaunchConfigurations(ctx, &autoscaling.DescribeLaunchConfigurationsInput{})
 	require.NoError(t, err)
-	assert.Empty(t, descOut2.LaunchConfigurations)
+
+	for _, lc := range descOut2.LaunchConfigurations {
+		assert.NotEqual(t, lcName, aws.ToString(lc.LaunchConfigurationName), "deleted LC should not appear in list")
+	}
 }
 
 func TestIntegration_AutoScaling_AutoScalingGroupLifecycle(t *testing.T) {
@@ -130,12 +131,13 @@ func TestIntegration_AutoScaling_AutoScalingGroupLifecycle(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Verify deleted
-	descOut3, err := client.DescribeAutoScalingGroups(ctx, &autoscaling.DescribeAutoScalingGroupsInput{
-		AutoScalingGroupNames: []string{asgName},
-	})
+	// Verify deleted — list all and ensure ASG is absent
+	descOut3, err := client.DescribeAutoScalingGroups(ctx, &autoscaling.DescribeAutoScalingGroupsInput{})
 	require.NoError(t, err)
-	assert.Empty(t, descOut3.AutoScalingGroups)
+
+	for _, g := range descOut3.AutoScalingGroups {
+		assert.NotEqual(t, asgName, aws.ToString(g.AutoScalingGroupName), "deleted ASG should not appear in list")
+	}
 }
 
 func TestIntegration_AutoScaling_DescribeScalingActivities(t *testing.T) {

@@ -131,10 +131,16 @@ func TestIntegration_DocDB_DBInstanceLifecycle(t *testing.T) {
 	require.NotNil(t, delOut.DBInstance)
 	assert.Equal(t, instanceID, aws.ToString(delOut.DBInstance.DBInstanceIdentifier))
 
-	// Verify deleted
-	descOut2, err := client.DescribeDBInstances(ctx, &docdb.DescribeDBInstancesInput{
-		DBInstanceIdentifier: aws.String(instanceID),
-	})
+	// Verify deleted — list all and ensure instance is absent
+	listOut2, err := client.DescribeDBInstances(ctx, &docdb.DescribeDBInstancesInput{})
 	require.NoError(t, err)
-	assert.Empty(t, descOut2.DBInstances)
+
+	for _, inst := range listOut2.DBInstances {
+		assert.NotEqual(
+			t,
+			instanceID,
+			aws.ToString(inst.DBInstanceIdentifier),
+			"deleted instance should not appear in list",
+		)
+	}
 }
