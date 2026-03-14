@@ -163,6 +163,7 @@ import (
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
+	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 
@@ -297,6 +298,7 @@ type CLI struct {
 	shieldHandler                 service.Registerable
 	ssoadminHandler               service.Registerable
 	textractHandler               service.Registerable
+	timestreamwriteHandler        service.Registerable
 	timestreamqueryHandler        service.Registerable
 	transferHandler               service.Registerable
 	faultStore                    *chaos.FaultStore
@@ -795,6 +797,11 @@ func (c *CLI) GetSsoAdminHandler() service.Registerable { return c.ssoadminHandl
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetTextractHandler() service.Registerable { return c.textractHandler }
+
+// GetTimestreamWriteHandler returns the Timestream Write handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetTimestreamWriteHandler() service.Registerable { return c.timestreamwriteHandler }
 
 // GetTimestreamQueryHandler returns the Timestream Query handler (dashboard.AWSSDKProvider).
 //
@@ -1490,6 +1497,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.shieldHandler = byName["Shield"]
 	cli.ssoadminHandler = byName["SsoAdmin"]
 	cli.textractHandler = byName["Textract"]
+	cli.timestreamwriteHandler = byName["TimestreamWrite"]
 	cli.timestreamqueryHandler = byName["TimestreamQuery"]
 	cli.transferHandler = byName["Transfer"]
 }
@@ -1740,6 +1748,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&shieldbackend.Provider{},
 		&ssoadminbackend.Provider{},
 		&textractbackend.Provider{},
+		&timestreamwritebackend.Provider{},
 		&timestreamquerybackend.Provider{},
 		&transferbackend.Provider{},
 	}

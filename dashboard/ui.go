@@ -129,6 +129,7 @@ import (
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
+	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 )
@@ -329,6 +330,8 @@ type DashboardHandler struct {
 	SsoAdminOps *ssoadminbackend.Handler
 	// TextractOps provides access to the Textract backend.
 	TextractOps *textractbackend.Handler
+	// TimestreamWriteOps provides access to the Timestream Write backend.
+	TimestreamWriteOps *timestreamwritebackend.Handler
 	// TimestreamQueryOps provides access to the Timestream Query backend.
 	TimestreamQueryOps *timestreamquerybackend.Handler
 	// TransferOps provides access to the Transfer backend.
@@ -561,6 +564,8 @@ type Config struct {
 	SsoAdminOps *ssoadminbackend.Handler
 	// TextractOps provides access to the Textract backend.
 	TextractOps *textractbackend.Handler
+	// TimestreamWriteOps provides access to the Timestream Write backend.
+	TimestreamWriteOps *timestreamwritebackend.Handler
 	// TimestreamQueryOps provides access to the Timestream Query backend.
 	TimestreamQueryOps *timestreamquerybackend.Handler
 	// TransferOps provides access to the Transfer backend.
@@ -724,6 +729,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/metrics.html",
 		"templates/textract/*.html",
 		"templates/transfer/*.html",
+		"templates/timestreamwrite/*.html",
 		"templates/doc.html",
 		"templates/settings.html",
 		"templates/apiconsole.html",
@@ -878,6 +884,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.ShieldOps = cfg.ShieldOps
 	h.SsoAdminOps = cfg.SsoAdminOps
 	h.TextractOps = cfg.TextractOps
+	h.TimestreamWriteOps = cfg.TimestreamWriteOps
 	h.TimestreamQueryOps = cfg.TimestreamQueryOps
 	h.TransferOps = cfg.TransferOps
 }
@@ -1408,6 +1415,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupShieldRoutes()
 	h.setupSsoAdminRoutes()
 	h.setupTextractRoutes()
+	h.setupTimestreamWriteRoutes()
 	h.setupTimestreamQueryRoutes()
 	h.setupTransferRoutes()
 }
@@ -1541,6 +1549,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/sagemakerrumtime", "SageMakerRuntime"},
 	{"/servicediscovery", "ServiceDiscovery"},
 	{"/textract", "Textract"},
+	{"/timestreamwrite", "TimestreamWrite"},
 	{"/timestreamquery", "TimestreamQuery"},
 	{"/transfer", "Transfer"},
 	{"/chaos", "Chaos"},

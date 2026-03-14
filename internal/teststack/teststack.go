@@ -127,6 +127,7 @@ import (
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
+	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 )
@@ -294,6 +295,8 @@ type Stack struct {
 	ShieldHandler *shieldbackend.Handler
 	// TextractHandler provides access to the Textract backend.
 	TextractHandler *textractbackend.Handler
+	// TimestreamWriteHandler provides access to the Timestream Write backend.
+	TimestreamWriteHandler *timestreamwritebackend.Handler
 	// TimestreamQueryHandler provides access to the Timestream Query backend.
 	TimestreamQueryHandler *timestreamquerybackend.Handler
 	// TransferHandler provides access to the Transfer backend.
@@ -516,6 +519,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.serverlessrepo)
 	_ = registry.Register(h.shield)
 	_ = registry.Register(h.textract)
+	_ = registry.Register(h.timestreamwrite)
 	_ = registry.Register(h.timestreamquery)
 	_ = registry.Register(h.transfer)
 }
@@ -630,6 +634,7 @@ type handlers struct {
 	serverlessrepo     *serverlessrepobackend.Handler
 	shield             *shieldbackend.Handler
 	textract           *textractbackend.Handler
+	timestreamwrite    *timestreamwritebackend.Handler
 	timestreamquery    *timestreamquerybackend.Handler
 	transfer           *transferbackend.Handler
 	iamBk              *iambackend.InMemoryBackend
@@ -953,6 +958,7 @@ func populateLatestMLHandlers(h *handlers) {
 		shieldbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.textract = textractbackend.NewHandler(textractbackend.NewInMemoryBackend())
+	h.timestreamwrite = timestreamwritebackend.NewHandler(timestreamwritebackend.NewInMemoryBackend())
 	h.timestreamquery = timestreamquerybackend.NewHandler(
 		timestreamquerybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
@@ -1132,6 +1138,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.ServerlessRepoOps = h.serverlessrepo
 	cfg.ShieldOps = h.shield
 	cfg.TextractOps = h.textract
+	cfg.TimestreamWriteOps = h.timestreamwrite
 	cfg.TimestreamQueryOps = h.timestreamquery
 	cfg.TransferOps = h.transfer
 }
@@ -1348,6 +1355,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.ServerlessRepoHandler = h.serverlessrepo
 	s.ShieldHandler = h.shield
 	s.TextractHandler = h.textract
+	s.TimestreamWriteHandler = h.timestreamwrite
 	s.TimestreamQueryHandler = h.timestreamquery
 	s.TransferHandler = h.transfer
 }
