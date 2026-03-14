@@ -2,6 +2,7 @@ package s3
 
 import (
 	"encoding/json"
+	"maps"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -97,16 +98,34 @@ func reinitBucketMutexes(buckets map[string]map[string]*StoredBucket) {
 }
 
 // buildBucketIndex constructs the name→region index from the bucket map.
-// Pending-delete buckets are included so that idempotent DeleteBucket calls
-// work correctly after a Restore.
+// Active (non-pending) buckets take precedence over pending-delete entries
+// to ensure getBucket resolves to the live bucket after a Restore. Pending
+// buckets are included only when no active entry exists for that name, so
+// that idempotent DeleteBucket calls still work after a Restore.
 func buildBucketIndex(buckets map[string]map[string]*StoredBucket) map[string]string {
 	index := make(map[string]string)
 
+	// Two-pass approach: first register active buckets, then fill in any
+	// pending-only names. This makes the result deterministic regardless of
+	// map iteration order.
+	pendingOnly := make(map[string]string)
+
 	for region, regionBuckets := range buckets {
-		for bucketName := range regionBuckets {
-			index[bucketName] = region
+		for bucketName, bucket := range regionBuckets {
+			if bucket.DeletePending {
+				// Record as pending-only candidate; active entry wins.
+				if _, activeExists := index[bucketName]; !activeExists {
+					pendingOnly[bucketName] = region
+				}
+			} else {
+				index[bucketName] = region
+				// Remove any pending-only candidate now that active is known.
+				delete(pendingOnly, bucketName)
+			}
 		}
 	}
+
+	maps.Copy(index, pendingOnly)
 
 	return index
 }

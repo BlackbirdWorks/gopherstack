@@ -122,15 +122,12 @@ func (b *InMemoryBackend) CreateBucket(
 	bucketName := *input.Bucket
 
 	// Use bucketIndex for O(1) global-uniqueness check. Since this is a
-	// single-tenant mock, a pre-existing active bucket is always owned by the
+	// single-tenant mock, a pre-existing bucket is always owned by the
 	// caller → return BucketAlreadyOwnedByYou (not BucketAlreadyExists).
-	// Pending-delete buckets are still in the index but are logically gone,
-	// so they are treated the same as non-existent (allow re-creation).
-	if existingRegion, exists := b.bucketIndex[bucketName]; exists {
-		existing := b.buckets[existingRegion][bucketName]
-		if existing != nil && !existing.DeletePending {
-			return nil, ErrBucketAlreadyOwnedByYou
-		}
+	// Pending-delete buckets remain in the index and still block re-creation,
+	// matching real S3 behaviour (you must wait for deletion to complete).
+	if _, exists := b.bucketIndex[bucketName]; exists {
+		return nil, ErrBucketAlreadyOwnedByYou
 	}
 
 	// Initialize region map if it doesn't exist
