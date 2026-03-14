@@ -122,6 +122,17 @@ func (b *InMemoryBackend) CreateTableBucket(name string) (*TableBucket, error) {
 		Name:           name,
 		OwnerAccountID: b.accountID,
 		CreatedAt:      time.Now().UTC(),
+		MaintenanceConfiguration: map[string]any{
+			"icebergUnreferencedFileRemoval": map[string]any{
+				"status": "enabled",
+				"settings": map[string]any{
+					"icebergUnreferencedFileRemoval": map[string]any{
+						"nonCurrentDays":   float64(1),
+						"unreferencedDays": float64(3), //nolint:mnd // AWS default: 3 days for unreferenced files
+					},
+				},
+			},
+		},
 	}
 	b.tableBuckets[bucketARN] = tb
 
@@ -399,6 +410,26 @@ func (b *InMemoryBackend) CreateTable(tableBucketARN string, namespace []string,
 		CreatedAt:         now,
 		ModifiedAt:        now,
 		OwnerAccountID:    b.accountID,
+		MaintenanceConfiguration: map[string]any{
+			"icebergCompaction": map[string]any{
+				"status": "enabled",
+				"settings": map[string]any{
+					"icebergCompaction": map[string]any{
+						"targetFileSizeMB": float64(512), //nolint:mnd // AWS default: 512 MB target file size
+						"strategy":         "binpack",
+					},
+				},
+			},
+			"icebergSnapshotManagement": map[string]any{
+				"status": "enabled",
+				"settings": map[string]any{
+					"icebergSnapshotManagement": map[string]any{
+						"maxSnapshotAgeHours": float64(120), //nolint:mnd // AWS default: 120 hours (5 days)
+						"minSnapshotsToKeep":  float64(1),
+					},
+				},
+			},
+		},
 	}
 	b.tables[tableARN] = table
 
