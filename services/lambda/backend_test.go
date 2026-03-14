@@ -864,3 +864,48 @@ func TestInMemoryBackend_Close_MultipleURLServers(t *testing.T) {
 		require.Error(t, afterErr, "server should be unreachable after Close: %s", u)
 	}
 }
+
+// TestInMemoryBackend_Close_RuntimeCleanup verifies that Close() removes temporary zip and layer
+// directories and releases ports for synthetic runtime entries.
+func TestInMemoryBackend_Close_RuntimeCleanup(t *testing.T) {
+	t.Parallel()
+
+	pa, paErr := portalloc.New(20540, 20560)
+	require.NoError(t, paErr)
+
+	backend := lambda.NewInMemoryBackend(
+		nil, pa, lambda.DefaultSettings(), "000000000000", "us-east-1",
+	)
+
+	// Create real temp directories that Close() should remove.
+	zipDir := t.TempDir()
+	layerDir1 := t.TempDir()
+	layerDir2 := t.TempDir()
+
+	// Acquire a port so Close() can release it.
+	port, portErr := pa.Acquire("lambda:close-rt-fn")
+	require.NoError(t, portErr)
+
+	// Inject a synthetic runtime entry (no real container needed).
+	lambda.InjectRuntimeEntry(backend, "close-rt-fn", zipDir, []string{layerDir1, layerDir2}, port)
+
+	// Directories and port exist before Close.
+	require.DirExists(t, zipDir)
+	require.DirExists(t, layerDir1)
+	require.DirExists(t, layerDir2)
+
+	closeCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	backend.Close(closeCtx)
+
+	// Close() should have removed the temp dirs.
+	require.NoDirExists(t, zipDir)
+	require.NoDirExists(t, layerDir1)
+	require.NoDirExists(t, layerDir2)
+
+	// The port should have been released — re-acquiring it should succeed.
+	releasedPort, reacquireErr := pa.Acquire("lambda:reacquire-check")
+	require.NoError(t, reacquireErr, "port should be available after Close() released it")
+	_ = pa.Release(releasedPort)
+}

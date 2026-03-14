@@ -2977,7 +2977,10 @@ func TestRuntimeServer_InvokeTimeoutRace(t *testing.T) {
 func sendContainerResponse(t *testing.T, port int, requestID, responseBody string) {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(t.Context(),
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx,
 		http.MethodPost,
 		fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/%s/response", port, requestID),
 		strings.NewReader(responseBody),

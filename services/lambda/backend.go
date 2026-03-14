@@ -220,40 +220,35 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	for _, srv := range urlServers {
-		wg.Add(1)
-
-		go func(s *functionURLServer) {
-			defer wg.Done()
-			_ = s.server.Shutdown(ctx)
+		wg.Go(func() {
+			_ = srv.server.Shutdown(ctx)
 
 			if b.portAlloc != nil {
-				_ = b.portAlloc.Release(s.port)
+				_ = b.portAlloc.Release(srv.port)
 			}
-		}(srv)
+		})
 	}
 
 	for _, rt := range rts {
-		wg.Add(1)
-
-		go func(r *functionRuntime) {
-			defer wg.Done()
-
-			if r.srv != nil {
-				r.srv.stop(ctx)
+		wg.Go(func() {
+			if rt.srv != nil {
+				rt.srv.stop(ctx)
 			}
 
-			if r.port > 0 && b.portAlloc != nil {
-				_ = b.portAlloc.Release(r.port)
+			if rt.port > 0 && b.portAlloc != nil {
+				_ = b.portAlloc.Release(rt.port)
 			}
 
-			if r.zipDir != "" {
-				_ = os.RemoveAll(r.zipDir)
+			if rt.zipDir != "" {
+				_ = os.RemoveAll(rt.zipDir)
 			}
 
-			for _, d := range r.layerDirs {
+			for _, d := range rt.layerDirs {
 				_ = os.RemoveAll(d)
 			}
-		}(rt)
+
+			rt.mu.Close()
+		})
 	}
 
 	wg.Wait()

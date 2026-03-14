@@ -7,6 +7,8 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // ExportedRuntimeServer wraps the internal runtimeServer for white-box testing.
@@ -94,4 +96,20 @@ func SetSQSReaderOnPoller(p *EventSourcePoller, r SQSReader) { p.SetSQSReader(r)
 // allowing unit tests to make Lambda invocation succeed without a Docker daemon.
 func SetSQSInvoker(p *EventSourcePoller, fn func(ctx context.Context, fnName string) error) {
 	p.sqsInvoker = fn
+}
+
+// InjectRuntimeEntry inserts a synthetic functionRuntime into the backend's runtimes map
+// so that Close() tests can verify runtime cleanup without a real container.
+// zipDir and layerDirs will be cleaned up by Close().
+func InjectRuntimeEntry(b *InMemoryBackend, functionName, zipDir string, layerDirs []string, port int) {
+	b.mu.Lock("InjectRuntimeEntry")
+	defer b.mu.Unlock()
+
+	b.runtimes[functionName] = &functionRuntime{
+		mu:        lockmetrics.New("lambda.runtime.test"),
+		zipDir:    zipDir,
+		layerDirs: layerDirs,
+		port:      port,
+		started:   true,
+	}
 }
