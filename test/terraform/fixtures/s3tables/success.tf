@@ -10,6 +10,6 @@ resource "aws_s3tables_namespace" "this" {
 resource "aws_s3tables_table" "this" {
   namespace        = aws_s3tables_namespace.this.namespace
   table_bucket_arn = aws_s3tables_table_bucket.this.arn
-  name             = "tf-table-{{.Suffix}}"
+  name             = "tftable{{.Suffix}}"
   format           = "ICEBERG"
 }

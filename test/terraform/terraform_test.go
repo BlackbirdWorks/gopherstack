@@ -6335,7 +6335,7 @@ func TestTerraform_S3Tables(t *testing.T) {
 				require.True(t, ok, "Suffix must be a string")
 
 				bucketName := "tf-s3t-" + suffix
-				tableName := "tf-table-" + suffix
+				tableName := "tftable" + suffix
 				nsName := "tfns" + suffix
 
 				// ListTableBuckets should include our bucket.
