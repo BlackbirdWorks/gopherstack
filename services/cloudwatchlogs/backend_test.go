@@ -1092,7 +1092,7 @@ func TestCloudWatchLogsBackend_Close_CancelsInFlightDeliveries(t *testing.T) {
 	case <-deliveryCancelled:
 		// goroutine observed context cancellation — expected
 	default:
-		t.Fatal("expected in-flight delivery to be cancelled by Close()")
+		require.FailNow(t, "expected in-flight delivery to be cancelled by Close()")
 	}
 }
 
