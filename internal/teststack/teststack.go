@@ -126,8 +126,8 @@ import (
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
-	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
+	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 

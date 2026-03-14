@@ -162,8 +162,8 @@ import (
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
-	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
+	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -800,6 +800,7 @@ func (c *CLI) GetTextractHandler() service.Registerable { return c.textractHandl
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetTimestreamWriteHandler() service.Registerable { return c.timestreamwriteHandler }
+
 // GetTimestreamQueryHandler returns the Timestream Query handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface

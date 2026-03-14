@@ -27,12 +27,20 @@ var (
 
 // Handler is the Echo HTTP handler for Amazon Timestream Write operations.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend      *InMemoryBackend
+	supportedOps map[string]bool
 }
 
 // NewHandler creates a new Timestream Write handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	ops := h.GetSupportedOperations()
+	h.supportedOps = make(map[string]bool, len(ops))
+	for _, op := range ops {
+		h.supportedOps[op] = true
+	}
+
+	return h
 }
 
 // Name returns the service name.
@@ -69,9 +77,19 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // RouteMatcher returns a function that matches Timestream Write requests.
+// It only matches operations explicitly supported by this handler to avoid
+// intercepting operations belonging to other Timestream services (e.g. TimestreamQuery)
+// that share the same X-Amz-Target prefix.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), targetPrefix)
+		target := c.Request().Header.Get("X-Amz-Target")
+		if !strings.HasPrefix(target, targetPrefix) {
+			return false
+		}
+
+		operation := strings.TrimPrefix(target, targetPrefix)
+
+		return h.supportedOps[operation]
 	}
 }
 

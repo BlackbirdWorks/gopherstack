@@ -81,8 +81,8 @@ import (
 	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
-	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
+	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
