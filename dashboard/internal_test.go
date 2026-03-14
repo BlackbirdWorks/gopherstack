@@ -630,8 +630,8 @@ func TestInMemClient_RoundTrip(t *testing.T) {
 			assert.Equal(t, "true", capturedHeader, "expected dashboard bypass header to be set")
 
 			if tt.expectedBodyText != "" {
-				body, err := io.ReadAll(resp.Body)
-				require.NoError(t, err)
+				body, readErr := io.ReadAll(resp.Body)
+				require.NoError(t, readErr)
 				require.Equal(t, tt.expectedBodyText, string(body))
 			}
 		})
@@ -678,8 +678,8 @@ func TestInMemClient_Do(t *testing.T) {
 			assert.Equal(t, tt.wantDashHeader, capturedHeader, "expected dashboard bypass header to be set")
 
 			if tt.wantBodyText != "" {
-				body, err := io.ReadAll(resp.Body)
-				require.NoError(t, err)
+				body, readErr := io.ReadAll(resp.Body)
+				require.NoError(t, readErr)
 				require.Equal(t, tt.wantBodyText, string(body))
 			}
 		})
