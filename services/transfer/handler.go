@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -505,17 +506,10 @@ func tagsToList(tags map[string]string) []map[string]string {
 		keys = append(keys, k)
 	}
 
-	sortedKeys := keys
-	for i := range sortedKeys {
-		for j := i + 1; j < len(sortedKeys); j++ {
-			if sortedKeys[i] > sortedKeys[j] {
-				sortedKeys[i], sortedKeys[j] = sortedKeys[j], sortedKeys[i]
-			}
-		}
-	}
+	sort.Strings(keys)
 
 	list := make([]map[string]string, 0, len(tags))
-	for _, k := range sortedKeys {
+	for _, k := range keys {
 		list = append(list, map[string]string{"Key": k, "Value": tags[k]})
 	}
 
