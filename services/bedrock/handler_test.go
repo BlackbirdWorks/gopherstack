@@ -3,6 +3,7 @@ package bedrock_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -989,4 +990,126 @@ func TestHandler_InvalidJSON(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 	}
+}
+
+func TestHandler_ListGuardrailsPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create more than one page of guardrails (bedrockDefaultPageSize=100).
+	for i := range 105 {
+		_, err := h.Backend.CreateGuardrail(
+			fmt.Sprintf("guardrail-%04d", i),
+			"", "", "", nil,
+		)
+		require.NoError(t, err)
+	}
+
+	// First page.
+	rec := doRequest(t, h, http.MethodGet, "/guardrails", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+
+	guardrails := out["guardrails"].([]any)
+	assert.Len(t, guardrails, 100)
+	nextToken, ok := out["nextToken"].(string)
+	require.True(t, ok, "nextToken should be present")
+	assert.NotEmpty(t, nextToken)
+
+	// Second page using the token.
+	rec2 := doRequest(t, h, http.MethodGet, "/guardrails?nextToken="+url.QueryEscape(nextToken), nil)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var out2 map[string]any
+	mustUnmarshal(t, rec2, &out2)
+
+	guardrails2 := out2["guardrails"].([]any)
+	assert.Len(t, guardrails2, 5)
+	assert.Empty(t, out2["nextToken"])
+}
+
+func TestHandler_ListFoundationModelsPagination(t *testing.T) {
+	t.Parallel()
+
+	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Append enough models to exceed the page size (bedrockDefaultPageSize=100).
+	extra := make([]*bedrock.FoundationModelSummary, 100)
+	for i := range 100 {
+		extra[i] = &bedrock.FoundationModelSummary{
+			ModelID:      fmt.Sprintf("test.model-%04d", i),
+			ModelName:    fmt.Sprintf("Test Model %04d", i),
+			ProviderName: "TestProvider",
+		}
+	}
+	b.AppendFoundationModelsForTest(extra)
+
+	h := bedrock.NewHandler(b)
+
+	// First page.
+	rec := doRequest(t, h, http.MethodGet, "/foundation-models", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+
+	models := out["modelSummaries"].([]any)
+	assert.Len(t, models, 100)
+	nextToken, ok := out["nextToken"].(string)
+	require.True(t, ok, "nextToken should be present")
+	assert.NotEmpty(t, nextToken)
+
+	// Second page.
+	rec2 := doRequest(t, h, http.MethodGet, "/foundation-models?nextToken="+url.QueryEscape(nextToken), nil)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var out2 map[string]any
+	mustUnmarshal(t, rec2, &out2)
+
+	// Default backend seeds 5 models; we added 100, so total is 105.
+	models2 := out2["modelSummaries"].([]any)
+	assert.Len(t, models2, 5)
+	assert.Empty(t, out2["nextToken"])
+}
+
+func TestHandler_ListProvisionedModelThroughputsPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := range 105 {
+		_, err := h.Backend.CreateProvisionedModelThroughput(
+			fmt.Sprintf("pmt-%04d", i),
+			"amazon.titan-text-express-v1",
+			1, "", nil,
+		)
+		require.NoError(t, err)
+	}
+
+	// First page.
+	rec := doRequest(t, h, http.MethodGet, "/provisioned-model-throughputs", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+
+	summaries := out["provisionedModelSummaries"].([]any)
+	assert.Len(t, summaries, 100)
+	nextToken, ok := out["nextToken"].(string)
+	require.True(t, ok, "nextToken should be present")
+	assert.NotEmpty(t, nextToken)
+
+	// Second page.
+	rec2 := doRequest(t, h, http.MethodGet, "/provisioned-model-throughputs?nextToken="+url.QueryEscape(nextToken), nil)
+	assert.Equal(t, http.StatusOK, rec2.Code)
+
+	var out2 map[string]any
+	mustUnmarshal(t, rec2, &out2)
+
+	summaries2 := out2["provisionedModelSummaries"].([]any)
+	assert.Len(t, summaries2, 5)
+	assert.Empty(t, out2["nextToken"])
 }

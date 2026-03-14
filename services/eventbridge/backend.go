@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -25,10 +26,11 @@ var (
 )
 
 const (
-	defaultEventBusName = "default"
-	maxEventLogSize     = 1000
-	ruleStateEnabled    = "ENABLED"
-	ruleStateDisabled   = "DISABLED"
+	defaultEventBusName    = "default"
+	maxEventLogSize        = 1000
+	ruleStateEnabled       = "ENABLED"
+	ruleStateDisabled      = "DISABLED"
+	defaultDeliveryWorkers = 10
 )
 
 // StorageBackend is the interface for an EventBridge in-memory store.
@@ -52,14 +54,18 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
+	ctx             context.Context
 	deliveryTargets *DeliveryTargets
 	buses           map[string]*EventBus
 	rules           map[string]map[string]*Rule
 	targets         map[string]map[string]*Target
 	mu              *lockmetrics.RWMutex
+	cancel          context.CancelFunc
+	workerSem       chan struct{}
 	accountID       string
 	region          string
 	eventLog        []EventLogEntry
+	wg              sync.WaitGroup
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -69,6 +75,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
+	ctx, cancel := context.WithCancel(context.Background())
 	b := &InMemoryBackend{
 		accountID:       accountID,
 		region:          region,
@@ -77,6 +84,9 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		targets:         make(map[string]map[string]*Target),
 		deliveryTargets: &DeliveryTargets{},
 		mu:              lockmetrics.New("eventbridge"),
+		ctx:             ctx,
+		cancel:          cancel,
+		workerSem:       make(chan struct{}, defaultDeliveryWorkers),
 	}
 	// Create the default event bus.
 	b.buses[defaultEventBusName] = &EventBus{
@@ -86,6 +96,12 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	}
 
 	return b
+}
+
+// Close cancels the lifecycle context and waits for all in-flight delivery goroutines to finish.
+func (b *InMemoryBackend) Close() {
+	b.cancel()
+	b.wg.Wait()
 }
 
 // SetDeliveryTargets configures the service references used for fan-out delivery.
@@ -506,13 +522,25 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 	}
 
 	dt := b.deliveryTargets
+	workerSem := b.workerSem
+	ctx := b.ctx
 	b.mu.Unlock()
 
 	// Trigger async fan-out delivery after releasing the lock.
 	if dt != nil {
 		entriesCopy := make([]EventEntry, len(entries))
 		copy(entriesCopy, entries)
-		go b.deliverEvents(context.Background(), entriesCopy, *dt)
+		dtCopy := *dt
+		b.wg.Go(func() {
+			// Acquire a worker slot or abort if the backend is shutting down.
+			select {
+			case workerSem <- struct{}{}:
+				defer func() { <-workerSem }()
+			case <-ctx.Done():
+				return
+			}
+			b.deliverEvents(ctx, entriesCopy, dtCopy)
+		})
 	}
 
 	return results
