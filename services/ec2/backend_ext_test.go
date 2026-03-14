@@ -1646,6 +1646,20 @@ func TestNetworkInterfaceCRUD(t *testing.T) {
 			op:      "modify_not_found",
 			wantErr: true,
 		},
+		{
+			name:    "attach_already_attached",
+			op:      "attach_already_attached",
+			wantErr: true,
+		},
+		{
+			name:    "modify_unknown_attr",
+			op:      "modify_unknown_attr",
+			wantErr: true,
+		},
+		{
+			name: "modify_clear_description",
+			op:   "modify_clear_description",
+		},
 	}
 
 	for _, tt := range tests {
@@ -1769,6 +1783,31 @@ func TestNetworkInterfaceCRUD(t *testing.T) {
 			case "modify_not_found":
 				err = b.ModifyNetworkInterfaceAttribute("eni-nonexistent", "description", "x")
 				require.Error(t, err)
+
+			case "attach_already_attached":
+				instances, cerr := b.RunInstances("ami-123", "t2.micro", "", 1)
+				require.NoError(t, cerr)
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				_, aerr := b.AttachNetworkInterface(eni.ID, instances[0].ID, 1)
+				require.NoError(t, aerr)
+				_, err = b.AttachNetworkInterface(eni.ID, instances[0].ID, 2)
+				require.Error(t, err)
+
+			case "modify_unknown_attr":
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				err = b.ModifyNetworkInterfaceAttribute(eni.ID, "unknownAttr", "value")
+				require.Error(t, err)
+
+			case "modify_clear_description":
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "original")
+				require.NoError(t, cerr)
+				merr := b.ModifyNetworkInterfaceAttribute(eni.ID, "description", "")
+				require.NoError(t, merr)
+				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+				require.Len(t, enis, 1)
+				assert.Empty(t, enis[0].Description)
 			}
 
 			if tt.wantErr {
@@ -1990,12 +2029,12 @@ func TestHandlerNewOperations(t *testing.T) {
 				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "")
 
 				return fmt.Sprintf(
-					"Action=AssignPrivateIPAddresses&Version=2016-11-15&NetworkInterfaceId=%s&SecondaryPrivateIpAddressCount=1",
+					"Action=AssignPrivateIpAddresses&Version=2016-11-15&NetworkInterfaceId=%s&SecondaryPrivateIpAddressCount=1",
 					url.QueryEscape(eni.ID),
 				)
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"AssignPrivateIPAddressesResponse"},
+			wantContains: []string{"AssignPrivateIpAddressesResponse"},
 		},
 		{
 			name: "UnassignPrivateIPAddresses_success",
@@ -2004,12 +2043,12 @@ func TestHandlerNewOperations(t *testing.T) {
 				_ = h.Backend.AssignPrivateIPAddresses(eni.ID, 0, []string{"10.0.1.50"})
 
 				return fmt.Sprintf(
-					"Action=UnassignPrivateIPAddresses&Version=2016-11-15&NetworkInterfaceId=%s&PrivateIpAddress.1=10.0.1.50",
+					"Action=UnassignPrivateIpAddresses&Version=2016-11-15&NetworkInterfaceId=%s&PrivateIpAddress.1=10.0.1.50",
 					url.QueryEscape(eni.ID),
 				)
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"UnassignPrivateIPAddressesResponse"},
+			wantContains: []string{"UnassignPrivateIpAddressesResponse"},
 		},
 		{
 			name: "ModifyNetworkInterfaceAttribute_description",
@@ -2045,6 +2084,13 @@ func TestHandlerNewOperations(t *testing.T) {
 			wantContains: []string{"InvalidParameterValue"},
 		},
 		{
+			name: "ModifyInstanceAttribute_not_found",
+			body: "Action=ModifyInstanceAttribute&Version=2016-11-15" +
+				"&InstanceId=i-nonexistent&InstanceType.Value=t3.micro",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidInstanceID.NotFound"},
+		},
+		{
 			name: "ResetInstanceAttribute_success",
 			setupFn: func(h *ec2.Handler) string {
 				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
@@ -2056,6 +2102,12 @@ func TestHandlerNewOperations(t *testing.T) {
 			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"ResetInstanceAttributeResponse"},
+		},
+		{
+			name:         "ResetInstanceAttribute_not_found",
+			body:         "Action=ResetInstanceAttribute&Version=2016-11-15&InstanceId=i-nonexistent&Attribute=sourceDestCheck",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidInstanceID.NotFound"},
 		},
 		// ---- Spot Instances ----
 		{
@@ -2070,6 +2122,12 @@ func TestHandlerNewOperations(t *testing.T) {
 		{
 			name:         "RequestSpotInstances_missing_image",
 			body:         "Action=RequestSpotInstances&Version=2016-11-15&SpotPrice=0.05",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "RequestSpotInstances_missing_instance_type",
+			body:         "Action=RequestSpotInstances&Version=2016-11-15&LaunchSpecification.ImageId=ami-123&SpotPrice=0.05",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"InvalidParameterValue"},
 		},

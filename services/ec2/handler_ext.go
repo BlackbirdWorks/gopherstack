@@ -1615,7 +1615,7 @@ func (h *Handler) handleAssignPrivateIPAddresses(vals url.Values, reqID string) 
 }
 
 type assignPrivateIPAddressesResponse struct {
-	XMLName            xml.Name `xml:"AssignPrivateIPAddressesResponse"`
+	XMLName            xml.Name `xml:"AssignPrivateIpAddressesResponse"`
 	Xmlns              string   `xml:"xmlns,attr"`
 	RequestID          string   `xml:"requestId"`
 	NetworkInterfaceID string   `xml:"networkInterfaceId"`
@@ -1642,7 +1642,7 @@ func (h *Handler) handleUnassignPrivateIPAddresses(vals url.Values, reqID string
 }
 
 type unassignPrivateIPAddressesResponse struct {
-	XMLName   xml.Name `xml:"UnassignPrivateIPAddressesResponse"`
+	XMLName   xml.Name `xml:"UnassignPrivateIpAddressesResponse"`
 	Xmlns     string   `xml:"xmlns,attr"`
 	RequestID string   `xml:"requestId"`
 	Return    bool     `xml:"return"`
@@ -1655,16 +1655,20 @@ func (h *Handler) handleModifyNetworkInterfaceAttribute(vals url.Values, reqID s
 	}
 
 	// Determine which attribute is being modified.
-	// AWS sends the attribute as a nested element: e.g. Description.Value, SourceDestCheck.Value
+	// AWS sends the attribute as a nested element: e.g. Description.Value, SourceDestCheck.Value.
+	// Use HasKey to allow clearing the description (empty string is valid).
 	attr := ""
 	value := ""
 
-	if desc := vals.Get("Description.Value"); desc != "" {
+	_, hasDesc := vals["Description.Value"]
+	_, hasSdc := vals["SourceDestCheck.Value"]
+
+	if hasDesc {
 		attr = "description"
-		value = desc
-	} else if sdc := vals.Get("SourceDestCheck.Value"); sdc != "" {
+		value = vals.Get("Description.Value")
+	} else if hasSdc {
 		attr = attrSourceDest
-		value = sdc
+		value = vals.Get("SourceDestCheck.Value")
 	}
 
 	if err := h.Backend.ModifyNetworkInterfaceAttribute(eniID, attr, value); err != nil {
@@ -1693,6 +1697,10 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
 	}
 
+	if instances := h.Backend.DescribeInstances([]string{instanceID}, ""); len(instances) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+
 	return &modifyInstanceAttributeResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -1711,6 +1719,10 @@ func (h *Handler) handleResetInstanceAttribute(vals url.Values, reqID string) (a
 	instanceID := vals.Get("InstanceId")
 	if instanceID == "" {
 		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
+	}
+
+	if instances := h.Backend.DescribeInstances([]string{instanceID}, ""); len(instances) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
 	return &resetInstanceAttributeResponse{
@@ -1810,6 +1822,10 @@ func (h *Handler) handleRequestSpotInstances(vals url.Values, reqID string) (any
 
 	if imageID == "" {
 		return nil, fmt.Errorf("%w: LaunchSpecification.ImageId is required", ErrInvalidParameter)
+	}
+
+	if instanceType == "" {
+		return nil, fmt.Errorf("%w: LaunchSpecification.InstanceType is required", ErrInvalidParameter)
 	}
 
 	req, err := h.Backend.RequestSpotInstances(imageID, instanceType, subnetID, spotPrice)

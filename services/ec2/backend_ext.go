@@ -1145,6 +1145,10 @@ func (b *InMemoryBackend) AttachNetworkInterface(eniID, instanceID string, devic
 		return "", fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
 	}
 
+	if eni.AttachmentID != "" {
+		return "", fmt.Errorf("%w: %s is already attached", ErrNetworkInterfaceInUse, eniID)
+	}
+
 	if _, ok = b.instances[instanceID]; !ok {
 		return "", fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
@@ -1245,6 +1249,8 @@ func (b *InMemoryBackend) ModifyNetworkInterfaceAttribute(eniID, attr, value str
 		eni.Description = value
 	case attrSourceDest:
 		eni.SourceDestCheck = value == ec2BooleanTrue
+	default:
+		return fmt.Errorf("%w: unsupported attribute %q", ErrInvalidParameter, attr)
 	}
 
 	return nil

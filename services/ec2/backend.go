@@ -228,13 +228,17 @@ func (b *InMemoryBackend) RunInstances(imageID, instanceType, subnetID string, c
 		}
 		inst.PrivateIP = b.allocPrivateIP()
 		eniID := "eni-" + uuid.New().String()[:17]
+		attachID := "eni-attach-" + uuid.New().String()[:8]
 		b.networkInterfaces[eniID] = &NetworkInterface{
-			ID:         eniID,
-			SubnetID:   subnetID,
-			VPCID:      vpcID,
-			PrivateIP:  inst.PrivateIP,
-			InstanceID: id,
-			Status:     "in-use",
+			ID:              eniID,
+			SubnetID:        subnetID,
+			VPCID:           vpcID,
+			PrivateIP:       inst.PrivateIP,
+			InstanceID:      id,
+			AttachmentID:    attachID,
+			DeviceIndex:     0,
+			Status:          "in-use",
+			SourceDestCheck: true,
 		}
 		b.instances[id] = inst
 		instances = append(instances, inst)
