@@ -25,13 +25,14 @@ var (
 
 // WebACL represents an AWS WAFv2 Web ACL.
 type WebACL struct {
-	Tags          map[string]string
-	ID            string
-	Name          string
-	Scope         string
-	Description   string
-	DefaultAction string
-	LockToken     string
+	Tags             map[string]string
+	ID               string
+	Name             string
+	Scope            string
+	Description      string
+	DefaultAction    string
+	VisibilityConfig string
+	LockToken        string
 }
 
 // IPSet represents an AWS WAFv2 IP Set.
@@ -93,7 +94,7 @@ func scopePrefix(scope string) string {
 
 // CreateWebACL creates a new WebACL.
 func (b *InMemoryBackend) CreateWebACL(
-	name, scope, description, defaultAction string,
+	name, scope, description, defaultAction, visibilityConfig string,
 	tags map[string]string,
 ) (*WebACL, error) {
 	b.mu.Lock("CreateWebACL")
@@ -107,13 +108,14 @@ func (b *InMemoryBackend) CreateWebACL(
 
 	id := uuid.NewString()
 	w := &WebACL{
-		ID:            id,
-		Name:          name,
-		Scope:         scope,
-		Description:   description,
-		DefaultAction: defaultAction,
-		LockToken:     uuid.NewString(),
-		Tags:          cloneTags(tags),
+		ID:               id,
+		Name:             name,
+		Scope:            scope,
+		Description:      description,
+		DefaultAction:    defaultAction,
+		VisibilityConfig: visibilityConfig,
+		LockToken:        uuid.NewString(),
+		Tags:             cloneTags(tags),
 	}
 	b.webACLs[id] = w
 
@@ -134,7 +136,7 @@ func (b *InMemoryBackend) GetWebACL(id string) (*WebACL, error) {
 }
 
 // UpdateWebACL updates a WebACL by ID.
-func (b *InMemoryBackend) UpdateWebACL(id, description, defaultAction string) (*WebACL, error) {
+func (b *InMemoryBackend) UpdateWebACL(id, description, defaultAction, visibilityConfig string) (*WebACL, error) {
 	b.mu.Lock("UpdateWebACL")
 	defer b.mu.Unlock()
 
@@ -149,6 +151,10 @@ func (b *InMemoryBackend) UpdateWebACL(id, description, defaultAction string) (*
 
 	if defaultAction != "" {
 		w.DefaultAction = defaultAction
+	}
+
+	if visibilityConfig != "" {
+		w.VisibilityConfig = visibilityConfig
 	}
 
 	w.LockToken = uuid.NewString()

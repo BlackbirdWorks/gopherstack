@@ -38,6 +38,7 @@ func TestDashboard_Wafv2_Index(t *testing.T) {
 					"REGIONAL",
 					"",
 					"ALLOW",
+					"",
 					nil,
 				)
 				require.NoError(t, err)
@@ -143,6 +144,7 @@ func TestDashboard_Wafv2_Delete(t *testing.T) {
 					"REGIONAL",
 					"",
 					"ALLOW",
+					"",
 					nil,
 				)
 				require.NoError(t, err)

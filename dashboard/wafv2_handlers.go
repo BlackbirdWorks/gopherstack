@@ -32,7 +32,11 @@ func wafv2Snippet() *SnippetData {
 		Title: "Using AWS WAFv2",
 		Cli:   `aws wafv2 list-web-acls --scope REGIONAL --endpoint-url http://localhost:8000`,
 		Go: `// Initialize the WAFv2 client using AWS SDK v2.
-import "github.com/aws/aws-sdk-go-v2/service/wafv2"
+import (
+    "github.com/aws/aws-sdk-go-v2/aws"
+    "github.com/aws/aws-sdk-go-v2/service/wafv2"
+    "github.com/aws/aws-sdk-go-v2/service/wafv2/types"
+)
 
 client := wafv2.NewFromConfig(cfg, func(o *wafv2.Options) {
     o.BaseEndpoint = aws.String("http://localhost:8000")
@@ -118,7 +122,7 @@ func (h *DashboardHandler) wafv2Create(c *echo.Context) error {
 
 	ctx := c.Request().Context()
 
-	if _, err := h.Wafv2Ops.Backend.CreateWebACL(name, scope, "", defaultAction, nil); err != nil {
+	if _, err := h.Wafv2Ops.Backend.CreateWebACL(name, scope, "", defaultAction, "", nil); err != nil {
 		h.Logger.ErrorContext(ctx, "wafv2: failed to create web ACL", "name", name, "error", err)
 
 		if errors.Is(err, awserr.ErrConflict) {

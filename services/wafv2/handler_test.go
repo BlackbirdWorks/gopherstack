@@ -188,7 +188,7 @@ func TestHandler_GetWebACL(t *testing.T) {
 		{
 			name: "existing",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", nil)
+				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
 
 				return w.ID
 			},
@@ -233,7 +233,7 @@ func TestHandler_UpdateWebACL(t *testing.T) {
 		{
 			name: "existing",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", nil)
+				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
 
 				return w.ID
 			},
@@ -290,7 +290,7 @@ func TestHandler_DeleteWebACL(t *testing.T) {
 		{
 			name: "existing",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", nil)
+				w, _ := h.Backend.CreateWebACL("my-acl", "REGIONAL", "", "ALLOW", "", nil)
 
 				return w.ID
 			},
@@ -339,8 +339,8 @@ func TestHandler_ListWebACLs(t *testing.T) {
 		{
 			name: "with_items",
 			setup: func(h *wafv2.Handler) {
-				_, _ = h.Backend.CreateWebACL("acl1", "REGIONAL", "", "ALLOW", nil)
-				_, _ = h.Backend.CreateWebACL("acl2", "REGIONAL", "", "BLOCK", nil)
+				_, _ = h.Backend.CreateWebACL("acl1", "REGIONAL", "", "ALLOW", "", nil)
+				_, _ = h.Backend.CreateWebACL("acl2", "REGIONAL", "", "BLOCK", "", nil)
 			},
 			wantCount: 2,
 		},
@@ -625,7 +625,7 @@ func TestHandler_TagResource_and_ListTags(t *testing.T) {
 		{
 			name: "tags_flow",
 			setup: func(h *wafv2.Handler) string {
-				w, _ := h.Backend.CreateWebACL("tagged-acl", "REGIONAL", "", "ALLOW", nil)
+				w, _ := h.Backend.CreateWebACL("tagged-acl", "REGIONAL", "", "ALLOW", "", nil)
 
 				return h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 			},

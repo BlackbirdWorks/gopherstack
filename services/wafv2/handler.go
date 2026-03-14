@@ -21,6 +21,7 @@ const (
 	wafv2Service       = "wafv2"
 	wafv2TargetPrefix  = "AWSWAF_20190729."
 	wafv2MatchPriority = service.PriorityHeaderExact
+	defaultActionAllow = "ALLOW"
 )
 
 var (
@@ -233,11 +234,12 @@ func tagsToItems(tags map[string]string) []tagItem {
 
 // createWebACLRequest is the request body for CreateWebACL.
 type createWebACLRequest struct {
-	Name          string    `json:"Name"`
-	Scope         string    `json:"Scope"`
-	Description   string    `json:"Description"`
-	DefaultAction string    `json:"DefaultAction"`
-	Tags          []tagItem `json:"Tags"`
+	Name             string          `json:"Name"`
+	Scope            string          `json:"Scope"`
+	Description      string          `json:"Description"`
+	DefaultAction    json.RawMessage `json:"DefaultAction"`
+	VisibilityConfig json.RawMessage `json:"VisibilityConfig"`
+	Tags             []tagItem       `json:"Tags"`
 }
 
 func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, error) {
@@ -254,11 +256,17 @@ func (h *Handler) handleCreateWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Scope is required", errInvalidRequest)
 	}
 
-	if req.DefaultAction == "" {
-		req.DefaultAction = "ALLOW"
-	}
+	defaultAction := extractDefaultAction(req.DefaultAction)
+	visibilityConfig := string(req.VisibilityConfig)
 
-	w, err := h.Backend.CreateWebACL(req.Name, req.Scope, req.Description, req.DefaultAction, tagsFromItems(req.Tags))
+	w, err := h.Backend.CreateWebACL(
+		req.Name,
+		req.Scope,
+		req.Description,
+		defaultAction,
+		visibilityConfig,
+		tagsFromItems(req.Tags),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -302,6 +310,7 @@ func (h *Handler) handleGetWebACL(body []byte) ([]byte, error) {
 
 	arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 	defaultActionMap := buildDefaultActionMap(w.DefaultAction)
+	visConfig := parseVisibilityConfig(w.VisibilityConfig, w.Name)
 
 	return json.Marshal(map[string]any{
 		"WebACL": map[string]any{
@@ -311,7 +320,7 @@ func (h *Handler) handleGetWebACL(body []byte) ([]byte, error) {
 			"LockToken":        w.LockToken,
 			"Description":      w.Description,
 			"DefaultAction":    defaultActionMap,
-			"VisibilityConfig": map[string]any{},
+			"VisibilityConfig": visConfig,
 		},
 		"LockToken": w.LockToken,
 	})
@@ -319,12 +328,13 @@ func (h *Handler) handleGetWebACL(body []byte) ([]byte, error) {
 
 // updateWebACLRequest is the request body for UpdateWebACL.
 type updateWebACLRequest struct {
-	ID            string `json:"Id"`
-	Name          string `json:"Name"`
-	Scope         string `json:"Scope"`
-	LockToken     string `json:"LockToken"`
-	Description   string `json:"Description"`
-	DefaultAction string `json:"DefaultAction"`
+	ID               string          `json:"Id"`
+	Name             string          `json:"Name"`
+	Scope            string          `json:"Scope"`
+	LockToken        string          `json:"LockToken"`
+	Description      string          `json:"Description"`
+	DefaultAction    json.RawMessage `json:"DefaultAction"`
+	VisibilityConfig json.RawMessage `json:"VisibilityConfig"`
 }
 
 func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, error) {
@@ -337,7 +347,10 @@ func (h *Handler) handleUpdateWebACL(ctx context.Context, body []byte) ([]byte, 
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
-	w, err := h.Backend.UpdateWebACL(req.ID, req.Description, req.DefaultAction)
+	defaultAction := extractDefaultAction(req.DefaultAction)
+	visibilityConfig := string(req.VisibilityConfig)
+
+	w, err := h.Backend.UpdateWebACL(req.ID, req.Description, defaultAction, visibilityConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -392,18 +405,20 @@ func (h *Handler) handleListWebACLs(body []byte) ([]byte, error) {
 	}
 
 	webACLs := h.Backend.ListWebACLs()
-	items := make([]map[string]string, 0, len(webACLs))
+	items := buildSummaryItems(webACLs, req.Scope,
+		func(w *WebACL) string { return w.Scope },
+		func(w *WebACL) map[string]string {
+			arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
 
-	for _, w := range webACLs {
-		arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
-		items = append(items, map[string]string{
-			"Id":          w.ID,
-			"Name":        w.Name,
-			"ARN":         arnStr,
-			"LockToken":   w.LockToken,
-			"Description": w.Description,
-		})
-	}
+			return map[string]string{
+				"Id":          w.ID,
+				"Name":        w.Name,
+				"ARN":         arnStr,
+				"LockToken":   w.LockToken,
+				"Description": w.Description,
+			}
+		},
+	)
 
 	return json.Marshal(map[string]any{
 		"WebACLs": items,
@@ -578,18 +593,20 @@ func (h *Handler) handleListIPSets(body []byte) ([]byte, error) {
 	}
 
 	ipSets := h.Backend.ListIPSets()
-	items := make([]map[string]string, 0, len(ipSets))
+	items := buildSummaryItems(ipSets, req.Scope,
+		func(s *IPSet) string { return s.Scope },
+		func(s *IPSet) map[string]string {
+			arnStr := h.Backend.IPSetARN(s.Name, s.ID, s.Scope)
 
-	for _, s := range ipSets {
-		arnStr := h.Backend.IPSetARN(s.Name, s.ID, s.Scope)
-		items = append(items, map[string]string{
-			"Id":          s.ID,
-			"Name":        s.Name,
-			"ARN":         arnStr,
-			"LockToken":   s.LockToken,
-			"Description": s.Description,
-		})
-	}
+			return map[string]string{
+				"Id":          s.ID,
+				"Name":        s.Name,
+				"ARN":         arnStr,
+				"LockToken":   s.LockToken,
+				"Description": s.Description,
+			}
+		},
+	)
 
 	return json.Marshal(map[string]any{
 		"IPSets": items,
@@ -677,4 +694,58 @@ func buildDefaultActionMap(action string) map[string]any {
 	default:
 		return map[string]any{"Allow": map[string]any{}}
 	}
+}
+
+// extractDefaultAction parses a DefaultAction JSON object and returns "ALLOW" or "BLOCK".
+func extractDefaultAction(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return defaultActionAllow
+	}
+
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return defaultActionAllow
+	}
+
+	if _, ok := m["Block"]; ok {
+		return "BLOCK"
+	}
+
+	return defaultActionAllow
+}
+
+// parseVisibilityConfig parses a stored VisibilityConfig JSON string or returns a default.
+func parseVisibilityConfig(stored, metricName string) map[string]any {
+	if stored != "" {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(stored), &m); err == nil {
+			return m
+		}
+	}
+
+	return map[string]any{
+		"CloudWatchMetricsEnabled": false,
+		"MetricName":               metricName,
+		"SampledRequestsEnabled":   false,
+	}
+}
+
+// buildSummaryItems filters and maps a slice of resources to summary maps.
+func buildSummaryItems[T any](
+	items []T,
+	scope string,
+	getScope func(T) string,
+	toMap func(T) map[string]string,
+) []map[string]string {
+	result := make([]map[string]string, 0, len(items))
+
+	for _, item := range items {
+		if scope != "" && getScope(item) != scope {
+			continue
+		}
+
+		result = append(result, toMap(item))
+	}
+
+	return result
 }
