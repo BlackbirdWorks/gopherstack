@@ -74,6 +74,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetTablePolicy",
 		"PutTablePolicy",
 		"DeleteTablePolicy",
+		"GetTableBucketEncryption",
+		"GetTableEncryption",
 	}
 }
 
@@ -204,6 +206,10 @@ func (h *Handler) routeBuckets(segs []string, method string, r *http.Request) (s
 			if method == http.MethodGet {
 				return "GetTableBucketMaintenanceConfiguration", h.handleGetTableBucketMaintenanceConfiguration
 			}
+		case "encryption":
+			if method == http.MethodGet {
+				return "GetTableBucketEncryption", h.handleGetTableBucketEncryption
+			}
 		case "policy":
 			switch method {
 			case http.MethodGet:
@@ -284,6 +290,10 @@ func (h *Handler) routeTableSubResource(sub, method string, _ *http.Request) (st
 	case segMaintenance:
 		if method == http.MethodGet {
 			return "GetTableMaintenanceConfiguration", h.handleGetTableMaintenanceConfiguration
+		}
+	case "encryption":
+		if method == http.MethodGet {
+			return "GetTableEncryption", h.handleGetTableEncryption
 		}
 	case "policy":
 		switch method {
@@ -493,6 +503,56 @@ func (h *Handler) handlePutTableBucketMaintenanceConfiguration(
 	)
 
 	return nil, nil
+}
+
+// === Policy operations ===
+
+// === Encryption operations ===
+
+func (h *Handler) handleGetTableBucketEncryption(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 2 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+
+	if _, err := h.Backend.GetTableBucket(bucketARN); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table bucket encryption", "arn", bucketARN)
+
+	return json.Marshal(map[string]any{
+		"encryptionConfiguration": map[string]string{
+			"sseAlgorithm": "AES256",
+		},
+	})
+}
+
+func (h *Handler) handleGetTableEncryption(ctx context.Context, r *http.Request, _ []byte) ([]byte, error) {
+	segs := rawPathSegments(r)
+	if len(segs) < 4 { //nolint:mnd // minimum required segments
+		return nil, fmt.Errorf("%w: missing tableBucketARN, namespace or name", errInvalidRequest)
+	}
+
+	bucketARN := segs[1]
+	ns := segs[2]
+	name := segs[3]
+
+	if _, err := h.Backend.GetTable(bucketARN, splitNamespace(ns), name); err != nil {
+		return nil, err
+	}
+
+	log := logger.Load(ctx)
+	log.InfoContext(ctx, "s3tables: got table encryption", "name", name)
+
+	return json.Marshal(map[string]any{
+		"encryptionConfiguration": map[string]string{
+			"sseAlgorithm": "AES256",
+		},
+	})
 }
 
 // === Policy operations ===
