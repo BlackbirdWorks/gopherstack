@@ -13,6 +13,14 @@ import (
 // an AWS SigV4 Credential value: AKID / date / region / service / aws4_request.
 const minSigV4CredentialParts = 5
 
+// HeaderDashboard is the HTTP request header that dashboard clients set to bypass
+// chaos fault injection and network effects. When this header is present with the
+// value "true", the chaos middleware passes the request through unchanged.
+const HeaderDashboard = "X-Gopherstack-Dashboard"
+
+// headerDashboardBypass is the value of HeaderDashboard that signals bypass.
+const headerDashboardBypass = "true"
+
 // extractServiceFromRequest extracts the lowercase AWS service name from the
 // SigV4 Authorization header (e.g. "dynamodb", "s3", "sqs").
 // Returns an empty string when the header is absent or malformed.
@@ -122,6 +130,11 @@ func (a echoRequestAdapter) Header(key string) string {
 func Middleware(store *FaultStore) func(echo.HandlerFunc) echo.HandlerFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
+			// Dashboard requests bypass all chaos fault injection and network effects.
+			if c.Request().Header.Get(HeaderDashboard) == headerDashboardBypass {
+				return next(c)
+			}
+
 			ctx := c.Request().Context()
 			log := logger.Load(ctx)
 
