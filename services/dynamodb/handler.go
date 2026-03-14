@@ -852,6 +852,7 @@ type exportTableToPointInTimeOutput struct {
 }
 
 type listExportsOutput struct {
+	NextToken       string                    `json:"NextToken,omitempty"`
 	ExportSummaries []exportDescriptionFields `json:"ExportSummaries"`
 }
 

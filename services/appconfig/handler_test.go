@@ -492,7 +492,7 @@ func TestBackend_ListApplications_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend()
-	apps := b.ListApplications()
+	apps, _ := b.ListApplications("", 0)
 	assert.Empty(t, apps)
 }
 
@@ -521,7 +521,7 @@ func TestBackend_CreateDeploymentStrategy(t *testing.T) {
 	assert.Equal(t, "strat", s.Name)
 	assert.NotEmpty(t, s.ID)
 
-	strategies := b.ListDeploymentStrategies()
+	strategies, _ := b.ListDeploymentStrategies("", 0)
 	assert.Len(t, strategies, 1)
 }
 
@@ -604,7 +604,7 @@ func TestBackend_ListEnvironments_AppNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend()
-	_, err := b.ListEnvironments("nonexistent")
+	_, _, err := b.ListEnvironments("nonexistent", "", 0)
 	require.Error(t, err)
 }
 
@@ -620,7 +620,7 @@ func TestBackend_ListConfigurationProfiles_AppNotFound(t *testing.T) {
 	t.Parallel()
 
 	b := appconfig.NewInMemoryBackend()
-	_, err := b.ListConfigurationProfiles("nonexistent")
+	_, _, err := b.ListConfigurationProfiles("nonexistent", "", 0)
 	require.Error(t, err)
 }
 
@@ -1075,4 +1075,133 @@ func TestHandler_ListDeployments_HTTP(t *testing.T) {
 		nil,
 	)
 	assert.Equal(t, http.StatusOK, listRec.Code)
+}
+
+func TestHandler_ListApplicationsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		queryString   string
+		wantCount     int
+		wantNextToken bool
+	}{
+		{
+			name:        "no_pagination_returns_all",
+			queryString: "",
+			wantCount:   4,
+		},
+		{
+			name:          "first_page",
+			queryString:   "?max_results=2",
+			wantCount:     2,
+			wantNextToken: true,
+		},
+		{
+			name:        "second_page",
+			queryString: "?max_results=2&next_token=2",
+			wantCount:   2,
+		},
+		{
+			name:        "token_beyond_end",
+			queryString: "?max_results=2&next_token=100",
+			wantCount:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for _, name := range []string{"app1", "app2", "app3", "app4"} {
+				rec := doRequest(t, h, http.MethodPost, "/applications",
+					[]byte(`{"name":"`+name+`"}`))
+				require.Equal(t, http.StatusCreated, rec.Code)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/applications"+tt.queryString, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				NextToken string `json:"NextToken"`
+				Items     []any  `json:"Items"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Len(t, resp.Items, tt.wantCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, resp.NextToken)
+			} else {
+				assert.Empty(t, resp.NextToken)
+			}
+		})
+	}
+}
+
+func TestBackend_appConfigPaginate_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	b := appconfig.NewInMemoryBackend()
+
+	// Create 4 apps.
+	for _, name := range []string{"a", "b", "c", "d"} {
+		_, err := b.CreateApplication(name, "")
+		require.NoError(t, err)
+	}
+
+	tests := []struct {
+		name          string
+		nextToken     string
+		maxResults    int
+		wantCount     int
+		wantNextToken bool
+	}{
+		{
+			name:       "zero_max_returns_all",
+			maxResults: 0,
+			wantCount:  4,
+		},
+		{
+			name:          "first_page",
+			maxResults:    2,
+			wantCount:     2,
+			wantNextToken: true,
+		},
+		{
+			name:       "second_page",
+			maxResults: 2,
+			nextToken:  "2",
+			wantCount:  2,
+		},
+		{
+			name:       "token_beyond_end",
+			maxResults: 2,
+			nextToken:  "50",
+			wantCount:  0,
+		},
+		{
+			name:          "invalid_token_treated_as_start",
+			maxResults:    2,
+			nextToken:     "bogus",
+			wantCount:     2,
+			wantNextToken: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			apps, outToken := b.ListApplications(tt.nextToken, tt.maxResults)
+			assert.Len(t, apps, tt.wantCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, outToken)
+			} else {
+				assert.Empty(t, outToken)
+			}
+		})
+	}
 }
