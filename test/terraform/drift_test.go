@@ -20,6 +20,7 @@ import (
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 	lambdasvc "github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	rdssvc "github.com/aws/aws-sdk-go-v2/service/rds"
 	route53svc "github.com/aws/aws-sdk-go-v2/service/route53"
 	r53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 	s3svc "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -102,6 +103,11 @@ type driftTestCase struct {
 	// Terraform-defined values after the second apply.
 	verifyAfter func(t *testing.T, ctx context.Context, vars map[string]any)
 
+	// providerFn builds the OpenTofu provider block for this test. When nil
+	// the default providerBlock is used. Set this for services that require a
+	// dedicated endpoint (e.g. rdsProviderBlock for RDS).
+	providerFn func(addr string) string
+
 	// name is the sub-test name displayed in test output.
 	name string
 
@@ -126,7 +132,12 @@ func runDriftTest(t *testing.T, tc driftTestCase) {
 	dir := t.TempDir()
 
 	vars := tc.setup(t, dir)
-	hcl := providerBlock(endpoint) + renderFixture(t, tc.fixture, vars)
+	pFn := tc.providerFn
+	if pFn == nil {
+		pFn = providerBlock
+	}
+
+	hcl := pFn(endpoint) + renderFixture(t, tc.fixture, vars)
 
 	// Step 1: initial apply — create resources and register cleanup.
 	applyTofu(t, tofuBin, dir, hcl)
@@ -682,6 +693,57 @@ func TestTerraformDrift_S3(t *testing.T) {
 				require.NoError(t, err, "GetBucketVersioning should succeed after drift correction")
 				assert.Equal(t, s3types.BucketVersioningStatusEnabled, out.Status,
 					"versioning should be restored to Enabled after drift correction")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runDriftTest(t, tc)
+		})
+	}
+}
+
+// TestTerraformDrift_RDS verifies that Terraform detects and corrects drift
+// when an RDS DB instance's allocated storage is changed directly via the SDK.
+//
+// RDS uses a separate provider block (rdsProviderBlock) that routes requests
+// to the RDS-specific endpoint rather than the generic AWS endpoint.
+func TestTerraformDrift_RDS(t *testing.T) {
+	t.Parallel()
+
+	tests := []driftTestCase{
+		{
+			name:       "allocated_storage",
+			fixture:    "rds/success",
+			providerFn: rdsProviderBlock,
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{"Identifier": "tf-drift-rds-" + uuid.NewString()[:8]}
+			},
+			mutate: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createRDSClient(t)
+				_, err := client.ModifyDBInstance(ctx, &rdssvc.ModifyDBInstanceInput{
+					DBInstanceIdentifier: aws.String(vars["Identifier"].(string)),
+					AllocatedStorage:     aws.Int32(100),
+				})
+				require.NoError(t, err, "ModifyDBInstance should succeed to introduce drift")
+			},
+			verifyAfter: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createRDSClient(t)
+				out, err := client.DescribeDBInstances(ctx, &rdssvc.DescribeDBInstancesInput{
+					DBInstanceIdentifier: aws.String(vars["Identifier"].(string)),
+				})
+				require.NoError(t, err, "DescribeDBInstances should succeed after drift correction")
+				require.Len(t, out.DBInstances, 1)
+				assert.EqualValues(t, 20, aws.ToInt32(out.DBInstances[0].AllocatedStorage),
+					"allocated_storage should be restored to 20 after drift correction")
 			},
 		},
 	}
