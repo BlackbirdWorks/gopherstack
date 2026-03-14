@@ -51,10 +51,22 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeServices",
 		"UpdateService",
 		"DeleteService",
+		"ListServices",
 		"RunTask",
 		"DescribeTasks",
 		"StopTask",
 		"ListTasks",
+		"RegisterContainerInstance",
+		"DeregisterContainerInstance",
+		"DescribeContainerInstances",
+		"ListContainerInstances",
+		"UpdateContainerInstancesState",
+		"CreateTaskSet",
+		"DeleteTaskSet",
+		"DescribeTaskSets",
+		"UpdateTaskSet",
+		"UpdateServicePrimaryTaskSet",
+		"ExecuteCommand",
 	}
 }
 
@@ -99,12 +111,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req struct {
-		Cluster     string `json:"cluster"`
-		Service     string `json:"service"`
-		ServiceName string `json:"serviceName"`
-		ClusterName string `json:"clusterName"`
-		Family      string `json:"family"`
-		TaskArn     string `json:"task"`
+		Cluster           string `json:"cluster"`
+		Service           string `json:"service"`
+		ServiceName       string `json:"serviceName"`
+		ClusterName       string `json:"clusterName"`
+		Family            string `json:"family"`
+		TaskArn           string `json:"task"`
+		ContainerInstance string `json:"containerInstance"`
+		TaskSet           string `json:"taskSet"`
 	}
 
 	_ = json.Unmarshal(body, &req)
@@ -122,6 +136,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return req.Family
 	case req.TaskArn != "":
 		return req.TaskArn
+	case req.ContainerInstance != "":
+		return req.ContainerInstance
+	case req.TaskSet != "":
+		return req.TaskSet
 	}
 
 	return ""
@@ -153,10 +171,25 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"DescribeServices":         service.WrapOp(h.handleDescribeServices),
 		"UpdateService":            service.WrapOp(h.handleUpdateService),
 		"DeleteService":            service.WrapOp(h.handleDeleteService),
+		"ListServices":             service.WrapOp(h.handleListServices),
 		"RunTask":                  service.WrapOp(h.handleRunTask),
 		"DescribeTasks":            service.WrapOp(h.handleDescribeTasks),
 		"StopTask":                 service.WrapOp(h.handleStopTask),
 		"ListTasks":                service.WrapOp(h.handleListTasks),
+		// Container instances
+		"RegisterContainerInstance":     service.WrapOp(h.handleRegisterContainerInstance),
+		"DeregisterContainerInstance":   service.WrapOp(h.handleDeregisterContainerInstance),
+		"DescribeContainerInstances":    service.WrapOp(h.handleDescribeContainerInstances),
+		"ListContainerInstances":        service.WrapOp(h.handleListContainerInstances),
+		"UpdateContainerInstancesState": service.WrapOp(h.handleUpdateContainerInstancesState),
+		// Task sets
+		"CreateTaskSet":               service.WrapOp(h.handleCreateTaskSet),
+		"DeleteTaskSet":               service.WrapOp(h.handleDeleteTaskSet),
+		"DescribeTaskSets":            service.WrapOp(h.handleDescribeTaskSets),
+		"UpdateTaskSet":               service.WrapOp(h.handleUpdateTaskSet),
+		"UpdateServicePrimaryTaskSet": service.WrapOp(h.handleUpdateServicePrimaryTaskSet),
+		// ECS Exec
+		"ExecuteCommand": service.WrapOp(h.handleExecuteCommand),
 	}
 }
 
@@ -383,11 +416,12 @@ func (h *Handler) handleListTaskDefinitions(
 // ----- Service handlers -----
 
 type createServiceInput struct {
-	ServiceName    string `json:"serviceName"`
-	Cluster        string `json:"cluster,omitempty"`
-	TaskDefinition string `json:"taskDefinition"`
-	LaunchType     string `json:"launchType,omitempty"`
-	DesiredCount   int    `json:"desiredCount"`
+	ServiceName        string `json:"serviceName"`
+	Cluster            string `json:"cluster,omitempty"`
+	TaskDefinition     string `json:"taskDefinition"`
+	LaunchType         string `json:"launchType,omitempty"`
+	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
+	DesiredCount       int    `json:"desiredCount"`
 }
 
 type createServiceOutput struct {
@@ -396,11 +430,12 @@ type createServiceOutput struct {
 
 func (h *Handler) handleCreateService(_ context.Context, in *createServiceInput) (*createServiceOutput, error) {
 	svc, err := h.Backend.CreateService(CreateServiceInput{
-		ServiceName:    in.ServiceName,
-		Cluster:        in.Cluster,
-		TaskDefinition: in.TaskDefinition,
-		LaunchType:     in.LaunchType,
-		DesiredCount:   in.DesiredCount,
+		ServiceName:        in.ServiceName,
+		Cluster:            in.Cluster,
+		TaskDefinition:     in.TaskDefinition,
+		LaunchType:         in.LaunchType,
+		SchedulingStrategy: in.SchedulingStrategy,
+		DesiredCount:       in.DesiredCount,
 	})
 	if err != nil {
 		return nil, err
@@ -476,6 +511,29 @@ func (h *Handler) handleDeleteService(_ context.Context, in *deleteServiceInput)
 	}
 
 	return &deleteServiceOutput{Service: toServiceView(*svc)}, nil
+}
+
+type listServicesInput struct {
+	Cluster            string `json:"cluster,omitempty"`
+	LaunchType         string `json:"launchType,omitempty"`
+	SchedulingStrategy string `json:"schedulingStrategy,omitempty"`
+}
+
+type listServicesOutput struct {
+	ServiceArns []string `json:"serviceArns"`
+}
+
+func (h *Handler) handleListServices(_ context.Context, in *listServicesInput) (*listServicesOutput, error) {
+	arns, err := h.Backend.ListServices(in.Cluster, in.LaunchType, in.SchedulingStrategy)
+	if err != nil {
+		return nil, err
+	}
+
+	if arns == nil {
+		arns = []string{}
+	}
+
+	return &listServicesOutput{ServiceArns: arns}, nil
 }
 
 // ----- Task handlers -----
@@ -624,30 +682,32 @@ func toTaskDefinitionView(td TaskDefinition) taskDefinitionView {
 }
 
 type serviceView struct {
-	ServiceArn     string  `json:"serviceArn"`
-	ServiceName    string  `json:"serviceName"`
-	ClusterArn     string  `json:"clusterArn"`
-	TaskDefinition string  `json:"taskDefinition"`
-	Status         string  `json:"status"`
-	LaunchType     string  `json:"launchType,omitempty"`
-	CreatedAt      float64 `json:"createdAt"`
-	DesiredCount   int     `json:"desiredCount"`
-	PendingCount   int     `json:"pendingCount"`
-	RunningCount   int     `json:"runningCount"`
+	ServiceArn         string  `json:"serviceArn"`
+	ServiceName        string  `json:"serviceName"`
+	ClusterArn         string  `json:"clusterArn"`
+	TaskDefinition     string  `json:"taskDefinition"`
+	Status             string  `json:"status"`
+	LaunchType         string  `json:"launchType,omitempty"`
+	SchedulingStrategy string  `json:"schedulingStrategy,omitempty"`
+	CreatedAt          float64 `json:"createdAt"`
+	DesiredCount       int     `json:"desiredCount"`
+	PendingCount       int     `json:"pendingCount"`
+	RunningCount       int     `json:"runningCount"`
 }
 
 func toServiceView(s Service) serviceView {
 	return serviceView{
-		ServiceArn:     s.ServiceArn,
-		ServiceName:    s.ServiceName,
-		ClusterArn:     s.ClusterArn,
-		TaskDefinition: s.TaskDefinition,
-		Status:         s.Status,
-		LaunchType:     s.LaunchType,
-		CreatedAt:      float64(s.CreatedAt.Unix()),
-		DesiredCount:   s.DesiredCount,
-		PendingCount:   s.PendingCount,
-		RunningCount:   s.RunningCount,
+		ServiceArn:         s.ServiceArn,
+		ServiceName:        s.ServiceName,
+		ClusterArn:         s.ClusterArn,
+		TaskDefinition:     s.TaskDefinition,
+		Status:             s.Status,
+		LaunchType:         s.LaunchType,
+		SchedulingStrategy: s.SchedulingStrategy,
+		CreatedAt:          float64(s.CreatedAt.Unix()),
+		DesiredCount:       s.DesiredCount,
+		PendingCount:       s.PendingCount,
+		RunningCount:       s.RunningCount,
 	}
 }
 
