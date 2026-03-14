@@ -76,6 +76,7 @@ import (
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
+	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
@@ -229,6 +230,7 @@ type AWSSDKProvider interface {
 	GetRedshiftDataHandler() service.Registerable
 	GetSageMakerHandler() service.Registerable
 	GetSageMakerRuntimeHandler() service.Registerable
+	GetServiceDiscoveryHandler() service.Registerable
 	GetServerlessRepoHandler() service.Registerable
 	GetShieldHandler() service.Registerable
 	GetSsoAdminHandler() service.Registerable
@@ -355,6 +357,7 @@ type extractedConfig struct {
 	redshiftdataOps           *redshiftdatabackend.Handler
 	sagemakerOps              *sagemakerbackend.Handler
 	sagemakerRuntimeOps       *sagemakerruntimebackend.Handler
+	servicediscoveryOps       *servicediscoverybackend.Handler
 	serverlessrepoOps         *serverlessrepobackend.Handler
 	shieldOps                 *shieldbackend.Handler
 	ssoadminOps               *ssoadminbackend.Handler
@@ -858,6 +861,10 @@ func extractLatestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.sagemakerRuntimeOps, _ = h.(*sagemakerruntimebackend.Handler)
 	}
 
+	if h := ap.GetServiceDiscoveryHandler(); h != nil {
+		ec.servicediscoveryOps, _ = h.(*servicediscoverybackend.Handler)
+	}
+
 	extractAdditionalHandlers(ap, ec)
 }
 
@@ -1083,6 +1090,7 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.RedshiftDataOps = ec.redshiftdataOps
 	cfg.SageMakerOps = ec.sagemakerOps
 	cfg.SageMakerRuntimeOps = ec.sagemakerRuntimeOps
+	cfg.ServiceDiscoveryOps = ec.servicediscoveryOps
 	cfg.ServerlessRepoOps = ec.serverlessrepoOps
 	cfg.ShieldOps = ec.shieldOps
 	cfg.SsoAdminOps = ec.ssoadminOps
