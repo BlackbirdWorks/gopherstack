@@ -120,6 +120,7 @@ import (
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
+	xraysvc "github.com/aws/aws-sdk-go-v2/service/xray"
 	"github.com/docker/docker/api/types/build"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -2314,6 +2315,24 @@ func createTransferClient(t *testing.T) *transfersvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return transfersvc.NewFromConfig(cfg, func(o *transfersvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createXrayClient returns an X-Ray client pointed at the shared test container.
+func createXrayClient(t *testing.T) *xraysvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return xraysvc.NewFromConfig(cfg, func(o *xraysvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
