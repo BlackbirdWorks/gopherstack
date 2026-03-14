@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}} - Gopherstack</title>
+    <link rel="icon" type="image/png" href="/dashboard/static/favicon.png">
 
     <script>
         (function () {
@@ -143,10 +144,7 @@
                 <!-- Logo -->
                 <a href="/dashboard"
                     class="flex ml-2 md:mr-24 items-center gap-2 text-slate-900 dark:text-white font-semibold text-lg hover:opacity-80 transition-opacity">
-                    <svg class="w-7 h-7 text-indigo-500 drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" fill="none"
-                        stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-                    </svg>
+                    <img src="/dashboard/static/favicon.png" alt="Logo" class="w-8 h-8 rounded-lg drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]" />
                     <span
                         class="drop-shadow-[0_0_8px_rgba(255,255,255,0.5)] dark:drop-shadow-[0_0_8px_rgba(255,255,255,0.5)]">Gopherstack</span>
                 </a>
@@ -1564,6 +1562,22 @@
                             <div id="tooltip-sagemaker" role="tooltip"
                                 class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
                                 SageMaker
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li>
+                        <li>
+                            <a href="/dashboard/shield"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-orange-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-orange-400 transition-colors {{if eq .ActiveTab "shield"}}bg-orange-50 text-orange-700 dark:bg-slate-800 dark:text-orange-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-shield" data-tooltip-placement="right">
+                                <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                        d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>
+                                </svg>
+                                <span class="sidebar-text truncate" title="Shield">Shield</span>
+                            </a>
+                            <div id="tooltip-shield" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                AWS Shield Advanced
                                 <div class="tooltip-arrow" data-popper-arrow></div>
                             </div>
                         </li>

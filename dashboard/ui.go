@@ -111,19 +111,24 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -311,17 +316,27 @@ type DashboardHandler struct {
 	RedshiftDataOps *redshiftdatabackend.Handler
 	// SageMakerOps provides access to the SageMaker backend.
 	SageMakerOps *sagemakerbackend.Handler
+	// SageMakerRuntimeOps provides access to the SageMaker Runtime backend.
+	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
 	// ServiceDiscoveryOps provides access to the Service Discovery backend.
 	ServiceDiscoveryOps *servicediscoverybackend.Handler
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
-	SubRouter         *echo.Echo
-	ddbProvider       *ddbbackend.DashboardProvider
-	s3Provider        *s3backend.DashboardProvider
-	FaultStore        *chaos.FaultStore
-	Logger            *slog.Logger
-	layout            *template.Template
-	GlobalConfig      config.GlobalConfig
+	// ShieldOps provides access to the Shield backend.
+	ShieldOps *shieldbackend.Handler
+	// SsoAdminOps provides access to the SSO Admin backend.
+	SsoAdminOps *ssoadminbackend.Handler
+	// TextractOps provides access to the Textract backend.
+	TextractOps *textractbackend.Handler
+	// TimestreamQueryOps provides access to the Timestream Query backend.
+	TimestreamQueryOps *timestreamquerybackend.Handler
+	SubRouter          *echo.Echo
+	ddbProvider        *ddbbackend.DashboardProvider
+	s3Provider         *s3backend.DashboardProvider
+	FaultStore         *chaos.FaultStore
+	Logger             *slog.Logger
+	layout             *template.Template
+	GlobalConfig       config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -531,10 +546,20 @@ type Config struct {
 	RedshiftDataOps *redshiftdatabackend.Handler
 	// SageMakerOps provides access to the SageMaker backend.
 	SageMakerOps *sagemakerbackend.Handler
+	// SageMakerRuntimeOps provides access to the SageMaker Runtime backend.
+	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
 	// ServiceDiscoveryOps provides access to the Service Discovery backend.
 	ServiceDiscoveryOps *servicediscoverybackend.Handler
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
+	// ShieldOps provides access to the Shield backend.
+	ShieldOps *shieldbackend.Handler
+	// SsoAdminOps provides access to the SSO Admin backend.
+	SsoAdminOps *ssoadminbackend.Handler
+	// TextractOps provides access to the Textract backend.
+	TextractOps *textractbackend.Handler
+	// TimestreamQueryOps provides access to the Timestream Query backend.
+	TimestreamQueryOps *timestreamquerybackend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -685,9 +710,14 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/ram/*.html",
 		"templates/rdsdata/*.html",
 		"templates/redshiftdata/*.html",
+		"templates/sagemaker/*.html",
+		"templates/sagemakerrumtime/*.html",
 		"templates/servicediscovery/*.html",
+		"templates/ssoadmin/*.html",
+		"templates/timestreamquery/*.html",
 		"templates/chaos/*.html",
 		"templates/metrics.html",
+		"templates/textract/*.html",
 		"templates/doc.html",
 		"templates/settings.html",
 		"templates/apiconsole.html",
@@ -836,8 +866,13 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.RAMOps = cfg.RAMOps
 	h.RedshiftDataOps = cfg.RedshiftDataOps
 	h.SageMakerOps = cfg.SageMakerOps
+	h.SageMakerRuntimeOps = cfg.SageMakerRuntimeOps
 	h.ServiceDiscoveryOps = cfg.ServiceDiscoveryOps
 	h.ServerlessRepoOps = cfg.ServerlessRepoOps
+	h.ShieldOps = cfg.ShieldOps
+	h.SsoAdminOps = cfg.SsoAdminOps
+	h.TextractOps = cfg.TextractOps
+	h.TimestreamQueryOps = cfg.TimestreamQueryOps
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1360,8 +1395,13 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupRAMRoutes()
 	h.setupRedshiftDataRoutes()
 	h.setupSageMakerRoutes()
+	h.setupSageMakerRuntimeRoutes()
 	h.setupServiceDiscoveryRoutes()
 	h.setupServerlessRepoRoutes()
+	h.setupShieldRoutes()
+	h.setupSsoAdminRoutes()
+	h.setupTextractRoutes()
+	h.setupTimestreamQueryRoutes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1490,7 +1530,10 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/pipes", "Pipes"},
 	{"/qldb", "QLDB"},
 	{"/rdsdata", "RDSData"},
+	{"/sagemakerrumtime", "SageMakerRuntime"},
 	{"/servicediscovery", "ServiceDiscovery"},
+	{"/textract", "Textract"},
+	{"/timestreamquery", "TimestreamQuery"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

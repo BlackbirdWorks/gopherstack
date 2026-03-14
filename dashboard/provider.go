@@ -74,9 +74,14 @@ import (
 	rdsdatabackend "github.com/blackbirdworks/gopherstack/services/rdsdata"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -224,8 +229,13 @@ type AWSSDKProvider interface {
 	GetRAMHandler() service.Registerable
 	GetRedshiftDataHandler() service.Registerable
 	GetSageMakerHandler() service.Registerable
+	GetSageMakerRuntimeHandler() service.Registerable
 	GetServiceDiscoveryHandler() service.Registerable
 	GetServerlessRepoHandler() service.Registerable
+	GetShieldHandler() service.Registerable
+	GetSsoAdminHandler() service.Registerable
+	GetTextractHandler() service.Registerable
+	GetTimestreamQueryHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
@@ -346,8 +356,13 @@ type extractedConfig struct {
 	ramOps                    *rambackend.Handler
 	redshiftdataOps           *redshiftdatabackend.Handler
 	sagemakerOps              *sagemakerbackend.Handler
+	sagemakerRuntimeOps       *sagemakerruntimebackend.Handler
 	servicediscoveryOps       *servicediscoverybackend.Handler
 	serverlessrepoOps         *serverlessrepobackend.Handler
+	shieldOps                 *shieldbackend.Handler
+	ssoadminOps               *ssoadminbackend.Handler
+	textractOps               *textractbackend.Handler
+	timestreamqueryOps        *timestreamquerybackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
 }
@@ -842,12 +857,42 @@ func extractLatestHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.sagemakerOps, _ = h.(*sagemakerbackend.Handler)
 	}
 
+	if h := ap.GetSageMakerRuntimeHandler(); h != nil {
+		ec.sagemakerRuntimeOps, _ = h.(*sagemakerruntimebackend.Handler)
+	}
+
 	if h := ap.GetServiceDiscoveryHandler(); h != nil {
 		ec.servicediscoveryOps, _ = h.(*servicediscoverybackend.Handler)
 	}
 
+	extractAdditionalHandlers(ap, ec)
+}
+
+// extractAdditionalHandlers populates the newest service handlers on ec.
+func extractAdditionalHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetServerlessRepoHandler(); h != nil {
 		ec.serverlessrepoOps, _ = h.(*serverlessrepobackend.Handler)
+	}
+
+	extractSsoAndMLHandlers(ap, ec)
+}
+
+// extractSsoAndMLHandlers populates Shield, SSO Admin and ML/document service handlers on ec.
+func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
+	if h := ap.GetShieldHandler(); h != nil {
+		ec.shieldOps, _ = h.(*shieldbackend.Handler)
+	}
+
+	if h := ap.GetSsoAdminHandler(); h != nil {
+		ec.ssoadminOps, _ = h.(*ssoadminbackend.Handler)
+	}
+
+	if h := ap.GetTextractHandler(); h != nil {
+		ec.textractOps, _ = h.(*textractbackend.Handler)
+	}
+
+	if h := ap.GetTimestreamQueryHandler(); h != nil {
+		ec.timestreamqueryOps, _ = h.(*timestreamquerybackend.Handler)
 	}
 }
 
@@ -1044,6 +1089,11 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.RAMOps = ec.ramOps
 	cfg.RedshiftDataOps = ec.redshiftdataOps
 	cfg.SageMakerOps = ec.sagemakerOps
+	cfg.SageMakerRuntimeOps = ec.sagemakerRuntimeOps
 	cfg.ServiceDiscoveryOps = ec.servicediscoveryOps
 	cfg.ServerlessRepoOps = ec.serverlessrepoOps
+	cfg.ShieldOps = ec.shieldOps
+	cfg.SsoAdminOps = ec.ssoadminOps
+	cfg.TextractOps = ec.textractOps
+	cfg.TimestreamQueryOps = ec.timestreamqueryOps
 }

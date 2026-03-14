@@ -110,12 +110,14 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
@@ -123,6 +125,8 @@ import (
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -279,14 +283,22 @@ type Stack struct {
 	RedshiftDataHandler *redshiftdatabackend.Handler
 	// SageMakerHandler provides access to the SageMaker backend.
 	SageMakerHandler *sagemakerbackend.Handler
+	// SageMakerRuntimeHandler provides access to the SageMaker Runtime backend.
+	SageMakerRuntimeHandler *sagemakerruntimebackend.Handler
 	// ServiceDiscoveryHandler provides access to the Service Discovery backend.
 	ServiceDiscoveryHandler *servicediscoverybackend.Handler
 	// ServerlessRepoHandler provides access to the Serverless Application Repository backend.
 	ServerlessRepoHandler *serverlessrepobackend.Handler
-	S3Client              *s3.Client
-	DDBClient             *dynamodb.Client
-	FaultStore            *chaos.FaultStore
-	Dashboard             *dashboard.DashboardHandler
+	// ShieldHandler provides access to the Shield backend.
+	ShieldHandler *shieldbackend.Handler
+	// TextractHandler provides access to the Textract backend.
+	TextractHandler *textractbackend.Handler
+	// TimestreamQueryHandler provides access to the Timestream Query backend.
+	TimestreamQueryHandler *timestreamquerybackend.Handler
+	S3Client               *s3.Client
+	DDBClient              *dynamodb.Client
+	FaultStore             *chaos.FaultStore
+	Dashboard              *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -496,8 +508,12 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.rdsdata)
 	_ = registry.Register(h.redshiftdata)
 	_ = registry.Register(h.sagemaker)
+	_ = registry.Register(h.sagemakerRuntime)
 	_ = registry.Register(h.servicediscovery)
 	_ = registry.Register(h.serverlessrepo)
+	_ = registry.Register(h.shield)
+	_ = registry.Register(h.textract)
+	_ = registry.Register(h.timestreamquery)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -605,8 +621,12 @@ type handlers struct {
 	rdsdata            *rdsdatabackend.Handler
 	redshiftdata       *redshiftdatabackend.Handler
 	sagemaker          *sagemakerbackend.Handler
+	sagemakerRuntime   *sagemakerruntimebackend.Handler
 	servicediscovery   *servicediscoverybackend.Handler
 	serverlessrepo     *serverlessrepobackend.Handler
+	shield             *shieldbackend.Handler
+	textract           *textractbackend.Handler
+	timestreamquery    *timestreamquerybackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -825,8 +845,6 @@ func populateNewestHandlers(h *handlers) {
 
 // populateLatestHandlers fills in the most recently added service handlers that would push
 // populateNewestHandlers past the funlen limit.
-// populateLatestHandlers fills in the most recently added service handlers that would push
-// populateNewestHandlers past the funlen limit.
 func populateLatestHandlers(h *handlers) {
 	h.elbv2 = elbv2backend.NewHandler(
 		elbv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -910,14 +928,28 @@ func populateLatestHandlers(h *handlers) {
 	h.redshiftdata = redshiftdatabackend.NewHandler(
 		redshiftdatabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	populateLatestMLHandlers(h)
+}
+
+func populateLatestMLHandlers(h *handlers) {
 	h.sagemaker = sagemakerbackend.NewHandler(
 		sagemakerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.sagemakerRuntime = sagemakerruntimebackend.NewHandler(
+		sagemakerruntimebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.servicediscovery = servicediscoverybackend.NewHandler(
 		servicediscoverybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.serverlessrepo = serverlessrepobackend.NewHandler(
 		serverlessrepobackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.shield = shieldbackend.NewHandler(
+		shieldbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.textract = textractbackend.NewHandler(textractbackend.NewInMemoryBackend())
+	h.timestreamquery = timestreamquerybackend.NewHandler(
+		timestreamquerybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 }
 
@@ -1081,8 +1113,12 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.RAMOps = h.ram
 	cfg.RedshiftDataOps = h.redshiftdata
 	cfg.SageMakerOps = h.sagemaker
+	cfg.SageMakerRuntimeOps = h.sagemakerRuntime
 	cfg.ServiceDiscoveryOps = h.servicediscovery
 	cfg.ServerlessRepoOps = h.serverlessrepo
+	cfg.ShieldOps = h.shield
+	cfg.TextractOps = h.textract
+	cfg.TimestreamQueryOps = h.timestreamquery
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1292,8 +1328,12 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.RDSDataHandler = h.rdsdata
 	s.RedshiftDataHandler = h.redshiftdata
 	s.SageMakerHandler = h.sagemaker
+	s.SageMakerRuntimeHandler = h.sagemakerRuntime
 	s.ServiceDiscoveryHandler = h.servicediscovery
 	s.ServerlessRepoHandler = h.serverlessrepo
+	s.ShieldHandler = h.shield
+	s.TextractHandler = h.textract
+	s.TimestreamQueryHandler = h.timestreamquery
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

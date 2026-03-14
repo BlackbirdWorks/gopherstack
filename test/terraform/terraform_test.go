@@ -122,6 +122,7 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	s3controlsvc "github.com/aws/aws-sdk-go-v2/service/s3control"
 	sagemakersvc "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	sagemakerruntimesvc "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	schedulersvc "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	secretssvc "github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	servicediscoverysvc "github.com/aws/aws-sdk-go-v2/service/servicediscovery"
@@ -131,10 +132,13 @@ import (
 	snstypes "github.com/aws/aws-sdk-go-v2/service/sns/types"
 	sqssvc "github.com/aws/aws-sdk-go-v2/service/sqs"
 	ssmsvc "github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssoadminsvc "github.com/aws/aws-sdk-go-v2/service/ssoadmin"
 	stssvc "github.com/aws/aws-sdk-go-v2/service/sts"
 	supportsvc "github.com/aws/aws-sdk-go-v2/service/support"
 	swfsvc "github.com/aws/aws-sdk-go-v2/service/swf"
 	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
+	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
+	timestreamquerytypes "github.com/aws/aws-sdk-go-v2/service/timestreamquery/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -290,9 +294,11 @@ provider "aws" {
     ses             = %[1]q
     sesv2           = %[1]q
     sfn             = %[1]q
+    shield          = %[1]q
     sns             = %[1]q
     sqs             = %[1]q
     ssm             = %[1]q
+    ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
   }
@@ -5737,6 +5743,43 @@ func TestTerraform_ServiceDiscovery(t *testing.T) {
 	}
 }
 
+// TestTerraform_SageMakerRuntime verifies that the SageMaker Runtime service is reachable
+// and endpoint invocations succeed via the SDK directly (no Terraform-managed resources).
+func TestTerraform_SageMakerRuntime(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "sagemakerrumtime/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+				client := createSageMakerRuntimeClient(t)
+
+				out, err := client.InvokeEndpoint(ctx, &sagemakerruntimesvc.InvokeEndpointInput{
+					EndpointName: aws.String("tf-test-endpoint"),
+					Body:         []byte(`{"data": "test input"}`),
+					ContentType:  aws.String("application/json"),
+				})
+				require.NoError(t, err, "InvokeEndpoint should succeed")
+				assert.NotEmpty(t, out.Body, "InvokeEndpoint response body should not be empty")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
 // TestTerraform_ServerlessRepo provisions a Serverless Application Repository application and verifies it was created.
 func TestTerraform_ServerlessRepo(t *testing.T) {
 	t.Parallel()
@@ -5780,6 +5823,258 @@ func TestTerraform_ServerlessRepo(t *testing.T) {
 				var result map[string]any
 				require.NoError(t, json.Unmarshal(body, &result))
 				assert.Equal(t, appName, result["name"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Shield provisions a Shield subscription and protection and verifies the subscription state.
+func TestTerraform_Shield(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "shield/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"ProtectionName": "tf-shield-" + id,
+					"ResourceARN":    "arn:aws:ec2:us-east-1:123456789012:eip-allocation/eipalloc-" + id,
+					"Endpoint":       endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				reqURL := endpoint + "/"
+				body := `{}`
+
+				req, err := http.NewRequestWithContext(
+					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+				require.NoError(t, err)
+
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				req.Header.Set("X-Amz-Target", "AWSShield_20160616.GetSubscriptionState")
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "GetSubscriptionState should succeed after terraform apply")
+				defer resp.Body.Close()
+
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+
+				var result map[string]string
+				require.NoError(t, json.Unmarshal(respBody, &result))
+				assert.Equal(t, "ACTIVE", result["SubscriptionState"])
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SsoAdmin provisions an SSO Admin permission set via Terraform and verifies it was created.
+func TestTerraform_SsoAdmin(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ssoadmin/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"PermissionSetName": "tf-ps-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createSsoAdminClient(t)
+				psName := vars["PermissionSetName"].(string)
+
+				instancesOut, err := client.ListInstances(ctx, &ssoadminsvc.ListInstancesInput{})
+				require.NoError(t, err, "ListInstances should succeed after terraform apply")
+				require.NotEmpty(t, instancesOut.Instances, "expected at least one SSO instance")
+
+				instanceArn := aws.ToString(instancesOut.Instances[0].InstanceArn)
+
+				out, err := client.ListPermissionSets(ctx, &ssoadminsvc.ListPermissionSetsInput{
+					InstanceArn: &instanceArn,
+				})
+				require.NoError(t, err, "ListPermissionSets should succeed")
+
+				found := false
+
+				for _, psArn := range out.PermissionSets {
+					desc, descErr := client.DescribePermissionSet(ctx, &ssoadminsvc.DescribePermissionSetInput{
+						InstanceArn:      &instanceArn,
+						PermissionSetArn: &psArn,
+					})
+					if descErr == nil && aws.ToString(desc.PermissionSet.Name) == psName {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "expected permission set %q to exist", psName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Textract provisions a Textract text detection job and verifies the service responds.
+func TestTerraform_Textract(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "textract/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"Endpoint": endpoint,
+					"Bucket":   "tf-textract-bucket",
+					"Key":      "document-" + uuid.NewString()[:8] + ".pdf",
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				bucket, _ := vars["Bucket"].(string)
+				key, _ := vars["Key"].(string)
+
+				reqURL := endpoint + "/"
+				body := fmt.Sprintf(`{"Document":{"S3Object":{"Bucket":"%s","Name":"%s"}}}`, bucket, key)
+
+				req, err := http.NewRequestWithContext(
+					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+				require.NoError(t, err)
+
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				req.Header.Set("X-Amz-Target", "Textract.DetectDocumentText")
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "DetectDocumentText should succeed")
+				defer resp.Body.Close()
+
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(respBody, &result))
+				blocks, ok := result["Blocks"].([]any)
+				assert.True(t, ok, "expected Blocks in response")
+				assert.NotEmpty(t, blocks, "expected non-empty Blocks")
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_TimestreamQuery provisions Timestream Query resources via Terraform and verifies operations.
+func TestTerraform_TimestreamQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "timestreamquery/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"Endpoint": endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				client := createTimestreamQueryClient(t)
+
+				// Verify ListScheduledQueries returns an empty list.
+				listOut, err := client.ListScheduledQueries(ctx, &timestreamquerysvc.ListScheduledQueriesInput{})
+				require.NoError(t, err, "ListScheduledQueries should succeed")
+				require.NotNil(t, listOut)
+
+				// Create a scheduled query.
+				createOut, err := client.CreateScheduledQuery(ctx, &timestreamquerysvc.CreateScheduledQueryInput{
+					Name:        aws.String("tf-tsq-verify"),
+					QueryString: aws.String("SELECT 1"),
+					ScheduleConfiguration: &timestreamquerytypes.ScheduleConfiguration{
+						ScheduleExpression: aws.String("rate(1 hour)"),
+					},
+					ScheduledQueryExecutionRoleArn: aws.String("arn:aws:iam::000000000000:role/verify"),
+					NotificationConfiguration: &timestreamquerytypes.NotificationConfiguration{
+						SnsConfiguration: &timestreamquerytypes.SnsConfiguration{
+							TopicArn: aws.String("arn:aws:sns:us-east-1:000000000000:verify"),
+						},
+					},
+					ErrorReportConfiguration: &timestreamquerytypes.ErrorReportConfiguration{
+						S3Configuration: &timestreamquerytypes.S3Configuration{
+							BucketName: aws.String("verify-bucket"),
+						},
+					},
+				})
+				require.NoError(t, err, "CreateScheduledQuery should succeed")
+				require.NotNil(t, createOut.Arn)
+
+				arn := aws.ToString(createOut.Arn)
+
+				// Describe the created scheduled query.
+				descOut, err := client.DescribeScheduledQuery(ctx, &timestreamquerysvc.DescribeScheduledQueryInput{
+					ScheduledQueryArn: aws.String(arn),
+				})
+				require.NoError(t, err, "DescribeScheduledQuery should succeed")
+				assert.Equal(t, "tf-tsq-verify", aws.ToString(descOut.ScheduledQuery.Name))
+
+				// Delete the scheduled query.
+				_, err = client.DeleteScheduledQuery(ctx, &timestreamquerysvc.DeleteScheduledQueryInput{
+					ScheduledQueryArn: aws.String(arn),
+				})
+				require.NoError(t, err, "DeleteScheduledQuery should succeed")
+
+				// Verify the list is empty again.
+				listAfter, err := client.ListScheduledQueries(ctx, &timestreamquerysvc.ListScheduledQueriesInput{})
+				require.NoError(t, err, "ListScheduledQueries after delete should succeed")
+				assert.Empty(t, listAfter.ScheduledQueries)
 			},
 		},
 	}

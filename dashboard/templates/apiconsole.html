@@ -130,9 +130,9 @@
     }
 
     function startAutoRefresh() {
-        if (!eventSource) {
-            eventSource = new EventSource('/dashboard/api/console/stream');
-            eventSource.onmessage = function (event) {
+        if (!window.consoleEventSource) {
+            window.consoleEventSource = new EventSource('/dashboard/api/console/stream');
+            window.consoleEventSource.onmessage = function (event) {
                 try {
                     const req = JSON.parse(event.data);
                     // Add new request to the top of the array
@@ -146,16 +146,16 @@
                     console.error("Error parsing SSE data", e);
                 }
             };
-            eventSource.onerror = function (err) {
+            window.consoleEventSource.onerror = function (err) {
                 console.error("SSE error", err);
             };
         }
     }
 
     function stopAutoRefresh() {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
+        if (window.consoleEventSource) {
+            window.consoleEventSource.close();
+            window.consoleEventSource = null;
         }
     }
 

@@ -37,6 +37,8 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/labstack/echo/v5"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
@@ -143,19 +145,24 @@ import (
 	s3backend "github.com/blackbirdworks/gopherstack/services/s3"
 	s3controlbackend "github.com/blackbirdworks/gopherstack/services/s3control"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	sagemakerruntimebackend "github.com/blackbirdworks/gopherstack/services/sagemakerrumtime"
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	snsbackend "github.com/blackbirdworks/gopherstack/services/sns"
 	sqsbackend "github.com/blackbirdworks/gopherstack/services/sqs"
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
+	ssoadminbackend "github.com/blackbirdworks/gopherstack/services/ssoadmin"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	stsbackend "github.com/blackbirdworks/gopherstack/services/sts"
 	supportbackend "github.com/blackbirdworks/gopherstack/services/support"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
+	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -283,8 +290,13 @@ type CLI struct {
 	ramHandler                    service.Registerable
 	redshiftdataHandler           service.Registerable
 	sagemakerHandler              service.Registerable
+	sagemakerRuntimeHandler       service.Registerable
 	servicediscoveryHandler       service.Registerable
 	serverlessrepoHandler         service.Registerable
+	shieldHandler                 service.Registerable
+	ssoadminHandler               service.Registerable
+	textractHandler               service.Registerable
+	timestreamqueryHandler        service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -752,6 +764,11 @@ func (c *CLI) GetRedshiftDataHandler() service.Registerable { return c.redshiftd
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetSageMakerHandler() service.Registerable { return c.sagemakerHandler }
 
+// GetSageMakerRuntimeHandler returns the SageMaker Runtime handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSageMakerRuntimeHandler() service.Registerable { return c.sagemakerRuntimeHandler }
+
 // GetServiceDiscoveryHandler returns the Service Discovery handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -761,6 +778,26 @@ func (c *CLI) GetServiceDiscoveryHandler() service.Registerable { return c.servi
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetServerlessRepoHandler() service.Registerable { return c.serverlessrepoHandler }
+
+// GetShieldHandler returns the Shield handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetShieldHandler() service.Registerable { return c.shieldHandler }
+
+// GetSsoAdminHandler returns the SSO Admin handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetSsoAdminHandler() service.Registerable { return c.ssoadminHandler }
+
+// GetTextractHandler returns the Textract handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetTextractHandler() service.Registerable { return c.textractHandler }
+
+// GetTimestreamQueryHandler returns the Timestream Query handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetTimestreamQueryHandler() service.Registerable { return c.timestreamqueryHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1440,8 +1477,13 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ramHandler = byName["RAM"]
 	cli.redshiftdataHandler = byName["RedshiftData"]
 	cli.sagemakerHandler = byName["SageMaker"]
+	cli.sagemakerRuntimeHandler = byName["SageMakerRuntime"]
 	cli.servicediscoveryHandler = byName["ServiceDiscovery"]
 	cli.serverlessrepoHandler = byName["ServerlessRepo"]
+	cli.shieldHandler = byName["Shield"]
+	cli.ssoadminHandler = byName["SsoAdmin"]
+	cli.textractHandler = byName["Textract"]
+	cli.timestreamqueryHandler = byName["TimestreamQuery"]
 }
 
 // initializeServices initializes all service providers.
@@ -1684,8 +1726,13 @@ func getMostRecentServiceProviders() []service.Provider {
 		&rdsdatabackend.Provider{},
 		&redshiftdatabackend.Provider{},
 		&sagemakerbackend.Provider{},
+		&sagemakerruntimebackend.Provider{},
 		&servicediscoverybackend.Provider{},
 		&serverlessrepobackend.Provider{},
+		&shieldbackend.Provider{},
+		&ssoadminbackend.Provider{},
+		&textractbackend.Provider{},
+		&timestreamquerybackend.Provider{},
 	}
 }
 
@@ -2758,9 +2805,10 @@ func startServer(ctx context.Context, port string, e *echo.Echo) error {
 	log.InfoContext(ctx, "  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")
 	log.InfoContext(ctx, "  Dashboard        ", "url", "http://localhost"+port+"/dashboard")
 
+	h2s := &http2.Server{}
 	server := &http.Server{
 		Addr:         port,
-		Handler:      e,
+		Handler:      h2c.NewHandler(e, h2s),
 		ReadTimeout:  defaultTimeout,
 		WriteTimeout: defaultTimeout,
 		IdleTimeout:  defaultTimeout,
