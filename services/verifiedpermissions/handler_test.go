@@ -605,12 +605,43 @@ func TestVPHandler_PolicyValidation(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:   "create policy template linked",
+			name:   "create policy missing definition",
 			action: "CreatePolicy",
 			body: map[string]any{
-				"policyStoreId": "",
+				"policyStoreId": "store-1",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "create policy both static and template linked",
+			action: "CreatePolicy",
+			body: map[string]any{
+				"policyStoreId": "store-1",
 				"definition": map[string]any{
+					"static":         map[string]any{"statement": "permit(principal, action, resource);"},
 					"templateLinked": map[string]any{"policyTemplateId": "tpl-1"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "create policy static empty statement",
+			action: "CreatePolicy",
+			body: map[string]any{
+				"policyStoreId": "store-1",
+				"definition": map[string]any{
+					"static": map[string]any{"statement": ""},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "create policy template linked empty policy template id",
+			action: "CreatePolicy",
+			body: map[string]any{
+				"policyStoreId": "store-1",
+				"definition": map[string]any{
+					"templateLinked": map[string]any{"policyTemplateId": ""},
 				},
 			},
 			wantCode: http.StatusBadRequest,
@@ -643,6 +674,39 @@ func TestVPHandler_PolicyValidation(t *testing.T) {
 			name:     "update policy missing policy id",
 			action:   "UpdatePolicy",
 			body:     map[string]any{"policyStoreId": "store-1"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "update policy template linked definition rejected",
+			action: "UpdatePolicy",
+			body: map[string]any{
+				"policyStoreId": "store-1",
+				"policyId":      "policy-1",
+				"definition": map[string]any{
+					"templateLinked": map[string]any{"policyTemplateId": "tpl-1"},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "update policy empty static statement",
+			action: "UpdatePolicy",
+			body: map[string]any{
+				"policyStoreId": "store-1",
+				"policyId":      "policy-1",
+				"definition": map[string]any{
+					"static": map[string]any{"statement": ""},
+				},
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "update policy missing definition",
+			action: "UpdatePolicy",
+			body: map[string]any{
+				"policyStoreId": "store-1",
+				"policyId":      "policy-1",
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -719,6 +783,16 @@ func TestVPHandler_PolicyTemplateValidation(t *testing.T) {
 			name:     "update template missing template id",
 			action:   "UpdatePolicyTemplate",
 			body:     map[string]any{"policyStoreId": "store-1"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:   "update template missing statement",
+			action: "UpdatePolicyTemplate",
+			body: map[string]any{
+				"policyStoreId":    "store-1",
+				"policyTemplateId": "tpl-1",
+				"description":      "desc only, no statement",
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{

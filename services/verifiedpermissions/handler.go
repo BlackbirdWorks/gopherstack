@@ -359,12 +359,25 @@ func (h *Handler) handleCreatePolicy(_ context.Context, in *createPolicyInput) (
 		return nil, fmt.Errorf("%w: policyStoreId is required", errInvalidRequest)
 	}
 
+	if (in.Definition.Static == nil) == (in.Definition.TemplateLinked == nil) {
+		return nil, fmt.Errorf("%w: definition must contain exactly one of static or templateLinked", errInvalidRequest)
+	}
+
 	policyType := "STATIC"
-	statement := ""
+
+	var statement string
 
 	if in.Definition.Static != nil {
+		if in.Definition.Static.Statement == "" {
+			return nil, fmt.Errorf("%w: definition.static.statement is required", errInvalidRequest)
+		}
+
 		statement = in.Definition.Static.Statement
-	} else if in.Definition.TemplateLinked != nil {
+	} else {
+		if in.Definition.TemplateLinked.PolicyTemplateID == "" {
+			return nil, fmt.Errorf("%w: definition.templateLinked.policyTemplateId is required", errInvalidRequest)
+		}
+
 		policyType = "TEMPLATE_LINKED"
 		statement = in.Definition.TemplateLinked.PolicyTemplateID
 	}
@@ -476,12 +489,15 @@ func (h *Handler) handleUpdatePolicy(_ context.Context, in *updatePolicyInput) (
 		return nil, fmt.Errorf("%w: policyId is required", errInvalidRequest)
 	}
 
-	statement := ""
-	if in.Definition.Static != nil {
-		statement = in.Definition.Static.Statement
+	if in.Definition.TemplateLinked != nil {
+		return nil, fmt.Errorf("%w: updating TEMPLATE_LINKED policies is not supported", errInvalidRequest)
 	}
 
-	p, err := h.Backend.UpdatePolicy(in.PolicyStoreID, in.PolicyID, statement)
+	if in.Definition.Static == nil || in.Definition.Static.Statement == "" {
+		return nil, fmt.Errorf("%w: definition.static.statement is required", errInvalidRequest)
+	}
+
+	p, err := h.Backend.UpdatePolicy(in.PolicyStoreID, in.PolicyID, in.Definition.Static.Statement)
 	if err != nil {
 		return nil, err
 	}
@@ -656,6 +672,10 @@ func (h *Handler) handleUpdatePolicyTemplate(
 
 	if in.PolicyTemplateID == "" {
 		return nil, fmt.Errorf("%w: policyTemplateId is required", errInvalidRequest)
+	}
+
+	if in.Statement == "" {
+		return nil, fmt.Errorf("%w: statement is required", errInvalidRequest)
 	}
 
 	pt, err := h.Backend.UpdatePolicyTemplate(in.PolicyStoreID, in.PolicyTemplateID, in.Description, in.Statement)
