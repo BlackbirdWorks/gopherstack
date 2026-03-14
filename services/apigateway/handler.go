@@ -272,11 +272,12 @@ type Handler struct {
 	httpClient *http.Client
 }
 
-// NewHandler creates a new API Gateway handler.
+// NewHandler creates a new API Gateway handler with a default HTTP client timeout.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
-		Backend:   backend,
-		authCache: newAuthorizerCache(),
+		Backend:    backend,
+		authCache:  newAuthorizerCache(),
+		httpClient: &http.Client{Timeout: apiGWHTTPTimeout},
 	}
 }
 
@@ -294,18 +295,9 @@ func (h *Handler) SetHTTPClient(c *http.Client) {
 // apiGWHTTPTimeout is the timeout applied to HTTP/HTTP_PROXY integration requests.
 const apiGWHTTPTimeout = 30 * time.Second
 
-// apiGWDefaultHTTPClient is the fallback HTTP client for HTTP/HTTP_PROXY integrations.
-// It uses a 30-second timeout to match AWS API Gateway's default integration timeout.
-var apiGWDefaultHTTPClient = &http.Client{Timeout: apiGWHTTPTimeout} //nolint:gochecknoglobals // HTTP client default
-
-// getHTTPClient returns the configured HTTP client, falling back to a dedicated
-// client with a 30-second timeout instead of [http.DefaultClient] (which has no timeout).
+// getHTTPClient returns the configured HTTP client.
 func (h *Handler) getHTTPClient() *http.Client {
-	if h.httpClient != nil {
-		return h.httpClient
-	}
-
-	return apiGWDefaultHTTPClient
+	return h.httpClient
 }
 
 // Name returns the service name.

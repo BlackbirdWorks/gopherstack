@@ -50,6 +50,10 @@ const (
 
 	// snsHTTPTimeout is the timeout applied to SNS HTTP/HTTPS endpoint deliveries.
 	snsHTTPTimeout = 5 * time.Second
+
+	// snsMaxConcurrentDeliveries caps the number of HTTP/HTTPS subscription
+	// deliveries that may run concurrently for a single Publish call.
+	snsMaxConcurrentDeliveries = 8
 )
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -94,6 +98,7 @@ type StorageBackend interface {
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
+	httpClient           *http.Client
 	topics               map[string]*Topic
 	subscriptions        map[string]*Subscription
 	topicTags            map[string]*svcTags.Tags
@@ -120,7 +125,17 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		accountID:            accountID,
 		region:               region,
 		mu:                   lockmetrics.New("sns"),
+		httpClient:           &http.Client{Timeout: snsHTTPTimeout},
 	}
+}
+
+// SetHTTPDeliveryClient configures the HTTP client used for HTTP/HTTPS subscription delivery.
+// If not set, a dedicated client with a 5-second timeout is used.
+func (b *InMemoryBackend) SetHTTPDeliveryClient(c *http.Client) {
+	b.mu.Lock("SetHTTPDeliveryClient")
+	defer b.mu.Unlock()
+
+	b.httpClient = c
 }
 
 // SetPublishEmitter registers an event emitter that fires when a message is published.
@@ -503,17 +518,34 @@ func (b *InMemoryBackend) Publish(
 	// Build subscription snapshot and collect HTTP deliveries — all under RLock.
 	targets := b.collectPublishTargets(topicArn, resolveMsg, attrs)
 
+	// Capture emitter and httpClient under the read lock to avoid data races
+	// with concurrent SetPublishEmitter / SetHTTPDeliveryClient calls.
+	emitter := b.emitter
+	client := b.httpClient
+
 	// Release the read lock before performing any network I/O so that slow or
 	// unresponsive HTTP endpoints do not block write operations on the backend.
 	b.mu.RUnlock()
 
-	// Deliver to HTTP/HTTPS endpoints asynchronously (best-effort, fire-and-forget).
-	for _, d := range targets.httpDeliveries {
-		go deliverHTTP(d.endpoint, d.body)
+	// Deliver to HTTP/HTTPS endpoints asynchronously with bounded concurrency.
+	// The semaphore channel limits the number of in-flight goroutines to
+	// snsMaxConcurrentDeliveries so that a large subscription list cannot
+	// exhaust OS resources.
+	if len(targets.httpDeliveries) > 0 {
+		sem := make(chan struct{}, snsMaxConcurrentDeliveries)
+
+		for _, d := range targets.httpDeliveries {
+			sem <- struct{}{}
+
+			go func() {
+				defer func() { <-sem }()
+				deliverHTTP(d.endpoint, d.body, client)
+			}()
+		}
 	}
 
 	// Emit event for other services (e.g. SQS) to react to.
-	if b.emitter != nil {
+	if emitter != nil {
 		attrSnaps := make(map[string]events.SNSMessageAttributeSnapshot, len(attrs))
 		for k, v := range attrs {
 			attrSnaps[k] = events.SNSMessageAttributeSnapshot{
@@ -522,7 +554,7 @@ func (b *InMemoryBackend) Publish(
 			}
 		}
 
-		_ = b.emitter.Emit(context.Background(), &events.SNSPublishedEvent{
+		_ = emitter.Emit(context.Background(), &events.SNSPublishedEvent{
 			TopicARN:      topicArn,
 			MessageID:     messageID,
 			Message:       message,
@@ -672,13 +704,10 @@ func (b *InMemoryBackend) sortedSubscriptions() []Subscription {
 	return subs
 }
 
-// snsHTTPClient is a dedicated HTTP client for SNS endpoint delivery with a
-// bounded timeout to prevent indefinite blocking on slow/unresponsive endpoints.
-var snsHTTPClient = &http.Client{Timeout: snsHTTPTimeout} //nolint:gochecknoglobals // HTTP client default
-
-// deliverHTTP sends a best-effort HTTP POST with the message body to the endpoint.
-// Errors are intentionally ignored: delivery is fire-and-forget for HTTP/HTTPS subscriptions.
-func deliverHTTP(endpoint, body string) {
+// deliverHTTP sends a best-effort HTTP POST with the message body to the endpoint
+// using the provided client. Errors are intentionally ignored: delivery is
+// fire-and-forget for HTTP/HTTPS subscriptions.
+func deliverHTTP(endpoint, body string, client *http.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), snsHTTPTimeout)
 	defer cancel()
 
@@ -692,7 +721,7 @@ func deliverHTTP(endpoint, body string) {
 		return
 	}
 
-	resp, err := snsHTTPClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return
 	}

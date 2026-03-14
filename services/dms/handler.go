@@ -270,7 +270,7 @@ type describeReplicationInstancesOutput struct {
 	ReplicationInstances []replicationInstanceJSON `json:"ReplicationInstances"`
 }
 
-func (h *Handler) handleDescribeReplicationInstances( //nolint:dupl // similar structure by design
+func (h *Handler) handleDescribeReplicationInstances(
 	_ context.Context,
 	in *describeReplicationInstancesInput,
 ) (*describeReplicationInstancesOutput, error) {
@@ -299,19 +299,9 @@ func (h *Handler) handleDescribeReplicationInstances( //nolint:dupl // similar s
 		all = append(all, riToJSON(ri))
 	}
 
-	var limit int
-	if in.MaxRecords != nil && *in.MaxRecords > 0 {
-		limit = int(*in.MaxRecords)
-	}
+	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
 
-	p := page.New(all, ptrStr(in.Marker), limit, dmsDefaultPageSize)
-
-	var nextMarker *string
-	if p.Next != "" {
-		nextMarker = &p.Next
-	}
-
-	return &describeReplicationInstancesOutput{ReplicationInstances: p.Data, Marker: nextMarker}, nil
+	return &describeReplicationInstancesOutput{ReplicationInstances: data, Marker: nextMarker}, nil
 }
 
 type deleteReplicationInstanceInput struct {
@@ -415,7 +405,7 @@ type describeEndpointsOutput struct {
 	Endpoints []endpointJSON `json:"Endpoints"`
 }
 
-func (h *Handler) handleDescribeEndpoints( //nolint:dupl // similar structure by design
+func (h *Handler) handleDescribeEndpoints(
 	_ context.Context,
 	in *describeEndpointsInput,
 ) (*describeEndpointsOutput, error) {
@@ -443,19 +433,9 @@ func (h *Handler) handleDescribeEndpoints( //nolint:dupl // similar structure by
 		all = append(all, epToJSON(ep))
 	}
 
-	var limit int
-	if in.MaxRecords != nil && *in.MaxRecords > 0 {
-		limit = int(*in.MaxRecords)
-	}
+	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
 
-	p := page.New(all, ptrStr(in.Marker), limit, dmsDefaultPageSize)
-
-	var nextMarker *string
-	if p.Next != "" {
-		nextMarker = &p.Next
-	}
-
-	return &describeEndpointsOutput{Endpoints: p.Data, Marker: nextMarker}, nil
+	return &describeEndpointsOutput{Endpoints: data, Marker: nextMarker}, nil
 }
 
 type deleteEndpointInput struct {
@@ -573,19 +553,9 @@ func (h *Handler) handleDescribeReplicationTasks(
 		all = append(all, rtToJSON(rt))
 	}
 
-	var limit int
-	if in.MaxRecords != nil && *in.MaxRecords > 0 {
-		limit = int(*in.MaxRecords)
-	}
+	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
 
-	p := page.New(all, ptrStr(in.Marker), limit, dmsDefaultPageSize)
-
-	var nextMarker *string
-	if p.Next != "" {
-		nextMarker = &p.Next
-	}
-
-	return &describeReplicationTasksOutput{ReplicationTasks: p.Data, Marker: nextMarker}, nil
+	return &describeReplicationTasksOutput{ReplicationTasks: data, Marker: nextMarker}, nil
 }
 
 type startReplicationTaskInput struct {
@@ -825,6 +795,24 @@ func ptrInt32(p *int32) int32 {
 	}
 
 	return *p
+}
+
+// dmsPaginate applies cursor-based pagination to a pre-sorted slice, returning
+// the page data and an optional next-marker pointer.
+func dmsPaginate[T any](all []T, marker *string, maxRecords *int32) ([]T, *string) {
+	var limit int
+	if maxRecords != nil && *maxRecords > 0 {
+		limit = int(*maxRecords)
+	}
+
+	p := page.New(all, ptrStr(marker), limit, dmsDefaultPageSize)
+
+	var nextMarker *string
+	if p.Next != "" {
+		nextMarker = &p.Next
+	}
+
+	return p.Data, nextMarker
 }
 
 func ptrBool(p *bool) bool {
