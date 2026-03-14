@@ -37,6 +37,8 @@ import (
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/labstack/echo/v5"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
@@ -160,6 +162,7 @@ import (
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
+	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -293,6 +296,7 @@ type CLI struct {
 	ssoadminHandler               service.Registerable
 	textractHandler               service.Registerable
 	timestreamwriteHandler        service.Registerable
+	timestreamqueryHandler        service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -789,6 +793,10 @@ func (c *CLI) GetTextractHandler() service.Registerable { return c.textractHandl
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetTimestreamWriteHandler() service.Registerable { return c.timestreamwriteHandler }
+// GetTimestreamQueryHandler returns the Timestream Query handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetTimestreamQueryHandler() service.Registerable { return c.timestreamqueryHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1474,6 +1482,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ssoadminHandler = byName["SsoAdmin"]
 	cli.textractHandler = byName["Textract"]
 	cli.timestreamwriteHandler = byName["TimestreamWrite"]
+	cli.timestreamqueryHandler = byName["TimestreamQuery"]
 }
 
 // initializeServices initializes all service providers.
@@ -1722,6 +1731,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&ssoadminbackend.Provider{},
 		&textractbackend.Provider{},
 		&timestreamwritebackend.Provider{},
+		&timestreamquerybackend.Provider{},
 	}
 }
 
@@ -2794,9 +2804,10 @@ func startServer(ctx context.Context, port string, e *echo.Echo) error {
 	log.InfoContext(ctx, "  S3 endpoint      ", "url", "http://localhost"+port+" (path-style)")
 	log.InfoContext(ctx, "  Dashboard        ", "url", "http://localhost"+port+"/dashboard")
 
+	h2s := &http2.Server{}
 	server := &http.Server{
 		Addr:         port,
-		Handler:      e,
+		Handler:      h2c.NewHandler(e, h2s),
 		ReadTimeout:  defaultTimeout,
 		WriteTimeout: defaultTimeout,
 		IdleTimeout:  defaultTimeout,

@@ -126,6 +126,7 @@ import (
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
+	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 )
 
@@ -292,6 +293,8 @@ type Stack struct {
 	TextractHandler *textractbackend.Handler
 	// TimestreamWriteHandler provides access to the Timestream Write backend.
 	TimestreamWriteHandler *timestreamwritebackend.Handler
+	// TimestreamQueryHandler provides access to the Timestream Query backend.
+	TimestreamQueryHandler *timestreamquerybackend.Handler
 	S3Client               *s3.Client
 	DDBClient              *dynamodb.Client
 	FaultStore             *chaos.FaultStore
@@ -510,6 +513,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.shield)
 	_ = registry.Register(h.textract)
 	_ = registry.Register(h.timestreamwrite)
+	_ = registry.Register(h.timestreamquery)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -622,6 +626,7 @@ type handlers struct {
 	shield             *shieldbackend.Handler
 	textract           *textractbackend.Handler
 	timestreamwrite    *timestreamwritebackend.Handler
+	timestreamquery    *timestreamquerybackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -939,6 +944,9 @@ func populateLatestHandlers(h *handlers) {
 	)
 	h.textract = textractbackend.NewHandler(textractbackend.NewInMemoryBackend())
 	h.timestreamwrite = timestreamwritebackend.NewHandler(timestreamwritebackend.NewInMemoryBackend())
+	h.timestreamquery = timestreamquerybackend.NewHandler(
+		timestreamquerybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -1106,6 +1114,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.ShieldOps = h.shield
 	cfg.TextractOps = h.textract
 	cfg.TimestreamWriteOps = h.timestreamwrite
+	cfg.TimestreamQueryOps = h.timestreamquery
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1320,6 +1329,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.ShieldHandler = h.shield
 	s.TextractHandler = h.textract
 	s.TimestreamWriteHandler = h.timestreamwrite
+	s.TimestreamQueryHandler = h.timestreamquery
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

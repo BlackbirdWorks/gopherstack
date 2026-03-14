@@ -75,6 +75,7 @@ type docPageData struct {
 	SageMakerRuntimeOps        []string
 	SsoAdminOps                []string
 	TextractOps                []string
+	TimestreamQueryOps         []string
 }
 
 // docIndex renders the documentation page.
@@ -161,6 +162,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		SageMakerRuntimeOps:        h.getSupportedOps(h.SageMakerRuntimeOps),
 		SsoAdminOps:                h.getSupportedOps(h.SsoAdminOps),
 		TextractOps:                h.getSupportedOps(h.TextractOps),
+		TimestreamQueryOps:         h.getSupportedOps(h.TimestreamQueryOps),
 	}
 
 	h.renderTemplate(w, "doc.html", data)

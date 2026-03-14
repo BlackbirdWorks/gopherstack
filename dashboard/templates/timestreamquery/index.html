@@ -1,0 +1,128 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                </svg>
+                Timestream Query
+                <span
+                    class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-300">
+                    {{len .ScheduledQueries}} scheduled queries
+                </span>
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">Amazon Timestream Query provides a fast, scalable, serverless time-series database query service.</p>
+        </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
+            <button type="button" onclick="document.getElementById('create-sq-modal').classList.remove('hidden')"
+                class="text-white bg-cyan-700 hover:bg-cyan-800 focus:ring-4 focus:ring-cyan-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-cyan-600 dark:hover:bg-cyan-700 focus:outline-none dark:focus:ring-cyan-800">
+                + Create Scheduled Query
+            </button>
+        </div>
+    </div>
+
+    <!-- Scheduled Queries Table -->
+    <div
+        class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm mb-8">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">State</th>
+                    <th scope="col" class="px-6 py-3">Schedule</th>
+                    <th scope="col" class="px-6 py-3">Query</th>
+                    <th scope="col" class="px-6 py-3">ARN</th>
+                    <th scope="col" class="px-6 py-3">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .ScheduledQueries}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
+                    <td class="px-6 py-4">
+                        {{if eq .State "ENABLED"}}
+                        <span class="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">{{.State}}</span>
+                        {{else}}
+                        <span class="px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300">{{.State}}</span>
+                        {{end}}
+                    </td>
+                    <td class="px-6 py-4 font-mono text-xs">{{.ScheduleExpression}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.QueryString}}">{{.QueryString}}</td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.Arn}}">{{.Arn}}</td>
+                    <td class="px-6 py-4">
+                        <form method="POST" action="/dashboard/timestreamquery/delete" hx-boost="false"
+                            data-name="{{.Name}}"
+                            onsubmit="return confirm('Delete scheduled query ' + this.dataset.name + '?')">
+                            <input type="hidden" name="arn" value="{{.Arn}}">
+                            <button type="submit"
+                                class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 text-xs font-medium">
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr>
+                    <td colspan="6"
+                        class="px-6 py-8 text-center text-slate-500 dark:text-slate-400 text-sm italic">
+                        No scheduled queries found. Create one to get started.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Create Scheduled Query Modal -->
+<div id="create-sq-modal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 dark:bg-slate-900 dark:bg-opacity-75 transition-opacity" onclick="document.getElementById('create-sq-modal').classList.add('hidden')"></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+        <div class="inline-block align-bottom bg-white dark:bg-slate-800 rounded-xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border border-slate-200 dark:border-slate-700">
+            <form method="POST" action="/dashboard/timestreamquery/create" hx-boost="false">
+                <div class="bg-white dark:bg-slate-800 px-6 pt-5 pb-4">
+                    <h3 class="text-xl font-semibold text-slate-900 dark:text-white mb-4" id="modal-title">Create Scheduled Query</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="name" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Name</label>
+                            <input type="text" name="name" id="name" required
+                                class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                                placeholder="my-scheduled-query">
+                        </div>
+                        <div>
+                            <label for="query_string" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Query String</label>
+                            <textarea name="query_string" id="query_string" rows="3" required
+                                class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-mono bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                                placeholder="SELECT * FROM my_database.my_table WHERE time BETWEEN ago(1h) AND now()"></textarea>
+                        </div>
+                        <div>
+                            <label for="schedule_expression" class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Schedule Expression</label>
+                            <input type="text" name="schedule_expression" id="schedule_expression" required
+                                class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                                placeholder="rate(1 hour)">
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-slate-50 dark:bg-slate-900 px-6 py-4 flex justify-end gap-3">
+                    <button type="button" onclick="document.getElementById('create-sq-modal').classList.add('hidden')"
+                        class="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                        class="px-4 py-2 text-sm font-medium text-white bg-cyan-700 hover:bg-cyan-800 dark:bg-cyan-600 dark:hover:bg-cyan-700 rounded-lg">
+                        Create
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{{end}}
