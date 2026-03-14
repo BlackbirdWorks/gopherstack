@@ -73,3 +73,40 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	err := b.Restore([]byte("not-valid-json"))
 	require.Error(t, err)
 }
+
+func TestPersistenceNewTypes(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	// Add spot requests and placement groups
+	req, err := b.RequestSpotInstances("ami-123", "t2.micro", "", "0.01")
+	require.NoError(t, err)
+
+	_, err = b.CreatePlacementGroup("persist-pg", "cluster")
+	require.NoError(t, err)
+
+	eni, err := b.CreateNetworkInterface("subnet-default", "persist-eni")
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := newTestBackend()
+	require.NoError(t, b2.Restore(snap))
+
+	// Verify spot requests persisted
+	reqs := b2.DescribeSpotInstanceRequests([]string{req.ID})
+	require.Len(t, reqs, 1)
+	assert.Equal(t, req.ID, reqs[0].ID)
+
+	// Verify placement groups persisted
+	pgs := b2.DescribePlacementGroups([]string{"persist-pg"})
+	require.Len(t, pgs, 1)
+	assert.Equal(t, "persist-pg", pgs[0].Name)
+
+	// Verify ENIs persisted
+	enis := b2.DescribeNetworkInterfaces([]string{eni.ID})
+	require.Len(t, enis, 1)
+	assert.Equal(t, "persist-eni", enis[0].Description)
+}

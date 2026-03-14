@@ -1579,3 +1579,858 @@ func TestPersistenceWithExtendedResources(t *testing.T) {
 	enis := b2.DescribeNetworkInterfaces(nil)
 	assert.NotEmpty(t, enis)
 }
+
+func TestNetworkInterfaceCRUD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*ec2.InMemoryBackend) string
+		name    string
+		op      string
+		wantErr bool
+	}{
+		{
+			name: "create_eni",
+			op:   "create",
+		},
+		{
+			name:    "create_eni_bad_subnet",
+			op:      "create_bad_subnet",
+			wantErr: true,
+		},
+		{
+			name: "delete_eni",
+			op:   "delete",
+		},
+		{
+			name:    "delete_eni_not_found",
+			op:      "delete_not_found",
+			wantErr: true,
+		},
+		{
+			name: "attach_detach_eni",
+			op:   "attach_detach",
+		},
+		{
+			name:    "detach_not_found",
+			op:      "detach_not_found",
+			wantErr: true,
+		},
+		{
+			name:    "delete_attached_eni",
+			op:      "delete_attached",
+			wantErr: true,
+		},
+		{
+			name: "assign_private_ips_by_count",
+			op:   "assign_count",
+		},
+		{
+			name: "assign_private_ips_explicit",
+			op:   "assign_explicit",
+		},
+		{
+			name: "unassign_private_ips",
+			op:   "unassign",
+		},
+		{
+			name: "modify_description",
+			op:   "modify_description",
+		},
+		{
+			name: "modify_source_dest_check",
+			op:   "modify_source_dest",
+		},
+		{
+			name:    "modify_not_found",
+			op:      "modify_not_found",
+			wantErr: true,
+		},
+		{
+			name:    "attach_already_attached",
+			op:      "attach_already_attached",
+			wantErr: true,
+		},
+		{
+			name:    "modify_unknown_attr",
+			op:      "modify_unknown_attr",
+			wantErr: true,
+		},
+		{
+			name: "modify_clear_description",
+			op:   "modify_clear_description",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			var err error
+
+			switch tt.op {
+			case "create":
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "test-eni")
+				require.NoError(t, cerr)
+				assert.NotEmpty(t, eni.ID)
+				assert.Equal(t, "available", eni.Status)
+				assert.Equal(t, "test-eni", eni.Description)
+				assert.True(t, eni.SourceDestCheck)
+
+			case "create_bad_subnet":
+				_, err = b.CreateNetworkInterface("subnet-nonexistent", "")
+				require.Error(t, err)
+
+			case "delete":
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				err = b.DeleteNetworkInterface(eni.ID)
+				require.NoError(t, err)
+				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+				assert.Empty(t, enis)
+
+			case "delete_not_found":
+				err = b.DeleteNetworkInterface("eni-nonexistent")
+				require.Error(t, err)
+
+			case "attach_detach":
+				instances, cerr := b.RunInstances("ami-123", "t2.micro", "", 1)
+				require.NoError(t, cerr)
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+
+				attachID, aerr := b.AttachNetworkInterface(eni.ID, instances[0].ID, 1)
+				require.NoError(t, aerr)
+				assert.NotEmpty(t, attachID)
+
+				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+				require.Len(t, enis, 1)
+				assert.Equal(t, "in-use", enis[0].Status)
+				assert.Equal(t, attachID, enis[0].AttachmentID)
+
+				derr := b.DetachNetworkInterface(attachID, false)
+				require.NoError(t, derr)
+
+				enis = b.DescribeNetworkInterfaces([]string{eni.ID})
+				require.Len(t, enis, 1)
+				assert.Equal(t, "available", enis[0].Status)
+				assert.Empty(t, enis[0].AttachmentID)
+
+			case "detach_not_found":
+				err = b.DetachNetworkInterface("eni-attach-nonexistent", false)
+				require.Error(t, err)
+
+			case "delete_attached":
+				instances, cerr := b.RunInstances("ami-123", "t2.micro", "", 1)
+				require.NoError(t, cerr)
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				_, aerr := b.AttachNetworkInterface(eni.ID, instances[0].ID, 1)
+				require.NoError(t, aerr)
+				err = b.DeleteNetworkInterface(eni.ID)
+				require.Error(t, err)
+
+			case "assign_count":
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				aerr := b.AssignPrivateIPAddresses(eni.ID, 2, nil)
+				require.NoError(t, aerr)
+				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+				require.Len(t, enis, 1)
+				assert.Len(t, enis[0].SecondaryPrivateIPs, 2)
+
+			case "assign_explicit":
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				aerr := b.AssignPrivateIPAddresses(eni.ID, 0, []string{"10.0.1.100", "10.0.1.101"})
+				require.NoError(t, aerr)
+				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+				require.Len(t, enis, 1)
+				assert.Contains(t, enis[0].SecondaryPrivateIPs, "10.0.1.100")
+				assert.Contains(t, enis[0].SecondaryPrivateIPs, "10.0.1.101")
+
+			case "unassign":
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				aerr := b.AssignPrivateIPAddresses(eni.ID, 0, []string{"10.0.1.100"})
+				require.NoError(t, aerr)
+				uerr := b.UnassignPrivateIPAddresses(eni.ID, []string{"10.0.1.100"})
+				require.NoError(t, uerr)
+				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+				require.Len(t, enis, 1)
+				assert.Empty(t, enis[0].SecondaryPrivateIPs)
+
+			case "modify_description":
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "original")
+				require.NoError(t, cerr)
+				merr := b.ModifyNetworkInterfaceAttribute(eni.ID, "description", "updated")
+				require.NoError(t, merr)
+				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+				require.Len(t, enis, 1)
+				assert.Equal(t, "updated", enis[0].Description)
+
+			case "modify_source_dest":
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				merr := b.ModifyNetworkInterfaceAttribute(eni.ID, "sourceDestCheck", "false")
+				require.NoError(t, merr)
+				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+				require.Len(t, enis, 1)
+				assert.False(t, enis[0].SourceDestCheck)
+
+			case "modify_not_found":
+				err = b.ModifyNetworkInterfaceAttribute("eni-nonexistent", "description", "x")
+				require.Error(t, err)
+
+			case "attach_already_attached":
+				instances, cerr := b.RunInstances("ami-123", "t2.micro", "", 1)
+				require.NoError(t, cerr)
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				_, aerr := b.AttachNetworkInterface(eni.ID, instances[0].ID, 1)
+				require.NoError(t, aerr)
+				_, err = b.AttachNetworkInterface(eni.ID, instances[0].ID, 2)
+				require.Error(t, err)
+
+			case "modify_unknown_attr":
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "")
+				require.NoError(t, cerr)
+				err = b.ModifyNetworkInterfaceAttribute(eni.ID, "unknownAttr", "value")
+				require.Error(t, err)
+
+			case "modify_clear_description":
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "original")
+				require.NoError(t, cerr)
+				merr := b.ModifyNetworkInterfaceAttribute(eni.ID, "description", "")
+				require.NoError(t, merr)
+				enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+				require.Len(t, enis, 1)
+				assert.Empty(t, enis[0].Description)
+			}
+
+			if tt.wantErr {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestSpotInstanceOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		op      string
+		wantErr bool
+	}{
+		{name: "request_spot", op: "request"},
+		{name: "request_bad_image", op: "request_bad_image", wantErr: true},
+		{name: "describe_all", op: "describe_all"},
+		{name: "describe_by_id", op: "describe_by_id"},
+		{name: "cancel", op: "cancel"},
+		{name: "cancel_not_found", op: "cancel_not_found", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			switch tt.op {
+			case "request":
+				req, err := b.RequestSpotInstances("ami-123", "t2.micro", "", "0.05")
+				require.NoError(t, err)
+				assert.NotEmpty(t, req.ID)
+				assert.Equal(t, "active", req.State)
+				assert.NotEmpty(t, req.InstanceID)
+
+			case "request_bad_image":
+				_, err := b.RequestSpotInstances("", "t2.micro", "", "0.05")
+				require.Error(t, err)
+
+			case "describe_all":
+				_, err := b.RequestSpotInstances("ami-123", "t2.micro", "", "0.01")
+				require.NoError(t, err)
+				reqs := b.DescribeSpotInstanceRequests(nil)
+				assert.NotEmpty(t, reqs)
+
+			case "describe_by_id":
+				req, err := b.RequestSpotInstances("ami-123", "t2.micro", "", "0.01")
+				require.NoError(t, err)
+				reqs := b.DescribeSpotInstanceRequests([]string{req.ID})
+				require.Len(t, reqs, 1)
+				assert.Equal(t, req.ID, reqs[0].ID)
+
+			case "cancel":
+				req, err := b.RequestSpotInstances("ami-123", "t2.micro", "", "0.01")
+				require.NoError(t, err)
+				err = b.CancelSpotInstanceRequests([]string{req.ID})
+				require.NoError(t, err)
+				reqs := b.DescribeSpotInstanceRequests([]string{req.ID})
+				require.Len(t, reqs, 1)
+				assert.Equal(t, "cancelled", reqs[0].State)
+
+			case "cancel_not_found":
+				err := b.CancelSpotInstanceRequests([]string{"sir-nonexistent"})
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestPlacementGroupOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		op      string
+		wantErr bool
+	}{
+		{name: "create", op: "create"},
+		{name: "create_bad_name", op: "create_bad_name", wantErr: true},
+		{name: "create_duplicate", op: "create_duplicate", wantErr: true},
+		{name: "describe_all", op: "describe_all"},
+		{name: "describe_by_name", op: "describe_by_name"},
+		{name: "delete", op: "delete"},
+		{name: "delete_not_found", op: "delete_not_found", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			switch tt.op {
+			case "create":
+				pg, err := b.CreatePlacementGroup("test-pg", "cluster")
+				require.NoError(t, err)
+				assert.Equal(t, "test-pg", pg.Name)
+				assert.Equal(t, "cluster", pg.Strategy)
+				assert.Equal(t, "available", pg.State)
+
+			case "create_bad_name":
+				_, err := b.CreatePlacementGroup("", "cluster")
+				require.Error(t, err)
+
+			case "create_duplicate":
+				_, err := b.CreatePlacementGroup("dup-pg", "cluster")
+				require.NoError(t, err)
+				_, err = b.CreatePlacementGroup("dup-pg", "spread")
+				require.Error(t, err)
+
+			case "describe_all":
+				_, err := b.CreatePlacementGroup("pg1", "cluster")
+				require.NoError(t, err)
+				pgs := b.DescribePlacementGroups(nil)
+				assert.NotEmpty(t, pgs)
+
+			case "describe_by_name":
+				_, err := b.CreatePlacementGroup("pg-named", "spread")
+				require.NoError(t, err)
+				pgs := b.DescribePlacementGroups([]string{"pg-named"})
+				require.Len(t, pgs, 1)
+				assert.Equal(t, "pg-named", pgs[0].Name)
+
+			case "delete":
+				_, err := b.CreatePlacementGroup("del-pg", "cluster")
+				require.NoError(t, err)
+				err = b.DeletePlacementGroup("del-pg")
+				require.NoError(t, err)
+				pgs := b.DescribePlacementGroups([]string{"del-pg"})
+				assert.Empty(t, pgs)
+
+			case "delete_not_found":
+				err := b.DeletePlacementGroup("nonexistent-pg")
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestHandlerNewOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn      func(*ec2.Handler) string
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		// ---- NetworkInterface ----
+		{
+			name:         "CreateNetworkInterface_success",
+			body:         "Action=CreateNetworkInterface&Version=2016-11-15&SubnetId=subnet-default&Description=test",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateNetworkInterfaceResponse", "eni-"},
+		},
+		{
+			name:         "CreateNetworkInterface_missing_subnet",
+			body:         "Action=CreateNetworkInterface&Version=2016-11-15",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "DeleteNetworkInterface_success",
+			setupFn: func(h *ec2.Handler) string {
+				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "")
+
+				return fmt.Sprintf(
+					"Action=DeleteNetworkInterface&Version=2016-11-15&NetworkInterfaceId=%s",
+					url.QueryEscape(eni.ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteNetworkInterfaceResponse"},
+		},
+		{
+			name:         "DeleteNetworkInterface_not_found",
+			body:         "Action=DeleteNetworkInterface&Version=2016-11-15&NetworkInterfaceId=eni-nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidNetworkInterfaceID.NotFound"},
+		},
+		{
+			name: "AttachNetworkInterface_success",
+			setupFn: func(h *ec2.Handler) string {
+				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "")
+
+				return fmt.Sprintf(
+					"Action=AttachNetworkInterface&Version=2016-11-15&NetworkInterfaceId=%s&InstanceId=%s&DeviceIndex=1",
+					url.QueryEscape(eni.ID),
+					url.QueryEscape(instances[0].ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AttachNetworkInterfaceResponse", "eni-attach-"},
+		},
+		{
+			name: "DetachNetworkInterface_success",
+			setupFn: func(h *ec2.Handler) string {
+				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "")
+				attachID, _ := h.Backend.AttachNetworkInterface(eni.ID, instances[0].ID, 1)
+
+				return fmt.Sprintf(
+					"Action=DetachNetworkInterface&Version=2016-11-15&AttachmentId=%s",
+					url.QueryEscape(attachID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DetachNetworkInterfaceResponse"},
+		},
+		{
+			name: "AssignPrivateIPAddresses_success",
+			setupFn: func(h *ec2.Handler) string {
+				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "")
+
+				return fmt.Sprintf(
+					"Action=AssignPrivateIpAddresses&Version=2016-11-15&NetworkInterfaceId=%s&SecondaryPrivateIpAddressCount=1",
+					url.QueryEscape(eni.ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AssignPrivateIpAddressesResponse"},
+		},
+		{
+			name: "UnassignPrivateIPAddresses_success",
+			setupFn: func(h *ec2.Handler) string {
+				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "")
+				_ = h.Backend.AssignPrivateIPAddresses(eni.ID, 0, []string{"10.0.1.50"})
+
+				return fmt.Sprintf(
+					"Action=UnassignPrivateIpAddresses&Version=2016-11-15&NetworkInterfaceId=%s&PrivateIpAddress.1=10.0.1.50",
+					url.QueryEscape(eni.ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"UnassignPrivateIpAddressesResponse"},
+		},
+		{
+			name: "ModifyNetworkInterfaceAttribute_description",
+			setupFn: func(h *ec2.Handler) string {
+				eni, _ := h.Backend.CreateNetworkInterface("subnet-default", "orig")
+
+				return fmt.Sprintf(
+					"Action=ModifyNetworkInterfaceAttribute&Version=2016-11-15&NetworkInterfaceId=%s&Description.Value=new-desc",
+					url.QueryEscape(eni.ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ModifyNetworkInterfaceAttributeResponse"},
+		},
+		// ---- Instance Attribute stubs ----
+		{
+			name: "ModifyInstanceAttribute_success",
+			setupFn: func(h *ec2.Handler) string {
+				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+
+				return fmt.Sprintf(
+					"Action=ModifyInstanceAttribute&Version=2016-11-15&InstanceId=%s&InstanceType.Value=t3.micro",
+					url.QueryEscape(instances[0].ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ModifyInstanceAttributeResponse"},
+		},
+		{
+			name:         "ModifyInstanceAttribute_missing_id",
+			body:         "Action=ModifyInstanceAttribute&Version=2016-11-15",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "ModifyInstanceAttribute_not_found",
+			body: "Action=ModifyInstanceAttribute&Version=2016-11-15" +
+				"&InstanceId=i-nonexistent&InstanceType.Value=t3.micro",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidInstanceID.NotFound"},
+		},
+		{
+			name: "ResetInstanceAttribute_success",
+			setupFn: func(h *ec2.Handler) string {
+				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+
+				return fmt.Sprintf(
+					"Action=ResetInstanceAttribute&Version=2016-11-15&InstanceId=%s&Attribute=sourceDestCheck",
+					url.QueryEscape(instances[0].ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ResetInstanceAttributeResponse"},
+		},
+		{
+			name:         "ResetInstanceAttribute_not_found",
+			body:         "Action=ResetInstanceAttribute&Version=2016-11-15&InstanceId=i-nonexistent&Attribute=sourceDestCheck",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidInstanceID.NotFound"},
+		},
+		// ---- Spot Instances ----
+		{
+			name: "RequestSpotInstances_success",
+			body: "Action=RequestSpotInstances&Version=2016-11-15" +
+				"&LaunchSpecification.ImageId=ami-123" +
+				"&LaunchSpecification.InstanceType=t2.micro" +
+				"&SpotPrice=0.05",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"RequestSpotInstancesResponse", "sir-"},
+		},
+		{
+			name:         "RequestSpotInstances_missing_image",
+			body:         "Action=RequestSpotInstances&Version=2016-11-15&SpotPrice=0.05",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "RequestSpotInstances_missing_instance_type",
+			body:         "Action=RequestSpotInstances&Version=2016-11-15&LaunchSpecification.ImageId=ami-123&SpotPrice=0.05",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "DescribeSpotInstanceRequests_empty",
+			body:         "Action=DescribeSpotInstanceRequests&Version=2016-11-15",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeSpotInstanceRequestsResponse"},
+		},
+		{
+			name: "DescribeSpotInstanceRequests_after_request",
+			setupFn: func(h *ec2.Handler) string {
+				_, _ = h.Backend.RequestSpotInstances("ami-123", "t2.micro", "", "0.01")
+
+				return "Action=DescribeSpotInstanceRequests&Version=2016-11-15"
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeSpotInstanceRequestsResponse", "sir-"},
+		},
+		{
+			name: "CancelSpotInstanceRequests_success",
+			setupFn: func(h *ec2.Handler) string {
+				req, _ := h.Backend.RequestSpotInstances("ami-123", "t2.micro", "", "0.01")
+
+				return fmt.Sprintf(
+					"Action=CancelSpotInstanceRequests&Version=2016-11-15&SpotInstanceRequestId.1=%s",
+					url.QueryEscape(req.ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CancelSpotInstanceRequestsResponse", "cancelled"},
+		},
+		{
+			name:         "CancelSpotInstanceRequests_missing_ids",
+			body:         "Action=CancelSpotInstanceRequests&Version=2016-11-15",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "DescribeSpotPriceHistory",
+			body:         "Action=DescribeSpotPriceHistory&Version=2016-11-15",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeSpotPriceHistoryResponse"},
+		},
+		// ---- Placement Groups ----
+		{
+			name:         "CreatePlacementGroup_success",
+			body:         "Action=CreatePlacementGroup&Version=2016-11-15&GroupName=test-pg&Strategy=cluster",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreatePlacementGroupResponse"},
+		},
+		{
+			name:         "CreatePlacementGroup_missing_name",
+			body:         "Action=CreatePlacementGroup&Version=2016-11-15&Strategy=cluster",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "DescribePlacementGroups_empty",
+			body:         "Action=DescribePlacementGroups&Version=2016-11-15",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribePlacementGroupsResponse"},
+		},
+		{
+			name: "DescribePlacementGroups_after_create",
+			setupFn: func(h *ec2.Handler) string {
+				_, _ = h.Backend.CreatePlacementGroup("list-pg", "spread")
+
+				return "Action=DescribePlacementGroups&Version=2016-11-15"
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribePlacementGroupsResponse", "list-pg"},
+		},
+		{
+			name: "DeletePlacementGroup_success",
+			setupFn: func(h *ec2.Handler) string {
+				_, _ = h.Backend.CreatePlacementGroup("del-pg", "cluster")
+
+				return "Action=DeletePlacementGroup&Version=2016-11-15&GroupName=del-pg"
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeletePlacementGroupResponse"},
+		},
+		{
+			name:         "DeletePlacementGroup_not_found",
+			body:         "Action=DeletePlacementGroup&Version=2016-11-15&GroupName=nonexistent-pg",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidPlacementGroup.NotFound"},
+		},
+		// ---- Volume / Snapshot Attributes ----
+		{
+			name: "DescribeVolumeAttribute_success",
+			setupFn: func(h *ec2.Handler) string {
+				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20)
+
+				return fmt.Sprintf(
+					"Action=DescribeVolumeAttribute&Version=2016-11-15&VolumeId=%s&Attribute=autoEnableIO",
+					url.QueryEscape(vol.ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeVolumeAttributeResponse"},
+		},
+		{
+			name:         "DescribeVolumeAttribute_missing_volume",
+			body:         "Action=DescribeVolumeAttribute&Version=2016-11-15&Attribute=autoEnableIO",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "ModifyVolumeAttribute_success",
+			setupFn: func(h *ec2.Handler) string {
+				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20)
+
+				return fmt.Sprintf(
+					"Action=ModifyVolumeAttribute&Version=2016-11-15&VolumeId=%s&AutoEnableIO.Value=true",
+					url.QueryEscape(vol.ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ModifyVolumeAttributeResponse"},
+		},
+		{
+			name:         "ModifyVolumeAttribute_missing_volume",
+			body:         "Action=ModifyVolumeAttribute&Version=2016-11-15",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "DescribeSnapshotAttribute_success",
+			body: "Action=DescribeSnapshotAttribute&Version=2016-11-15" +
+				"&SnapshotId=snap-12345678&Attribute=createVolumePermission",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeSnapshotAttributeResponse", "snap-12345678"},
+		},
+		{
+			name:         "DescribeSnapshotAttribute_missing_snapshot",
+			body:         "Action=DescribeSnapshotAttribute&Version=2016-11-15&Attribute=createVolumePermission",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "ModifySnapshotAttribute_success",
+			body: "Action=ModifySnapshotAttribute&Version=2016-11-15" +
+				"&SnapshotId=snap-12345678&Attribute=createVolumePermission",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"ModifySnapshotAttributeResponse"},
+		},
+		{
+			name:         "ModifySnapshotAttribute_missing_snapshot",
+			body:         "Action=ModifySnapshotAttribute&Version=2016-11-15",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newExtHandler()
+			body := tt.body
+			if tt.setupFn != nil {
+				body = tt.setupFn(h)
+			}
+
+			rec := postFormExt(t, h, body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, want := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), want, "expected %q in response", want)
+			}
+		})
+	}
+}
+
+// TestHandlerPreviouslyUncoveredOps covers handler functions that had 0% coverage
+// to ensure the overall package coverage meets the 85% threshold.
+func TestHandlerPreviouslyUncoveredOps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupFn      func(*ec2.Handler) string
+		name         string
+		body         string
+		wantContains []string
+		wantCode     int
+	}{
+		{
+			name: "AttachVolume_success",
+			setupFn: func(h *ec2.Handler) string {
+				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20)
+
+				return fmt.Sprintf(
+					"Action=AttachVolume&Version=2016-11-15&VolumeId=%s&InstanceId=%s&Device=/dev/sdf",
+					url.QueryEscape(vol.ID), url.QueryEscape(instances[0].ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AttachVolumeResponse"},
+		},
+		{
+			name: "DetachVolume_success",
+			setupFn: func(h *ec2.Handler) string {
+				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+				vol, _ := h.Backend.CreateVolume("us-east-1a", "gp2", 20)
+				_, _ = h.Backend.AttachVolume(vol.ID, instances[0].ID, "/dev/sdf")
+
+				return fmt.Sprintf(
+					"Action=DetachVolume&Version=2016-11-15&VolumeId=%s",
+					url.QueryEscape(vol.ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DetachVolumeResponse"},
+		},
+		{
+			name: "AssociateAddress_success",
+			setupFn: func(h *ec2.Handler) string {
+				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+				addr, _ := h.Backend.AllocateAddress()
+
+				return fmt.Sprintf(
+					"Action=AssociateAddress&Version=2016-11-15&AllocationId=%s&InstanceId=%s",
+					url.QueryEscape(addr.AllocationID), url.QueryEscape(instances[0].ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AssociateAddressResponse"},
+		},
+		{
+			name: "DisassociateAddress_success",
+			setupFn: func(h *ec2.Handler) string {
+				instances, _ := h.Backend.RunInstances("ami-123", "t2.micro", "", 1)
+				addr, _ := h.Backend.AllocateAddress()
+				assocID, _ := h.Backend.AssociateAddress(addr.AllocationID, instances[0].ID)
+
+				return fmt.Sprintf(
+					"Action=DisassociateAddress&Version=2016-11-15&AssociationId=%s",
+					url.QueryEscape(assocID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DisassociateAddressResponse"},
+		},
+		{
+			name: "AttachInternetGateway_success",
+			setupFn: func(h *ec2.Handler) string {
+				igw, _ := h.Backend.CreateInternetGateway()
+
+				return fmt.Sprintf(
+					"Action=AttachInternetGateway&Version=2016-11-15&InternetGatewayId=%s&VpcId=vpc-default",
+					url.QueryEscape(igw.ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"AttachInternetGatewayResponse"},
+		},
+		{
+			name: "DetachInternetGateway_success",
+			setupFn: func(h *ec2.Handler) string {
+				igw, _ := h.Backend.CreateInternetGateway()
+				_ = h.Backend.AttachInternetGateway(igw.ID, "vpc-default")
+
+				return fmt.Sprintf(
+					"Action=DetachInternetGateway&Version=2016-11-15&InternetGatewayId=%s&VpcId=vpc-default",
+					url.QueryEscape(igw.ID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DetachInternetGatewayResponse"},
+		},
+		{
+			name: "DisassociateRouteTable_success",
+			setupFn: func(h *ec2.Handler) string {
+				rt, _ := h.Backend.CreateRouteTable("vpc-default")
+				assocID, _ := h.Backend.AssociateRouteTable(rt.ID, "subnet-default")
+
+				return fmt.Sprintf(
+					"Action=DisassociateRouteTable&Version=2016-11-15&AssociationId=%s",
+					url.QueryEscape(assocID),
+				)
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DisassociateRouteTableResponse"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newExtHandler()
+			body := tt.body
+			if tt.setupFn != nil {
+				body = tt.setupFn(h)
+			}
+
+			rec := postFormExt(t, h, body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+			for _, want := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), want)
+			}
+		})
+	}
+}
