@@ -11,6 +11,9 @@ type backendSnapshot struct {
 	Groups              map[string]Group             `json:"groups"`
 	AccessKeys          map[string]AccessKey         `json:"accessKeys"`
 	InstanceProfiles    map[string]InstanceProfile   `json:"instanceProfiles"`
+	SAMLProviders       map[string]SAMLProvider      `json:"samlProviders"`
+	OIDCProviders       map[string]OIDCProvider      `json:"oidcProviders"`
+	LoginProfiles       map[string]LoginProfile      `json:"loginProfiles"`
 	UserPolicies        map[string][]string          `json:"userPolicies"`
 	RolePolicies        map[string][]string          `json:"rolePolicies"`
 	GroupPolicies       map[string][]string          `json:"groupPolicies"`
@@ -33,6 +36,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Groups:              b.groups,
 		AccessKeys:          b.accessKeys,
 		InstanceProfiles:    b.instanceProfiles,
+		SAMLProviders:       b.samlProviders,
+		OIDCProviders:       b.oidcProviders,
+		LoginProfiles:       b.loginProfiles,
 		UserPolicies:        b.userPolicies,
 		RolePolicies:        b.rolePolicies,
 		GroupPolicies:       b.groupPolicies,
@@ -59,9 +65,40 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
+	normalizeSnapshot(&snap)
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	b.users = snap.Users
+	b.roles = snap.Roles
+	b.policies = snap.Policies
+	b.groups = snap.Groups
+	b.accessKeys = snap.AccessKeys
+	b.instanceProfiles = snap.InstanceProfiles
+	b.samlProviders = snap.SAMLProviders
+	b.oidcProviders = snap.OIDCProviders
+	b.loginProfiles = snap.LoginProfiles
+	b.userPolicies = snap.UserPolicies
+	b.rolePolicies = snap.RolePolicies
+	b.groupPolicies = snap.GroupPolicies
+	b.userInlinePolicies = snap.UserInlinePolicies
+	b.roleInlinePolicies = snap.RoleInlinePolicies
+	b.groupInlinePolicies = snap.GroupInlinePolicies
+	b.accountID = snap.AccountID
+
+	return nil
+}
+
+// normalizeSnapshot ensures all map fields in snap are non-nil so callers
+// can assign them directly without nil-pointer risk.
+func normalizeSnapshot(snap *backendSnapshot) {
+	normalizeSnapshotEntities(snap)
+	normalizeSnapshotPolicies(snap)
+}
+
+// normalizeSnapshotEntities initialises entity maps in snap to non-nil empty maps.
+func normalizeSnapshotEntities(snap *backendSnapshot) {
 	if snap.Users == nil {
 		snap.Users = make(map[string]User)
 	}
@@ -86,6 +123,21 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.InstanceProfiles = make(map[string]InstanceProfile)
 	}
 
+	if snap.SAMLProviders == nil {
+		snap.SAMLProviders = make(map[string]SAMLProvider)
+	}
+
+	if snap.OIDCProviders == nil {
+		snap.OIDCProviders = make(map[string]OIDCProvider)
+	}
+
+	if snap.LoginProfiles == nil {
+		snap.LoginProfiles = make(map[string]LoginProfile)
+	}
+}
+
+// normalizeSnapshotPolicies initialises policy maps in snap to non-nil empty maps.
+func normalizeSnapshotPolicies(snap *backendSnapshot) {
 	if snap.UserPolicies == nil {
 		snap.UserPolicies = make(map[string][]string)
 	}
@@ -109,22 +161,6 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.GroupInlinePolicies == nil {
 		snap.GroupInlinePolicies = make(map[string]map[string]string)
 	}
-
-	b.users = snap.Users
-	b.roles = snap.Roles
-	b.policies = snap.Policies
-	b.groups = snap.Groups
-	b.accessKeys = snap.AccessKeys
-	b.instanceProfiles = snap.InstanceProfiles
-	b.userPolicies = snap.UserPolicies
-	b.rolePolicies = snap.RolePolicies
-	b.groupPolicies = snap.GroupPolicies
-	b.userInlinePolicies = snap.UserInlinePolicies
-	b.roleInlinePolicies = snap.RoleInlinePolicies
-	b.groupInlinePolicies = snap.GroupInlinePolicies
-	b.accountID = snap.AccountID
-
-	return nil
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

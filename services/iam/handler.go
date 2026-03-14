@@ -109,6 +109,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListRoleTags", "TagRole", "UntagRole",
 		"ListPolicyTags", "TagPolicy", "UntagPolicy",
 		"ListUserTags", "TagUser", "UntagUser",
+		// SAML Providers
+		"CreateSAMLProvider", "UpdateSAMLProvider", "DeleteSAMLProvider",
+		"GetSAMLProvider", "ListSAMLProviders",
+		// OIDC Providers
+		"CreateOpenIDConnectProvider", "UpdateOpenIDConnectProviderThumbprint",
+		"DeleteOpenIDConnectProvider", "GetOpenIDConnectProvider", "ListOpenIDConnectProviders",
+		// Login Profiles
+		"CreateLoginProfile", "UpdateLoginProfile", "DeleteLoginProfile", "GetLoginProfile",
+		// Miscellaneous
+		"GetServiceLastAccessedDetails", "SetSecurityTokenServicePreferences",
 	}
 }
 
@@ -289,6 +299,10 @@ func (h *Handler) buildDispatchTable() map[string]iamActionFn {
 		h.iamAccessKeyDispatchTable(),
 		h.iamInstanceProfileDispatchTable(),
 		h.iamTagDispatchTable(),
+		h.iamSAMLProviderDispatchTable(),
+		h.iamOIDCProviderDispatchTable(),
+		h.iamLoginProfileDispatchTable(),
+		h.iamMiscDispatchTable(),
 	}
 
 	combined := make(map[string]iamActionFn)
@@ -1290,13 +1304,19 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errors.Is(reqErr, ErrGroupNotFound),
 		errors.Is(reqErr, ErrAccessKeyNotFound),
 		errors.Is(reqErr, ErrInstanceProfileNotFound),
-		errors.Is(reqErr, ErrInlinePolicyNotFound):
+		errors.Is(reqErr, ErrInlinePolicyNotFound),
+		errors.Is(reqErr, ErrSAMLProviderNotFound),
+		errors.Is(reqErr, ErrOIDCProviderNotFound),
+		errors.Is(reqErr, ErrLoginProfileNotFound):
 		code = "NoSuchEntity"
 	case errors.Is(reqErr, ErrUserAlreadyExists),
 		errors.Is(reqErr, ErrRoleAlreadyExists),
 		errors.Is(reqErr, ErrPolicyAlreadyExists),
 		errors.Is(reqErr, ErrGroupAlreadyExists),
-		errors.Is(reqErr, ErrInstanceProfileAlreadyExists):
+		errors.Is(reqErr, ErrInstanceProfileAlreadyExists),
+		errors.Is(reqErr, ErrSAMLProviderAlreadyExists),
+		errors.Is(reqErr, ErrOIDCProviderAlreadyExists),
+		errors.Is(reqErr, ErrLoginProfileAlreadyExists):
 		code = "EntityAlreadyExists"
 	case errors.Is(reqErr, ErrDeleteConflict):
 		code = "DeleteConflict"
@@ -1304,6 +1324,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		code = "MalformedPolicyDocument"
 	case errors.Is(reqErr, ErrInvalidAction):
 		code = "InvalidAction"
+	case errors.Is(reqErr, ErrInvalidOIDCProviderURL):
+		code = "InvalidInput"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
