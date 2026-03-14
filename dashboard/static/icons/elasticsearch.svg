@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64px" height="64px" viewBox="0 0 64 64" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>Amazon Elasticsearch Service</title>
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <rect fill="#8C4FFF" x="0" y="0" width="64" height="64" rx="10"/>
+        <text x="32" y="40" font-family="Arial" font-size="22" font-weight="bold" fill="white" text-anchor="middle">ES</text>
+    </g>
+</svg>

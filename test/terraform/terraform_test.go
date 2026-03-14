@@ -75,6 +75,7 @@ import (
 	elasticbeanstalksvc "github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	elbsvc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbv2svc "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
+	elasticsearchsvc "github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
 	elastictranscodersvc "github.com/aws/aws-sdk-go-v2/service/elastictranscoder" //nolint:staticcheck // AWS deprecated the SDK but service still works
 	emrsvc "github.com/aws/aws-sdk-go-v2/service/emr"
 	emrserverlesssvc "github.com/aws/aws-sdk-go-v2/service/emrserverless"
@@ -262,6 +263,7 @@ provider "aws" {
     elbv2           = %[1]q
     elasticache     = %[1]q
     elasticbeanstalk = %[1]q
+    elasticsearch   = %[1]q
     elastictranscoder = %[1]q
     emrserverless   = %[1]q
     emr             = %[1]q
@@ -1868,6 +1870,40 @@ func TestTerraform_OpenSearch(t *testing.T) {
 					DomainName: aws.String(vars["DomainName"].(string)),
 				})
 				require.NoError(t, err, "DescribeDomain should succeed after terraform apply")
+				require.NotNil(t, out.DomainStatus)
+				assert.Equal(t, vars["DomainName"].(string), aws.ToString(out.DomainStatus.DomainName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Elasticsearch provisions an Elasticsearch domain and verifies it exists.
+func TestTerraform_Elasticsearch(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "elasticsearch/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{"DomainName": "tf-es-" + uuid.NewString()[:8]}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+				client := createElasticsearchClient(t)
+				out, err := client.DescribeElasticsearchDomain(ctx, &elasticsearchsvc.DescribeElasticsearchDomainInput{
+					DomainName: aws.String(vars["DomainName"].(string)),
+				})
+				require.NoError(t, err, "DescribeElasticsearchDomain should succeed after terraform apply")
 				require.NotNil(t, out.DomainStatus)
 				assert.Equal(t, vars["DomainName"].(string), aws.ToString(out.DomainStatus.DomainName))
 			},
