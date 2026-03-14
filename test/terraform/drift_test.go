@@ -38,6 +38,30 @@ type planResult struct {
 	HasChanges bool
 }
 
+// tofuEnv returns the environment variables required for all OpenTofu subprocess
+// invocations: automation mode, shared provider-cache path, and the lock-file
+// break flag required when multiple tests share the cache.
+func tofuEnv() []string {
+	return append(os.Environ(),
+		"TF_IN_AUTOMATION=1",
+		"TF_PLUGIN_CACHE_DIR="+tofuProviderCacheDir,
+		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",
+	)
+}
+
+// execTofuCmd runs a single OpenTofu sub-command inside dir and returns the combined
+// stdout+stderr output together with any process error. It uses CommandContext so
+// the subprocess is cancelled promptly when the test context expires.
+func execTofuCmd(ctx context.Context, t *testing.T, tofuBin, dir string, args ...string) ([]byte, error) {
+	t.Helper()
+
+	cmd := exec.CommandContext(ctx, tofuBin, args...)
+	cmd.Dir = dir
+	cmd.Env = tofuEnv()
+
+	return cmd.CombinedOutput()
+}
+
 // runTofuPlan runs `tofu plan -detailed-exitcode` in dir and reports whether
 // Terraform detected any pending changes.
 //
@@ -45,18 +69,10 @@ type planResult struct {
 //   - 0 = no changes
 //   - 1 = error
 //   - 2 = changes detected
-func runTofuPlan(t *testing.T, tofuBin, dir string) planResult {
+func runTofuPlan(ctx context.Context, t *testing.T, tofuBin, dir string) planResult {
 	t.Helper()
 
-	cmd := exec.Command(tofuBin, "plan", "-detailed-exitcode", "-no-color")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"TF_IN_AUTOMATION=1",
-		"TF_PLUGIN_CACHE_DIR="+tofuProviderCacheDir,
-		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",
-	)
-
-	out, err := cmd.CombinedOutput()
+	out, err := execTofuCmd(ctx, t, tofuBin, dir, "plan", "-detailed-exitcode", "-no-color")
 	t.Logf("tofu plan:\n%s", out)
 
 	if err == nil {
@@ -119,21 +135,11 @@ func runDriftTest(t *testing.T, tc driftTestCase) {
 	tc.mutate(t, ctx, vars)
 
 	// Step 3: plan should detect drift.
-	plan := runTofuPlan(t, tofuBin, dir)
+	plan := runTofuPlan(ctx, t, tofuBin, dir)
 	assert.True(t, plan.HasChanges, "tofu plan should detect infrastructure drift")
 
 	// Step 4: apply to correct drift.
-	env := append(os.Environ(),
-		"TF_IN_AUTOMATION=1",
-		"TF_PLUGIN_CACHE_DIR="+tofuProviderCacheDir,
-		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true",
-	)
-
-	correctCmd := exec.Command(tofuBin, "apply", "-auto-approve", "-no-color")
-	correctCmd.Dir = dir
-	correctCmd.Env = env
-
-	correctOut, correctErr := correctCmd.CombinedOutput()
+	correctOut, correctErr := execTofuCmd(ctx, t, tofuBin, dir, "apply", "-auto-approve", "-no-color")
 	t.Logf("tofu apply (drift correction):\n%s", correctOut)
 	require.NoError(t, correctErr, "tofu apply should correct drift")
 
@@ -144,14 +150,20 @@ func runDriftTest(t *testing.T, tc driftTestCase) {
 }
 
 // TestTerraformDrift_DynamoDB verifies that Terraform detects and corrects drift
-// when the DynamoDB billing mode is changed directly via the SDK.
+// when DynamoDB provisioned throughput is changed directly via the SDK.
+//
+// The fixture uses PROVISIONED billing mode (read_capacity=5, write_capacity=5).
+// The backend always returns BillingModeSummary=PROVISIONED so using PROVISIONED
+// in the fixture ensures no spurious plan changes unrelated to the drift mutation.
+// The mutation bumps read_capacity to 10; the verification confirms it is restored
+// to 5 after the correction apply.
 func TestTerraformDrift_DynamoDB(t *testing.T) {
 	t.Parallel()
 
 	tests := []driftTestCase{
 		{
-			name:    "billing_mode",
-			fixture: "dynamodb/success",
+			name:    "provisioned_throughput",
+			fixture: "dynamodb/drift",
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
@@ -162,10 +174,9 @@ func TestTerraformDrift_DynamoDB(t *testing.T) {
 
 				client := createDynamoDBClient(t)
 				_, err := client.UpdateTable(ctx, &dynamodb.UpdateTableInput{
-					TableName:   aws.String(vars["TableName"].(string)),
-					BillingMode: ddbtypes.BillingModeProvisioned,
+					TableName: aws.String(vars["TableName"].(string)),
 					ProvisionedThroughput: &ddbtypes.ProvisionedThroughput{
-						ReadCapacityUnits:  aws.Int64(5),
+						ReadCapacityUnits:  aws.Int64(10),
 						WriteCapacityUnits: aws.Int64(5),
 					},
 				})
@@ -180,8 +191,9 @@ func TestTerraformDrift_DynamoDB(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeTable should succeed after drift correction")
 				require.NotNil(t, out.Table)
-				assert.Equal(t, ddbtypes.BillingModePayPerRequest, out.Table.BillingModeSummary.BillingMode,
-					"billing mode should be restored to PAY_PER_REQUEST after drift correction")
+				require.NotNil(t, out.Table.ProvisionedThroughput)
+				assert.EqualValues(t, 5, aws.ToInt64(out.Table.ProvisionedThroughput.ReadCapacityUnits),
+					"read_capacity should be restored to 5 after drift correction")
 			},
 		},
 	}
