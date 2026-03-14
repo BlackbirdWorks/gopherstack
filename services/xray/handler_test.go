@@ -102,6 +102,7 @@ func TestHandler_CreateGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*xray.Handler)
 		body       map[string]any
 		name       string
 		wantStatus int
@@ -117,7 +118,10 @@ func TestHandler_CreateGroup(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "duplicate group returns 400",
+			name: "duplicate group returns 400",
+			setup: func(h *xray.Handler) {
+				_, _ = h.Backend.CreateGroup("dup-group", "")
+			},
 			body:       map[string]any{"GroupName": "dup-group"},
 			wantStatus: http.StatusBadRequest,
 		},
@@ -129,9 +133,8 @@ func TestHandler_CreateGroup(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.name == "duplicate group returns 400" {
-				rec := doXrayRequest(t, h, "/CreateGroup", tt.body)
-				require.Equal(t, http.StatusOK, rec.Code)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
 
 			rec := doXrayRequest(t, h, "/CreateGroup", tt.body)
@@ -190,12 +193,16 @@ func TestHandler_DeleteGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*xray.Handler)
 		body       map[string]any
 		name       string
 		wantStatus int
 	}{
 		{
-			name:       "deletes existing group",
+			name: "deletes existing group",
+			setup: func(h *xray.Handler) {
+				_, _ = h.Backend.CreateGroup("my-group", "")
+			},
 			body:       map[string]any{"GroupName": "my-group"},
 			wantStatus: http.StatusOK,
 		},
@@ -217,9 +224,8 @@ func TestHandler_DeleteGroup(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.name == "deletes existing group" {
-				rec := doXrayRequest(t, h, "/CreateGroup", map[string]any{"GroupName": "my-group"})
-				require.Equal(t, http.StatusOK, rec.Code)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
 
 			rec := doXrayRequest(t, h, "/DeleteGroup", tt.body)
@@ -333,12 +339,16 @@ func TestHandler_GetGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*xray.Handler)
 		body       map[string]any
 		name       string
 		wantStatus int
 	}{
 		{
-			name:       "gets existing group",
+			name: "gets existing group",
+			setup: func(h *xray.Handler) {
+				_, _ = h.Backend.CreateGroup("my-group", "")
+			},
 			body:       map[string]any{"GroupName": "my-group"},
 			wantStatus: http.StatusOK,
 		},
@@ -360,9 +370,8 @@ func TestHandler_GetGroup(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.name == "gets existing group" {
-				rec := doXrayRequest(t, h, "/CreateGroup", map[string]any{"GroupName": "my-group"})
-				require.Equal(t, http.StatusOK, rec.Code)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
 
 			rec := doXrayRequest(t, h, "/GetGroup", tt.body)
@@ -375,12 +384,16 @@ func TestHandler_UpdateGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*xray.Handler)
 		body       map[string]any
 		name       string
 		wantStatus int
 	}{
 		{
-			name:       "updates existing group",
+			name: "updates existing group",
+			setup: func(h *xray.Handler) {
+				_, _ = h.Backend.CreateGroup("my-group", "")
+			},
 			body:       map[string]any{"GroupName": "my-group", "FilterExpression": `service("updated")`},
 			wantStatus: http.StatusOK,
 		},
@@ -402,9 +415,8 @@ func TestHandler_UpdateGroup(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.name == "updates existing group" {
-				rec := doXrayRequest(t, h, "/CreateGroup", map[string]any{"GroupName": "my-group"})
-				require.Equal(t, http.StatusOK, rec.Code)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
 
 			rec := doXrayRequest(t, h, "/UpdateGroup", tt.body)
@@ -462,12 +474,18 @@ func TestHandler_UpdateSamplingRule(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*xray.Handler)
 		body       map[string]any
 		name       string
 		wantStatus int
 	}{
 		{
 			name: "updates existing rule",
+			setup: func(h *xray.Handler) {
+				_, _ = h.Backend.CreateSamplingRule(
+					xray.SamplingRule{RuleName: "my-rule", FixedRate: 0.05, Priority: 1},
+				)
+			},
 			body: map[string]any{
 				"SamplingRuleUpdate": map[string]any{"RuleName": "my-rule", "ServiceName": "updated-svc"},
 			},
@@ -495,11 +513,8 @@ func TestHandler_UpdateSamplingRule(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.name == "updates existing rule" {
-				rec := doXrayRequest(t, h, "/CreateSamplingRule", map[string]any{
-					"SamplingRule": map[string]any{"RuleName": "my-rule", "FixedRate": 0.05, "Priority": 1},
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
 
 			rec := doXrayRequest(t, h, "/UpdateSamplingRule", tt.body)
@@ -512,12 +527,18 @@ func TestHandler_DeleteSamplingRule(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup      func(*xray.Handler)
 		body       map[string]any
 		name       string
 		wantStatus int
 	}{
 		{
-			name:       "deletes existing rule",
+			name: "deletes existing rule",
+			setup: func(h *xray.Handler) {
+				_, _ = h.Backend.CreateSamplingRule(
+					xray.SamplingRule{RuleName: "my-rule", FixedRate: 0.05, Priority: 1},
+				)
+			},
 			body:       map[string]any{"RuleName": "my-rule"},
 			wantStatus: http.StatusOK,
 		},
@@ -539,11 +560,8 @@ func TestHandler_DeleteSamplingRule(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.name == "deletes existing rule" {
-				rec := doXrayRequest(t, h, "/CreateSamplingRule", map[string]any{
-					"SamplingRule": map[string]any{"RuleName": "my-rule", "FixedRate": 0.05, "Priority": 1},
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
 
 			rec := doXrayRequest(t, h, "/DeleteSamplingRule", tt.body)
@@ -556,6 +574,7 @@ func TestHandler_BatchGetTraces(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup       func(*xray.Handler)
 		body        map[string]any
 		name        string
 		wantStatus  int
@@ -563,7 +582,10 @@ func TestHandler_BatchGetTraces(t *testing.T) {
 		wantMissing int
 	}{
 		{
-			name:        "returns known trace",
+			name: "returns known trace",
+			setup: func(h *xray.Handler) {
+				_ = h.Backend.PutTraceSegments([]string{`{"trace_id":"1-abc123","id":"s1","name":"test"}`})
+			},
 			body:        map[string]any{"TraceIds": []string{"1-abc123"}},
 			wantStatus:  http.StatusOK,
 			wantTraces:  1,
@@ -589,11 +611,8 @@ func TestHandler_BatchGetTraces(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			if tt.name == "returns known trace" {
-				rec := doXrayRequest(t, h, "/TraceSegments", map[string]any{
-					"TraceSegmentDocuments": []string{`{"trace_id":"1-abc123","id":"s1","name":"test"}`},
-				})
-				require.Equal(t, http.StatusOK, rec.Code)
+			if tt.setup != nil {
+				tt.setup(h)
 			}
 
 			rec := doXrayRequest(t, h, "/Traces", tt.body)
