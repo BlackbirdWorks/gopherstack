@@ -130,6 +130,7 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 )
 
 const (
@@ -301,7 +302,9 @@ type Stack struct {
 	TimestreamQueryHandler *timestreamquerybackend.Handler
 	// TransferHandler provides access to the Transfer backend.
 	TransferHandler *transferbackend.Handler
-	S3Client        *s3.Client
+	// XrayHandler provides access to the X-Ray backend.
+	XrayHandler *xraybackend.Handler
+	S3Client    *s3.Client
 	DDBClient       *dynamodb.Client
 	FaultStore      *chaos.FaultStore
 	Dashboard       *dashboard.DashboardHandler
@@ -522,6 +525,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.timestreamwrite)
 	_ = registry.Register(h.timestreamquery)
 	_ = registry.Register(h.transfer)
+	_ = registry.Register(h.xray)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -637,6 +641,7 @@ type handlers struct {
 	timestreamwrite    *timestreamwritebackend.Handler
 	timestreamquery    *timestreamquerybackend.Handler
 	transfer           *transferbackend.Handler
+	xray               *xraybackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -965,12 +970,13 @@ func populateLatestMLHandlers(h *handlers) {
 	populateTransferHandlers(h)
 }
 
-// populateTransferHandlers initializes the Transfer service handler.
+// populateTransferHandlers initializes the Transfer and X-Ray service handlers.
 // Extracted from populateLatestHandlers to satisfy the funlen limit.
 func populateTransferHandlers(h *handlers) {
 	h.transfer = transferbackend.NewHandler(
 		transferbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.xray = xraybackend.NewHandler(xraybackend.NewInMemoryBackend())
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -1141,6 +1147,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.TimestreamWriteOps = h.timestreamwrite
 	cfg.TimestreamQueryOps = h.timestreamquery
 	cfg.TransferOps = h.transfer
+	cfg.XrayOps = h.xray
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1358,6 +1365,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.TimestreamWriteHandler = h.timestreamwrite
 	s.TimestreamQueryHandler = h.timestreamquery
 	s.TransferHandler = h.transfer
+	s.XrayHandler = h.xray
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".

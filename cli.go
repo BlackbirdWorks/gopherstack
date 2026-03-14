@@ -166,6 +166,7 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -301,6 +302,7 @@ type CLI struct {
 	timestreamwriteHandler        service.Registerable
 	timestreamqueryHandler        service.Registerable
 	transferHandler               service.Registerable
+	xrayHandler                   service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -812,6 +814,11 @@ func (c *CLI) GetTimestreamQueryHandler() service.Registerable { return c.timest
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetTransferHandler() service.Registerable { return c.transferHandler }
+
+// GetXrayHandler returns the X-Ray handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetXrayHandler() service.Registerable { return c.xrayHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1500,6 +1507,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.timestreamwriteHandler = byName["TimestreamWrite"]
 	cli.timestreamqueryHandler = byName["TimestreamQuery"]
 	cli.transferHandler = byName["Transfer"]
+	cli.xrayHandler = byName["Xray"]
 }
 
 // initializeServices initializes all service providers.
@@ -1751,6 +1759,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&timestreamwritebackend.Provider{},
 		&timestreamquerybackend.Provider{},
 		&transferbackend.Provider{},
+		&xraybackend.Provider{},
 	}
 }
 
