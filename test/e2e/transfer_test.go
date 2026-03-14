@@ -118,7 +118,7 @@ func TestTransferDashboard_CreateServer(t *testing.T) {
 	require.NoError(t, err)
 
 	// Select SFTP protocol
-	err = page.Locator("#protocol").SelectOption(playwright.SelectOptionValues{
+	_, err = page.Locator("#protocol").SelectOption(playwright.SelectOptionValues{
 		Values: playwright.StringSlice("SFTP"),
 	})
 	require.NoError(t, err)

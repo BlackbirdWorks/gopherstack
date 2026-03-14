@@ -244,8 +244,8 @@ func TestInMemoryBackend_CreateUser(t *testing.T) {
 			role:     "arn:aws:iam::123456789012:role/transfer-role",
 		},
 		{
-			name:     "empty username",
-			userName: "",
+			name:     "duplicate user",
+			userName: "alice",
 			wantErr:  true,
 		},
 	}
@@ -259,17 +259,17 @@ func TestInMemoryBackend_CreateUser(t *testing.T) {
 			s, err := b.CreateServer(nil, nil)
 			require.NoError(t, err)
 
-			if tt.wantErr && tt.userName == "" {
-				_, err = b.CreateUser(s.ServerID, "", tt.homeDir, tt.role, nil)
-				require.NoError(t, err) // backend allows empty username; handler validates
-
-				return
+			// Pre-seed alice so the duplicate case can trigger a conflict.
+			if tt.wantErr {
+				_, err = b.CreateUser(s.ServerID, "alice", "/alice", "", nil)
+				require.NoError(t, err)
 			}
 
 			u, err := b.CreateUser(s.ServerID, tt.userName, tt.homeDir, tt.role, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
+				assert.ErrorIs(t, err, awserr.ErrConflict)
 
 				return
 			}

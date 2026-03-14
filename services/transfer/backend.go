@@ -16,8 +16,6 @@ import (
 var (
 	// ErrServerNotFound is returned when a Transfer server is not found.
 	ErrServerNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
-	// ErrServerAlreadyExists is returned when a Transfer server already exists.
-	ErrServerAlreadyExists = awserr.New("ResourceExistsException", awserr.ErrConflict)
 	// ErrUserNotFound is returned when a Transfer user is not found.
 	ErrUserNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrUserAlreadyExists is returned when a Transfer user already exists.
