@@ -144,11 +144,19 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 		return
 	}
 
-	// Bucket is empty — remove it from the region map.
+	// Bucket is empty — remove it from the region map and clean up the region
+	// entry if it has become empty to prevent unbounded map accumulation.
+	// Also remove from bucketIndex to complete the deletion lifecycle.
 	b.mu.Lock("S3Janitor.removeBucket")
 	if regionBuckets, exists := b.buckets[foundRegion]; exists {
 		delete(regionBuckets, name)
+
+		if len(regionBuckets) == 0 {
+			delete(b.buckets, foundRegion)
+		}
 	}
+
+	delete(b.bucketIndex, name)
 	b.mu.Unlock()
 	bucket.mu.Close()
 

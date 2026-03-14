@@ -45,6 +45,7 @@ func getRegionFromS3Context(ctx context.Context, defaultRegion string) string {
 
 type InMemoryBackend struct {
 	buckets             map[string]map[string]*StoredBucket
+	bucketIndex         map[string]string // name → region for O(1) cross-region lookup
 	tags                map[string][]types.Tag
 	uploads             map[string]*StoredMultipartUpload
 	mu                  *lockmetrics.RWMutex
@@ -56,6 +57,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(compressor Compressor) *InMemoryBackend {
 	return &InMemoryBackend{
 		buckets:       make(map[string]map[string]*StoredBucket),
+		bucketIndex:   make(map[string]string),
 		compressor:    compressor,
 		defaultRegion: defaultRegionName,
 		mu:            lockmetrics.New("s3"),
@@ -78,20 +80,19 @@ func (b *InMemoryBackend) WithCompressionMinBytes(n int) *InMemoryBackend {
 
 // getBucket returns the bucket for a given name, returning ErrNoSuchBucket when the
 // bucket does not exist or is pending async deletion. The caller must hold at least b.mu.RLock.
-// Since bucket names are globally unique, it searches across all regions.
+// bucketIndex provides O(1) name→region resolution, so no region scan is needed.
 func (b *InMemoryBackend) getBucket(name string) (*StoredBucket, error) {
-	// Search across all regions — bucket names are globally unique so there
-	// is at most one match. This handles the case where a bucket was created
-	// via a request with a non-default region (e.g. us-west-2) so it is
-	// stored under that region key but subsequent SDK calls (PutObject, etc.)
-	// must still be able to find it.
-	for _, regionBuckets := range b.buckets {
-		if bucket, exists := regionBuckets[name]; exists && !bucket.DeletePending {
-			return bucket, nil
-		}
+	region, ok := b.bucketIndex[name]
+	if !ok {
+		return nil, ErrNoSuchBucket
 	}
 
-	return nil, ErrNoSuchBucket
+	bucket := b.buckets[region][name]
+	if bucket.DeletePending {
+		return nil, ErrNoSuchBucket
+	}
+
+	return bucket, nil
 }
 
 // SetDefaultRegion sets the default region for this backend.
@@ -120,11 +121,13 @@ func (b *InMemoryBackend) CreateBucket(
 
 	bucketName := *input.Bucket
 
-	// Check across all regions for global uniqueness.
-	// Since this is a single-tenant mock, a pre-existing bucket is always
-	// owned by the caller → return BucketAlreadyOwnedByYou (not BucketAlreadyExists).
-	for _, regionBuckets := range b.buckets {
-		if _, exists := regionBuckets[bucketName]; exists {
+	// Use bucketIndex for O(1) global-uniqueness check. Since this is a
+	// single-tenant mock, a pre-existing active bucket is always owned by the
+	// caller → return BucketAlreadyOwnedByYou (not BucketAlreadyExists).
+	// Pending-delete buckets are still in the index but are logically gone,
+	// so they are treated the same as non-existent (allow re-creation).
+	if existingRegion, exists := b.bucketIndex[bucketName]; exists {
+		if !b.buckets[existingRegion][bucketName].DeletePending {
 			return nil, ErrBucketAlreadyOwnedByYou
 		}
 	}
@@ -141,6 +144,7 @@ func (b *InMemoryBackend) CreateBucket(
 		Versioning:   types.BucketVersioningStatusSuspended,
 		mu:           lockmetrics.New("s3.bucket." + bucketName),
 	}
+	b.bucketIndex[bucketName] = region
 
 	return &s3.CreateBucketOutput{
 		Location: aws.String("/" + bucketName),
@@ -156,21 +160,24 @@ func (b *InMemoryBackend) DeleteBucket(
 	b.mu.Lock("DeleteBucket")
 	defer b.mu.Unlock()
 
-	// Search across all regions — bucket names are globally unique.
-	for _, regionBuckets := range b.buckets {
-		if bucket, exists := regionBuckets[bucketName]; exists {
-			// If already pending deletion, return success (idempotent).
-			if bucket.DeletePending {
-				return &s3.DeleteBucketOutput{}, nil
-			}
-			// Mark bucket as pending — the Janitor will drain its objects and remove it.
-			bucket.DeletePending = true
-
-			return &s3.DeleteBucketOutput{}, nil
-		}
+	// Use bucketIndex for O(1) lookup. Pending buckets remain in the index
+	// so that idempotent deletes can be detected without a region scan.
+	region, ok := b.bucketIndex[bucketName]
+	if !ok {
+		return nil, ErrNoSuchBucket
 	}
 
-	return nil, ErrNoSuchBucket
+	bucket := b.buckets[region][bucketName]
+
+	// If already pending deletion, return success (idempotent).
+	if bucket.DeletePending {
+		return &s3.DeleteBucketOutput{}, nil
+	}
+
+	// Mark bucket as pending — the Janitor will drain its objects and remove it.
+	bucket.DeletePending = true
+
+	return &s3.DeleteBucketOutput{}, nil
 }
 
 func (b *InMemoryBackend) HeadBucket(
