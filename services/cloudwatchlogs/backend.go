@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -41,6 +42,10 @@ const (
 	defaultQueryTTL = time.Hour
 	// defaultMaxQueries is the maximum number of queries retained at any time.
 	defaultMaxQueries = 10_000
+	// defaultDeliveryWorkers is the maximum number of concurrent subscription delivery goroutines.
+	defaultDeliveryWorkers = 8
+	// defaultDeliveryTimeout is the per-delivery timeout applied to each subscription filter call.
+	defaultDeliveryTimeout = 10 * time.Second
 )
 
 // SubscriptionDeliverer delivers encoded log event payloads to a subscription filter destination.
@@ -91,17 +96,22 @@ type storedQuery struct {
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	deliverer           SubscriptionDeliverer
-	groups              map[string]*LogGroup
+	ctx                 context.Context
+	mu                  *lockmetrics.RWMutex
+	workerSem           chan struct{}
 	streams             map[string]map[string]*LogStream
 	events              map[string]map[string][]*OutputLogEvent
 	subscriptionFilters map[string][]*SubscriptionFilter
 	queries             map[string]*storedQuery
-	mu                  *lockmetrics.RWMutex
+	cancel              context.CancelFunc
+	groups              map[string]*LogGroup
 	accountID           string
 	region              string
 	queriesOrder        []string
+	wg                  sync.WaitGroup
 	queryTTL            time.Duration
 	maxQueries          int
+	deliveryTimeout     time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -111,6 +121,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &InMemoryBackend{
 		accountID:           accountID,
 		region:              region,
@@ -122,6 +134,10 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		mu:                  lockmetrics.New("cloudwatchlogs"),
 		queryTTL:            defaultQueryTTL,
 		maxQueries:          defaultMaxQueries,
+		ctx:                 ctx,
+		cancel:              cancel,
+		workerSem:           make(chan struct{}, defaultDeliveryWorkers),
+		deliveryTimeout:     defaultDeliveryTimeout,
 	}
 }
 
@@ -146,6 +162,36 @@ func (b *InMemoryBackend) SetMaxQueries(n int) {
 	b.mu.Lock("SetMaxQueries")
 	defer b.mu.Unlock()
 	b.maxQueries = n
+}
+
+// SetDeliveryTimeout overrides the per-delivery timeout applied to each subscription filter call.
+// A zero value disables the timeout. Primarily intended for tests.
+func (b *InMemoryBackend) SetDeliveryTimeout(d time.Duration) {
+	b.mu.Lock("SetDeliveryTimeout")
+	defer b.mu.Unlock()
+	b.deliveryTimeout = d
+}
+
+// SetDeliveryWorkers overrides the maximum number of concurrent subscription delivery goroutines.
+// Must be called before the first PutLogEvents. Primarily intended for tests.
+func (b *InMemoryBackend) SetDeliveryWorkers(n int) {
+	b.mu.Lock("SetDeliveryWorkers")
+	defer b.mu.Unlock()
+	b.workerSem = make(chan struct{}, n)
+}
+
+// Close cancels the lifecycle context, stops acceptance of new deliveries, and waits for all
+// in-flight delivery goroutines to finish. After Close, PutLogEvents will no longer spawn
+// delivery goroutines.
+func (b *InMemoryBackend) Close() {
+	b.cancel()
+	b.wg.Wait()
+}
+
+// Drain waits for all in-flight subscription delivery goroutines to complete without cancelling
+// the lifecycle context. Primarily intended for tests.
+func (b *InMemoryBackend) Drain() {
+	b.wg.Wait()
 }
 
 func (b *InMemoryBackend) groupARN(name string) string {
@@ -305,7 +351,29 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 	accountID := b.accountID
 
 	if len(filters) > 0 && deliverer != nil {
-		go b.deliverToFilters(context.Background(), groupName, streamName, accountID, events, filters, deliverer)
+		// Capture all state needed by the goroutine while holding the lock.
+		timeout := b.deliveryTimeout
+		workerSem := b.workerSem
+		ctx := b.ctx
+
+		b.wg.Go(func() {
+			// Acquire a worker slot or abort if the backend is shutting down.
+			select {
+			case workerSem <- struct{}{}:
+				defer func() { <-workerSem }()
+			case <-ctx.Done():
+				return
+			}
+
+			delivCtx := ctx
+			if timeout > 0 {
+				var cancel context.CancelFunc
+				delivCtx, cancel = context.WithTimeout(ctx, timeout)
+				defer cancel()
+			}
+
+			b.deliverToFilters(delivCtx, groupName, streamName, accountID, events, filters, deliverer)
+		})
 	}
 
 	return nextToken, nil
