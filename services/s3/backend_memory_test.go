@@ -48,6 +48,20 @@ func TestCreateBucket(t *testing.T) {
 			wantErr:   s3.ErrBucketAlreadyOwnedByYou,
 			expectErr: true,
 		},
+		{
+			// A bucket that has been deleted is pending janitor cleanup; it must
+			// still block re-creation until the Janitor has fully removed it.
+			name:   "create bucket with same name as pending-delete bucket is rejected",
+			bucket: "my-bucket",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "my-bucket")
+				_, err := b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{Bucket: aws.String("my-bucket")})
+				require.NoError(t, err)
+			},
+			wantErr:   s3.ErrBucketAlreadyOwnedByYou,
+			expectErr: true,
+		},
 	}
 
 	for _, tt := range tests {
