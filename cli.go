@@ -161,6 +161,7 @@ import (
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
+	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
@@ -293,6 +294,7 @@ type CLI struct {
 	ssoadminHandler               service.Registerable
 	textractHandler               service.Registerable
 	timestreamqueryHandler        service.Registerable
+	transferHandler               service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
@@ -789,6 +791,11 @@ func (c *CLI) GetTextractHandler() service.Registerable { return c.textractHandl
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetTimestreamQueryHandler() service.Registerable { return c.timestreamqueryHandler }
+
+// GetTransferHandler returns the Transfer handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetTransferHandler() service.Registerable { return c.transferHandler }
 
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
@@ -1474,6 +1481,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.ssoadminHandler = byName["SsoAdmin"]
 	cli.textractHandler = byName["Textract"]
 	cli.timestreamqueryHandler = byName["TimestreamQuery"]
+	cli.transferHandler = byName["Transfer"]
 }
 
 // initializeServices initializes all service providers.
@@ -1722,6 +1730,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&ssoadminbackend.Provider{},
 		&textractbackend.Provider{},
 		&timestreamquerybackend.Provider{},
+		&transferbackend.Provider{},
 	}
 }
 

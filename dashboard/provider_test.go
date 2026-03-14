@@ -143,7 +143,10 @@ func (m *mockAWSProvider) GetSageMakerHandler() service.Registerable            
 func (m *mockAWSProvider) GetSageMakerRuntimeHandler() service.Registerable        { return nil }
 func (m *mockAWSProvider) GetServerlessRepoHandler() service.Registerable          { return nil }
 func (m *mockAWSProvider) GetShieldHandler() service.Registerable                  { return nil }
+func (m *mockAWSProvider) GetSsoAdminHandler() service.Registerable                { return nil }
 func (m *mockAWSProvider) GetTextractHandler() service.Registerable                { return nil }
+func (m *mockAWSProvider) GetTimestreamQueryHandler() service.Registerable         { return nil }
+func (m *mockAWSProvider) GetTransferHandler() service.Registerable                { return nil }
 func (m *mockAWSProvider) GetGlobalConfig() globalcfg.GlobalConfig                 { return globalcfg.GlobalConfig{} }
 func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
 

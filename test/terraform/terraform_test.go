@@ -138,6 +138,7 @@ import (
 	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
 	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	timestreamquerytypes "github.com/aws/aws-sdk-go-v2/service/timestreamquery/types"
+	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -6036,6 +6037,51 @@ func TestTerraform_TimestreamQuery(t *testing.T) {
 				listAfter, err := client.ListScheduledQueries(ctx, &timestreamquerysvc.ListScheduledQueriesInput{})
 				require.NoError(t, err, "ListScheduledQueries after delete should succeed")
 				assert.Empty(t, listAfter.ScheduledQueries)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Transfer provisions a Transfer server via Terraform and verifies the service responds.
+func TestTerraform_Transfer(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "transfer/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+
+				return map[string]any{
+					"Endpoint": endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+				t.Helper()
+
+				client := createTransferClient(t)
+
+				// List servers - should have at least one from Terraform provisioning.
+				listOut, err := client.ListServers(ctx, &transfersvc.ListServersInput{})
+				require.NoError(t, err, "ListServers should succeed")
+				assert.NotEmpty(t, listOut.Servers, "expected at least one server")
+
+				serverID := *listOut.Servers[0].ServerId
+
+				// Describe the server.
+				descOut, err := client.DescribeServer(ctx, &transfersvc.DescribeServerInput{
+					ServerId: &serverID,
+				})
+				require.NoError(t, err, "DescribeServer should succeed")
+				assert.Equal(t, serverID, *descOut.Server.ServerId)
 			},
 		},
 	}
