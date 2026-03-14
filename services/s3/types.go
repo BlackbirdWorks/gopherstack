@@ -30,8 +30,8 @@ type StoredBucket struct {
 	ReplicationConfig       string    `json:"replicationConfig,omitempty"`
 	CreationDate            time.Time `json:"creationDate"`
 	ACL                     string    `json:"acl,omitempty"`
-	// Versioning must precede non-pointer fields so its trailing len word falls
-	// outside the GC scan range, reducing pointer bytes to 64.
+	// Versioning and DeletePending are placed last so the non-pointer bool field
+	// sits at the end of the struct with no trailing padding words needing GC scan.
 	Versioning types.BucketVersioningStatus `json:"versioning,omitempty"`
 	// DeletePending is true when the bucket is queued for async deletion by the Janitor.
 	// Operations on a DeletePending bucket behave as if the bucket does not exist.

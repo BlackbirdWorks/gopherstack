@@ -1953,7 +1953,8 @@ func (b *InMemoryBackend) PutBucketLogging(_ context.Context, bucketName, loggin
 }
 
 // GetBucketLogging returns the logging configuration for a bucket.
-// Returns an empty BucketLoggingStatus when no logging is configured (matching AWS behaviour).
+// Returns "" (empty string) when no logging is configured; the handler
+// synthesizes the AWS-compatible empty XML response.
 func (b *InMemoryBackend) GetBucketLogging(_ context.Context, bucketName string) (string, error) {
 	b.mu.RLock("GetBucketLogging")
 	bucket, err := b.getBucket(bucketName)

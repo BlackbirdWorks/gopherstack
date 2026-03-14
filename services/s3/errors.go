@@ -48,106 +48,108 @@ type s3ErrorEntry struct {
 	info s3ErrorInfo
 }
 
-// s3ErrorTable maps typed errors to their S3 error code, message, and HTTP status.
-var s3ErrorTable = []s3ErrorEntry{ //nolint:gochecknoglobals // package-level lookup table, immutable after init
-	{ErrNoSuchBucket, s3ErrorInfo{"NoSuchBucket", "The specified bucket does not exist.", http.StatusNotFound}},
-	{ErrNoSuchKey, s3ErrorInfo{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound}},
-	{ErrBucketAlreadyOwnedByYou, s3ErrorInfo{
-		"BucketAlreadyOwnedByYou",
-		"Your previous request to create the named bucket succeeded and you already own it.",
-		http.StatusConflict,
-	}},
-	{ErrBucketAlreadyExists, s3ErrorInfo{
-		"BucketAlreadyExists",
-		"The requested bucket name is not available.",
-		http.StatusConflict,
-	}},
-	{ErrInvalidBucketName, s3ErrorInfo{
-		"InvalidBucketName",
-		"The specified bucket is not valid.",
-		http.StatusBadRequest,
-	}},
-	{ErrBucketNotEmpty, s3ErrorInfo{
-		"BucketNotEmpty",
-		"The bucket you tried to delete is not empty.",
-		http.StatusConflict,
-	}},
-	{ErrNoSuchUpload, s3ErrorInfo{
-		"NoSuchUpload",
-		"The specified multipart upload does not exist.",
-		http.StatusNotFound,
-	}},
-	{ErrInvalidPart, s3ErrorInfo{
-		"InvalidPart",
-		"One or more of the specified parts could not be found.",
-		http.StatusBadRequest,
-	}},
-	{ErrInvalidArgument, s3ErrorInfo{"InvalidArgument", "Invalid Argument.", http.StatusBadRequest}},
-	{ErrMethodNotAllowed, s3ErrorInfo{
-		"MethodNotAllowed",
-		"The specified method is not allowed against this resource.",
-		http.StatusMethodNotAllowed,
-	}},
-	{ErrNotImplemented, s3ErrorInfo{
-		"NotImplemented",
-		"A header you provided implies functionality that is not implemented.",
-		http.StatusNotImplemented,
-	}},
-	{ErrNoBucketPolicy, s3ErrorInfo{
-		"NoSuchBucketPolicy",
-		"The bucket policy does not exist",
-		http.StatusNotFound,
-	}},
-	{ErrNoCORSConfig, s3ErrorInfo{
-		"NoSuchCORSConfiguration",
-		"The CORS configuration does not exist",
-		http.StatusNotFound,
-	}},
-	{ErrNoLifecycleConfig, s3ErrorInfo{
-		"NoSuchLifecycleConfiguration",
-		"The lifecycle configuration does not exist",
-		http.StatusNotFound,
-	}},
-	{ErrNoObjectLockConfig, s3ErrorInfo{
-		"ObjectLockConfigurationNotFoundError",
-		"Object Lock configuration does not exist for this bucket",
-		http.StatusNotFound,
-	}},
-	{ErrNoWebsiteConfig, s3ErrorInfo{
-		"NoSuchWebsiteConfiguration",
-		"The specified bucket does not have a website configuration",
-		http.StatusNotFound,
-	}},
-	{ErrNoEncryptionConfig, s3ErrorInfo{
-		"ServerSideEncryptionConfigurationNotFoundError",
-		"The server side encryption configuration was not found",
-		http.StatusNotFound,
-	}},
-	{ErrObjectLocked, s3ErrorInfo{
-		"AccessDenied",
-		"Access Denied",
-		http.StatusForbidden,
-	}},
-	{ErrNoPublicAccessBlock, s3ErrorInfo{
-		"NoSuchPublicAccessBlockConfiguration",
-		"The public access block configuration was not found",
-		http.StatusNotFound,
-	}},
-	{ErrNoOwnershipControls, s3ErrorInfo{
-		"OwnershipControlsNotFoundError",
-		"The bucket ownership controls were not found",
-		http.StatusNotFound,
-	}},
-	{ErrNoReplicationConfig, s3ErrorInfo{
-		"ReplicationConfigurationNotFoundError",
-		"The replication configuration was not found",
-		http.StatusNotFound,
-	}},
+// errorTable returns the mapping of typed Go errors to S3 error codes and HTTP statuses.
+func errorTable() []s3ErrorEntry {
+	return []s3ErrorEntry{
+		{ErrNoSuchBucket, s3ErrorInfo{"NoSuchBucket", "The specified bucket does not exist.", http.StatusNotFound}},
+		{ErrNoSuchKey, s3ErrorInfo{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound}},
+		{ErrBucketAlreadyOwnedByYou, s3ErrorInfo{
+			"BucketAlreadyOwnedByYou",
+			"Your previous request to create the named bucket succeeded and you already own it.",
+			http.StatusConflict,
+		}},
+		{ErrBucketAlreadyExists, s3ErrorInfo{
+			"BucketAlreadyExists",
+			"The requested bucket name is not available.",
+			http.StatusConflict,
+		}},
+		{ErrInvalidBucketName, s3ErrorInfo{
+			"InvalidBucketName",
+			"The specified bucket is not valid.",
+			http.StatusBadRequest,
+		}},
+		{ErrBucketNotEmpty, s3ErrorInfo{
+			"BucketNotEmpty",
+			"The bucket you tried to delete is not empty.",
+			http.StatusConflict,
+		}},
+		{ErrNoSuchUpload, s3ErrorInfo{
+			"NoSuchUpload",
+			"The specified multipart upload does not exist.",
+			http.StatusNotFound,
+		}},
+		{ErrInvalidPart, s3ErrorInfo{
+			"InvalidPart",
+			"One or more of the specified parts could not be found.",
+			http.StatusBadRequest,
+		}},
+		{ErrInvalidArgument, s3ErrorInfo{"InvalidArgument", "Invalid Argument.", http.StatusBadRequest}},
+		{ErrMethodNotAllowed, s3ErrorInfo{
+			"MethodNotAllowed",
+			"The specified method is not allowed against this resource.",
+			http.StatusMethodNotAllowed,
+		}},
+		{ErrNotImplemented, s3ErrorInfo{
+			"NotImplemented",
+			"A header you provided implies functionality that is not implemented.",
+			http.StatusNotImplemented,
+		}},
+		{ErrNoBucketPolicy, s3ErrorInfo{
+			"NoSuchBucketPolicy",
+			"The bucket policy does not exist",
+			http.StatusNotFound,
+		}},
+		{ErrNoCORSConfig, s3ErrorInfo{
+			"NoSuchCORSConfiguration",
+			"The CORS configuration does not exist",
+			http.StatusNotFound,
+		}},
+		{ErrNoLifecycleConfig, s3ErrorInfo{
+			"NoSuchLifecycleConfiguration",
+			"The lifecycle configuration does not exist",
+			http.StatusNotFound,
+		}},
+		{ErrNoObjectLockConfig, s3ErrorInfo{
+			"ObjectLockConfigurationNotFoundError",
+			"Object Lock configuration does not exist for this bucket",
+			http.StatusNotFound,
+		}},
+		{ErrNoWebsiteConfig, s3ErrorInfo{
+			"NoSuchWebsiteConfiguration",
+			"The specified bucket does not have a website configuration",
+			http.StatusNotFound,
+		}},
+		{ErrNoEncryptionConfig, s3ErrorInfo{
+			"ServerSideEncryptionConfigurationNotFoundError",
+			"The server side encryption configuration was not found",
+			http.StatusNotFound,
+		}},
+		{ErrObjectLocked, s3ErrorInfo{
+			"AccessDenied",
+			"Access Denied",
+			http.StatusForbidden,
+		}},
+		{ErrNoPublicAccessBlock, s3ErrorInfo{
+			"NoSuchPublicAccessBlockConfiguration",
+			"The public access block configuration was not found",
+			http.StatusNotFound,
+		}},
+		{ErrNoOwnershipControls, s3ErrorInfo{
+			"OwnershipControlsNotFoundError",
+			"The bucket ownership controls were not found",
+			http.StatusNotFound,
+		}},
+		{ErrNoReplicationConfig, s3ErrorInfo{
+			"ReplicationConfigurationNotFoundError",
+			"The replication configuration was not found",
+			http.StatusNotFound,
+		}},
+	}
 }
 
 // WriteError translates a typed Go error to an S3 ErrorResponse XML payload.
 func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
-	for _, e := range s3ErrorTable {
+	for _, e := range errorTable() {
 		if errors.Is(err, e.err) {
 			httputils.WriteS3ErrorResponse(
 				ctx, w, r,
