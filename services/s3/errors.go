@@ -32,6 +32,9 @@ var (
 	ErrNoEncryptionConfig     = errors.New("ServerSideEncryptionConfigurationNotFoundError")
 	ErrObjectLocked           = errors.New("AccessDenied")
 	ErrNoSuchObjectLockConfig = awserr.New("NoSuchObjectLockConfiguration", awserr.ErrNotFound)
+	ErrNoPublicAccessBlock    = errors.New("NoSuchPublicAccessBlockConfiguration")
+	ErrNoOwnershipControls    = errors.New("OwnershipControlsNotFoundError")
+	ErrNoReplicationConfig    = errors.New("ReplicationConfigurationNotFoundError")
 )
 
 type s3ErrorInfo struct {
@@ -45,9 +48,9 @@ type s3ErrorEntry struct {
 	info s3ErrorInfo
 }
 
-// WriteError translates a typed Go error to an S3 ErrorResponse XML payload.
-func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
-	table := []s3ErrorEntry{
+// errorTable returns the mapping of typed Go errors to S3 error codes and HTTP statuses.
+func errorTable() []s3ErrorEntry {
+	return []s3ErrorEntry{
 		{ErrNoSuchBucket, s3ErrorInfo{"NoSuchBucket", "The specified bucket does not exist.", http.StatusNotFound}},
 		{ErrNoSuchKey, s3ErrorInfo{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound}},
 		{ErrBucketAlreadyOwnedByYou, s3ErrorInfo{
@@ -126,9 +129,27 @@ func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err
 			"Access Denied",
 			http.StatusForbidden,
 		}},
+		{ErrNoPublicAccessBlock, s3ErrorInfo{
+			"NoSuchPublicAccessBlockConfiguration",
+			"The public access block configuration was not found",
+			http.StatusNotFound,
+		}},
+		{ErrNoOwnershipControls, s3ErrorInfo{
+			"OwnershipControlsNotFoundError",
+			"The bucket ownership controls were not found",
+			http.StatusNotFound,
+		}},
+		{ErrNoReplicationConfig, s3ErrorInfo{
+			"ReplicationConfigurationNotFoundError",
+			"The replication configuration was not found",
+			http.StatusNotFound,
+		}},
 	}
+}
 
-	for _, e := range table {
+// WriteError translates a typed Go error to an S3 ErrorResponse XML payload.
+func WriteError(ctx context.Context, w http.ResponseWriter, r *http.Request, err error) {
+	for _, e := range errorTable() {
 		if errors.Is(err, e.err) {
 			httputils.WriteS3ErrorResponse(
 				ctx, w, r,

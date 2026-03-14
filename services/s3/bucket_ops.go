@@ -58,20 +58,7 @@ func (h *S3Handler) handleBucketOperation(
 	case http.MethodPut:
 		h.routeBucketPut(ctx, w, r, bucket)
 	case http.MethodDelete:
-		switch {
-		case r.URL.Query().Has("policy"):
-			h.deleteBucketPolicy(ctx, w, r, bucket)
-		case r.URL.Query().Has("cors"):
-			h.deleteBucketCORS(ctx, w, r, bucket)
-		case r.URL.Query().Has("lifecycle"):
-			h.deleteBucketLifecycleConfiguration(ctx, w, r, bucket)
-		case r.URL.Query().Has("website"):
-			h.deleteBucketWebsite(ctx, w, r, bucket)
-		case r.URL.Query().Has("encryption"):
-			h.deleteBucketEncryption(ctx, w, r, bucket)
-		default:
-			h.deleteBucket(ctx, w, r, bucket)
-		}
+		h.routeBucketDelete(ctx, w, r, bucket)
 	case http.MethodGet:
 		h.routeBucketGet(ctx, w, r, bucket)
 	case http.MethodPost:
@@ -85,36 +72,84 @@ func (h *S3Handler) handleBucketOperation(
 	}
 }
 
-func (h *S3Handler) routeBucketPut(
+func (h *S3Handler) routeBucketDelete(
 	ctx context.Context,
 	w http.ResponseWriter,
 	r *http.Request,
 	bucket string,
 ) {
 	switch {
-	case r.URL.Query().Has("acl"):
-		h.putBucketACL(ctx, w, r, bucket)
-	case r.URL.Query().Has("versioning"):
-		h.putBucketVersioning(ctx, w, r, bucket)
-	case r.URL.Query().Has("notification"):
-		h.putBucketNotificationConfiguration(ctx, w, r, bucket)
 	case r.URL.Query().Has("policy"):
-		h.putBucketPolicy(ctx, w, r, bucket)
+		h.deleteBucketPolicy(ctx, w, r, bucket)
 	case r.URL.Query().Has("cors"):
-		h.putBucketCORS(ctx, w, r, bucket)
-	case r.URL.Query().Has("website"):
-		h.putBucketWebsite(ctx, w, r, bucket)
+		h.deleteBucketCORS(ctx, w, r, bucket)
 	case r.URL.Query().Has("lifecycle"):
-		h.putBucketLifecycleConfiguration(ctx, w, r, bucket)
-	case r.URL.Query().Has("replication"):
-		// Stub: accept replication configuration.
-		h.setOperation(ctx, "PutBucketReplication")
-		w.WriteHeader(http.StatusOK)
+		h.deleteBucketLifecycleConfiguration(ctx, w, r, bucket)
+	case r.URL.Query().Has("website"):
+		h.deleteBucketWebsite(ctx, w, r, bucket)
 	case r.URL.Query().Has("encryption"):
+		h.deleteBucketEncryption(ctx, w, r, bucket)
+	case r.URL.Query().Has("publicAccessBlock"):
+		h.deletePublicAccessBlock(ctx, w, r, bucket)
+	case r.URL.Query().Has("ownershipControls"):
+		h.deleteBucketOwnershipControls(ctx, w, r, bucket)
+	case r.URL.Query().Has("replication"):
+		h.deleteBucketReplication(ctx, w, r, bucket)
+	default:
+		h.deleteBucket(ctx, w, r, bucket)
+	}
+}
+
+func (h *S3Handler) routeBucketPut(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	q := r.URL.Query()
+
+	switch {
+	case q.Has("acl"):
+		h.putBucketACL(ctx, w, r, bucket)
+	case q.Has("versioning"):
+		h.putBucketVersioning(ctx, w, r, bucket)
+	case q.Has("notification"):
+		h.putBucketNotificationConfiguration(ctx, w, r, bucket)
+	case q.Has("policy"):
+		h.putBucketPolicy(ctx, w, r, bucket)
+	case q.Has("cors"):
+		h.putBucketCORS(ctx, w, r, bucket)
+	case q.Has("website"):
+		h.putBucketWebsite(ctx, w, r, bucket)
+	case q.Has("lifecycle"):
+		h.putBucketLifecycleConfiguration(ctx, w, r, bucket)
+	default:
+		h.routeBucketPutExtra(ctx, w, r, bucket)
+	}
+}
+
+func (h *S3Handler) routeBucketPutExtra(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	q := r.URL.Query()
+
+	switch {
+	case q.Has("replication"):
+		h.putBucketReplication(ctx, w, r, bucket)
+	case q.Has("encryption"):
 		h.putBucketEncryption(ctx, w, r, bucket)
-	case r.URL.Query().Has("object-lock"):
+	case q.Has("object-lock"):
 		h.putObjectLockConfiguration(ctx, w, r, bucket)
-	case r.URL.Query().Has("tagging"):
+	case q.Has("publicAccessBlock"):
+		h.putPublicAccessBlock(ctx, w, r, bucket)
+	case q.Has("ownershipControls"):
+		h.putBucketOwnershipControls(ctx, w, r, bucket)
+	case q.Has("logging"):
+		h.putBucketLogging(ctx, w, r, bucket)
+	case q.Has("tagging"):
 		WriteError(ctx, w, r, ErrNotImplemented)
 	default:
 		h.createBucket(ctx, w, r, bucket)
@@ -172,6 +207,22 @@ func (h *S3Handler) routeBucketGet(
 		h.getObjectLockConfiguration(ctx, w, r, bucket)
 
 		return
+	case q.Has("publicAccessBlock"):
+		h.getPublicAccessBlock(ctx, w, r, bucket)
+
+		return
+	case q.Has("ownershipControls"):
+		h.getBucketOwnershipControls(ctx, w, r, bucket)
+
+		return
+	case q.Has("replication"):
+		h.getBucketReplication(ctx, w, r, bucket)
+
+		return
+	case q.Has("logging"):
+		h.getBucketLogging(ctx, w, r, bucket)
+
+		return
 	}
 
 	if h.routeBucketGetStubs(ctx, w, r) {
@@ -219,20 +270,6 @@ func (h *S3Handler) routeBucketGetStubs(
 	q := r.URL.Query()
 
 	switch {
-	case q.Has("logging"):
-		h.setOperation(ctx, "GetBucketLogging")
-		httputils.WriteXML(
-			ctx,
-			w,
-			http.StatusOK,
-			s3BucketLoggingStatus{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"},
-		)
-	case q.Has("replication"):
-		h.setOperation(ctx, "GetBucketReplication")
-		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "ReplicationConfigurationNotFoundError",
-			Message: "The replication configuration was not found",
-		}, http.StatusNotFound)
 	case q.Has("request-payment"):
 		h.setOperation(ctx, "GetBucketRequestPayment")
 		httputils.WriteXML(
@@ -987,6 +1024,237 @@ func (h *S3Handler) getBucketEncryption(ctx context.Context, w http.ResponseWrit
 func (h *S3Handler) deleteBucketEncryption(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
 	h.setOperation(ctx, "DeleteBucketEncryption")
 	if err := h.Backend.DeleteBucketEncryption(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) putPublicAccessBlock(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "PutPublicAccessBlock")
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	var cfg PublicAccessBlockConfiguration
+	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    "MalformedXML",
+			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+		}, http.StatusBadRequest)
+
+		return
+	}
+
+	if err = h.Backend.PutPublicAccessBlock(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) getPublicAccessBlock(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "GetPublicAccessBlock")
+	configXML, err := h.Backend.GetPublicAccessBlock(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(configXML))
+}
+
+func (h *S3Handler) deletePublicAccessBlock(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "DeletePublicAccessBlock")
+	if err := h.Backend.DeletePublicAccessBlock(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) putBucketOwnershipControls(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "PutBucketOwnershipControls")
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	var cfg OwnershipControls
+	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    "MalformedXML",
+			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+		}, http.StatusBadRequest)
+
+		return
+	}
+
+	if err = h.Backend.PutBucketOwnershipControls(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) getBucketOwnershipControls(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "GetBucketOwnershipControls")
+	configXML, err := h.Backend.GetBucketOwnershipControls(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(configXML))
+}
+
+func (h *S3Handler) deleteBucketOwnershipControls(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "DeleteBucketOwnershipControls")
+	if err := h.Backend.DeleteBucketOwnershipControls(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) putBucketLogging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "PutBucketLogging")
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	var cfg BucketLoggingStatus
+	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    "MalformedXML",
+			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+		}, http.StatusBadRequest)
+
+		return
+	}
+
+	if err = h.Backend.PutBucketLogging(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) getBucketLogging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "GetBucketLogging")
+	loggingXML, err := h.Backend.GetBucketLogging(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	if loggingXML == "" {
+		httputils.WriteXML(
+			ctx,
+			w,
+			http.StatusOK,
+			s3BucketLoggingStatus{Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/"},
+		)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(loggingXML))
+}
+
+func (h *S3Handler) putBucketReplication(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "PutBucketReplication")
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	var cfg ReplicationConfiguration
+	if xmlErr := xml.Unmarshal(body, &cfg); xmlErr != nil {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    "MalformedXML",
+			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+		}, http.StatusBadRequest)
+
+		return
+	}
+
+	if err = h.Backend.PutBucketReplication(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) getBucketReplication(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "GetBucketReplication")
+	replicationXML, err := h.Backend.GetBucketReplication(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(replicationXML))
+}
+
+func (h *S3Handler) deleteBucketReplication(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "DeleteBucketReplication")
+	if err := h.Backend.DeleteBucketReplication(ctx, bucket); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return

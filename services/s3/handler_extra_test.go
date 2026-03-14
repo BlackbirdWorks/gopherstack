@@ -1610,3 +1610,471 @@ func TestS3BucketWebsite_MalformedXML(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "MalformedXML")
 }
+
+// TestS3PublicAccessBlockCRUD verifies put/get/delete public access block configuration.
+func TestS3PublicAccessBlockCRUD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		configXML  string
+		wantBody   string
+		wantPut    int
+		wantGet    int
+		wantDelete int
+	}{
+		{
+			name: "full-block-all",
+			configXML: `<PublicAccessBlockConfiguration>` +
+				`<BlockPublicAcls>true</BlockPublicAcls>` +
+				`<IgnorePublicAcls>true</IgnorePublicAcls>` +
+				`<BlockPublicPolicy>true</BlockPublicPolicy>` +
+				`<RestrictPublicBuckets>true</RestrictPublicBuckets>` +
+				`</PublicAccessBlockConfiguration>`,
+			wantPut:    http.StatusOK,
+			wantGet:    http.StatusOK,
+			wantDelete: http.StatusNoContent,
+			wantBody:   "BlockPublicAcls",
+		},
+		{
+			name: "partial-block",
+			configXML: `<PublicAccessBlockConfiguration>` +
+				`<BlockPublicAcls>false</BlockPublicAcls>` +
+				`<IgnorePublicAcls>false</IgnorePublicAcls>` +
+				`<BlockPublicPolicy>true</BlockPublicPolicy>` +
+				`<RestrictPublicBuckets>false</RestrictPublicBuckets>` +
+				`</PublicAccessBlockConfiguration>`,
+			wantPut:    http.StatusOK,
+			wantGet:    http.StatusOK,
+			wantDelete: http.StatusNoContent,
+			wantBody:   "BlockPublicPolicy",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sdkClient := newTestHandler(t)
+			bucket := "pab-test-" + tt.name
+
+			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			require.NoError(t, err)
+
+			// GetPublicAccessBlock before put → 404
+			req := httptest.NewRequest(http.MethodGet, "/"+bucket+"?publicAccessBlock", nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+
+			// PutPublicAccessBlock
+			req = httptest.NewRequest(http.MethodPut, "/"+bucket+"?publicAccessBlock", strings.NewReader(tt.configXML))
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantPut, rec.Code)
+
+			// GetPublicAccessBlock
+			req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?publicAccessBlock", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantGet, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantBody)
+
+			// DeletePublicAccessBlock
+			req = httptest.NewRequest(http.MethodDelete, "/"+bucket+"?publicAccessBlock", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantDelete, rec.Code)
+
+			// GetPublicAccessBlock after delete → 404
+			req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?publicAccessBlock", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+// TestS3PublicAccessBlock_MalformedXML verifies that PutPublicAccessBlock rejects invalid XML.
+func TestS3PublicAccessBlock_MalformedXML(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "pab-malformed-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?publicAccessBlock", strings.NewReader("not-valid-xml"))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MalformedXML")
+}
+
+// TestS3BucketOwnershipControlsCRUD verifies put/get/delete ownership controls.
+func TestS3BucketOwnershipControlsCRUD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		configXML  string
+		wantBody   string
+		wantPut    int
+		wantGet    int
+		wantDelete int
+	}{
+		{
+			name: "bucket-owner-preferred",
+			configXML: `<OwnershipControls>` +
+				`<Rule><ObjectOwnership>BucketOwnerPreferred</ObjectOwnership></Rule>` +
+				`</OwnershipControls>`,
+			wantPut:    http.StatusOK,
+			wantGet:    http.StatusOK,
+			wantDelete: http.StatusNoContent,
+			wantBody:   "BucketOwnerPreferred",
+		},
+		{
+			name: "bucket-owner-enforced",
+			configXML: `<OwnershipControls>` +
+				`<Rule><ObjectOwnership>BucketOwnerEnforced</ObjectOwnership></Rule>` +
+				`</OwnershipControls>`,
+			wantPut:    http.StatusOK,
+			wantGet:    http.StatusOK,
+			wantDelete: http.StatusNoContent,
+			wantBody:   "BucketOwnerEnforced",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sdkClient := newTestHandler(t)
+			bucket := "ownership-test-" + tt.name
+
+			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			require.NoError(t, err)
+
+			// GetBucketOwnershipControls before put → 404
+			req := httptest.NewRequest(http.MethodGet, "/"+bucket+"?ownershipControls", nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+
+			// PutBucketOwnershipControls
+			req = httptest.NewRequest(http.MethodPut, "/"+bucket+"?ownershipControls", strings.NewReader(tt.configXML))
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantPut, rec.Code)
+
+			// GetBucketOwnershipControls
+			req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?ownershipControls", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantGet, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantBody)
+
+			// DeleteBucketOwnershipControls
+			req = httptest.NewRequest(http.MethodDelete, "/"+bucket+"?ownershipControls", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantDelete, rec.Code)
+
+			// GetBucketOwnershipControls after delete → 404
+			req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?ownershipControls", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+// TestS3BucketOwnershipControls_MalformedXML verifies that PutBucketOwnershipControls rejects invalid XML.
+func TestS3BucketOwnershipControls_MalformedXML(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "ownership-malformed-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?ownershipControls", strings.NewReader("not-valid-xml"))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MalformedXML")
+}
+
+// TestS3BucketLoggingCRUD verifies put/get bucket logging configuration.
+func TestS3BucketLoggingCRUD(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		configXML string
+		wantBody  string
+		wantPut   int
+		wantGet   int
+	}{
+		{
+			name: "logging-enabled",
+			configXML: `<BucketLoggingStatus xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
+				`<LoggingEnabled>` +
+				`<TargetBucket>my-logs-bucket</TargetBucket>` +
+				`<TargetPrefix>logs/</TargetPrefix>` +
+				`</LoggingEnabled>` +
+				`</BucketLoggingStatus>`,
+			wantPut:  http.StatusOK,
+			wantGet:  http.StatusOK,
+			wantBody: "my-logs-bucket",
+		},
+		{
+			name: "logging-disabled",
+			configXML: `<BucketLoggingStatus xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
+				`</BucketLoggingStatus>`,
+			wantPut:  http.StatusOK,
+			wantGet:  http.StatusOK,
+			wantBody: "BucketLoggingStatus",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sdkClient := newTestHandler(t)
+			bucket := "logging-test-" + tt.name
+
+			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			require.NoError(t, err)
+
+			// GetBucketLogging before put → empty BucketLoggingStatus (not an error)
+			req := httptest.NewRequest(http.MethodGet, "/"+bucket+"?logging", nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), "BucketLoggingStatus")
+
+			// PutBucketLogging
+			req = httptest.NewRequest(http.MethodPut, "/"+bucket+"?logging", strings.NewReader(tt.configXML))
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantPut, rec.Code)
+
+			// GetBucketLogging
+			req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?logging", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantGet, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantBody)
+		})
+	}
+}
+
+// TestS3BucketLogging_MalformedXML verifies that PutBucketLogging rejects invalid XML.
+func TestS3BucketLogging_MalformedXML(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "logging-malformed-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?logging", strings.NewReader("not-valid-xml"))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MalformedXML")
+}
+
+// TestS3BucketReplicationCRUD verifies put/get/delete bucket replication configuration.
+func TestS3BucketReplicationCRUD(t *testing.T) {
+	t.Parallel()
+
+	replicationXML := `<ReplicationConfiguration>` +
+		`<Role>arn:aws:iam::123456789012:role/replication-role</Role>` +
+		`<Rule>` +
+		`<ID>rule1</ID>` +
+		`<Status>Enabled</Status>` +
+		`<Prefix></Prefix>` +
+		`<Destination><Bucket>arn:aws:s3:::dest-bucket</Bucket></Destination>` +
+		`</Rule>` +
+		`</ReplicationConfiguration>`
+
+	tests := []struct {
+		name       string
+		configXML  string
+		wantBody   string
+		wantPut    int
+		wantGet    int
+		wantDelete int
+	}{
+		{
+			name:       "valid-replication",
+			configXML:  replicationXML,
+			wantPut:    http.StatusOK,
+			wantGet:    http.StatusOK,
+			wantDelete: http.StatusNoContent,
+			wantBody:   "dest-bucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, sdkClient := newTestHandler(t)
+			bucket := "replication-test-" + tt.name
+
+			_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+			require.NoError(t, err)
+
+			// GetBucketReplication before put → 404
+			req := httptest.NewRequest(http.MethodGet, "/"+bucket+"?replication", nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Contains(t, rec.Body.String(), "ReplicationConfigurationNotFoundError")
+
+			// PutBucketReplication
+			req = httptest.NewRequest(http.MethodPut, "/"+bucket+"?replication", strings.NewReader(tt.configXML))
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantPut, rec.Code)
+
+			// GetBucketReplication
+			req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?replication", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantGet, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantBody)
+
+			// DeleteBucketReplication
+			req = httptest.NewRequest(http.MethodDelete, "/"+bucket+"?replication", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantDelete, rec.Code)
+
+			// GetBucketReplication after delete → 404
+			req = httptest.NewRequest(http.MethodGet, "/"+bucket+"?replication", nil)
+			rec = httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+		})
+	}
+}
+
+// TestS3BucketReplication_MalformedXML verifies that PutBucketReplication rejects invalid XML.
+func TestS3BucketReplication_MalformedXML(t *testing.T) {
+	t.Parallel()
+	handler, sdkClient := newTestHandler(t)
+	bucket := "replication-malformed-bucket"
+
+	_, err := sdkClient.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: &bucket})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPut, "/"+bucket+"?replication", strings.NewReader("not-valid-xml"))
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "MalformedXML")
+}
+
+// TestS3NewOperations_GetSupportedOperations verifies that all new operations are listed.
+func TestS3NewOperations_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "includes PutPublicAccessBlock", want: "PutPublicAccessBlock"},
+		{name: "includes GetPublicAccessBlock", want: "GetPublicAccessBlock"},
+		{name: "includes DeletePublicAccessBlock", want: "DeletePublicAccessBlock"},
+		{name: "includes PutBucketOwnershipControls", want: "PutBucketOwnershipControls"},
+		{name: "includes GetBucketOwnershipControls", want: "GetBucketOwnershipControls"},
+		{name: "includes DeleteBucketOwnershipControls", want: "DeleteBucketOwnershipControls"},
+		{name: "includes PutBucketLogging", want: "PutBucketLogging"},
+		{name: "includes GetBucketLogging", want: "GetBucketLogging"},
+		{name: "includes PutBucketReplication", want: "PutBucketReplication"},
+		{name: "includes GetBucketReplication", want: "GetBucketReplication"},
+		{name: "includes DeleteBucketReplication", want: "DeleteBucketReplication"},
+		{name: "includes PutBucketEncryption", want: "PutBucketEncryption"},
+		{name: "includes GetBucketEncryption", want: "GetBucketEncryption"},
+		{name: "includes DeleteBucketEncryption", want: "DeleteBucketEncryption"},
+		{name: "includes PutObjectLockConfiguration", want: "PutObjectLockConfiguration"},
+		{name: "includes GetObjectLockConfiguration", want: "GetObjectLockConfiguration"},
+		{name: "includes PutObjectRetention", want: "PutObjectRetention"},
+		{name: "includes GetObjectRetention", want: "GetObjectRetention"},
+		{name: "includes PutObjectLegalHold", want: "PutObjectLegalHold"},
+		{name: "includes GetObjectLegalHold", want: "GetObjectLegalHold"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, _ := newTestHandler(t)
+			ops := handler.GetSupportedOperations()
+			assert.Contains(t, ops, tt.want)
+		})
+	}
+}
+
+// TestS3NewOperations_NonExistentBucket verifies that new operations return NoSuchBucket for missing buckets.
+func TestS3NewOperations_NonExistentBucket(t *testing.T) {
+	t.Parallel()
+
+	publicAccessXML := `<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls>` +
+		`<IgnorePublicAcls>true</IgnorePublicAcls><BlockPublicPolicy>true</BlockPublicPolicy>` +
+		`<RestrictPublicBuckets>true</RestrictPublicBuckets></PublicAccessBlockConfiguration>`
+	ownershipXML := `<OwnershipControls>` +
+		`<Rule><ObjectOwnership>BucketOwnerEnforced</ObjectOwnership></Rule>` +
+		`</OwnershipControls>`
+	loggingXML := `<BucketLoggingStatus xmlns="http://s3.amazonaws.com/doc/2006-03-01/"></BucketLoggingStatus>`
+	replicationXML := `<ReplicationConfiguration><Role>arn:aws:iam::123456789012:role/r</Role>` +
+		`<Rule><Status>Enabled</Status><Prefix></Prefix>` +
+		`<Destination><Bucket>arn:aws:s3:::dest</Bucket></Destination></Rule></ReplicationConfiguration>`
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "GetPublicAccessBlock_NoSuchBucket", method: http.MethodGet, path: "/missing?publicAccessBlock"},
+		{
+			name:   "PutPublicAccessBlock_NoSuchBucket",
+			method: http.MethodPut,
+			path:   "/missing?publicAccessBlock",
+			body:   publicAccessXML,
+		},
+		{name: "DeletePublicAccessBlock_NoSuchBucket", method: http.MethodDelete, path: "/missing?publicAccessBlock"},
+		{name: "GetOwnershipControls_NoSuchBucket", method: http.MethodGet, path: "/missing?ownershipControls"},
+		{
+			name:   "PutOwnershipControls_NoSuchBucket",
+			method: http.MethodPut,
+			path:   "/missing?ownershipControls",
+			body:   ownershipXML,
+		},
+		{name: "DeleteOwnershipControls_NoSuchBucket", method: http.MethodDelete, path: "/missing?ownershipControls"},
+		{name: "GetLogging_NoSuchBucket", method: http.MethodGet, path: "/missing?logging"},
+		{name: "PutLogging_NoSuchBucket", method: http.MethodPut, path: "/missing?logging", body: loggingXML},
+		{name: "GetReplication_NoSuchBucket", method: http.MethodGet, path: "/missing?replication"},
+		{
+			name:   "PutReplication_NoSuchBucket",
+			method: http.MethodPut,
+			path:   "/missing?replication",
+			body:   replicationXML,
+		},
+		{name: "DeleteReplication_NoSuchBucket", method: http.MethodDelete, path: "/missing?replication"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, _ := newTestHandler(t)
+
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code)
+			assert.Contains(t, rec.Body.String(), "NoSuchBucket")
+		})
+	}
+}
