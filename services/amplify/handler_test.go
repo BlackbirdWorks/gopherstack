@@ -593,6 +593,130 @@ func TestHandler_DeleteBranch(t *testing.T) {
 
 // ---- Tagging handler tests ----
 
+func TestHandler_ListAppsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		queryString   string
+		wantCount     int
+		wantNextToken bool
+	}{
+		{
+			name:        "no_pagination_returns_all",
+			queryString: "",
+			wantCount:   4,
+		},
+		{
+			name:          "first_page",
+			queryString:   "?maxResults=2",
+			wantCount:     2,
+			wantNextToken: true,
+		},
+		{
+			name:        "second_page",
+			queryString: "?maxResults=2&nextToken=2",
+			wantCount:   2,
+		},
+		{
+			name:        "token_beyond_end",
+			queryString: "?maxResults=2&nextToken=100",
+			wantCount:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler()
+
+			for _, name := range []string{"App1", "App2", "App3", "App4"} {
+				_, err := b.CreateApp(name, "", "", "", nil)
+				require.NoError(t, err)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/apps"+tt.queryString, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			apps := resp["apps"].([]any)
+			assert.Len(t, apps, tt.wantCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, resp["nextToken"])
+			} else {
+				assert.Empty(t, resp["nextToken"])
+			}
+		})
+	}
+}
+
+func TestHandler_ListBranchesPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		queryString   string
+		wantCount     int
+		wantNextToken bool
+	}{
+		{
+			name:        "no_pagination_returns_all",
+			queryString: "",
+			wantCount:   4,
+		},
+		{
+			name:          "first_page",
+			queryString:   "?maxResults=2",
+			wantCount:     2,
+			wantNextToken: true,
+		},
+		{
+			name:        "second_page",
+			queryString: "?maxResults=2&nextToken=2",
+			wantCount:   2,
+		},
+		{
+			name:        "token_beyond_end",
+			queryString: "?maxResults=2&nextToken=100",
+			wantCount:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandler()
+			app, err := b.CreateApp("PaginationApp", "", "", "", nil)
+			require.NoError(t, err)
+
+			for _, name := range []string{"br1", "br2", "br3", "br4"} {
+				_, err = b.CreateBranch(app.AppID, name, "", "", false, nil)
+				require.NoError(t, err)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/apps/"+app.AppID+"/branches"+tt.queryString, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			branches := resp["branches"].([]any)
+			assert.Len(t, branches, tt.wantCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, resp["nextToken"])
+			} else {
+				assert.Empty(t, resp["nextToken"])
+			}
+		})
+	}
+}
+
+// ---- Tagging handler tests ----
+
 func TestHandler_TagResource(t *testing.T) {
 	t.Parallel()
 

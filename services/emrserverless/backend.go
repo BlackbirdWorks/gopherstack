@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"maps"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -195,8 +197,8 @@ func (b *InMemoryBackend) GetApplication(id string) (*Application, error) {
 	return cloneApplication(app), nil
 }
 
-// ListApplications returns all applications.
-func (b *InMemoryBackend) ListApplications() []*Application {
+// ListApplications returns paginated applications.
+func (b *InMemoryBackend) ListApplications(nextToken string, maxResults int) ([]*Application, string) {
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
@@ -206,7 +208,11 @@ func (b *InMemoryBackend) ListApplications() []*Application {
 		list = append(list, cloneApplication(app))
 	}
 
-	return list
+	sort.Slice(list, func(i, j int) bool { return list[i].ApplicationID < list[j].ApplicationID })
+
+	page, token := emrPaginate(list, nextToken, maxResults)
+
+	return page, token
 }
 
 // UpdateApplication applies a mutating function to an application.
@@ -333,13 +339,13 @@ func (b *InMemoryBackend) GetJobRun(applicationID, jobRunID string) (*JobRun, er
 	return cloneJobRun(jr), nil
 }
 
-// ListJobRuns returns all job runs for an application.
-func (b *InMemoryBackend) ListJobRuns(applicationID string) ([]*JobRun, error) {
+// ListJobRuns returns paginated job runs for an application.
+func (b *InMemoryBackend) ListJobRuns(applicationID, nextToken string, maxResults int) ([]*JobRun, string, error) {
 	b.mu.RLock("ListJobRuns")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.applications[applicationID]; !ok {
-		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
+		return nil, "", fmt.Errorf("%w: application %s not found", ErrNotFound, applicationID)
 	}
 
 	runs := b.jobRuns[applicationID]
@@ -349,7 +355,11 @@ func (b *InMemoryBackend) ListJobRuns(applicationID string) ([]*JobRun, error) {
 		list = append(list, cloneJobRun(jr))
 	}
 
-	return list, nil
+	sort.Slice(list, func(i, j int) bool { return list[i].JobRunID < list[j].JobRunID })
+
+	page, token := emrPaginate(list, nextToken, maxResults)
+
+	return page, token, nil
 }
 
 // CancelJobRun cancels a job run.
@@ -463,4 +473,36 @@ func cloneJobRun(jr *JobRun) *JobRun {
 	}
 
 	return &cp
+}
+
+// emrPaginate applies token-based pagination to a sorted slice of pointers.
+func emrPaginate[T any](all []*T, nextToken string, maxResults int) ([]*T, string) {
+	const defaultLimit = 100
+
+	startIdx := 0
+	if nextToken != "" {
+		if idx, err := strconv.Atoi(nextToken); err == nil && idx >= 0 {
+			startIdx = idx
+		}
+	}
+
+	if startIdx >= len(all) {
+		return []*T{}, ""
+	}
+
+	limit := defaultLimit
+	if maxResults > 0 {
+		limit = maxResults
+	}
+
+	end := startIdx + limit
+
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken
 }

@@ -94,15 +94,21 @@ func ToSDKListTablesInput(input *ListTablesInput) *dynamodb.ListTablesInput {
 		}
 	}
 
-	return &dynamodb.ListTablesInput{
-		Limit: l,
+	out := &dynamodb.ListTablesInput{Limit: l}
+	if input.ExclusiveStartTableName != "" {
+		out.ExclusiveStartTableName = &input.ExclusiveStartTableName
 	}
+
+	return out
 }
 
 func FromSDKListTablesOutput(output *dynamodb.ListTablesOutput) *ListTablesOutput {
-	return &ListTablesOutput{
-		TableNames: output.TableNames,
+	result := &ListTablesOutput{TableNames: output.TableNames}
+	if output.LastEvaluatedTableName != nil {
+		result.LastEvaluatedTableName = *output.LastEvaluatedTableName
 	}
+
+	return result
 }
 
 // ToSDKUpdateTableInput converts the wire-format UpdateTableInput to an AWS SDK input.

@@ -309,6 +309,8 @@ type Grant struct {
 	KeyID string `json:"KeyId"`
 	// GranteePrincipal is the principal that receives the grant.
 	GranteePrincipal string `json:"GranteePrincipal"`
+	// RetiringPrincipal is the principal that can retire the grant.
+	RetiringPrincipal string `json:"RetiringPrincipal,omitempty"`
 	// GrantToken is a token that can be used to identify this grant.
 	GrantToken string `json:"GrantToken"`
 	// Name is an optional name for the grant.
@@ -321,10 +323,11 @@ type Grant struct {
 
 // CreateGrantInput is the request payload for CreateGrant.
 type CreateGrantInput struct {
-	KeyID            string   `json:"KeyId"`
-	GranteePrincipal string   `json:"GranteePrincipal"`
-	Name             string   `json:"Name,omitempty"`
-	Operations       []string `json:"Operations"`
+	KeyID             string   `json:"KeyId"`
+	GranteePrincipal  string   `json:"GranteePrincipal"`
+	RetiringPrincipal string   `json:"RetiringPrincipal,omitempty"`
+	Name              string   `json:"Name,omitempty"`
+	Operations        []string `json:"Operations"`
 }
 
 // CreateGrantOutput is the response payload for CreateGrant.
