@@ -131,6 +131,7 @@ import (
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
+	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
 const (
@@ -333,13 +334,15 @@ type DashboardHandler struct {
 	TimestreamWriteOps *timestreamwritebackend.Handler
 	// TimestreamQueryOps provides access to the Timestream Query backend.
 	TimestreamQueryOps *timestreamquerybackend.Handler
-	SubRouter          *echo.Echo
-	ddbProvider        *ddbbackend.DashboardProvider
-	s3Provider         *s3backend.DashboardProvider
-	FaultStore         *chaos.FaultStore
-	Logger             *slog.Logger
-	layout             *template.Template
-	GlobalConfig       config.GlobalConfig
+	// Wafv2Ops provides access to the WAFv2 backend.
+	Wafv2Ops     *wafv2backend.Handler
+	SubRouter    *echo.Echo
+	ddbProvider  *ddbbackend.DashboardProvider
+	s3Provider   *s3backend.DashboardProvider
+	FaultStore   *chaos.FaultStore
+	Logger       *slog.Logger
+	layout       *template.Template
+	GlobalConfig config.GlobalConfig
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -565,6 +568,8 @@ type Config struct {
 	TimestreamWriteOps *timestreamwritebackend.Handler
 	// TimestreamQueryOps provides access to the Timestream Query backend.
 	TimestreamQueryOps *timestreamquerybackend.Handler
+	// Wafv2Ops provides access to the WAFv2 backend.
+	Wafv2Ops *wafv2backend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
@@ -724,6 +729,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/metrics.html",
 		"templates/textract/*.html",
 		"templates/timestreamwrite/*.html",
+		"templates/wafv2/*.html",
 		"templates/doc.html",
 		"templates/settings.html",
 		"templates/apiconsole.html",
@@ -880,6 +886,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.TextractOps = cfg.TextractOps
 	h.TimestreamWriteOps = cfg.TimestreamWriteOps
 	h.TimestreamQueryOps = cfg.TimestreamQueryOps
+	h.Wafv2Ops = cfg.Wafv2Ops
 }
 
 // initHandlers wires provider callbacks and sets up the subrouter.
@@ -1410,6 +1417,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupTextractRoutes()
 	h.setupTimestreamWriteRoutes()
 	h.setupTimestreamQueryRoutes()
+	h.setupWafv2Routes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -1543,6 +1551,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/textract", "Textract"},
 	{"/timestreamwrite", "TimestreamWrite"},
 	{"/timestreamquery", "TimestreamQuery"},
+	{"/wafv2", "Wafv2"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},
 	{"/docs", "Docs"},

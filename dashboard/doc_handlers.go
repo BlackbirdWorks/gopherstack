@@ -76,6 +76,7 @@ type docPageData struct {
 	SsoAdminOps                []string
 	TextractOps                []string
 	TimestreamQueryOps         []string
+	Wafv2Ops                   []string
 }
 
 // docIndex renders the documentation page.
@@ -163,6 +164,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		SsoAdminOps:                h.getSupportedOps(h.SsoAdminOps),
 		TextractOps:                h.getSupportedOps(h.TextractOps),
 		TimestreamQueryOps:         h.getSupportedOps(h.TimestreamQueryOps),
+		Wafv2Ops:                   h.getSupportedOps(h.Wafv2Ops),
 	}
 
 	h.renderTemplate(w, "doc.html", data)

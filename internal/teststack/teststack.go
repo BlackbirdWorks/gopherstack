@@ -129,6 +129,7 @@ import (
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
+	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
 const (
@@ -298,10 +299,12 @@ type Stack struct {
 	TimestreamWriteHandler *timestreamwritebackend.Handler
 	// TimestreamQueryHandler provides access to the Timestream Query backend.
 	TimestreamQueryHandler *timestreamquerybackend.Handler
-	S3Client               *s3.Client
-	DDBClient              *dynamodb.Client
-	FaultStore             *chaos.FaultStore
-	Dashboard              *dashboard.DashboardHandler
+	// Wafv2Handler provides access to the WAFv2 backend.
+	Wafv2Handler *wafv2backend.Handler
+	S3Client     *s3.Client
+	DDBClient    *dynamodb.Client
+	FaultStore   *chaos.FaultStore
+	Dashboard    *dashboard.DashboardHandler
 }
 
 // sdkClients holds the AWS SDK clients wired through the in-memory test server.
@@ -518,6 +521,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.textract)
 	_ = registry.Register(h.timestreamwrite)
 	_ = registry.Register(h.timestreamquery)
+	_ = registry.Register(h.wafv2)
 }
 
 // handlers bundles all service handlers created for a test stack.
@@ -632,6 +636,7 @@ type handlers struct {
 	textract           *textractbackend.Handler
 	timestreamwrite    *timestreamwritebackend.Handler
 	timestreamquery    *timestreamquerybackend.Handler
+	wafv2              *wafv2backend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
 }
@@ -957,6 +962,7 @@ func populateLatestMLHandlers(h *handlers) {
 	h.timestreamquery = timestreamquerybackend.NewHandler(
 		timestreamquerybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.wafv2 = wafv2backend.NewHandler(wafv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 }
 
 // newCFNHandler creates a CloudFormation handler wired to the given service backends
@@ -1126,6 +1132,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.TextractOps = h.textract
 	cfg.TimestreamWriteOps = h.timestreamwrite
 	cfg.TimestreamQueryOps = h.timestreamquery
+	cfg.Wafv2Ops = h.wafv2
 }
 
 // New creates a fully wired integration stack for testing.
@@ -1342,6 +1349,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.TextractHandler = h.textract
 	s.TimestreamWriteHandler = h.timestreamwrite
 	s.TimestreamQueryHandler = h.timestreamquery
+	s.Wafv2Handler = h.wafv2
 }
 
 // CreateDDBTable creates a DynamoDB table with a simple string hash key "id".
