@@ -51,10 +51,22 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeServices",
 		"UpdateService",
 		"DeleteService",
+		"ListServices",
 		"RunTask",
 		"DescribeTasks",
 		"StopTask",
 		"ListTasks",
+		"RegisterContainerInstance",
+		"DeregisterContainerInstance",
+		"DescribeContainerInstances",
+		"ListContainerInstances",
+		"UpdateContainerInstancesState",
+		"CreateTaskSet",
+		"DeleteTaskSet",
+		"DescribeTaskSets",
+		"UpdateTaskSet",
+		"UpdateServicePrimaryTaskSet",
+		"ExecuteCommand",
 	}
 }
 
@@ -99,12 +111,14 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 	}
 
 	var req struct {
-		Cluster     string `json:"cluster"`
-		Service     string `json:"service"`
-		ServiceName string `json:"serviceName"`
-		ClusterName string `json:"clusterName"`
-		Family      string `json:"family"`
-		TaskArn     string `json:"task"`
+		Cluster           string `json:"cluster"`
+		Service           string `json:"service"`
+		ServiceName       string `json:"serviceName"`
+		ClusterName       string `json:"clusterName"`
+		Family            string `json:"family"`
+		TaskArn           string `json:"task"`
+		ContainerInstance string `json:"containerInstance"`
+		TaskSet           string `json:"taskSet"`
 	}
 
 	_ = json.Unmarshal(body, &req)
@@ -122,6 +136,10 @@ func (h *Handler) ExtractResource(c *echo.Context) string {
 		return req.Family
 	case req.TaskArn != "":
 		return req.TaskArn
+	case req.ContainerInstance != "":
+		return req.ContainerInstance
+	case req.TaskSet != "":
+		return req.TaskSet
 	}
 
 	return ""
@@ -153,10 +171,25 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"DescribeServices":         service.WrapOp(h.handleDescribeServices),
 		"UpdateService":            service.WrapOp(h.handleUpdateService),
 		"DeleteService":            service.WrapOp(h.handleDeleteService),
+		"ListServices":             service.WrapOp(h.handleListServices),
 		"RunTask":                  service.WrapOp(h.handleRunTask),
 		"DescribeTasks":            service.WrapOp(h.handleDescribeTasks),
 		"StopTask":                 service.WrapOp(h.handleStopTask),
 		"ListTasks":                service.WrapOp(h.handleListTasks),
+		// Container instances
+		"RegisterContainerInstance":     service.WrapOp(h.handleRegisterContainerInstance),
+		"DeregisterContainerInstance":   service.WrapOp(h.handleDeregisterContainerInstance),
+		"DescribeContainerInstances":    service.WrapOp(h.handleDescribeContainerInstances),
+		"ListContainerInstances":        service.WrapOp(h.handleListContainerInstances),
+		"UpdateContainerInstancesState": service.WrapOp(h.handleUpdateContainerInstancesState),
+		// Task sets
+		"CreateTaskSet":               service.WrapOp(h.handleCreateTaskSet),
+		"DeleteTaskSet":               service.WrapOp(h.handleDeleteTaskSet),
+		"DescribeTaskSets":            service.WrapOp(h.handleDescribeTaskSets),
+		"UpdateTaskSet":               service.WrapOp(h.handleUpdateTaskSet),
+		"UpdateServicePrimaryTaskSet": service.WrapOp(h.handleUpdateServicePrimaryTaskSet),
+		// ECS Exec
+		"ExecuteCommand": service.WrapOp(h.handleExecuteCommand),
 	}
 }
 
@@ -476,6 +509,27 @@ func (h *Handler) handleDeleteService(_ context.Context, in *deleteServiceInput)
 	}
 
 	return &deleteServiceOutput{Service: toServiceView(*svc)}, nil
+}
+
+type listServicesInput struct {
+	Cluster string `json:"cluster,omitempty"`
+}
+
+type listServicesOutput struct {
+	ServiceArns []string `json:"serviceArns"`
+}
+
+func (h *Handler) handleListServices(_ context.Context, in *listServicesInput) (*listServicesOutput, error) {
+	arns, err := h.Backend.ListServices(in.Cluster)
+	if err != nil {
+		return nil, err
+	}
+
+	if arns == nil {
+		arns = []string{}
+	}
+
+	return &listServicesOutput{ServiceArns: arns}, nil
 }
 
 // ----- Task handlers -----

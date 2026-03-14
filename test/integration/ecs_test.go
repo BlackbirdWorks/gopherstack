@@ -539,6 +539,275 @@ func TestIntegration_ECS_ListTasks(t *testing.T) {
 	assert.Len(t, out.TaskArns, 3)
 }
 
+func TestIntegration_ECS_ListServices(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	clusterName := fmt.Sprintf("list-svc-cluster-%s", suffix)
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	tdOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String(fmt.Sprintf("list-svc-td-%s", suffix)),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{Name: aws.String("app"), Image: aws.String("nginx:latest")},
+		},
+	})
+	require.NoError(t, err)
+
+	for _, svcName := range []string{"svc-a-" + suffix, "svc-b-" + suffix} {
+		_, err = client.CreateService(ctx, &ecs.CreateServiceInput{
+			Cluster:        aws.String(clusterName),
+			ServiceName:    aws.String(svcName),
+			TaskDefinition: tdOut.TaskDefinition.TaskDefinitionArn,
+			DesiredCount:   aws.Int32(1),
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ListServices(ctx, &ecs.ListServicesInput{
+		Cluster: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+	assert.Len(t, out.ServiceArns, 2)
+}
+
+func TestIntegration_ECS_ContainerInstances(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	clusterName := fmt.Sprintf("ci-cluster-%s", suffix)
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	// Register a container instance.
+	regOut, err := client.RegisterContainerInstance(ctx, &ecs.RegisterContainerInstanceInput{
+		Cluster: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, regOut.ContainerInstance)
+	assert.NotEmpty(t, aws.ToString(regOut.ContainerInstance.ContainerInstanceArn))
+	assert.Equal(t, "ACTIVE", aws.ToString(regOut.ContainerInstance.Status))
+	assert.True(t, regOut.ContainerInstance.AgentConnected)
+
+	ciArn := regOut.ContainerInstance.ContainerInstanceArn
+
+	// List container instances.
+	listOut, err := client.ListContainerInstances(ctx, &ecs.ListContainerInstancesInput{
+		Cluster: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+	assert.Len(t, listOut.ContainerInstanceArns, 1)
+	assert.Equal(t, aws.ToString(ciArn), listOut.ContainerInstanceArns[0])
+
+	// Describe container instances.
+	descOut, err := client.DescribeContainerInstances(ctx, &ecs.DescribeContainerInstancesInput{
+		Cluster:            aws.String(clusterName),
+		ContainerInstances: []string{aws.ToString(ciArn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.ContainerInstances, 1)
+	assert.Equal(t, aws.ToString(ciArn), aws.ToString(descOut.ContainerInstances[0].ContainerInstanceArn))
+
+	// Drain the instance.
+	drainOut, err := client.UpdateContainerInstancesState(ctx, &ecs.UpdateContainerInstancesStateInput{
+		Cluster:            aws.String(clusterName),
+		ContainerInstances: []string{aws.ToString(ciArn)},
+		Status:             ecstypes.ContainerInstanceStatusDraining,
+	})
+	require.NoError(t, err)
+	require.Len(t, drainOut.ContainerInstances, 1)
+	assert.Equal(t, ecstypes.ContainerInstanceStatusDraining, drainOut.ContainerInstances[0].Status)
+
+	// Deregister the instance.
+	deregOut, err := client.DeregisterContainerInstance(ctx, &ecs.DeregisterContainerInstanceInput{
+		Cluster:           aws.String(clusterName),
+		ContainerInstance: ciArn,
+		Force:             aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, deregOut.ContainerInstance)
+	assert.Equal(t, "INACTIVE", aws.ToString(deregOut.ContainerInstance.Status))
+
+	// Confirm it was removed.
+	listOut2, err := client.ListContainerInstances(ctx, &ecs.ListContainerInstancesInput{
+		Cluster: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, listOut2.ContainerInstanceArns)
+}
+
+func TestIntegration_ECS_TaskSets(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	clusterName := fmt.Sprintf("ts-cluster-%s", suffix)
+	serviceName := fmt.Sprintf("ts-service-%s", suffix)
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	tdOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String(fmt.Sprintf("ts-td-%s", suffix)),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{Name: aws.String("app"), Image: aws.String("nginx:latest")},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateService(ctx, &ecs.CreateServiceInput{
+		Cluster:        aws.String(clusterName),
+		ServiceName:    aws.String(serviceName),
+		TaskDefinition: tdOut.TaskDefinition.TaskDefinitionArn,
+		DesiredCount:   aws.Int32(1),
+	})
+	require.NoError(t, err)
+
+	// Create two task sets.
+	ts1Out, err := client.CreateTaskSet(ctx, &ecs.CreateTaskSetInput{
+		Cluster:        aws.String(clusterName),
+		Service:        aws.String(serviceName),
+		TaskDefinition: tdOut.TaskDefinition.TaskDefinitionArn,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, ts1Out.TaskSet)
+	assert.NotEmpty(t, aws.ToString(ts1Out.TaskSet.TaskSetArn))
+	assert.Equal(t, "ACTIVE", aws.ToString(ts1Out.TaskSet.Status))
+
+	ts2Out, err := client.CreateTaskSet(ctx, &ecs.CreateTaskSetInput{
+		Cluster:        aws.String(clusterName),
+		Service:        aws.String(serviceName),
+		TaskDefinition: tdOut.TaskDefinition.TaskDefinitionArn,
+	})
+	require.NoError(t, err)
+
+	ts1Arn := ts1Out.TaskSet.TaskSetArn
+	ts2Arn := ts2Out.TaskSet.TaskSetArn
+
+	// Describe task sets.
+	descOut, err := client.DescribeTaskSets(ctx, &ecs.DescribeTaskSetsInput{
+		Cluster:  aws.String(clusterName),
+		Service:  aws.String(serviceName),
+		TaskSets: []string{aws.ToString(ts1Arn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.TaskSets, 1)
+	assert.Equal(t, aws.ToString(ts1Arn), aws.ToString(descOut.TaskSets[0].TaskSetArn))
+
+	// Update task set scale.
+	updateOut, err := client.UpdateTaskSet(ctx, &ecs.UpdateTaskSetInput{
+		Cluster: aws.String(clusterName),
+		Service: aws.String(serviceName),
+		TaskSet: ts1Arn,
+		Scale: &ecstypes.Scale{
+			Unit:  ecstypes.ScaleUnitPercent,
+			Value: 25.0,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updateOut.TaskSet)
+	assert.InDelta(t, 25.0, updateOut.TaskSet.Scale.Value, 0.001)
+
+	// Set primary task set.
+	primaryOut, err := client.UpdateServicePrimaryTaskSet(ctx, &ecs.UpdateServicePrimaryTaskSetInput{
+		Cluster:        aws.String(clusterName),
+		Service:        aws.String(serviceName),
+		PrimaryTaskSet: ts1Arn,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, primaryOut.TaskSet)
+	assert.Equal(t, "PRIMARY", aws.ToString(primaryOut.TaskSet.Status))
+
+	// Verify ts1 is PRIMARY.
+	descOut2, err := client.DescribeTaskSets(ctx, &ecs.DescribeTaskSetsInput{
+		Cluster:  aws.String(clusterName),
+		Service:  aws.String(serviceName),
+		TaskSets: []string{aws.ToString(ts1Arn)},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut2.TaskSets, 1)
+	assert.Equal(t, "PRIMARY", aws.ToString(descOut2.TaskSets[0].Status))
+
+	// Delete task set 2.
+	delOut, err := client.DeleteTaskSet(ctx, &ecs.DeleteTaskSetInput{
+		Cluster: aws.String(clusterName),
+		Service: aws.String(serviceName),
+		TaskSet: ts2Arn,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, delOut.TaskSet)
+}
+
+func TestIntegration_ECS_ExecuteCommand(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createECSClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()[:8]
+	clusterName := fmt.Sprintf("exec-cluster-%s", suffix)
+
+	_, err := client.CreateCluster(ctx, &ecs.CreateClusterInput{
+		ClusterName: aws.String(clusterName),
+	})
+	require.NoError(t, err)
+
+	tdOut, err := client.RegisterTaskDefinition(ctx, &ecs.RegisterTaskDefinitionInput{
+		Family: aws.String(fmt.Sprintf("exec-td-%s", suffix)),
+		ContainerDefinitions: []ecstypes.ContainerDefinition{
+			{Name: aws.String("app"), Image: aws.String("nginx:latest"), Essential: aws.Bool(true)},
+		},
+	})
+	require.NoError(t, err)
+
+	runOut, err := client.RunTask(ctx, &ecs.RunTaskInput{
+		Cluster:        aws.String(clusterName),
+		TaskDefinition: tdOut.TaskDefinition.TaskDefinitionArn,
+		Count:          aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, runOut.Tasks, 1)
+
+	taskArn := runOut.Tasks[0].TaskArn
+
+	// ExecuteCommand on running task.
+	execOut, err := client.ExecuteCommand(ctx, &ecs.ExecuteCommandInput{
+		Cluster:     aws.String(clusterName),
+		Task:        taskArn,
+		Container:   aws.String("app"),
+		Command:     aws.String("/bin/sh"),
+		Interactive: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, execOut.Session)
+	assert.NotEmpty(t, aws.ToString(execOut.Session.SessionId))
+	assert.NotEmpty(t, aws.ToString(execOut.Session.StreamUrl))
+	assert.NotEmpty(t, aws.ToString(execOut.Session.TokenValue))
+	assert.NotEmpty(t, aws.ToString(execOut.ClusterArn))
+	assert.Equal(t, aws.ToString(taskArn), aws.ToString(execOut.TaskArn))
+}
+
 // TestIntegration_ECS_DockerRuntime tests ECS task execution when the Docker
 // runtime is available. This test is skipped unless GOPHERSTACK_ECS_RUNTIME is
 // set to "docker" on the test server and the local environment exposes a
