@@ -190,6 +190,50 @@ type Backend interface {
 	// DescribeNetworkInterfaces returns ENIs, optionally filtered by IDs.
 	DescribeNetworkInterfaces(ids []string) []*NetworkInterface
 
+	// CreateNetworkInterface creates a new ENI in the given subnet.
+	CreateNetworkInterface(subnetID, description string) (*NetworkInterface, error)
+
+	// DeleteNetworkInterface removes a network interface by ID.
+	DeleteNetworkInterface(id string) error
+
+	// AttachNetworkInterface attaches an ENI to an instance; returns the attachment ID.
+	AttachNetworkInterface(eniID, instanceID string, deviceIndex int) (string, error)
+
+	// DetachNetworkInterface detaches a network interface by attachment ID.
+	DetachNetworkInterface(attachmentID string, force bool) error
+
+	// AssignPrivateIPAddresses adds secondary private IPs to an ENI.
+	// If ips is non-empty those addresses are assigned; otherwise count new IPs are allocated.
+	AssignPrivateIPAddresses(eniID string, count int, ips []string) error
+
+	// UnassignPrivateIPAddresses removes secondary private IPs from an ENI.
+	UnassignPrivateIPAddresses(eniID string, ips []string) error
+
+	// ModifyNetworkInterfaceAttribute updates a single attribute of an ENI.
+	ModifyNetworkInterfaceAttribute(eniID, attr, value string) error
+
+	// ---- spot instances ----
+
+	// RequestSpotInstances creates a spot instance request (mock: immediately fulfilled).
+	RequestSpotInstances(imageID, instanceType, subnetID, spotPrice string) (*SpotInstanceRequest, error)
+
+	// DescribeSpotInstanceRequests returns spot requests, optionally filtered by IDs.
+	DescribeSpotInstanceRequests(ids []string) []*SpotInstanceRequest
+
+	// CancelSpotInstanceRequests cancels the given spot requests.
+	CancelSpotInstanceRequests(ids []string) error
+
+	// ---- placement groups ----
+
+	// CreatePlacementGroup creates a new placement group.
+	CreatePlacementGroup(name, strategy string) (*PlacementGroup, error)
+
+	// DescribePlacementGroups returns placement groups, optionally filtered by names.
+	DescribePlacementGroups(names []string) []*PlacementGroup
+
+	// DeletePlacementGroup removes a placement group by name.
+	DeletePlacementGroup(name string) error
+
 	// ---- tags ----
 
 	// CreateTags adds or updates tags on one or more resources.

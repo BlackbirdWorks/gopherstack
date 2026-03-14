@@ -16,17 +16,28 @@ import (
 
 // Additional errors for extended EC2 operations.
 var (
-	ErrKeyPairNotFound          = errors.New("InvalidKeyPair.NotFound")
-	ErrDuplicateKeyPairName     = errors.New("InvalidKeyPair.Duplicate")
-	ErrVolumeNotFound           = errors.New("InvalidVolume.NotFound")
-	ErrVolumeInUse              = errors.New("VolumeInUse")
-	ErrAddressNotFound          = errors.New("InvalidAllocationID.NotFound")
-	ErrInternetGatewayNotFound  = errors.New("InvalidInternetGatewayID.NotFound")
-	ErrRouteTableNotFound       = errors.New("InvalidRouteTableID.NotFound")
-	ErrNatGatewayNotFound       = errors.New("InvalidNatGatewayID.NotFound")
-	ErrNetworkInterfaceNotFound = errors.New("InvalidNetworkInterfaceID.NotFound")
-	ErrRouteNotFound            = errors.New("InvalidRoute.NotFound")
-	ErrAssociationNotFound      = errors.New("InvalidAssociationID.NotFound")
+	ErrKeyPairNotFound             = errors.New("InvalidKeyPair.NotFound")
+	ErrDuplicateKeyPairName        = errors.New("InvalidKeyPair.Duplicate")
+	ErrVolumeNotFound              = errors.New("InvalidVolume.NotFound")
+	ErrVolumeInUse                 = errors.New("VolumeInUse")
+	ErrAddressNotFound             = errors.New("InvalidAllocationID.NotFound")
+	ErrInternetGatewayNotFound     = errors.New("InvalidInternetGatewayID.NotFound")
+	ErrRouteTableNotFound          = errors.New("InvalidRouteTableID.NotFound")
+	ErrNatGatewayNotFound          = errors.New("InvalidNatGatewayID.NotFound")
+	ErrNetworkInterfaceNotFound    = errors.New("InvalidNetworkInterfaceID.NotFound")
+	ErrNetworkInterfaceInUse       = errors.New("InvalidParameterValue.NetworkInterfaceInUse")
+	ErrAttachmentNotFound          = errors.New("InvalidAttachmentID.NotFound")
+	ErrSpotRequestNotFound         = errors.New("InvalidSpotInstanceRequestID.NotFound")
+	ErrPlacementGroupNotFound      = errors.New("InvalidPlacementGroup.NotFound")
+	ErrDuplicatePlacementGroupName = errors.New("InvalidPlacementGroup.Duplicate")
+	ErrRouteNotFound               = errors.New("InvalidRoute.NotFound")
+	ErrAssociationNotFound         = errors.New("InvalidAssociationID.NotFound")
+)
+
+// Attribute name and boolean-string constants shared across backend and handler.
+const (
+	attrSourceDest = "sourceDestCheck"
+	ec2BooleanTrue = "true"
 )
 
 // KeyPair represents an EC2 key pair.
@@ -110,14 +121,44 @@ type NatGateway struct {
 	State        string    `json:"state"`
 }
 
-// NetworkInterface represents an EC2 Network Interface.
+// NetworkInterface represents an EC2 Network Interface (ENI).
 type NetworkInterface struct {
-	ID         string `json:"id"`
-	SubnetID   string `json:"subnetID"`
-	VPCID      string `json:"vpcID"`
-	PrivateIP  string `json:"privateIP"`
-	InstanceID string `json:"instanceID,omitempty"`
-	Status     string `json:"status"`
+	ID                  string   `json:"id"`
+	SubnetID            string   `json:"subnetID"`
+	VPCID               string   `json:"vpcID"`
+	PrivateIP           string   `json:"privateIP"`
+	Description         string   `json:"description"`
+	InstanceID          string   `json:"instanceID,omitempty"`
+	AttachmentID        string   `json:"attachmentID,omitempty"`
+	Status              string   `json:"status"`
+	SecondaryPrivateIPs []string `json:"secondaryPrivateIPs,omitempty"`
+	DeviceIndex         int      `json:"deviceIndex,omitempty"`
+	SourceDestCheck     bool     `json:"sourceDestCheck"`
+}
+
+// SpotLaunchSpecification holds launch parameters for a spot instance request.
+type SpotLaunchSpecification struct {
+	ImageID      string `json:"imageID"`
+	InstanceType string `json:"instanceType"`
+	SubnetID     string `json:"subnetID"`
+}
+
+// SpotInstanceRequest represents an EC2 spot instance request.
+type SpotInstanceRequest struct {
+	CreateTime time.Time               `json:"createTime"`
+	LaunchSpec SpotLaunchSpecification `json:"launchSpec"`
+	ID         string                  `json:"id"`
+	InstanceID string                  `json:"instanceID,omitempty"`
+	State      string                  `json:"state"`
+	SpotPrice  string                  `json:"spotPrice"`
+	Type       string                  `json:"type"`
+}
+
+// PlacementGroup represents an EC2 placement group.
+type PlacementGroup struct {
+	Name     string `json:"name"`
+	Strategy string `json:"strategy"`
+	State    string `json:"state"`
 }
 
 // AMIStub is a static image entry.
@@ -1041,4 +1082,341 @@ func removeRule(rules []SecurityGroupRule, target SecurityGroupRule) []SecurityG
 	}
 
 	return out
+}
+
+// ---- network interface full CRUD ----
+
+// CreateNetworkInterface creates a new ENI in the given subnet.
+func (b *InMemoryBackend) CreateNetworkInterface(subnetID, description string) (*NetworkInterface, error) {
+	if subnetID == "" {
+		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateNetworkInterface")
+	defer b.mu.Unlock()
+
+	sub, ok := b.subnets[subnetID]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
+	}
+
+	id := "eni-" + uuid.New().String()[:17]
+	eni := &NetworkInterface{
+		ID:              id,
+		SubnetID:        subnetID,
+		VPCID:           sub.VPCID,
+		PrivateIP:       b.allocPrivateIP(),
+		Description:     description,
+		Status:          "available",
+		SourceDestCheck: true,
+	}
+	b.networkInterfaces[id] = eni
+
+	return eni, nil
+}
+
+// DeleteNetworkInterface removes a network interface by ID.
+// Returns ErrNetworkInterfaceInUse if the ENI is currently attached.
+func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
+	b.mu.Lock("DeleteNetworkInterface")
+	defer b.mu.Unlock()
+
+	eni, ok := b.networkInterfaces[id]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, id)
+	}
+
+	if eni.InstanceID != "" {
+		return fmt.Errorf("%w: %s is currently attached to instance %s", ErrNetworkInterfaceInUse, id, eni.InstanceID)
+	}
+
+	delete(b.networkInterfaces, id)
+
+	return nil
+}
+
+// AttachNetworkInterface attaches an ENI to an instance and returns the attachment ID.
+func (b *InMemoryBackend) AttachNetworkInterface(eniID, instanceID string, deviceIndex int) (string, error) {
+	b.mu.Lock("AttachNetworkInterface")
+	defer b.mu.Unlock()
+
+	eni, ok := b.networkInterfaces[eniID]
+	if !ok {
+		return "", fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
+	}
+
+	if eni.AttachmentID != "" {
+		return "", fmt.Errorf("%w: %s is already attached", ErrNetworkInterfaceInUse, eniID)
+	}
+
+	if _, ok = b.instances[instanceID]; !ok {
+		return "", fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+
+	attachmentID := "eni-attach-" + uuid.New().String()[:17]
+	eni.InstanceID = instanceID
+	eni.AttachmentID = attachmentID
+	eni.DeviceIndex = deviceIndex
+	eni.Status = "in-use"
+
+	return attachmentID, nil
+}
+
+// DetachNetworkInterface detaches a network interface by attachment ID.
+func (b *InMemoryBackend) DetachNetworkInterface(attachmentID string, _ bool) error {
+	b.mu.Lock("DetachNetworkInterface")
+	defer b.mu.Unlock()
+
+	for _, eni := range b.networkInterfaces {
+		if eni.AttachmentID == attachmentID {
+			eni.InstanceID = ""
+			eni.AttachmentID = ""
+			eni.DeviceIndex = 0
+			eni.Status = "available"
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: %s", ErrAttachmentNotFound, attachmentID)
+}
+
+// AssignPrivateIPAddresses adds secondary private IP addresses to an ENI.
+// count is used when ips is empty; otherwise the supplied IPs are assigned.
+func (b *InMemoryBackend) AssignPrivateIPAddresses(eniID string, count int, ips []string) error {
+	b.mu.Lock("AssignPrivateIPAddresses")
+	defer b.mu.Unlock()
+
+	eni, ok := b.networkInterfaces[eniID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
+	}
+
+	if len(ips) > 0 {
+		eni.SecondaryPrivateIPs = append(eni.SecondaryPrivateIPs, ips...)
+
+		return nil
+	}
+
+	for range count {
+		eni.SecondaryPrivateIPs = append(eni.SecondaryPrivateIPs, b.allocPrivateIP())
+	}
+
+	return nil
+}
+
+// UnassignPrivateIPAddresses removes secondary private IP addresses from an ENI.
+func (b *InMemoryBackend) UnassignPrivateIPAddresses(eniID string, ips []string) error {
+	b.mu.Lock("UnassignPrivateIPAddresses")
+	defer b.mu.Unlock()
+
+	eni, ok := b.networkInterfaces[eniID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
+	}
+
+	remove := make(map[string]bool, len(ips))
+	for _, ip := range ips {
+		remove[ip] = true
+	}
+
+	kept := eni.SecondaryPrivateIPs[:0]
+
+	for _, ip := range eni.SecondaryPrivateIPs {
+		if !remove[ip] {
+			kept = append(kept, ip)
+		}
+	}
+
+	eni.SecondaryPrivateIPs = kept
+
+	return nil
+}
+
+// ModifyNetworkInterfaceAttribute updates a single attribute of an ENI.
+// Supported attributes: description, sourceDestCheck.
+func (b *InMemoryBackend) ModifyNetworkInterfaceAttribute(eniID, attr, value string) error {
+	b.mu.Lock("ModifyNetworkInterfaceAttribute")
+	defer b.mu.Unlock()
+
+	eni, ok := b.networkInterfaces[eniID]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
+	}
+
+	switch attr {
+	case "description":
+		eni.Description = value
+	case attrSourceDest:
+		eni.SourceDestCheck = value == ec2BooleanTrue
+	default:
+		return fmt.Errorf("%w: unsupported attribute %q", ErrInvalidParameter, attr)
+	}
+
+	return nil
+}
+
+// ---- spot instances ----
+
+// RequestSpotInstances creates a spot instance request and immediately fulfils it with a running instance.
+func (b *InMemoryBackend) RequestSpotInstances(
+	imageID, instanceType, subnetID, spotPrice string,
+) (*SpotInstanceRequest, error) {
+	if imageID == "" {
+		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("RequestSpotInstances")
+	defer b.mu.Unlock()
+
+	if subnetID == "" {
+		subnetID = b.findDefaultSubnetID()
+	} else if _, ok := b.subnets[subnetID]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
+	}
+
+	// Allocate a backing instance immediately (mock fulfils spot requests instantly).
+	vpcID := ""
+	if sub, ok := b.subnets[subnetID]; ok {
+		vpcID = sub.VPCID
+	}
+
+	instanceID := "i-" + uuid.New().String()[:17]
+	inst := &Instance{
+		ID:           instanceID,
+		ImageID:      imageID,
+		InstanceType: instanceType,
+		State:        StateRunning,
+		VPCID:        vpcID,
+		SubnetID:     subnetID,
+		LaunchTime:   time.Now(),
+		PrivateIP:    b.allocPrivateIP(),
+	}
+	b.instances[instanceID] = inst
+
+	reqID := "sir-" + uuid.New().String()[:8]
+	req := &SpotInstanceRequest{
+		ID:         reqID,
+		InstanceID: instanceID,
+		State:      "active",
+		SpotPrice:  spotPrice,
+		Type:       "one-time",
+		CreateTime: time.Now(),
+		LaunchSpec: SpotLaunchSpecification{
+			ImageID:      imageID,
+			InstanceType: instanceType,
+			SubnetID:     subnetID,
+		},
+	}
+	b.spotRequests[reqID] = req
+
+	return req, nil
+}
+
+// DescribeSpotInstanceRequests returns spot requests, optionally filtered by IDs.
+func (b *InMemoryBackend) DescribeSpotInstanceRequests(ids []string) []*SpotInstanceRequest {
+	b.mu.RLock("DescribeSpotInstanceRequests")
+	defer b.mu.RUnlock()
+
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+
+	var out []*SpotInstanceRequest
+
+	for _, req := range b.spotRequests {
+		if len(idSet) > 0 && !idSet[req.ID] {
+			continue
+		}
+
+		cp := *req
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// CancelSpotInstanceRequests cancels the given spot instance requests (transitions to cancelled).
+func (b *InMemoryBackend) CancelSpotInstanceRequests(ids []string) error {
+	b.mu.Lock("CancelSpotInstanceRequests")
+	defer b.mu.Unlock()
+
+	for _, id := range ids {
+		req, ok := b.spotRequests[id]
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrSpotRequestNotFound, id)
+		}
+
+		req.State = "cancelled"
+	}
+
+	return nil
+}
+
+// ---- placement groups ----
+
+// CreatePlacementGroup creates a new placement group.
+func (b *InMemoryBackend) CreatePlacementGroup(name, strategy string) (*PlacementGroup, error) {
+	if name == "" {
+		return nil, fmt.Errorf("%w: GroupName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreatePlacementGroup")
+	defer b.mu.Unlock()
+
+	if _, exists := b.placementGroups[name]; exists {
+		return nil, fmt.Errorf("%w: %s", ErrDuplicatePlacementGroupName, name)
+	}
+
+	if strategy == "" {
+		strategy = "cluster"
+	}
+
+	pg := &PlacementGroup{
+		Name:     name,
+		Strategy: strategy,
+		State:    "available",
+	}
+	b.placementGroups[name] = pg
+
+	return pg, nil
+}
+
+// DescribePlacementGroups returns placement groups, optionally filtered by names.
+func (b *InMemoryBackend) DescribePlacementGroups(names []string) []*PlacementGroup {
+	b.mu.RLock("DescribePlacementGroups")
+	defer b.mu.RUnlock()
+
+	nameSet := make(map[string]bool, len(names))
+	for _, n := range names {
+		nameSet[n] = true
+	}
+
+	var out []*PlacementGroup
+
+	for _, pg := range b.placementGroups {
+		if len(nameSet) > 0 && !nameSet[pg.Name] {
+			continue
+		}
+
+		cp := *pg
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// DeletePlacementGroup removes a placement group by name.
+func (b *InMemoryBackend) DeletePlacementGroup(name string) error {
+	b.mu.Lock("DeletePlacementGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.placementGroups[name]; !ok {
+		return fmt.Errorf("%w: %s", ErrPlacementGroupNotFound, name)
+	}
+
+	delete(b.placementGroups, name)
+
+	return nil
 }
