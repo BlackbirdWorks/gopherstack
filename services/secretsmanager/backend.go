@@ -819,19 +819,20 @@ func (b *InMemoryBackend) TagSecretByARN(secretARN string, newTags map[string]st
 	b.mu.Lock("TagSecretByARN")
 	defer b.mu.Unlock()
 
-	for _, secret := range b.secrets {
-		if secret.ARN == secretARN {
-			if secret.Tags == nil {
-				secret.Tags = tags.New(secret.Name + ".tags")
-			}
+	name := resolveSecretID(secretARN)
 
-			secret.Tags.Merge(newTags)
-
-			return nil
-		}
+	secret, ok := b.secrets[name]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrSecretNotFound, secretARN)
 	}
 
-	return fmt.Errorf("%w: %s", ErrSecretNotFound, secretARN)
+	if secret.Tags == nil {
+		secret.Tags = tags.New(secret.Name + ".tags")
+	}
+
+	secret.Tags.Merge(newTags)
+
+	return nil
 }
 
 // UntagSecretByARN removes the specified tag keys from the secret identified by its ARN.
@@ -839,15 +840,16 @@ func (b *InMemoryBackend) UntagSecretByARN(secretARN string, tagKeys []string) e
 	b.mu.Lock("UntagSecretByARN")
 	defer b.mu.Unlock()
 
-	for _, secret := range b.secrets {
-		if secret.ARN == secretARN {
-			if secret.Tags != nil {
-				secret.Tags.DeleteKeys(tagKeys)
-			}
+	name := resolveSecretID(secretARN)
 
-			return nil
-		}
+	secret, ok := b.secrets[name]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrSecretNotFound, secretARN)
 	}
 
-	return fmt.Errorf("%w: %s", ErrSecretNotFound, secretARN)
+	if secret.Tags != nil {
+		secret.Tags.DeleteKeys(tagKeys)
+	}
+
+	return nil
 }

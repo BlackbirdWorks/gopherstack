@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -285,18 +286,26 @@ func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
 }
 
 // SetHTTPClient configures the HTTP client used for HTTP/HTTP_PROXY integrations.
-// If not set, [http.DefaultClient] is used.
+// If not set, a dedicated client with a 30-second timeout is used.
 func (h *Handler) SetHTTPClient(c *http.Client) {
 	h.httpClient = c
 }
 
-// getHTTPClient returns the configured HTTP client, falling back to [http.DefaultClient].
+// apiGWHTTPTimeout is the timeout applied to HTTP/HTTP_PROXY integration requests.
+const apiGWHTTPTimeout = 30 * time.Second
+
+// apiGWDefaultHTTPClient is the fallback HTTP client for HTTP/HTTP_PROXY integrations.
+// It uses a 30-second timeout to match AWS API Gateway's default integration timeout.
+var apiGWDefaultHTTPClient = &http.Client{Timeout: apiGWHTTPTimeout} //nolint:gochecknoglobals // HTTP client default
+
+// getHTTPClient returns the configured HTTP client, falling back to a dedicated
+// client with a 30-second timeout instead of [http.DefaultClient] (which has no timeout).
 func (h *Handler) getHTTPClient() *http.Client {
 	if h.httpClient != nil {
 		return h.httpClient
 	}
 
-	return http.DefaultClient
+	return apiGWDefaultHTTPClient
 }
 
 // Name returns the service name.
