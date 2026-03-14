@@ -484,3 +484,142 @@ func TestKAV2_MissingTarget(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestKAV2_UpdateApplication(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(*kinesisanalyticsv2.Handler)
+		body       map[string]any
+		name       string
+		wantDesc   string
+		rawBody    []byte
+		wantStatus int
+	}{
+		{
+			name: "update_description",
+			setup: func(h *kinesisanalyticsv2.Handler) {
+				doKAV2Request(t, h, "CreateApplication", map[string]any{
+					"ApplicationName":    "upd-app",
+					"RuntimeEnvironment": "FLINK-1_18",
+				})
+			},
+			body: map[string]any{
+				"ApplicationName":             "upd-app",
+				"ApplicationDescription":      "new description",
+				"CurrentApplicationVersionId": 1,
+			},
+			wantStatus: http.StatusOK,
+			wantDesc:   "new description",
+		},
+		{
+			name:       "not_found",
+			body:       map[string]any{"ApplicationName": "missing"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "bad_json",
+			rawBody:    []byte("bad json"),
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
+			var rec *httptest.ResponseRecorder
+			if tt.rawBody != nil {
+				e := echo.New()
+				req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(tt.rawBody))
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				req.Header.Set("X-Amz-Target", "KinesisAnalytics_20180523.UpdateApplication")
+				r := httptest.NewRecorder()
+				c := e.NewContext(req, r)
+				require.NoError(t, h.Handler()(c))
+				rec = r
+			} else {
+				rec = doKAV2Request(t, h, "UpdateApplication", tt.body)
+			}
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantDesc != "" {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				detail := out["ApplicationDetail"].(map[string]any)
+				assert.Equal(t, tt.wantDesc, detail["ApplicationDescription"])
+			}
+		})
+	}
+}
+
+func TestKAV2_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		op         string
+		wantStatus int
+	}{
+		{
+			name:       "DeleteApplication_not_found",
+			op:         "DeleteApplication",
+			body:       map[string]any{"ApplicationName": "no-such-app"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "StartApplication_not_found",
+			op:         "StartApplication",
+			body:       map[string]any{"ApplicationName": "no-such-app"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "StopApplication_not_found",
+			op:         "StopApplication",
+			body:       map[string]any{"ApplicationName": "no-such-app"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "DeleteApplicationSnapshot_not_found",
+			op:         "DeleteApplicationSnapshot",
+			body:       map[string]any{"ApplicationName": "no-app", "SnapshotName": "no-snap"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "TagResource_not_found",
+			op:   "TagResource",
+			body: map[string]any{
+				"ResourceARN": "arn:aws:kinesisanalytics:us-east-1:000000000000:application/no-app",
+				"Tags":        []map[string]string{},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "UntagResource_not_found",
+			op:   "UntagResource",
+			body: map[string]any{
+				"ResourceARN": "arn:aws:kinesisanalytics:us-east-1:000000000000:application/no-app",
+				"TagKeys":     []string{"k"},
+			},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+			rec := doKAV2Request(t, h, tt.op, tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}

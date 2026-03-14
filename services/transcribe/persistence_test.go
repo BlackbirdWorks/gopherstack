@@ -41,7 +41,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *transcribe.InMemoryBackend, _ string) {
 				t.Helper()
 
-				jobs := b.ListTranscriptionJobs("")
+				jobs, _ := b.ListTranscriptionJobs("", "")
 				assert.Empty(t, jobs)
 			},
 		},
