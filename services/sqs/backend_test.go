@@ -601,9 +601,14 @@ func TestLongPollingConcurrentReceivers(t *testing.T) {
 		}()
 	}
 
-	// Block until all receiver goroutines have started, then signal and send.
+	// Block until all receiver goroutines have started, signal them to enter
+	// ReceiveMessage, then sleep briefly so they reach the long-poll select
+	// before the first message is sent.  This matches the approach used in
+	// TestLongPollingWakesOnMessageArrival and ensures the test exercises the
+	// notify wake-up path rather than the initial receiveOnce fast-path.
 	wg.Wait()
 	close(ready)
+	time.Sleep(50 * time.Millisecond)
 
 	for i := range numMessages {
 		_, err := b.SendMessage(&sqs.SendMessageInput{
