@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"sort"
 	"strconv"
@@ -16,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/google/uuid"
 )
 
@@ -638,7 +637,7 @@ func (b *InMemoryBackend) deliverToFilters(
 
 	encoded, err := encodeSubscriptionPayload(payload)
 	if err != nil {
-		slog.Default().WarnContext(ctx, "cloudwatchlogs: failed to encode subscription payload",
+		logger.Load(ctx).WarnContext(ctx, "cloudwatchlogs: failed to encode subscription payload",
 			"logGroup", groupName, "error", err)
 
 		return
@@ -647,7 +646,7 @@ func (b *InMemoryBackend) deliverToFilters(
 	for _, f := range filters {
 		deliverErr := deliverer.DeliverLogEvents(ctx, f.DestinationArn, encoded)
 		if deliverErr != nil {
-			slog.Default().WarnContext(ctx, "cloudwatchlogs: failed to deliver log events to subscription filter",
+			logger.Load(ctx).WarnContext(ctx, "cloudwatchlogs: failed to deliver log events to subscription filter",
 				"logGroup", groupName, "filterName", f.FilterName, "destination", f.DestinationArn, "error", deliverErr)
 		}
 	}
