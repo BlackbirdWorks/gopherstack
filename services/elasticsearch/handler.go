@@ -544,11 +544,11 @@ type elasticsearchConfigValue struct {
 
 // domainConfigFields holds the per-feature configuration values for a domain.
 type domainConfigFields struct {
-	ElasticsearchVersion        elasticsearchConfigValue `json:"ElasticsearchVersion"`
-	ElasticsearchClusterConfig  elasticsearchConfigValue `json:"ElasticsearchClusterConfig"`
-	EBSOptions                  elasticsearchConfigValue `json:"EBSOptions"`
-	AccessPolicies              elasticsearchConfigValue `json:"AccessPolicies"`
-	AdvancedOptions             elasticsearchConfigValue `json:"AdvancedOptions"`
+	ElasticsearchVersion       elasticsearchConfigValue `json:"ElasticsearchVersion"`
+	ElasticsearchClusterConfig elasticsearchConfigValue `json:"ElasticsearchClusterConfig"`
+	EBSOptions                 elasticsearchConfigValue `json:"EBSOptions"`
+	AccessPolicies             elasticsearchConfigValue `json:"AccessPolicies"`
+	AdvancedOptions            elasticsearchConfigValue `json:"AdvancedOptions"`
 }
 
 type describeDomainConfigOutput struct {
