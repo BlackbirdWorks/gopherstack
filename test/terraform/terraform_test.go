@@ -304,6 +304,7 @@ provider "aws" {
     ssoadmin        = %[1]q
     sts             = %[1]q
     swf             = %[1]q
+    wafv2           = %[1]q
   }
 }
 `, addr)
@@ -6218,6 +6219,80 @@ func TestTerraform_Transfer(t *testing.T) {
 				})
 				require.NoError(t, err, "DescribeServer should succeed")
 				assert.Equal(t, serverID, *descOut.Server.ServerId)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_Wafv2 provisions a WAFv2 Web ACL via Terraform and verifies it was created.
+func TestTerraform_Wafv2(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "wafv2/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"WebACLName": "tf-wafv2-" + id,
+					"Endpoint":   endpoint,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				reqURL := endpoint + "/"
+				body := `{"Scope":"REGIONAL"}`
+
+				req, err := http.NewRequestWithContext(
+					ctx, http.MethodPost, reqURL, strings.NewReader(body))
+				require.NoError(t, err)
+
+				req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+				req.Header.Set("X-Amz-Target", "AWSWAF_20190729.ListWebACLs")
+
+				resp, err := http.DefaultClient.Do(req)
+				require.NoError(t, err, "ListWebACLs should succeed after terraform apply")
+				defer resp.Body.Close()
+
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				assert.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 OK, body: %s", string(respBody))
+
+				var result map[string]any
+				require.NoError(t, json.Unmarshal(respBody, &result))
+
+				webACLs, ok := result["WebACLs"].([]any)
+				require.True(t, ok)
+				assert.NotEmpty(t, webACLs, "expected at least one Web ACL")
+
+				found := false
+
+				for _, item := range webACLs {
+					acl, isACL := item.(map[string]any)
+					if !isACL {
+						continue
+					}
+
+					if acl["Name"] == vars["WebACLName"] {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "expected to find web ACL %q in list", vars["WebACLName"])
 			},
 		},
 	}

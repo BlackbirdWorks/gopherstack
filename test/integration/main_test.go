@@ -50,6 +50,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	stssdk "github.com/aws/aws-sdk-go-v2/service/sts"
 	swfsdk "github.com/aws/aws-sdk-go-v2/service/swf"
+	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
 	"github.com/docker/docker/api/types/build"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
@@ -737,6 +738,24 @@ func createECSClient(t *testing.T) *ecssdk.Client {
 	}
 
 	return ecssdk.NewFromConfig(cfg, func(o *ecssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createWafv2Client returns a WAFv2 client pointed at the shared test container.
+func createWafv2Client(t *testing.T) *wafv2sdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return wafv2sdk.NewFromConfig(cfg, func(o *wafv2sdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
