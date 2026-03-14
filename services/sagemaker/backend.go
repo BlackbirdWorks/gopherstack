@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+const sagemakerDefaultPageSize = 100
 
 var (
 	// ErrModelNotFound is returned when a model does not exist.
@@ -174,8 +177,8 @@ func (b *InMemoryBackend) DescribeModel(name string) (*Model, error) {
 	return cloneModel(m), nil
 }
 
-// ListModels returns all models sorted by name.
-func (b *InMemoryBackend) ListModels() []*Model {
+// ListModels returns models sorted by name, with optional pagination.
+func (b *InMemoryBackend) ListModels(nextToken string) ([]*Model, string) {
 	b.mu.RLock("ListModels")
 	defer b.mu.RUnlock()
 
@@ -189,7 +192,19 @@ func (b *InMemoryBackend) ListModels() []*Model {
 		return list[i].ModelName < list[j].ModelName
 	})
 
-	return list
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*Model{}, ""
+	}
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
 }
 
 // DeleteModel deletes a model by name.
@@ -249,8 +264,8 @@ func (b *InMemoryBackend) DescribeEndpointConfig(name string) (*EndpointConfig, 
 	return cloneEndpointConfig(ec), nil
 }
 
-// ListEndpointConfigs returns all endpoint configurations sorted by name.
-func (b *InMemoryBackend) ListEndpointConfigs() []*EndpointConfig {
+// ListEndpointConfigs returns endpoint configurations sorted by name, with optional pagination.
+func (b *InMemoryBackend) ListEndpointConfigs(nextToken string) ([]*EndpointConfig, string) {
 	b.mu.RLock("ListEndpointConfigs")
 	defer b.mu.RUnlock()
 
@@ -264,7 +279,19 @@ func (b *InMemoryBackend) ListEndpointConfigs() []*EndpointConfig {
 		return list[i].EndpointConfigName < list[j].EndpointConfigName
 	})
 
-	return list
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []*EndpointConfig{}, ""
+	}
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
 }
 
 // DeleteEndpointConfig deletes an endpoint configuration by name.
@@ -372,4 +399,18 @@ func mergeTags(existing, incoming map[string]string) map[string]string {
 	maps.Copy(result, incoming)
 
 	return result
+}
+
+// parseNextToken parses a pagination token (integer offset) into a slice index.
+func parseNextToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	idx, err := strconv.Atoi(token)
+	if err != nil || idx < 0 {
+		return 0
+	}
+
+	return idx
 }

@@ -201,6 +201,7 @@ type describeApplicationOutput struct {
 }
 
 type listApplicationsOutput struct {
+	NextToken            string               `json:"NextToken,omitempty"`
 	ApplicationSummaries []applicationSummary `json:"ApplicationSummaries"`
 }
 
@@ -240,9 +241,11 @@ type describeSnapshotOutput struct {
 
 type listSnapshotsInput struct {
 	ApplicationName string `json:"ApplicationName"`
+	NextToken       string `json:"NextToken,omitempty"`
 }
 
 type listSnapshotsOutput struct {
+	NextToken         string           `json:"NextToken,omitempty"`
 	SnapshotSummaries []snapshotDetail `json:"SnapshotSummaries"`
 }
 
@@ -319,14 +322,15 @@ func (h *Handler) handleDescribeApplication(c *echo.Context, body []byte) error 
 }
 
 func (h *Handler) handleListApplications(c *echo.Context) error {
-	apps := h.Backend.ListApplications()
+	nextToken := c.Request().URL.Query().Get("nextToken")
+	apps, outToken := h.Backend.ListApplications(nextToken)
 	summaries := make([]applicationSummary, 0, len(apps))
 
 	for _, app := range apps {
 		summaries = append(summaries, toSummary(app))
 	}
 
-	return c.JSON(http.StatusOK, listApplicationsOutput{ApplicationSummaries: summaries})
+	return c.JSON(http.StatusOK, listApplicationsOutput{ApplicationSummaries: summaries, NextToken: outToken})
 }
 
 func (h *Handler) handleUpdateApplication(c *echo.Context, body []byte) error {
@@ -414,7 +418,7 @@ func (h *Handler) handleDescribeApplicationSnapshot(c *echo.Context, body []byte
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	snaps, err := h.Backend.ListApplicationSnapshots(in.ApplicationName)
+	snaps, _, err := h.Backend.ListApplicationSnapshots(in.ApplicationName, "")
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -434,7 +438,7 @@ func (h *Handler) handleListApplicationSnapshots(c *echo.Context, body []byte) e
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	snaps, err := h.Backend.ListApplicationSnapshots(in.ApplicationName)
+	snaps, outToken, err := h.Backend.ListApplicationSnapshots(in.ApplicationName, in.NextToken)
 	if err != nil {
 		return h.writeBackendError(c, err)
 	}
@@ -444,7 +448,7 @@ func (h *Handler) handleListApplicationSnapshots(c *echo.Context, body []byte) e
 		details = append(details, toSnapshotDetail(s))
 	}
 
-	return c.JSON(http.StatusOK, listSnapshotsOutput{SnapshotSummaries: details})
+	return c.JSON(http.StatusOK, listSnapshotsOutput{SnapshotSummaries: details, NextToken: outToken})
 }
 
 func (h *Handler) handleDeleteApplicationSnapshot(c *echo.Context, body []byte) error {

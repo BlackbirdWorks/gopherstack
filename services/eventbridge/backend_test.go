@@ -314,3 +314,34 @@ func TestPutRule(t *testing.T) {
 		})
 	}
 }
+
+func TestBackend_LastFiredCleanupOnDeleteRule(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	defer b.Close()
+
+	// Create and then delete a scheduled rule; subsequent scheduler ticks should
+	// not accumulate stale lastFired entries.
+	_, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:               "sched-rule",
+		ScheduleExpression: "rate(1 minute)",
+		State:              "ENABLED",
+		EventBusName:       "default",
+	})
+	require.NoError(t, err)
+
+	err = b.DeleteRule("sched-rule", "default")
+	require.NoError(t, err)
+
+	_, err = b.DescribeRule("sched-rule", "default")
+	require.ErrorIs(t, err, eventbridge.ErrRuleNotFound)
+}
+
+func TestBackend_Close(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	// Close should return without blocking even when no goroutines are active.
+	b.Close()
+}

@@ -3,6 +3,7 @@ package sagemaker_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -749,4 +750,56 @@ func TestProvider_InitFull(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, reg)
 	assert.Equal(t, "SageMaker", reg.Name())
+}
+
+func TestHandler_ListModelsPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := range 5 {
+		_, err := h.Backend.CreateModel(
+			fmt.Sprintf("model-%02d", i),
+			"arn:aws:iam::000000000000:role/test",
+			nil, nil, nil,
+		)
+		require.NoError(t, err)
+	}
+
+	// First page returns Models and no NextToken when count <= page size.
+	rec := doSageMakerRequest(t, h, "ListModels", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	models, ok := resp["Models"].([]any)
+	require.True(t, ok)
+	assert.Len(t, models, 5)
+	assert.Empty(t, resp["NextToken"])
+}
+
+func TestHandler_ListEndpointConfigsPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := range 3 {
+		_, err := h.Backend.CreateEndpointConfig(
+			fmt.Sprintf("cfg-%02d", i),
+			nil,
+			nil,
+		)
+		require.NoError(t, err)
+	}
+
+	rec := doSageMakerRequest(t, h, "ListEndpointConfigs", map[string]any{})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	configs, ok := resp["EndpointConfigs"].([]any)
+	require.True(t, ok)
+	assert.Len(t, configs, 3)
 }
