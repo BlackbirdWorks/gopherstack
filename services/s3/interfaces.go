@@ -89,6 +89,25 @@ type StorageBackend interface {
 	GetBucketEncryption(ctx context.Context, bucket string) (string, error)
 	DeleteBucketEncryption(ctx context.Context, bucket string) error
 
+	// Public Access Block
+	PutPublicAccessBlock(ctx context.Context, bucket, configXML string) error
+	GetPublicAccessBlock(ctx context.Context, bucket string) (string, error)
+	DeletePublicAccessBlock(ctx context.Context, bucket string) error
+
+	// Ownership Controls
+	PutBucketOwnershipControls(ctx context.Context, bucket, configXML string) error
+	GetBucketOwnershipControls(ctx context.Context, bucket string) (string, error)
+	DeleteBucketOwnershipControls(ctx context.Context, bucket string) error
+
+	// Logging
+	PutBucketLogging(ctx context.Context, bucket, loggingXML string) error
+	GetBucketLogging(ctx context.Context, bucket string) (string, error)
+
+	// Replication
+	PutBucketReplication(ctx context.Context, bucket, replicationXML string) error
+	GetBucketReplication(ctx context.Context, bucket string) (string, error)
+	DeleteBucketReplication(ctx context.Context, bucket string) error
+
 	// Notifications
 	PutBucketNotificationConfiguration(ctx context.Context, bucket, notifXML string) error
 	GetBucketNotificationConfiguration(ctx context.Context, bucket string) (string, error)
