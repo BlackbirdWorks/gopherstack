@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/google/uuid"
@@ -46,6 +47,13 @@ const (
 	// endpointExtraAttrs is the number of extra attributes added to a new endpoint
 	// beyond what the caller provides: Token and Enabled.
 	endpointExtraAttrs = 2
+
+	// snsHTTPTimeout is the timeout applied to SNS HTTP/HTTPS endpoint deliveries.
+	snsHTTPTimeout = 5 * time.Second
+
+	// snsMaxConcurrentDeliveries caps the number of HTTP/HTTPS subscription
+	// deliveries that may run concurrently for a single Publish call.
+	snsMaxConcurrentDeliveries = 8
 )
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -90,6 +98,7 @@ type StorageBackend interface {
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
+	httpClient           *http.Client
 	topics               map[string]*Topic
 	subscriptions        map[string]*Subscription
 	topicTags            map[string]*svcTags.Tags
@@ -116,7 +125,17 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		accountID:            accountID,
 		region:               region,
 		mu:                   lockmetrics.New("sns"),
+		httpClient:           &http.Client{Timeout: snsHTTPTimeout},
 	}
+}
+
+// SetHTTPDeliveryClient configures the HTTP client used for HTTP/HTTPS subscription delivery.
+// If not set, a dedicated client with a 5-second timeout is used.
+func (b *InMemoryBackend) SetHTTPDeliveryClient(c *http.Client) {
+	b.mu.Lock("SetHTTPDeliveryClient")
+	defer b.mu.Unlock()
+
+	b.httpClient = c
 }
 
 // SetPublishEmitter registers an event emitter that fires when a message is published.
@@ -398,16 +417,88 @@ func (b *InMemoryBackend) ListSubscriptionsByTopic(topicArn, nextToken string) (
 	return subs, next, nil
 }
 
+// httpDelivery holds the endpoint and message body for an HTTP/HTTPS delivery.
+type httpDelivery struct {
+	endpoint string
+	body     string
+}
+
+// publishTargets holds the subscription snapshots and HTTP deliveries collected for a publish call.
+type publishTargets struct {
+	subs           []events.SNSSubscriptionSnapshot
+	httpDeliveries []httpDelivery
+}
+
+// buildMessageResolver returns a function that picks the correct message body for a given protocol,
+// respecting MessageStructure "json" per-protocol map when provided.
+func buildMessageResolver(defaultMsg string, perProtocol map[string]string) func(string) string {
+	return func(protocol string) string {
+		if perProtocol == nil {
+			return defaultMsg
+		}
+
+		if msg, ok := perProtocol[protocol]; ok {
+			return msg
+		}
+
+		if msg, ok := perProtocol["default"]; ok {
+			return msg
+		}
+
+		return defaultMsg
+	}
+}
+
+// collectPublishTargets scans b.subscriptions for a given topicArn and returns
+// subscription snapshots and HTTP/HTTPS deliveries to dispatch.
+// Must be called with at least RLock held.
+func (b *InMemoryBackend) collectPublishTargets(
+	topicArn string,
+	resolveMsg func(string) string,
+	attrs map[string]MessageAttribute,
+) publishTargets {
+	var out publishTargets
+
+	for _, sub := range b.subscriptions {
+		if sub.TopicArn != topicArn {
+			continue
+		}
+
+		if !matchesFilterPolicy(sub.FilterPolicy, attrs) {
+			continue
+		}
+
+		msg := resolveMsg(sub.Protocol)
+
+		if sub.Protocol == "http" || sub.Protocol == "https" {
+			out.httpDeliveries = append(out.httpDeliveries, httpDelivery{endpoint: sub.Endpoint, body: msg})
+		}
+
+		out.subs = append(out.subs, events.SNSSubscriptionSnapshot{
+			SubscriptionARN:    sub.SubscriptionArn,
+			Protocol:           sub.Protocol,
+			Endpoint:           sub.Endpoint,
+			FilterPolicy:       sub.FilterPolicy,
+			RawMessageDelivery: sub.RawMessageDelivery,
+			RedrivePolicy:      sub.RedrivePolicy,
+		})
+	}
+
+	return out
+}
+
 // Publish publishes a message to a topic and returns the message ID.
-// HTTP/HTTPS subscriptions receive a synchronous best-effort delivery.
+// HTTP/HTTPS subscriptions receive an asynchronous best-effort delivery after
+// the read lock is released, avoiding lock starvation from slow endpoints.
 // All subscriptions are also broadcast via the publish emitter (e.g. to SQS).
 func (b *InMemoryBackend) Publish(
 	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
 ) (string, error) {
 	b.mu.RLock("Publish")
-	defer b.mu.RUnlock()
 
 	if _, exists := b.topics[topicArn]; !exists {
+		b.mu.RUnlock()
+
 		return "", ErrTopicNotFound
 	}
 
@@ -421,54 +512,40 @@ func (b *InMemoryBackend) Publish(
 		}
 	}
 
-	// resolveMessage returns the appropriate message body for a given protocol.
-	resolveMessage := func(protocol string) string {
-		if perProtocolMessages == nil {
-			return message
+	// resolveMsg returns the appropriate message body for a given protocol.
+	resolveMsg := buildMessageResolver(message, perProtocolMessages)
+
+	// Build subscription snapshot and collect HTTP deliveries — all under RLock.
+	targets := b.collectPublishTargets(topicArn, resolveMsg, attrs)
+
+	// Capture emitter and httpClient under the read lock to avoid data races
+	// with concurrent SetPublishEmitter / SetHTTPDeliveryClient calls.
+	emitter := b.emitter
+	client := b.httpClient
+
+	// Release the read lock before performing any network I/O so that slow or
+	// unresponsive HTTP endpoints do not block write operations on the backend.
+	b.mu.RUnlock()
+
+	// Deliver to HTTP/HTTPS endpoints asynchronously with bounded concurrency.
+	// The semaphore channel limits the number of in-flight goroutines to
+	// snsMaxConcurrentDeliveries so that a large subscription list cannot
+	// exhaust OS resources.
+	if len(targets.httpDeliveries) > 0 {
+		sem := make(chan struct{}, snsMaxConcurrentDeliveries)
+
+		for _, d := range targets.httpDeliveries {
+			sem <- struct{}{}
+
+			go func() {
+				defer func() { <-sem }()
+				deliverHTTP(d.endpoint, d.body, client)
+			}()
 		}
-
-		if msg, ok := perProtocolMessages[protocol]; ok {
-			return msg
-		}
-
-		if msg, ok := perProtocolMessages["default"]; ok {
-			return msg
-		}
-
-		return message
-	}
-
-	// Build subscription snapshot and deliver to HTTP/HTTPS endpoints.
-	subs := make([]events.SNSSubscriptionSnapshot, 0)
-
-	for _, sub := range b.subscriptions {
-		if sub.TopicArn != topicArn {
-			continue
-		}
-
-		if !matchesFilterPolicy(sub.FilterPolicy, attrs) {
-			continue
-		}
-
-		msg := resolveMessage(sub.Protocol)
-
-		switch sub.Protocol {
-		case "http", "https":
-			deliverHTTP(sub.Endpoint, msg)
-		}
-
-		subs = append(subs, events.SNSSubscriptionSnapshot{
-			SubscriptionARN:    sub.SubscriptionArn,
-			Protocol:           sub.Protocol,
-			Endpoint:           sub.Endpoint,
-			FilterPolicy:       sub.FilterPolicy,
-			RawMessageDelivery: sub.RawMessageDelivery,
-			RedrivePolicy:      sub.RedrivePolicy,
-		})
 	}
 
 	// Emit event for other services (e.g. SQS) to react to.
-	if b.emitter != nil {
+	if emitter != nil {
 		attrSnaps := make(map[string]events.SNSMessageAttributeSnapshot, len(attrs))
 		for k, v := range attrs {
 			attrSnaps[k] = events.SNSMessageAttributeSnapshot{
@@ -477,12 +554,12 @@ func (b *InMemoryBackend) Publish(
 			}
 		}
 
-		_ = b.emitter.Emit(context.Background(), &events.SNSPublishedEvent{
+		_ = emitter.Emit(context.Background(), &events.SNSPublishedEvent{
 			TopicARN:      topicArn,
 			MessageID:     messageID,
 			Message:       message,
 			Subject:       subject,
-			Subscriptions: subs,
+			Subscriptions: targets.subs,
 			Attributes:    attrSnaps,
 		})
 	}
@@ -627,11 +704,15 @@ func (b *InMemoryBackend) sortedSubscriptions() []Subscription {
 	return subs
 }
 
-// deliverHTTP sends a best-effort HTTP POST with the message body to the endpoint.
-// Errors are intentionally ignored: delivery is fire-and-forget for HTTP/HTTPS subscriptions.
-func deliverHTTP(endpoint, body string) {
+// deliverHTTP sends a best-effort HTTP POST with the message body to the endpoint
+// using the provided client. Errors are intentionally ignored: delivery is
+// fire-and-forget for HTTP/HTTPS subscriptions.
+func deliverHTTP(endpoint, body string, client *http.Client) {
+	ctx, cancel := context.WithTimeout(context.Background(), snsHTTPTimeout)
+	defer cancel()
+
 	req, err := http.NewRequestWithContext(
-		context.Background(),
+		ctx,
 		http.MethodPost,
 		endpoint,
 		strings.NewReader(body),
@@ -640,8 +721,7 @@ func deliverHTTP(endpoint, body string) {
 		return
 	}
 
-	// HTTP client used for SNS HTTP endpoint delivery, not internet requests
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return
 	}

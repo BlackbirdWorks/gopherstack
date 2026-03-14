@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -271,11 +272,12 @@ type Handler struct {
 	httpClient *http.Client
 }
 
-// NewHandler creates a new API Gateway handler.
+// NewHandler creates a new API Gateway handler with a default HTTP client timeout.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
-		Backend:   backend,
-		authCache: newAuthorizerCache(),
+		Backend:    backend,
+		authCache:  newAuthorizerCache(),
+		httpClient: &http.Client{Timeout: apiGWHTTPTimeout},
 	}
 }
 
@@ -285,18 +287,17 @@ func (h *Handler) SetLambdaInvoker(lambda LambdaInvoker) {
 }
 
 // SetHTTPClient configures the HTTP client used for HTTP/HTTP_PROXY integrations.
-// If not set, [http.DefaultClient] is used.
+// If not set, a dedicated client with a 30-second timeout is used.
 func (h *Handler) SetHTTPClient(c *http.Client) {
 	h.httpClient = c
 }
 
-// getHTTPClient returns the configured HTTP client, falling back to [http.DefaultClient].
-func (h *Handler) getHTTPClient() *http.Client {
-	if h.httpClient != nil {
-		return h.httpClient
-	}
+// apiGWHTTPTimeout is the timeout applied to HTTP/HTTP_PROXY integration requests.
+const apiGWHTTPTimeout = 30 * time.Second
 
-	return http.DefaultClient
+// getHTTPClient returns the configured HTTP client.
+func (h *Handler) getHTTPClient() *http.Client {
+	return h.httpClient
 }
 
 // Name returns the service name.
