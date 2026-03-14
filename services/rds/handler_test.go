@@ -696,7 +696,243 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DescribeDBClusterSnapshotsResponse", "list-csnap"},
 		},
-		// Read Replica tests
+		// StartDBCluster / StopDBCluster tests
+		{
+			name: "StartDBCluster",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=start-cluster&Engine=aurora-postgresql",
+				"Action=StopDBCluster&Version=2014-10-31&DBClusterIdentifier=start-cluster",
+			},
+			body:         "Action=StartDBCluster&Version=2014-10-31&DBClusterIdentifier=start-cluster",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"StartDBClusterResponse", "start-cluster", "available"},
+		},
+		{
+			name:         "StartDBCluster_NotFound",
+			body:         "Action=StartDBCluster&Version=2014-10-31&DBClusterIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterNotFound"},
+		},
+		{
+			name: "StopDBCluster",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=stop-cluster&Engine=aurora-postgresql",
+			},
+			body:         "Action=StopDBCluster&Version=2014-10-31&DBClusterIdentifier=stop-cluster",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"StopDBClusterResponse", "stop-cluster", "stopped"},
+		},
+		{
+			name:         "StopDBCluster_NotFound",
+			body:         "Action=StopDBCluster&Version=2014-10-31&DBClusterIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterNotFound"},
+		},
+		// DeleteDBClusterSnapshot tests
+		{
+			name: "DeleteDBClusterSnapshot",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=delsnap-cluster&Engine=aurora-postgresql",
+				"Action=CreateDBClusterSnapshot&Version=2014-10-31" +
+					"&DBClusterSnapshotIdentifier=del-csnap&DBClusterIdentifier=delsnap-cluster",
+			},
+			body:         "Action=DeleteDBClusterSnapshot&Version=2014-10-31&DBClusterSnapshotIdentifier=del-csnap",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteDBClusterSnapshotResponse", "del-csnap"},
+		},
+		{
+			name:         "DeleteDBClusterSnapshot_NotFound",
+			body:         "Action=DeleteDBClusterSnapshot&Version=2014-10-31&DBClusterSnapshotIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterSnapshotNotFound"},
+		},
+		// RestoreDBClusterFromSnapshot tests
+		{
+			name: "RestoreDBClusterFromSnapshot",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=restore-src&Engine=aurora-postgresql",
+				"Action=CreateDBClusterSnapshot&Version=2014-10-31" +
+					"&DBClusterSnapshotIdentifier=restore-snap&DBClusterIdentifier=restore-src",
+			},
+			body: "Action=RestoreDBClusterFromSnapshot&Version=2014-10-31" +
+				"&DBClusterIdentifier=restored-cluster&SnapshotIdentifier=restore-snap&Engine=aurora-postgresql",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"RestoreDBClusterFromSnapshotResponse", "restored-cluster"},
+		},
+		{
+			name: "RestoreDBClusterFromSnapshot_SnapshotNotFound",
+			body: "Action=RestoreDBClusterFromSnapshot&Version=2014-10-31" +
+				"&DBClusterIdentifier=new-cluster&SnapshotIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterSnapshotNotFound"},
+		},
+		{
+			name: "RestoreDBClusterFromSnapshot_EmptyID",
+			body: "Action=RestoreDBClusterFromSnapshot&Version=2014-10-31" +
+				"&DBClusterIdentifier=&SnapshotIdentifier=some-snap",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		// RestoreDBClusterToPointInTime tests
+		{
+			name: "RestoreDBClusterToPointInTime",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31" +
+					"&DBClusterIdentifier=pitr-src&Engine=aurora-postgresql&MasterUsername=admin",
+			},
+			body: "Action=RestoreDBClusterToPointInTime&Version=2014-10-31" +
+				"&DBClusterIdentifier=pitr-restored&SourceDBClusterIdentifier=pitr-src",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"RestoreDBClusterToPointInTimeResponse", "pitr-restored"},
+		},
+		{
+			name: "RestoreDBClusterToPointInTime_SourceNotFound",
+			body: "Action=RestoreDBClusterToPointInTime&Version=2014-10-31" +
+				"&DBClusterIdentifier=pitr-new&SourceDBClusterIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterNotFound"},
+		},
+		// CopyDBClusterSnapshot tests
+		{
+			name: "CopyDBClusterSnapshot",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=copy-src-cluster&Engine=aurora-postgresql",
+				"Action=CreateDBClusterSnapshot&Version=2014-10-31" +
+					"&DBClusterSnapshotIdentifier=copy-src-snap&DBClusterIdentifier=copy-src-cluster",
+			},
+			body: "Action=CopyDBClusterSnapshot&Version=2014-10-31" +
+				"&SourceDBClusterSnapshotIdentifier=copy-src-snap&TargetDBClusterSnapshotIdentifier=copy-dst-snap",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CopyDBClusterSnapshotResponse", "copy-dst-snap"},
+		},
+		{
+			name: "CopyDBClusterSnapshot_SourceNotFound",
+			body: "Action=CopyDBClusterSnapshot&Version=2014-10-31" +
+				"&SourceDBClusterSnapshotIdentifier=nonexistent&TargetDBClusterSnapshotIdentifier=dst-snap",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterSnapshotNotFound"},
+		},
+		// CreateDBClusterEndpoint tests
+		{
+			name: "CreateDBClusterEndpoint",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=ep-cluster&Engine=aurora-postgresql",
+			},
+			body: "Action=CreateDBClusterEndpoint&Version=2014-10-31" +
+				"&DBClusterEndpointIdentifier=my-endpoint&DBClusterIdentifier=ep-cluster&EndpointType=READER",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CreateDBClusterEndpointResponse", "my-endpoint", "READER"},
+		},
+		{
+			name: "CreateDBClusterEndpoint_ClusterNotFound",
+			body: "Action=CreateDBClusterEndpoint&Version=2014-10-31" +
+				"&DBClusterEndpointIdentifier=ep&DBClusterIdentifier=nonexistent&EndpointType=READER",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterNotFound"},
+		},
+		{
+			name: "CreateDBClusterEndpoint_EmptyID",
+			body: "Action=CreateDBClusterEndpoint&Version=2014-10-31" +
+				"&DBClusterEndpointIdentifier=&DBClusterIdentifier=some-cluster&EndpointType=READER",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		// DescribeDBClusterEndpoints tests
+		{
+			name: "DescribeDBClusterEndpoints",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=eplist-cluster&Engine=aurora-postgresql",
+				"Action=CreateDBClusterEndpoint&Version=2014-10-31" +
+					"&DBClusterEndpointIdentifier=list-ep&DBClusterIdentifier=eplist-cluster&EndpointType=READER",
+			},
+			body:         "Action=DescribeDBClusterEndpoints&Version=2014-10-31&DBClusterIdentifier=eplist-cluster",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeDBClusterEndpointsResponse", "list-ep"},
+		},
+		{
+			name:         "DescribeDBClusterEndpoints_NotFound",
+			body:         "Action=DescribeDBClusterEndpoints&Version=2014-10-31&DBClusterEndpointIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterEndpointNotFound"},
+		},
+		// DeleteDBClusterEndpoint tests
+		{
+			name: "DeleteDBClusterEndpoint",
+			setupBodies: []string{
+				"Action=CreateDBCluster&Version=2014-10-31&DBClusterIdentifier=dep-cluster&Engine=aurora-postgresql",
+				"Action=CreateDBClusterEndpoint&Version=2014-10-31" +
+					"&DBClusterEndpointIdentifier=dep-ep&DBClusterIdentifier=dep-cluster&EndpointType=READER",
+			},
+			body:         "Action=DeleteDBClusterEndpoint&Version=2014-10-31&DBClusterEndpointIdentifier=dep-ep",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteDBClusterEndpointResponse", "dep-ep"},
+		},
+		{
+			name:         "DeleteDBClusterEndpoint_NotFound",
+			body:         "Action=DeleteDBClusterEndpoint&Version=2014-10-31&DBClusterEndpointIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBClusterEndpointNotFound"},
+		},
+		// DescribeValidDBInstanceModifications tests
+		{
+			name: "DescribeValidDBInstanceModifications",
+			setupBodies: []string{
+				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=mod-valid-db&Engine=postgres",
+			},
+			body:         "Action=DescribeValidDBInstanceModifications&Version=2014-10-31&DBInstanceIdentifier=mod-valid-db",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeValidDBInstanceModificationsResponse", "db.t3.micro"},
+		},
+		{
+			name:         "DescribeValidDBInstanceModifications_NotFound",
+			body:         "Action=DescribeValidDBInstanceModifications&Version=2014-10-31&DBInstanceIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"DBInstanceNotFound"},
+		},
+		// StartExportTask tests
+		{
+			name: "StartExportTask",
+			body: "Action=StartExportTask&Version=2014-10-31" +
+				"&ExportTaskIdentifier=my-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:my-snap" +
+				"&S3BucketName=my-bucket",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"StartExportTaskResponse", "my-export", "complete"},
+		},
+		{
+			name: "StartExportTask_EmptyID",
+			body: "Action=StartExportTask&Version=2014-10-31" +
+				"&ExportTaskIdentifier=&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:my-snap",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name: "StartExportTask_Duplicate",
+			setupBodies: []string{
+				"Action=StartExportTask&Version=2014-10-31" +
+					"&ExportTaskIdentifier=dup-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s1",
+			},
+			body: "Action=StartExportTask&Version=2014-10-31" +
+				"&ExportTaskIdentifier=dup-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s1",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ExportTaskAlreadyExists"},
+		},
+		// DescribeExportTasks tests
+		{
+			name: "DescribeExportTasks",
+			setupBodies: []string{
+				"Action=StartExportTask&Version=2014-10-31" +
+					"&ExportTaskIdentifier=list-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s2",
+			},
+			body:         "Action=DescribeExportTasks&Version=2014-10-31",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DescribeExportTasksResponse", "list-export"},
+		},
+		{
+			name:         "DescribeExportTasks_NotFound",
+			body:         "Action=DescribeExportTasks&Version=2014-10-31&ExportTaskIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ExportTaskNotFound"},
+		},
 		{
 			name: "CreateDBInstanceReadReplica",
 			setupBodies: []string{

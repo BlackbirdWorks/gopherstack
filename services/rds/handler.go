@@ -66,18 +66,30 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeDBClusters",
 		"DeleteDBCluster",
 		"ModifyDBCluster",
+		"StartDBCluster",
+		"StopDBCluster",
 		"CreateDBClusterParameterGroup",
 		"DescribeDBClusterParameterGroups",
 		"CreateDBClusterSnapshot",
 		"DescribeDBClusterSnapshots",
+		"DeleteDBClusterSnapshot",
+		"RestoreDBClusterFromSnapshot",
+		"RestoreDBClusterToPointInTime",
+		"CopyDBClusterSnapshot",
+		"CreateDBClusterEndpoint",
+		"DescribeDBClusterEndpoints",
+		"DeleteDBClusterEndpoint",
 		"CreateDBInstanceReadReplica",
 		"PromoteReadReplica",
 		"RebootDBInstance",
 		"DescribeDBEngineVersions",
 		"DescribeOrderableDBInstanceOptions",
+		"DescribeValidDBInstanceModifications",
 		"DescribeDBLogFiles",
 		"DownloadDBLogFilePortion",
 		"DescribeGlobalClusters",
+		"StartExportTask",
+		"DescribeExportTasks",
 	}
 }
 
@@ -281,12 +293,47 @@ func (h *Handler) dispatchExtended2(action string, vals url.Values) (any, error)
 	}
 }
 
-// dispatchExtended3 routes the final set of extended RDS actions. Split from dispatchExtended2 to
-// keep cyclomatic complexity within limits.
+// dispatchExtended3 routes the next set of extended RDS actions (cluster start/stop, snapshot
+// management, and restore operations). Split from dispatchExtended2 to keep cyclomatic complexity
+// within limits.
 func (h *Handler) dispatchExtended3(action string, vals url.Values) (any, error) {
 	switch action {
 	case "DescribeGlobalClusters":
 		return h.handleDescribeGlobalClusters(vals)
+	case "StartDBCluster":
+		return h.handleStartDBCluster(vals)
+	case "StopDBCluster":
+		return h.handleStopDBCluster(vals)
+	case "DeleteDBClusterSnapshot":
+		return h.handleDeleteDBClusterSnapshot(vals)
+	case "RestoreDBClusterFromSnapshot":
+		return h.handleRestoreDBClusterFromSnapshot(vals)
+	case "RestoreDBClusterToPointInTime":
+		return h.handleRestoreDBClusterToPointInTime(vals)
+	case "CopyDBClusterSnapshot":
+		return h.handleCopyDBClusterSnapshot(vals)
+	default:
+		return h.dispatchExtended4(action, vals)
+	}
+}
+
+// dispatchExtended4 routes the final set of extended RDS actions (cluster endpoints, export tasks,
+// and instance modification validation). Split from dispatchExtended3 to keep cyclomatic complexity
+// within limits.
+func (h *Handler) dispatchExtended4(action string, vals url.Values) (any, error) {
+	switch action {
+	case "CreateDBClusterEndpoint":
+		return h.handleCreateDBClusterEndpoint(vals)
+	case "DescribeDBClusterEndpoints":
+		return h.handleDescribeDBClusterEndpoints(vals)
+	case "DeleteDBClusterEndpoint":
+		return h.handleDeleteDBClusterEndpoint(vals)
+	case "DescribeValidDBInstanceModifications":
+		return h.handleDescribeValidDBInstanceModifications(vals)
+	case "StartExportTask":
+		return h.handleStartExportTask(vals)
+	case "DescribeExportTasks":
+		return h.handleDescribeExportTasks(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
 	}
@@ -607,6 +654,10 @@ func rdsErrorCode(opErr error) string {
 		{ErrClusterAlreadyExists, "DBClusterAlreadyExists"},
 		{ErrClusterSnapshotNotFound, "DBClusterSnapshotNotFound"},
 		{ErrClusterSnapshotAlreadyExists, "DBClusterSnapshotAlreadyExists"},
+		{ErrClusterEndpointNotFound, "DBClusterEndpointNotFound"},
+		{ErrClusterEndpointAlreadyExists, "DBClusterEndpointAlreadyExists"},
+		{ErrExportTaskNotFound, "ExportTaskNotFound"},
+		{ErrExportTaskAlreadyExists, "ExportTaskAlreadyExists"},
 	}
 
 	for _, m := range mappings {
@@ -1279,6 +1330,221 @@ func (h *Handler) handleDescribeGlobalClusters(_ url.Values) (any, error) {
 	}, nil
 }
 
+// ---- Cluster start/stop handlers ----
+
+func (h *Handler) handleStartDBCluster(vals url.Values) (any, error) {
+	id := vals.Get("DBClusterIdentifier")
+	cluster, err := h.Backend.StartDBCluster(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startDBClusterResponse{
+		Xmlns:     rdsXMLNS,
+		DBCluster: toXMLCluster(cluster),
+	}, nil
+}
+
+func (h *Handler) handleStopDBCluster(vals url.Values) (any, error) {
+	id := vals.Get("DBClusterIdentifier")
+	cluster, err := h.Backend.StopDBCluster(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &stopDBClusterResponse{
+		Xmlns:     rdsXMLNS,
+		DBCluster: toXMLCluster(cluster),
+	}, nil
+}
+
+// ---- Cluster snapshot management handlers ----
+
+func (h *Handler) handleDeleteDBClusterSnapshot(vals url.Values) (any, error) {
+	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
+	snap, err := h.Backend.DeleteDBClusterSnapshot(snapshotID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteDBClusterSnapshotResponse{
+		Xmlns:             rdsXMLNS,
+		DBClusterSnapshot: toXMLClusterSnapshot(snap),
+	}, nil
+}
+
+func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, error) {
+	clusterID := vals.Get("DBClusterIdentifier")
+	snapshotID := vals.Get("SnapshotIdentifier")
+	engine := vals.Get("Engine")
+	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine)
+	if err != nil {
+		return nil, err
+	}
+
+	return &restoreDBClusterFromSnapshotResponse{
+		Xmlns:     rdsXMLNS,
+		DBCluster: toXMLCluster(cluster),
+	}, nil
+}
+
+func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, error) {
+	clusterID := vals.Get("DBClusterIdentifier")
+	sourceClusterID := vals.Get("SourceDBClusterIdentifier")
+	cluster, err := h.Backend.RestoreDBClusterToPointInTime(clusterID, sourceClusterID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &restoreDBClusterToPointInTimeResponse{
+		Xmlns:     rdsXMLNS,
+		DBCluster: toXMLCluster(cluster),
+	}, nil
+}
+
+func (h *Handler) handleCopyDBClusterSnapshot(vals url.Values) (any, error) {
+	sourceSnapshotID := vals.Get("SourceDBClusterSnapshotIdentifier")
+	targetSnapshotID := vals.Get("TargetDBClusterSnapshotIdentifier")
+	snap, err := h.Backend.CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &copyDBClusterSnapshotResponse{
+		Xmlns:             rdsXMLNS,
+		DBClusterSnapshot: toXMLClusterSnapshot(snap),
+	}, nil
+}
+
+// ---- Cluster endpoint handlers ----
+
+func (h *Handler) handleCreateDBClusterEndpoint(vals url.Values) (any, error) {
+	endpointID := vals.Get("DBClusterEndpointIdentifier")
+	clusterID := vals.Get("DBClusterIdentifier")
+	endpointType := vals.Get("EndpointType")
+	ep, err := h.Backend.CreateDBClusterEndpoint(endpointID, clusterID, endpointType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createDBClusterEndpointResponse{
+		Xmlns:             rdsXMLNS,
+		DBClusterEndpoint: toXMLClusterEndpoint(ep),
+	}, nil
+}
+
+func (h *Handler) handleDescribeDBClusterEndpoints(vals url.Values) (any, error) {
+	clusterID := vals.Get("DBClusterIdentifier")
+	endpointID := vals.Get("DBClusterEndpointIdentifier")
+	endpoints, err := h.Backend.DescribeDBClusterEndpoints(clusterID, endpointID)
+	if err != nil {
+		return nil, err
+	}
+	members := make([]xmlDBClusterEndpoint, 0, len(endpoints))
+	for _, ep := range endpoints {
+		cp := ep
+		members = append(members, toXMLClusterEndpoint(&cp))
+	}
+
+	return &describeDBClusterEndpointsResponse{
+		Xmlns:              rdsXMLNS,
+		DBClusterEndpoints: xmlDBClusterEndpointList{Members: members},
+	}, nil
+}
+
+func (h *Handler) handleDeleteDBClusterEndpoint(vals url.Values) (any, error) {
+	endpointID := vals.Get("DBClusterEndpointIdentifier")
+	ep, err := h.Backend.DeleteDBClusterEndpoint(endpointID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteDBClusterEndpointResponse{
+		Xmlns:             rdsXMLNS,
+		DBClusterEndpoint: toXMLClusterEndpoint(ep),
+	}, nil
+}
+
+// ---- Misc handlers ----
+
+func (h *Handler) handleDescribeValidDBInstanceModifications(vals url.Values) (any, error) {
+	id := vals.Get("DBInstanceIdentifier")
+	inst, err := h.Backend.DescribeValidDBInstanceModifications(id)
+	if err != nil {
+		return nil, err
+	}
+
+	validClasses := []string{"db.t3.micro", "db.t3.small", "db.t3.medium", "db.r5.large", "db.r5.xlarge"}
+	members := make([]xmlValidDBInstanceModification, 0, len(validClasses))
+	for _, class := range validClasses {
+		members = append(members, xmlValidDBInstanceModification{
+			DBInstanceClass: class,
+		})
+	}
+
+	return &describeValidDBInstanceModificationsResponse{
+		Xmlns: rdsXMLNS,
+		Result: describeValidDBInstanceModificationsResult{
+			DBInstanceIdentifier: inst.DBInstanceIdentifier,
+			ValidDBInstanceModifications: validDBInstanceModificationsMessage{
+				ValidProcessorFeatures: xmlValidDBInstanceModificationList{Members: members},
+			},
+		},
+	}, nil
+}
+
+func (h *Handler) handleStartExportTask(vals url.Values) (any, error) {
+	taskID := vals.Get("ExportTaskIdentifier")
+	sourceARN := vals.Get("SourceArn")
+	s3Bucket := vals.Get("S3BucketName")
+	task, err := h.Backend.StartExportTask(taskID, sourceARN, s3Bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startExportTaskResponse{
+		Xmlns:      rdsXMLNS,
+		ExportTask: toXMLExportTask(task),
+	}, nil
+}
+
+func (h *Handler) handleDescribeExportTasks(vals url.Values) (any, error) {
+	taskID := vals.Get("ExportTaskIdentifier")
+	tasks, err := h.Backend.DescribeExportTasks(taskID)
+	if err != nil {
+		return nil, err
+	}
+	members := make([]xmlExportTask, 0, len(tasks))
+	for _, task := range tasks {
+		cp := task
+		members = append(members, toXMLExportTask(&cp))
+	}
+
+	return &describeExportTasksResponse{
+		Xmlns:       rdsXMLNS,
+		ExportTasks: xmlExportTaskList{Members: members},
+	}, nil
+}
+
+func toXMLClusterEndpoint(ep *DBClusterEndpoint) xmlDBClusterEndpoint {
+	return xmlDBClusterEndpoint{
+		DBClusterEndpointIdentifier: ep.DBClusterEndpointIdentifier,
+		DBClusterIdentifier:         ep.DBClusterIdentifier,
+		EndpointType:                ep.EndpointType,
+		Status:                      ep.Status,
+		Endpoint:                    ep.Endpoint,
+	}
+}
+
+func toXMLExportTask(task *ExportTask) xmlExportTask {
+	return xmlExportTask{
+		ExportTaskIdentifier: task.ExportTaskIdentifier,
+		SourceArn:            task.SourceArn,
+		Status:               task.Status,
+		S3Bucket:             task.S3Bucket,
+	}
+}
+
 func toXMLParameterGroup(pg *DBParameterGroup) xmlDBParameterGroup {
 	return xmlDBParameterGroup{
 		DBParameterGroupName:   pg.DBParameterGroupName,
@@ -1607,4 +1873,126 @@ type describeGlobalClustersResponse struct {
 	XMLName        xml.Name             `xml:"DescribeGlobalClustersResponse"`
 	Xmlns          string               `xml:"xmlns,attr"`
 	GlobalClusters xmlGlobalClusterList `xml:"DescribeGlobalClustersResult>GlobalClusters"`
+}
+
+// ---- Cluster start/stop XML types ----
+
+type startDBClusterResponse struct {
+	XMLName   xml.Name     `xml:"StartDBClusterResponse"`
+	Xmlns     string       `xml:"xmlns,attr"`
+	DBCluster xmlDBCluster `xml:"StartDBClusterResult>DBCluster"`
+}
+
+type stopDBClusterResponse struct {
+	XMLName   xml.Name     `xml:"StopDBClusterResponse"`
+	Xmlns     string       `xml:"xmlns,attr"`
+	DBCluster xmlDBCluster `xml:"StopDBClusterResult>DBCluster"`
+}
+
+// ---- Cluster snapshot management XML types ----
+
+type deleteDBClusterSnapshotResponse struct {
+	XMLName           xml.Name             `xml:"DeleteDBClusterSnapshotResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	DBClusterSnapshot xmlDBClusterSnapshot `xml:"DeleteDBClusterSnapshotResult>DBClusterSnapshot"`
+}
+
+type restoreDBClusterFromSnapshotResponse struct {
+	XMLName   xml.Name     `xml:"RestoreDBClusterFromSnapshotResponse"`
+	Xmlns     string       `xml:"xmlns,attr"`
+	DBCluster xmlDBCluster `xml:"RestoreDBClusterFromSnapshotResult>DBCluster"`
+}
+
+type restoreDBClusterToPointInTimeResponse struct {
+	XMLName   xml.Name     `xml:"RestoreDBClusterToPointInTimeResponse"`
+	Xmlns     string       `xml:"xmlns,attr"`
+	DBCluster xmlDBCluster `xml:"RestoreDBClusterToPointInTimeResult>DBCluster"`
+}
+
+type copyDBClusterSnapshotResponse struct {
+	XMLName           xml.Name             `xml:"CopyDBClusterSnapshotResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	DBClusterSnapshot xmlDBClusterSnapshot `xml:"CopyDBClusterSnapshotResult>DBClusterSnapshot"`
+}
+
+// ---- Cluster endpoint XML types ----
+
+type xmlDBClusterEndpoint struct {
+	DBClusterEndpointIdentifier string `xml:"DBClusterEndpointIdentifier"`
+	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
+	EndpointType                string `xml:"EndpointType"`
+	Status                      string `xml:"Status"`
+	Endpoint                    string `xml:"Endpoint,omitempty"`
+}
+
+type xmlDBClusterEndpointList struct {
+	Members []xmlDBClusterEndpoint `xml:"DBClusterEndpoint"`
+}
+
+type createDBClusterEndpointResponse struct {
+	XMLName           xml.Name             `xml:"CreateDBClusterEndpointResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	DBClusterEndpoint xmlDBClusterEndpoint `xml:"CreateDBClusterEndpointResult>DBClusterEndpoint"`
+}
+
+type describeDBClusterEndpointsResponse struct {
+	XMLName            xml.Name                 `xml:"DescribeDBClusterEndpointsResponse"`
+	Xmlns              string                   `xml:"xmlns,attr"`
+	DBClusterEndpoints xmlDBClusterEndpointList `xml:"DescribeDBClusterEndpointsResult>DBClusterEndpoints"`
+}
+
+type deleteDBClusterEndpointResponse struct {
+	XMLName           xml.Name             `xml:"DeleteDBClusterEndpointResponse"`
+	Xmlns             string               `xml:"xmlns,attr"`
+	DBClusterEndpoint xmlDBClusterEndpoint `xml:"DeleteDBClusterEndpointResult>DBClusterEndpoint"`
+}
+
+// ---- Valid DB instance modifications XML types ----
+
+type xmlValidDBInstanceModification struct {
+	DBInstanceClass string `xml:"DBInstanceClass"`
+}
+
+type xmlValidDBInstanceModificationList struct {
+	Members []xmlValidDBInstanceModification `xml:"ValidDBInstanceModification"`
+}
+
+type validDBInstanceModificationsMessage struct {
+	ValidProcessorFeatures xmlValidDBInstanceModificationList `xml:"ValidProcessorFeatures"`
+}
+
+type describeValidDBInstanceModificationsResult struct {
+	DBInstanceIdentifier         string                              `xml:"DBInstanceIdentifier"`
+	ValidDBInstanceModifications validDBInstanceModificationsMessage `xml:"ValidDBInstanceModificationsMessage"`
+}
+
+type describeValidDBInstanceModificationsResponse struct {
+	XMLName xml.Name                                   `xml:"DescribeValidDBInstanceModificationsResponse"`
+	Xmlns   string                                     `xml:"xmlns,attr"`
+	Result  describeValidDBInstanceModificationsResult `xml:"DescribeValidDBInstanceModificationsResult"`
+}
+
+// ---- Export task XML types ----
+
+type xmlExportTask struct {
+	ExportTaskIdentifier string `xml:"ExportTaskIdentifier"`
+	SourceArn            string `xml:"SourceArn"`
+	Status               string `xml:"Status"`
+	S3Bucket             string `xml:"S3Bucket,omitempty"`
+}
+
+type xmlExportTaskList struct {
+	Members []xmlExportTask `xml:"ExportTask"`
+}
+
+type startExportTaskResponse struct {
+	XMLName    xml.Name      `xml:"StartExportTaskResponse"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	ExportTask xmlExportTask `xml:"StartExportTaskResult>ExportTask"`
+}
+
+type describeExportTasksResponse struct {
+	XMLName     xml.Name          `xml:"DescribeExportTasksResponse"`
+	Xmlns       string            `xml:"xmlns,attr"`
+	ExportTasks xmlExportTaskList `xml:"DescribeExportTasksResult>ExportTasks"`
 }
