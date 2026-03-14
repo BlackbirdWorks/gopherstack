@@ -165,6 +165,7 @@ import (
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
+	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -300,6 +301,7 @@ type CLI struct {
 	textractHandler               service.Registerable
 	timestreamwriteHandler        service.Registerable
 	timestreamqueryHandler        service.Registerable
+	transferHandler               service.Registerable
 	wafv2Handler                  service.Registerable
 	faultStore                    *chaos.FaultStore
 	snsClient                     *sns.Client
@@ -807,6 +809,11 @@ func (c *CLI) GetTimestreamWriteHandler() service.Registerable { return c.timest
 //
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetTimestreamQueryHandler() service.Registerable { return c.timestreamqueryHandler }
+
+// GetTransferHandler returns the Transfer handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetTransferHandler() service.Registerable { return c.transferHandler }
 
 // GetWafv2Handler returns the WAFv2 handler (dashboard.AWSSDKProvider).
 //
@@ -1499,6 +1506,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.textractHandler = byName["Textract"]
 	cli.timestreamwriteHandler = byName["TimestreamWrite"]
 	cli.timestreamqueryHandler = byName["TimestreamQuery"]
+	cli.transferHandler = byName["Transfer"]
 	cli.wafv2Handler = byName["Wafv2"]
 }
 
@@ -1750,6 +1758,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&textractbackend.Provider{},
 		&timestreamwritebackend.Provider{},
 		&timestreamquerybackend.Provider{},
+		&transferbackend.Provider{},
 		&wafv2backend.Provider{},
 	}
 }

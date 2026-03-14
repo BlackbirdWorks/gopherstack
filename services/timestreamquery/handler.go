@@ -29,12 +29,20 @@ var ErrUnknownOperation = errors.New("unknown operation")
 
 // Handler is the Echo HTTP handler for the Timestream Query service.
 type Handler struct {
-	Backend *InMemoryBackend
+	Backend      *InMemoryBackend
+	supportedOps map[string]bool
 }
 
 // NewHandler creates a new Timestream Query handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	h := &Handler{Backend: backend}
+	ops := h.GetSupportedOperations()
+	h.supportedOps = make(map[string]bool, len(ops))
+	for _, op := range ops {
+		h.supportedOps[op] = true
+	}
+
+	return h
 }
 
 // Name returns the handler name.
@@ -68,9 +76,19 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a matcher that identifies Timestream Query requests.
+// It only matches operations explicitly supported by this handler to avoid
+// intercepting operations belonging to other Timestream services (e.g. TimestreamWrite)
+// that share the same X-Amz-Target prefix.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), timestreamQueryTargetPrefix)
+		target := c.Request().Header.Get("X-Amz-Target")
+		if !strings.HasPrefix(target, timestreamQueryTargetPrefix) {
+			return false
+		}
+
+		operation := strings.TrimPrefix(target, timestreamQueryTargetPrefix)
+
+		return h.supportedOps[operation]
 	}
 }
 

@@ -131,6 +131,7 @@ import (
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
+	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -334,6 +335,8 @@ type DashboardHandler struct {
 	TimestreamWriteOps *timestreamwritebackend.Handler
 	// TimestreamQueryOps provides access to the Timestream Query backend.
 	TimestreamQueryOps *timestreamquerybackend.Handler
+	// TransferOps provides access to the Transfer backend.
+	TransferOps *transferbackend.Handler
 	// Wafv2Ops provides access to the WAFv2 backend.
 	Wafv2Ops     *wafv2backend.Handler
 	SubRouter    *echo.Echo
@@ -568,6 +571,8 @@ type Config struct {
 	TimestreamWriteOps *timestreamwritebackend.Handler
 	// TimestreamQueryOps provides access to the Timestream Query backend.
 	TimestreamQueryOps *timestreamquerybackend.Handler
+	// TransferOps provides access to the Transfer backend.
+	TransferOps *transferbackend.Handler
 	// Wafv2Ops provides access to the WAFv2 backend.
 	Wafv2Ops *wafv2backend.Handler
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
@@ -728,6 +733,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/chaos/*.html",
 		"templates/metrics.html",
 		"templates/textract/*.html",
+		"templates/transfer/*.html",
 		"templates/timestreamwrite/*.html",
 		"templates/wafv2/*.html",
 		"templates/doc.html",
@@ -886,6 +892,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.TextractOps = cfg.TextractOps
 	h.TimestreamWriteOps = cfg.TimestreamWriteOps
 	h.TimestreamQueryOps = cfg.TimestreamQueryOps
+	h.TransferOps = cfg.TransferOps
 	h.Wafv2Ops = cfg.Wafv2Ops
 }
 
@@ -1417,6 +1424,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupTextractRoutes()
 	h.setupTimestreamWriteRoutes()
 	h.setupTimestreamQueryRoutes()
+	h.setupTransferRoutes()
 	h.setupWafv2Routes()
 }
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
@@ -1551,6 +1559,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/textract", "Textract"},
 	{"/timestreamwrite", "TimestreamWrite"},
 	{"/timestreamquery", "TimestreamQuery"},
+	{"/transfer", "Transfer"},
 	{"/wafv2", "Wafv2"},
 	{"/chaos", "Chaos"},
 	{"/metrics", "Metrics"},

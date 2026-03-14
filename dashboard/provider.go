@@ -83,6 +83,7 @@ import (
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
+	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
@@ -239,6 +240,7 @@ type AWSSDKProvider interface {
 	GetTextractHandler() service.Registerable
 	GetTimestreamWriteHandler() service.Registerable
 	GetTimestreamQueryHandler() service.Registerable
+	GetTransferHandler() service.Registerable
 	GetWafv2Handler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
@@ -368,6 +370,7 @@ type extractedConfig struct {
 	textractOps               *textractbackend.Handler
 	timestreamwriteOps        *timestreamwritebackend.Handler
 	timestreamqueryOps        *timestreamquerybackend.Handler
+	transferOps               *transferbackend.Handler
 	wafv2Ops                  *wafv2backend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
@@ -905,6 +908,10 @@ func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.timestreamqueryOps, _ = h.(*timestreamquerybackend.Handler)
 	}
 
+	if h := ap.GetTransferHandler(); h != nil {
+		ec.transferOps, _ = h.(*transferbackend.Handler)
+	}
+
 	if h := ap.GetWafv2Handler(); h != nil {
 		ec.wafv2Ops, _ = h.(*wafv2backend.Handler)
 	}
@@ -1111,5 +1118,6 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.TextractOps = ec.textractOps
 	cfg.TimestreamWriteOps = ec.timestreamwriteOps
 	cfg.TimestreamQueryOps = ec.timestreamqueryOps
+	cfg.TransferOps = ec.transferOps
 	cfg.Wafv2Ops = ec.wafv2Ops
 }
