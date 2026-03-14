@@ -77,6 +77,7 @@ type docPageData struct {
 	TextractOps                []string
 	TimestreamQueryOps         []string
 	TransferOps                []string
+	Wafv2Ops                   []string
 	XrayOps                    []string
 }
 
@@ -166,6 +167,7 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		TextractOps:                h.getSupportedOps(h.TextractOps),
 		TimestreamQueryOps:         h.getSupportedOps(h.TimestreamQueryOps),
 		TransferOps:                h.getSupportedOps(h.TransferOps),
+		Wafv2Ops:                   h.getSupportedOps(h.Wafv2Ops),
 		XrayOps:                    h.getSupportedOps(h.XrayOps),
 	}
 

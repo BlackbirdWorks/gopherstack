@@ -130,6 +130,7 @@ import (
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 )
 
@@ -302,6 +303,8 @@ type Stack struct {
 	TimestreamQueryHandler *timestreamquerybackend.Handler
 	// TransferHandler provides access to the Transfer backend.
 	TransferHandler *transferbackend.Handler
+	// Wafv2Handler provides access to the WAFv2 backend.
+	Wafv2Handler *wafv2backend.Handler
 	// XrayHandler provides access to the X-Ray backend.
 	XrayHandler *xraybackend.Handler
 	S3Client    *s3.Client
@@ -525,6 +528,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.timestreamwrite)
 	_ = registry.Register(h.timestreamquery)
 	_ = registry.Register(h.transfer)
+	_ = registry.Register(h.wafv2)
 	_ = registry.Register(h.xray)
 }
 
@@ -641,6 +645,7 @@ type handlers struct {
 	timestreamwrite    *timestreamwritebackend.Handler
 	timestreamquery    *timestreamquerybackend.Handler
 	transfer           *transferbackend.Handler
+	wafv2              *wafv2backend.Handler
 	xray               *xraybackend.Handler
 	iamBk              *iambackend.InMemoryBackend
 	s3Bk               *s3backend.InMemoryBackend
@@ -967,6 +972,7 @@ func populateLatestMLHandlers(h *handlers) {
 	h.timestreamquery = timestreamquerybackend.NewHandler(
 		timestreamquerybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	h.wafv2 = wafv2backend.NewHandler(wafv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	populateTransferHandlers(h)
 }
 
@@ -1147,6 +1153,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.TimestreamWriteOps = h.timestreamwrite
 	cfg.TimestreamQueryOps = h.timestreamquery
 	cfg.TransferOps = h.transfer
+	cfg.Wafv2Ops = h.wafv2
 	cfg.XrayOps = h.xray
 }
 
@@ -1365,6 +1372,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.TimestreamWriteHandler = h.timestreamwrite
 	s.TimestreamQueryHandler = h.timestreamquery
 	s.TransferHandler = h.transfer
+	s.Wafv2Handler = h.wafv2
 	s.XrayHandler = h.xray
 }
 
