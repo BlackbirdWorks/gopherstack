@@ -1241,12 +1241,12 @@ func TestCloudWatchLogsBackend_QueryEviction_TTL(t *testing.T) {
 			name: "expired_queries_evicted_on_next_start",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				// Use a very short TTL so all existing queries expire immediately.
-				b.SetQueryTTL(time.Nanosecond)
+				// Use a short TTL so the existing queries expire before the trigger query.
+				b.SetQueryTTL(time.Millisecond)
 				_, _ = b.StartQuery("old-1", "fields @message", []string{}, 0, 0)
 				_, _ = b.StartQuery("old-2", "fields @message", []string{}, 0, 0)
-				// Sleep to ensure the TTL elapses.
-				time.Sleep(time.Millisecond)
+				// Sleep well beyond the TTL to avoid any scheduling jitter.
+				time.Sleep(20 * time.Millisecond)
 				// This new query triggers eviction; old-1 and old-2 should be removed.
 				_, _ = b.StartQuery("new-1", "fields @message", []string{}, 0, 0)
 			},

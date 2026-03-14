@@ -134,7 +134,7 @@ func (b *InMemoryBackend) SetSubscriptionDeliverer(d SubscriptionDeliverer) {
 	b.deliverer = d
 }
 
-// SetQueryTTL overrides the TTL used to evict completed/cancelled queries.
+// SetQueryTTL overrides the TTL used to evict queries by age.
 // A value of zero disables TTL-based eviction. Primarily intended for tests.
 func (b *InMemoryBackend) SetQueryTTL(d time.Duration) {
 	b.mu.Lock("SetQueryTTL")
@@ -695,6 +695,18 @@ func parseNextToken(token string) int {
 	return idx
 }
 
+// removeFromOrder removes the first occurrence of queryID from queriesOrder.
+// It must be called while holding the write lock.
+func (b *InMemoryBackend) removeFromOrder(queryID string) {
+	for i, qid := range b.queriesOrder {
+		if qid == queryID {
+			b.queriesOrder = append(b.queriesOrder[:i], b.queriesOrder[i+1:]...)
+
+			return
+		}
+	}
+}
+
 // evictByTTL removes queries whose age has exceeded the configured TTL.
 // It must be called while holding the write lock.
 func (b *InMemoryBackend) evictByTTL() {
@@ -705,7 +717,12 @@ func (b *InMemoryBackend) evictByTTL() {
 	cutoff := time.Now().Add(-b.queryTTL)
 	newOrder := make([]string, 0, len(b.queriesOrder))
 	for _, qid := range b.queriesOrder {
-		if b.queries[qid].createdAt.Before(cutoff) {
+		sq, ok := b.queries[qid]
+		if !ok {
+			// Entry already removed from the map; drop the stale order reference.
+			continue
+		}
+		if sq.createdAt.Before(cutoff) {
 			delete(b.queries, qid)
 
 			continue
@@ -730,18 +747,12 @@ func (b *InMemoryBackend) enforceCap() {
 }
 
 // StartQuery stores a new insights query and executes it immediately against in-memory events.
-func (b *InMemoryBackend) StartQuery(
-	queryID, queryString string, logGroupNames []string, startTime, endTime int64,
-) (*QueryInfo, error) {
-	q, parseErr := parseInsightsQuery(queryString)
-	if parseErr != nil {
-		return nil, fmt.Errorf("invalid query: %w", parseErr)
-	}
-
-	// Collect events under a read lock to avoid blocking concurrent writes.
-	b.mu.RLock("StartQuery")
-
-	var allEvents []*OutputLogEvent
+// collectQueryEvents scans events in the given log groups within [startTime, endTime].
+// It must be called while holding at least a read lock.
+func (b *InMemoryBackend) collectQueryEvents(
+	logGroupNames []string, startTime, endTime int64,
+) ([]*OutputLogEvent, float64) {
+	var eventsOut []*OutputLogEvent
 	var recordsScanned float64
 
 	for _, groupName := range logGroupNames {
@@ -758,11 +769,26 @@ func (b *InMemoryBackend) StartQuery(
 				if endTime > 0 && ev.Timestamp > endTime {
 					continue
 				}
-				allEvents = append(allEvents, ev)
+				eventsOut = append(eventsOut, ev)
 			}
 		}
 	}
 
+	return eventsOut, recordsScanned
+}
+
+// StartQuery stores a new insights query and executes it immediately against in-memory events.
+func (b *InMemoryBackend) StartQuery(
+	queryID, queryString string, logGroupNames []string, startTime, endTime int64,
+) (*QueryInfo, error) {
+	q, parseErr := parseInsightsQuery(queryString)
+	if parseErr != nil {
+		return nil, fmt.Errorf("invalid query: %w", parseErr)
+	}
+
+	// Collect events under a read lock to avoid blocking concurrent writes.
+	b.mu.RLock("StartQuery")
+	allEvents, recordsScanned := b.collectQueryEvents(logGroupNames, startTime, endTime)
 	b.mu.RUnlock()
 
 	// Execute the query outside the lock — regex matching and sorting can be non-trivial.
@@ -802,6 +828,12 @@ func (b *InMemoryBackend) StartQuery(
 
 	// Evict expired queries before inserting so that the new entry is always retained.
 	b.evictByTTL()
+
+	// If this queryID already exists, remove its stale position in queriesOrder to
+	// prevent duplicates that could cause map-miss panics or over-counting.
+	if _, exists := b.queries[queryID]; exists {
+		b.removeFromOrder(queryID)
+	}
 
 	b.queries[queryID] = sq
 	b.queriesOrder = append(b.queriesOrder, queryID)
@@ -851,7 +883,10 @@ func (b *InMemoryBackend) DescribeQueries(
 
 	all := make([]QueryInfo, 0, len(b.queriesOrder))
 	for _, qid := range b.queriesOrder {
-		sq := b.queries[qid]
+		sq, ok := b.queries[qid]
+		if !ok {
+			continue
+		}
 		if logGroupName != "" {
 			found := slices.Contains(sq.logGroups, logGroupName)
 			if !found {
