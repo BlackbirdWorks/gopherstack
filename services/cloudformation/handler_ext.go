@@ -322,9 +322,11 @@ func (h *Handler) handleContinueUpdateRollback(form url.Values, c *echo.Context)
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
+	type result struct{}
 	type response struct {
 		XMLName   xml.Name `xml:"ContinueUpdateRollbackResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`
+		Result    result   `xml:"ContinueUpdateRollbackResult"`
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 
