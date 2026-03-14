@@ -596,6 +596,19 @@
                     <ul id="section-database-analytics"
                         class="space-y-1 mt-1 overflow-hidden transition-all duration-300 origin-top">
 <li>
+                            <a href="/dashboard/elasticsearch"
+                                class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "elasticsearch"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
+                                data-tooltip-target="tooltip-elasticsearch" data-tooltip-placement="right">
+                                <img src="/dashboard/static/icons/elasticsearch.svg"
+                                    class="w-5 h-5 flex-shrink-0 rounded-md shadow-sm" alt="elasticsearch" /> <span
+                                    class="sidebar-text truncate" title="Elasticsearch">Elasticsearch</span>
+                            </a>
+                            <div id="tooltip-elasticsearch" role="tooltip"
+                                class="absolute z-10 invisible inline-block px-3 py-2 text-sm font-medium text-white transition-opacity duration-300 bg-gray-900 rounded-lg shadow-sm opacity-0 tooltip dark:bg-gray-700">
+                                Elasticsearch
+                                <div class="tooltip-arrow" data-popper-arrow></div>
+                            </div>
+                        </li><li>
                             <a href="/dashboard/opensearch"
                                 class='flex items-center gap-3 p-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-indigo-600 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-colors {{if eq .ActiveTab "opensearch"}}bg-indigo-50 text-indigo-700 dark:bg-slate-800 dark:text-indigo-400 font-semibold{{end}}'
                                 data-tooltip-target="tooltip-opensearch" data-tooltip-placement="right">

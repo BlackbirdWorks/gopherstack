@@ -138,6 +138,8 @@ github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing v1.33.21 h1:VriOdPKF8Y
 github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing v1.33.21/go.mod h1:sp4Mz5YUnYCvIkGNEcdEPp+DuHqquEZYXyIuKXuHzig=
 github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.54.8 h1:xUwbqWhKASQsigeQfeBjhbm6dAP1EeTulHnNSYv5Xfc=
 github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.54.8/go.mod h1:sQoz/dTooY3kCkNNGxVLTS7EacLA0qXUaK4BkpMjGOc=
+github.com/aws/aws-sdk-go-v2/service/elasticsearchservice v1.39.1 h1:tU0rtRt2Ap1FkMP7KffVNN1ZnI2x8CAfDJac/lGYG6k=
+github.com/aws/aws-sdk-go-v2/service/elasticsearchservice v1.39.1/go.mod h1:JNnrlxQHM/xBd6uy+h9NcrekiIYvvMvga0l6d9K3mOM=
 github.com/aws/aws-sdk-go-v2/service/elastictranscoder v1.33.0 h1:ZD8Iw3WQlZYoCJtK3VBAUVO0DZFLSfHCKbze1xfYRdc=
 github.com/aws/aws-sdk-go-v2/service/elastictranscoder v1.33.0/go.mod h1:1TkRQZaHJfi2GSj/kQNuxQVUyKLAErm+QXF6Dvz7iOs=
 github.com/aws/aws-sdk-go-v2/service/emr v1.57.7 h1:AzUI+6ICHeXPUCZtLNXkIJCoHZ/VUqhMbpJJSKjQMUU=
@@ -276,10 +278,10 @@ github.com/aws/aws-sdk-go-v2/service/swf v1.33.14 h1:sVUF4SC5BzVw4tiOXX/yaa7Gbru
 github.com/aws/aws-sdk-go-v2/service/swf v1.33.14/go.mod h1:STMeULZQteHh1BkdnUiTCdtvA5zKRyDk/b5nObwHKVA=
 github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.36.13 h1:Iu9ue+m7Ff/7S/QckPSB2kqkKHziyCwr/4DNuVvsCaE=
 github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.36.13/go.mod h1:CL79M20C9MGo2r0/MT7i9OcM/RY25wfNz043aG2fBvw=
-github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4 h1:A182zQlZOpGFdgw6hUSzS4Ew4H4YvEHBjS8ztPbjmlI=
-github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4/go.mod h1:uirylF9/pmoaUQBoMxNIj7zniwHtZJu8pA81LNCcqGM=
 github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.35.19 h1:XkeqlcNouQtmViM1iIwmcpI3aQQYvBGzWLWEmK428eM=
 github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.35.19/go.mod h1:wkELVGpfMlCbGh0codwFhQCkiunnDZiUkkGdydvHJwM=
+github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4 h1:A182zQlZOpGFdgw6hUSzS4Ew4H4YvEHBjS8ztPbjmlI=
+github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4/go.mod h1:uirylF9/pmoaUQBoMxNIj7zniwHtZJu8pA81LNCcqGM=
 github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4 h1:n0jsEM3jPz0dtujoqreiuUJAEgGHIQcxekY7/kMqHqI=
 github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4/go.mod h1:cyCWU2gte7GgK6ALIQDeN/Uza9RvxcZCc1BcHQaYeTg=
 github.com/aws/smithy-go v1.24.2 h1:FzA3bu/nt/vDvmnkg+R8Xl46gmzEDam6mZ1hzmwXFng=

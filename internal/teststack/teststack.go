@@ -63,6 +63,7 @@ import (
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	elasticbeanstalkbackend "github.com/blackbirdworks/gopherstack/services/elasticbeanstalk"
+	elasticsearchbackend "github.com/blackbirdworks/gopherstack/services/elasticsearch"
 	elastictranscoderbackend "github.com/blackbirdworks/gopherstack/services/elastictranscoder"
 	elbbackend "github.com/blackbirdworks/gopherstack/services/elb"
 	elbv2backend "github.com/blackbirdworks/gopherstack/services/elbv2"
@@ -170,6 +171,7 @@ type Stack struct {
 	IoTHandler                     *iotbackend.Handler
 	FISHandler                     *fisbackend.Handler
 	IdentityStoreHandler           *identitystorebackend.Handler
+	ElasticsearchHandler           *elasticsearchbackend.Handler
 	OpenSearchHandler              *opensearchbackend.Handler
 	ACMHandler                     *acmbackend.Handler
 	ACMPCAHandler                  *acmpcabackend.Handler
@@ -553,6 +555,7 @@ type handlers struct {
 	iot                *iotbackend.Handler
 	fis                *fisbackend.Handler
 	identitystore      *identitystorebackend.Handler
+	elasticsearch      *elasticsearchbackend.Handler
 	opensearch         *opensearchbackend.Handler
 	acm                *acmbackend.Handler
 	acmpca             *acmpcabackend.Handler
@@ -711,6 +714,9 @@ func populateExtendedHandlers(h *handlers) {
 	)
 	h.opensearch = opensearchbackend.NewHandler(
 		opensearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.elasticsearch = elasticsearchbackend.NewHandler(
+		elasticsearchbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.acm = acmbackend.NewHandler(
 		acmbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -1108,6 +1114,7 @@ func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chao
 // applyNewestDashboardOps sets the most recently added service ops on a dashboard.Config.
 // It is extracted from newDashboardConfig to satisfy the funlen limit.
 func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
+	cfg.ElasticsearchOps = h.elasticsearch
 	cfg.EmrServerlessOps = h.emrserverless
 	cfg.EMROps = h.emr
 	cfg.GlacierOps = h.glacier
@@ -1187,6 +1194,7 @@ func New(t *testing.T) *Stack {
 	}
 
 	_ = registry.Register(h.elasticbeanstalk)
+	_ = registry.Register(h.elasticsearch)
 	_ = registry.Register(h.efs)
 	_ = registry.Register(h.eks)
 	_ = registry.Register(h.elastictranscoder)
@@ -1328,6 +1336,7 @@ func buildStack(
 // setNewestStackHandlers sets the most recently added handler fields on a Stack.
 // It is extracted from buildStack to satisfy the funlen limit.
 func setNewestStackHandlers(s *Stack, h handlers) {
+	s.ElasticsearchHandler = h.elasticsearch
 	s.EmrServerlessHandler = h.emrserverless
 	s.EMRHandler = h.emr
 	s.KinesisAnalyticsHandler = h.kinesisanalytics
