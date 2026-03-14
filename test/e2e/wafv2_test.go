@@ -21,6 +21,7 @@ func TestWafv2Dashboard(t *testing.T) {
 		"REGIONAL",
 		"test web ACL",
 		"ALLOW",
+		"",
 		map[string]string{"Environment": "test"},
 	)
 	require.NoError(t, err)
