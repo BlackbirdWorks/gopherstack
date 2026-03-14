@@ -85,6 +85,7 @@ import (
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
 	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 
@@ -243,6 +244,7 @@ type AWSSDKProvider interface {
 	GetTimestreamWriteHandler() service.Registerable
 	GetTimestreamQueryHandler() service.Registerable
 	GetTransferHandler() service.Registerable
+	GetVerifiedPermissionsHandler() service.Registerable
 	GetWafv2Handler() service.Registerable
 	GetXrayHandler() service.Registerable
 	GetS3TablesHandler() service.Registerable
@@ -375,6 +377,7 @@ type extractedConfig struct {
 	timestreamwriteOps        *timestreamwritebackend.Handler
 	timestreamqueryOps        *timestreamquerybackend.Handler
 	transferOps               *transferbackend.Handler
+	verifiedPermissionsOps    *verifiedpermissionsbackend.Handler
 	wafv2Ops                  *wafv2backend.Handler
 	xrayOps                   *xraybackend.Handler
 	s3tablesOps               *s3tablesbackend.Handler
@@ -453,7 +456,6 @@ func extractIntegrationHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 // extractMonitoringHandlers populates integration/monitoring service handlers on ec.
 //
 
-//nolint:dupl // intentional: extraction helpers follow identical patterns; each assigns unique handler fields
 func extractMonitoringHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetEventBridgeHandler(); h != nil {
 		ec.eventBridgeOps, _ = h.(*ebbackend.Handler)
@@ -895,7 +897,7 @@ func extractAdditionalHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 // extractSsoAndMLHandlers populates Shield, SSO Admin and ML/document service handlers on ec.
 //
-//nolint:dupl // intentional: extraction helpers follow identical patterns; each assigns unique handler fields
+
 func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 	if h := ap.GetShieldHandler(); h != nil {
 		ec.shieldOps, _ = h.(*shieldbackend.Handler)
@@ -919,6 +921,10 @@ func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 
 	if h := ap.GetTransferHandler(); h != nil {
 		ec.transferOps, _ = h.(*transferbackend.Handler)
+	}
+
+	if h := ap.GetVerifiedPermissionsHandler(); h != nil {
+		ec.verifiedPermissionsOps, _ = h.(*verifiedpermissionsbackend.Handler)
 	}
 
 	if h := ap.GetWafv2Handler(); h != nil {
@@ -1136,6 +1142,7 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.TimestreamWriteOps = ec.timestreamwriteOps
 	cfg.TimestreamQueryOps = ec.timestreamqueryOps
 	cfg.TransferOps = ec.transferOps
+	cfg.VerifiedPermissionsOps = ec.verifiedPermissionsOps
 	cfg.Wafv2Ops = ec.wafv2Ops
 	cfg.XrayOps = ec.xrayOps
 	cfg.S3TablesOps = ec.s3tablesOps

@@ -33,6 +33,9 @@ type mockAWSProvider struct {
 	stsHandler service.Registerable
 }
 
+// Compile-time check that mockAWSProvider implements the full AWSSDKProvider interface.
+var _ dashboard.AWSSDKProvider = (*mockAWSProvider)(nil)
+
 func (m *mockAWSProvider) GetDynamoDBClient() *ddbsdk.Client        { return m.ddbClient }
 func (m *mockAWSProvider) GetS3Client() *s3sdk.Client               { return m.s3Client }
 func (m *mockAWSProvider) GetSSMClient() *ssmsdk.Client             { return m.ssmClient }
@@ -149,6 +152,7 @@ func (m *mockAWSProvider) GetTextractHandler() service.Registerable             
 func (m *mockAWSProvider) GetTimestreamQueryHandler() service.Registerable         { return nil }
 func (m *mockAWSProvider) GetTimestreamWriteHandler() service.Registerable         { return nil }
 func (m *mockAWSProvider) GetTransferHandler() service.Registerable                { return nil }
+func (m *mockAWSProvider) GetVerifiedPermissionsHandler() service.Registerable     { return nil }
 func (m *mockAWSProvider) GetWafv2Handler() service.Registerable                   { return nil }
 func (m *mockAWSProvider) GetXrayHandler() service.Registerable                    { return nil }
 func (m *mockAWSProvider) GetS3TablesHandler() service.Registerable                { return nil }

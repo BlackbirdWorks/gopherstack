@@ -157,6 +157,17 @@ func (h *DashboardHandler) dashboardIndex(c *echo.Context) error {
 			},
 		)
 	}
+	if h.VerifiedPermissionsOps != nil {
+		data.Services = append(
+			data.Services,
+			serviceStatus{
+				Name: "Verified Permissions",
+				Link: "/dashboard/verifiedpermissions",
+				Icon: `<img src="/dashboard/static/icons/verifiedpermissions.svg" ` +
+					`class="w-6 h-6 flex-shrink-0 rounded-md shadow-sm" alt="Verified Permissions" />`,
+			},
+		)
+	}
 
 	h.renderTemplate(w, "dashboard_index.html", data)
 

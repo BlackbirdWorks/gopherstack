@@ -141,6 +141,7 @@ import (
 	timestreamquerysvc "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	timestreamquerytypes "github.com/aws/aws-sdk-go-v2/service/timestreamquery/types"
 	transfersvc "github.com/aws/aws-sdk-go-v2/service/transfer"
+	verifiedpermissionssvc "github.com/aws/aws-sdk-go-v2/service/verifiedpermissions"
 	xraysvc "github.com/aws/aws-sdk-go-v2/service/xray"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -186,6 +187,15 @@ var (
 	errNoTofuVersions = errors.New("no stable versions found in OpenTofu API response")
 	errTofuNotInZip   = errors.New("tofu binary not found in zip archive")
 )
+
+// setupEndpoint is a shared helper for tfTestCase setup that only needs the Endpoint.
+func setupEndpoint(t *testing.T, _ string) map[string]any {
+	t.Helper()
+
+	return map[string]any{
+		"Endpoint": endpoint,
+	}
+}
 
 // providerBlock returns the OpenTofu required_providers + provider "aws" block
 // pointing all service endpoints at addr (e.g. "http://localhost:32768").
@@ -793,6 +803,21 @@ func runTFTest(t *testing.T, tc tfTestCase) {
 	if tc.verify != nil {
 		tc.verify(t, ctx, vars)
 	}
+}
+
+// runTfTestWithEndpoint is a specialized runner for tests using setupEndpoint.
+func runTfTestWithEndpoint(t *testing.T, fixture string, verify func(t *testing.T, ctx context.Context)) {
+	t.Helper()
+
+	runTFTest(t, tfTestCase{
+		name:    "success",
+		fixture: fixture,
+		setup:   setupEndpoint,
+		verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
+			t.Helper()
+			verify(t, ctx)
+		},
+	})
 }
 
 // TestTerraform_DynamoDB provisions a DynamoDB table and verifies key schema.
@@ -6198,40 +6223,46 @@ func TestTerraform_Transfer(t *testing.T) {
 	}
 }
 
+// TestTerraform_VerifiedPermissions provisions a Verified Permissions policy store
+// via Terraform and verifies the service responds.
+func TestTerraform_VerifiedPermissions(t *testing.T) {
+	t.Parallel()
+
+	runTfTestWithEndpoint(t, "verifiedpermissions/success", func(t *testing.T, ctx context.Context) {
+		t.Helper()
+
+		client := createVerifiedPermissionsClient(t)
+
+		// List policy stores - should have at least one from Terraform provisioning.
+		listOut, err := client.ListPolicyStores(ctx, &verifiedpermissionssvc.ListPolicyStoresInput{})
+		require.NoError(t, err, "ListPolicyStores should succeed")
+		assert.NotEmpty(t, listOut.PolicyStores, "expected at least one policy store")
+
+		policyStoreID := *listOut.PolicyStores[0].PolicyStoreId
+
+		// Get the policy store.
+		getOut, err := client.GetPolicyStore(ctx, &verifiedpermissionssvc.GetPolicyStoreInput{
+			PolicyStoreId: &policyStoreID,
+		})
+		require.NoError(t, err, "GetPolicyStore should succeed")
+		assert.Equal(t, policyStoreID, *getOut.PolicyStoreId)
+	})
+}
+
 // TestTerraform_Xray provisions an X-Ray group via Terraform and verifies the service responds.
 func TestTerraform_Xray(t *testing.T) {
 	t.Parallel()
 
-	tests := []tfTestCase{
-		{
-			name:    "success",
-			fixture: "xray/success",
-			setup: func(t *testing.T, _ string) map[string]any {
-				t.Helper()
+	runTfTestWithEndpoint(t, "xray/success", func(t *testing.T, ctx context.Context) {
+		t.Helper()
 
-				return map[string]any{
-					"Endpoint": endpoint,
-				}
-			},
-			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
-				t.Helper()
+		client := createXrayClient(t)
 
-				client := createXrayClient(t)
-
-				// GetGroups - should have at least one from Terraform provisioning.
-				listOut, err := client.GetGroups(ctx, &xraysvc.GetGroupsInput{})
-				require.NoError(t, err, "GetGroups should succeed")
-				assert.NotEmpty(t, listOut.Groups, "expected at least one group")
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			runTFTest(t, tc)
-		})
-	}
+		// GetGroups - should have at least one from Terraform provisioning.
+		groupsOut, err := client.GetGroups(ctx, &xraysvc.GetGroupsInput{})
+		require.NoError(t, err, "GetGroups should succeed")
+		assert.NotEmpty(t, groupsOut.Groups, "expected at least one group")
+	})
 }
 
 // TestTerraform_Wafv2 provisions a WAFv2 Web ACL via Terraform and verifies it was created.
