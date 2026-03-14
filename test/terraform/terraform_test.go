@@ -89,6 +89,7 @@ import (
 	identitystoresvc "github.com/aws/aws-sdk-go-v2/service/identitystore"
 	identitystoretypes "github.com/aws/aws-sdk-go-v2/service/identitystore/types"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
+	iotwirelesssvc "github.com/aws/aws-sdk-go-v2/service/iotwireless"
 	kafkasvc "github.com/aws/aws-sdk-go-v2/service/kafka"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
@@ -6654,4 +6655,56 @@ func TestTerraform_S3(t *testing.T) {
 			runTFTest(t, tc)
 		})
 	}
+}
+
+// TestTerraform_IoTWireless provisions IoT Wireless resources via Terraform
+// and verifies the destination and service profile exist.
+func TestTerraform_IoTWireless(t *testing.T) {
+t.Parallel()
+
+tests := []tfTestCase{
+{
+name:    "success",
+fixture: "iotwireless/success",
+setup: func(t *testing.T, _ string) map[string]any {
+t.Helper()
+id := uuid.NewString()[:8]
+
+return map[string]any{
+"ProfileName": "tf-iotwl-profile-" + id,
+"DestName":    "tf-iotwl-dest-" + id,
+"RuleName":    "tf-iotwl-rule-" + id,
+}
+},
+verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+t.Helper()
+
+client := createIoTWirelessClient(t)
+
+// Verify destination exists.
+out, err := client.ListDestinations(ctx, &iotwirelesssvc.ListDestinationsInput{})
+require.NoError(t, err, "ListDestinations should succeed after terraform apply")
+
+destName := vars["DestName"].(string)
+found := false
+
+for _, d := range out.DestinationList {
+if aws.ToString(d.Name) == destName {
+found = true
+
+break
+}
+}
+
+assert.True(t, found, "IoT Wireless destination %q should be listed", destName)
+},
+},
+}
+
+for _, tc := range tests {
+t.Run(tc.name, func(t *testing.T) {
+t.Parallel()
+runTFTest(t, tc)
+})
+}
 }

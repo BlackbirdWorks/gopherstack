@@ -76,6 +76,7 @@ import (
 	iamsvc "github.com/aws/aws-sdk-go-v2/service/iam"
 	identitystoresvc "github.com/aws/aws-sdk-go-v2/service/identitystore"
 	iotsvc "github.com/aws/aws-sdk-go-v2/service/iot"
+	iotwirelesssvc "github.com/aws/aws-sdk-go-v2/service/iotwireless"
 	kafkasvc "github.com/aws/aws-sdk-go-v2/service/kafka"
 	kinesissvc "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesisanalyticssvc "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
@@ -1229,6 +1230,24 @@ func createIoTClient(t *testing.T) *iotsvc.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return iotsvc.NewFromConfig(cfg, func(o *iotsvc.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createIoTWirelessClient returns an IoT Wireless client pointed at the shared test container.
+func createIoTWirelessClient(t *testing.T) *iotwirelesssvc.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return iotwirelesssvc.NewFromConfig(cfg, func(o *iotwirelesssvc.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }
