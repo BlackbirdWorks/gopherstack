@@ -35,6 +35,10 @@ var (
 	ErrClusterAlreadyExists         = errors.New("DBClusterAlreadyExists")
 	ErrClusterSnapshotNotFound      = errors.New("DBClusterSnapshotNotFound")
 	ErrClusterSnapshotAlreadyExists = errors.New("DBClusterSnapshotAlreadyExists")
+	ErrClusterEndpointNotFound      = errors.New("DBClusterEndpointNotFound")
+	ErrClusterEndpointAlreadyExists = errors.New("DBClusterEndpointAlreadyExists")
+	ErrExportTaskNotFound           = errors.New("ExportTaskNotFound")
+	ErrExportTaskAlreadyExists      = errors.New("ExportTaskAlreadyExists")
 )
 
 const (
@@ -138,6 +142,23 @@ type DBClusterSnapshot struct {
 	Status                      string `json:"status"`
 }
 
+// DBClusterEndpoint represents a custom endpoint for an RDS cluster.
+type DBClusterEndpoint struct {
+	DBClusterEndpointIdentifier string `json:"dbClusterEndpointIdentifier"`
+	DBClusterIdentifier         string `json:"dbClusterIdentifier"`
+	EndpointType                string `json:"endpointType"`
+	Status                      string `json:"status"`
+	Endpoint                    string `json:"endpoint"`
+}
+
+// ExportTask represents an RDS export task.
+type ExportTask struct {
+	ExportTaskIdentifier string `json:"exportTaskIdentifier"`
+	SourceArn            string `json:"sourceArn"`
+	Status               string `json:"status"`
+	S3Bucket             string `json:"s3Bucket"`
+}
+
 // DBEngineVersion represents an available RDS engine version.
 type DBEngineVersion struct {
 	Engine              string `json:"engine"`
@@ -177,6 +198,8 @@ type InMemoryBackend struct {
 	optionGroups           map[string]*OptionGroup
 	clusters               map[string]*DBCluster
 	clusterSnapshots       map[string]*DBClusterSnapshot
+	clusterEndpoints       map[string]*DBClusterEndpoint
+	exportTasks            map[string]*ExportTask
 	fisFailoverFaults      map[string]time.Time // keyed by cluster identifier; value is expiry (zero = permanent)
 	mu                     *lockmetrics.RWMutex
 	accountID              string
@@ -195,6 +218,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		optionGroups:           make(map[string]*OptionGroup),
 		clusters:               make(map[string]*DBCluster),
 		clusterSnapshots:       make(map[string]*DBClusterSnapshot),
+		clusterEndpoints:       make(map[string]*DBClusterEndpoint),
+		exportTasks:            make(map[string]*ExportTask),
 		fisFailoverFaults:      make(map[string]time.Time),
 		accountID:              accountID,
 		region:                 region,
@@ -1093,4 +1118,291 @@ func (b *InMemoryBackend) DownloadDBLogFilePortion(instanceID, _ string) (string
 	}
 
 	return "", nil
+}
+
+// StartDBCluster starts a stopped DB cluster.
+func (b *InMemoryBackend) StartDBCluster(id string) (*DBCluster, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	b.mu.Lock("StartDBCluster")
+	defer b.mu.Unlock()
+	cluster, exists := b.clusters[id]
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
+	}
+	cluster.Status = "available"
+	cp := *cluster
+
+	return &cp, nil
+}
+
+// StopDBCluster stops a running DB cluster.
+func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	b.mu.Lock("StopDBCluster")
+	defer b.mu.Unlock()
+	cluster, exists := b.clusters[id]
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
+	}
+	cluster.Status = "stopped"
+	cp := *cluster
+
+	return &cp, nil
+}
+
+// DeleteDBClusterSnapshot removes the given cluster snapshot.
+func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error) {
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier must not be empty", ErrInvalidParameter)
+	}
+	b.mu.Lock("DeleteDBClusterSnapshot")
+	defer b.mu.Unlock()
+	snap, exists := b.clusterSnapshots[snapshotID]
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
+	}
+	cp := *snap
+	delete(b.clusterSnapshots, snapshotID)
+
+	return &cp, nil
+}
+
+// RestoreDBClusterFromSnapshot creates a new DB cluster from the given snapshot.
+func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine string) (*DBCluster, error) {
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: SnapshotIdentifier must not be empty", ErrInvalidParameter)
+	}
+	b.mu.Lock("RestoreDBClusterFromSnapshot")
+	defer b.mu.Unlock()
+	if _, exists := b.clusters[clusterID]; exists {
+		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
+	}
+	snap, exists := b.clusterSnapshots[snapshotID]
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, snapshotID)
+	}
+	if engine == "" {
+		engine = snap.Engine
+	}
+	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", clusterID, b.accountID, b.region)
+	cluster := &DBCluster{
+		DBClusterIdentifier:         clusterID,
+		Engine:                      engine,
+		Status:                      "available",
+		DBClusterParameterGroupName: "default." + engine,
+		Endpoint:                    endpoint,
+		Port:                        enginePort(engine),
+	}
+	b.clusters[clusterID] = cluster
+	cp := *cluster
+
+	return &cp, nil
+}
+
+// RestoreDBClusterToPointInTime creates a new DB cluster as a point-in-time restore of the source cluster.
+func (b *InMemoryBackend) RestoreDBClusterToPointInTime(clusterID, sourceClusterID string) (*DBCluster, error) {
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if sourceClusterID == "" {
+		return nil, fmt.Errorf("%w: SourceDBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	b.mu.Lock("RestoreDBClusterToPointInTime")
+	defer b.mu.Unlock()
+	if _, exists := b.clusters[clusterID]; exists {
+		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
+	}
+	source, exists := b.clusters[sourceClusterID]
+	if !exists {
+		return nil, fmt.Errorf("%w: source cluster %s not found", ErrClusterNotFound, sourceClusterID)
+	}
+	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", clusterID, b.accountID, b.region)
+	cluster := &DBCluster{
+		DBClusterIdentifier:         clusterID,
+		Engine:                      source.Engine,
+		Status:                      "available",
+		MasterUsername:              source.MasterUsername,
+		DatabaseName:                source.DatabaseName,
+		DBClusterParameterGroupName: source.DBClusterParameterGroupName,
+		Endpoint:                    endpoint,
+		Port:                        source.Port,
+	}
+	b.clusters[clusterID] = cluster
+	cp := *cluster
+
+	return &cp, nil
+}
+
+// CopyDBClusterSnapshot creates a copy of the given cluster snapshot.
+func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID string) (*DBClusterSnapshot, error) {
+	if sourceSnapshotID == "" {
+		return nil, fmt.Errorf("%w: SourceDBClusterSnapshotIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if targetSnapshotID == "" {
+		return nil, fmt.Errorf("%w: TargetDBClusterSnapshotIdentifier must not be empty", ErrInvalidParameter)
+	}
+	b.mu.Lock("CopyDBClusterSnapshot")
+	defer b.mu.Unlock()
+	source, srcExists := b.clusterSnapshots[sourceSnapshotID]
+	if !srcExists {
+		return nil, fmt.Errorf("%w: cluster snapshot %s not found", ErrClusterSnapshotNotFound, sourceSnapshotID)
+	}
+	if _, dstExists := b.clusterSnapshots[targetSnapshotID]; dstExists {
+		return nil, fmt.Errorf(
+			"%w: cluster snapshot %s already exists",
+			ErrClusterSnapshotAlreadyExists,
+			targetSnapshotID,
+		)
+	}
+	snap := &DBClusterSnapshot{
+		DBClusterSnapshotIdentifier: targetSnapshotID,
+		DBClusterIdentifier:         source.DBClusterIdentifier,
+		Engine:                      source.Engine,
+		Status:                      "available",
+	}
+	b.clusterSnapshots[targetSnapshotID] = snap
+	cp := *snap
+
+	return &cp, nil
+}
+
+// CreateDBClusterEndpoint creates a custom endpoint for the given cluster.
+func (b *InMemoryBackend) CreateDBClusterEndpoint(
+	endpointID, clusterID, endpointType string,
+) (*DBClusterEndpoint, error) {
+	if endpointID == "" {
+		return nil, fmt.Errorf("%w: DBClusterEndpointIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	b.mu.Lock("CreateDBClusterEndpoint")
+	defer b.mu.Unlock()
+	if _, exists := b.clusterEndpoints[endpointID]; exists {
+		return nil, fmt.Errorf("%w: cluster endpoint %s already exists", ErrClusterEndpointAlreadyExists, endpointID)
+	}
+	if _, exists := b.clusters[clusterID]; !exists {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
+	}
+	if endpointType == "" {
+		endpointType = "ANY"
+	}
+	ep := &DBClusterEndpoint{
+		DBClusterEndpointIdentifier: endpointID,
+		DBClusterIdentifier:         clusterID,
+		EndpointType:                endpointType,
+		Status:                      "available",
+		Endpoint: fmt.Sprintf(
+			"%s.cluster-custom.%s.%s.rds.amazonaws.com",
+			endpointID,
+			b.accountID,
+			b.region,
+		),
+	}
+	b.clusterEndpoints[endpointID] = ep
+	cp := *ep
+
+	return &cp, nil
+}
+
+// DescribeDBClusterEndpoints returns cluster endpoints, filtered by cluster or endpoint ID.
+func (b *InMemoryBackend) DescribeDBClusterEndpoints(clusterID, endpointID string) ([]DBClusterEndpoint, error) {
+	b.mu.RLock("DescribeDBClusterEndpoints")
+	defer b.mu.RUnlock()
+	if endpointID != "" {
+		ep, exists := b.clusterEndpoints[endpointID]
+		if !exists {
+			return nil, fmt.Errorf("%w: cluster endpoint %s not found", ErrClusterEndpointNotFound, endpointID)
+		}
+		cp := *ep
+
+		return []DBClusterEndpoint{cp}, nil
+	}
+	result := make([]DBClusterEndpoint, 0)
+	for _, ep := range b.clusterEndpoints {
+		if clusterID != "" && ep.DBClusterIdentifier != clusterID {
+			continue
+		}
+		result = append(result, *ep)
+	}
+
+	return result, nil
+}
+
+// DeleteDBClusterEndpoint removes the given custom cluster endpoint.
+func (b *InMemoryBackend) DeleteDBClusterEndpoint(endpointID string) (*DBClusterEndpoint, error) {
+	b.mu.Lock("DeleteDBClusterEndpoint")
+	defer b.mu.Unlock()
+	ep, exists := b.clusterEndpoints[endpointID]
+	if !exists {
+		return nil, fmt.Errorf("%w: cluster endpoint %s not found", ErrClusterEndpointNotFound, endpointID)
+	}
+	cp := *ep
+	delete(b.clusterEndpoints, endpointID)
+
+	return &cp, nil
+}
+
+// DescribeValidDBInstanceModifications returns the valid modifications for the given instance.
+// This is a stub that returns a minimal set of valid instance classes.
+func (b *InMemoryBackend) DescribeValidDBInstanceModifications(id string) (*DBInstance, error) {
+	b.mu.RLock("DescribeValidDBInstanceModifications")
+	defer b.mu.RUnlock()
+	inst, exists := b.instances[id]
+	if !exists {
+		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
+	}
+	cp := *inst
+
+	return &cp, nil
+}
+
+// StartExportTask creates a new export task for the given source ARN.
+func (b *InMemoryBackend) StartExportTask(taskID, sourceARN, s3Bucket string) (*ExportTask, error) {
+	if taskID == "" {
+		return nil, fmt.Errorf("%w: ExportTaskIdentifier must not be empty", ErrInvalidParameter)
+	}
+	b.mu.Lock("StartExportTask")
+	defer b.mu.Unlock()
+	if _, exists := b.exportTasks[taskID]; exists {
+		return nil, fmt.Errorf("%w: export task %s already exists", ErrExportTaskAlreadyExists, taskID)
+	}
+	task := &ExportTask{
+		ExportTaskIdentifier: taskID,
+		SourceArn:            sourceARN,
+		Status:               "complete",
+		S3Bucket:             s3Bucket,
+	}
+	b.exportTasks[taskID] = task
+	cp := *task
+
+	return &cp, nil
+}
+
+// DescribeExportTasks returns export tasks, optionally filtered by task ID.
+func (b *InMemoryBackend) DescribeExportTasks(taskID string) ([]ExportTask, error) {
+	b.mu.RLock("DescribeExportTasks")
+	defer b.mu.RUnlock()
+	if taskID != "" {
+		task, exists := b.exportTasks[taskID]
+		if !exists {
+			return nil, fmt.Errorf("%w: export task %s not found", ErrExportTaskNotFound, taskID)
+		}
+		cp := *task
+
+		return []ExportTask{cp}, nil
+	}
+	result := make([]ExportTask, 0, len(b.exportTasks))
+	for _, task := range b.exportTasks {
+		result = append(result, *task)
+	}
+
+	return result, nil
 }
