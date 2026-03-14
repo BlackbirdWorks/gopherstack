@@ -328,3 +328,397 @@ func TestHandler_UnknownPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+func TestHandler_GetGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "gets existing group",
+			body:       map[string]any{"GroupName": "my-group"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing GroupName returns 400",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "not found returns 400",
+			body:       map[string]any{"GroupName": "missing-group"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "gets existing group" {
+				rec := doXrayRequest(t, h, "/CreateGroup", map[string]any{"GroupName": "my-group"})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doXrayRequest(t, h, "/GetGroup", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_UpdateGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "updates existing group",
+			body:       map[string]any{"GroupName": "my-group", "FilterExpression": `service("updated")`},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing GroupName returns 400",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "not found returns 400",
+			body:       map[string]any{"GroupName": "missing-group"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "updates existing group" {
+				rec := doXrayRequest(t, h, "/CreateGroup", map[string]any{"GroupName": "my-group"})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doXrayRequest(t, h, "/UpdateGroup", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_GetSamplingRules(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		ruleNames []string
+		wantCount int
+	}{
+		{
+			name:      "returns empty list",
+			wantCount: 0,
+		},
+		{
+			name:      "returns seeded rules",
+			ruleNames: []string{"rule-a", "rule-b"},
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for _, ruleName := range tt.ruleNames {
+				rec := doXrayRequest(t, h, "/CreateSamplingRule", map[string]any{
+					"SamplingRule": map[string]any{"RuleName": ruleName, "FixedRate": 0.05, "Priority": 1},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doXrayRequest(t, h, "/GetSamplingRules", nil)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			records, ok := resp["SamplingRuleRecords"].([]any)
+			require.True(t, ok)
+			assert.Len(t, records, tt.wantCount)
+		})
+	}
+}
+
+func TestHandler_UpdateSamplingRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "updates existing rule",
+			body: map[string]any{
+				"SamplingRuleUpdate": map[string]any{"RuleName": "my-rule", "ServiceName": "updated-svc"},
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing RuleName returns 400",
+			body: map[string]any{
+				"SamplingRuleUpdate": map[string]any{},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "not found returns 400",
+			body: map[string]any{
+				"SamplingRuleUpdate": map[string]any{"RuleName": "missing-rule"},
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "updates existing rule" {
+				rec := doXrayRequest(t, h, "/CreateSamplingRule", map[string]any{
+					"SamplingRule": map[string]any{"RuleName": "my-rule", "FixedRate": 0.05, "Priority": 1},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doXrayRequest(t, h, "/UpdateSamplingRule", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DeleteSamplingRule(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "deletes existing rule",
+			body:       map[string]any{"RuleName": "my-rule"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "missing RuleName returns 400",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "not found returns 400",
+			body:       map[string]any{"RuleName": "missing-rule"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "deletes existing rule" {
+				rec := doXrayRequest(t, h, "/CreateSamplingRule", map[string]any{
+					"SamplingRule": map[string]any{"RuleName": "my-rule", "FixedRate": 0.05, "Priority": 1},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doXrayRequest(t, h, "/DeleteSamplingRule", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestHandler_BatchGetTraces(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body        map[string]any
+		name        string
+		wantStatus  int
+		wantTraces  int
+		wantMissing int
+	}{
+		{
+			name:        "returns known trace",
+			body:        map[string]any{"TraceIds": []string{"1-abc123"}},
+			wantStatus:  http.StatusOK,
+			wantTraces:  1,
+			wantMissing: 0,
+		},
+		{
+			name:        "returns unprocessed for unknown trace",
+			body:        map[string]any{"TraceIds": []string{"1-unknown"}},
+			wantStatus:  http.StatusOK,
+			wantTraces:  0,
+			wantMissing: 1,
+		},
+		{
+			name:       "empty trace IDs",
+			body:       map[string]any{"TraceIds": []string{}},
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			if tt.name == "returns known trace" {
+				rec := doXrayRequest(t, h, "/TraceSegments", map[string]any{
+					"TraceSegmentDocuments": []string{`{"trace_id":"1-abc123","id":"s1","name":"test"}`},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doXrayRequest(t, h, "/Traces", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			if tt.wantTraces > 0 {
+				traces, ok := resp["Traces"].([]any)
+				require.True(t, ok)
+				assert.Len(t, traces, tt.wantTraces)
+			}
+
+			if tt.wantMissing > 0 {
+				unprocessed, ok := resp["UnprocessedTraceIds"].([]any)
+				require.True(t, ok)
+				assert.Len(t, unprocessed, tt.wantMissing)
+			}
+		})
+	}
+}
+
+func TestHandler_ChaosInterface(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	assert.Equal(t, "xray", h.ChaosServiceName())
+	assert.NotEmpty(t, h.ChaosOperations())
+	assert.NotEmpty(t, h.ChaosRegions())
+	assert.Positive(t, h.MatchPriority())
+}
+
+func TestHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	tests := []struct {
+		path   string
+		name   string
+		wantOp string
+	}{
+		{name: "CreateGroup path", path: "/CreateGroup", wantOp: "CreateGroup"},
+		{name: "Groups path", path: "/Groups", wantOp: "GetGroups"},
+		{name: "TraceSegments path", path: "/TraceSegments", wantOp: "PutTraceSegments"},
+		{name: "unknown path returns Unknown", path: "/Unknown", wantOp: "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.SetRequest(req)
+
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+
+	tests := []struct {
+		body    map[string]any
+		name    string
+		wantRes string
+	}{
+		{
+			name:    "extracts GroupName",
+			body:    map[string]any{"GroupName": "my-group"},
+			wantRes: "my-group",
+		},
+		{
+			name:    "extracts RuleName when no GroupName",
+			body:    map[string]any{"RuleName": "my-rule"},
+			wantRes: "my-rule",
+		},
+		{
+			name:    "returns empty for no resource",
+			body:    map[string]any{},
+			wantRes: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+
+			req := httptest.NewRequest(http.MethodPost, "/CreateGroup", bytes.NewReader(bodyBytes))
+			req.Header.Set("Content-Type", "application/json")
+
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.SetRequest(req)
+
+			assert.Equal(t, tt.wantRes, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestHandler_PutTraceSegments_Unprocessed(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doXrayRequest(t, h, "/TraceSegments", map[string]any{
+		"TraceSegmentDocuments": []string{"not-valid-json"},
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	unprocessed, ok := resp["UnprocessedTraceSegments"].([]any)
+	require.True(t, ok)
+	assert.Len(t, unprocessed, 1)
+}
