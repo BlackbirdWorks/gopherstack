@@ -117,3 +117,17 @@ func TestIntegration_CloudTrail_ListTrails(t *testing.T) {
 
 	assert.True(t, found, "created trail should appear in ListTrails")
 }
+
+func TestIntegration_CloudTrail_LookupEvents(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createCloudTrailClient(t)
+	ctx := t.Context()
+
+	// LookupEvents returns an empty list when no events are recorded.
+	out, err := client.LookupEvents(ctx, &cloudtrail.LookupEventsInput{})
+	require.NoError(t, err)
+	assert.NotNil(t, out)
+	assert.Empty(t, out.Events)
+}

@@ -574,6 +574,51 @@ func TestCloudTrailListTrails(t *testing.T) {
 	}
 }
 
+func TestCloudTrailLookupEvents(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{
+			name: "no_input_returns_empty_list",
+			body: nil,
+		},
+		{
+			name: "with_max_results_still_returns_empty",
+			body: map[string]any{"MaxResults": 10},
+		},
+		{
+			name: "with_lookup_attribute_still_returns_empty",
+			body: map[string]any{
+				"LookupAttributes": []any{
+					map[string]any{
+						"AttributeKey":   "EventName",
+						"AttributeValue": "CreateBucket",
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestCloudTrailHandler()
+			rec := doCloudTrailOp(t, h, "LookupEvents", tt.body)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			resp := parseCloudTrailResp(t, rec)
+			events, ok := resp["Events"].([]any)
+			require.True(t, ok)
+			assert.Empty(t, events)
+		})
+	}
+}
+
 // TestCloudTrailMetadata exercises RouteMatcher, Name, and ChaosServiceName.
 func TestCloudTrailMetadata(t *testing.T) {
 	t.Parallel()
