@@ -82,6 +82,7 @@ import (
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	textractbackend "github.com/blackbirdworks/gopherstack/services/textract"
 	timestreamquerybackend "github.com/blackbirdworks/gopherstack/services/timestreamquery"
+	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -235,6 +236,7 @@ type AWSSDKProvider interface {
 	GetShieldHandler() service.Registerable
 	GetSsoAdminHandler() service.Registerable
 	GetTextractHandler() service.Registerable
+	GetTimestreamWriteHandler() service.Registerable
 	GetTimestreamQueryHandler() service.Registerable
 	GetGlobalConfig() globalcfg.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
@@ -362,6 +364,7 @@ type extractedConfig struct {
 	shieldOps                 *shieldbackend.Handler
 	ssoadminOps               *ssoadminbackend.Handler
 	textractOps               *textractbackend.Handler
+	timestreamwriteOps        *timestreamwritebackend.Handler
 	timestreamqueryOps        *timestreamquerybackend.Handler
 	faultStore                *chaos.FaultStore
 	gCfg                      globalcfg.GlobalConfig
@@ -891,6 +894,10 @@ func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 		ec.textractOps, _ = h.(*textractbackend.Handler)
 	}
 
+	if h := ap.GetTimestreamWriteHandler(); h != nil {
+		ec.timestreamwriteOps, _ = h.(*timestreamwritebackend.Handler)
+	}
+
 	if h := ap.GetTimestreamQueryHandler(); h != nil {
 		ec.timestreamqueryOps, _ = h.(*timestreamquerybackend.Handler)
 	}
@@ -1095,5 +1102,6 @@ func applyLatestServiceConfig(cfg *Config, ec *extractedConfig) {
 	cfg.ShieldOps = ec.shieldOps
 	cfg.SsoAdminOps = ec.ssoadminOps
 	cfg.TextractOps = ec.textractOps
+	cfg.TimestreamWriteOps = ec.timestreamwriteOps
 	cfg.TimestreamQueryOps = ec.timestreamqueryOps
 }
