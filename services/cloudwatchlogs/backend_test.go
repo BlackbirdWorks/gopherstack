@@ -2,6 +2,7 @@ package cloudwatchlogs_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -1224,6 +1225,148 @@ func TestCloudWatchLogsBackend_DescribeQueries(t *testing.T) {
 			queries, _, err := b.DescribeQueries(tt.logGroupName, tt.status, "", 0)
 			require.NoError(t, err)
 			assert.Len(t, queries, tt.wantLen)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_QueryEviction_TTL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name    string
+		wantLen int
+	}{
+		{
+			name: "expired_queries_evicted_on_next_start",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				// Use a very short TTL so all existing queries expire immediately.
+				b.SetQueryTTL(time.Nanosecond)
+				_, _ = b.StartQuery("old-1", "fields @message", []string{}, 0, 0)
+				_, _ = b.StartQuery("old-2", "fields @message", []string{}, 0, 0)
+				// Sleep to ensure the TTL elapses.
+				time.Sleep(time.Millisecond)
+				// This new query triggers eviction; old-1 and old-2 should be removed.
+				_, _ = b.StartQuery("new-1", "fields @message", []string{}, 0, 0)
+			},
+			wantLen: 1,
+		},
+		{
+			name: "no_eviction_before_ttl",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				// Use a very long TTL so nothing expires.
+				b.SetQueryTTL(time.Hour)
+				_, _ = b.StartQuery("q1", "fields @message", []string{}, 0, 0)
+				_, _ = b.StartQuery("q2", "fields @message", []string{}, 0, 0)
+			},
+			wantLen: 2,
+		},
+		{
+			name: "ttl_disabled",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				b.SetQueryTTL(0)
+				_, _ = b.StartQuery("q1", "fields @message", []string{}, 0, 0)
+				_, _ = b.StartQuery("q2", "fields @message", []string{}, 0, 0)
+				_, _ = b.StartQuery("q3", "fields @message", []string{}, 0, 0)
+			},
+			wantLen: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			queries, _, err := b.DescribeQueries("", "", "", 0)
+			require.NoError(t, err)
+			assert.Len(t, queries, tt.wantLen)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_QueryEviction_MaxCap(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		name       string
+		wantHasID  string
+		wantLackID string
+		wantLen    int
+	}{
+		{
+			name: "oldest_evicted_when_cap_reached",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				b.SetQueryTTL(0) // disable TTL so only cap applies
+				b.SetMaxQueries(2)
+				_, _ = b.StartQuery("first", "fields @message", []string{}, 0, 0)
+				_, _ = b.StartQuery("second", "fields @message", []string{}, 0, 0)
+				// This triggers eviction of the oldest ("first").
+				_, _ = b.StartQuery("third", "fields @message", []string{}, 0, 0)
+			},
+			wantLen:    2,
+			wantHasID:  "third",
+			wantLackID: "first",
+		},
+		{
+			name: "below_cap_no_eviction",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				b.SetQueryTTL(0)
+				b.SetMaxQueries(5)
+				_, _ = b.StartQuery("q1", "fields @message", []string{}, 0, 0)
+				_, _ = b.StartQuery("q2", "fields @message", []string{}, 0, 0)
+			},
+			wantLen: 2,
+		},
+		{
+			name: "cap_disabled",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				b.SetQueryTTL(0)
+				b.SetMaxQueries(0) // disabled
+				for i := range 20 {
+					_, _ = b.StartQuery(fmt.Sprintf("q%d", i), "fields @message", []string{}, 0, 0)
+				}
+			},
+			wantLen: 20,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			queries, _, err := b.DescribeQueries("", "", "", 100)
+			require.NoError(t, err)
+			assert.Len(t, queries, tt.wantLen)
+
+			if tt.wantHasID != "" || tt.wantLackID != "" {
+				ids := make([]string, len(queries))
+				for i, q := range queries {
+					ids[i] = q.QueryID
+				}
+				if tt.wantHasID != "" {
+					assert.Contains(t, ids, tt.wantHasID)
+				}
+				if tt.wantLackID != "" {
+					assert.NotContains(t, ids, tt.wantLackID)
+				}
+			}
 		})
 	}
 }

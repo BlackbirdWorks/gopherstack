@@ -37,6 +37,10 @@ const (
 	defaultEventLimit    = 10000
 	// maxSubscriptionFilters is the AWS-imposed limit per log group.
 	maxSubscriptionFilters = 2
+	// defaultQueryTTL is how long a query is retained before eviction.
+	defaultQueryTTL = time.Hour
+	// defaultMaxQueries is the maximum number of queries retained at any time.
+	defaultMaxQueries = 10_000
 )
 
 // SubscriptionDeliverer delivers encoded log event payloads to a subscription filter destination.
@@ -77,6 +81,7 @@ type StorageBackend interface {
 
 // storedQuery holds the execution state of a single Logs Insights query.
 type storedQuery struct {
+	createdAt time.Time
 	info      QueryInfo
 	results   [][]ResultField
 	logGroups []string
@@ -97,6 +102,8 @@ type InMemoryBackend struct {
 	accountID           string
 	region              string
 	queriesOrder        []string
+	queryTTL            time.Duration
+	maxQueries          int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -115,6 +122,8 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		subscriptionFilters: make(map[string][]*SubscriptionFilter),
 		queries:             make(map[string]*storedQuery),
 		mu:                  lockmetrics.New("cloudwatchlogs"),
+		queryTTL:            defaultQueryTTL,
+		maxQueries:          defaultMaxQueries,
 	}
 }
 
@@ -123,6 +132,22 @@ func (b *InMemoryBackend) SetSubscriptionDeliverer(d SubscriptionDeliverer) {
 	b.mu.Lock("SetSubscriptionDeliverer")
 	defer b.mu.Unlock()
 	b.deliverer = d
+}
+
+// SetQueryTTL overrides the TTL used to evict completed/cancelled queries.
+// A value of zero disables TTL-based eviction. Primarily intended for tests.
+func (b *InMemoryBackend) SetQueryTTL(d time.Duration) {
+	b.mu.Lock("SetQueryTTL")
+	defer b.mu.Unlock()
+	b.queryTTL = d
+}
+
+// SetMaxQueries overrides the maximum number of queries retained in memory.
+// A value of zero disables the cap. Primarily intended for tests.
+func (b *InMemoryBackend) SetMaxQueries(n int) {
+	b.mu.Lock("SetMaxQueries")
+	defer b.mu.Unlock()
+	b.maxQueries = n
 }
 
 func (b *InMemoryBackend) groupARN(name string) string {
@@ -670,6 +695,40 @@ func parseNextToken(token string) int {
 	return idx
 }
 
+// evictByTTL removes queries whose age has exceeded the configured TTL.
+// It must be called while holding the write lock.
+func (b *InMemoryBackend) evictByTTL() {
+	if b.queryTTL <= 0 {
+		return
+	}
+
+	cutoff := time.Now().Add(-b.queryTTL)
+	newOrder := make([]string, 0, len(b.queriesOrder))
+	for _, qid := range b.queriesOrder {
+		if b.queries[qid].createdAt.Before(cutoff) {
+			delete(b.queries, qid)
+
+			continue
+		}
+		newOrder = append(newOrder, qid)
+	}
+	b.queriesOrder = newOrder
+}
+
+// enforceCap drops the oldest queries when the stored count exceeds the configured cap.
+// It must be called while holding the write lock.
+func (b *InMemoryBackend) enforceCap() {
+	if b.maxQueries <= 0 || len(b.queriesOrder) <= b.maxQueries {
+		return
+	}
+
+	excess := len(b.queriesOrder) - b.maxQueries
+	for _, qid := range b.queriesOrder[:excess] {
+		delete(b.queries, qid)
+	}
+	b.queriesOrder = b.queriesOrder[excess:]
+}
+
 // StartQuery stores a new insights query and executes it immediately against in-memory events.
 func (b *InMemoryBackend) StartQuery(
 	queryID, queryString string, logGroupNames []string, startTime, endTime int64,
@@ -734,14 +793,21 @@ func (b *InMemoryBackend) StartQuery(
 		logGroups: logGroupNames,
 		startTime: startTime,
 		endTime:   endTime,
+		createdAt: time.Now(),
 	}
 
 	// Store results under a write lock.
 	b.mu.Lock("StartQuery")
 	defer b.mu.Unlock()
 
+	// Evict expired queries before inserting so that the new entry is always retained.
+	b.evictByTTL()
+
 	b.queries[queryID] = sq
 	b.queriesOrder = append(b.queriesOrder, queryID)
+
+	// Enforce the cap after inserting so the new entry counts against the limit.
+	b.enforceCap()
 
 	cp := info
 
