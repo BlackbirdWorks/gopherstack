@@ -128,6 +128,252 @@ func TestSDK_RDS_MySQL(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestSDK_RDS_DBCluster_Aurora tests Aurora DB Cluster CRUD lifecycle including
+// start/stop, cluster snapshots, and point-in-time restore operations.
+func TestSDK_RDS_DBCluster_Aurora(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ctx := context.Background()
+	client := createRDSClient(t)
+
+	clusterID := "sdk-aurora-" + uuid.NewString()[:8]
+
+	// CreateDBCluster
+	createOut, err := client.CreateDBCluster(ctx, &rdssdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String(clusterID),
+		Engine:              aws.String("aurora-postgresql"),
+		MasterUsername:      aws.String("admin"),
+		MasterUserPassword:  aws.String("password123"),
+		DatabaseName:        aws.String("testdb"),
+	})
+	require.NoError(t, err, "CreateDBCluster should succeed")
+	require.NotNil(t, createOut.DBCluster)
+	assert.Equal(t, clusterID, aws.ToString(createOut.DBCluster.DBClusterIdentifier))
+	assert.Equal(t, "aurora-postgresql", aws.ToString(createOut.DBCluster.Engine))
+	assert.Equal(t, "available", aws.ToString(createOut.DBCluster.Status))
+
+	// DescribeDBClusters
+	descOut, err := client.DescribeDBClusters(ctx, &rdssdk.DescribeDBClustersInput{
+		DBClusterIdentifier: aws.String(clusterID),
+	})
+	require.NoError(t, err, "DescribeDBClusters should succeed")
+	require.Len(t, descOut.DBClusters, 1)
+	assert.Equal(t, clusterID, aws.ToString(descOut.DBClusters[0].DBClusterIdentifier))
+
+	// StopDBCluster
+	stopOut, err := client.StopDBCluster(ctx, &rdssdk.StopDBClusterInput{
+		DBClusterIdentifier: aws.String(clusterID),
+	})
+	require.NoError(t, err, "StopDBCluster should succeed")
+	assert.Equal(t, "stopped", aws.ToString(stopOut.DBCluster.Status))
+
+	// StartDBCluster
+	startOut, err := client.StartDBCluster(ctx, &rdssdk.StartDBClusterInput{
+		DBClusterIdentifier: aws.String(clusterID),
+	})
+	require.NoError(t, err, "StartDBCluster should succeed")
+	assert.Equal(t, "available", aws.ToString(startOut.DBCluster.Status))
+
+	// CreateDBClusterSnapshot
+	snapID := "sdk-csnap-" + uuid.NewString()[:8]
+	snapOut, err := client.CreateDBClusterSnapshot(ctx, &rdssdk.CreateDBClusterSnapshotInput{
+		DBClusterSnapshotIdentifier: aws.String(snapID),
+		DBClusterIdentifier:         aws.String(clusterID),
+	})
+	require.NoError(t, err, "CreateDBClusterSnapshot should succeed")
+	assert.Equal(t, snapID, aws.ToString(snapOut.DBClusterSnapshot.DBClusterSnapshotIdentifier))
+	assert.Equal(t, "available", aws.ToString(snapOut.DBClusterSnapshot.Status))
+
+	// DescribeDBClusterSnapshots
+	snapDescOut, err := client.DescribeDBClusterSnapshots(ctx, &rdssdk.DescribeDBClusterSnapshotsInput{
+		DBClusterSnapshotIdentifier: aws.String(snapID),
+	})
+	require.NoError(t, err, "DescribeDBClusterSnapshots should succeed")
+	require.Len(t, snapDescOut.DBClusterSnapshots, 1)
+	assert.Equal(t, snapID, aws.ToString(snapDescOut.DBClusterSnapshots[0].DBClusterSnapshotIdentifier))
+
+	// CopyDBClusterSnapshot
+	snapCopyID := "sdk-csnap-copy-" + uuid.NewString()[:8]
+	copyOut, err := client.CopyDBClusterSnapshot(ctx, &rdssdk.CopyDBClusterSnapshotInput{
+		SourceDBClusterSnapshotIdentifier: aws.String(snapID),
+		TargetDBClusterSnapshotIdentifier: aws.String(snapCopyID),
+	})
+	require.NoError(t, err, "CopyDBClusterSnapshot should succeed")
+	assert.Equal(t, snapCopyID, aws.ToString(copyOut.DBClusterSnapshot.DBClusterSnapshotIdentifier))
+
+	// RestoreDBClusterFromSnapshot
+	restoredID := "sdk-restored-" + uuid.NewString()[:8]
+	restoreOut, err := client.RestoreDBClusterFromSnapshot(ctx, &rdssdk.RestoreDBClusterFromSnapshotInput{
+		DBClusterIdentifier: aws.String(restoredID),
+		SnapshotIdentifier:  aws.String(snapID),
+		Engine:              aws.String("aurora-postgresql"),
+	})
+	require.NoError(t, err, "RestoreDBClusterFromSnapshot should succeed")
+	assert.Equal(t, restoredID, aws.ToString(restoreOut.DBCluster.DBClusterIdentifier))
+	assert.Equal(t, "available", aws.ToString(restoreOut.DBCluster.Status))
+
+	// RestoreDBClusterToPointInTime
+	pitRestoredID := "sdk-pitr-" + uuid.NewString()[:8]
+	pitrOut, err := client.RestoreDBClusterToPointInTime(ctx, &rdssdk.RestoreDBClusterToPointInTimeInput{
+		DBClusterIdentifier:       aws.String(pitRestoredID),
+		SourceDBClusterIdentifier: aws.String(clusterID),
+	})
+	require.NoError(t, err, "RestoreDBClusterToPointInTime should succeed")
+	assert.Equal(t, pitRestoredID, aws.ToString(pitrOut.DBCluster.DBClusterIdentifier))
+
+	// DeleteDBClusterSnapshot (copy)
+	_, err = client.DeleteDBClusterSnapshot(ctx, &rdssdk.DeleteDBClusterSnapshotInput{
+		DBClusterSnapshotIdentifier: aws.String(snapCopyID),
+	})
+	require.NoError(t, err, "DeleteDBClusterSnapshot (copy) should succeed")
+
+	// DeleteDBClusterSnapshot (original)
+	_, err = client.DeleteDBClusterSnapshot(ctx, &rdssdk.DeleteDBClusterSnapshotInput{
+		DBClusterSnapshotIdentifier: aws.String(snapID),
+	})
+	require.NoError(t, err, "DeleteDBClusterSnapshot should succeed")
+
+	// Cleanup restored clusters
+	_, err = client.DeleteDBCluster(ctx, &rdssdk.DeleteDBClusterInput{
+		DBClusterIdentifier: aws.String(restoredID),
+		SkipFinalSnapshot:   aws.Bool(true),
+	})
+	require.NoError(t, err)
+	_, err = client.DeleteDBCluster(ctx, &rdssdk.DeleteDBClusterInput{
+		DBClusterIdentifier: aws.String(pitRestoredID),
+		SkipFinalSnapshot:   aws.Bool(true),
+	})
+	require.NoError(t, err)
+	_, err = client.DeleteDBCluster(ctx, &rdssdk.DeleteDBClusterInput{
+		DBClusterIdentifier: aws.String(clusterID),
+		SkipFinalSnapshot:   aws.Bool(true),
+	})
+	require.NoError(t, err)
+}
+
+// TestSDK_RDS_DBClusterEndpoints tests creating and managing custom DB cluster endpoints.
+func TestSDK_RDS_DBClusterEndpoints(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ctx := context.Background()
+	client := createRDSClient(t)
+
+	clusterID := "sdk-ep-cluster-" + uuid.NewString()[:8]
+
+	// Create cluster first
+	_, err := client.CreateDBCluster(ctx, &rdssdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String(clusterID),
+		Engine:              aws.String("aurora-postgresql"),
+		MasterUsername:      aws.String("admin"),
+		MasterUserPassword:  aws.String("password123"),
+	})
+	require.NoError(t, err, "CreateDBCluster should succeed")
+
+	// CreateDBClusterEndpoint
+	endpointID := "sdk-ep-" + uuid.NewString()[:8]
+	createEpOut, err := client.CreateDBClusterEndpoint(ctx, &rdssdk.CreateDBClusterEndpointInput{
+		DBClusterEndpointIdentifier: aws.String(endpointID),
+		DBClusterIdentifier:         aws.String(clusterID),
+		EndpointType:                aws.String("READER"),
+	})
+	require.NoError(t, err, "CreateDBClusterEndpoint should succeed")
+	assert.Equal(t, endpointID, aws.ToString(createEpOut.DBClusterEndpointIdentifier))
+	assert.Equal(t, "READER", aws.ToString(createEpOut.EndpointType))
+
+	// DescribeDBClusterEndpoints
+	descEpOut, err := client.DescribeDBClusterEndpoints(ctx, &rdssdk.DescribeDBClusterEndpointsInput{
+		DBClusterIdentifier: aws.String(clusterID),
+	})
+	require.NoError(t, err, "DescribeDBClusterEndpoints should succeed")
+	require.NotEmpty(t, descEpOut.DBClusterEndpoints)
+	assert.Equal(t, endpointID, aws.ToString(descEpOut.DBClusterEndpoints[0].DBClusterEndpointIdentifier))
+
+	// DeleteDBClusterEndpoint
+	_, err = client.DeleteDBClusterEndpoint(ctx, &rdssdk.DeleteDBClusterEndpointInput{
+		DBClusterEndpointIdentifier: aws.String(endpointID),
+	})
+	require.NoError(t, err, "DeleteDBClusterEndpoint should succeed")
+
+	// Cleanup
+	_, err = client.DeleteDBCluster(ctx, &rdssdk.DeleteDBClusterInput{
+		DBClusterIdentifier: aws.String(clusterID),
+		SkipFinalSnapshot:   aws.Bool(true),
+	})
+	require.NoError(t, err)
+}
+
+// TestSDK_RDS_ExportTasks tests creating and describing export tasks.
+func TestSDK_RDS_ExportTasks(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ctx := context.Background()
+	client := createRDSClient(t)
+
+	taskID := "sdk-export-" + uuid.NewString()[:8]
+
+	// StartExportTask
+	startOut, err := client.StartExportTask(ctx, &rdssdk.StartExportTaskInput{
+		ExportTaskIdentifier: aws.String(taskID),
+		SourceArn:            aws.String("arn:aws:rds:us-east-1:000000000000:snapshot:my-snap"),
+		S3BucketName:         aws.String("my-export-bucket"),
+		IamRoleArn:           aws.String("arn:aws:iam::000000000000:role/ExportRole"),
+		KmsKeyId:             aws.String("arn:aws:kms:us-east-1:000000000000:key/test-key"),
+	})
+	require.NoError(t, err, "StartExportTask should succeed")
+	assert.Equal(t, taskID, aws.ToString(startOut.ExportTaskIdentifier))
+	assert.Equal(t, "complete", aws.ToString(startOut.Status))
+
+	// DescribeExportTasks
+	descOut, err := client.DescribeExportTasks(ctx, &rdssdk.DescribeExportTasksInput{
+		ExportTaskIdentifier: aws.String(taskID),
+	})
+	require.NoError(t, err, "DescribeExportTasks should succeed")
+	require.Len(t, descOut.ExportTasks, 1)
+	assert.Equal(t, taskID, aws.ToString(descOut.ExportTasks[0].ExportTaskIdentifier))
+}
+
+// TestSDK_RDS_ValidDBInstanceModifications tests describing valid DB instance modifications.
+func TestSDK_RDS_ValidDBInstanceModifications(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ctx := context.Background()
+	client := createRDSClient(t)
+
+	id := "sdk-valid-mod-" + uuid.NewString()[:8]
+
+	// Create instance first
+	_, err := client.CreateDBInstance(ctx, &rdssdk.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String(id),
+		DBInstanceClass:      aws.String("db.t3.micro"),
+		Engine:               aws.String("postgres"),
+		MasterUsername:       aws.String("admin"),
+		MasterUserPassword:   aws.String("password123"),
+		AllocatedStorage:     aws.Int32(20),
+	})
+	require.NoError(t, err, "CreateDBInstance should succeed")
+
+	// DescribeValidDBInstanceModifications
+	descOut, err := client.DescribeValidDBInstanceModifications(ctx,
+		&rdssdk.DescribeValidDBInstanceModificationsInput{
+			DBInstanceIdentifier: aws.String(id),
+		})
+	require.NoError(t, err, "DescribeValidDBInstanceModifications should succeed")
+	require.NotNil(t, descOut.ValidDBInstanceModificationsMessage)
+	assert.NotEmpty(t, descOut.ValidDBInstanceModificationsMessage.ValidProcessorFeatures,
+		"ValidProcessorFeatures should contain at least one entry")
+
+	// Cleanup
+	_, err = client.DeleteDBInstance(ctx, &rdssdk.DeleteDBInstanceInput{
+		DBInstanceIdentifier: aws.String(id),
+		SkipFinalSnapshot:    aws.Bool(true),
+	})
+	require.NoError(t, err)
+}
+
 // TestSDK_RDS_SubnetGroup creates a DB subnet group via the AWS RDS SDK.
 func TestSDK_RDS_SubnetGroup(t *testing.T) {
 	t.Parallel()
