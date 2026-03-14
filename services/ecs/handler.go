@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -15,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -414,6 +415,8 @@ func (h *Handler) handleListTaskDefinitions(
 		arns = []string{}
 	}
 
+	sort.Strings(arns)
+
 	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
 
 	return &listTaskDefinitionsOutput{TaskDefinitionArns: arns, NextToken: nextToken}, nil
@@ -639,6 +642,8 @@ func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listT
 		arns = []string{}
 	}
 
+	sort.Strings(arns)
+
 	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
 
 	return &listTasksOutput{TaskArns: arns, NextToken: nextToken}, nil
@@ -760,31 +765,10 @@ func toTaskView(t Task) taskView {
 
 const defaultECSMaxResults = 100
 
-// applyNextTokenSlice applies nextToken-based pagination to a string slice.
-// It returns the page of items and the next token (empty if no more pages).
+// applyNextTokenSlice applies nextToken-based pagination to a string slice
+// using the shared pkgs/page opaque token format.
 func applyNextTokenSlice(items []string, nextToken string, maxResults int) ([]string, string) {
-	start := 0
-	if nextToken != "" {
-		idx, err := strconv.Atoi(nextToken)
-		if err == nil && idx > 0 {
-			start = idx
-		}
-	}
+	p := page.New(items, nextToken, maxResults, defaultECSMaxResults)
 
-	if start >= len(items) {
-		return []string{}, ""
-	}
-
-	items = items[start:]
-
-	limit := defaultECSMaxResults
-	if maxResults > 0 && maxResults < limit {
-		limit = maxResults
-	}
-
-	if len(items) <= limit {
-		return items, ""
-	}
-
-	return items[:limit], strconv.Itoa(start + limit)
+	return p.Data, p.Next
 }

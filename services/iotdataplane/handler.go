@@ -268,8 +268,9 @@ func (h *Handler) handleListNamedShadows(c *echo.Context) error {
 
 	sort.Strings(names)
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"results":   names,
-		"nextToken": nil,
-	})
+	resp := map[string]any{
+		"results": names,
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }

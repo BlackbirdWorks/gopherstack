@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -254,6 +255,8 @@ type handleListDomainsInput struct {
 func (h *Handler) handleListDomains(_ context.Context, in *handleListDomainsInput) (*listDomainsOutput, error) {
 	domains := h.Backend.ListDomains(in.RegistrationStatus)
 
+	sort.Slice(domains, func(i, j int) bool { return domains[i].Name < domains[j].Name })
+
 	domains, nextPageToken := applyPageTokenSlice(domains, in.NextPageToken, in.MaximumPageSize)
 
 	return &listDomainsOutput{DomainInfos: domains, NextPageToken: nextPageToken}, nil
@@ -302,6 +305,8 @@ func (h *Handler) handleListWorkflowTypes(
 	in *handleListWorkflowTypesInput,
 ) (*listWorkflowTypesOutput, error) {
 	wts := h.Backend.ListWorkflowTypes(in.Domain)
+
+	sort.Slice(wts, func(i, j int) bool { return wts[i].Name < wts[j].Name })
 
 	wts, nextPageToken := applyPageTokenSlice(wts, in.NextPageToken, in.MaximumPageSize)
 
@@ -352,30 +357,10 @@ func (h *Handler) handleDescribeWorkflowExecution(
 
 const defaultSWFMaxPageSize = 1000
 
-// applyPageTokenSlice applies nextPageToken-based pagination using a start-index token.
+// applyPageTokenSlice applies nextPageToken-based pagination using the shared
+// pkgs/page opaque token format.
 func applyPageTokenSlice[T any](items []T, nextPageToken string, maximumPageSize int) ([]T, string) {
-	start := 0
-	if nextPageToken != "" {
-		idx, err := strconv.Atoi(nextPageToken)
-		if err == nil && idx > 0 {
-			start = idx
-		}
-	}
+	p := page.New(items, nextPageToken, maximumPageSize, defaultSWFMaxPageSize)
 
-	if start >= len(items) {
-		return []T{}, ""
-	}
-
-	items = items[start:]
-
-	limit := defaultSWFMaxPageSize
-	if maximumPageSize > 0 && maximumPageSize < limit {
-		limit = maximumPageSize
-	}
-
-	if len(items) <= limit {
-		return items, ""
-	}
-
-	return items[:limit], strconv.Itoa(start + limit)
+	return p.Data, p.Next
 }

@@ -405,11 +405,6 @@ func TestBackend_Publish(t *testing.T) {
 func TestHandler_PublishWithBroker(t *testing.T) {
 	t.Parallel()
 
-	b := iotdataplane.NewInMemoryBackend()
-	mock := &mockMQTTPublisher{}
-	b.SetBroker(mock)
-	h := iotdataplane.NewHandler(b)
-
 	tests := []struct {
 		name     string
 		path     string
@@ -433,6 +428,10 @@ func TestHandler_PublishWithBroker(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			b := iotdataplane.NewInMemoryBackend()
+			b.SetBroker(&mockMQTTPublisher{})
+			h := iotdataplane.NewHandler(b)
 
 			rec := doRequest(t, h, http.MethodPost, tt.path, tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code)

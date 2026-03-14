@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -16,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -542,30 +542,10 @@ func tagsFromList(tags []map[string]string) map[string]string {
 
 const defaultTransferMaxResults = 1000
 
-// applyNextTokenItems applies NextToken-based pagination to a slice.
+// applyNextTokenItems applies NextToken-based pagination to a slice using the
+// shared pkgs/page opaque token format.
 func applyNextTokenItems[T any](items []T, nextToken string, maxResults int) ([]T, string) {
-	start := 0
-	if nextToken != "" {
-		idx, err := strconv.Atoi(nextToken)
-		if err == nil && idx > 0 {
-			start = idx
-		}
-	}
+	p := page.New(items, nextToken, maxResults, defaultTransferMaxResults)
 
-	if start >= len(items) {
-		return []T{}, ""
-	}
-
-	items = items[start:]
-
-	limit := defaultTransferMaxResults
-	if maxResults > 0 && maxResults < limit {
-		limit = maxResults
-	}
-
-	if len(items) <= limit {
-		return items, ""
-	}
-
-	return items[:limit], strconv.Itoa(start + limit)
+	return p.Data, p.Next
 }

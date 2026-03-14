@@ -1663,3 +1663,209 @@ func TestECS_Backend_RunTask_TransitionToRunningWithRunner(t *testing.T) {
 	// Noop runner succeeds → task transitions to RUNNING.
 	assert.Equal(t, "RUNNING", tasks[0].LastStatus)
 }
+
+func TestECS_ListTaskDefinitions_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create 5 task definitions.
+	for _, family := range []string{"svc-a", "svc-b", "svc-c", "svc-d", "svc-e"} {
+		rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
+			"family":               family,
+			"containerDefinitions": []map[string]any{{"name": "c", "image": "busybox"}},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	tests := []struct {
+		body          map[string]any
+		name          string
+		wantMinCount  int
+		wantNextToken bool
+	}{
+		{
+			name:         "all task definitions",
+			body:         map[string]any{},
+			wantMinCount: 5,
+		},
+		{
+			name:          "paginated maxResults=2",
+			body:          map[string]any{"maxResults": 2},
+			wantMinCount:  2,
+			wantNextToken: true,
+		},
+		{
+			name:         "paginated maxResults=10 returns all",
+			body:         map[string]any{"maxResults": 10},
+			wantMinCount: 5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doECSRequest(t, h, "ListTaskDefinitions", tt.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			arns := resp["taskDefinitionArns"].([]any)
+			assert.GreaterOrEqual(t, len(arns), tt.wantMinCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, resp["nextToken"])
+			}
+		})
+	}
+}
+
+func TestECS_ListTaskDefinitions_TokenChaining(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, family := range []string{"page-a", "page-b", "page-c"} {
+		rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
+			"family":               family,
+			"containerDefinitions": []map[string]any{{"name": "c", "image": "busybox"}},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// First page.
+	rec := doECSRequest(t, h, "ListTaskDefinitions", map[string]any{"maxResults": 2})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var page1 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &page1))
+
+	arns1 := page1["taskDefinitionArns"].([]any)
+	assert.Len(t, arns1, 2)
+
+	nextToken, ok := page1["nextToken"].(string)
+	require.True(t, ok)
+	assert.NotEmpty(t, nextToken)
+
+	// Second page using the token.
+	rec2 := doECSRequest(t, h, "ListTaskDefinitions", map[string]any{"maxResults": 2, "nextToken": nextToken})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var page2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+
+	arns2 := page2["taskDefinitionArns"].([]any)
+	assert.GreaterOrEqual(t, len(arns2), 1)
+
+	// No duplicates.
+	seen := make(map[string]bool)
+	for _, a := range arns1 {
+		seen[a.(string)] = true
+	}
+
+	for _, a := range arns2 {
+		assert.False(t, seen[a.(string)], "duplicate task def ARN in page 2: %s", a)
+	}
+}
+
+func TestECS_ListTasks_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	tdArn := registerTestTaskDef(t, h, "task-page-def")
+
+	// Create 5 tasks.
+	rec := doECSRequest(t, h, "RunTask", map[string]any{
+		"taskDefinition": tdArn,
+		"count":          5,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	tests := []struct {
+		body          map[string]any
+		name          string
+		wantMinCount  int
+		wantNextToken bool
+	}{
+		{
+			name:         "list all tasks",
+			body:         map[string]any{},
+			wantMinCount: 5,
+		},
+		{
+			name:          "paginated maxResults=2",
+			body:          map[string]any{"maxResults": 2},
+			wantMinCount:  2,
+			wantNextToken: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			listRec := doECSRequest(t, h, "ListTasks", tt.body)
+			require.Equal(t, http.StatusOK, listRec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &resp))
+
+			arns := resp["taskArns"].([]any)
+			assert.GreaterOrEqual(t, len(arns), tt.wantMinCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, resp["nextToken"])
+			}
+		})
+	}
+}
+
+func TestECS_ListTasks_TokenChaining(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	tdArn := registerTestTaskDef(t, h, "task-chain-def")
+
+	// Create 3 tasks.
+	rec := doECSRequest(t, h, "RunTask", map[string]any{
+		"taskDefinition": tdArn,
+		"count":          3,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// First page.
+	rec1 := doECSRequest(t, h, "ListTasks", map[string]any{"maxResults": 2})
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var page1 map[string]any
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &page1))
+
+	arns1 := page1["taskArns"].([]any)
+	assert.Len(t, arns1, 2)
+
+	nextToken, ok := page1["nextToken"].(string)
+	require.True(t, ok)
+	assert.NotEmpty(t, nextToken)
+
+	// Second page.
+	rec2 := doECSRequest(t, h, "ListTasks", map[string]any{"maxResults": 2, "nextToken": nextToken})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var page2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &page2))
+
+	arns2 := page2["taskArns"].([]any)
+	assert.GreaterOrEqual(t, len(arns2), 1)
+
+	// No duplicates between pages.
+	seen := make(map[string]bool)
+	for _, a := range arns1 {
+		seen[a.(string)] = true
+	}
+
+	for _, a := range arns2 {
+		assert.False(t, seen[a.(string)], "duplicate task ARN in page 2: %s", a)
+	}
+}
