@@ -115,6 +115,7 @@ import (
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	secretsmanagerbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
+	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
@@ -318,6 +319,8 @@ type DashboardHandler struct {
 	SageMakerOps *sagemakerbackend.Handler
 	// SageMakerRuntimeOps provides access to the SageMaker Runtime backend.
 	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
+	// ServiceDiscoveryOps provides access to the Service Discovery backend.
+	ServiceDiscoveryOps *servicediscoverybackend.Handler
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
 	// ShieldOps provides access to the Shield backend.
@@ -548,6 +551,8 @@ type Config struct {
 	SageMakerOps *sagemakerbackend.Handler
 	// SageMakerRuntimeOps provides access to the SageMaker Runtime backend.
 	SageMakerRuntimeOps *sagemakerruntimebackend.Handler
+	// ServiceDiscoveryOps provides access to the Service Discovery backend.
+	ServiceDiscoveryOps *servicediscoverybackend.Handler
 	// ServerlessRepoOps provides access to the Serverless Application Repository backend.
 	ServerlessRepoOps *serverlessrepobackend.Handler
 	// ShieldOps provides access to the Shield backend.
@@ -712,6 +717,7 @@ func mostRecentDashboardTemplatePatterns() []string {
 		"templates/redshiftdata/*.html",
 		"templates/sagemaker/*.html",
 		"templates/sagemakerrumtime/*.html",
+		"templates/servicediscovery/*.html",
 		"templates/ssoadmin/*.html",
 		"templates/timestreamquery/*.html",
 		"templates/chaos/*.html",
@@ -867,6 +873,7 @@ func (h *DashboardHandler) applyNewestOps(cfg Config) {
 	h.RedshiftDataOps = cfg.RedshiftDataOps
 	h.SageMakerOps = cfg.SageMakerOps
 	h.SageMakerRuntimeOps = cfg.SageMakerRuntimeOps
+	h.ServiceDiscoveryOps = cfg.ServiceDiscoveryOps
 	h.ServerlessRepoOps = cfg.ServerlessRepoOps
 	h.ShieldOps = cfg.ShieldOps
 	h.SsoAdminOps = cfg.SsoAdminOps
@@ -1396,6 +1403,7 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupRedshiftDataRoutes()
 	h.setupSageMakerRoutes()
 	h.setupSageMakerRuntimeRoutes()
+	h.setupServiceDiscoveryRoutes()
 	h.setupServerlessRepoRoutes()
 	h.setupShieldRoutes()
 	h.setupSsoAdminRoutes()
@@ -1531,6 +1539,7 @@ var dashboardPathPrefixes = []struct { //nolint:gochecknoglobals // lookup table
 	{"/qldb", "QLDB"},
 	{"/rdsdata", "RDSData"},
 	{"/sagemakerrumtime", "SageMakerRuntime"},
+	{"/servicediscovery", "ServiceDiscovery"},
 	{"/textract", "Textract"},
 	{"/timestreamwrite", "TimestreamWrite"},
 	{"/timestreamquery", "TimestreamQuery"},

@@ -114,6 +114,7 @@ import (
 	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
 	smbackend "github.com/blackbirdworks/gopherstack/services/secretsmanager"
 	serverlessrepobackend "github.com/blackbirdworks/gopherstack/services/serverlessrepo"
+	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sesbackend "github.com/blackbirdworks/gopherstack/services/ses"
 	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
 	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
@@ -285,6 +286,8 @@ type Stack struct {
 	SageMakerHandler *sagemakerbackend.Handler
 	// SageMakerRuntimeHandler provides access to the SageMaker Runtime backend.
 	SageMakerRuntimeHandler *sagemakerruntimebackend.Handler
+	// ServiceDiscoveryHandler provides access to the Service Discovery backend.
+	ServiceDiscoveryHandler *servicediscoverybackend.Handler
 	// ServerlessRepoHandler provides access to the Serverless Application Repository backend.
 	ServerlessRepoHandler *serverlessrepobackend.Handler
 	// ShieldHandler provides access to the Shield backend.
@@ -509,6 +512,7 @@ func registerLatestServices(registry *service.Registry, h handlers) {
 	_ = registry.Register(h.redshiftdata)
 	_ = registry.Register(h.sagemaker)
 	_ = registry.Register(h.sagemakerRuntime)
+	_ = registry.Register(h.servicediscovery)
 	_ = registry.Register(h.serverlessrepo)
 	_ = registry.Register(h.shield)
 	_ = registry.Register(h.textract)
@@ -622,6 +626,7 @@ type handlers struct {
 	redshiftdata       *redshiftdatabackend.Handler
 	sagemaker          *sagemakerbackend.Handler
 	sagemakerRuntime   *sagemakerruntimebackend.Handler
+	servicediscovery   *servicediscoverybackend.Handler
 	serverlessrepo     *serverlessrepobackend.Handler
 	shield             *shieldbackend.Handler
 	textract           *textractbackend.Handler
@@ -845,8 +850,6 @@ func populateNewestHandlers(h *handlers) {
 
 // populateLatestHandlers fills in the most recently added service handlers that would push
 // populateNewestHandlers past the funlen limit.
-// populateLatestHandlers fills in the most recently added service handlers that would push
-// populateNewestHandlers past the funlen limit.
 func populateLatestHandlers(h *handlers) {
 	h.elbv2 = elbv2backend.NewHandler(
 		elbv2backend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -930,11 +933,18 @@ func populateLatestHandlers(h *handlers) {
 	h.redshiftdata = redshiftdatabackend.NewHandler(
 		redshiftdatabackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
+	populateLatestMLHandlers(h)
+}
+
+func populateLatestMLHandlers(h *handlers) {
 	h.sagemaker = sagemakerbackend.NewHandler(
 		sagemakerbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.sagemakerRuntime = sagemakerruntimebackend.NewHandler(
 		sagemakerruntimebackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
+	)
+	h.servicediscovery = servicediscoverybackend.NewHandler(
+		servicediscoverybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.serverlessrepo = serverlessrepobackend.NewHandler(
 		serverlessrepobackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
@@ -1110,6 +1120,7 @@ func applyNewestDashboardOps(cfg *dashboard.Config, h handlers) {
 	cfg.RedshiftDataOps = h.redshiftdata
 	cfg.SageMakerOps = h.sagemaker
 	cfg.SageMakerRuntimeOps = h.sagemakerRuntime
+	cfg.ServiceDiscoveryOps = h.servicediscovery
 	cfg.ServerlessRepoOps = h.serverlessrepo
 	cfg.ShieldOps = h.shield
 	cfg.TextractOps = h.textract
@@ -1325,6 +1336,7 @@ func setNewestStackHandlers(s *Stack, h handlers) {
 	s.RedshiftDataHandler = h.redshiftdata
 	s.SageMakerHandler = h.sagemaker
 	s.SageMakerRuntimeHandler = h.sagemakerRuntime
+	s.ServiceDiscoveryHandler = h.servicediscovery
 	s.ServerlessRepoHandler = h.serverlessrepo
 	s.ShieldHandler = h.shield
 	s.TextractHandler = h.textract

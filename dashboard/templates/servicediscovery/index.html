@@ -1,0 +1,127 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M9.348 14.651a3.75 3.75 0 0 1 0-5.303m5.304-.001a3.75 3.75 0 0 1 0 5.304m-7.425 2.121a6.75 6.75 0 0 1 0-9.546m9.546 0a6.75 6.75 0 0 1 0 9.546M5.106 18.894c-3.808-3.807-3.808-9.98 0-13.788m13.788 0c3.808 3.807 3.808 9.98 0 13.788M12 12h.008v.008H12V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+                </svg>
+                Service Discovery
+                <span
+                    class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
+                    {{len .Namespaces}} namespace{{if ne (len .Namespaces) 1}}s{{end}}
+                </span>
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">AWS Cloud Map lets you define custom names for your application resources and maintains the updated location of dynamically changing resources.</p>
+        </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 sm:flex-none">
+            <button type="button" onclick="document.getElementById('create-namespace-modal').classList.remove('hidden')"
+                class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">
+                + Create Namespace
+            </button>
+        </div>
+    </div>
+
+    <!-- Namespaces Table -->
+    <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-4">Namespaces</h2>
+    <div
+        class="mb-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">ID</th>
+                    <th scope="col" class="px-6 py-3">Type</th>
+                    <th scope="col" class="px-6 py-3">ARN</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Namespaces}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
+                    <td class="px-6 py-4 font-mono text-xs">{{.ID}}</td>
+                    <td class="px-6 py-4">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+                            {{.Type}}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.ARN}}">{{.ARN}}</td>
+                </tr>
+                {{else}}
+                <tr class="bg-white dark:bg-slate-800/50">
+                    <td colspan="4" class="px-6 py-8 text-center text-slate-500 dark:text-slate-400">No namespaces created yet.</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Services Table -->
+    <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-4">Services</h2>
+    <div
+        class="relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Name</th>
+                    <th scope="col" class="px-6 py-3">ID</th>
+                    <th scope="col" class="px-6 py-3">Namespace ID</th>
+                    <th scope="col" class="px-6 py-3">ARN</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Services}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
+                    <td class="px-6 py-4 font-mono text-xs">{{.ID}}</td>
+                    <td class="px-6 py-4 font-mono text-xs">
+                        {{if .NamespaceID}}{{.NamespaceID}}{{else}}<span class="text-slate-400 dark:text-slate-500">—</span>{{end}}
+                    </td>
+                    <td class="px-6 py-4 font-mono text-xs truncate max-w-xs" title="{{.ARN}}">{{.ARN}}</td>
+                </tr>
+                {{else}}
+                <tr class="bg-white dark:bg-slate-800/50">
+                    <td colspan="4" class="px-6 py-8 text-center text-slate-500 dark:text-slate-400">No services created yet.</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Create Namespace Modal -->
+<div id="create-namespace-modal"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div
+        class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-lg mx-4">
+        <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-6">Create HTTP Namespace</h2>
+        <form method="POST" action="/dashboard/servicediscovery/namespace" hx-boost="false">
+            <div class="mb-4">
+                <label for="namespace-name"
+                    class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Namespace Name</label>
+                <input type="text" id="namespace-name" name="name" required
+                    placeholder="my-namespace.local"
+                    class="block w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400">
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button"
+                    onclick="document.getElementById('create-namespace-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-500">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-blue-600 dark:hover:bg-blue-700">
+                    Create
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}
