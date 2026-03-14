@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64px" height="64px" viewBox="0 0 64 64" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>Icon-Architecture/48/Arch_Amazon-Verified-Permissions_48</title>
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g fill="#BF0816">
+            <rect x="0" y="0" width="64" height="64" rx="8"/>
+        </g>
+        <g fill="#FFFFFF" transform="translate(12, 8)">
+            <path d="M20,2 C14.477,2 10,6.477 10,12 L10,14 L6,14 L6,46 L34,46 L34,14 L30,14 L30,12 C30,6.477 25.523,2 20,2 Z M20,6 C23.314,6 26,8.686 26,12 L26,14 L14,14 L14,12 C14,8.686 16.686,6 20,6 Z M10,18 L30,18 L30,42 L10,42 L10,18 Z M20,22 C18.343,22 17,23.343 17,25 C17,26.163 17.672,27.163 18.655,27.686 L17,33 L23,33 L21.345,27.686 C22.328,27.163 23,26.163 23,25 C23,23.343 21.657,22 20,22 Z"/>
+        </g>
+    </g>
+</svg>
