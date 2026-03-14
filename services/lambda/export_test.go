@@ -7,6 +7,8 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // ExportedRuntimeServer wraps the internal runtimeServer for white-box testing.
@@ -94,4 +96,58 @@ func SetSQSReaderOnPoller(p *EventSourcePoller, r SQSReader) { p.SetSQSReader(r)
 // allowing unit tests to make Lambda invocation succeed without a Docker daemon.
 func SetSQSInvoker(p *EventSourcePoller, fn func(ctx context.Context, fnName string) error) {
 	p.sqsInvoker = fn
+}
+
+// InjectRuntimeEntry inserts a synthetic functionRuntime into the backend's runtimes map
+// so that Close() tests can verify runtime cleanup without a real container.
+// zipDir and layerDirs will be cleaned up by Close().
+func InjectRuntimeEntry(b *InMemoryBackend, functionName, zipDir string, layerDirs []string, port int) {
+	b.mu.Lock("InjectRuntimeEntry")
+	defer b.mu.Unlock()
+
+	b.runtimes[functionName] = &functionRuntime{
+		mu:        lockmetrics.New("lambda.runtime.test"),
+		zipDir:    zipDir,
+		layerDirs: layerDirs,
+		port:      port,
+		started:   true,
+	}
+}
+
+// FunctionNamesFromARNs exports functionNamesFromARNs for testing.
+func FunctionNamesFromARNs(arns []string) []string { return functionNamesFromARNs(arns) }
+
+// ParseInvocationPercentage exports parseInvocationPercentage for testing.
+func ParseInvocationPercentage(s string) float64 { return parseInvocationPercentage(s) }
+
+// ParseInvocationDelayMs exports parseInvocationDelayMs for testing.
+func ParseInvocationDelayMs(s string) int { return parseInvocationDelayMs(s) }
+
+// ParseIntSafe exports parseIntSafe for testing.
+func ParseIntSafe(s string, out *int) error { return parseIntSafe(s, out) }
+
+// ExpiryFromDuration exports expiryFromDuration for testing.
+func ExpiryFromDuration(d time.Duration) time.Time { return expiryFromDuration(d) }
+
+// SetFISFault exports setFISFault for testing.
+func SetFISFault(b *InMemoryBackend, name string, fault *FISInvocationFault) {
+	b.setFISFault(name, fault)
+}
+
+// ClearFISFault exports clearFISFault for testing.
+func ClearFISFault(b *InMemoryBackend, name string) { b.clearFISFault(name) }
+
+// CheckFISFault exports checkFISFault for testing.
+func CheckFISFault(b *InMemoryBackend, name string) *FISInvocationFault {
+	return b.checkFISFault(name)
+}
+
+// ReleaseConcurrencySlot exports releaseConcurrencySlot for testing.
+func ReleaseConcurrencySlot(b *InMemoryBackend, functionName string) {
+	b.releaseConcurrencySlot(functionName)
+}
+
+// AcquireConcurrencySlot exports acquireConcurrencySlot for testing.
+func AcquireConcurrencySlot(b *InMemoryBackend, functionName string, invocationType InvocationType) (bool, error) {
+	return b.acquireConcurrencySlot(functionName, invocationType)
 }
