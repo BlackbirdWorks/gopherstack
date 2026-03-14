@@ -42,6 +42,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateCase",
 		"DescribeCases",
 		"ResolveCase",
+		"AddCommunicationToCase",
+		"DescribeCommunications",
+		"DescribeTrustedAdvisorChecks",
+		"AddAttachmentsToSet",
 	}
 }
 
@@ -112,9 +116,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateCase":    service.WrapOp(h.handleCreateCase),
-		"DescribeCases": service.WrapOp(h.handleDescribeCases),
-		"ResolveCase":   service.WrapOp(h.handleResolveCase),
+		"CreateCase":                   service.WrapOp(h.handleCreateCase),
+		"DescribeCases":                service.WrapOp(h.handleDescribeCases),
+		"ResolveCase":                  service.WrapOp(h.handleResolveCase),
+		"AddCommunicationToCase":       service.WrapOp(h.handleAddCommunicationToCase),
+		"DescribeCommunications":       service.WrapOp(h.handleDescribeCommunications),
+		"DescribeTrustedAdvisorChecks": service.WrapOp(h.handleDescribeTrustedAdvisorChecks),
+		"AddAttachmentsToSet":          service.WrapOp(h.handleAddAttachmentsToSet),
 	}
 }
 
@@ -231,5 +239,123 @@ func (h *Handler) handleResolveCase(_ context.Context, in *handleResolveCaseInpu
 	return &resolveCaseOutput{
 		InitialCaseStatus: "opened",
 		FinalCaseStatus:   cs.Status,
+	}, nil
+}
+
+type addCommunicationToCaseInput struct {
+	CaseID            string `json:"caseId"`
+	CommunicationBody string `json:"communicationBody"`
+}
+
+type addCommunicationToCaseOutput struct {
+	Result bool `json:"result"`
+}
+
+func (h *Handler) handleAddCommunicationToCase(
+	_ context.Context,
+	in *addCommunicationToCaseInput,
+) (*addCommunicationToCaseOutput, error) {
+	if in.CaseID == "" {
+		return nil, fmt.Errorf("%w: caseId is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.AddCommunicationToCase(in.CaseID, in.CommunicationBody); err != nil {
+		return nil, err
+	}
+
+	return &addCommunicationToCaseOutput{Result: true}, nil
+}
+
+type describeCommunicationsInput struct {
+	CaseID string `json:"caseId"`
+}
+
+type communicationView struct {
+	CaseID      string `json:"caseId"`
+	Body        string `json:"body"`
+	SubmittedBy string `json:"submittedBy"`
+}
+
+type describeCommunicationsOutput struct {
+	NextToken      string              `json:"nextToken,omitempty"`
+	Communications []communicationView `json:"communications"`
+}
+
+func (h *Handler) handleDescribeCommunications(
+	_ context.Context,
+	in *describeCommunicationsInput,
+) (*describeCommunicationsOutput, error) {
+	if in.CaseID == "" {
+		return nil, fmt.Errorf("%w: caseId is required", errInvalidRequest)
+	}
+
+	comms, err := h.Backend.DescribeCommunications(in.CaseID)
+	if err != nil {
+		return nil, err
+	}
+
+	views := make([]communicationView, 0, len(comms))
+	for _, c := range comms {
+		views = append(views, communicationView{
+			CaseID:      c.CaseID,
+			Body:        c.Body,
+			SubmittedBy: c.SubmittedBy,
+		})
+	}
+
+	return &describeCommunicationsOutput{Communications: views}, nil
+}
+
+type describeTrustedAdvisorChecksInput struct {
+	Language string `json:"language"`
+}
+
+type trustedAdvisorCheckView struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Category    string   `json:"category"`
+	Metadata    []string `json:"metadata"`
+}
+
+type describeTrustedAdvisorChecksOutput struct {
+	Checks []trustedAdvisorCheckView `json:"checks"`
+}
+
+func (h *Handler) handleDescribeTrustedAdvisorChecks(
+	_ context.Context,
+	_ *describeTrustedAdvisorChecksInput,
+) (*describeTrustedAdvisorChecksOutput, error) {
+	checks := h.Backend.DescribeTrustedAdvisorChecks()
+
+	views := make([]trustedAdvisorCheckView, 0, len(checks))
+	for _, c := range checks {
+		views = append(views, trustedAdvisorCheckView(c))
+	}
+
+	return &describeTrustedAdvisorChecksOutput{Checks: views}, nil
+}
+
+type addAttachmentsToSetInput struct {
+	AttachmentSetID string `json:"attachmentSetId,omitempty"`
+}
+
+type addAttachmentsToSetOutput struct {
+	AttachmentSetID string `json:"attachmentSetId"`
+	ExpiryTime      string `json:"expiryTime"`
+}
+
+func (h *Handler) handleAddAttachmentsToSet(
+	_ context.Context,
+	in *addAttachmentsToSetInput,
+) (*addAttachmentsToSetOutput, error) {
+	setID, expiry, err := h.Backend.AddAttachmentsToSet(in.AttachmentSetID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &addAttachmentsToSetOutput{
+		AttachmentSetID: setID,
+		ExpiryTime:      expiry.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}, nil
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -391,9 +392,12 @@ func (h *Handler) handleDeregisterTaskDefinition(
 
 type listTaskDefinitionsInput struct {
 	FamilyPrefix string `json:"familyPrefix,omitempty"`
+	NextToken    string `json:"nextToken,omitempty"`
+	MaxResults   int    `json:"maxResults,omitempty"`
 }
 
 type listTaskDefinitionsOutput struct {
+	NextToken          string   `json:"nextToken,omitempty"`
 	TaskDefinitionArns []string `json:"taskDefinitionArns"`
 }
 
@@ -410,7 +414,9 @@ func (h *Handler) handleListTaskDefinitions(
 		arns = []string{}
 	}
 
-	return &listTaskDefinitionsOutput{TaskDefinitionArns: arns}, nil
+	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
+
+	return &listTaskDefinitionsOutput{TaskDefinitionArns: arns, NextToken: nextToken}, nil
 }
 
 // ----- Service handlers -----
@@ -613,11 +619,14 @@ func (h *Handler) handleStopTask(_ context.Context, in *stopTaskInput) (*stopTas
 }
 
 type listTasksInput struct {
-	Cluster string `json:"cluster,omitempty"`
+	Cluster    string `json:"cluster,omitempty"`
+	NextToken  string `json:"nextToken,omitempty"`
+	MaxResults int    `json:"maxResults,omitempty"`
 }
 
 type listTasksOutput struct {
-	TaskArns []string `json:"taskArns"`
+	NextToken string   `json:"nextToken,omitempty"`
+	TaskArns  []string `json:"taskArns"`
 }
 
 func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listTasksOutput, error) {
@@ -630,7 +639,9 @@ func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listT
 		arns = []string{}
 	}
 
-	return &listTasksOutput{TaskArns: arns}, nil
+	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
+
+	return &listTasksOutput{TaskArns: arns, NextToken: nextToken}, nil
 }
 
 // ----- View types (JSON serialization) -----
@@ -745,4 +756,35 @@ func toTaskView(t Task) taskView {
 	}
 
 	return v
+}
+
+const defaultECSMaxResults = 100
+
+// applyNextTokenSlice applies nextToken-based pagination to a string slice.
+// It returns the page of items and the next token (empty if no more pages).
+func applyNextTokenSlice(items []string, nextToken string, maxResults int) ([]string, string) {
+	start := 0
+	if nextToken != "" {
+		idx, err := strconv.Atoi(nextToken)
+		if err == nil && idx > 0 {
+			start = idx
+		}
+	}
+
+	if start >= len(items) {
+		return []string{}, ""
+	}
+
+	items = items[start:]
+
+	limit := defaultECSMaxResults
+	if maxResults > 0 && maxResults < limit {
+		limit = maxResults
+	}
+
+	if len(items) <= limit {
+		return items, ""
+	}
+
+	return items[:limit], strconv.Itoa(start + limit)
 }
