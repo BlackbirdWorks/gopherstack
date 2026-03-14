@@ -80,6 +80,7 @@ type Table struct {
 	pkIndex                map[string]int
 	pkskIndex              map[string]map[string]int
 	mu                     *lockmetrics.RWMutex
+	activateTimer          *time.Timer
 	Tags                   *tags.Tags                              `json:"Tags,omitempty"`
 	TableID                string                                  `json:"TableID"`
 	TTLAttribute           string                                  `json:"TTLAttribute,omitempty"`
