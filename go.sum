@@ -280,6 +280,8 @@ github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.35.19 h1:XkeqlcNouQtmViM
 github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.35.19/go.mod h1:wkELVGpfMlCbGh0codwFhQCkiunnDZiUkkGdydvHJwM=
 github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4 h1:A182zQlZOpGFdgw6hUSzS4Ew4H4YvEHBjS8ztPbjmlI=
 github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4/go.mod h1:uirylF9/pmoaUQBoMxNIj7zniwHtZJu8pA81LNCcqGM=
+github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4 h1:n0jsEM3jPz0dtujoqreiuUJAEgGHIQcxekY7/kMqHqI=
+github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4/go.mod h1:cyCWU2gte7GgK6ALIQDeN/Uza9RvxcZCc1BcHQaYeTg=
 github.com/aws/aws-sdk-go-v2/service/xray v1.36.20 h1:5V3CHiHP3OHaeB6e1tOC2hw5FrHkxepAho+4MEJG4QM=
 github.com/aws/aws-sdk-go-v2/service/xray v1.36.20/go.mod h1:sgjg2v2UIv+sDFiig3tbkJ4sGSQrXQ2f+YgWg8TLOu4=
 github.com/aws/smithy-go v1.24.2 h1:FzA3bu/nt/vDvmnkg+R8Xl46gmzEDam6mZ1hzmwXFng=
