@@ -1,9 +1,12 @@
 package dashboard
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
 // wafv2WebACLView is the view model for a single WAFv2 Web ACL row.
@@ -118,6 +121,10 @@ func (h *DashboardHandler) wafv2Create(c *echo.Context) error {
 	if _, err := h.Wafv2Ops.Backend.CreateWebACL(name, scope, "", defaultAction, nil); err != nil {
 		h.Logger.ErrorContext(ctx, "wafv2: failed to create web ACL", "name", name, "error", err)
 
+		if errors.Is(err, awserr.ErrConflict) {
+			return c.NoContent(http.StatusConflict)
+		}
+
 		return c.NoContent(http.StatusBadRequest)
 	}
 
@@ -144,7 +151,11 @@ func (h *DashboardHandler) wafv2Delete(c *echo.Context) error {
 	if err := h.Wafv2Ops.Backend.DeleteWebACL(id); err != nil {
 		h.Logger.ErrorContext(ctx, "wafv2: failed to delete web ACL", "id", id, "error", err)
 
-		return c.NoContent(http.StatusNotFound)
+		if errors.Is(err, awserr.ErrNotFound) {
+			return c.NoContent(http.StatusNotFound)
+		}
+
+		return c.NoContent(http.StatusInternalServerError)
 	}
 
 	return c.Redirect(http.StatusSeeOther, "/dashboard/wafv2")
