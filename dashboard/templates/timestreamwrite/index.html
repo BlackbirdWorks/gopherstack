@@ -1,0 +1,98 @@
+{{define "content"}}
+<div class="px-4 sm:px-6 lg:px-8">
+    <div
+        class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm glass-panel flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                <svg class="w-8 h-8 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
+                </svg>
+                Timestream Write
+                <span
+                    class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-300">
+                    {{len .Databases}}
+                </span>
+                {{if .Snippet}}
+                {{template "components/snippet" .Snippet}}
+                {{end}}
+            </h1>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">Amazon Timestream Write stores and queries time-series data at scale.</p>
+        </div>
+        <div class="mt-4 sm:ml-16 sm:mt-0 flex items-center gap-3">
+            <button type="button" onclick="document.getElementById('create-database-modal').classList.remove('hidden')"
+                class="text-white bg-teal-700 hover:bg-teal-800 focus:ring-4 focus:ring-teal-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-teal-600 dark:hover:bg-teal-700 focus:outline-none dark:focus:ring-teal-800">
+                + Create Database
+            </button>
+        </div>
+    </div>
+
+    <div
+        class="mt-8 relative overflow-x-auto shadow-sm sm:rounded-xl border border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 backdrop-blur-sm">
+        <table class="w-full text-sm text-left rtl:text-right text-slate-500 dark:text-slate-400">
+            <thead class="text-xs text-gray-700 uppercase bg-slate-50/50 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                    <th scope="col" class="px-6 py-3">Database Name</th>
+                    <th scope="col" class="px-6 py-3">Table Count</th>
+                    <th scope="col" class="px-6 py-3">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .Databases}}
+                <tr
+                    class="bg-white border-b border-slate-200 dark:border-slate-700 dark:bg-slate-800/50 hover:bg-slate-50/80 dark:hover:bg-slate-700/50 transition-colors">
+                    <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">{{.Name}}</td>
+                    <td class="px-6 py-4">
+                        <span class="bg-teal-100 text-teal-800 text-xs font-medium px-2.5 py-0.5 rounded dark:bg-teal-900 dark:text-teal-300">{{.TableCount}}</span>
+                    </td>
+                    <td class="px-6 py-4">
+                        <form method="POST" action="/dashboard/timestreamwrite/delete-database" hx-boost="false" class="inline">
+                            <input type="hidden" name="name" value="{{.Name}}">
+                            <button type="submit"
+                                class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 text-sm font-medium">
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr class="bg-transparent border-b border-slate-200 dark:border-slate-700 dark:bg-transparent">
+                    <td colspan="3" class="px-6 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                        No databases found. Create a database above.
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Create Database Modal -->
+<div id="create-database-modal"
+    class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div
+        class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-6 w-full max-w-lg mx-4">
+        <h2 class="text-xl font-semibold text-slate-900 dark:text-white mb-6">Create Database</h2>
+        <form method="POST" action="/dashboard/timestreamwrite/create-database" hx-boost="false">
+            <div class="mb-4">
+                <label for="db-name"
+                    class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Database Name</label>
+                <input type="text" id="db-name" name="name" required
+                    placeholder="my-database"
+                    class="block w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button type="button"
+                    onclick="document.getElementById('create-database-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-600">
+                    Cancel
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-teal-700 rounded-lg hover:bg-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500 dark:bg-teal-600 dark:hover:bg-teal-700">
+                    Create
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}
