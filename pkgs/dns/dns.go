@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/miekg/dns"
@@ -58,13 +59,18 @@ type Config struct {
 // Server is an embedded DNS server that answers A queries for registered
 // synthetic hostnames with a fixed IP address.
 type Server struct {
-	names      map[string]struct{}
-	udpServer  *dns.Server
-	tcpServer  *dns.Server
-	mu         *lockmetrics.RWMutex
+	names     map[string]struct{}
+	udpServer *dns.Server
+	tcpServer *dns.Server
+
+	mu     *lockmetrics.RWMutex
+	stopCh chan struct{}
+
 	cfg        Config
 	listenAddr string
 	resolveIP  net.IP
+
+	stopOnce sync.Once
 }
 
 // New creates a new Server with the given config.
@@ -176,9 +182,15 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	// Watch for context cancellation to trigger shutdown.
+	s.stopCh = make(chan struct{})
+
 	go func() {
-		<-ctx.Done()
-		_ = s.Stop()
+		select {
+		case <-ctx.Done():
+			_ = s.Stop()
+		case <-s.stopCh:
+			// Stop() was called directly; goroutine exits cleanly.
+		}
 	}()
 
 	if s.cfg.Logger != nil {
@@ -215,13 +227,19 @@ func waitForReady(ctx context.Context, readyCh <-chan struct{}, udpErrCh, tcpErr
 func (s *Server) Stop() error {
 	var udpErr, tcpErr error
 
-	if s.udpServer != nil {
-		udpErr = s.udpServer.Shutdown()
-	}
+	s.stopOnce.Do(func() {
+		if s.stopCh != nil {
+			close(s.stopCh)
+		}
 
-	if s.tcpServer != nil {
-		tcpErr = s.tcpServer.Shutdown()
-	}
+		if s.udpServer != nil {
+			udpErr = s.udpServer.Shutdown()
+		}
+
+		if s.tcpServer != nil {
+			tcpErr = s.tcpServer.Shutdown()
+		}
+	})
 
 	return errors.Join(udpErr, tcpErr)
 }

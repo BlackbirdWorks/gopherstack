@@ -86,12 +86,11 @@ func (db *InMemoryDB) CreateTable(
 	if db.createDelay > 0 {
 		newTable.Status = string(types.TableStatusCreating)
 
-		go func() {
-			time.Sleep(db.createDelay)
+		time.AfterFunc(db.createDelay, func() {
 			newTable.mu.Lock("activate")
 			newTable.Status = string(types.TableStatusActive)
 			newTable.mu.Unlock()
-		}()
+		})
 	} else {
 		newTable.Status = string(types.TableStatusActive)
 	}
