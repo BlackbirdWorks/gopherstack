@@ -62,10 +62,13 @@ type InMemoryBackend struct {
 	smExecutions map[string][]string
 	// cancelFns holds the cancel function for each running execution goroutine.
 	cancelFns map[string]context.CancelFunc
-	logger    *slog.Logger
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	// deletedExecs is a tombstone set for executions removed by DeleteStateMachine.
+	// historyRecorder and runParsedExecution skip writes for tombstoned ARNs.
+	deletedExecs map[string]bool
+	logger       *slog.Logger
+	mu           *lockmetrics.RWMutex
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -84,6 +87,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		nameIndex:     make(map[string]string),
 		smExecutions:  make(map[string][]string),
 		cancelFns:     make(map[string]context.CancelFunc),
+		deletedExecs:  make(map[string]bool),
 		logger:        slog.Default(),
 		mu:            lockmetrics.New("stepfunctions"),
 	}
@@ -206,6 +210,8 @@ func (b *InMemoryBackend) DeleteStateMachine(arn string) error {
 			delete(b.cancelFns, execARN)
 		}
 
+		// Tombstone before deleting so in-flight goroutines skip further writes.
+		b.deletedExecs[execARN] = true
 		delete(b.executions, execARN)
 		delete(b.history, execARN)
 	}
@@ -370,6 +376,10 @@ func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType strin
 	r.backend.mu.Lock("RecordStateEntered")
 	defer r.backend.mu.Unlock()
 
+	if r.backend.deletedExecs[execARN] {
+		return
+	}
+
 	events := r.backend.history[execARN]
 	nextID := int64(len(events) + 1)
 	r.backend.history[execARN] = append(events, &HistoryEvent{
@@ -386,6 +396,10 @@ func (r *historyRecorder) RecordStateEntered(execARN, stateName, stateType strin
 func (r *historyRecorder) RecordStateExited(execARN, stateName, stateType string, _ any) {
 	r.backend.mu.Lock("RecordStateExited")
 	defer r.backend.mu.Unlock()
+
+	if r.backend.deletedExecs[execARN] {
+		return
+	}
 
 	events := r.backend.history[execARN]
 	nextID := int64(len(events) + 1)
@@ -404,6 +418,10 @@ func (r *historyRecorder) RecordTaskScheduled(execARN, _ /* stateName */, _ /* r
 	r.backend.mu.Lock("RecordTaskScheduled")
 	defer r.backend.mu.Unlock()
 
+	if r.backend.deletedExecs[execARN] {
+		return
+	}
+
 	events := r.backend.history[execARN]
 	nextID := int64(len(events) + 1)
 	r.backend.history[execARN] = append(events, &HistoryEvent{
@@ -418,6 +436,10 @@ func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string,
 	r.backend.mu.Lock("RecordTaskSucceeded")
 	defer r.backend.mu.Unlock()
 
+	if r.backend.deletedExecs[execARN] {
+		return
+	}
+
 	events := r.backend.history[execARN]
 	nextID := int64(len(events) + 1)
 	r.backend.history[execARN] = append(events, &HistoryEvent{
@@ -431,6 +453,10 @@ func (r *historyRecorder) RecordTaskSucceeded(execARN, _ /* stateName */ string,
 func (r *historyRecorder) RecordTaskFailed(execARN, _ /* stateName */, _ /* errCode */, _ /* cause */ string) {
 	r.backend.mu.Lock("RecordTaskFailed")
 	defer r.backend.mu.Unlock()
+
+	if r.backend.deletedExecs[execARN] {
+		return
+	}
 
 	events := r.backend.history[execARN]
 	nextID := int64(len(events) + 1)
@@ -465,6 +491,13 @@ func (b *InMemoryBackend) runParsedExecution(
 
 	// Clean up the cancel function now that the goroutine has exited.
 	delete(b.cancelFns, execARN)
+
+	// If the execution was tombstoned by DeleteStateMachine, discard and exit.
+	if b.deletedExecs[execARN] {
+		delete(b.deletedExecs, execARN)
+
+		return
+	}
 
 	exec := b.executions[execARN]
 	if exec == nil {

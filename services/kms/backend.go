@@ -971,13 +971,14 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 	grantID := uuid.New().String()
 	grantToken := uuid.New().String()
 	grant := &Grant{
-		GrantID:          grantID,
-		KeyID:            keyID,
-		GranteePrincipal: input.GranteePrincipal,
-		Operations:       input.Operations,
-		Name:             input.Name,
-		GrantToken:       grantToken,
-		CreationDate:     UnixTimeFloat(time.Now()),
+		GrantID:           grantID,
+		KeyID:             keyID,
+		GranteePrincipal:  input.GranteePrincipal,
+		RetiringPrincipal: input.RetiringPrincipal,
+		Operations:        input.Operations,
+		Name:              input.Name,
+		GrantToken:        grantToken,
+		CreationDate:      UnixTimeFloat(time.Now()),
 	}
 	b.grants[grantID] = grant
 
@@ -1107,7 +1108,9 @@ func (b *InMemoryBackend) ListRetirableGrants(input *ListRetirableGrantsInput) (
 
 	grants := make([]Grant, 0, len(b.grants))
 	for _, g := range b.grants {
-		grants = append(grants, *g)
+		if g.RetiringPrincipal == input.RetiringPrincipal {
+			grants = append(grants, *g)
+		}
 	}
 
 	sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })

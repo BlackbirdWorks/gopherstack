@@ -174,6 +174,65 @@ func TestInMemoryBackend_ListApps(t *testing.T) {
 	}
 }
 
+func TestInMemoryBackend_ListAppsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		nextToken     string
+		maxResults    int
+		wantCount     int
+		wantNextToken bool
+	}{
+		{
+			name:       "no_limit_returns_all",
+			maxResults: 0,
+			wantCount:  4,
+		},
+		{
+			name:          "first_page",
+			maxResults:    2,
+			wantCount:     2,
+			wantNextToken: true,
+		},
+		{
+			name:       "second_page",
+			maxResults: 2,
+			nextToken:  "2",
+			wantCount:  2,
+		},
+		{
+			name:       "token_beyond_end",
+			maxResults: 2,
+			nextToken:  "100",
+			wantCount:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			for _, name := range []string{"App1", "App2", "App3", "App4"} {
+				_, err := b.CreateApp(name, "", "", "", nil)
+				require.NoError(t, err)
+			}
+
+			apps, outToken, err := b.ListApps(tt.nextToken, tt.maxResults)
+			require.NoError(t, err)
+			assert.Len(t, apps, tt.wantCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, outToken)
+			} else {
+				assert.Empty(t, outToken)
+			}
+		})
+	}
+}
+
 func TestInMemoryBackend_DeleteApp(t *testing.T) {
 	t.Parallel()
 
@@ -442,6 +501,67 @@ func TestInMemoryBackend_ListBranches(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Len(t, branches, tt.wantCount)
+		})
+	}
+}
+
+func TestInMemoryBackend_ListBranchesPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		nextToken     string
+		maxResults    int
+		wantCount     int
+		wantNextToken bool
+	}{
+		{
+			name:       "no_limit_returns_all",
+			maxResults: 0,
+			wantCount:  4,
+		},
+		{
+			name:          "first_page",
+			maxResults:    2,
+			wantCount:     2,
+			wantNextToken: true,
+		},
+		{
+			name:       "second_page",
+			maxResults: 2,
+			nextToken:  "2",
+			wantCount:  2,
+		},
+		{
+			name:       "token_beyond_end",
+			maxResults: 2,
+			nextToken:  "100",
+			wantCount:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			app, err := b.CreateApp("PaginationApp", "", "", "", nil)
+			require.NoError(t, err)
+
+			for _, name := range []string{"br1", "br2", "br3", "br4"} {
+				_, err = b.CreateBranch(app.AppID, name, "", "", false, nil)
+				require.NoError(t, err)
+			}
+
+			branches, outToken, err := b.ListBranches(app.AppID, tt.nextToken, tt.maxResults)
+			require.NoError(t, err)
+			assert.Len(t, branches, tt.wantCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, outToken)
+			} else {
+				assert.Empty(t, outToken)
+			}
 		})
 	}
 }

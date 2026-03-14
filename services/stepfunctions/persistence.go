@@ -15,13 +15,26 @@ type backendSnapshot struct {
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
+// Any execution still RUNNING at snapshot time is promoted to TIMED_OUT so that
+// Restore() never encounters non-terminal executions without a running goroutine.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	// Build a sanitised copy of executions: RUNNING → TIMED_OUT.
+	execsCopy := make(map[string]*Execution, len(b.executions))
+	for k, exec := range b.executions {
+		cp := *exec
+		if cp.Status == "RUNNING" {
+			cp.Status = "TIMED_OUT"
+		}
+
+		execsCopy[k] = &cp
+	}
+
 	snap := backendSnapshot{
 		StateMachines: b.stateMachines,
-		Executions:    b.executions,
+		Executions:    execsCopy,
 		History:       b.history,
 		AccountID:     b.accountID,
 		Region:        b.region,
@@ -79,12 +92,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.smExecutions[exec.StateMachineArn] = append(b.smExecutions[exec.StateMachineArn], execARN)
 	}
 
-	// cancelFns is intentionally empty after restore. Executions are snapshotted
-	// only in terminal states (SUCCEEDED, FAILED, ABORTED, TIMED_OUT), so no
-	// running goroutines are active after a restore — there are no functions to
-	// cancel. Any execution still in RUNNING state at snapshot time is treated as
-	// timed out on the next Snapshot() call.
+	// cancelFns is intentionally empty after restore. Snapshot() converts any
+	// RUNNING execution to TIMED_OUT before serialization, so all restored
+	// executions are in terminal states and no goroutines need to be tracked.
 	b.cancelFns = make(map[string]context.CancelFunc)
+	b.deletedExecs = make(map[string]bool)
 
 	return nil
 }
