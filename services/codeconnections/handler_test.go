@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -928,4 +929,112 @@ func TestBackendCreateAndGet(t *testing.T) {
 			assert.Equal(t, conn.ConnectionArn, got.ConnectionArn)
 		})
 	}
+}
+
+// TestListConnectionsPagination verifies NextToken/MaxResults pagination for ListConnections.
+func TestListConnectionsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		count      int
+		maxResults int
+		wantCount  int
+		wantToken  bool
+	}{
+		{
+			name:       "first_page_limited",
+			count:      3,
+			maxResults: 2,
+			wantCount:  2,
+			wantToken:  true,
+		},
+		{
+			name:       "all_results_no_token",
+			count:      2,
+			maxResults: 10,
+			wantCount:  2,
+			wantToken:  false,
+		},
+		{
+			name:       "zero_max_uses_default",
+			count:      2,
+			maxResults: 0,
+			wantCount:  2,
+			wantToken:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			for i := range tt.count {
+				createConn(t, h, "conn-"+strconv.Itoa(i), "GitHub")
+			}
+
+			body := map[string]any{}
+			if tt.maxResults > 0 {
+				body["MaxResults"] = tt.maxResults
+			}
+
+			rec := doJSON(t, h, "ListConnections", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			resp := parseResp(t, rec)
+			conns, ok := resp["Connections"].([]any)
+			require.True(t, ok)
+			assert.Len(t, conns, tt.wantCount)
+
+			_, hasToken := resp["NextToken"]
+			assert.Equal(t, tt.wantToken, hasToken)
+		})
+	}
+}
+
+// TestListConnectionsContinuation verifies two-page traversal using NextToken.
+func TestListConnectionsContinuation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	for i := range 3 {
+		createConn(t, h, "conn-"+strconv.Itoa(i), "GitHub")
+	}
+
+	// First page: 2 of 3.
+	rec1 := doJSON(t, h, "ListConnections", map[string]any{"MaxResults": 2})
+	require.Equal(t, http.StatusOK, rec1.Code)
+	resp1 := parseResp(t, rec1)
+	page1, ok := resp1["Connections"].([]any)
+	require.True(t, ok)
+	assert.Len(t, page1, 2)
+
+	nextToken, hasToken := resp1["NextToken"].(string)
+	require.True(t, hasToken, "expected NextToken in first page response")
+	require.NotEmpty(t, nextToken)
+
+	// Second page: remaining 1.
+	rec2 := doJSON(t, h, "ListConnections", map[string]any{
+		"MaxResults": 2,
+		"NextToken":  nextToken,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	resp2 := parseResp(t, rec2)
+	page2, ok := resp2["Connections"].([]any)
+	require.True(t, ok)
+	assert.Len(t, page2, 1)
+
+	_, stillHasToken := resp2["NextToken"]
+	assert.False(t, stillHasToken, "last page should have no NextToken")
+
+	// Collectively all connection names present.
+	names := make([]string, 0, 3)
+	for _, item := range append(page1, page2...) {
+		conn := item.(map[string]any)
+		names = append(names, conn["ConnectionName"].(string))
+	}
+	assert.ElementsMatch(t, []string{"conn-0", "conn-1", "conn-2"}, names)
 }

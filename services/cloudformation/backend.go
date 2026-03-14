@@ -71,6 +71,7 @@ type StorageBackend interface {
 // InMemoryBackend is a concurrency-safe in-memory CloudFormation backend.
 type InMemoryBackend struct {
 	stacks          map[string]*Stack
+	stackIDIndex    map[string]string // stackID (ARN) → stackName
 	events          map[string][]StackEvent
 	resources       map[string]map[string]*StackResource
 	changeSets      map[string]map[string]*ChangeSet
@@ -118,6 +119,7 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 
 	return &InMemoryBackend{
 		stacks:          make(map[string]*Stack),
+		stackIDIndex:    make(map[string]string),
 		events:          make(map[string][]StackEvent),
 		resources:       make(map[string]map[string]*StackResource),
 		changeSets:      make(map[string]map[string]*ChangeSet),
@@ -140,8 +142,9 @@ func (b *InMemoryBackend) resolveStack(nameOrID string) (*Stack, bool) {
 	if s, ok := b.stacks[nameOrID]; ok {
 		return s, true
 	}
-	for _, s := range b.stacks {
-		if s.StackID == nameOrID {
+
+	if name, ok := b.stackIDIndex[nameOrID]; ok {
+		if s, found := b.stacks[name]; found {
 			return s, true
 		}
 	}
@@ -179,6 +182,8 @@ func (b *InMemoryBackend) CreateStack(
 		if existing.StackStatus != statusDeleteComplete {
 			return nil, ErrStackAlreadyExists
 		}
+		// Remove the old stack ID from the index before re-creating.
+		delete(b.stackIDIndex, existing.StackID)
 	}
 
 	stackID := uuid.New().String()
@@ -196,6 +201,7 @@ func (b *InMemoryBackend) CreateStack(
 	}
 
 	b.stacks[name] = stack
+	b.stackIDIndex[arn] = name
 	b.events[arn] = nil
 	b.resources[arn] = make(map[string]*StackResource)
 
@@ -593,10 +599,7 @@ func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) erro
 	stack.StackStatus = statusDeleteComplete
 	b.removeExports(stack.StackID)
 	delete(b.stackPolicies, stack.StackID)
-	b.addEvent(
-		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
-		cfnStackType, statusDeleteComplete, "",
-	)
+	delete(b.events, stack.StackID)
 
 	return nil
 }

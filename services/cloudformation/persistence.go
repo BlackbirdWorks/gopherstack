@@ -90,6 +90,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	// Rebuild the stackIDIndex from the restored stacks.
+	b.stackIDIndex = make(map[string]string, len(b.stacks))
+	for name, stack := range b.stacks {
+		b.stackIDIndex[stack.StackID] = name
+	}
+
 	return nil
 }
 
