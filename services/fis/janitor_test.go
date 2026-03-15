@@ -104,10 +104,9 @@ func TestFISJanitor_SweepCompletedExperiments(t *testing.T) {
 			if tt.endOffset != 0 {
 				endTime := time.Now().Add(tt.endOffset)
 				backend.SetExperimentTerminal(expID, tt.status, endTime)
-			} else {
-				// running state: stop the experiment to cancel goroutine but leave endTime nil
-				_, _ = backend.StopExperiment(expID)
 			}
+			// keep_running_no_endtime: leave the experiment in its natural state;
+			// EndTime is nil or very recent, so the janitor will not evict it.
 
 			janitor := fis.NewJanitor(backend, time.Hour, tt.ttl)
 			janitor.SweepOnce(t.Context())

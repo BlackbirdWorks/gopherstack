@@ -51,6 +51,13 @@ func TestJanitor_SweepCompletedBuilds(t *testing.T) {
 			wantEvicted: true,
 		},
 		{
+			name:        "evict_fault_past_ttl",
+			status:      "FAULT",
+			endOffset:   -25 * time.Hour,
+			ttl:         24 * time.Hour,
+			wantEvicted: true,
+		},
+		{
 			name:        "keep_succeeded_within_ttl",
 			status:      "SUCCEEDED",
 			endOffset:   -1 * time.Hour,
@@ -107,7 +114,8 @@ func TestJanitor_SweepCompletedBuilds(t *testing.T) {
 			janitor := codebuild.NewJanitor(backend, time.Hour, tt.ttl)
 			janitor.SweepOnce(t.Context())
 
-			builds, _ := backend.ListBuildsForProject("proj")
+			builds, err := backend.ListBuildsForProject("proj")
+			require.NoError(t, err)
 
 			if tt.wantEvicted {
 				assert.NotContains(t, builds, build.ID, "build should be evicted")
