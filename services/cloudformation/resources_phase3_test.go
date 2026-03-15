@@ -449,12 +449,14 @@ func TestResourceCreator_Phase3_EKSNodegroupAfterCluster(t *testing.T) {
 	require.Equal(t, "unit-eks-cluster", clusterPhysID, "EKS cluster physical ID must be the cluster name, not the ARN")
 
 	// Create nodegroup referencing the cluster via CF !Ref syntax (physIDs lookup).
+	// Also exercise the InstanceTypes slice-building branch.
 	physIDs := map[string]string{"MyCluster": clusterPhysID}
 	ngARN, err := rc.Create(ctx, "MyNG", "AWS::EKS::Nodegroup",
 		map[string]any{
 			"ClusterName":   map[string]any{"Ref": "MyCluster"}, // simulates CF !Ref
 			"NodegroupName": "unit-nodegroup",
 			"NodeRole":      "arn:aws:iam::000000000000:role/NodeRole",
+			"InstanceTypes": []any{"t3.medium", "t3.large"},
 		}, nil, physIDs)
 	require.NoError(t, err)
 	require.NotEmpty(t, ngARN)
@@ -496,4 +498,104 @@ func TestResourceCreator_Phase3_APIGatewayV2StageAfterAPI(t *testing.T) {
 	// Delete stage then API.
 	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Stage", stageID, nil))
 	require.NoError(t, rc.Delete(ctx, "AWS::ApiGatewayV2::Api", apiID, nil))
+}
+
+// TestResourceCreator_Phase3_DocDBInstanceAfterCluster verifies DocDB instance creation
+// succeeds when a cluster exists.
+func TestResourceCreator_Phase3_DocDBInstanceAfterCluster(t *testing.T) {
+	t.Parallel()
+
+	backends := newPhase3ServiceBackends()
+	rc := cloudformation.NewResourceCreator(backends)
+	ctx := t.Context()
+
+	// Create DocDB cluster first.
+	clusterID, err := rc.Create(ctx, "MyCluster", "AWS::DocDB::DBCluster",
+		map[string]any{
+			"DBClusterIdentifier": "unit-docdb-cluster-inst",
+		}, nil, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, clusterID)
+
+	// Create DocDB instance attached to the cluster.
+	instID, err := rc.Create(ctx, "MyInst", "AWS::DocDB::DBInstance",
+		map[string]any{
+			"DBInstanceIdentifier": "unit-docdb-inst",
+			"DBClusterIdentifier":  clusterID,
+			"DBInstanceClass":      "db.r5.large",
+		}, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "unit-docdb-inst", instID)
+
+	// Delete instance then cluster.
+	require.NoError(t, rc.Delete(ctx, "AWS::DocDB::DBInstance", instID, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::DocDB::DBCluster", clusterID, nil))
+}
+
+// TestResourceCreator_Phase3_NeptuneInstanceAfterCluster verifies Neptune instance creation
+// succeeds when a cluster exists.
+func TestResourceCreator_Phase3_NeptuneInstanceAfterCluster(t *testing.T) {
+	t.Parallel()
+
+	backends := newPhase3ServiceBackends()
+	rc := cloudformation.NewResourceCreator(backends)
+	ctx := t.Context()
+
+	// Create Neptune cluster first.
+	clusterID, err := rc.Create(ctx, "MyCluster", "AWS::Neptune::DBCluster",
+		map[string]any{
+			"DBClusterIdentifier": "unit-neptune-cluster-inst",
+		}, nil, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, clusterID)
+
+	// Create Neptune instance attached to the cluster.
+	instID, err := rc.Create(ctx, "MyInst", "AWS::Neptune::DBInstance",
+		map[string]any{
+			"DBInstanceIdentifier": "unit-neptune-inst",
+			"DBClusterIdentifier":  clusterID,
+			"DBInstanceClass":      "db.r5.large",
+		}, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "unit-neptune-inst", instID)
+
+	// Delete instance then cluster.
+	require.NoError(t, rc.Delete(ctx, "AWS::Neptune::DBInstance", instID, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::Neptune::DBCluster", clusterID, nil))
+}
+
+// TestResourceCreator_Phase3_AutoScalingGroup_StringSizes exercises the string-parsing
+// branches for MinSize and MaxSize in createAutoScalingGroup.
+func TestResourceCreator_Phase3_AutoScalingGroup_StringSizes(t *testing.T) {
+	t.Parallel()
+
+	backends := newPhase3ServiceBackends()
+	rc := cloudformation.NewResourceCreator(backends)
+	ctx := t.Context()
+
+	// Create LC first.
+	lcID, err := rc.Create(ctx, "MyLC", "AWS::AutoScaling::LaunchConfiguration",
+		map[string]any{
+			"LaunchConfigurationName": "unit-lc-str",
+			"ImageId":                 "ami-12345",
+			"InstanceType":            "t2.micro",
+		}, nil, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, lcID)
+
+	// Create ASG using string values for MinSize/MaxSize and float64 DesiredCapacity.
+	asgID, err := rc.Create(ctx, "MyASG", "AWS::AutoScaling::AutoScalingGroup",
+		map[string]any{
+			"AutoScalingGroupName":    "unit-asg-str",
+			"LaunchConfigurationName": "unit-lc-str",
+			"MinSize":                 "1",
+			"MaxSize":                 "5",
+			"DesiredCapacity":         float64(2),
+		}, nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "unit-asg-str", asgID)
+
+	// Cleanup.
+	require.NoError(t, rc.Delete(ctx, "AWS::AutoScaling::AutoScalingGroup", asgID, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::AutoScaling::LaunchConfiguration", lcID, nil))
 }
