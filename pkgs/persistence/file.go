@@ -72,6 +72,15 @@ func (f *FileStore) Save(service, key string, data []byte) error {
 		return fmt.Errorf("persistence: write %s: %w", tmpName, writeErr)
 	}
 
+	// Flush OS buffers to durable storage before closing so that a power loss
+	// between Close and Rename cannot leave a zero-length or truncated file.
+	if syncErr := tmp.Sync(); syncErr != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+
+		return fmt.Errorf("persistence: sync %s: %w", tmpName, syncErr)
+	}
+
 	if closeErr := tmp.Close(); closeErr != nil {
 		_ = os.Remove(tmpName)
 
@@ -87,7 +96,30 @@ func (f *FileStore) Save(service, key string, data []byte) error {
 		return fmt.Errorf("persistence: rename %s -> %s: %w", tmpName, p, renameErr)
 	}
 
+	// Sync the parent directory so the rename itself is durable.
+	if dirSyncErr := syncDirectory(dir); dirSyncErr != nil {
+		return fmt.Errorf("persistence: sync dir %s: %w", dir, dirSyncErr)
+	}
+
 	return nil
+}
+
+// syncDirectory opens the named directory and calls Sync on it so that a
+// preceding rename is flushed to the storage device.
+func syncDirectory(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+
+	syncErr := d.Sync()
+	closeErr := d.Close()
+
+	if syncErr != nil {
+		return syncErr
+	}
+
+	return closeErr
 }
 
 // Load reads data from {baseDir}/{service}/{key}.json.
