@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -35,6 +36,9 @@ var (
 const (
 	defaultDescribeLimit = 50
 	defaultEventLimit    = 10000
+	// maxEventsPerStream is the maximum number of events retained per log stream.
+	// Oldest events are dropped when this cap is reached.
+	maxEventsPerStream = 10_000
 	// maxSubscriptionFilters is the AWS-imposed limit per log group.
 	maxSubscriptionFilters = 2
 	// defaultQueryTTL is how long a query is retained before eviction.
@@ -77,6 +81,7 @@ type StorageBackend interface {
 	DescribeSubscriptionFilters(groupName, filterNamePrefix, nextToken string, limit int) (
 		[]SubscriptionFilter, string, error)
 	DeleteSubscriptionFilter(groupName, filterName string) error
+	SetRetentionPolicy(groupName string, days *int32) error
 	StartQuery(queryID, queryString string, logGroupNames []string, startTime, endTime int64) (*QueryInfo, error)
 	GetQueryResults(queryID string) ([][]ResultField, QueryStatistics, QueryStatus, error)
 	StopQuery(queryID string) error
@@ -239,6 +244,22 @@ func (b *InMemoryBackend) DeleteLogGroup(name string) error {
 	return nil
 }
 
+// SetRetentionPolicy sets or clears the retention policy for a log group.
+// A nil days value removes any existing retention policy.
+func (b *InMemoryBackend) SetRetentionPolicy(groupName string, days *int32) error {
+	b.mu.Lock("SetRetentionPolicy")
+	defer b.mu.Unlock()
+
+	g, exists := b.groups[groupName]
+	if !exists {
+		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
+	}
+
+	g.RetentionInDays = days
+
+	return nil
+}
+
 // DescribeLogGroups returns log groups optionally filtered by prefix, with pagination.
 func (b *InMemoryBackend) DescribeLogGroups(prefix, nextToken string, limit int) ([]LogGroup, string, error) {
 	b.mu.RLock("DescribeLogGroups")
@@ -341,6 +362,11 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 		}
 	}
 
+	// Enforce per-stream event cap: keep only the most recent maxEventsPerStream events.
+	if cur := b.events[groupName][streamName]; len(cur) > maxEventsPerStream {
+		b.events[groupName][streamName] = cur[len(cur)-maxEventsPerStream:]
+	}
+
 	stream.LastIngestionTime = &now
 	nextToken := strconv.FormatInt(int64(len(b.events[groupName][streamName])), 10)
 
@@ -439,7 +465,7 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 			continue
 		}
 		for _, ev := range b.events[groupName][sName] {
-			if filterPattern != "" && !strings.Contains(ev.Message, filterPattern) {
+			if filterPattern != "" && !filterPatternMatches(filterPattern, ev.Message) {
 				continue
 			}
 			all = append(all, ev)
@@ -596,7 +622,7 @@ func filterMatches(pattern string, events []InputLogEvent) bool {
 	}
 
 	for _, ev := range events {
-		if strings.Contains(ev.Message, pattern) {
+		if filterPatternMatches(pattern, ev.Message) {
 			return true
 		}
 	}
@@ -673,6 +699,92 @@ func encodeSubscriptionPayload(payload subscriptionPayload) ([]byte, error) {
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 
 	return []byte(encoded), nil
+}
+
+// filterPatternMatches returns true when the CloudWatch Logs filter pattern matches the message.
+//
+// Pattern syntax:
+//   - Empty pattern matches all messages.
+//   - Space-separated terms (AND logic): all terms must match.
+//   - Term prefixed with "?" means NOT (the term must NOT appear).
+//   - Quoted terms ("...") require an exact substring match.
+//   - Terms without quotes use substring matching; "*" inside a term is a wildcard.
+func filterPatternMatches(pattern, message string) bool {
+	terms := parseFilterPatternTerms(pattern)
+
+	for _, term := range terms {
+		negate := strings.HasPrefix(term, "?")
+		t := term
+		if negate {
+			t = term[1:]
+		}
+
+		hit := filterTermMatches(t, message)
+		if negate == hit {
+			// negate && hit => excluded term found; !negate && !hit => required term missing.
+			return false
+		}
+	}
+
+	return true
+}
+
+// parseFilterPatternTerms splits a filter pattern into individual terms,
+// respecting double-quoted phrases.
+func parseFilterPatternTerms(pattern string) []string {
+	var terms []string
+	var cur strings.Builder
+	inQuote := false
+
+	for i := range len(pattern) {
+		ch := pattern[i]
+
+		switch {
+		case ch == '"':
+			inQuote = !inQuote
+			cur.WriteByte(ch)
+		case ch == ' ' && !inQuote:
+			if cur.Len() > 0 {
+				terms = append(terms, cur.String())
+				cur.Reset()
+			}
+		default:
+			cur.WriteByte(ch)
+		}
+	}
+
+	if cur.Len() > 0 {
+		terms = append(terms, cur.String())
+	}
+
+	return terms
+}
+
+// filterTermMatches returns true when the term matches the message.
+// Quoted terms require an exact substring match; unquoted terms with "*"
+// use wildcard matching; otherwise a simple substring match is used.
+func filterTermMatches(term, message string) bool {
+	if len(term) >= 2 && term[0] == '"' && term[len(term)-1] == '"' {
+		return strings.Contains(message, term[1:len(term)-1])
+	}
+
+	if !strings.ContainsRune(term, '*') {
+		return strings.Contains(message, term)
+	}
+
+	// Build a regexp from the wildcard term.
+	parts := strings.Split(term, "*")
+	escaped := make([]string, len(parts))
+	for i, p := range parts {
+		escaped[i] = regexp.QuoteMeta(p)
+	}
+
+	re, err := regexp.Compile(strings.Join(escaped, ".*"))
+	if err != nil {
+		return strings.Contains(message, term)
+	}
+
+	return re.MatchString(message)
 }
 
 func filterByTime(events []*OutputLogEvent, startTime, endTime *int64) []*OutputLogEvent {
@@ -851,16 +963,18 @@ func (b *InMemoryBackend) StartQuery(
 		return nil, fmt.Errorf("invalid query: %w", parseErr)
 	}
 
-	// Collect events under a read lock to avoid blocking concurrent writes.
+	// Collect events and execute the query under a single read lock to avoid
+	// observing an inconsistent snapshot (TOCTOU: collect then release then store).
 	b.mu.RLock("StartQuery")
 	allEvents, recordsScanned := b.collectQueryEvents(logGroupNames, startTime, endTime)
+	// Execute the query while still holding the read lock so the result is
+	// consistent with the collected events.
+	results := executeQuery(q, allEvents)
 	b.mu.RUnlock()
 
-	// Execute the query outside the lock — regex matching and sorting can be non-trivial.
-	results := executeQuery(q, allEvents)
 	stats := QueryStatistics{
 		RecordsScanned: recordsScanned,
-		RecordsMatched: float64(len(allEvents)),
+		RecordsMatched: float64(len(results)),
 		BytesScanned:   0,
 	}
 

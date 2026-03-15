@@ -414,15 +414,25 @@ func TestHandler(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "PutRetentionPolicy",
+			name: "PutRetentionPolicy",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"ret-grp"}`)
+			},
 			action:   "PutRetentionPolicy",
-			body:     map[string]any{"logGroupName": "grp", "retentionInDays": 30},
+			body:     map[string]any{"logGroupName": "ret-grp", "retentionInDays": 30},
 			wantCode: http.StatusOK,
 		},
 		{
-			name:     "DeleteRetentionPolicy",
+			name: "DeleteRetentionPolicy",
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"ret-grp"}`)
+				doLogsRequest(t, h, e, "PutRetentionPolicy",
+					`{"logGroupName":"ret-grp","retentionInDays":30}`)
+			},
 			action:   "DeleteRetentionPolicy",
-			body:     map[string]any{"logGroupName": "grp"},
+			body:     map[string]any{"logGroupName": "ret-grp"},
 			wantCode: http.StatusOK,
 		},
 		{

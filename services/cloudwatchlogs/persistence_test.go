@@ -98,3 +98,60 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	err := b.Restore([]byte("not-valid-json"))
 	require.Error(t, err)
 }
+
+func TestHandler_SnapshotRestore_PreservesTags(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	_, err := b.CreateLogGroup("tagged-group")
+	require.NoError(t, err)
+
+	h := cloudwatchlogs.NewHandler(b)
+	snap := h.Snapshot()
+	require.NotNil(t, snap)
+
+	// Restore into a fresh handler.
+	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	h2 := cloudwatchlogs.NewHandler(b2)
+	require.NoError(t, h2.Restore(snap))
+
+	// Log group should be present in the restored backend.
+	groups, _, gErr := b2.DescribeLogGroups("", "", 100)
+	require.NoError(t, gErr)
+	require.Len(t, groups, 1)
+	assert.Equal(t, "tagged-group", groups[0].LogGroupName)
+}
+
+func TestHandler_SnapshotRestore_InvalidData(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	h := cloudwatchlogs.NewHandler(b)
+	err := h.Restore([]byte("not-valid-json"))
+	require.Error(t, err)
+}
+
+func TestInMemoryBackend_SnapshotRestore_PreservesRetention(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	_, err := b.CreateLogGroup("ret-grp")
+	require.NoError(t, err)
+	require.NoError(t, b.SetRetentionPolicy("ret-grp", func() *int32 {
+		v := int32(14)
+
+		return &v
+	}()))
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(snap))
+
+	groups, _, err := b2.DescribeLogGroups("", "", 100)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	require.NotNil(t, groups[0].RetentionInDays)
+	assert.Equal(t, int32(14), *groups[0].RetentionInDays)
+}

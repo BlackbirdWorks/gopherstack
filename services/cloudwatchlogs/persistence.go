@@ -2,6 +2,8 @@ package cloudwatchlogs
 
 import (
 	"encoding/json"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type backendSnapshot struct {
@@ -74,22 +76,95 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
+// handlerSnapshot is the full persisted state for a Handler, combining both
+// backend state and the handler-level tag data that lives outside the backend.
+type handlerSnapshot struct {
+	Tags    map[string]map[string]string `json:"tags,omitempty"`
+	Backend []byte                       `json:"backend"`
+}
+
+// Snapshot implements persistence.Persistable by serialising both the backend
+// state and the handler-owned tag data.
 func (h *Handler) Snapshot() []byte {
 	type snapshotter interface{ Snapshot() []byte }
+
+	var backendData []byte
 	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot()
+		backendData = s.Snapshot()
 	}
+
+	// Collect tags outside the backend lock.
+	h.tagsMu.RLock("Snapshot")
+	tagMap := make(map[string]map[string]string, len(h.tags))
+	for k, t := range h.tags {
+		tagMap[k] = t.Clone()
+	}
+	h.tagsMu.RUnlock()
+
+	snap := handlerSnapshot{
+		Backend: backendData,
+		Tags:    tagMap,
+	}
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return nil
+	}
+
+	return data
+}
+
+// Restore implements persistence.Persistable by restoring both the backend
+// state and the handler-owned tag data.
+func (h *Handler) Restore(data []byte) error {
+	// Attempt to decode as the combined handlerSnapshot format first.
+	var snap handlerSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+
+	if err := h.restoreBackend(snap.Backend, data); err != nil {
+		return err
+	}
+
+	h.restoreTags(snap.Tags)
 
 	return nil
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
-func (h *Handler) Restore(data []byte) error {
+// restoreBackend restores backend state from the snapshot.
+// If backendData is non-nil it came from the new combined format; otherwise the
+// caller should fall back to the raw data (legacy bare-backend format).
+func (h *Handler) restoreBackend(backendData, rawData []byte) error {
 	type restorer interface{ Restore([]byte) error }
-	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(data)
+
+	r, ok := h.Backend.(restorer)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	src := backendData
+	if src == nil {
+		src = rawData
+	}
+
+	return r.Restore(src)
+}
+
+// restoreTags merges the persisted tag map back into the handler's tag store.
+func (h *Handler) restoreTags(tagMap map[string]map[string]string) {
+	if len(tagMap) == 0 {
+		return
+	}
+
+	h.tagsMu.Lock("Restore")
+	defer h.tagsMu.Unlock()
+
+	for resourceID, kv := range tagMap {
+		if h.tags[resourceID] == nil {
+			h.tags[resourceID] = tags.New("cwl." + resourceID + ".tags")
+		}
+
+		h.tags[resourceID].Merge(kv)
+	}
 }
