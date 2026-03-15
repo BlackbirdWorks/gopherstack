@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -325,7 +326,7 @@ func TestKMSKeyRotationMultipleRounds(t *testing.T) {
 	blobs := make([][]byte, rounds)
 
 	for i := range rounds {
-		payloads[i] = []byte("payload-round-" + string(rune('0'+i)))
+		payloads[i] = []byte("payload-round-" + strconv.Itoa(i))
 		encOut, encErr := b.Encrypt(&kms.EncryptInput{
 			KeyID:     key.KeyMetadata.KeyID,
 			Plaintext: payloads[i],

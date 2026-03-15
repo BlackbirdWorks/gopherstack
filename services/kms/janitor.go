@@ -60,7 +60,7 @@ func (j *Janitor) sweepExpiredKeys(ctx context.Context) {
 	now := float64(time.Now().UnixNano()) / nanoToSeconds
 	purged := 0
 
-	j.Backend.mu.Lock("KMSJanitor")
+	j.Backend.mu.Lock("sweepExpiredKeys")
 
 	for keyID, key := range j.Backend.keys {
 		if key.KeyState != KeyStatePendingDeletion {

@@ -810,20 +810,15 @@ func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error
 	}
 
 	// Rotate the key material for symmetric keys, preserving history for decryption.
+	// Generate new material first; only update state if generation succeeds.
 	if key.KeySpec == keySpecSymmetric {
-		if current := b.keyMaterials[key.KeyID]; current != nil {
-			b.keyMaterialHistory[key.KeyID] = append(b.keyMaterialHistory[key.KeyID], current)
-		}
-
 		newKM, kmErr := generateKeyMaterial(key.KeySpec)
 		if kmErr != nil {
-			// Roll back history if we can't generate new material.
-			if len(b.keyMaterialHistory[key.KeyID]) > 0 {
-				b.keyMaterials[key.KeyID] = b.keyMaterialHistory[key.KeyID][len(b.keyMaterialHistory[key.KeyID])-1]
-				b.keyMaterialHistory[key.KeyID] = b.keyMaterialHistory[key.KeyID][:len(b.keyMaterialHistory[key.KeyID])-1]
-			}
-
 			return fmt.Errorf("rotating key material: %w", kmErr)
+		}
+
+		if current := b.keyMaterials[key.KeyID]; current != nil {
+			b.keyMaterialHistory[key.KeyID] = append(b.keyMaterialHistory[key.KeyID], current)
 		}
 
 		b.keyMaterials[key.KeyID] = newKM
