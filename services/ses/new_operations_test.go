@@ -75,6 +75,9 @@ func TestSESBackend_Reset(t *testing.T) {
 	require.NoError(t, b.CreateTemplate(ses.EmailTemplate{TemplateName: "t1"}))
 	require.NoError(t, b.CreateConfigurationSet("cs1"))
 
+	// Override TTL before Reset.
+	b.SetEmailTTL(time.Millisecond)
+
 	b.Reset()
 
 	assert.Equal(t, 0, b.IdentityCount())
@@ -82,6 +85,8 @@ func TestSESBackend_Reset(t *testing.T) {
 	assert.Equal(t, 0, b.EmailsByIDCount())
 	assert.Equal(t, 0, b.TemplateCount())
 	assert.Equal(t, 0, b.ConfigSetCount())
+	// TTL must be restored to the default.
+	assert.Equal(t, ses.DefaultEmailTTL, b.GetEmailTTL())
 }
 
 func TestSESHandler_Reset(t *testing.T) {
@@ -774,4 +779,92 @@ func TestSESPersistence_TemplatesAndConfigSetsRoundTrip(t *testing.T) {
 			tt.verify(t, fresh)
 		})
 	}
+}
+
+// ---- GetSendQuota 24h window ----
+
+func TestSESBackend_GetSendQuota_CountsOnlyLast24h(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	// Verify that a freshly sent email counts toward the 24h quota.
+	require.NoError(t, b.VerifyEmailIdentity("q24@test.com"))
+
+	_, err := b.SendEmail("q24@test.com", []string{"to@test.com"}, "s", "", "b")
+	require.NoError(t, err)
+
+	q := b.GetSendQuota()
+	assert.InDelta(t, float64(200), q.Max24HourSend, 0)
+	assert.InDelta(t, float64(1), q.MaxSendRate, 0)
+	assert.InDelta(t, float64(1), q.SentLast24Hours, 0)
+}
+
+// ---- GetSendStatistics 14-day window ----
+
+func TestSESBackend_GetSendStatistics_14DayWindow(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	require.NoError(t, b.VerifyEmailIdentity("stat14@test.com"))
+
+	// A recently sent email should appear in the stats.
+	_, err := b.SendEmail("stat14@test.com", []string{"to@test.com"}, "recent", "", "b")
+	require.NoError(t, err)
+
+	points := b.GetSendStatistics()
+	require.Len(t, points, 1)
+	assert.InDelta(t, float64(1), points[0].DeliveryAttempts, 0)
+}
+
+// ---- Restore prunes expired and excess emails ----
+
+func TestSESPersistence_RestorePrunesExpiredEmails(t *testing.T) {
+	t.Parallel()
+
+	original := ses.NewInMemoryBackend()
+	require.NoError(t, original.VerifyEmailIdentity("prune@test.com"))
+
+	_, err := original.SendEmail("prune@test.com", []string{"to@test.com"}, "keep", "", "b")
+	require.NoError(t, err)
+
+	snap := original.Snapshot()
+	require.NotNil(t, snap)
+
+	// Restore into a backend with a very short TTL so the snapshot email is
+	// considered expired at restore time.
+	fresh := ses.NewInMemoryBackend()
+	fresh.SetEmailTTL(time.Nanosecond) // instant expiry
+
+	time.Sleep(time.Millisecond) // ensure TTL has passed
+
+	require.NoError(t, fresh.Restore(snap))
+
+	// The expired email must have been pruned.
+	assert.Equal(t, 0, fresh.EmailCount())
+	assert.Equal(t, 0, fresh.EmailsByIDCount())
+}
+
+func TestSESPersistence_RestoreCapsToBound(t *testing.T) {
+	t.Parallel()
+
+	original := ses.NewInMemoryBackend()
+	require.NoError(t, original.VerifyEmailIdentity("cap@test.com"))
+
+	// Send MaxRetainedEmails+10 emails and snapshot.
+	for range ses.MaxRetainedEmails + 10 {
+		_, err := original.SendEmail("cap@test.com", []string{"to@test.com"}, "s", "", "b")
+		require.NoError(t, err)
+	}
+
+	// The original should already be capped by SendEmail eviction.
+	assert.Equal(t, ses.MaxRetainedEmails, original.EmailCount())
+
+	snap := original.Snapshot()
+	require.NotNil(t, snap)
+
+	fresh := ses.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(snap))
+
+	assert.Equal(t, ses.MaxRetainedEmails, fresh.EmailCount())
+	assert.Equal(t, fresh.EmailCount(), fresh.EmailsByIDCount())
 }

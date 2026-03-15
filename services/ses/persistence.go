@@ -3,6 +3,7 @@ package ses
 import (
 	"encoding/json"
 	"maps"
+	"time"
 )
 
 type backendSnapshot struct {
@@ -74,11 +75,29 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	b.identities = snap.Identities
-	b.emails = snap.Emails
 	b.templates = snap.Templates
 	b.configSets = snap.ConfigSets
 
-	// Rebuild O(1) lookup map from the restored slice.
+	// Drop emails outside the current TTL window and cap to maxRetainedEmails
+	// so that memory is bounded immediately after restore.
+	cutoff := time.Now().Add(-b.emailTTL)
+
+	start := 0
+
+	for start < len(snap.Emails) && snap.Emails[start].Timestamp.Before(cutoff) {
+		start++
+	}
+
+	valid := snap.Emails[start:]
+
+	if len(valid) > maxRetainedEmails {
+		valid = valid[len(valid)-maxRetainedEmails:]
+	}
+
+	b.emails = make([]Email, len(valid))
+	copy(b.emails, valid)
+
+	// Rebuild O(1) lookup map from the pruned slice.
 	b.emailsByID = make(map[string]Email, len(b.emails))
 	for _, e := range b.emails {
 		b.emailsByID[e.MessageID] = e

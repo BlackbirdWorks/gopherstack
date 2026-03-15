@@ -55,3 +55,11 @@ func (b *InMemoryBackend) SetEmailTTL(d time.Duration) {
 
 	b.emailTTL = d
 }
+
+// GetEmailTTL returns the current email TTL — useful for asserting Reset restores it.
+func (b *InMemoryBackend) GetEmailTTL() time.Duration {
+	b.mu.RLock("GetEmailTTL")
+	defer b.mu.RUnlock()
+
+	return b.emailTTL
+}

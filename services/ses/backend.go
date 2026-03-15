@@ -91,6 +91,7 @@ func (b *InMemoryBackend) Reset() {
 	b.emailsByID = make(map[string]Email)
 	b.templates = make(map[string]EmailTemplate)
 	b.configSets = make(map[string]struct{})
+	b.emailTTL = defaultEmailTTL
 }
 
 // ttl returns the current email TTL under a read lock.
@@ -344,7 +345,8 @@ func (b *InMemoryBackend) CreateConfigurationSet(name string) error {
 	return nil
 }
 
-// DeleteConfigurationSet removes a configuration set. Idempotent.
+// DeleteConfigurationSet removes a configuration set.
+// Returns ErrConfigSetNotFound if the set does not exist, matching real AWS SES behavior.
 func (b *InMemoryBackend) DeleteConfigurationSet(name string) error {
 	b.mu.Lock("DeleteConfigurationSet")
 	defer b.mu.Unlock()
@@ -383,14 +385,26 @@ type SendQuota struct {
 }
 
 // GetSendQuota returns simulated quota values.
+// SentLast24Hours counts only emails sent within the past 24 hours.
 func (b *InMemoryBackend) GetSendQuota() SendQuota {
 	b.mu.RLock("GetSendQuota")
 	defer b.mu.RUnlock()
 
+	cutoff := time.Now().UTC().Add(-24 * time.Hour)
+	sent := 0
+
+	for i := len(b.emails) - 1; i >= 0; i-- {
+		if b.emails[i].Timestamp.Before(cutoff) {
+			break
+		}
+
+		sent++
+	}
+
 	return SendQuota{
 		Max24HourSend:   maxSendQuota24Hours,
 		MaxSendRate:     maxSendRate,
-		SentLast24Hours: float64(len(b.emails)),
+		SentLast24Hours: float64(sent),
 	}
 }
 
@@ -403,15 +417,26 @@ type SendDataPoint struct {
 	Rejects          float64   `json:"rejects"`
 }
 
-// GetSendStatistics returns aggregated send data points (one per hour, last 14 days).
+// sendStatisticsDays is the number of days of send history returned by GetSendStatistics,
+// matching real AWS SES behavior (last 2 weeks / 14 days).
+const sendStatisticsDays = 14
+
+// GetSendStatistics returns aggregated send data points (one per hour) for the last 14 days,
+// matching real AWS SES behavior.
 func (b *InMemoryBackend) GetSendStatistics() []SendDataPoint {
 	b.mu.RLock("GetSendStatistics")
 	defer b.mu.RUnlock()
 
-	// Aggregate emails into hourly buckets.
+	cutoff := time.Now().UTC().Add(-sendStatisticsDays * 24 * time.Hour)
+
+	// Aggregate emails into hourly buckets within the 14-day window.
 	buckets := make(map[time.Time]float64)
 
 	for _, e := range b.emails {
+		if e.Timestamp.Before(cutoff) {
+			continue
+		}
+
 		hour := e.Timestamp.UTC().Truncate(time.Hour)
 		buckets[hour]++
 	}
