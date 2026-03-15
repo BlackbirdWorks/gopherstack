@@ -44,16 +44,6 @@ func (b *InMemoryBackend) ResourcesEntryExists(stackID string) bool {
 	return ok
 }
 
-// StackIDIndexEntryExists reports whether b.stackIDIndex has an entry for stackID.
-func (b *InMemoryBackend) StackIDIndexEntryExists(stackID string) bool {
-	b.mu.RLock("StackIDIndexEntryExists")
-	defer b.mu.RUnlock()
-
-	_, ok := b.stackIDIndex[stackID]
-
-	return ok
-}
-
 // ChangeSetsEntryExists reports whether b.changeSets has an entry for stackName.
 func (b *InMemoryBackend) ChangeSetsEntryExists(stackName string) bool {
 	b.mu.RLock("ChangeSetsEntryExists")

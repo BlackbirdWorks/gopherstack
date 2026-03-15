@@ -697,7 +697,6 @@ func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) erro
 	delete(b.stackPolicies, stack.StackID)
 	delete(b.events, stack.StackID)
 	delete(b.resources, stack.StackID)
-	delete(b.stackIDIndex, stack.StackID)
 	delete(b.changeSets, stack.StackName)
 	b.pruneDriftDetections(stack.StackID)
 
