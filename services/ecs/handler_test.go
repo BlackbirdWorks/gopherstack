@@ -1616,7 +1616,7 @@ func (r *failingRunner) RunTask(_ *ecs.Task, _ *ecs.TaskDefinition) error { retu
 func (r *failingRunner) StopTask(_ *ecs.Task) error                       { return nil }
 
 // TestECS_Backend_RunTask_ProvisioningStaysOnRunnerError verifies that when the
-// TaskRunner returns an error, the task status remains at PROVISIONING.
+// TaskRunner returns an error, the task transitions to STOPPED (not stuck in PROVISIONING).
 func TestECS_Backend_RunTask_ProvisioningStaysOnRunnerError(t *testing.T) {
 	t.Parallel()
 
@@ -1635,9 +1635,12 @@ func TestECS_Backend_RunTask_ProvisioningStaysOnRunnerError(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 
-	// Task should remain PROVISIONING because the runner failed.
-	assert.Equal(t, "PROVISIONING", tasks[0].LastStatus)
-	assert.Equal(t, "RUNNING", tasks[0].DesiredStatus)
+	// Task must transition to STOPPED when the runner fails rather than staying
+	// in PROVISIONING forever, which would be a resource leak with wrong semantics.
+	assert.Equal(t, "STOPPED", tasks[0].LastStatus)
+	assert.Equal(t, "STOPPED", tasks[0].DesiredStatus)
+	assert.NotNil(t, tasks[0].StoppedAt)
+	assert.NotEmpty(t, tasks[0].StoppedReason)
 }
 
 // TestECS_Backend_RunTask_TransitionToRunningWithRunner verifies that when the

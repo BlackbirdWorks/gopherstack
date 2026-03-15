@@ -50,6 +50,9 @@ func TestSESDashboard(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Verify the sender identity before sending.
+	require.NoError(t, stack.SESHandler.Backend.VerifyEmailIdentity("sender@example.com"))
+
 	// Send an email via SES so that it appears in the inbox.
 	_, err = stack.SESHandler.Backend.SendEmail(
 		"sender@example.com",

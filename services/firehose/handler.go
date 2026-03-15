@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -185,6 +186,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return c.JSON(http.StatusNotFound,
 			map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()})
 	case errors.Is(err, ErrAlreadyExists), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
+		errors.Is(err, awserr.ErrInvalidParameter),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	default:

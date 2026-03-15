@@ -2,6 +2,7 @@ package firehose_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 
@@ -12,6 +13,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
+
+var errLambdaUnavailable = errors.New("lambda unavailable")
 
 func TestCreateDeliveryStream(t *testing.T) {
 	t.Parallel()
@@ -478,8 +481,10 @@ func TestS3Delivery_NoS3Backend(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	overLimit := make([]byte, 2*1024*1024)
-	require.NoError(t, b.PutRecord("no-s3-stream", overLimit))
+	// Two records of 512 KB each sum to 1 MB and would trigger a size-based flush —
+	// but with no S3 backend wired up, no delivery should be attempted.
+	require.NoError(t, b.PutRecord("no-s3-stream", make([]byte, 512*1024)))
+	require.NoError(t, b.PutRecord("no-s3-stream", make([]byte, 512*1024)))
 }
 
 func TestLambdaTransformation_OkRecordsDelivered(t *testing.T) {
@@ -561,6 +566,154 @@ func TestLambdaTransformation_AllDropped(t *testing.T) {
 	assert.Empty(t, s3mock.calls)
 }
 
+// TestDeliverToS3_EmptyRecord verifies that empty records do not cause a panic
+// and are silently skipped during S3 delivery (bug fix: rec[len(rec)-1] panic).
+func TestDeliverToS3_EmptyRecord(t *testing.T) {
+	t.Parallel()
+
+	s3mock := &mockS3Storer{}
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	b.SetS3Backend(s3mock)
+
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+		Name: "empty-rec-stream",
+		S3Destination: &firehose.S3DestinationDescription{
+			BucketARN: "arn:aws:s3:::empty-bucket",
+		},
+	})
+	require.NoError(t, err)
+
+	// Put an empty record followed by a non-empty one — must not panic.
+	require.NoError(t, b.PutRecord("empty-rec-stream", []byte{}))
+	require.NoError(t, b.PutRecord("empty-rec-stream", []byte("data")))
+	b.FlushAll(t.Context())
+
+	// The non-empty record is delivered; empty records are skipped.
+	require.Len(t, s3mock.calls, 1)
+	assert.Contains(t, string(s3mock.calls[0].body), "data")
+}
+
+// TestDeliverToS3_AllEmptyRecords verifies that if every record in a flush is empty,
+// no S3 PutObject call is made (avoids writing empty objects).
+func TestDeliverToS3_AllEmptyRecords(t *testing.T) {
+	t.Parallel()
+
+	s3mock := &mockS3Storer{}
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	b.SetS3Backend(s3mock)
+
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+		Name: "all-empty-stream",
+		S3Destination: &firehose.S3DestinationDescription{
+			BucketARN: "arn:aws:s3:::empty-bucket",
+		},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.PutRecord("all-empty-stream", []byte{}))
+	require.NoError(t, b.PutRecord("all-empty-stream", []byte{}))
+	b.FlushAll(t.Context())
+
+	// All records empty → no S3 delivery.
+	assert.Empty(t, s3mock.calls)
+}
+
+// TestDeleteDeliveryStream_ClosesTags verifies that Tags resources are released when a
+// stream is deleted, preventing Prometheus registry leaks.
+func TestDeleteDeliveryStream_ClosesTags(t *testing.T) {
+	t.Parallel()
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+		Name: "tag-leak-stream",
+	})
+	require.NoError(t, err)
+
+	// Tag the stream so the Tags collection is active.
+	require.NoError(t, b.TagDeliveryStream("tag-leak-stream", map[string]string{"env": "test"}))
+
+	// Delete must succeed without panicking; tags are closed internally.
+	require.NoError(t, b.DeleteDeliveryStream("tag-leak-stream"))
+
+	// Subsequent lookup must return not-found.
+	_, descErr := b.DescribeDeliveryStream("tag-leak-stream")
+	require.Error(t, descErr)
+	assert.ErrorIs(t, descErr, firehose.ErrNotFound)
+}
+
+// TestLambdaTransformation_ErrorDropsRecords verifies that a Lambda invocation error
+// causes the records to be dropped (not silently delivered as originals).
+func TestLambdaTransformation_ErrorDropsRecords(t *testing.T) {
+	t.Parallel()
+
+	s3mock := &mockS3Storer{}
+	lambdaMock := &mockLambdaInvoker{err: errLambdaUnavailable}
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	b.SetS3Backend(s3mock)
+	b.SetLambdaBackend(lambdaMock)
+
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+		Name: "err-lambda-stream",
+		S3Destination: &firehose.S3DestinationDescription{
+			BucketARN: "arn:aws:s3:::err-bucket",
+			ProcessingConfiguration: &firehose.ProcessingConfiguration{
+				Enabled: true,
+				Processors: []firehose.Processor{
+					{
+						Type: "Lambda",
+						Parameters: []firehose.ProcessorParameter{
+							{ParameterName: "LambdaArn", ParameterValue: "my-fn"},
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.PutRecord("err-lambda-stream", []byte("input")))
+	b.FlushAll(t.Context())
+
+	// Lambda error → records must not be delivered to S3.
+	assert.Empty(t, s3mock.calls)
+}
+
+// TestPutRecord_FlushSnapshotUnderLock verifies that after a size-based flush the
+// buffer is reset atomically: a subsequent PutRecord starts with a zeroed counter and
+// the old records are not double-delivered.
+func TestPutRecord_FlushSnapshotUnderLock(t *testing.T) {
+	t.Parallel()
+
+	s3mock := &mockS3Storer{}
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	b.SetS3Backend(s3mock)
+
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+		Name: "atomic-flush-stream",
+		S3Destination: &firehose.S3DestinationDescription{
+			BucketARN: "arn:aws:s3:::atomic-bucket",
+			BufferingHints: &firehose.BufferingHints{
+				SizeInMBs:         1,
+				IntervalInSeconds: 300,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Two records of 512 KB each sum to 1 MB and trigger one size-based flush.
+	require.NoError(t, b.PutRecord("atomic-flush-stream", make([]byte, 512*1024)))
+	require.NoError(t, b.PutRecord("atomic-flush-stream", make([]byte, 512*1024)))
+
+	// After the flush, the buffer is zeroed; a small subsequent record should not
+	// trigger another flush automatically.
+	require.NoError(t, b.PutRecord("atomic-flush-stream", []byte("small")))
+
+	// Only one S3 delivery should have occurred (from the over-limit puts).
+	assert.Len(t, s3mock.calls, 1)
+}
+
 func TestUpdateDestination(t *testing.T) {
 	t.Parallel()
 
@@ -607,4 +760,73 @@ func TestUpdateDestination(t *testing.T) {
 			assert.Equal(t, "arn:aws:s3:::new-bucket", s.S3Destination.BucketARN)
 		})
 	}
+}
+
+// TestListDeliveryStreams_SortedOrder verifies that ListDeliveryStreams returns names
+// in alphabetical order, matching AWS Firehose API behaviour.
+func TestListDeliveryStreams_SortedOrder(t *testing.T) {
+	t.Parallel()
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	for _, name := range []string{"zebra-stream", "alpha-stream", "middle-stream"} {
+		_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: name})
+		require.NoError(t, err)
+	}
+
+	names := b.ListDeliveryStreams()
+	require.Len(t, names, 3)
+	assert.Equal(t, []string{"alpha-stream", "middle-stream", "zebra-stream"}, names)
+}
+
+// TestPutRecord_RecordTooLarge verifies that records exceeding the 1,000 KB limit
+// are rejected with ErrRecordTooLarge.
+func TestPutRecord_RecordTooLarge(t *testing.T) {
+	t.Parallel()
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "limit-stream"})
+	require.NoError(t, err)
+
+	oversized := make([]byte, 1_001*1024) // 1,001 KB — one byte over the limit
+	putErr := b.PutRecord("limit-stream", oversized)
+	require.Error(t, putErr)
+	assert.ErrorIs(t, putErr, firehose.ErrRecordTooLarge)
+}
+
+// TestPutRecordBatch_TooManyRecords verifies that a batch exceeding 500 records
+// is rejected with ErrBatchTooLarge.
+func TestPutRecordBatch_TooManyRecords(t *testing.T) {
+	t.Parallel()
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "batch-limit-stream"})
+	require.NoError(t, err)
+
+	records := make([][]byte, 501)
+	for i := range records {
+		records[i] = []byte("x")
+	}
+
+	_, putErr := b.PutRecordBatch("batch-limit-stream", records)
+	require.Error(t, putErr)
+	assert.ErrorIs(t, putErr, firehose.ErrBatchTooLarge)
+}
+
+// TestPutRecordBatch_RecordInBatchTooLarge verifies that individual records within a
+// batch exceeding the 1,000 KB limit are also rejected with ErrRecordTooLarge.
+func TestPutRecordBatch_RecordInBatchTooLarge(t *testing.T) {
+	t.Parallel()
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "batch-rec-limit-stream"})
+	require.NoError(t, err)
+
+	records := [][]byte{
+		[]byte("ok"),
+		make([]byte, 1_001*1024), // oversized second record
+	}
+
+	_, putErr := b.PutRecordBatch("batch-rec-limit-stream", records)
+	require.Error(t, putErr)
+	assert.ErrorIs(t, putErr, firehose.ErrRecordTooLarge)
 }

@@ -43,6 +43,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	// Close Tags on any streams that are being replaced to prevent
+	// Prometheus registry leaks.
+	for _, s := range b.streams {
+		if s.Tags != nil {
+			s.Tags.Close()
+		}
+	}
+
 	if snap.Streams == nil {
 		snap.Streams = make(map[string]*DeliveryStream)
 	}
@@ -50,6 +58,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	now := time.Now()
 	for _, s := range snap.Streams {
 		s.lastFlush = now
+
+		// Recalculate bufferSizeBytes because it is not persisted (unexported field).
+		// Without this, size-based flush thresholds would never fire after a restore.
+		s.bufferSizeBytes = 0
+		for _, rec := range s.Records {
+			s.bufferSizeBytes += len(rec)
+		}
 	}
 
 	b.streams = snap.Streams

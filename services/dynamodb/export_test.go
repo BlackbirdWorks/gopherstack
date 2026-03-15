@@ -220,3 +220,19 @@ func (db *InMemoryDB) ExprCachePut(key string, value any) {
 func NewExpressionCacheWithTTL(capacity int, ttl time.Duration) *ExpressionCache {
 	return newExpressionCacheWithTTL(capacity, ttl)
 }
+
+// SweepBefore exposes ExpressionCache.sweepBefore for deterministic tests.
+// It removes entries whose TTL expired before the given cutoff time, allowing
+// tests to verify sweep behaviour without relying on wall-clock timing.
+func (c *ExpressionCache) SweepBefore(cutoff time.Time) { c.sweepBefore(cutoff) }
+
+// HasEntry reports whether key is present in the cache without performing lazy
+// TTL eviction. Used after SweepBefore to inspect raw cache state.
+func (c *ExpressionCache) HasEntry(key string) bool { return c.has(key) }
+
+// PutAt exposes ExpressionCache.putAt for tests that need deterministic expiry.
+// It adds an entry with the given explicit expiresAt timestamp instead of computing
+// one from the cache TTL.
+func (c *ExpressionCache) PutAt(key string, value any, expiresAt time.Time) {
+	c.putAt(key, value, expiresAt)
+}

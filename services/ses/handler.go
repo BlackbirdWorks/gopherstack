@@ -171,7 +171,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case "VerifyEmailIdentity":
 			resp, opErr = h.handleVerifyEmailIdentity(vals, reqID)
 		case "DeleteIdentity":
-			resp, opErr = h.handleDeleteIdentity(vals, reqID)
+			resp = h.handleDeleteIdentity(vals, reqID)
 		case "ListIdentities":
 			resp = h.handleListIdentities(vals, reqID)
 		case "GetIdentityVerificationAttributes":
@@ -218,17 +218,15 @@ func (h *Handler) handleVerifyEmailIdentity(vals url.Values, reqID string) (any,
 	}, nil
 }
 
-func (h *Handler) handleDeleteIdentity(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDeleteIdentity(vals url.Values, reqID string) any {
 	identity := vals.Get("Identity")
 
-	if err := h.Backend.DeleteIdentity(identity); err != nil {
-		return nil, err
-	}
+	h.Backend.DeleteIdentity(identity)
 
 	return &deleteIdentityResponse{
 		Xmlns:     sesXMLNS,
 		RequestID: reqID,
-	}, nil
+	}
 }
 
 func (h *Handler) handleListIdentities(vals url.Values, reqID string) any {
@@ -332,6 +330,8 @@ func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr err
 		code = "NoSuchEntity"
 	case errors.Is(opErr, ErrInvalidParameter):
 		code = "InvalidParameterValue"
+	case errors.Is(opErr, ErrMessageRejected):
+		code = "MessageRejected"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError

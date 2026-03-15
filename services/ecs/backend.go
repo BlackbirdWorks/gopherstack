@@ -304,11 +304,23 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	key := clusterKey(clusterName)
 
 	b.mu.Lock("DeleteCluster")
-	defer b.mu.Unlock()
 
 	c, ok := b.clusters[key]
 	if !ok {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
+	}
+
+	// Snapshot task pointers while still holding the lock so we can stop their
+	// Docker containers after releasing it.  Performing Docker API calls under
+	// the backend lock would unnecessarily serialize all other operations.
+	tasksToStop := make([]*Task, 0, len(b.tasks[key]))
+
+	if b.runner != nil {
+		for _, task := range b.tasks[key] {
+			tasksToStop = append(tasksToStop, task)
+		}
 	}
 
 	// Delete task sets for all services in this cluster before removing the services map,
@@ -325,6 +337,14 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	delete(b.containerInstances, key)
 
 	cp := *c
+
+	// Release the lock before issuing Docker API calls so other backend
+	// operations are not serialized behind potentially slow container stops.
+	b.mu.Unlock()
+
+	for _, task := range tasksToStop {
+		_ = b.runner.StopTask(task)
+	}
 
 	return &cp, nil
 }
@@ -666,6 +686,13 @@ func (b *InMemoryBackend) DeleteService(cluster, serviceName string) (*Service, 
 	return &cp, nil
 }
 
+// taskWork pairs a task with its definition for lock-free Docker API calls and
+// for collecting the final task state when building the API response.
+type taskWork struct {
+	task *Task
+	td   *TaskDefinition
+}
+
 // RunTask starts one or more tasks on the given cluster.
 func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 	if input.TaskDefinition == "" {
@@ -680,12 +707,13 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
 	b.mu.Lock("RunTask")
-	defer b.mu.Unlock()
 
 	b.ensureClusterLocked(clusterName)
 
 	td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
 	if err != nil {
+		b.mu.Unlock()
+
 		return nil, err
 	}
 
@@ -696,7 +724,10 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 		launchType = launchTypeFargate
 	}
 
-	tasks := make([]Task, 0, count)
+	// Create all task entries in PROVISIONING state under the lock so
+	// they are immediately visible, then release the lock before issuing
+	// Docker API calls that may block.
+	work := make([]taskWork, 0, count)
 
 	for range count {
 		taskArn := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", b.region, b.accountID, clusterName, uuid.NewString())
@@ -714,20 +745,60 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 		}
 
 		b.tasks[clusterName][taskArn] = task
+		work = append(work, taskWork{task: task, td: td})
+	}
 
-		if b.runner != nil {
-			// Transition task to RUNNING after successful container start.
-			if runErr := b.runner.RunTask(task, td); runErr == nil {
-				task.LastStatus = statusRunning
-			}
-		} else {
+	b.mu.Unlock()
+
+	// Start containers outside the backend lock to avoid blocking unrelated
+	// operations during potentially slow Docker API calls (image pull, etc.).
+	for _, w := range work {
+		if b.runner == nil {
 			// No runtime: immediately move to RUNNING (simulated).
-			task.LastStatus = statusRunning
+			b.mu.Lock("RunTask-setRunning")
+
+			if w.task.LastStatus == statusProvisioning {
+				w.task.LastStatus = statusRunning
+			}
+
+			b.mu.Unlock()
+
+			continue
 		}
 
-		cp := *task
+		runErr := b.runner.RunTask(w.task, w.td)
+
+		b.mu.Lock("RunTask-setRunning")
+
+		// Only update status if no concurrent operation (e.g. StopTask) has
+		// already changed the task away from PROVISIONING.
+		if w.task.LastStatus == statusProvisioning {
+			if runErr == nil {
+				w.task.LastStatus = statusRunning
+			} else {
+				// Container start failed — mark STOPPED so the task does not
+				// remain in PROVISIONING permanently (resource leak + wrong semantics).
+				now := time.Now()
+				w.task.LastStatus = statusStopped
+				w.task.DesiredStatus = statusStopped
+				w.task.StoppedAt = &now
+				w.task.StoppedReason = fmt.Sprintf("container start failed: %v", runErr)
+			}
+		}
+
+		b.mu.Unlock()
+	}
+
+	// Snapshot final task states to build the API response.
+	b.mu.RLock("RunTask-response")
+
+	tasks := make([]Task, 0, len(work))
+	for _, w := range work {
+		cp := *w.task
 		tasks = append(tasks, cp)
 	}
+
+	b.mu.RUnlock()
 
 	return tasks, nil
 }
@@ -772,20 +843,19 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 	clusterName := clusterKey(b.resolveCluster(cluster))
 
 	b.mu.Lock("StopTask")
-	defer b.mu.Unlock()
 
 	clusterTasks, ok := b.tasks[clusterName]
 	if !ok {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, cluster)
 	}
 
 	task, ok := clusterTasks[taskArn]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrTaskNotFound, taskArn)
-	}
+		b.mu.Unlock()
 
-	if b.runner != nil {
-		_ = b.runner.StopTask(task)
+		return nil, fmt.Errorf("%w: %s", ErrTaskNotFound, taskArn)
 	}
 
 	now := time.Now()
@@ -795,6 +865,14 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 	task.StoppedReason = reason
 
 	cp := *task
+
+	// Release the lock before issuing Docker API calls so other backend
+	// operations are not serialized behind potentially slow container stops.
+	b.mu.Unlock()
+
+	if b.runner != nil {
+		_ = b.runner.StopTask(task)
+	}
 
 	return &cp, nil
 }
@@ -876,7 +954,6 @@ func (b *InMemoryBackend) StartTaskForService(clusterName, serviceName, taskDefi
 // StopOldestServiceTask stops the oldest running task for a service.
 func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string) error {
 	b.mu.Lock("StopOldestServiceTask")
-	defer b.mu.Unlock()
 
 	group := "service:" + serviceName
 
@@ -892,11 +969,9 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 	}
 
 	if oldest == nil {
-		return nil
-	}
+		b.mu.Unlock()
 
-	if b.runner != nil {
-		_ = b.runner.StopTask(oldest)
+		return nil
 	}
 
 	now := time.Now()
@@ -904,6 +979,14 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 	oldest.DesiredStatus = statusStopped
 	oldest.StoppedAt = &now
 	oldest.StoppedReason = "service scale-in"
+
+	// Release the lock before issuing Docker API calls so other backend
+	// operations are not serialized behind potentially slow container stops.
+	b.mu.Unlock()
+
+	if b.runner != nil {
+		_ = b.runner.StopTask(oldest)
+	}
 
 	return nil
 }
