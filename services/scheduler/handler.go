@@ -56,15 +56,57 @@ type scheduleInput struct {
 // Handler is the Echo HTTP handler for EventBridge Scheduler operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	runner  *Runner
+	cancel  context.CancelFunc
 }
 
 // NewHandler creates a new Scheduler handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	return &Handler{
+		Backend: backend,
+		runner:  NewRunner(backend),
+	}
+}
+
+// SetRunner replaces the default runner with the given one.
+// Useful for wiring target invokers before StartWorker is called.
+func (h *Handler) SetRunner(r *Runner) {
+	h.runner = r
+}
+
+// GetRunner returns the handler's Runner so callers can configure target invokers.
+func (h *Handler) GetRunner() *Runner {
+	return h.runner
 }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Scheduler" }
+
+// StartWorker implements service.BackgroundWorker.
+// It starts the schedule runner as a background goroutine.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.runner == nil {
+		return nil
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	h.cancel = cancel
+	h.runner.Start(runCtx)
+
+	return nil
+}
+
+// Shutdown implements service.Shutdowner.
+// It stops the schedule runner goroutine.
+func (h *Handler) Shutdown(_ context.Context) {
+	if h.cancel != nil {
+		h.cancel()
+	}
+}
+
+// Ensure Handler implements service.BackgroundWorker and service.Shutdowner at compile time.
+var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
 
 // GetSupportedOperations returns the list of supported Scheduler operations.
 func (h *Handler) GetSupportedOperations() []string {

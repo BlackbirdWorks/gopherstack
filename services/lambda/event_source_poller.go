@@ -19,7 +19,33 @@ const (
 	arnLambdaPartCount = 7
 	// millisToSeconds converts Unix milliseconds to a float64 second timestamp.
 	millisToSeconds = 1000.0
+	// ddbStreamShardID is the single fixed shard ID used by all DynamoDB streams.
+	ddbStreamShardID = "shardId-00000000000000000001-00000001"
 )
+
+// DynamoDBStreamRecord is a single record from a DynamoDB stream.
+// The image fields use DynamoDB JSON wire format (e.g. {"pk": {"S": "value"}}).
+type DynamoDBStreamRecord struct {
+	NewImage                    map[string]any
+	OldImage                    map[string]any
+	Keys                        map[string]any
+	EventID                     string
+	EventName                   string // INSERT, MODIFY, or REMOVE
+	SequenceNumber              string
+	StreamViewType              string
+	ApproximateCreationDateTime float64 // Unix epoch seconds
+	SizeBytes                   int64
+}
+
+// DynamoDBStreamsReader reads records from a DynamoDB stream.
+// It is implemented by the DynamoDB backend adapter in the CLI wiring layer.
+type DynamoDBStreamsReader interface {
+	// GetStreamShardIterator returns an iterator for the single shard of the stream.
+	// streamARN is the full DynamoDB stream ARN. iteratorType is TRIM_HORIZON or LATEST.
+	GetStreamShardIterator(streamARN, iteratorType string) (string, error)
+	// GetStreamRecords reads up to limit records from the given iterator.
+	GetStreamRecords(iteratorToken string, limit int) ([]DynamoDBStreamRecord, string, error)
+}
 
 // KinesisReader is the interface for reading Kinesis records.
 // It is implemented by the kinesis backend.
@@ -58,18 +84,23 @@ type SQSReader interface {
 	DeleteMessagesLocal(queueARN string, receiptHandles []string) error
 }
 
-// EventSourcePoller polls Kinesis streams and SQS queues for new records and
-// invokes Lambda functions for enabled event source mappings.
+// EventSourcePoller polls Kinesis streams, SQS queues, and DynamoDB streams for
+// new records and invokes Lambda functions for enabled event source mappings.
 type EventSourcePoller struct {
-	kinesisReader  KinesisReader
-	sqsReader      SQSReader
-	lambdaBackend  *InMemoryBackend
-	shardIterators map[string]string
-	mu             *lockmetrics.RWMutex
+	kinesisReader    KinesisReader
+	sqsReader        SQSReader
+	ddbStreamsReader DynamoDBStreamsReader
+	lambdaBackend    *InMemoryBackend
+	shardIterators   map[string]string
+	mu               *lockmetrics.RWMutex
 	// sqsInvoker is an optional override for the Lambda invocation step used
 	// when processing SQS messages. When nil the real InMemoryBackend is used.
 	// Intended for use in unit tests only.
 	sqsInvoker func(ctx context.Context, fnName string) error
+	// ddbInvoker is an optional override for the Lambda invocation step used
+	// when processing DynamoDB stream records. When nil the real InMemoryBackend is used.
+	// Intended for use in unit tests only.
+	ddbInvoker func(ctx context.Context, fnName string, payload []byte) error
 }
 
 // NewEventSourcePoller creates a new EventSourcePoller.
@@ -91,6 +122,23 @@ func (p *EventSourcePoller) SetSQSReader(r SQSReader) {
 	defer p.mu.Unlock()
 
 	p.sqsReader = r
+}
+
+// SetDynamoDBStreamsReader sets the DynamoDB Streams reader used to poll DynamoDB
+// streams for ESM delivery.
+func (p *EventSourcePoller) SetDynamoDBStreamsReader(r DynamoDBStreamsReader) {
+	p.mu.Lock("SetDynamoDBStreamsReader")
+	defer p.mu.Unlock()
+
+	p.ddbStreamsReader = r
+}
+
+// getDDBStreamsReader returns the DynamoDB Streams reader under a read lock.
+func (p *EventSourcePoller) getDDBStreamsReader() DynamoDBStreamsReader {
+	p.mu.RLock("getDDBStreamsReader")
+	defer p.mu.RUnlock()
+
+	return p.ddbStreamsReader
 }
 
 const (
@@ -133,6 +181,15 @@ func (p *EventSourcePoller) poll(ctx context.Context) {
 
 			if sqsR != nil {
 				p.processSQSMapping(ctx, m, sqsR)
+			}
+
+			continue
+		}
+
+		if isDynamoDBStreamARN(m.EventSourceARN) {
+			ddbR := p.getDDBStreamsReader()
+			if ddbR != nil {
+				p.processDynamoDBStreamMapping(ctx, m, ddbR)
 			}
 
 			continue
@@ -311,6 +368,134 @@ func functionNameFromARN(arn string) string {
 // isSQSARN reports whether the given ARN identifies an SQS queue.
 func isSQSARN(resourceARN string) bool {
 	return strings.HasPrefix(resourceARN, "arn:aws:sqs:")
+}
+
+// isDynamoDBStreamARN reports whether the given ARN identifies a DynamoDB stream.
+func isDynamoDBStreamARN(resourceARN string) bool {
+	return strings.HasPrefix(resourceARN, "arn:aws:dynamodb:") && strings.Contains(resourceARN, "/stream/")
+}
+
+// processDynamoDBStreamMapping polls a DynamoDB stream's single shard and invokes Lambda.
+func (p *EventSourcePoller) processDynamoDBStreamMapping(ctx context.Context, m *EventSourceMapping, reader DynamoDBStreamsReader) {
+	iterKey := m.UUID + ":" + ddbStreamShardID
+
+	p.mu.RLock("processDDBMapping.read")
+	it, exists := p.shardIterators[iterKey]
+	p.mu.RUnlock()
+
+	var err error
+
+	if !exists {
+		it, err = reader.GetStreamShardIterator(m.EventSourceARN, m.StartingPosition)
+		if err != nil {
+			logger.Load(ctx).WarnContext(ctx, "event source poller: failed to get DDB shard iterator",
+				"stream", m.EventSourceARN, "error", err)
+
+			return
+		}
+
+		p.mu.Lock("processDDBMapping.initIter")
+		p.shardIterators[iterKey] = it
+		p.mu.Unlock()
+	}
+
+	records, nextIt, readErr := reader.GetStreamRecords(it, m.BatchSize)
+	if readErr != nil {
+		p.mu.Lock("processDDBMapping.resetIter")
+		delete(p.shardIterators, iterKey)
+		p.mu.Unlock()
+		logger.Load(ctx).WarnContext(ctx, "event source poller: DDB GetStreamRecords failed, resetting iterator",
+			"stream", m.EventSourceARN, "error", readErr)
+
+		return
+	}
+
+	p.mu.Lock("processDDBMapping.advanceIter")
+	p.shardIterators[iterKey] = nextIt
+	p.mu.Unlock()
+
+	if len(records) == 0 {
+		return
+	}
+
+	p.invokeLambdaForDDB(ctx, m, records)
+}
+
+// invokeLambdaForDDB formats DynamoDB stream records as a Lambda event and invokes the function.
+func (p *EventSourcePoller) invokeLambdaForDDB(
+	ctx context.Context,
+	m *EventSourceMapping,
+	records []DynamoDBStreamRecord,
+) {
+	type ddbStreamRecord struct {
+		ApproximateCreationDateTime float64        `json:"ApproximateCreationDateTime,omitempty"`
+		Keys                        map[string]any `json:"Keys,omitempty"`
+		NewImage                    map[string]any `json:"NewImage,omitempty"`
+		OldImage                    map[string]any `json:"OldImage,omitempty"`
+		SequenceNumber              string         `json:"SequenceNumber"`
+		SizeBytes                   int64          `json:"SizeBytes,omitempty"`
+		StreamViewType              string         `json:"StreamViewType,omitempty"`
+	}
+	type lambdaRecord struct {
+		Dynamodb       ddbStreamRecord `json:"dynamodb"`
+		EventID        string          `json:"eventID"`
+		EventName      string          `json:"eventName"`
+		EventVersion   string          `json:"eventVersion"`
+		EventSource    string          `json:"eventSource"`
+		AWSRegion      string          `json:"awsRegion"`
+		EventSourceARN string          `json:"eventSourceARN"`
+	}
+	type lambdaEvent struct {
+		Records []lambdaRecord `json:"Records"`
+	}
+
+	eventRecords := make([]lambdaRecord, len(records))
+	for i, r := range records {
+		eventRecords[i] = lambdaRecord{
+			EventID:      r.EventID,
+			EventName:    r.EventName,
+			EventVersion: "1.1",
+			EventSource:  "aws:dynamodb",
+			AWSRegion:    p.lambdaBackend.region,
+			EventSourceARN: m.EventSourceARN,
+			Dynamodb: ddbStreamRecord{
+				SequenceNumber:              r.SequenceNumber,
+				ApproximateCreationDateTime: r.ApproximateCreationDateTime,
+				StreamViewType:              r.StreamViewType,
+				SizeBytes:                   r.SizeBytes,
+				Keys:                        r.Keys,
+				NewImage:                    r.NewImage,
+				OldImage:                    r.OldImage,
+			},
+		}
+	}
+
+	payload, err := json.Marshal(lambdaEvent{Records: eventRecords})
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "event source poller: failed to marshal DDB event", "error", err)
+
+		return
+	}
+
+	fnName := functionNameFromARN(m.FunctionARN)
+	if fnName == "" {
+		fnName = m.FunctionARN
+	}
+
+	var invokeErr error
+	if p.ddbInvoker != nil {
+		invokeErr = p.ddbInvoker(ctx, fnName, payload)
+	} else {
+		_, _, invokeErr = p.lambdaBackend.InvokeFunction(ctx, fnName, InvocationTypeEvent, payload)
+	}
+
+	if invokeErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "event source poller: DDB Lambda invocation failed",
+			"function", fnName, "stream", m.EventSourceARN, "error", invokeErr)
+	} else {
+		logger.Load(ctx).DebugContext(ctx, "event source poller: invoked Lambda for DDB stream",
+			"function", fnName, "records", len(records))
+	}
 }
 
 // processSQSMapping polls an SQS queue, invokes Lambda with the messages, and

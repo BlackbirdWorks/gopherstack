@@ -26,6 +26,8 @@ import (
 	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	awsddbstreams "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
+	ddbstreamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
@@ -1695,6 +1697,9 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	// Wire SQS → Lambda event source mapping poller.
 	wireSQSLambda(byName["SQS"], byName["Lambda"])
 
+	// Wire DynamoDB Streams → Lambda event source mapping poller.
+	wireDynamoDBStreamLambda(byName["DynamoDB"], byName["Lambda"])
+
 	// Wire CloudWatch alarm actions → SNS and Lambda backends.
 	wireCloudWatchAlarmActions(byName["CloudWatch"], byName["SNS"], byName["Lambda"])
 
@@ -1721,6 +1726,12 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
+
+	// Wire Scheduler runner → Lambda, SQS, SNS, and StepFunctions backends.
+	wireSchedulerRunner(byName["Scheduler"], byName["Lambda"], byName["SQS"], byName["SNS"], byName["StepFunctions"])
+
+	// Wire Pipes runner → SQS (source), Lambda, and StepFunctions (targets).
+	wirePipesRunner(byName["Pipes"], byName["SQS"], byName["Lambda"], byName["StepFunctions"])
 
 	// Wire Resource Groups Tagging API → service backends so GetResources, TagResources, etc.
 	// aggregate and mutate tags across all services.
@@ -2312,6 +2323,137 @@ func (a *sqsReaderAdapter) DeleteMessagesLocal(queueARN string, receiptHandles [
 	url := arnToSQSQueueURL(queueARN)
 
 	return a.backend.DeleteMessagesLocal(url, receiptHandles)
+}
+
+// wireDynamoDBStreamLambda connects the DynamoDB Streams backend to the Lambda event source
+// poller so that stream records trigger Lambda functions with active DynamoDB ESMs.
+func wireDynamoDBStreamLambda(ddbReg, lambdaReg service.Registerable) {
+	ddbH, ok := ddbReg.(*ddbbackend.DynamoDBHandler)
+	if !ok {
+		return
+	}
+
+	ddbBk, bkOk := ddbH.Backend.(*ddbbackend.InMemoryDB)
+	if !bkOk {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			lambdaBk.SetDynamoDBStreamsReader(&ddbStreamsReaderAdapter{backend: ddbBk})
+		}
+	}
+}
+
+// ddbStreamsReaderAdapter adapts the DynamoDB InMemoryDB to the lambda.DynamoDBStreamsReader interface.
+type ddbStreamsReaderAdapter struct {
+	backend *ddbbackend.InMemoryDB
+}
+
+func (a *ddbStreamsReaderAdapter) GetStreamShardIterator(streamARN, iteratorType string) (string, error) {
+	out, err := a.backend.GetShardIterator(context.Background(), &awsddbstreams.GetShardIteratorInput{
+		StreamArn:         aws.String(streamARN),
+		ShardId:           aws.String("shardId-00000000000000000001-00000001"),
+		ShardIteratorType: ddbstreamstypes.ShardIteratorType(iteratorType),
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return aws.ToString(out.ShardIterator), nil
+}
+
+func (a *ddbStreamsReaderAdapter) GetStreamRecords(iteratorToken string, limit int) ([]lambdabackend.DynamoDBStreamRecord, string, error) {
+	lim := int32(limit) //nolint:gosec // limit is bounded by BatchSize, never overflows int32
+	out, err := a.backend.GetRecords(context.Background(), &awsddbstreams.GetRecordsInput{
+		ShardIterator: aws.String(iteratorToken),
+		Limit:         &lim,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	records := make([]lambdabackend.DynamoDBStreamRecord, 0, len(out.Records))
+
+	for _, r := range out.Records {
+		rec := lambdabackend.DynamoDBStreamRecord{
+			EventID:   aws.ToString(r.EventID),
+			EventName: string(r.EventName),
+		}
+
+		if r.Dynamodb != nil {
+			rec.SequenceNumber = aws.ToString(r.Dynamodb.SequenceNumber)
+			rec.StreamViewType = string(r.Dynamodb.StreamViewType)
+
+			if r.Dynamodb.SizeBytes != nil {
+				rec.SizeBytes = *r.Dynamodb.SizeBytes
+			}
+
+			if r.Dynamodb.ApproximateCreationDateTime != nil {
+				rec.ApproximateCreationDateTime = float64(r.Dynamodb.ApproximateCreationDateTime.Unix())
+			}
+
+			if r.Dynamodb.NewImage != nil {
+				rec.NewImage = sdkDDBStreamItemToWire(r.Dynamodb.NewImage)
+			}
+
+			if r.Dynamodb.OldImage != nil {
+				rec.OldImage = sdkDDBStreamItemToWire(r.Dynamodb.OldImage)
+			}
+
+			if r.Dynamodb.Keys != nil {
+				rec.Keys = sdkDDBStreamItemToWire(r.Dynamodb.Keys)
+			}
+		}
+
+		records = append(records, rec)
+	}
+
+	return records, aws.ToString(out.NextShardIterator), nil
+}
+
+// sdkDDBStreamItemToWire converts a DynamoDB Streams SDK attribute map to DynamoDB JSON wire format.
+func sdkDDBStreamItemToWire(item map[string]ddbstreamstypes.AttributeValue) map[string]any {
+	out := make(map[string]any, len(item))
+
+	for k, v := range item {
+		out[k] = sdkDDBStreamAttrToWire(v)
+	}
+
+	return out
+}
+
+// sdkDDBStreamAttrToWire converts a single DynamoDB Streams SDK attribute value to wire format.
+func sdkDDBStreamAttrToWire(av ddbstreamstypes.AttributeValue) any { //nolint:ireturn // wire format map or nil
+	switch v := av.(type) {
+	case *ddbstreamstypes.AttributeValueMemberS:
+		return map[string]any{"S": v.Value}
+	case *ddbstreamstypes.AttributeValueMemberN:
+		return map[string]any{"N": v.Value}
+	case *ddbstreamstypes.AttributeValueMemberBOOL:
+		return map[string]any{"BOOL": v.Value}
+	case *ddbstreamstypes.AttributeValueMemberNULL:
+		return map[string]any{"NULL": v.Value}
+	case *ddbstreamstypes.AttributeValueMemberB:
+		return map[string]any{"B": v.Value}
+	case *ddbstreamstypes.AttributeValueMemberSS:
+		return map[string]any{"SS": v.Value}
+	case *ddbstreamstypes.AttributeValueMemberNS:
+		return map[string]any{"NS": v.Value}
+	case *ddbstreamstypes.AttributeValueMemberBS:
+		return map[string]any{"BS": v.Value}
+	case *ddbstreamstypes.AttributeValueMemberM:
+		return map[string]any{"M": sdkDDBStreamItemToWire(v.Value)}
+	case *ddbstreamstypes.AttributeValueMemberL:
+		items := make([]any, len(v.Value))
+		for i, elem := range v.Value {
+			items[i] = sdkDDBStreamAttrToWire(elem)
+		}
+
+		return map[string]any{"L": items}
+	}
+
+	return nil
 }
 
 // wireCloudWatchAlarmActions connects the CloudWatch backend to SNS and Lambda so that
@@ -3631,4 +3773,132 @@ func wireDynamoDBStreams(ddbReg, streamsReg service.Registerable) {
 	if ddbBk, bkOk := ddbH.Backend.(ddbbackend.StreamsBackend); bkOk {
 		streamsH.Streams = ddbBk
 	}
+}
+
+// wireSchedulerRunner configures the Scheduler runner with Lambda, SQS, SNS, and StepFunctions
+// target invokers so that schedule expressions actually fire their targets.
+func wireSchedulerRunner(schedReg, lambdaReg, sqsReg, snsReg, sfnReg service.Registerable) {
+	schedH, ok := schedReg.(*schedulerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	runner := schedH.GetRunner()
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			runner.SetLambdaInvoker(&schedulerLambdaAdapter{backend: lambdaBk})
+		}
+	}
+
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		if sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend); bkOk {
+			runner.SetSQSSender(&sqsSenderAdapter{backend: sqsBk})
+		}
+	}
+
+	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
+		if snsBk, bkOk := snsH.Backend.(*snsbackend.InMemoryBackend); bkOk {
+			runner.SetSNSPublisher(&snsPublisherAdapter{backend: snsBk})
+		}
+	}
+
+	if sfnH, sfnOk := sfnReg.(*sfnbackend.Handler); sfnOk {
+		if sfnBk, bkOk := sfnH.Backend.(*sfnbackend.InMemoryBackend); bkOk {
+			runner.SetStepFunctionsStarter(&sfnStarterAdapter{backend: sfnBk})
+		}
+	}
+}
+
+// schedulerLambdaAdapter adapts the Lambda backend to the scheduler.LambdaInvoker interface.
+type schedulerLambdaAdapter struct {
+	backend *lambdabackend.InMemoryBackend
+}
+
+func (a *schedulerLambdaAdapter) InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error) {
+	return a.backend.InvokeFunction(ctx, name, invocationType, payload)
+}
+
+// sfnStarterAdapter adapts the StepFunctions backend to the scheduler.StepFunctionsStarter interface.
+type sfnStarterAdapter struct {
+	backend *sfnbackend.InMemoryBackend
+}
+
+func (a *sfnStarterAdapter) StartExecution(stateMachineARN, name, input string) error {
+	_, err := a.backend.StartExecution(stateMachineARN, name, input)
+
+	return err
+}
+
+// wirePipesRunner configures the Pipes runner with SQS source reader and Lambda/StepFunctions
+// target invokers so that running pipes actually forward records to their targets.
+func wirePipesRunner(pipesReg, sqsReg, lambdaReg, sfnReg service.Registerable) {
+	pipesH, ok := pipesReg.(*pipesbackend.Handler)
+	if !ok {
+		return
+	}
+
+	runner := pipesH.GetRunner()
+
+	if sqsH, sqsOk := sqsReg.(*sqsbackend.Handler); sqsOk {
+		if sqsBk, bkOk := sqsH.Backend.(*sqsbackend.InMemoryBackend); bkOk {
+			runner.SetSQSReader(&pipesSQSReaderAdapter{backend: sqsBk})
+		}
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, bk2Ok := lambdaH.Backend.(*lambdabackend.InMemoryBackend); bk2Ok {
+			runner.SetLambdaInvoker(&schedulerLambdaAdapter{backend: lambdaBk})
+		}
+	}
+
+	if sfnH, sfnOk := sfnReg.(*sfnbackend.Handler); sfnOk {
+		if sfnBk, bkOk := sfnH.Backend.(*sfnbackend.InMemoryBackend); bkOk {
+			runner.SetStepFunctionsStarter(&pipesSFNStarterAdapter{backend: sfnBk})
+		}
+	}
+}
+
+// pipesSQSReaderAdapter adapts the SQS InMemoryBackend to the pipes.PipeSQSReader interface.
+type pipesSQSReaderAdapter struct {
+	backend *sqsbackend.InMemoryBackend
+}
+
+func (a *pipesSQSReaderAdapter) ReceivePipeMessages(queueARN string, maxMessages int) ([]*pipesbackend.PipeSQSMessage, error) {
+	url := arnToSQSQueueURL(queueARN)
+
+	msgs, err := a.backend.ReceiveMessagesLocal(url, maxMessages)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*pipesbackend.PipeSQSMessage, len(msgs))
+	for i, m := range msgs {
+		result[i] = &pipesbackend.PipeSQSMessage{
+			MessageID:     m.MessageID,
+			ReceiptHandle: m.ReceiptHandle,
+			Body:          m.Body,
+			Attributes:    m.Attributes,
+			MD5OfBody:     m.MD5OfBody,
+		}
+	}
+
+	return result, nil
+}
+
+func (a *pipesSQSReaderAdapter) DeletePipeMessages(queueARN string, receiptHandles []string) error {
+	url := arnToSQSQueueURL(queueARN)
+
+	return a.backend.DeleteMessagesLocal(url, receiptHandles)
+}
+
+// pipesSFNStarterAdapter adapts the StepFunctions InMemoryBackend to the pipes.PipeStepFunctionsStarter interface.
+type pipesSFNStarterAdapter struct {
+	backend *sfnbackend.InMemoryBackend
+}
+
+func (a *pipesSFNStarterAdapter) StartExecution(stateMachineARN, name, input string) error {
+	_, err := a.backend.StartExecution(stateMachineARN, name, input)
+
+	return err
 }
