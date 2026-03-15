@@ -893,8 +893,34 @@ func (h *Handler) handleListDeadLetterSourceQueues(
 	return jsonListDeadLetterSourceQueuesResp{QueueURLs: queueURLs, NextToken: out.NextToken}, nil
 }
 
+const errTypeInvalidParameterValue = "com.amazonaws.sqs#InvalidParameterValue"
+
+// invalidParameterValueMessage returns the AWS error message for parameter-validation
+// sentinel errors, or ("", false) if the error is not a parameter error.
+func invalidParameterValueMessage(err error) (string, bool) {
+	switch {
+	case errors.Is(err, ErrInvalidWaitTime):
+		return "Value for parameter WaitTimeSeconds is invalid. Reason: Must be between 0 and 20, if provided.", true
+	case errors.Is(err, ErrInvalidVisibilityTimeout):
+		return "Value for parameter VisibilityTimeout is invalid. Reason: Must be between 0 and 43200, if provided.", true
+	case errors.Is(err, ErrMissingMessageGroupID):
+		return "The request must contain the parameter MessageGroupId.", true
+	case errors.Is(err, ErrMissingDeduplicationID):
+		const dedupMsg = "The queue should either have ContentBasedDeduplication enabled" +
+			" or MessageDeduplicationId provided explicitly."
+
+		return dedupMsg, true
+	default:
+		return "", false
+	}
+}
+
 // errorDetails maps an error to its SQS JSON error type, message, and HTTP status.
 func errorDetails(err error) (string, string, int) {
+	if msg, ok := invalidParameterValueMessage(err); ok {
+		return errTypeInvalidParameterValue, msg, http.StatusBadRequest
+	}
+
 	switch {
 	case errors.Is(err, ErrQueueNotFound):
 		// The AWS SDK v2 maps "com.amazonaws.sqs#QueueDoesNotExist" →
@@ -933,10 +959,6 @@ func errorDetails(err error) (string, string, int) {
 	case errors.Is(err, ErrMessageTooLarge):
 		return "com.amazonaws.sqs#InvalidMessageContents",
 			"The message exceeds the maximum message size.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrInvalidWaitTime):
-		return "com.amazonaws.sqs#InvalidParameterValue",
-			"Value for parameter WaitTimeSeconds is invalid. Reason: Must be between 0 and 20, if provided.",
 			http.StatusBadRequest
 	case errors.Is(err, ErrUnknownAction):
 		return "com.amazonaws.sqs#InvalidAction",

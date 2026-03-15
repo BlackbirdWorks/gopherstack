@@ -278,3 +278,279 @@ func TestSQSHandler_ExtractResource_InvalidJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestTaggedQueues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		wantLen  int
+		withTags bool
+	}{
+		{name: "no_queues", wantLen: 0, withTags: false},
+		{name: "queue_with_tags_included", wantLen: 1, withTags: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			if tt.withTags {
+				qURL := createTestQueue(t, b, "tagged-queue")
+				require.NoError(t, b.TagQueue(&sqs.TagQueueInput{
+					QueueURL: qURL,
+				}))
+			}
+
+			result := b.TaggedQueues()
+			assert.Len(t, result, tt.wantLen)
+		})
+	}
+}
+
+func TestTagQueueByARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		arn     string
+	}{
+		{
+			name:    "not_found_by_arn",
+			arn:     "arn:aws:sqs:us-east-1:000000000000:nonexistent",
+			wantErr: sqs.ErrQueueNotFound,
+		},
+		{
+			name:    "tags_applied_by_arn",
+			arn:     "", // set after queue creation
+			wantErr: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			qARN := tt.arn
+
+			if qARN == "" {
+				createTestQueue(t, b, "arn-tag-queue")
+				attrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
+					QueueURL:       queueURL("arn-tag-queue"),
+					AttributeNames: []string{"QueueArn"},
+				})
+				require.NoError(t, err)
+				qARN = attrs.Attributes["QueueArn"]
+			}
+
+			err := b.TagQueueByARN(qARN, map[string]string{"env": "test"})
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestUntagQueueByARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		arn     string
+	}{
+		{
+			name:    "not_found_by_arn",
+			arn:     "arn:aws:sqs:us-east-1:000000000000:nonexistent",
+			wantErr: sqs.ErrQueueNotFound,
+		},
+		{
+			name:    "tags_removed_by_arn",
+			arn:     "", // set after queue creation
+			wantErr: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			qARN := tt.arn
+
+			if qARN == "" {
+				createTestQueue(t, b, "arn-untag-queue")
+				require.NoError(t, b.TagQueue(&sqs.TagQueueInput{QueueURL: queueURL("arn-untag-queue")}))
+				attrs, err := b.GetQueueAttributes(&sqs.GetQueueAttributesInput{
+					QueueURL:       queueURL("arn-untag-queue"),
+					AttributeNames: []string{"QueueArn"},
+				})
+				require.NoError(t, err)
+				qARN = attrs.Attributes["QueueArn"]
+			}
+
+			err := b.UntagQueueByARN(qARN, []string{"env"})
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestReceiveAndDeleteMessagesLocal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "local_receive_then_delete"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			qURL := createTestQueue(t, b, "local-ops-queue")
+
+			_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "msg"})
+			require.NoError(t, err)
+
+			msgs, err := b.ReceiveMessagesLocal(qURL, 1)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1)
+
+			handles := make([]string, 0, len(msgs))
+			for _, m := range msgs {
+				handles = append(handles, m.ReceiptHandle)
+			}
+
+			require.NoError(t, b.DeleteMessagesLocal(qURL, handles), tt.name)
+		})
+	}
+}
+
+func TestBackendReset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "reset_clears_all_queues"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			createTestQueue(t, b, "q1")
+			createTestQueue(t, b, "q2")
+
+			b.Reset()
+
+			out, err := b.ListQueues(&sqs.ListQueuesInput{})
+			require.NoError(t, err)
+			assert.Empty(t, out.QueueURLs, tt.name)
+		})
+	}
+}
+
+func TestSQSHandler_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "handler_reset_clears_queues"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			doCreateQueue(t, h, "before-reset-queue")
+
+			h.Reset()
+
+			rec := doRequest(t, h, "ListQueues", map[string]any{})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp struct {
+				QueueURLs []string `json:"QueueUrls"`
+			}
+
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Empty(t, resp.QueueURLs, tt.name)
+		})
+	}
+}
+
+func TestSQSChaosServiceName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "returns_sqs", want: "sqs"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			assert.Equal(t, tt.want, h.ChaosServiceName())
+		})
+	}
+}
+
+func TestValidateBatchEntryIDsEmptyID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		name    string
+		entries []sqs.SendMessageBatchEntry
+	}{
+		{
+			name:    "empty_id_rejected",
+			entries: []sqs.SendMessageBatchEntry{{ID: "", MessageBody: "msg"}},
+			wantErr: sqs.ErrInvalidBatchEntry,
+		},
+		{
+			name: "duplicate_ids_rejected",
+			entries: []sqs.SendMessageBatchEntry{
+				{ID: "dup", MessageBody: "msg1"},
+				{ID: "dup", MessageBody: "msg2"},
+			},
+			wantErr: sqs.ErrBatchEntryIDsNotDistinct,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			qURL := createTestQueue(t, b, "batch-id-queue")
+
+			_, err := b.SendMessageBatch(&sqs.SendMessageBatchInput{
+				QueueURL: qURL,
+				Entries:  tt.entries,
+			})
+			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}

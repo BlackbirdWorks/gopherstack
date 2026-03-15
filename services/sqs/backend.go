@@ -250,6 +250,10 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 	// wake up immediately and receive ErrQueueNotFound on their next receiveOnce call.
 	close(q.notify)
 
+	if q.Tags != nil {
+		q.Tags.Close()
+	}
+
 	delete(b.queues, name)
 
 	return nil
@@ -290,8 +294,8 @@ func (b *InMemoryBackend) GetQueueURL(input *GetQueueURLInput) (*GetQueueURLOutp
 
 // GetQueueAttributes returns queue attributes, computing dynamic ones on the fly.
 func (b *InMemoryBackend) GetQueueAttributes(input *GetQueueAttributesInput) (*GetQueueAttributesOutput, error) {
-	b.mu.Lock("GetQueueAttributes")
-	defer b.mu.Unlock()
+	b.mu.RLock("GetQueueAttributes")
+	defer b.mu.RUnlock()
 
 	name := queueNameFromInput(input.QueueURL)
 
@@ -374,6 +378,9 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 // maxWaitTimeSeconds is the AWS maximum for ReceiveMessage WaitTimeSeconds.
 const maxWaitTimeSeconds = 20
 
+// maxVisibilityTimeoutSeconds is the AWS maximum for VisibilityTimeout (12 hours).
+const maxVisibilityTimeoutSeconds = 43200
+
 // SendMessage adds a message to the specified queue.
 func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutput, error) {
 	b.mu.Lock("SendMessage")
@@ -388,6 +395,12 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	if err := validateMessageSize(input.MessageBody, q); err != nil {
 		return nil, err
+	}
+
+	if q.IsFIFO {
+		if err := validateFIFOParams(input, q); err != nil {
+			return nil, err
+		}
 	}
 
 	md5Body := computeMD5(input.MessageBody)
@@ -458,6 +471,22 @@ func validateMessageSize(body string, q *Queue) error {
 
 	if len(body) > maxSize {
 		return ErrMessageTooLarge
+	}
+
+	return nil
+}
+
+// validateFIFOParams validates FIFO-specific parameters for a SendMessage request.
+// AWS requires MessageGroupID for all FIFO sends, and MessageDeduplicationID when
+// ContentBasedDeduplication is disabled on the queue.
+func validateFIFOParams(input *SendMessageInput, q *Queue) error {
+	if input.MessageGroupID == "" {
+		return ErrMissingMessageGroupID
+	}
+
+	contentBasedDedup := q.Attributes[attrContentBasedDeduplication]
+	if contentBasedDedup != attrValTrue && input.MessageDeduplicationID == "" {
+		return ErrMissingDeduplicationID
 	}
 
 	return nil
@@ -600,6 +629,7 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 
 	now := time.Now()
 	reQueueExpired(q, now)
+	expireRetainedMessages(q, now)
 	drainToDLQ(q)
 
 	if q.IsFIFO {
@@ -645,6 +675,31 @@ func reQueueExpired(q *Queue, now time.Time) {
 	}
 
 	q.inFlightMessages = stillInFlight
+}
+
+// expireRetainedMessages removes messages that have exceeded the queue's
+// MessageRetentionPeriod. AWS silently discards such messages; they never
+// reach a consumer. The expiry is computed from SentTimestamp.
+func expireRetainedMessages(q *Queue, now time.Time) {
+	retentionSecs, err := strconv.Atoi(q.Attributes[attrMessageRetentionPeriod])
+	if err != nil || retentionSecs <= 0 {
+		retentionSecs = defaultMessageRetentionPeriod
+	}
+
+	cutoff := now.Add(-time.Duration(retentionSecs) * time.Second)
+
+	fresh := q.messages[:0]
+
+	for _, msg := range q.messages {
+		sentAt := time.UnixMilli(msg.SentTimestamp)
+		if sentAt.Before(cutoff) {
+			continue // silently discard expired message
+		}
+
+		fresh = append(fresh, msg)
+	}
+
+	q.messages = fresh
 }
 
 // pickMessages moves up to maxMessages visible (non-delayed) messages from the
@@ -712,6 +767,10 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 
 // ChangeMessageVisibility updates the visibility timeout for an in-flight message.
 func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibilityInput) error {
+	if input.VisibilityTimeout < 0 || input.VisibilityTimeout > maxVisibilityTimeoutSeconds {
+		return ErrInvalidVisibilityTimeout
+	}
+
 	b.mu.Lock("ChangeMessageVisibility")
 	defer b.mu.Unlock()
 

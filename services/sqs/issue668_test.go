@@ -1,6 +1,7 @@
 package sqs_test
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -445,4 +446,209 @@ func createFIFOQueueWithDedup(t *testing.T, b *sqs.InMemoryBackend, name string)
 	require.NoError(t, err)
 
 	return out.QueueURL
+}
+
+// ─── AWS Realism: extra validations ──────────────────────────────────────────
+
+// TestChangeMessageVisibilityBoundsValidation checks that ChangeMessageVisibility
+// rejects visibility timeouts outside the AWS-allowed range (0–43200 s).
+func TestChangeMessageVisibilityBoundsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr           error
+		name              string
+		visibilityTimeout int
+	}{
+		{name: "negative_rejected", visibilityTimeout: -1, wantErr: sqs.ErrInvalidVisibilityTimeout},
+		{name: "over_max_rejected", visibilityTimeout: 43201, wantErr: sqs.ErrInvalidVisibilityTimeout},
+		{name: "zero_accepted", visibilityTimeout: 0, wantErr: nil},
+		{name: "max_accepted", visibilityTimeout: 43200, wantErr: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			qURL := createTestQueue(t, b, "vis-bounds-queue")
+
+			_, sendErr := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "msg"})
+			require.NoError(t, sendErr)
+
+			out, recvErr := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+				QueueURL: qURL, MaxNumberOfMessages: 1, VisibilityTimeout: 30,
+			})
+			require.NoError(t, recvErr)
+			require.Len(t, out.Messages, 1)
+
+			err := b.ChangeMessageVisibility(&sqs.ChangeMessageVisibilityInput{
+				QueueURL:          qURL,
+				ReceiptHandle:     out.Messages[0].ReceiptHandle,
+				VisibilityTimeout: tt.visibilityTimeout,
+			})
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestFIFOMessageGroupIDRequired verifies that SendMessage on a FIFO queue
+// returns ErrMissingMessageGroupID when MessageGroupID is absent.
+func TestFIFOMessageGroupIDRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr        error
+		name           string
+		messageGroupID string
+		dedupID        string
+	}{
+		{
+			name:    "missing_group_id_rejected",
+			wantErr: sqs.ErrMissingMessageGroupID,
+		},
+		{
+			name:           "group_id_present_accepted",
+			messageGroupID: "g1",
+			dedupID:        "d1",
+			wantErr:        nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			qURL := createTestQueue(t, b, "fifo-groupid-queue.fifo")
+
+			_, err := b.SendMessage(&sqs.SendMessageInput{
+				QueueURL:               qURL,
+				MessageBody:            "msg",
+				MessageGroupID:         tt.messageGroupID,
+				MessageDeduplicationID: tt.dedupID,
+			})
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestFIFODeduplicationIDRequired verifies that SendMessage on a FIFO queue
+// with ContentBasedDeduplication disabled requires an explicit MessageDeduplicationID.
+func TestFIFODeduplicationIDRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr                   error
+		name                      string
+		contentBasedDeduplication string
+		dedupID                   string
+	}{
+		{
+			name:    "dedup_id_missing_content_based_off_rejected",
+			wantErr: sqs.ErrMissingDeduplicationID,
+		},
+		{
+			name:    "dedup_id_present_accepted",
+			dedupID: "d1",
+			wantErr: nil,
+		},
+		{
+			name:                      "content_based_dedup_on_no_id_accepted",
+			contentBasedDeduplication: "true",
+			wantErr:                   nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			attrs := map[string]string{}
+			if tt.contentBasedDeduplication != "" {
+				attrs["ContentBasedDeduplication"] = tt.contentBasedDeduplication
+			}
+
+			out, createErr := b.CreateQueue(&sqs.CreateQueueInput{
+				QueueName:  "fifo-dedupid-queue.fifo",
+				Endpoint:   testEndpoint,
+				Attributes: attrs,
+			})
+			require.NoError(t, createErr)
+
+			_, err := b.SendMessage(&sqs.SendMessageInput{
+				QueueURL:               out.QueueURL,
+				MessageBody:            "msg",
+				MessageGroupID:         "g1",
+				MessageDeduplicationID: tt.dedupID,
+			})
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestMessageRetentionPeriodExpiry verifies that messages older than the queue's
+// MessageRetentionPeriod are silently discarded and never delivered to consumers.
+func TestMessageRetentionPeriodExpiry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		retentionSecs int
+		wantMsgCount  int
+	}{
+		{
+			name:          "expired_message_not_delivered",
+			retentionSecs: 1, // 1 second retention
+			wantMsgCount:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			out, err := b.CreateQueue(&sqs.CreateQueueInput{
+				QueueName: "retention-queue",
+				Endpoint:  testEndpoint,
+				Attributes: map[string]string{
+					"MessageRetentionPeriod": strconv.Itoa(tt.retentionSecs),
+				},
+			})
+			require.NoError(t, err)
+
+			_, err = b.SendMessage(&sqs.SendMessageInput{
+				QueueURL:    out.QueueURL,
+				MessageBody: "old-msg",
+			})
+			require.NoError(t, err)
+
+			// Wait for the retention period to pass.
+			time.Sleep(time.Duration(tt.retentionSecs+1) * time.Second)
+
+			recv, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+				QueueURL:            out.QueueURL,
+				MaxNumberOfMessages: 10,
+			})
+			require.NoError(t, err)
+			assert.Len(t, recv.Messages, tt.wantMsgCount)
+		})
+	}
 }

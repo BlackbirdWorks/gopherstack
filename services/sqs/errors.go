@@ -19,4 +19,7 @@ var (
 	ErrUnknownAction            = errors.New("InvalidAction")
 	ErrMessageTooLarge          = errors.New("MessageTooLarge")
 	ErrInvalidWaitTime          = errors.New("InvalidParameterValue")
+	ErrInvalidVisibilityTimeout = errors.New("InvalidParameterValue.VisibilityTimeout")
+	ErrMissingMessageGroupID    = errors.New("InvalidParameterValue.MissingMessageGroupID")
+	ErrMissingDeduplicationID   = errors.New("InvalidParameterValue.MissingDeduplicationID")
 )
