@@ -88,7 +88,7 @@ var ErrMockAction = errors.New("mock action failed")
 // cancelling the background goroutine to prevent races.
 // Used only in tests.
 func (b *InMemoryBackend) SetExperimentTerminal(id, status string, endTime time.Time) {
-	b.mu.Lock()
+	b.mu.Lock("SetExperimentTerminal")
 
 	exp, ok := b.experiments[id]
 	if !ok {
@@ -114,7 +114,7 @@ func (b *InMemoryBackend) SetExperimentTerminal(id, status string, endTime time.
 // terminal states without racing against the normal lifecycle goroutine.
 // Used only in tests.
 func (b *InMemoryBackend) InjectExperiment(exp *Experiment) {
-	b.mu.Lock()
+	b.mu.Lock("InjectExperiment")
 	defer b.mu.Unlock()
 
 	b.experiments[exp.ID] = exp
@@ -123,7 +123,7 @@ func (b *InMemoryBackend) InjectExperiment(exp *Experiment) {
 // ExperimentCount returns the number of experiments stored.
 // Used only in tests.
 func (b *InMemoryBackend) ExperimentCount() int {
-	b.mu.RLock()
+	b.mu.RLock("ExperimentCount")
 	defer b.mu.RUnlock()
 
 	return len(b.experiments)
@@ -133,7 +133,7 @@ func (b *InMemoryBackend) ExperimentCount() int {
 // stored when StartExperiment creates a background goroutine.
 // Used only in tests.
 func (b *InMemoryBackend) InjectCancel(id string, cancel context.CancelFunc) {
-	b.mu.Lock()
+	b.mu.Lock("InjectCancel")
 	defer b.mu.Unlock()
 
 	if exp, ok := b.experiments[id]; ok {
