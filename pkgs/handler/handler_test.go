@@ -91,9 +91,9 @@ func TestResponseWriter(t *testing.T) {
 		expectedStatus int
 	}{
 		{
-			name:           "Default status is OK",
+			name:           "No action yields zero status",
 			action:         func(_ *handler.ResponseWriter) {},
-			expectedStatus: http.StatusOK,
+			expectedStatus: 0,
 		},
 		{
 			name: "WriteHeader captures code",
@@ -109,6 +109,15 @@ func TestResponseWriter(t *testing.T) {
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody:   "hello",
+		},
+		{
+			name: "WriteHeader before Write preserves status",
+			action: func(rw *handler.ResponseWriter) {
+				rw.WriteHeader(http.StatusCreated)
+				_, _ = rw.Write([]byte("created"))
+			},
+			expectedStatus: http.StatusCreated,
+			expectedBody:   "created",
 		},
 	}
 
