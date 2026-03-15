@@ -36,6 +36,7 @@ var (
 	ErrNoOwnershipControls    = errors.New("OwnershipControlsNotFoundError")
 	ErrNoReplicationConfig    = errors.New("ReplicationConfigurationNotFoundError")
 	ErrNoSuchTagSet           = errors.New("NoSuchTagSet")
+	ErrBadChecksum            = errors.New("BadDigest")
 )
 
 type s3ErrorInfo struct {
@@ -51,6 +52,10 @@ type s3ErrorEntry struct {
 
 // errorTable returns the mapping of typed Go errors to S3 error codes and HTTP statuses.
 func errorTable() []s3ErrorEntry {
+	return append(coreErrorTable(), configErrorTable()...)
+}
+
+func coreErrorTable() []s3ErrorEntry {
 	return []s3ErrorEntry{
 		{ErrNoSuchBucket, s3ErrorInfo{"NoSuchBucket", "The specified bucket does not exist.", http.StatusNotFound}},
 		{ErrNoSuchKey, s3ErrorInfo{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound}},
@@ -95,6 +100,17 @@ func errorTable() []s3ErrorEntry {
 			"A header you provided implies functionality that is not implemented.",
 			http.StatusNotImplemented,
 		}},
+		{ErrObjectLocked, s3ErrorInfo{"AccessDenied", "Access Denied", http.StatusForbidden}},
+		{ErrBadChecksum, s3ErrorInfo{
+			"BadDigest",
+			"The Content-MD5 or checksum you specified did not match what we received.",
+			http.StatusBadRequest,
+		}},
+	}
+}
+
+func configErrorTable() []s3ErrorEntry {
+	return []s3ErrorEntry{
 		{ErrNoBucketPolicy, s3ErrorInfo{
 			"NoSuchBucketPolicy",
 			"The bucket policy does not exist",
@@ -124,11 +140,6 @@ func errorTable() []s3ErrorEntry {
 			"ServerSideEncryptionConfigurationNotFoundError",
 			"The server side encryption configuration was not found",
 			http.StatusNotFound,
-		}},
-		{ErrObjectLocked, s3ErrorInfo{
-			"AccessDenied",
-			"Access Denied",
-			http.StatusForbidden,
 		}},
 		{ErrNoPublicAccessBlock, s3ErrorInfo{
 			"NoSuchPublicAccessBlockConfiguration",

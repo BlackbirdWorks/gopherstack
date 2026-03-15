@@ -88,8 +88,11 @@ func TestEnqueueAsync_QueueBehavior(t *testing.T) {
 			require.NotEmpty(t, requestID)
 
 			if tt.fillCount > 0 {
-				// Drain all pre-filled items to make room for the goroutine.
-				drained := lambda.DrainQueue(srv)
+				// Drain exactly the pre-filled items to make room for the slow-path goroutine.
+				// Using DrainN (not DrainQueue) prevents the drain from also consuming the
+				// goroutine's item, which is inserted at the END of the queue — after the
+				// pre-filled items — as soon as one slot is freed.
+				drained := lambda.DrainN(srv, tt.fillCount)
 				assert.Equal(t, tt.fillCount, drained, "should drain all pre-filled items")
 			}
 
