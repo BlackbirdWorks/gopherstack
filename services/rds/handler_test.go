@@ -1261,13 +1261,14 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		setup func(h *rds.Handler)
+		setup func(t *testing.T, h *rds.Handler)
 		del   string
 		check string
 	}{
 		{
 			name: "instance",
-			setup: func(h *rds.Handler) {
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
 				postRDSForm(t, h,
 					"Action=CreateDBInstance&Version=2014-10-31"+
 						"&DBInstanceIdentifier=tag-inst&Engine=postgres")
@@ -1282,7 +1283,8 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "snapshot",
-			setup: func(h *rds.Handler) {
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
 				postRDSForm(t, h,
 					"Action=CreateDBInstance&Version=2014-10-31"+
 						"&DBInstanceIdentifier=snap-inst&Engine=postgres")
@@ -1300,7 +1302,8 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "subnet_group",
-			setup: func(h *rds.Handler) {
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
 				postRDSForm(t, h,
 					"Action=CreateDBSubnetGroup&Version=2014-10-31"+
 						"&DBSubnetGroupName=tag-sg&DBSubnetGroupDescription=d&VpcId=vpc-1")
@@ -1315,7 +1318,8 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "parameter_group",
-			setup: func(h *rds.Handler) {
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
 				postRDSForm(t, h,
 					"Action=CreateDBParameterGroup&Version=2014-10-31"+
 						"&DBParameterGroupName=tag-pg&DBParameterGroupFamily=postgres14"+
@@ -1331,7 +1335,8 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "option_group",
-			setup: func(h *rds.Handler) {
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
 				postRDSForm(t, h,
 					"Action=CreateOptionGroup&Version=2014-10-31"+
 						"&OptionGroupName=tag-og&EngineName=mysql"+
@@ -1346,7 +1351,8 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "cluster",
-			setup: func(h *rds.Handler) {
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
 				postRDSForm(t, h,
 					"Action=CreateDBCluster&Version=2014-10-31"+
 						"&DBClusterIdentifier=tag-cluster&Engine=aurora-postgresql"+
@@ -1362,7 +1368,8 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "cluster_snapshot",
-			setup: func(h *rds.Handler) {
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
 				postRDSForm(t, h,
 					"Action=CreateDBCluster&Version=2014-10-31"+
 						"&DBClusterIdentifier=csnap-cluster&Engine=aurora-postgresql"+
@@ -1382,7 +1389,8 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "cluster_endpoint",
-			setup: func(h *rds.Handler) {
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
 				postRDSForm(t, h,
 					"Action=CreateDBCluster&Version=2014-10-31"+
 						"&DBClusterIdentifier=ep-cluster&Engine=aurora-postgresql"+
@@ -1407,7 +1415,7 @@ func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
 			t.Parallel()
 
 			h := newRDSHandler()
-			tt.setup(h)
+			tt.setup(t, h)
 
 			// Confirm tag was stored.
 			rec := postRDSForm(t, h, tt.check)
