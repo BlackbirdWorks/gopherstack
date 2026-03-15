@@ -414,3 +414,122 @@ func TestS3Backend_Reset(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+// TestLifecycle_TagFilter verifies that lifecycle rules with tag filters only
+// expire objects whose latest version has the required tags.
+func TestLifecycle_TagFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		lcXML     string
+		taggedKey string   // key to tag with "env=prod"
+		wantGone  []string // keys that must be expired
+		wantKept  []string // keys that must survive
+	}{
+		{
+			name: "tag_filter_evicts_only_tagged_objects",
+			lcXML: `<LifecycleConfiguration>
+  <Rule>
+    <ID>expire-tagged</ID>
+    <Status>Enabled</Status>
+    <Filter>
+      <Tag>
+        <Key>env</Key>
+        <Value>prod</Value>
+      </Tag>
+    </Filter>
+    <Expiration><Days>0</Days></Expiration>
+  </Rule>
+</LifecycleConfiguration>`,
+			taggedKey: "tagged-key",
+			wantGone:  []string{"tagged-key"},
+			wantKept:  []string{"untagged-key"},
+		},
+		{
+			name: "no_tag_filter_evicts_all",
+			lcXML: `<LifecycleConfiguration>
+  <Rule>
+    <ID>expire-all</ID>
+    <Status>Enabled</Status>
+    <Filter><Prefix></Prefix></Filter>
+    <Expiration><Days>0</Days></Expiration>
+  </Rule>
+</LifecycleConfiguration>`,
+			taggedKey: "tagged-key",
+			wantGone:  []string{"tagged-key", "untagged-key"},
+			wantKept:  []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := s3.NewInMemoryBackend(nil)
+			bucket := "tag-lc-" + tt.name
+			mustCreateBucket(t, backend, bucket)
+
+			// Create two objects: one tagged "env=prod", one without tags.
+			mustPutObject(t, backend, bucket, tt.taggedKey, []byte("data"))
+			mustPutObject(t, backend, bucket, "untagged-key", []byte("data"))
+
+			// Apply tags to the tagged key.
+			_, err := backend.PutObjectTagging(t.Context(), &sdk_s3.PutObjectTaggingInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(tt.taggedKey),
+				Tagging: &sdk_s3types.Tagging{
+					TagSet: []sdk_s3types.Tag{
+						{Key: aws.String("env"), Value: aws.String("prod")},
+					},
+				},
+			})
+			require.NoError(t, err)
+
+			// Install lifecycle config.
+			err = backend.PutBucketLifecycleConfiguration(t.Context(), bucket, tt.lcXML)
+			require.NoError(t, err)
+
+			j := newFastJanitor(backend)
+			go j.Run(t.Context())
+
+			// Wait for wantGone keys to disappear.
+			for _, goneKey := range tt.wantGone {
+				require.Eventually(t, func() bool {
+					out, listErr := backend.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
+						Bucket: aws.String(bucket),
+					})
+					if listErr != nil {
+						return false
+					}
+					for _, obj := range out.Contents {
+						if aws.ToString(obj.Key) == goneKey {
+							return false
+						}
+					}
+
+					return true
+				}, 500*time.Millisecond, 10*time.Millisecond,
+					"expected key %q to be evicted", goneKey)
+			}
+
+			// Verify wantKept keys are still present.
+			for _, keptKey := range tt.wantKept {
+				out, listErr := backend.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
+					Bucket: aws.String(bucket),
+				})
+				require.NoError(t, listErr)
+
+				found := false
+				for _, obj := range out.Contents {
+					if aws.ToString(obj.Key) == keptKey {
+						found = true
+
+						break
+					}
+				}
+				assert.True(t, found, "expected key %q to still exist", keptKey)
+			}
+		})
+	}
+}

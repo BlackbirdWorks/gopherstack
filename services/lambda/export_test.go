@@ -326,6 +326,25 @@ func DrainQueue(s *ExportedRuntimeServer) int {
 	}
 }
 
+// DrainN removes at most n items from the runtime server's invocation queue,
+// returning the actual number removed. Unlike DrainQueue, it stops after n
+// dequeues so that items inserted concurrently by background goroutines (e.g.
+// the slow-path in enqueueAsyncInvocation) are not inadvertently consumed.
+func DrainN(s *ExportedRuntimeServer, n int) int {
+	removed := 0
+
+	for removed < n {
+		select {
+		case <-s.inner.queue:
+			removed++
+		default:
+			return removed
+		}
+	}
+
+	return removed
+}
+
 // EnqueueAsync calls enqueueAsyncInvocation on b with a synthetic pendingInvocation.
 // It returns the requestID of the created invocation so tests can simulate container
 // responses or verify pending-map cleanup. createdAt sets the event creation time; pass
