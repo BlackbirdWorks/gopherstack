@@ -779,6 +779,26 @@ func TestConcurrencyEnforcement(t *testing.T) {
 			wantErrType: "TooManyRequestsException",
 		},
 		{
+			name:           "reserved_nonzero_enforced_for_event",
+			funcName:       "conc-event-limit-fn",
+			invocationType: lambda.InvocationTypeEvent,
+			setup: func(t *testing.T, b *lambda.InMemoryBackend) {
+				t.Helper()
+				require.NoError(t, b.CreateFunction(&lambda.FunctionConfiguration{
+					FunctionName: "conc-event-limit-fn",
+					PackageType:  lambda.PackageTypeImage,
+					ImageURI:     "test:latest",
+				}))
+				_, err := b.PutFunctionConcurrency("conc-event-limit-fn", 1)
+				require.NoError(t, err)
+				// Manually acquire the only available slot to simulate a running execution.
+				_, err = lambda.AcquireConcurrencySlot(b, "conc-event-limit-fn")
+				require.NoError(t, err)
+			},
+			wantCode:    http.StatusTooManyRequests,
+			wantErrType: "TooManyRequestsException",
+		},
+		{
 			name:           "no_concurrency_limit_allows_invocation",
 			funcName:       "conc-unlimited-fn",
 			invocationType: lambda.InvocationTypeRequestResponse,
