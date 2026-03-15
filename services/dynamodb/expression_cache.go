@@ -140,6 +140,13 @@ func (c *ExpressionCache) Sweep() {
 	}
 }
 
+// Close releases all resources held by the cache, including metric registrations.
+func (c *ExpressionCache) Close() {
+	for _, shard := range c.shards {
+		shard.close()
+	}
+}
+
 // sweepExpired removes expired entries from a shard.
 func (s *cacheShard) sweepExpired(now time.Time) {
 	s.mu.Lock("sweepExpired")
@@ -154,6 +161,13 @@ func (s *cacheShard) sweepExpired(now time.Time) {
 			delete(s.cache, entry.key)
 		}
 		elem = prev
+	}
+}
+
+// close releases shard resources.
+func (s *cacheShard) close() {
+	if s.mu != nil {
+		s.mu.Close()
 	}
 }
 

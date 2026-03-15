@@ -9,7 +9,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
-const defaultDDBJanitorInterval = 500 * time.Millisecond
+const (
+	defaultDDBJanitorInterval = 500 * time.Millisecond
+	defaultDDBTTLSweepInterval = 5 * time.Second
+)
 
 // Janitor is the DynamoDB background worker that finalises tables queued for
 // async deletion and records queue-depth metrics for the live dashboard.
@@ -35,25 +38,31 @@ func NewJanitor(backend *InMemoryDB, settings Settings) *Janitor {
 
 // Run runs the janitor loop until ctx is cancelled.
 func (j *Janitor) Run(ctx context.Context) {
-	ticker := time.NewTicker(j.Interval)
-	defer ticker.Stop()
+	mainTicker := time.NewTicker(j.Interval)
+	defer mainTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-mainTicker.C:
 			j.runOnce(ctx)
-			j.sweepTTL(ctx)
-			j.sweepTxnTokens()
-			j.sweepTxnPending()
-			j.Backend.exprCache.Sweep()
 		}
 	}
 }
 
-// runOnce records the current queue depth and finalises all pending deletions.
+// runOnce orchestrates the various janitor tasks.
 func (j *Janitor) runOnce(ctx context.Context) {
+	j.sweepTTL(ctx)
+	j.sweepTxnTokens()
+	j.sweepTxnPending()
+	j.sweepStreamRecords()
+	j.Backend.exprCache.Sweep()
+	j.runTableCleaner(ctx) // The original runOnce logic
+}
+
+// runTableCleaner records the current queue depth and finalises all pending deletions.
+func (j *Janitor) runTableCleaner(ctx context.Context) {
 	db := j.Backend
 
 	// Snapshot pending tables under the lock across all regions, record depth before processing.
@@ -99,30 +108,31 @@ func (j *Janitor) sweepTTL(ctx context.Context) {
 
 		table.mu.Lock("TTLSweep")
 		evictedCount := 0
-		newItems := make([]map[string]any, 0, len(table.Items))
-
-		for _, item := range table.Items {
+		// Iterate backwards to safely remove items without affecting index of remaining items
+		for i := len(table.Items) - 1; i >= 0; i-- {
+			item := table.Items[i]
 			expired := false
 			if ttlVal, ok := dynamoattr.ParseNumeric(item[ttlAttr]); ok {
-				// DynamoDB TTL: Item is expired if its TTL value < current time (Unix epoch seconds)
 				if ttlVal < now {
 					expired = true
 				}
 			}
 
 			if expired {
-				// Emit a REMOVE stream record before discarding the item so that
-				// stream consumers can react to TTL-driven deletions.
+				// Capture stream REMOVE event? AWS TTL evictions DO capture stream events
+				// but mark them as "userIdentity": {"type": "Service", "principalId": "dynamodb.amazonaws.com"}
+				// We'll capture it as a normal remove for now.
 				table.appendStreamRecord(streamEventRemove, deepCopyItem(item), nil)
 				evictedCount++
-			} else {
-				newItems = append(newItems, item)
+
+				// Evict item using optimized deleteItemAtIndex
+				// This handles O(1) swap and index updates.
+				// We no longer need to call t.rebuildIndexes() here.
+				db.deleteItemAtIndex(table, i)
 			}
 		}
 
 		if evictedCount > 0 {
-			table.Items = newItems
-			table.rebuildIndexes()
 			totalEvicted += evictedCount
 			logger.Load(ctx).InfoContext(ctx, "DynamoDB janitor: TTL items evicted",
 				"table", table.Name,
@@ -168,4 +178,34 @@ func (j *Janitor) sweepTxnPending() {
 			delete(db.txnPending, token)
 		}
 	}
+}
+
+func (j *Janitor) sweepStreamRecords() {
+	db := j.Backend
+	tables := db.ListAllTables()
+	now := time.Now().Unix()
+	const streamExpirySeconds = 24 * 60 * 60
+
+	for _, t := range tables {
+		t.mu.Lock("SweepStreamRecords")
+		var cleared int
+		for i := range t.StreamRecords {
+			r := &t.StreamRecords[i]
+			// If record is older than 24h, we can nil out its images to save space.
+			// We don't remove it from the ring buffer slice to maintain ring buffer indices.
+			if r.ApproximateCreationDateTime > 0 && now-r.ApproximateCreationDateTime > streamExpirySeconds {
+				if r.OldImage != nil || r.NewImage != nil {
+					r.OldImage = nil
+					r.NewImage = nil
+					cleared++
+				}
+			}
+		}
+		t.mu.Unlock()
+
+		if cleared > 0 {
+			telemetry.RecordWorkerItems("dynamodb", "StreamSweeper", cleared)
+		}
+	}
+	telemetry.RecordWorkerTask("dynamodb", "StreamSweeper", "success")
 }

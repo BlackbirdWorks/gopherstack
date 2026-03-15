@@ -70,7 +70,13 @@ func TestEvaluator_CalculateSize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.InDelta(t, tt.expected, eval.CalculateSize(tt.input), 0)
+			got, err := eval.CalculateSize(tt.input)
+			if tt.expected == 0 && tt.name == "Unsupported" {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.InDelta(t, tt.expected, got, 0)
+			}
 		})
 	}
 }

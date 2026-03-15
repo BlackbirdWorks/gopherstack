@@ -382,7 +382,7 @@ func (db *InMemoryDB) processQueryResults(
 
 	startIndex := findExclusiveStartIndex(candidates, exclusiveStartKey, keySchema)
 
-	items, lastEvaluatedKey := db.collectQueryPage(ctx, candidates, input, keySchema, ttlAttr, startIndex, eav)
+	items, lastEvaluatedKey, scannedCount := db.collectQueryPage(ctx, candidates, input, keySchema, ttlAttr, startIndex, eav)
 
 	outItems := make([]map[string]types.AttributeValue, len(items))
 	for i, it := range items {
@@ -392,10 +392,10 @@ func (db *InMemoryDB) processQueryResults(
 
 	out := &dynamodb.QueryOutput{
 		Items:        outItems,
-		Count:        int32(len(items)),      // #nosec G115
-		ScannedCount: int32(len(candidates)), // #nosec G115
+		Count:        int32(len(items)),        // #nosec G115
+		ScannedCount: int32(scannedCount),       // #nosec G115
 		ConsumedCapacity: consumedCapacityForQuery(
-			aws.ToString(input.TableName), input.ReturnConsumedCapacity, len(candidates),
+			aws.ToString(input.TableName), input.ReturnConsumedCapacity, scannedCount,
 		),
 	}
 
@@ -407,8 +407,8 @@ func (db *InMemoryDB) processQueryResults(
 }
 
 // collectQueryPage iterates candidates from startIndex, collecting items up to
-// the input's Limit. Returns the collected items and the last-evaluated key for
-// pagination if the limit was reached.
+// the input's Limit or 1MB size limit. Returns the collected items, the
+// last-evaluated key for pagination, and the total number of items scanned.
 func (db *InMemoryDB) collectQueryPage(
 	ctx context.Context,
 	candidates []map[string]any,
@@ -417,36 +417,43 @@ func (db *InMemoryDB) collectQueryPage(
 	ttlAttr string,
 	startIndex int,
 	eav map[string]any,
-) ([]map[string]any, map[string]any) {
+) ([]map[string]any, map[string]any, int) {
 	limit := int(aws.ToInt32(input.Limit))
-	capacity := limit
-	if capacity == 0 || capacity > 100 {
-		capacity = 100 // default or max page size for safety
-	}
-	items := make([]map[string]any, 0, capacity)
-	count := 0
+	proj := aws.ToString(input.ProjectionExpression)
+	
+	projector, _ := ParseProjector(proj, input.ExpressionAttributeNames)
+
+	const maxResponseSize = 1024 * 1024 // 1MB
+	items := make([]map[string]any, 0)
+	totalScannedSize := 0
+	scannedCount := 0
 
 	for i := startIndex; i < len(candidates); i++ {
-		if limit > 0 && count >= limit {
-			return items, extractKey(items[len(items)-1], keySchema)
-		}
-
+		scannedCount++
 		item := candidates[i]
-		if isItemExpired(item, ttlAttr) || !db.shouldIncludeInQuery(ctx, item, input, eav) {
-			continue
+		itemSize, _ := CalculateItemSize(item)
+
+		if totalScannedSize+itemSize > maxResponseSize && len(items) > 0 {
+			// Stop if next item exceeds 1MB (unless it's the first matching item)
+			prevItem := candidates[i-1]
+			return items, extractKey(prevItem, keySchema), scannedCount - 1
+		}
+		totalScannedSize += itemSize
+
+		if !isItemExpired(item, ttlAttr) && db.shouldIncludeInQuery(ctx, item, input, eav) {
+			items = append(items, projector.Project(item))
 		}
 
-		processedItem := item
-		proj := aws.ToString(input.ProjectionExpression)
-		if proj != "" {
-			processedItem = projectItem(item, proj, input.ExpressionAttributeNames)
+		if limit > 0 && scannedCount >= limit {
+			return items, extractKey(item, keySchema), scannedCount
 		}
 
-		items = append(items, processedItem)
-		count++
+		if totalScannedSize >= maxResponseSize {
+			return items, extractKey(item, keySchema), scannedCount
+		}
 	}
 
-	return items, nil
+	return items, nil, scannedCount
 }
 
 func (db *InMemoryDB) shouldIncludeInQuery(

@@ -68,6 +68,14 @@ func (db *InMemoryDB) getTable(ctx context.Context, name string) (*Table, error)
 		return nil, NewResourceNotFoundException("Requested resource not found")
 	}
 
+	table.mu.RLock("checkStatus")
+	status := table.Status
+	table.mu.RUnlock()
+
+	if status != "ACTIVE" && status != "" {
+		return nil, NewResourceNotFoundException("Requested resource not found")
+	}
+
 	return table, nil
 }
 
@@ -256,8 +264,8 @@ func compareAny(v1, v2 any, typ string) int {
 		return 0
 	}
 
-	// Handle numeric types directly (fast path, no allocations)
-	if typ == "N" {
+	switch typ {
+	case "N":
 		f1, _ := dynamoattr.ParseNumeric(v1)
 		f2, _ := dynamoattr.ParseNumeric(v2)
 		if f1 < f2 {
@@ -266,42 +274,65 @@ func compareAny(v1, v2 any, typ string) int {
 		if f1 > f2 {
 			return 1
 		}
-
 		return 0
-	}
 
-	// Handle string types directly without fmt.Sprintf allocation (fast path)
-	if typ == "S" {
-		s1Str, ok1 := v1.(string)
-		s2Str, ok2 := v2.(string)
+	case "S":
+		s1, ok1 := v1.(string)
+		s2, ok2 := v2.(string)
 		if !ok1 || !ok2 {
-			// Fallback to general comparison if not string
 			goto Fallback
 		}
-		if s1Str < s2Str {
+		if s1 < s2 {
 			return -1
 		}
-		if s1Str > s2Str {
+		if s1 > s2 {
 			return 1
 		}
-
 		return 0
+
+	case "BOOL":
+		b1, ok1 := v1.(bool)
+		b2, ok2 := v2.(bool)
+		if !ok1 || !ok2 {
+			goto Fallback
+		}
+		if b1 == b2 {
+			return 0
+		}
+		if !b1 { // false < true
+			return -1
+		}
+		return 1
+
+	case "B":
+		// Handle []byte (raw) or string (base64)
+		b1 := toBytes(v1)
+		b2 := toBytes(v2)
+		return bytes.Compare(b1, b2)
 	}
 
 Fallback:
-
 	// Fallback: convert to string only for unknown or complex types (rare path)
 	s1 := fmt.Sprintf("%v", v1)
 	s2 := fmt.Sprintf("%v", v2)
 	if s1 < s2 {
 		return -1
 	}
-
 	if s1 > s2 {
 		return 1
 	}
-
 	return 0
+}
+
+func toBytes(v any) []byte {
+	switch b := v.(type) {
+	case []byte:
+		return b
+	case string:
+		return []byte(b)
+	default:
+		return nil
+	}
 }
 
 // Helpers moved to utils.go

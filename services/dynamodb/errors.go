@@ -16,8 +16,15 @@ var (
 )
 
 type Error struct {
-	Type    string `json:"__type"`
-	Message string `json:"message"`
+	Type                string               `json:"__type"`
+	Message             string               `json:"message"`
+	CancellationReasons []CancellationReason `json:"CancellationReasons,omitempty"`
+}
+
+type CancellationReason struct {
+	Code    string `json:"Code"`
+	Message string `json:"Message,omitempty"`
+	Item    any    `json:"Item,omitempty"`
 }
 
 func NewResourceNotFoundException(msg string) *Error {
@@ -111,16 +118,24 @@ func NewPolicyNotFoundException(msg string) *Error {
 	}
 }
 
-func NewTransactionCanceledException(msg string) *Error {
+func NewTransactionCanceledException(msg string, reasons []CancellationReason) *Error {
 	return &Error{
-		Type:    "com.amazonaws.dynamodb.v20120810#TransactionCanceledException",
-		Message: msg,
+		Type:                "com.amazonaws.dynamodb.v20120810#TransactionCanceledException",
+		Message:             msg,
+		CancellationReasons: reasons,
 	}
 }
 
 func NewTransactionInProgressException(msg string) *Error {
 	return &Error{
 		Type:    "com.amazonaws.dynamodb.v20120810#TransactionInProgressException",
+		Message: msg,
+	}
+}
+
+func NewExpiredIteratorException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#ExpiredIteratorException",
 		Message: msg,
 	}
 }

@@ -97,6 +97,45 @@ func projectItem(
 	return eval.ApplyProjection(proj)
 }
 
+// Projector holds a pre-parsed projection expression for efficient repeated use.
+type Projector struct {
+	projection *expr.ProjectionExpr
+	attrNames  map[string]string
+}
+
+// ParseProjector parses a ProjectionExpression and returns a Projector.
+func ParseProjector(expression string, attrNames map[string]string) (*Projector, error) {
+	if expression == "" {
+		return &Projector{}, nil
+	}
+
+	l := expr.NewLexer(expression)
+	p := expr.NewParser(l)
+	proj, err := p.ParseProjection()
+	if err != nil {
+		return nil, err
+	}
+
+	return &Projector{
+		projection: proj,
+		attrNames:  attrNames,
+	}, nil
+}
+
+// Project applies the pre-parsed projection to an item.
+func (p *Projector) Project(item map[string]any) map[string]any {
+	if p == nil || p.projection == nil {
+		return item
+	}
+
+	eval := &expr.Evaluator{
+		Item:      item,
+		AttrNames: p.attrNames,
+	}
+
+	return eval.ApplyProjection(p.projection)
+}
+
 // Compatibility layer for unexported calls within the package.
 func evaluateExpression(
 	expression string,

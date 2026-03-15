@@ -1,7 +1,6 @@
 package dynamodb
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,6 +15,16 @@ const (
 
 	wcuBytes = 1024 // 1 WCU per KB
 	rcuBytes = 4096 // 1 RCU per 4 KB
+
+	// base64Divisor is the divisor used to convert a base64-encoded string length back
+	// to its approximate raw byte length (base64 inflates size by 4/3).
+	base64Divisor = 4
+	// base64Numerator is paired with base64Divisor: rawBytes ≈ len(base64) * 3 / 4.
+	base64Numerator = 3
+	// ddbContainerOverhead is the fixed overhead DynamoDB adds for Map and List containers.
+	ddbContainerOverhead = 3
+	// perItemOverhead is the fixed overhead DynamoDB adds for each item.
+	perItemOverhead = 100
 )
 
 // WriteCapacityUnits returns the WCUs consumed by a write: ceil(size / 1KB), minimum 1.
@@ -39,30 +48,99 @@ func ReadCapacityUnits(item map[string]any) float64 {
 	return float64((size+rcuBytes-1)/rcuBytes) * models.ConsumedReadUnit
 }
 
-// CalculateItemSize approximates the DynamoDB item size.
-// Size = sum of (len(attribute_name) + len(attribute_value))
-// For simplicity in V1, we serialize to JSON and use the length, which is a rough upper bound/approximation.
-// A more accurate specific calculation would iterate keys and values.
+// CalculateItemSize approximates the DynamoDB-encoded size of a wire-format item in bytes.
 func CalculateItemSize(item map[string]any) (int, error) {
-	// Accurate calculation per AWS:
-	// Strings: UTF-8 bytes
-	// Numbers: Approximate bytes? JSON len is decent proxy.
-	// Binary: Raw bytes.
-	// Boolean: 1 byte.
-	// Null: 1 byte.
-	// Map/List: Overhead + elements.
-
-	// For this implementation, let's just use a JSON dump size as a safe proxy.
-	// It overestimates structure syntax ({, ", :) but underestimates nothing.
-	// AWS size is pure data size.
-	// Let's implement a recursive sizer for better accuracy if needed,
-	// but JSON marshal is robust enough for "Validation & Limits" phase 1.
-	b, err := json.Marshal(item)
-	if err != nil {
-		return 0, err
+	if item == nil {
+		return 0, nil
 	}
 
-	return len(b), nil
+	size := int64(perItemOverhead)
+
+	for attrName, attrVal := range item {
+		size += int64(len(attrName)) + CalculateAttrSize(attrVal)
+	}
+
+	return int(size), nil
+}
+
+// CalculateAttrSize estimates the encoded size of a single DynamoDB wire-format attribute value.
+func CalculateAttrSize(v any) int64 {
+	m, isMap := v.(map[string]any)
+	if !isMap {
+		return 1
+	}
+
+	if s, ok := m["S"].(string); ok {
+		return int64(len(s))
+	}
+
+	if n, ok := m["N"].(string); ok {
+		sz := len(n)
+		if sz == 0 {
+			sz = 1
+		}
+		return int64(sz)
+	}
+
+	if b, ok := m["B"].(string); ok {
+		return int64(len(b)) * base64Numerator / base64Divisor
+	}
+
+	if _, ok := m["BOOL"]; ok {
+		return 1
+	}
+
+	if _, ok := m["NULL"]; ok {
+		return 1
+	}
+
+	if ss, ok := m["SS"].([]string); ok {
+		var total int64
+		for _, s := range ss {
+			total += int64(len(s))
+		}
+		return total
+	}
+
+	if ns, ok := m["NS"].([]string); ok {
+		var total int64
+		for _, n := range ns {
+			sz := len(n)
+			if sz == 0 {
+				sz = 1
+			}
+			total += int64(sz)
+		}
+		return total
+	}
+
+	if bs, ok := m["BS"].([]any); ok {
+		var total int64
+		for _, b := range bs {
+			if s, isStr := b.(string); isStr {
+				total += int64(len(s)) * base64Numerator / base64Divisor
+			}
+		}
+		return total
+	}
+
+	if nested, ok := m["M"].(map[string]any); ok {
+		total := int64(ddbContainerOverhead)
+		for k, val := range nested {
+			total += int64(len(k)) + CalculateAttrSize(val)
+		}
+		return total
+	}
+
+	if list, ok := m["L"].([]any); ok {
+		total := int64(ddbContainerOverhead)
+		for _, elem := range list {
+			total += CalculateAttrSize(elem)
+		}
+		return total
+	}
+
+	return 1
 }
 
 func ValidateItemSize(item map[string]any) error {
@@ -97,33 +175,30 @@ func validateKeySchema(item map[string]any, schema []models.KeySchemaElement) er
 					))
 				}
 			}
-		}
 
-		// Check size
-		// We need to unwrap if it's a DynamoDB JSON format (e.g. {"S": "val"}) or raw?
-		// The `item` map typically comes from `PutItemInput` which uses `map[string]any`
-		// but the values are ostensibly map[string]any (the "S" wrapper).
+			size, _ := CalculateItemSize(valMap)
+			// We remove the 100-byte item overhead for individual attribute check if necessary,
+			// but AWS Key element size limit is also strict.
+			// AWS says Key size is Sum(len(attrName) + len(attrValue)).
+			// CalculateItemSize(valMap) gives us 100 + len(val).
+			// So we adjust.
+			actualSize := size - perItemOverhead
 
-		// Helper to get raw value size
-		// We reuse calculateItemSize for the value part
-		// Or just marshal the value
-		b, _ := json.Marshal(val)
-		size := len(b) // Approximation
+			limit := MaxPartitionKeySize
+			if k.KeyType == "RANGE" {
+				limit = MaxSortKeySize
+			}
 
-		limit := MaxPartitionKeySize
-		if k.KeyType == "RANGE" {
-			limit = MaxSortKeySize
-		}
-
-		if size > limit {
-			return NewValidationException(
-				fmt.Sprintf(
-					"Key element %s size %d exceeds limit %d",
-					k.AttributeName,
-					size,
-					limit,
-				),
-			)
+			if actualSize > limit {
+				return NewValidationException(
+					fmt.Sprintf(
+						"Key element %s size %d exceeds limit %d",
+						k.AttributeName,
+						actualSize,
+						limit,
+					),
+				)
+			}
 		}
 	}
 

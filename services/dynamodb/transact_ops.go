@@ -14,6 +14,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
+type tableStateSnapshot struct {
+	items     []map[string]any
+	pkIndex   map[string]int
+	pkskIndex map[string]map[string]int
+}
+
 const txCancelPrefix = "Transaction cancelled, please refer cancellation reasons for specific reasons"
 
 // TransactWriteItems executes up to 100 write actions atomically.
@@ -70,15 +76,31 @@ func (db *InMemoryDB) TransactWriteItems(
 	}()
 
 	// Phase 1: Check conditions
+	reasons := make([]CancellationReason, len(input.TransactItems))
+	for i := range reasons {
+		reasons[i] = CancellationReason{Code: "None"}
+	}
+
+	canceled := false
 	for i, ti := range input.TransactItems {
-		if err := db.checkTransactWriteCondition(ctx, tables, ti, i); err != nil {
-			return nil, err
+		if err := db.checkTransactWriteCondition(ctx, tables, ti, i, reasons); err != nil {
+			canceled = true
 		}
 	}
 
+	if canceled {
+		return nil, NewTransactionCanceledException(txCancelPrefix, reasons)
+	}
+
 	// Phase 2: Apply writes
-	for _, ti := range input.TransactItems {
+	snapshots := db.snapshotTables(tables)
+	for i, ti := range input.TransactItems {
 		if err := db.applyTransactWrite(ctx, tables, ti); err != nil {
+			logger.Load(ctx).ErrorContext(ctx, "Transaction failed during apply phase, rolling back",
+				"error", err,
+				"itemIndex", i)
+			db.rollbackTables(tables, snapshots)
+
 			return nil, err
 		}
 	}
@@ -338,10 +360,11 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 	tables map[string]*Table,
 	ti types.TransactWriteItem,
 	idx int,
+	reasons []CancellationReason,
 ) error {
 	switch {
 	case ti.Put != nil:
-		return db.checkTransactPut(ctx, tables, ti.Put, idx)
+		return db.checkTransactPut(ctx, tables, ti.Put, idx, reasons)
 	case ti.Delete != nil:
 		return db.checkTransactCondExpr(
 			ctx,
@@ -351,6 +374,8 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 			models.FromSDKItem(ti.Delete.ExpressionAttributeValues),
 			ti.Delete.ExpressionAttributeNames,
 			idx,
+			ti.Delete.ReturnValuesOnConditionCheckFailure,
+			reasons,
 		)
 	case ti.Update != nil:
 		return db.checkTransactCondExpr(
@@ -361,6 +386,8 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 			models.FromSDKItem(ti.Update.ExpressionAttributeValues),
 			ti.Update.ExpressionAttributeNames,
 			idx,
+			ti.Update.ReturnValuesOnConditionCheckFailure,
+			reasons,
 		)
 	case ti.ConditionCheck != nil:
 		return db.checkTransactCondExpr(
@@ -371,6 +398,8 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 			models.FromSDKItem(ti.ConditionCheck.ExpressionAttributeValues),
 			ti.ConditionCheck.ExpressionAttributeNames,
 			idx,
+			ti.ConditionCheck.ReturnValuesOnConditionCheckFailure,
+			reasons,
 		)
 	}
 
@@ -382,15 +411,11 @@ func (db *InMemoryDB) checkTransactPut(
 	tables map[string]*Table,
 	input *types.Put,
 	idx int,
+	reasons []CancellationReason,
 ) error {
 	table := tables[aws.ToString(input.TableName)]
 	wireItem := models.FromSDKItem(input.Item)
 	oldItem, _ := db.findMatchForPut(table, wireItem)
-
-	// Since checkPutCondition expects *dynamodb.PutItemInput, we construct a dummy one
-	// or create a internal checks that takes ConditionExpr string etc.
-	// Reusing checkPutCondition is hard because type mismatch (types.Put vs dynamodb.PutItemInput).
-	// I'll reuse checkTransactCondExpr logic for Put condition.
 
 	cond := aws.ToString(input.ConditionExpression)
 	if cond == "" {
@@ -399,7 +424,7 @@ func (db *InMemoryDB) checkTransactPut(
 
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
-	if err := db.checkTransactCondExprRaw(ctx, oldItem, cond, eav, input.ExpressionAttributeNames, idx); err != nil {
+	if err := db.checkTransactCondExprRaw(ctx, oldItem, cond, eav, input.ExpressionAttributeNames, idx, input.ReturnValuesOnConditionCheckFailure, reasons); err != nil {
 		return err
 	}
 
@@ -414,6 +439,8 @@ func (db *InMemoryDB) checkTransactCondExpr(
 	eavs map[string]any,
 	eans map[string]string,
 	idx int,
+	rv types.ReturnValuesOnConditionCheckFailure,
+	reasons []CancellationReason,
 ) error {
 	if condExpr == "" {
 		return nil
@@ -421,7 +448,7 @@ func (db *InMemoryDB) checkTransactCondExpr(
 
 	oldItem, _ := db.findMatchForPut(table, key)
 
-	return db.checkTransactCondExprRaw(ctx, oldItem, condExpr, eavs, eans, idx)
+	return db.checkTransactCondExprRaw(ctx, oldItem, condExpr, eavs, eans, idx, rv, reasons)
 }
 
 func (db *InMemoryDB) checkTransactCondExprRaw(
@@ -431,6 +458,8 @@ func (db *InMemoryDB) checkTransactCondExprRaw(
 	eavs map[string]any,
 	eans map[string]string,
 	idx int,
+	rv types.ReturnValuesOnConditionCheckFailure,
+	reasons []CancellationReason,
 ) error {
 	log := logger.Load(ctx)
 	log.DebugContext(ctx, "Evaluating Transaction condition",
@@ -441,12 +470,26 @@ func (db *InMemoryDB) checkTransactCondExprRaw(
 
 	match, err := evaluateExpression(condExpr, item, eavs, eans)
 	if err != nil {
-		return NewTransactionCanceledException(fmt.Sprintf("%s [%d]: %s", txCancelPrefix, idx, err))
+		reasons[idx] = CancellationReason{
+			Code:    "ValidationError",
+			Message: err.Error(),
+		}
+
+		return err
 	}
 	if !match {
-		return NewTransactionCanceledException(
-			fmt.Sprintf("%s [%d]: ConditionalCheckFailed", txCancelPrefix, idx),
-		)
+		reason := CancellationReason{
+			Code:    "ConditionalCheckFailed",
+			Message: "The conditional request failed",
+		}
+
+		if rv == types.ReturnValuesOnConditionCheckFailureAllOld && item != nil {
+			sdkItem, _ := models.ToSDKItem(item)
+			reason.Item = sdkItem
+		}
+		reasons[idx] = reason
+
+		return fmt.Errorf("ConditionalCheckFailed")
 	}
 
 	return nil
@@ -501,4 +544,48 @@ func (db *InMemoryDB) applyTransactWrite(
 	}
 
 	return nil
+}
+
+func (db *InMemoryDB) snapshotTables(tables map[string]*Table) map[string]tableStateSnapshot {
+	snapshots := make(map[string]tableStateSnapshot, len(tables))
+	for name, t := range tables {
+		// Shallow copy of Items slice (holds references to maps).
+		// Since we always replace maps in the slice (never mutate in-place),
+		// this is sufficient for restoring the table's item references.
+		itemsCopy := make([]map[string]any, len(t.Items))
+		copy(itemsCopy, t.Items)
+
+		// Deep copy of indexes to ensure rollback restores correct mapping.
+		pkIdxCopy := make(map[string]int, len(t.pkIndex))
+		for k, v := range t.pkIndex {
+			pkIdxCopy[k] = v
+		}
+
+		pkskIdxCopy := make(map[string]map[string]int, len(t.pkskIndex))
+		for pk, skMap := range t.pkskIndex {
+			skMapCopy := make(map[string]int, len(skMap))
+			for sk, v := range skMap {
+				skMapCopy[sk] = v
+			}
+			pkskIdxCopy[pk] = skMapCopy
+		}
+
+		snapshots[name] = tableStateSnapshot{
+			items:     itemsCopy,
+			pkIndex:   pkIdxCopy,
+			pkskIndex: pkskIdxCopy,
+		}
+	}
+
+	return snapshots
+}
+
+func (db *InMemoryDB) rollbackTables(tables map[string]*Table, snapshots map[string]tableStateSnapshot) {
+	for name, t := range tables {
+		if s, ok := snapshots[name]; ok {
+			t.Items = s.items
+			t.pkIndex = s.pkIndex
+			t.pkskIndex = s.pkskIndex
+		}
+	}
 }

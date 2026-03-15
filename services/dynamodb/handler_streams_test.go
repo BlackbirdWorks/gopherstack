@@ -110,7 +110,8 @@ func TestHandler_StreamsDispatch(t *testing.T) {
 		t.Parallel()
 
 		handler, _ := newStreamEnabledHandler(t)
-		w := doStreamsRequest(t, handler, "GetRecords", `{"ShardIterator":"StreamHandlerTable:0"}`)
+		// We need a 3-part iterator now: tableName:startSeq:timestamp
+		w := doStreamsRequest(t, handler, "GetRecords", `{"ShardIterator":"StreamHandlerTable:0:2000000000"}`)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "Records")

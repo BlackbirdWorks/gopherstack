@@ -57,14 +57,7 @@ type Backup struct {
 }
 
 // StreamRecord captures a single item-level change event for DynamoDB Streams.
-type StreamRecord struct {
-	OldImage                    map[string]any `json:"oldImage,omitempty"`
-	NewImage                    map[string]any `json:"newImage,omitempty"`
-	EventID                     string         `json:"eventID"`
-	EventName                   string         `json:"eventName"`
-	SequenceNumber              string         `json:"sequenceNumber"`
-	ApproximateCreationDateTime int64          `json:"approximateCreationDateTime"`
-}
+// Uses models.StreamRecord for storage and wire format.
 
 const (
 	// streamEventInsert is emitted when a new item is created.
@@ -104,7 +97,7 @@ type Table struct {
 	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
 	Replicas               []models.ReplicaDescription             `json:"Replicas,omitempty"`
 	Items                  []map[string]any                        `json:"Items"`
-	StreamRecords          []StreamRecord                          `json:"StreamRecords,omitempty"`
+	StreamRecords          []models.StreamRecord                   `json:"StreamRecords,omitempty"`
 	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
 	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamSeq              int64
@@ -113,8 +106,10 @@ type Table struct {
 	// When the ring buffer is not yet full (len(StreamRecords) < maxStreamRecords),
 	// StreamHead is 0 and StreamRecords is in insertion order.
 	StreamHead     int  `json:"StreamHead,omitempty"`
-	PITREnabled    bool `json:"PITREnabled,omitempty"`
-	StreamsEnabled bool `json:"StreamsEnabled"`
+	PITREnabled               bool `json:"PITREnabled,omitempty"`
+	StreamsEnabled            bool `json:"StreamsEnabled"`
+	TableClass                string `json:"TableClass,omitempty"`
+	DeletionProtectionEnabled bool `json:"DeletionProtectionEnabled"`
 }
 
 func NewInMemoryDB() *InMemoryDB {
@@ -136,6 +131,17 @@ func NewInMemoryDB() *InMemoryDB {
 	}
 }
 
+// Close releases all backend resources.
+func (db *InMemoryDB) Close() {
+	db.mu.Lock("Close")
+	defer db.mu.Unlock()
+
+	if db.exprCache != nil {
+		db.exprCache.Close()
+	}
+	db.mu.Close()
+}
+
 // SetEnforceThroughput enables or disables provisioned throughput throttling.
 // Call before CreateTable calls; intended for CLI configuration.
 func (db *InMemoryDB) SetEnforceThroughput(enabled bool) {
@@ -152,7 +158,7 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 	t.streamSeq++
 	seq := fmt.Sprintf("%020d", t.streamSeq)
 
-	record := StreamRecord{
+	record := models.StreamRecord{
 		EventID:                     fmt.Sprintf("%s-%s", t.Name, seq),
 		EventName:                   eventName,
 		SequenceNumber:              seq,
@@ -216,7 +222,7 @@ func (t *Table) streamSeqRange() (string, string) {
 // StreamRecords[:StreamHead] (newest records that wrapped around).
 //
 // Must be called with table.mu held (at least read lock).
-func (t *Table) streamRecordsInOrder() ([]StreamRecord, []StreamRecord) {
+func (t *Table) streamRecordsInOrder() ([]models.StreamRecord, []models.StreamRecord) {
 	n := len(t.StreamRecords)
 	if n == 0 {
 		return nil, nil
@@ -433,5 +439,8 @@ func (db *InMemoryDB) Reset() {
 	db.txnTokens = make(map[string]time.Time)
 	db.txnPending = make(map[string]time.Time)
 	db.fisReplicationPaused = make(map[string]time.Time)
+	if db.exprCache != nil {
+		db.exprCache.Close()
+	}
 	db.exprCache = NewExpressionCache(exprCacheSize)
 }

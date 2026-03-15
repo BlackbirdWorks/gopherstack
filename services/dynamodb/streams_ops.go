@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
+	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
 // Sentinel errors for streams operations.
@@ -24,6 +26,7 @@ var (
 	ErrTypeMismatchBOOL      = errors.New("expected bool for BOOL")
 	ErrTypeMismatchM         = errors.New("expected map for M")
 	ErrTypeMismatchL         = errors.New("expected slice for L")
+	ErrTypeMismatchB         = errors.New("expected []byte for B")
 	ErrUnknownAttributeType  = errors.New("unknown attribute type")
 )
 
@@ -200,7 +203,9 @@ func (db *InMemoryDB) GetShardIterator(
 		startSeq = 0
 	}
 
-	iterator := fmt.Sprintf("%s:%d", found.Name, startSeq)
+	// Shard iterator format: tableName:startSequenceNumber:creationTimestamp
+	// creationTimestamp is used to enforce the 15-minute expiration rule.
+	iterator := fmt.Sprintf("%s:%d:%d", found.Name, startSeq, time.Now().Unix())
 
 	return &dynamodbstreams.GetShardIteratorOutput{
 		ShardIterator: aws.String(iterator),
@@ -213,18 +218,25 @@ func (db *InMemoryDB) GetRecords(
 	input *dynamodbstreams.GetRecordsInput,
 ) (*dynamodbstreams.GetRecordsOutput, error) {
 	iterator := aws.ToString(input.ShardIterator)
-	parts := strings.SplitN(iterator, ":", 2) //nolint:mnd // 2-part split for table:seq
-
-	const iterParts = 2
-	if len(parts) != iterParts {
-		return nil, NewValidationException("invalid shard iterator")
+	parts := strings.Split(iterator, ":")
+	if len(parts) != 3 {
+		return nil, NewValidationException("Invalid shard iterator")
 	}
 
 	tableName := parts[0]
-
 	startSeq, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return nil, NewValidationException("invalid shard iterator sequence")
+		return nil, NewValidationException("Invalid shard iterator: invalid sequence number")
+	}
+
+	ts, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return nil, NewValidationException("Invalid shard iterator: invalid timestamp")
+	}
+
+	// AWS: Shard iterators expire after 15 minutes.
+	if time.Since(time.Unix(ts, 0)) > 15*time.Minute {
+		return nil, NewExpiredIteratorException("Shard iterator has expired")
 	}
 
 	table, err := db.getTable(ctx, tableName)
@@ -294,7 +306,7 @@ func (db *InMemoryDB) buildStreamARN(tableName string) string {
 }
 
 // buildSDKRecord converts an internal StreamRecord to the AWS SDK type.
-func buildSDKRecord(r StreamRecord) streamstypes.Record {
+func buildSDKRecord(r models.StreamRecord) streamstypes.Record {
 	rec := streamstypes.Record{
 		EventID:   aws.String(r.EventID),
 		EventName: streamstypes.OperationType(r.EventName),
@@ -391,6 +403,15 @@ func dispatchStreamType(typKey string, val any) (streamstypes.AttributeValue, er
 		return &streamstypes.AttributeValueMemberSS{Value: toStringSliceFrom(val)}, nil
 	case "NS":
 		return &streamstypes.AttributeValueMemberNS{Value: toStringSliceFrom(val)}, nil
+	case "B":
+		b, ok := val.([]byte)
+		if !ok {
+			return nil, ErrTypeMismatchB
+		}
+
+		return &streamstypes.AttributeValueMemberB{Value: b}, nil
+	case "BS":
+		return &streamstypes.AttributeValueMemberBS{Value: toByteSliceSliceFrom(val)}, nil
 	default:
 		return nil, ErrUnknownAttributeType
 	}
@@ -448,6 +469,25 @@ func toStringSliceFrom(v any) []string {
 	}
 }
 
+// toByteSliceSliceFrom coerces an any to [][]byte.
+func toByteSliceSliceFrom(v any) [][]byte {
+	switch s := v.(type) {
+	case [][]byte:
+		return s
+	case []any:
+		out := make([][]byte, 0, len(s))
+		for _, elem := range s {
+			if b, ok := elem.([]byte); ok {
+				out = append(out, b)
+			}
+		}
+
+		return out
+	default:
+		return nil
+	}
+}
+
 // findTableByStreamARN looks up a table by stream ARN using the reverse index.
 // Must be called with db.mu held.
 func (db *InMemoryDB) findTableByStreamARN(streamARN string) *Table {
@@ -463,7 +503,7 @@ func (db *InMemoryDB) findTableByStreamARN(streamARN string) *Table {
 // tail is iterated first (oldest records), then head (newest records that
 // wrapped around). When the buffer is not yet full, head is nil.
 func collectStreamRecords(
-	tail, head []StreamRecord,
+	tail, head []models.StreamRecord,
 	startSeq, limit, initialNextSeq int64,
 ) ([]streamstypes.Record, int64) {
 	records := make([]streamstypes.Record, 0)
@@ -479,7 +519,7 @@ func collectStreamRecords(
 // stopping when limit is reached. Returns the updated slice and next sequence.
 func appendMatchingRecords(
 	records []streamstypes.Record,
-	src []StreamRecord,
+	src []models.StreamRecord,
 	startSeq, limit, nextSeq int64,
 ) ([]streamstypes.Record, int64) {
 	for _, r := range src {
