@@ -1540,31 +1540,42 @@ func (b *InMemoryBackend) evictLRURuntimeLocked(skipName string) *functionRuntim
 
 // cleanupRuntime stops the container, shuts down the runtime server, releases the port,
 // and removes any temp directories associated with rt. It is safe to call with a nil rt.
+// Fields are snapshotted under rt.mu to avoid data races with concurrent startup.
 func (b *InMemoryBackend) cleanupRuntime(ctx context.Context, rt *functionRuntime) {
 	if rt == nil {
 		return
 	}
 
+	// Snapshot all resource handles under rt.mu so we don't race with getOrCreateRuntime
+	// which writes containerID, srv, port, zipDir, and layerDirs under rt.mu.
+	rt.mu.Lock("cleanupRuntime")
+	containerID := rt.containerID
+	srv := rt.srv
+	port := rt.port
+	zipDir := rt.zipDir
+	layerDirs := rt.layerDirs
+	rt.mu.Unlock()
+
 	shutdownCtx, cancel := context.WithTimeout(ctx, containerShutdownTimeout)
 	defer cancel()
 
-	if rt.containerID != "" && b.docker != nil {
-		_ = b.docker.StopAndRemove(shutdownCtx, rt.containerID) // #nosec G703
+	if containerID != "" && b.docker != nil {
+		_ = b.docker.StopAndRemove(shutdownCtx, containerID) // #nosec G703
 	}
 
-	if rt.srv != nil {
-		rt.srv.stop(shutdownCtx)
+	if srv != nil {
+		srv.stop(shutdownCtx)
 	}
 
-	if rt.port > 0 && b.portAlloc != nil {
-		_ = b.portAlloc.Release(rt.port)
+	if port > 0 && b.portAlloc != nil {
+		_ = b.portAlloc.Release(port)
 	}
 
-	if rt.zipDir != "" {
-		_ = os.RemoveAll(rt.zipDir) // #nosec G703
+	if zipDir != "" {
+		_ = os.RemoveAll(zipDir) // #nosec G703
 	}
 
-	for _, d := range rt.layerDirs {
+	for _, d := range layerDirs {
 		_ = os.RemoveAll(d) // #nosec G703
 	}
 
@@ -1600,6 +1611,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 	if ok {
 		// Touch lastUsed under the lock so concurrent callers see a consistent value.
 		rt.lastUsed = time.Now()
+		b.mu.Unlock()
 	} else {
 		// Only check for required infrastructure when actually creating a new runtime.
 		if b.portAlloc == nil {
@@ -1616,10 +1628,20 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 
 		rt = &functionRuntime{mu: lockmetrics.New("lambda.runtime"), lastUsed: time.Now()}
 		b.runtimes[fn.FunctionName] = rt
-		b.evictLRURuntimeLocked(fn.FunctionName)
-	}
+		evicted := b.evictLRURuntimeLocked(fn.FunctionName)
+		b.mu.Unlock()
 
-	b.mu.Unlock()
+		// Clean up the evicted runtime asynchronously outside b.mu.
+		// context.Background is intentional: the caller's ctx may be cancelled by the
+		// time the goroutine runs, and we still need to release container/port resources.
+		if evicted != nil {
+			go func() { // #nosec G118 -- intentional detached context; caller ctx may be cancelled before cleanup completes
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+				defer cancel()
+				b.cleanupRuntime(cleanupCtx, evicted)
+			}()
+		}
+	}
 
 	rt.mu.Lock("getOrCreateRuntime")
 	defer rt.mu.Unlock()

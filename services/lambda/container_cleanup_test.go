@@ -120,14 +120,16 @@ func TestCleanupTimedOutRuntime_RemovesFromMap(t *testing.T) {
 	tests := []struct {
 		name             string
 		port             int
-		timeout          time.Duration
+		fnTimeout        int // function Timeout in seconds (minimum 1)
 		wantRuntimes     int
 		wantErrIsTimeout bool
 	}{
 		{
+			// Timeout=1s: the runtime server never responds, so the invocation times
+			// out after 1s + containerResponseGracePeriod (≈ 1.1s total).
 			name:             "runtime_removed_after_timeout",
 			port:             containerCleanupTimeoutBase,
-			timeout:          50 * time.Millisecond,
+			fnTimeout:        1,
 			wantRuntimes:     0,
 			wantErrIsTimeout: true,
 		},
@@ -144,7 +146,7 @@ func TestCleanupTimedOutRuntime_RemovesFromMap(t *testing.T) {
 				FunctionName: "timeout-fn",
 				PackageType:  lambda.PackageTypeImage,
 				ImageURI:     "test:latest",
-				Timeout:      int(tt.timeout / time.Second),
+				Timeout:      tt.fnTimeout,
 			}
 			require.NoError(t, b.CreateFunction(fn))
 
