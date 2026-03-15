@@ -561,6 +561,7 @@ func (b *InMemoryBackend) updateResources(
 			b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateInProgress, "")
 			physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
 			if cerr != nil {
+				b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
 				b.rollbackUpdateResources(ctx, stack, prevResources, created)
 				stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
 

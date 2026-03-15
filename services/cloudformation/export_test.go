@@ -20,9 +20,11 @@ func (b *InMemoryBackend) ForceStackStatus(stackName, status string) {
 	}
 }
 
-// InjectCreateHook installs a per-invocation hook on the ResourceCreator that
-// is called before any real creation logic. If the hook returns a non-nil error
-// the Create call fails with that error. Used only for testing rollback paths.
+// InjectCreateHook installs a persistent hook on the ResourceCreator that is
+// called before any real creation logic. The hook remains active for all
+// subsequent Create calls until replaced or cleared (set to nil). If the hook
+// returns a non-nil error the Create call fails with that error. Used only for
+// testing error and rollback paths.
 func (rc *ResourceCreator) InjectCreateHook(fn func(resourceType string) error) {
 	rc.createHook = fn
 }

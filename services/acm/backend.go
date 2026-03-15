@@ -252,7 +252,9 @@ func (b *InMemoryBackend) RenewCertificate(certARN string) error {
 	if ok {
 		certType = cert.Type
 		domainName = cert.DomainName
-		sans = cert.SubjectAlternativeNames
+		// Copy slice to avoid holding a reference to the internal backing array
+		// outside the lock.
+		sans = append([]string(nil), cert.SubjectAlternativeNames...)
 	}
 	b.mu.RUnlock()
 
@@ -272,10 +274,13 @@ func (b *InMemoryBackend) RenewCertificate(certARN string) error {
 	b.mu.Lock("RenewCertificate")
 	defer b.mu.Unlock()
 
-	if c, exists := b.certs[certARN]; exists {
-		c.CertificateBody = certBody
-		c.PrivateKey = privateKey
+	c, exists := b.certs[certARN]
+	if !exists {
+		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
+
+	c.CertificateBody = certBody
+	c.PrivateKey = privateKey
 
 	return nil
 }

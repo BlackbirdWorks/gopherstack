@@ -135,13 +135,17 @@ func (rc *ResourceCreator) Create(
 	params map[string]string,
 	physicalIDs map[string]string,
 ) (string, error) {
+	if rc == nil {
+		return logicalID + "-" + uuid.New().String()[:8], nil
+	}
+
 	if rc.createHook != nil {
 		if err := rc.createHook(resourceType); err != nil {
 			return "", err
 		}
 	}
 
-	if rc == nil || rc.backends == nil {
+	if rc.backends == nil {
 		return logicalID + "-" + uuid.New().String()[:8], nil
 	}
 

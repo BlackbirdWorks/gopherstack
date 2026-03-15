@@ -392,12 +392,22 @@ func TestBackend_DescribeStack(t *testing.T) {
 func TestBackend_UpdateStack(t *testing.T) {
 	t.Parallel()
 
+	// Templates used by the rollback test case.
+	rollbackOriginal := `{"AWSTemplateFormatVersion":"2010-09-09",` +
+		`"Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`
+	rollbackUpdated := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}},` +
+		`"NewQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
+
 	tests := []struct {
-		name       string
-		setup      func(t *testing.T, b *cloudformation.InMemoryBackend)
-		stackName  string
-		wantErr    error
-		wantStatus string
+		name            string
+		setup           func(t *testing.T, b *cloudformation.InMemoryBackend)
+		updateTemplate  string
+		stackName       string
+		wantErr         error
+		wantStatus      string
+		wantResources   []string
+		wantNoResources []string
 	}{
 		{
 			name: "success",
@@ -406,13 +416,36 @@ func TestBackend_UpdateStack(t *testing.T) {
 				_, err := b.CreateStack(t.Context(), "upd-stack", simpleTemplate, nil, nil)
 				require.NoError(t, err)
 			},
-			stackName:  "upd-stack",
-			wantStatus: "UPDATE_COMPLETE",
+			stackName:      "upd-stack",
+			updateTemplate: simpleTemplate,
+			wantStatus:     "UPDATE_COMPLETE",
 		},
 		{
-			name:      "not_found",
-			stackName: "no-stack",
-			wantErr:   cloudformation.ErrStackNotFound,
+			name:           "not_found",
+			stackName:      "no-stack",
+			updateTemplate: simpleTemplate,
+			wantErr:        cloudformation.ErrStackNotFound,
+		},
+		{
+			name: "rollback_on_creation_failure",
+			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateStack(t.Context(), "rollback-stack", rollbackOriginal, nil, nil)
+				require.NoError(t, err)
+				// Inject a hook that fails when creating the new SQS queue.
+				b.GetCreator().InjectCreateHook(func(resourceType string) error {
+					if resourceType == "AWS::SQS::Queue" {
+						return errSimulatedCreate
+					}
+
+					return nil
+				})
+			},
+			stackName:       "rollback-stack",
+			updateTemplate:  rollbackUpdated,
+			wantStatus:      "UPDATE_ROLLBACK_COMPLETE",
+			wantResources:   []string{"MyBucket"},
+			wantNoResources: []string{"NewQueue"},
 		},
 	}
 
@@ -425,7 +458,7 @@ func TestBackend_UpdateStack(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			updated, err := b.UpdateStack(t.Context(), tt.stackName, simpleTemplate, nil)
+			updated, err := b.UpdateStack(t.Context(), tt.stackName, tt.updateTemplate, nil)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -435,54 +468,26 @@ func TestBackend_UpdateStack(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, updated.StackStatus)
+
+			if len(tt.wantResources) > 0 || len(tt.wantNoResources) > 0 {
+				resources, listErr := b.ListStackResources(tt.stackName, "")
+				require.NoError(t, listErr)
+
+				logicalIDs := make([]string, 0, len(resources.Data))
+				for _, r := range resources.Data {
+					logicalIDs = append(logicalIDs, r.LogicalResourceID)
+				}
+
+				for _, want := range tt.wantResources {
+					assert.Contains(t, logicalIDs, want)
+				}
+
+				for _, noWant := range tt.wantNoResources {
+					assert.NotContains(t, logicalIDs, noWant)
+				}
+			}
 		})
 	}
-}
-
-// TestBackend_UpdateStack_RollbackOnCreationFailure verifies that when a new
-// resource added during UpdateStack fails to create, the stack rolls back to
-// its pre-update state and ends up with status UPDATE_ROLLBACK_COMPLETE.
-func TestBackend_UpdateStack_RollbackOnCreationFailure(t *testing.T) {
-	t.Parallel()
-
-	// Template with the original bucket resource.
-	originalTemplate := `{"AWSTemplateFormatVersion":"2010-09-09",` +
-		`"Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`
-	// Template that adds a queue resource which we will force to fail.
-	updatedTemplate := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
-		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}},` +
-		`"NewQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
-
-	b := newBackend()
-
-	_, err := b.CreateStack(t.Context(), "rollback-stack", originalTemplate, nil, nil)
-	require.NoError(t, err)
-
-	// Inject a hook that fails when creating the new SQS queue.
-	b.GetCreator().InjectCreateHook(func(resourceType string) error {
-		if resourceType == "AWS::SQS::Queue" {
-			return errSimulatedCreate
-		}
-
-		return nil
-	})
-
-	updated, err := b.UpdateStack(t.Context(), "rollback-stack", updatedTemplate, nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, "UPDATE_ROLLBACK_COMPLETE", updated.StackStatus)
-
-	// The original resource should still exist; the new one must not.
-	resources, err := b.ListStackResources("rollback-stack", "")
-	require.NoError(t, err)
-
-	logicalIDs := make([]string, 0, len(resources.Data))
-	for _, r := range resources.Data {
-		logicalIDs = append(logicalIDs, r.LogicalResourceID)
-	}
-
-	assert.Contains(t, logicalIDs, "MyBucket")
-	assert.NotContains(t, logicalIDs, "NewQueue")
 }
 
 // ---- Backend: DeleteStack ---------------------------------------------------
