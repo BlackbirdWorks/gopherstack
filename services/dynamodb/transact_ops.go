@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
@@ -32,7 +33,8 @@ func (db *InMemoryDB) TransactWriteItems(
 	if token != "" {
 		var committed, inProgress bool
 		db.mu.Lock("TransactWriteItems.tokenCheck")
-		_, committed = db.txnTokens[token]
+		expiry, exists := db.txnTokens[token]
+		committed = exists && time.Now().Before(expiry)
 		_, inProgress = db.txnPending[token]
 		if !committed && !inProgress {
 			db.txnPending[token] = struct{}{}
@@ -84,7 +86,7 @@ func (db *InMemoryDB) TransactWriteItems(
 	// Record token as committed only after all writes have been applied.
 	if token != "" {
 		db.mu.Lock("TransactWriteItems.tokenCommit")
-		db.txnTokens[token] = struct{}{}
+		db.txnTokens[token] = time.Now().Add(txnTokenTTL)
 		db.mu.Unlock()
 	}
 
