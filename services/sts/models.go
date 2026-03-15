@@ -2,6 +2,7 @@ package sts
 
 import (
 	"encoding/xml"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
@@ -171,6 +172,8 @@ type DecodeAuthorizationMessageResponse struct {
 
 // SessionInfo stores metadata about an issued assumed-role session for GetCallerIdentity lookups.
 type SessionInfo struct {
+	// Expiration is the time at which this session expires and should be evicted.
+	Expiration     time.Time
 	AssumedRoleArn string
 	AccountID      string
 	SessionName    string

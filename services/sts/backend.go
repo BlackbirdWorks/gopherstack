@@ -205,6 +205,7 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 		SourceIdentity:    input.SourceIdentity,
 		Tags:              input.Tags,
 		TransitiveTagKeys: input.TransitiveTagKeys,
+		Expiration:        expiration,
 	}
 
 	b.mu.Lock()
@@ -238,6 +239,13 @@ func (b *InMemoryBackend) GetCallerIdentity(accessKeyID string) (*GetCallerIdent
 	if accessKeyID != "" {
 		b.mu.Lock()
 		session, ok := b.sessions[accessKeyID]
+
+		if ok && !session.Expiration.IsZero() && !time.Now().UTC().Before(session.Expiration) {
+			// Opportunistically evict the expired session.
+			delete(b.sessions, accessKeyID)
+			ok = false
+		}
+
 		b.mu.Unlock()
 
 		if ok {
