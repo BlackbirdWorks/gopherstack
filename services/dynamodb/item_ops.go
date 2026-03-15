@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
@@ -304,6 +305,86 @@ Fallback:
 }
 
 // Helpers moved to utils.go
+
+// snapshotIndexForQuery returns index copies appropriate for a single Query call.
+// It must be called with table.mu held (read lock).
+//
+//   - GSI/LSI queries (idxName != ""):  the primary index is never consulted; return nil maps.
+//   - Primary queries with known PK:    copy only that PK's entries — avoids O(n) full copy.
+//   - Primary queries with unknown PK:  fall back to copying the full index.
+func (db *InMemoryDB) snapshotIndexForQuery(
+	table *Table,
+	idxName string,
+	pkValue string,
+) (map[string]int, map[string]map[string]int) {
+	if idxName != "" {
+		// GSI/LSI query — primary index not used.
+		return nil, nil
+	}
+
+	if pkValue != "" {
+		return snapshotSinglePKIndex(table, pkValue)
+	}
+
+	// Unknown PK value — fall back to full index copy.
+	return snapshotFullIndex(table)
+}
+
+// snapshotSinglePKIndex copies only the entries for pkValue from the primary index.
+// Must be called with the table read-lock held.
+func snapshotSinglePKIndex(table *Table, pkValue string) (map[string]int, map[string]map[string]int) {
+	if table.pkskIndex != nil {
+		return snapshotPKSKEntry(table.pkskIndex, pkValue)
+	}
+
+	if table.pkIndex != nil {
+		return snapshotPKEntry(table.pkIndex, pkValue)
+	}
+
+	return nil, nil
+}
+
+// snapshotPKSKEntry copies a single partition key's sort-key map from a pksk index.
+func snapshotPKSKEntry(
+	pkskIndex map[string]map[string]int,
+	pkValue string,
+) (map[string]int, map[string]map[string]int) {
+	skMap, ok := pkskIndex[pkValue]
+	if !ok {
+		return nil, make(map[string]map[string]int) // empty — no matching PK
+	}
+
+	m2 := make(map[string]int, len(skMap))
+	maps.Copy(m2, skMap)
+
+	return nil, map[string]map[string]int{pkValue: m2}
+}
+
+// snapshotPKEntry copies a single partition key entry from a pk-only index.
+func snapshotPKEntry(pkIndex map[string]int, pkValue string) (map[string]int, map[string]map[string]int) {
+	idx, ok := pkIndex[pkValue]
+	if !ok {
+		return make(map[string]int), nil // empty — no matching PK
+	}
+
+	return map[string]int{pkValue: idx}, nil
+}
+
+// snapshotFullIndex copies the entire primary index.
+// Must be called with the table read-lock held.
+func snapshotFullIndex(table *Table) (map[string]int, map[string]map[string]int) {
+	pkIndexCopy := make(map[string]int, len(table.pkIndex))
+	maps.Copy(pkIndexCopy, table.pkIndex)
+	pkskIndexCopy := make(map[string]map[string]int, len(table.pkskIndex))
+
+	for k, m := range table.pkskIndex {
+		m2 := make(map[string]int, len(m))
+		maps.Copy(m2, m)
+		pkskIndexCopy[k] = m2
+	}
+
+	return pkIndexCopy, pkskIndexCopy
+}
 
 // getAttributeType returns the attribute type for a given attribute name, or defaultType if not found.
 func getAttributeType(

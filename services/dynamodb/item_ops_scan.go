@@ -58,12 +58,12 @@ func (db *InMemoryDB) ScanWithContext(
 		return nil, err
 	}
 
-	// Snapshot items and metadata under lock, release immediately
+	// Snapshot items and metadata under lock, release immediately.
+	// A shallow slice copy is safe: writes always replace items[i] with a new map;
+	// they never mutate an existing map in place, so our pointers remain valid.
 	table.mu.RLock("Scan")
 	itemsCopy := make([]map[string]any, len(table.Items))
-	for i, it := range table.Items {
-		itemsCopy[i] = deepCopyItem(it)
-	}
+	copy(itemsCopy, table.Items)
 	ttlAttr := table.TTLAttribute
 	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
 	copy(keySchema, table.KeySchema)
