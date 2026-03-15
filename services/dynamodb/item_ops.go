@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"strconv"
@@ -65,6 +66,14 @@ func isItemExpired(item map[string]any, ttlAttr string) bool {
 func (db *InMemoryDB) getTable(ctx context.Context, name string) (*Table, error) {
 	table, exists := db.getTableRLock(ctx, name)
 	if !exists {
+		return nil, NewResourceNotFoundException("Requested resource not found")
+	}
+
+	table.mu.RLock("checkStatus")
+	status := table.Status
+	table.mu.RUnlock()
+
+	if status != "ACTIVE" && status != "" {
 		return nil, NewResourceNotFoundException("Requested resource not found")
 	}
 
@@ -256,52 +265,110 @@ func compareAny(v1, v2 any, typ string) int {
 		return 0
 	}
 
-	// Handle numeric types directly (fast path, no allocations)
-	if typ == "N" {
-		f1, _ := dynamoattr.ParseNumeric(v1)
-		f2, _ := dynamoattr.ParseNumeric(v2)
-		if f1 < f2 {
-			return -1
-		}
-		if f1 > f2 {
-			return 1
-		}
+	switch typ {
+	case "N":
+		return compareNumbers(v1, v2)
+	case "S":
+		return compareStrings(v1, v2)
+	case typeBOOL:
+		return compareBools(v1, v2)
+	case "B":
+		b1 := toBytes(v1)
+		b2 := toBytes(v2)
 
-		return 0
+		return bytes.Compare(b1, b2)
 	}
 
-	// Handle string types directly without fmt.Sprintf allocation (fast path)
-	if typ == "S" {
-		s1Str, ok1 := v1.(string)
-		s2Str, ok2 := v2.(string)
-		if !ok1 || !ok2 {
-			// Fallback to general comparison if not string
-			goto Fallback
-		}
-		if s1Str < s2Str {
-			return -1
-		}
-		if s1Str > s2Str {
-			return 1
-		}
-
-		return 0
-	}
-
-Fallback:
-
-	// Fallback: convert to string only for unknown or complex types (rare path)
+	// Fallback: convert to string for unknown or complex types (rare path)
 	s1 := fmt.Sprintf("%v", v1)
 	s2 := fmt.Sprintf("%v", v2)
 	if s1 < s2 {
 		return -1
 	}
-
 	if s1 > s2 {
 		return 1
 	}
 
 	return 0
+}
+
+// fallbackCompare provides a deterministic ordering for values whose concrete type
+// doesn't match the expected type for a given DynamoDB attribute. It converts both
+// values to their [fmt.Sprintf] string representation and compares lexicographically,
+// ensuring stable sort order for pagination even with unexpected/mismatched types.
+func fallbackCompare(v1, v2 any) int {
+	s1 := fmt.Sprintf("%v", v1)
+	s2 := fmt.Sprintf("%v", v2)
+	if s1 < s2 {
+		return -1
+	}
+	if s1 > s2 {
+		return 1
+	}
+
+	return 0
+}
+
+func compareNumbers(v1, v2 any) int {
+	f1, _ := dynamoattr.ParseNumeric(v1)
+	f2, _ := dynamoattr.ParseNumeric(v2)
+	if f1 < f2 {
+		return -1
+	}
+	if f1 > f2 {
+		return 1
+	}
+
+	return 0
+}
+
+func compareStrings(v1, v2 any) int {
+	s1, ok1 := v1.(string)
+	s2, ok2 := v2.(string)
+	if !ok1 || !ok2 {
+		return fallbackCompare(v1, v2)
+	}
+	if s1 < s2 {
+		return -1
+	}
+	if s1 > s2 {
+		return 1
+	}
+
+	return 0
+}
+
+func compareBools(v1, v2 any) int {
+	b1, ok1 := v1.(bool)
+	b2, ok2 := v2.(bool)
+	if !ok1 || !ok2 {
+		return fallbackCompare(v1, v2)
+	}
+	if b1 == b2 {
+		return 0
+	}
+	if !b1 { // false < true
+		return -1
+	}
+
+	return 1
+}
+
+func toBytes(v any) []byte {
+	switch b := v.(type) {
+	case []byte:
+		return b
+	case string:
+		// Wire format stores binary attributes as base64-encoded strings.
+		decoded, err := base64.StdEncoding.DecodeString(b)
+		if err != nil {
+			return []byte(b) // Fall back to raw bytes if not valid base64
+		}
+
+		return decoded
+	default:
+		return nil
+	}
 }
 
 // Helpers moved to utils.go

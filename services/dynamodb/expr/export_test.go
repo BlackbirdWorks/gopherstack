@@ -10,7 +10,7 @@ func (e *Evaluator) UnwrapAttributeValue(v any) any {
 	return e.unwrapAttributeValue(v)
 }
 
-func (e *Evaluator) CalculateSize(v any) float64 {
+func (e *Evaluator) CalculateSize(v any) (float64, error) {
 	return e.calculateSize(v)
 }
 

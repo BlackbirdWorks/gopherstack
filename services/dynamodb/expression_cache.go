@@ -151,6 +151,13 @@ func (c *ExpressionCache) Sweep() {
 	}
 }
 
+// Close releases all resources held by the cache, including metric registrations.
+func (c *ExpressionCache) Close() {
+	for _, shard := range c.shards {
+		shard.close()
+	}
+}
+
 // sweepBefore removes entries whose TTL expired before cutoff.
 // Unlike Sweep, it accepts a caller-supplied cutoff so tests can exercise
 // deterministic eviction without relying on wall-clock timing.
@@ -186,6 +193,13 @@ func (s *cacheShard) sweepExpired(now time.Time) {
 			delete(s.cache, entry.key)
 		}
 		elem = prev
+	}
+}
+
+// close releases shard resources.
+func (s *cacheShard) close() {
+	if s.mu != nil {
+		s.mu.Close()
 	}
 }
 
