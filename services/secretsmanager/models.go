@@ -276,6 +276,36 @@ type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
+// SecretVersionEntry is a brief descriptor for a single secret version, used in ListSecretVersionIDs.
+type SecretVersionEntry struct {
+	// VersionID is the unique version UUID.
+	VersionID string `json:"VersionId"`
+	// StagingLabels are the labels attached to this version.
+	StagingLabels []string `json:"VersionStages,omitempty"`
+	// CreatedDate is the Unix timestamp when this version was created.
+	CreatedDate float64 `json:"CreatedDate"`
+}
+
+// ListSecretVersionIDsInput is the request payload for ListSecretVersionIDs.
+type ListSecretVersionIDsInput struct {
+	MaxResults        *int64 `json:"MaxResults,omitempty"`
+	SecretID          string `json:"SecretId"`
+	NextToken         string `json:"NextToken,omitempty"`
+	IncludeDeprecated bool   `json:"IncludeDeprecated,omitempty"`
+}
+
+// ListSecretVersionIDsOutput is the response payload for ListSecretVersionIDs.
+type ListSecretVersionIDsOutput struct {
+	// ARN is the full ARN of the secret.
+	ARN string `json:"ARN"`
+	// Name is the name of the secret.
+	Name string `json:"Name"`
+	// NextToken is the pagination cursor for the next page.
+	NextToken string `json:"NextToken,omitempty"`
+	// Versions is the list of version entries.
+	Versions []SecretVersionEntry `json:"Versions"`
+}
+
 // UnixTimeFloat converts a time value to a Unix timestamp float.
 func UnixTimeFloat(t time.Time) float64 {
 	return float64(t.UnixNano()) / nanoToSeconds

@@ -1334,3 +1334,519 @@ func TestGetRandomPasswordHandler(t *testing.T) {
 		})
 	}
 }
+
+// TestSecretsManagerVersionPruning verifies that old unlabeled versions are pruned
+// when the version count exceeds maxVersionsPerSecret (100).
+func TestSecretsManagerVersionPruning(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		putCount    int
+		wantMaxVers int
+	}{
+		{
+			name:        "below_limit_no_pruning",
+			putCount:    5,
+			wantMaxVers: 6, // 1 initial + 5 puts
+		},
+		{
+			name:        "at_limit_no_pruning",
+			putCount:    99,
+			wantMaxVers: 100,
+		},
+		{
+			name:        "above_limit_pruned",
+			putCount:    150,
+			wantMaxVers: 100,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := secretsmanager.NewInMemoryBackend()
+
+			_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+				Name:         "prune-test",
+				SecretString: "initial",
+			})
+			require.NoError(t, err)
+
+			for i := range tt.putCount {
+				_, putErr := backend.PutSecretValue(&secretsmanager.PutSecretValueInput{
+					SecretID:     "prune-test",
+					SecretString: fmt.Sprintf("value-%d", i),
+				})
+				require.NoError(t, putErr)
+			}
+
+			out, err := backend.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "prune-test"})
+			require.NoError(t, err)
+			assert.LessOrEqual(t, len(out.VersionIDsToStages), tt.wantMaxVers)
+		})
+	}
+}
+
+// TestSecretsManagerVersionPruning_LabeledVersionsPreserved verifies labeled versions are never pruned.
+func TestSecretsManagerVersionPruning_LabeledVersionsPreserved(t *testing.T) {
+	t.Parallel()
+
+	backend := secretsmanager.NewInMemoryBackend()
+
+	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+		Name:         "prune-labeled",
+		SecretString: "initial",
+	})
+	require.NoError(t, err)
+
+	for i := range 150 {
+		_, putErr := backend.PutSecretValue(&secretsmanager.PutSecretValueInput{
+			SecretID:     "prune-labeled",
+			SecretString: fmt.Sprintf("value-%d", i),
+		})
+		require.NoError(t, putErr)
+	}
+
+	out, err := backend.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "prune-labeled"})
+	require.NoError(t, err)
+
+	var foundCurrent, foundPrevious bool
+
+	for _, labels := range out.VersionIDsToStages {
+		for _, l := range labels {
+			if l == secretsmanager.StagingLabelCurrent {
+				foundCurrent = true
+			}
+
+			if l == secretsmanager.StagingLabelPrevious {
+				foundPrevious = true
+			}
+		}
+	}
+
+	assert.True(t, foundCurrent, "AWSCURRENT label must be present after pruning")
+	assert.True(t, foundPrevious, "AWSPREVIOUS label must be present after pruning")
+	assert.LessOrEqual(t, len(out.VersionIDsToStages), 100)
+}
+
+// TestSecretsManagerSecretSizeValidation verifies that oversized secrets are rejected.
+func TestSecretsManagerSecretSizeValidation(t *testing.T) {
+	t.Parallel()
+
+	const maxBytes = 65536
+
+	bigString := strings.Repeat("x", maxBytes+1)
+	bigBinary := make([]byte, maxBytes+1)
+
+	tests := []struct {
+		op      func(b *secretsmanager.InMemoryBackend) error
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "create_secret_string_too_large",
+			op: func(b *secretsmanager.InMemoryBackend) error {
+				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+					Name:         "big-string",
+					SecretString: bigString,
+				})
+
+				return err
+			},
+			wantErr: true,
+		},
+		{
+			name: "create_secret_binary_too_large",
+			op: func(b *secretsmanager.InMemoryBackend) error {
+				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+					Name:         "big-binary",
+					SecretBinary: bigBinary,
+				})
+
+				return err
+			},
+			wantErr: true,
+		},
+		{
+			name: "put_secret_value_string_too_large",
+			op: func(b *secretsmanager.InMemoryBackend) error {
+				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "existing", SecretString: "ok"})
+				_, err := b.PutSecretValue(&secretsmanager.PutSecretValueInput{
+					SecretID:     "existing",
+					SecretString: bigString,
+				})
+
+				return err
+			},
+			wantErr: true,
+		},
+		{
+			name: "put_secret_value_binary_too_large",
+			op: func(b *secretsmanager.InMemoryBackend) error {
+				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "existing-bin", SecretString: "ok"})
+				_, err := b.PutSecretValue(&secretsmanager.PutSecretValueInput{
+					SecretID:     "existing-bin",
+					SecretBinary: bigBinary,
+				})
+
+				return err
+			},
+			wantErr: true,
+		},
+		{
+			name: "update_secret_string_too_large",
+			op: func(b *secretsmanager.InMemoryBackend) error {
+				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "update-big", SecretString: "ok"})
+				_, err := b.UpdateSecret(&secretsmanager.UpdateSecretInput{
+					SecretID:     "update-big",
+					SecretString: bigString,
+				})
+
+				return err
+			},
+			wantErr: true,
+		},
+		{
+			name: "create_secret_max_size_accepted",
+			op: func(b *secretsmanager.InMemoryBackend) error {
+				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+					Name:         "max-size",
+					SecretString: strings.Repeat("x", maxBytes),
+				})
+
+				return err
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := secretsmanager.NewInMemoryBackend()
+			err := tt.op(b)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				require.ErrorIs(t, err, secretsmanager.ErrSecretValueTooLarge)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestSecretsManagerListSecretVersionIDs verifies ListSecretVersionIDs via backend.
+func TestSecretsManagerListSecretVersionIDs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErrIs error
+		setup     func(b *secretsmanager.InMemoryBackend)
+		checkFn   func(t *testing.T, out *secretsmanager.ListSecretVersionIDsOutput)
+		name      string
+		input     secretsmanager.ListSecretVersionIDsInput
+		wantErr   bool
+	}{
+		{
+			name: "returns_labeled_versions",
+			setup: func(b *secretsmanager.InMemoryBackend) {
+				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "lsv-test", SecretString: "v1"})
+				_, _ = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-test", SecretString: "v2"})
+			},
+			input: secretsmanager.ListSecretVersionIDsInput{SecretID: "lsv-test"},
+			checkFn: func(t *testing.T, out *secretsmanager.ListSecretVersionIDsOutput) {
+				t.Helper()
+				assert.Equal(t, "lsv-test", out.Name)
+				assert.Len(t, out.Versions, 2)
+			},
+		},
+		{
+			name: "include_deprecated_returns_all",
+			setup: func(b *secretsmanager.InMemoryBackend) {
+				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "lsv-depr", SecretString: "v1"})
+				_, _ = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-depr", SecretString: "v2"})
+				_, _ = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-depr", SecretString: "v3"})
+			},
+			input: secretsmanager.ListSecretVersionIDsInput{SecretID: "lsv-depr", IncludeDeprecated: true},
+			checkFn: func(t *testing.T, out *secretsmanager.ListSecretVersionIDsOutput) {
+				t.Helper()
+				assert.Len(t, out.Versions, 3)
+			},
+		},
+		{
+			name:      "not_found",
+			setup:     func(_ *secretsmanager.InMemoryBackend) {},
+			input:     secretsmanager.ListSecretVersionIDsInput{SecretID: "nonexistent"},
+			wantErr:   true,
+			wantErrIs: secretsmanager.ErrSecretNotFound,
+		},
+		{
+			name: "pagination",
+			setup: func(b *secretsmanager.InMemoryBackend) {
+				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "lsv-page", SecretString: "v1"})
+				_, _ = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-page", SecretString: "v2"})
+			},
+			input: secretsmanager.ListSecretVersionIDsInput{
+				SecretID:          "lsv-page",
+				IncludeDeprecated: true,
+				MaxResults: func() *int64 {
+					v := int64(1)
+
+					return &v
+				}(),
+			},
+			checkFn: func(t *testing.T, out *secretsmanager.ListSecretVersionIDsOutput) {
+				t.Helper()
+				assert.Len(t, out.Versions, 1)
+				assert.NotEmpty(t, out.NextToken)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := secretsmanager.NewInMemoryBackend()
+			tt.setup(b)
+
+			out, err := b.ListSecretVersionIDs(&tt.input)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantErrIs != nil {
+					require.ErrorIs(t, err, tt.wantErrIs)
+				}
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, out)
+
+			if tt.checkFn != nil {
+				tt.checkFn(t, out)
+			}
+		})
+	}
+}
+
+// TestSecretsManagerListSecretVersionIDs_Handler verifies ListSecretVersionIDs via HTTP dispatch.
+func TestSecretsManagerListSecretVersionIDs_Handler(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(backend)
+
+	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{Name: "handler-lsv", SecretString: "v1"})
+	require.NoError(t, err)
+	_, err = backend.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "handler-lsv", SecretString: "v2"})
+	require.NoError(t, err)
+
+	body := `{"SecretId":"handler-lsv"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("X-Amz-Target", "secretsmanager.ListSecretVersionIDs")
+	rec := httptest.NewRecorder()
+
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var out secretsmanager.ListSecretVersionIDsOutput
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "handler-lsv", out.Name)
+	assert.NotEmpty(t, out.Versions)
+}
+
+// TestSecretsManagerSecretSizeValidation_Handler verifies size validation returns 400 via HTTP.
+func TestSecretsManagerSecretSizeValidation_Handler(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(backend)
+
+	bigValue := strings.Repeat("x", 65537)
+	body := fmt.Sprintf(`{"Name":"too-big","SecretString":%q}`, bigValue)
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("X-Amz-Target", "secretsmanager.CreateSecret")
+	rec := httptest.NewRecorder()
+
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp secretsmanager.ErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "InvalidParameterException", errResp.Type)
+}
+
+// TestSecretsManagerReset verifies the Reset method clears all state.
+func TestSecretsManagerReset(t *testing.T) {
+	t.Parallel()
+
+	backend := secretsmanager.NewInMemoryBackend()
+
+	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{Name: "to-be-reset", SecretString: "val"})
+	require.NoError(t, err)
+	assert.Len(t, backend.ListAll(), 1)
+
+	backend.Reset()
+	assert.Empty(t, backend.ListAll())
+}
+
+// TestSecretsManagerTaggedSecrets verifies TaggedSecrets returns ARN+tags for active secrets.
+func TestSecretsManagerTaggedSecrets(t *testing.T) {
+	t.Parallel()
+
+	backend := secretsmanager.NewInMemoryBackend()
+
+	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{
+		Name: "tagged-arn",
+		Tags: []secretsmanager.Tag{{Key: "env", Value: "prod"}},
+	})
+	require.NoError(t, err)
+
+	_, err = backend.CreateSecret(&secretsmanager.CreateSecretInput{Name: "no-tags"})
+	require.NoError(t, err)
+
+	// Delete one to confirm it's excluded.
+	_, err = backend.DeleteSecret(&secretsmanager.DeleteSecretInput{SecretID: "no-tags"})
+	require.NoError(t, err)
+
+	infos := backend.TaggedSecrets()
+	require.Len(t, infos, 1)
+	assert.NotEmpty(t, infos[0].ARN)
+	assert.Equal(t, "prod", infos[0].Tags["env"])
+}
+
+// TestSecretsManagerTagSecretByARN verifies TagSecretByARN applies tags via ARN.
+func TestSecretsManagerTagSecretByARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		newTags   map[string]string
+		name      string
+		setupName string
+		lookupID  string
+		wantErr   bool
+	}{
+		{
+			name:      "tags_applied_by_name",
+			setupName: "tag-by-arn",
+			lookupID:  "tag-by-arn",
+			newTags:   map[string]string{"k": "v"},
+		},
+		{
+			name:      "not_found",
+			setupName: "",
+			lookupID:  "nonexistent",
+			newTags:   map[string]string{"k": "v"},
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := secretsmanager.NewInMemoryBackend()
+
+			if tt.setupName != "" {
+				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: tt.setupName})
+				require.NoError(t, err)
+			}
+
+			err := b.TagSecretByARN(tt.lookupID, tt.newTags)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestSecretsManagerUntagSecretByARN verifies UntagSecretByARN removes tag keys.
+func TestSecretsManagerUntagSecretByARN(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setupName string
+		lookupID  string
+		tagKeys   []string
+		wantErr   bool
+	}{
+		{
+			name:      "removes_tags",
+			setupName: "untag-by-arn",
+			lookupID:  "untag-by-arn",
+			tagKeys:   []string{"env"},
+		},
+		{
+			name:      "not_found",
+			setupName: "",
+			lookupID:  "nonexistent",
+			tagKeys:   []string{"k"},
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := secretsmanager.NewInMemoryBackend()
+
+			if tt.setupName != "" {
+				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+					Name: tt.setupName,
+					Tags: []secretsmanager.Tag{{Key: "env", Value: "test"}},
+				})
+				require.NoError(t, err)
+			}
+
+			err := b.UntagSecretByARN(tt.lookupID, tt.tagKeys)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestSecretsManagerHandlerChaos verifies ChaosServiceName/Operations/Regions.
+func TestSecretsManagerHandlerChaos(t *testing.T) {
+	t.Parallel()
+
+	backend := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(backend)
+	h.DefaultRegion = "us-east-1"
+
+	assert.Equal(t, "secretsmanager", h.ChaosServiceName())
+	assert.NotEmpty(t, h.ChaosOperations())
+	assert.Equal(t, []string{"us-east-1"}, h.ChaosRegions())
+}
+
+// TestSecretsManagerHandlerReset verifies Handler.Reset clears backend state.
+func TestSecretsManagerHandlerReset(t *testing.T) {
+	t.Parallel()
+
+	backend := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(backend)
+
+	_, err := backend.CreateSecret(&secretsmanager.CreateSecretInput{Name: "handler-reset", SecretString: "val"})
+	require.NoError(t, err)
+	assert.Len(t, backend.ListAll(), 1)
+
+	h.Reset()
+	assert.Empty(t, backend.ListAll())
+}
