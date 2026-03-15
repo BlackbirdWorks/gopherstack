@@ -33,10 +33,12 @@ type scheduleNameInput struct {
 	Name string `json:"Name"`
 }
 
-// scheduleTarget holds the ARN and IAM role for a schedule target.
+// scheduleTarget holds the ARN, IAM role, and optional custom input for a schedule target.
 type scheduleTarget struct {
 	Arn     string `json:"Arn"`
 	RoleArn string `json:"RoleArn"`
+	// Input is an optional custom event payload sent to the target instead of the default event.
+	Input string `json:"Input,omitempty"`
 }
 
 // scheduleFlexibleTimeWindow holds the flexible time window configuration for a schedule.
@@ -56,15 +58,57 @@ type scheduleInput struct {
 // Handler is the Echo HTTP handler for EventBridge Scheduler operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	runner  *Runner
+	cancel  context.CancelFunc
 }
 
 // NewHandler creates a new Scheduler handler.
 func NewHandler(backend *InMemoryBackend) *Handler {
-	return &Handler{Backend: backend}
+	return &Handler{
+		Backend: backend,
+		runner:  NewRunner(backend),
+	}
+}
+
+// SetRunner replaces the default runner with the given one.
+// Useful for wiring target invokers before StartWorker is called.
+func (h *Handler) SetRunner(r *Runner) {
+	h.runner = r
+}
+
+// GetRunner returns the handler's Runner so callers can configure target invokers.
+func (h *Handler) GetRunner() *Runner {
+	return h.runner
 }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Scheduler" }
+
+// StartWorker implements service.BackgroundWorker.
+// It starts the schedule runner as a background goroutine.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.runner == nil {
+		return nil
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	h.cancel = cancel
+	h.runner.Start(runCtx)
+
+	return nil
+}
+
+// Shutdown implements service.Shutdowner.
+// It stops the schedule runner goroutine.
+func (h *Handler) Shutdown(_ context.Context) {
+	if h.cancel != nil {
+		h.cancel()
+	}
+}
+
+// Ensure Handler implements service.BackgroundWorker and service.Shutdowner at compile time.
+var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
 
 // GetSupportedOperations returns the list of supported Scheduler operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -305,7 +349,7 @@ func (h *Handler) handleCreateSchedule(_ context.Context, in *scheduleInput) (*c
 	s, err := h.Backend.CreateSchedule(
 		in.Name,
 		in.ScheduleExpression,
-		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn},
+		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn, Input: in.Target.Input},
 		state,
 		FlexibleTimeWindow{
 			Mode:                   in.FlexibleTimeWindow.Mode,
@@ -322,6 +366,8 @@ func (h *Handler) handleCreateSchedule(_ context.Context, in *scheduleInput) (*c
 type scheduleTargetOutput struct {
 	Arn     string `json:"Arn"`
 	RoleArn string `json:"RoleArn"`
+	// Input is echoed back when a custom payload was set on the target.
+	Input string `json:"Input,omitempty"`
 }
 
 type flexibleTimeWindowOutput struct {
@@ -349,7 +395,7 @@ func (h *Handler) handleGetSchedule(_ context.Context, in *scheduleNameInput) (*
 		Arn:                s.ARN,
 		ScheduleExpression: s.ScheduleExpression,
 		State:              s.State,
-		Target:             scheduleTargetOutput{Arn: s.Target.ARN, RoleArn: s.Target.RoleARN},
+		Target:             scheduleTargetOutput{Arn: s.Target.ARN, RoleArn: s.Target.RoleARN, Input: s.Target.Input},
 		FlexibleTimeWindow: flexibleTimeWindowOutput{
 			Mode:                   s.FlexibleTimeWindow.Mode,
 			MaximumWindowInMinutes: s.FlexibleTimeWindow.MaximumWindowInMinutes,
@@ -403,7 +449,7 @@ func (h *Handler) handleUpdateSchedule(_ context.Context, in *scheduleInput) (*u
 	s, err := h.Backend.UpdateSchedule(
 		in.Name,
 		in.ScheduleExpression,
-		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn},
+		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn, Input: in.Target.Input},
 		in.State,
 		FlexibleTimeWindow{
 			Mode:                   in.FlexibleTimeWindow.Mode,

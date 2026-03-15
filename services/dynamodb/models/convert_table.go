@@ -1,6 +1,7 @@
 package models
 
 import (
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -280,7 +281,7 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 		replicas = nil
 	}
 
-	return TableDescription{
+	out := TableDescription{
 		TableName:              ptrconv.String(td.TableName),
 		TableStatus:            string(td.TableStatus),
 		TableArn:               ptrconv.String(td.TableArn),
@@ -292,7 +293,18 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 		LocalSecondaryIndexes:  FromSDKLocalSecondaryIndexDescriptions(td.LocalSecondaryIndexes),
 		ProvisionedThroughput:  FromSDKProvisionedThroughputDescription(td.ProvisionedThroughput),
 		Replicas:               replicas,
+		LatestStreamArn:        ptrconv.String(td.LatestStreamArn),
+		LatestStreamLabel:      ptrconv.String(td.LatestStreamLabel),
 	}
+
+	if td.StreamSpecification != nil {
+		out.StreamSpecification = &StreamSpecificationInput{
+			StreamEnabled:  aws.ToBool(td.StreamSpecification.StreamEnabled),
+			StreamViewType: string(td.StreamSpecification.StreamViewType),
+		}
+	}
+
+	return out
 }
 
 func FromSDKGlobalSecondaryIndexDescriptions(

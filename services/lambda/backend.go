@@ -305,6 +305,18 @@ func (b *InMemoryBackend) SetSQSReader(r SQSReader) {
 	}
 }
 
+// SetDynamoDBStreamsReader sets the DynamoDB Streams reader on the event source poller so
+// that DynamoDB stream records can trigger Lambda functions via event source mappings.
+func (b *InMemoryBackend) SetDynamoDBStreamsReader(r DynamoDBStreamsReader) {
+	b.mu.RLock("SetDynamoDBStreamsReader")
+	p := b.kinesisPoller
+	b.mu.RUnlock()
+
+	if p != nil {
+		p.SetDynamoDBStreamsReader(r)
+	}
+}
+
 // CreateEventSourceMapping creates a new event source mapping.
 func (b *InMemoryBackend) CreateEventSourceMapping(input *CreateEventSourceMappingInput) (*EventSourceMapping, error) {
 	b.mu.Lock("CreateEventSourceMapping")
