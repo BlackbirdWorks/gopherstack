@@ -429,10 +429,13 @@ func (db *InMemoryDB) UpdateTable(
 	}
 
 	// Apply all table mutations under a single lock acquisition, then release
-	// before updating db-level state (stream ARN index) to preserve lock ordering.
+	// before updating db-level state (stream ARN index, throttler) to minimize the
+	// table.mu critical section and avoid lock-ordering issues.
 	var (
 		oldStreamARN string
 		newStreamARN string
+		rcu          int64
+		wcu          int64
 		out          *dynamodb.UpdateTableOutput
 		region       = getRegionFromContext(ctx, db)
 	)
@@ -450,9 +453,8 @@ func (db *InMemoryDB) UpdateTable(
 			return NewValidationException(replicaErr.Error())
 		}
 
-		rcu := int64(table.ProvisionedThroughput.ReadCapacityUnits)
-		wcu := int64(table.ProvisionedThroughput.WriteCapacityUnits)
-		db.throttler.SetTableCapacity(throttleKey(region, tableName), rcu, wcu)
+		rcu = int64(table.ProvisionedThroughput.ReadCapacityUnits)
+		wcu = int64(table.ProvisionedThroughput.WriteCapacityUnits)
 		out = buildUpdateTableOutput(input, table)
 
 		return nil
@@ -460,8 +462,13 @@ func (db *InMemoryDB) UpdateTable(
 		return nil, updateErr
 	}
 
-	// Update the stream ARN reverse index under db.mu (after releasing table lock
-	// to preserve lock ordering: db.mu is always acquired before table.mu).
+	// Update throttler outside table.mu: SetTableCapacity takes its own internal
+	// lock, so calling it inside the table lock would unnecessarily extend the
+	// critical section and increase contention with concurrent reads/writes.
+	db.throttler.SetTableCapacity(throttleKey(region, tableName), rcu, wcu)
+
+	// Update the stream ARN reverse index under db.mu (after the table lock has been
+	// released — never hold both table.mu and db.mu simultaneously to prevent deadlocks).
 	if oldStreamARN != newStreamARN {
 		db.mu.Lock("UpdateTable.streamARNIndex")
 		if oldStreamARN != "" {

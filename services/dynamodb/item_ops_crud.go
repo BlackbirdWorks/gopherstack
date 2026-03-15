@@ -618,6 +618,13 @@ func deepCopyMap(m map[string]any) map[string]any {
 // deepCopyAny recursively copies any DynamoDB wire-format value.
 // Scalars (string, float64, bool, nil) are immutable value types and are returned as-is.
 // Maps and slices are deep-copied to prevent shared mutation.
+//
+// Wire-format set types:
+//   - SS and NS are stored as map[string]any{"SS": []string{...}} / {"NS": []string{...}}
+//   - BS is stored as map[string]any{"BS": []any{...}} (base64-encoded strings in []any)
+//
+// The []string case must be deep-copied; leaving the original backing array shared would
+// allow in-place modifications in the copy to silently corrupt the original.
 func deepCopyAny(v any) any {
 	switch t := v.(type) {
 	case map[string]any:
@@ -627,6 +634,12 @@ func deepCopyAny(v any) any {
 		for i, elem := range t {
 			out[i] = deepCopyAny(elem)
 		}
+
+		return out
+	case []string:
+		// SS / NS sets are stored as []string; copy so the backing array is not shared.
+		out := make([]string, len(t))
+		copy(out, t)
 
 		return out
 	default:

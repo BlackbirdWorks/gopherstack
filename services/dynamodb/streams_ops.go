@@ -91,6 +91,7 @@ func (db *InMemoryDB) DisableStream(ctx context.Context, tableName string) error
 	oldARN := table.StreamARN
 	table.StreamsEnabled = false
 	table.StreamARN = ""
+	table.StreamViewType = ""
 	table.StreamRecords = nil
 	table.streamSeq = 0
 	table.mu.Unlock()

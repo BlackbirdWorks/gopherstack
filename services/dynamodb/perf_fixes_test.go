@@ -29,28 +29,46 @@ func TestDeepCopyItem_NestedMutationIsolation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		item map[string]any
-		name string
+		item   map[string]any
+		mutate func(copied map[string]any)
+		verify func(t *testing.T, original map[string]any)
+		name   string
 	}{
 		{
-			name: "string_attribute",
+			name: "string_attribute_top_level_replace",
 			item: map[string]any{
 				"pk": map[string]any{"S": "key1"},
 			},
+			mutate: func(copied map[string]any) {
+				copied["pk"] = map[string]any{"S": "mutated"}
+			},
+			verify: func(t *testing.T, orig map[string]any) {
+				t.Helper()
+				assert.Equal(t, map[string]any{"S": "key1"}, orig["pk"])
+			},
 		},
 		{
-			name: "nested_map_attribute",
+			name: "nested_map_inner_value",
 			item: map[string]any{
 				"pk": map[string]any{"S": "key1"},
 				"m": map[string]any{
 					"M": map[string]any{
-						"inner": map[string]any{"S": "value"},
+						"inner": map[string]any{"S": "original"},
 					},
 				},
 			},
+			mutate: func(copied map[string]any) {
+				// Mutate a value deep inside the nested map.
+				copied["m"].(map[string]any)["M"].(map[string]any)["inner"] = map[string]any{"S": "mutated"}
+			},
+			verify: func(t *testing.T, orig map[string]any) {
+				t.Helper()
+				inner := orig["m"].(map[string]any)["M"].(map[string]any)["inner"]
+				assert.Equal(t, map[string]any{"S": "original"}, inner, "nested map value should be unchanged")
+			},
 		},
 		{
-			name: "list_attribute",
+			name: "list_element_replace",
 			item: map[string]any{
 				"pk": map[string]any{"S": "key1"},
 				"l": map[string]any{
@@ -60,20 +78,47 @@ func TestDeepCopyItem_NestedMutationIsolation(t *testing.T) {
 					},
 				},
 			},
-		},
-		{
-			name: "number_attribute",
-			item: map[string]any{
-				"pk":  map[string]any{"S": "key1"},
-				"num": map[string]any{"N": "42"},
+			mutate: func(copied map[string]any) {
+				// Replace the first element inside the L list.
+				copied["l"].(map[string]any)["L"].([]any)[0] = map[string]any{"S": "mutated"}
+			},
+			verify: func(t *testing.T, orig map[string]any) {
+				t.Helper()
+				list := orig["l"].(map[string]any)["L"].([]any)
+				assert.Equal(t, map[string]any{"S": "a"}, list[0], "original list[0] should be unchanged")
 			},
 		},
 		{
-			name: "bool_null_attribute",
+			name: "ss_set_element_mutation",
 			item: map[string]any{
-				"pk":   map[string]any{"S": "key1"},
-				"flag": map[string]any{"BOOL": true},
-				"nul":  map[string]any{"NULL": true},
+				"pk": map[string]any{"S": "key1"},
+				"ss": map[string]any{"SS": []string{"apple", "banana"}},
+			},
+			mutate: func(copied map[string]any) {
+				// Mutate the copied []string backing array in-place.
+				s := copied["ss"].(map[string]any)["SS"].([]string)
+				s[0] = "mutated"
+			},
+			verify: func(t *testing.T, orig map[string]any) {
+				t.Helper()
+				ss := orig["ss"].(map[string]any)["SS"].([]string)
+				assert.Equal(t, "apple", ss[0], "original SS[0] should be unchanged after mutating the copy")
+			},
+		},
+		{
+			name: "ns_set_element_mutation",
+			item: map[string]any{
+				"pk": map[string]any{"S": "key1"},
+				"ns": map[string]any{"NS": []string{"1", "2", "3"}},
+			},
+			mutate: func(copied map[string]any) {
+				s := copied["ns"].(map[string]any)["NS"].([]string)
+				s[0] = "999"
+			},
+			verify: func(t *testing.T, orig map[string]any) {
+				t.Helper()
+				ns := orig["ns"].(map[string]any)["NS"].([]string)
+				assert.Equal(t, "1", ns[0], "original NS[0] should be unchanged after mutating the copy")
 			},
 		},
 	}
@@ -84,9 +129,8 @@ func TestDeepCopyItem_NestedMutationIsolation(t *testing.T) {
 
 			copied := dynamodb.DeepCopyItem(tt.item)
 
-			// Mutation of copy must not affect original.
-			copied["pk"] = map[string]any{"S": "mutated"}
-			assert.NotEqual(t, copied["pk"], tt.item["pk"], "original pk should be unchanged after mutating copy")
+			tt.mutate(copied)
+			tt.verify(t, tt.item)
 		})
 	}
 }
@@ -314,13 +358,19 @@ func TestStreamARNIndex_EnableDisableStream(t *testing.T) {
 
 	tbl, ok := db.GetTable("IndexedStreamTable")
 	require.True(t, ok)
+	assert.Equal(t, "NEW_IMAGE", tbl.StreamViewType, "StreamViewType should be set after EnableStream")
 
 	_, found := db.LookupStreamARNIndex(tbl.StreamARN)
 	assert.True(t, found, "stream should be in index after EnableStream")
 
-	// Disable stream — index entry should be removed.
+	// Disable stream — index entry should be removed and StreamViewType cleared.
 	require.NoError(t, db.DisableStream(t.Context(), "IndexedStreamTable"))
 	assert.Equal(t, 0, db.StreamARNIndexSize())
+
+	tbl, ok = db.GetTable("IndexedStreamTable")
+	require.True(t, ok)
+	assert.Empty(t, tbl.StreamARN, "StreamARN should be empty after DisableStream")
+	assert.Empty(t, tbl.StreamViewType, "StreamViewType should be cleared after DisableStream")
 }
 
 func TestStreamARNIndex_DeleteTable(t *testing.T) {
@@ -504,14 +554,19 @@ func TestQueryTargetedIndexCopy_CorrectResults(t *testing.T) {
 // TestScanPerformance_LimitVsFullTable ensures that scanning with a small
 // Limit on a large table completes well within the expected time budget,
 // validating that we no longer deep-copy the entire table.
+// Skipped under -short to avoid flakiness on slow/contended CI runners.
 func TestScanPerformance_LimitVsFullTable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping wall-clock performance test in short mode")
+	}
+
 	t.Parallel()
 
 	const (
 		numItems = 5000
 		limit    = 5
-		// Allow generous time for CI/race-detector overhead.
-		maxDuration = 3 * time.Second
+		// Allow generous time for -race detector overhead.
+		maxDuration = 10 * time.Second
 	)
 
 	db := dynamodb.NewInMemoryDB()
@@ -541,4 +596,58 @@ func TestScanPerformance_LimitVsFullTable(t *testing.T) {
 
 	elapsed := time.Since(start)
 	assert.Less(t, elapsed, maxDuration, "100 limited scans on %d items should complete quickly", numItems)
+}
+
+// BenchmarkScanWithLimit measures the performance of Scan with a small Limit
+// on a large table to track regressions in the shallow-copy optimization.
+func BenchmarkScanWithLimit(b *testing.B) {
+	const (
+		numItems = 5000
+		limit    = 5
+	)
+
+	db := dynamodb.NewInMemoryDB()
+
+	_, err := db.CreateTable(b.Context(), &sdk.CreateTableInput{
+		TableName: aws.String("BenchScanTable"),
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+		},
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for i := range numItems {
+		_, err = db.PutItem(b.Context(), &sdk.PutItemInput{
+			TableName: aws.String("BenchScanTable"),
+			Item: map[string]types.AttributeValue{
+				"pk":   &types.AttributeValueMemberS{Value: fmt.Sprintf("item-%05d", i)},
+				"data": &types.AttributeValueMemberS{Value: "padding-to-simulate-real-item-size"},
+			},
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ResetTimer()
+
+	for range b.N {
+		var out *sdk.ScanOutput
+		out, err = db.Scan(b.Context(), &sdk.ScanInput{
+			TableName: aws.String("BenchScanTable"),
+			Limit:     aws.Int32(limit),
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if out.Count != limit {
+			b.Fatalf("expected %d items, got %d", limit, out.Count)
+		}
+	}
 }
