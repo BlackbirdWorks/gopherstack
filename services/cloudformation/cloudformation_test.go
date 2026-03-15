@@ -565,7 +565,115 @@ func TestBackend_DeleteStack(t *testing.T) {
 	}
 }
 
-// ---- Backend: ListStacks ----------------------------------------------------
+// ---- Backend: DeleteStack cleans internal maps --------------------------------
+
+func TestBackend_DeleteStack_CleansInternalMaps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, b *cloudformation.InMemoryBackend) (stackID string)
+	}{
+		{
+			name: "cleans_resources_and_stackIDIndex",
+			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) string {
+				t.Helper()
+				stack, err := b.CreateStack(t.Context(), "clean-stack", simpleTemplate, nil, nil)
+				require.NoError(t, err)
+
+				return stack.StackID
+			},
+		},
+		{
+			name: "cleans_changeset_map",
+			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) string {
+				t.Helper()
+				stack, err := b.CreateStack(t.Context(), "clean-cs-stack", simpleTemplate, nil, nil)
+				require.NoError(t, err)
+				_, err = b.CreateChangeSet(t.Context(), "clean-cs-stack", "cs1", simpleTemplate, "", nil)
+				require.NoError(t, err)
+
+				return stack.StackID
+			},
+		},
+		{
+			name: "cleans_drift_detections",
+			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) string {
+				t.Helper()
+				stack, err := b.CreateStack(t.Context(), "clean-drift-stack", simpleTemplate, nil, nil)
+				require.NoError(t, err)
+				_, err = b.DetectStackDrift("clean-drift-stack")
+				require.NoError(t, err)
+				_, err = b.DetectStackDrift("clean-drift-stack")
+				require.NoError(t, err)
+
+				return stack.StackID
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			stackID := tt.setup(t, b)
+
+			stackName := ""
+			s, err := b.DescribeStack(stackID)
+			require.NoError(t, err)
+			stackName = s.StackName
+
+			err = b.DeleteStack(t.Context(), stackID)
+			require.NoError(t, err)
+
+			assert.False(t, b.ResourcesEntryExists(stackID), "resources map entry should be removed")
+			assert.False(t, b.StackIDIndexEntryExists(stackID), "stackIDIndex entry should be removed")
+			assert.False(t, b.ChangeSetsEntryExists(stackName), "changeSets map entry should be removed")
+			assert.Equal(t, 0, b.DriftDetectionCount(stackID), "driftDetections should be pruned")
+		})
+	}
+}
+
+// ---- Backend: provisionResources rollback -----------------------------------
+
+func TestBackend_CreateStack_RollbackOnProvisioningFailure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		failResourceType  string
+		wantStatus        string
+		wantResourceCount int
+	}{
+		{
+			name:              "first_resource_fails_no_partial_resources",
+			failResourceType:  "AWS::S3::Bucket",
+			wantStatus:        "CREATE_FAILED",
+			wantResourceCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			b.GetCreator().InjectCreateHook(func(resourceType string) error {
+				if resourceType == tt.failResourceType {
+					return errSimulatedCreate
+				}
+
+				return nil
+			})
+
+			stack, err := b.CreateStack(t.Context(), "fail-stack", simpleTemplate, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, stack.StackStatus)
+			assert.Equal(t, tt.wantResourceCount, b.ResourceCountForStack(stack.StackID))
+		})
+	}
+}
 
 func TestBackend_ListStacks(t *testing.T) {
 	t.Parallel()
