@@ -168,8 +168,9 @@ func AcquireConcurrencySlot(b *InMemoryBackend, functionName string) (bool, erro
 	return b.acquireConcurrencySlot(functionName)
 }
 
-// ShardIteratorsLen returns the number of entries in the poller's shardIterators map.
-// Intended for use in unit tests to verify memory-leak cleanup.
+// MinEventAgeInSeconds exports minEventAgeInSeconds for use in tests.
+const MinEventAgeInSeconds = minEventAgeInSeconds
+
 func ShardIteratorsLen(p *EventSourcePoller) int {
 	p.mu.RLock("ShardIteratorsLen")
 	defer p.mu.RUnlock()
@@ -231,7 +232,8 @@ func DrainQueue(s *ExportedRuntimeServer) int {
 
 // EnqueueAsync calls enqueueAsyncInvocation on b with a synthetic pendingInvocation.
 // It returns the requestID of the created invocation so tests can simulate container
-// responses or verify pending-map cleanup.
+// responses or verify pending-map cleanup. createdAt sets the event creation time; pass
+// a zero [time.Time] to default to [time.Now].
 func EnqueueAsync(
 	ctx context.Context,
 	b *InMemoryBackend,
@@ -240,11 +242,18 @@ func EnqueueAsync(
 	payload []byte,
 	timeout time.Duration,
 	trackConcurrency bool,
+	createdAt ...time.Time,
 ) string {
+	eventTime := time.Now()
+	if len(createdAt) > 0 && !createdAt[0].IsZero() {
+		eventTime = createdAt[0]
+	}
+
 	inv := &pendingInvocation{
 		requestID: uuid.New().String(),
 		payload:   payload,
-		deadline:  time.Now().Add(timeout),
+		deadline:  eventTime.Add(timeout),
+		createdAt: eventTime,
 		result:    make(chan invocationResult, 1),
 	}
 

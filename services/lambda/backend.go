@@ -1193,6 +1193,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 			requestID: uuid.New().String(),
 			payload:   payload,
 			deadline:  time.Now().Add(timeout),
+			createdAt: time.Now(),
 			result:    make(chan invocationResult, 1),
 		}
 
@@ -1270,10 +1271,13 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 	}()
 }
 
-// waitAndCleanPending waits for the container to post a response for inv or for the
-// function timeout to expire. On timeout it removes the stale srv.pending entry left by
-// handleNext to prevent an unbounded memory leak. If trackConcurrency is true the
-// concurrency slot is released once the wait completes.
+// defaultAsyncMaxRetryAttempts is the number of automatic retries AWS Lambda performs
+// for async (Event) invocations that fail with a function error. This matches the AWS default.
+const defaultAsyncMaxRetryAttempts = 2
+
+// waitAndCleanPending is the exit point for every async invocation goroutine. It runs
+// the retry loop and, once all attempts are exhausted or completed, releases the
+// concurrency slot if one was acquired.
 func (b *InMemoryBackend) waitAndCleanPending(
 	srv *runtimeServer,
 	inv *pendingInvocation,
@@ -1281,26 +1285,155 @@ func (b *InMemoryBackend) waitAndCleanPending(
 	trackConcurrency bool,
 	functionName string,
 ) {
-	waitTimer := time.NewTimer(timeout + containerResponseGracePeriod)
-
-	select {
-	case <-inv.result:
-		// Container responded; handleInvocationResult already removed the pending entry.
-	case <-waitTimer.C:
-		// Container timed out; remove the stale pending entry to prevent a memory leak.
-		srv.pending.LoadAndDelete(inv.requestID)
-	}
-
-	// Drain the timer channel if it fired concurrently with inv.result being received.
-	if !waitTimer.Stop() {
-		select {
-		case <-waitTimer.C:
-		default:
-		}
-	}
+	b.runAsyncInvocationRetryLoop(srv, inv, timeout, functionName)
 
 	if trackConcurrency {
 		b.releaseConcurrencySlot(functionName)
+	}
+}
+
+// runAsyncInvocationRetryLoop executes the async invocation and retries on function errors
+// according to the function's event invoke configuration (MaximumRetryAttempts,
+// MaximumEventAgeInSeconds). Default retry count mirrors AWS Lambda: 2 retries.
+func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
+	srv *runtimeServer,
+	inv *pendingInvocation,
+	timeout time.Duration,
+	functionName string,
+) {
+	maxRetries, maxEventAgeDL := b.readAsyncRetryConfig(functionName, inv.createdAt)
+	currentInv := inv
+
+	for attempt := range maxRetries + 1 {
+		result, ok := waitForAsyncResult(srv, currentInv, timeout, maxEventAgeDL)
+		if !ok {
+			return // timeout or event too old
+		}
+
+		if !result.isError || attempt == maxRetries {
+			if !result.isError {
+				b.pushInvocationLog(functionName, inv.payload, result.payload)
+			} else {
+				slog.Default().Warn("lambda: async invocation failed after retries",
+					"function", functionName, "attempts", attempt+1)
+			}
+
+			return
+		}
+
+		newInv := scheduleAsyncRetry(srv, inv, timeout, maxEventAgeDL, attempt+1, functionName)
+		if newInv == nil {
+			return // retry dropped (queue full or event too old)
+		}
+
+		currentInv = newInv
+	}
+}
+
+// readAsyncRetryConfig returns the effective maximum retry attempts and the event-age deadline
+// for an async invocation. If no event invoke configuration exists, the AWS defaults are used
+// (2 retries, no age limit).
+func (b *InMemoryBackend) readAsyncRetryConfig(
+	functionName string,
+	createdAt time.Time,
+) (int, time.Time) {
+	b.mu.RLock("readAsyncRetryConfig")
+	defer b.mu.RUnlock()
+
+	maxRetries := defaultAsyncMaxRetryAttempts
+
+	cfg, ok := b.eventInvokeConfigs[functionName]
+	if !ok {
+		return maxRetries, time.Time{}
+	}
+
+	if cfg.MaximumRetryAttempts != nil {
+		maxRetries = *cfg.MaximumRetryAttempts
+	}
+
+	var maxEventAgeDL time.Time
+
+	if cfg.MaximumEventAgeInSeconds != nil {
+		maxEventAgeDL = createdAt.Add(time.Duration(*cfg.MaximumEventAgeInSeconds) * time.Second)
+	}
+
+	return maxRetries, maxEventAgeDL
+}
+
+// waitForAsyncResult waits for a pending invocation to receive a container response or for
+// the function timeout to elapse. On timeout it removes the stale srv.pending entry that
+// handleNext stored (preventing a memory leak). Returns (result, true) on container response
+// and (zero, false) on timeout or event-age expiry.
+func waitForAsyncResult(
+	srv *runtimeServer,
+	inv *pendingInvocation,
+	timeout time.Duration,
+	maxEventAgeDL time.Time,
+) (invocationResult, bool) {
+	if !maxEventAgeDL.IsZero() && time.Now().After(maxEventAgeDL) {
+		srv.pending.LoadAndDelete(inv.requestID)
+
+		return invocationResult{}, false
+	}
+
+	waitTimer := time.NewTimer(timeout + containerResponseGracePeriod)
+	defer func() {
+		if !waitTimer.Stop() {
+			select {
+			case <-waitTimer.C:
+			default:
+			}
+		}
+	}()
+
+	select {
+	case result := <-inv.result:
+		return result, true
+	case <-waitTimer.C:
+		// Container timed out; remove the stale pending entry to prevent a memory leak.
+		srv.pending.LoadAndDelete(inv.requestID)
+
+		return invocationResult{}, false
+	}
+}
+
+// scheduleAsyncRetry creates a new pendingInvocation for a retry attempt and enqueues it.
+// It returns the new invocation on success or nil if the event is too old or the queue
+// remains full after asyncInvocationEnqueueTimeout.
+func scheduleAsyncRetry(
+	srv *runtimeServer,
+	original *pendingInvocation,
+	timeout time.Duration,
+	maxEventAgeDL time.Time,
+	attempt int,
+	functionName string,
+) *pendingInvocation {
+	if !maxEventAgeDL.IsZero() && time.Now().After(maxEventAgeDL) {
+		slog.Default().Warn("lambda: async retry dropped: event age exceeded",
+			"function", functionName, "attempt", attempt)
+
+		return nil
+	}
+
+	newInv := &pendingInvocation{
+		requestID: uuid.New().String(),
+		payload:   original.payload,
+		deadline:  time.Now().Add(timeout),
+		result:    make(chan invocationResult, 1),
+		createdAt: original.createdAt,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), asyncInvocationEnqueueTimeout)
+	defer cancel()
+
+	select {
+	case srv.queue <- newInv:
+		return newInv
+	case <-ctx.Done():
+		slog.Default().Warn("lambda: async retry dropped: queue full",
+			"function", functionName, "requestID", newInv.requestID, "attempt", attempt)
+
+		return nil
 	}
 }
 

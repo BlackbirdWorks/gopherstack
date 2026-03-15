@@ -17,6 +17,7 @@ const (
 	asyncInvokeQueueBehaviorBase  = 18200 // 18200–18201 reserved
 	asyncInvokePendingCleanupBase = 18202 // 18202 reserved
 	asyncInvokeSlotLifetimeBase   = 18203 // 18203–18204 reserved
+	asyncInvokeRetryBase          = 18205 // 18205–18208 reserved
 )
 
 // newAsyncTestBackend returns a backend with no Docker/port-alloc so that
@@ -236,6 +237,166 @@ func TestEnqueueAsync_ConcurrencySlotLifetime(t *testing.T) {
 
 			assert.Equal(t, tt.wantPendingAfter, lambda.PendingLen(srv),
 				"pending entry state after slot release")
+		})
+	}
+}
+
+// TestEnqueueAsync_Retry verifies that enqueueAsyncInvocation respects MaximumRetryAttempts
+// from the function's event invoke configuration and automatically retries on function errors.
+func TestEnqueueAsync_Retry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setupConfig   func(t *testing.T, bk *lambda.InMemoryBackend, fnName string)
+		driverFn      func(t *testing.T, port int) int
+		name          string
+		fnName        string
+		port          int
+		wantNextCalls int
+	}{
+		{
+			name:   "retry_on_error_succeeds_on_second_attempt",
+			port:   asyncInvokeRetryBase,
+			fnName: "fn-retry-success",
+			setupConfig: func(t *testing.T, bk *lambda.InMemoryBackend, fnName string) {
+				t.Helper()
+				_, err := bk.PutFunctionEventInvokeConfig(fnName, &lambda.PutFunctionEventInvokeConfigInput{
+					MaximumRetryAttempts: new(1),
+				})
+				require.NoError(t, err)
+			},
+			driverFn: func(t *testing.T, port int) int {
+				t.Helper()
+				// First attempt: return an error.
+				reqID1 := simulateContainerNext(t, port)
+				simulateContainerError(t, port, reqID1, `{"errorMessage":"transient error"}`)
+				// Second attempt (retry): return success.
+				reqID2 := simulateContainerNext(t, port)
+				simulateContainerResponse(t, port, reqID2, `{"ok":true}`)
+
+				return 2
+			},
+			wantNextCalls: 2,
+		},
+		{
+			name:   "no_retry_when_max_retries_zero",
+			port:   asyncInvokeRetryBase + 1,
+			fnName: "fn-no-retry",
+			setupConfig: func(t *testing.T, bk *lambda.InMemoryBackend, fnName string) {
+				t.Helper()
+				_, err := bk.PutFunctionEventInvokeConfig(fnName, &lambda.PutFunctionEventInvokeConfigInput{
+					MaximumRetryAttempts: new(0),
+				})
+				require.NoError(t, err)
+			},
+			driverFn: func(t *testing.T, port int) int {
+				t.Helper()
+				// Only one /next call expected; return error.
+				reqID := simulateContainerNext(t, port)
+				simulateContainerError(t, port, reqID, `{"errorMessage":"permanent error"}`)
+
+				return 1
+			},
+			wantNextCalls: 1,
+		},
+		{
+			name:   "all_retries_exhausted_slot_released",
+			port:   asyncInvokeRetryBase + 2,
+			fnName: "fn-retry-exhausted",
+			setupConfig: func(t *testing.T, bk *lambda.InMemoryBackend, fnName string) {
+				t.Helper()
+				_, err := bk.PutFunctionEventInvokeConfig(fnName, &lambda.PutFunctionEventInvokeConfigInput{
+					MaximumRetryAttempts: new(1),
+				})
+				require.NoError(t, err)
+			},
+			driverFn: func(t *testing.T, port int) int {
+				t.Helper()
+				// Both attempts return error.
+				reqID1 := simulateContainerNext(t, port)
+				simulateContainerError(t, port, reqID1, `{"errorMessage":"error1"}`)
+				reqID2 := simulateContainerNext(t, port)
+				simulateContainerError(t, port, reqID2, `{"errorMessage":"error2"}`)
+
+				return 2
+			},
+			wantNextCalls: 2,
+		},
+		{
+			name:   "event_age_exceeded_drops_without_retry",
+			port:   asyncInvokeRetryBase + 3,
+			fnName: "fn-age-expired",
+			setupConfig: func(t *testing.T, bk *lambda.InMemoryBackend, fnName string) {
+				t.Helper()
+				_, err := bk.PutFunctionEventInvokeConfig(fnName, &lambda.PutFunctionEventInvokeConfigInput{
+					MaximumRetryAttempts:     new(1),
+					MaximumEventAgeInSeconds: new(lambda.MinEventAgeInSeconds),
+				})
+				require.NoError(t, err)
+			},
+			driverFn: func(t *testing.T, port int) int {
+				t.Helper()
+				// Container gets exactly one /next call; returns error.
+				// The goroutine checks event age BEFORE retrying.  Since the event was
+				// created 61 seconds in the past (see createdAt override in test body)
+				// the retry will be dropped by the age check.
+				reqID := simulateContainerNext(t, port)
+				simulateContainerError(t, port, reqID, `{"errorMessage":"error"}`)
+
+				return 1
+			},
+			wantNextCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			srv := startAsyncTestServer(t, tt.port)
+			bk := newAsyncTestBackend()
+
+			require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{FunctionName: tt.fnName}))
+
+			_, err := bk.PutFunctionConcurrency(tt.fnName, 1)
+			require.NoError(t, err)
+
+			if tt.setupConfig != nil {
+				tt.setupConfig(t, bk, tt.fnName)
+			}
+
+			// Acquire the concurrency slot (simulating InvokeFunctionWithQualifier).
+			acquired, acquireErr := lambda.AcquireConcurrencySlot(bk, tt.fnName)
+			require.NoError(t, acquireErr)
+			require.True(t, acquired)
+
+			// For the event-age test, backdate the creation time so the retry check fires.
+			var createdAt []time.Time
+			if tt.name == "event_age_exceeded_drops_without_retry" {
+				createdAt = []time.Time{time.Now().Add(-(lambda.MinEventAgeInSeconds + 1) * time.Second)}
+			}
+
+			lambda.EnqueueAsync(t.Context(), bk, srv, tt.fnName, []byte(`{}`), 5*time.Second, true, createdAt...)
+
+			// Drive the container interactions.
+			tt.driverFn(t, tt.port)
+
+			// After all interactions the concurrency slot must be released.
+			require.Eventually(t, func() bool {
+				ok, tryErr := lambda.AcquireConcurrencySlot(bk, tt.fnName)
+				if tryErr != nil {
+					return false
+				}
+
+				if ok {
+					lambda.ReleaseConcurrencySlot(bk, tt.fnName)
+				}
+
+				return true
+			}, 3*time.Second, 5*time.Millisecond, "concurrency slot should be released after all attempts")
+
+			// Queue should be empty: no more pending retry invocations.
+			assert.Equal(t, 0, lambda.QueueLen(srv), "no stale items in queue after completion")
 		})
 	}
 }
