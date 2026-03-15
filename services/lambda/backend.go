@@ -733,15 +733,38 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 }
 
 // UpdateFunction replaces a Lambda function's configuration.
+// Any running container is evicted so the next invocation picks up the new code/config.
 func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 	b.mu.Lock("UpdateFunction")
-	defer b.mu.Unlock()
 
 	if _, ok := b.functions[fn.FunctionName]; !ok {
+		b.mu.Unlock()
+
 		return ErrFunctionNotFound
 	}
 
 	b.functions[fn.FunctionName] = fn
+
+	// Evict the running runtime so the next invocation gets a fresh container with the
+	// updated code or configuration (mirrors AWS/LocalStack behaviour).
+	rt := b.runtimes[fn.FunctionName]
+	if rt != nil {
+		delete(b.runtimes, fn.FunctionName)
+	}
+
+	b.mu.Unlock()
+
+	// Clean up the old container asynchronously — we must not hold b.mu while stopping.
+	// context.Background is intentional: the caller's ctx (HTTP request) completes long
+	// before the container shuts down. rt is passed as a parameter to make the capture
+	// explicit and safe against future refactoring.
+	if rt != nil {
+		go func(evicted *functionRuntime) { // #nosec G118 -- intentional detached context for background cleanup
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+			defer cancel()
+			b.cleanupRuntime(shutdownCtx, evicted)
+		}(rt)
+	}
 
 	return nil
 }
@@ -1287,9 +1310,15 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 	currentInv := inv
 
 	for attempt := range maxRetries + 1 {
-		result, ok := waitForAsyncResult(srv, currentInv, timeout, maxEventAgeDL)
+		result, ok, containerTimedOut := waitForAsyncResult(srv, currentInv, timeout, maxEventAgeDL)
 		if !ok {
-			return // timeout or event too old
+			// A container timeout means the process is hung; evict it so the next
+			// invocation gets a fresh container, matching the synchronous timeout path.
+			if containerTimedOut {
+				b.cleanupTimedOutRuntime(functionName)
+			}
+
+			return
 		}
 
 		if !result.isError || attempt == maxRetries {
@@ -1344,18 +1373,21 @@ func (b *InMemoryBackend) readAsyncRetryConfig(
 
 // waitForAsyncResult waits for a pending invocation to receive a container response or for
 // the function timeout to elapse. On timeout it removes the stale srv.pending entry that
-// handleNext stored (preventing a memory leak). Returns (result, true) on container response
-// and (zero, false) on timeout or event-age expiry.
+// handleNext stored (preventing a memory leak).
+// Returns:
+//   - (result, true, false)  — container responded in time
+//   - (zero, false, false)   — event too old; no container was involved
+//   - (zero, false, true)    — container timed out; the caller should clean up the runtime
 func waitForAsyncResult(
 	srv *runtimeServer,
 	inv *pendingInvocation,
 	timeout time.Duration,
 	maxEventAgeDL time.Time,
-) (invocationResult, bool) {
+) (invocationResult, bool, bool) {
 	if !maxEventAgeDL.IsZero() && time.Now().After(maxEventAgeDL) {
 		srv.pending.LoadAndDelete(inv.requestID)
 
-		return invocationResult{}, false
+		return invocationResult{}, false, false
 	}
 
 	waitTimer := time.NewTimer(timeout + containerResponseGracePeriod)
@@ -1370,12 +1402,12 @@ func waitForAsyncResult(
 
 	select {
 	case result := <-inv.result:
-		return result, true
+		return result, true, false
 	case <-waitTimer.C:
 		// Container timed out; remove the stale pending entry to prevent a memory leak.
 		srv.pending.LoadAndDelete(inv.requestID)
 
-		return invocationResult{}, false
+		return invocationResult{}, false, true
 	}
 }
 
@@ -1644,16 +1676,19 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 	}
 
 	rt.mu.Lock("getOrCreateRuntime")
-	defer rt.mu.Unlock()
 
 	if rt.started {
-		return rt.srv, rt.startErr
+		srv, startErr := rt.srv, rt.startErr
+		rt.mu.Unlock()
+
+		return srv, startErr
 	}
 
 	port, portErr := b.portAlloc.Acquire(fmt.Sprintf("lambda:%s", fn.FunctionName))
 	if portErr != nil {
 		rt.startErr = fmt.Errorf("%w: port allocation failed: %w", ErrLambdaUnavailable, portErr)
 		rt.started = true
+		rt.mu.Unlock()
 
 		return nil, rt.startErr
 	}
@@ -1664,6 +1699,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 		_ = b.portAlloc.Release(port)
 		rt.startErr = fmt.Errorf("%w: runtime server start failed: %w", ErrLambdaUnavailable, startErr)
 		rt.started = true
+		rt.mu.Unlock()
 
 		return nil, rt.startErr
 	}
@@ -1674,37 +1710,74 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 
 	zipDir, layerDirs, containerID, containerErr := b.startContainer(ctx, fn, port)
 	if containerErr != nil {
-		// Container startup failure is fatal: stop the runtime server, release the
-		// port, and surface the error so the caller gets an immediate failure instead
-		// of silently timing out on every subsequent invoke.
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
-		defer cancel()
-		srv.stop(shutdownCtx)
-		_ = b.portAlloc.Release(port)
+		startErr := b.handleContainerStartFailure(
+			ctx, fn.FunctionName, rt, srv, port, zipDir, layerDirs, containerID, containerErr,
+		)
 
-		// Stop any container that was created before the error occurred.
-		if containerID != "" {
-			_ = b.docker.StopAndRemove(shutdownCtx, containerID) // #nosec G703
-		}
-
-		for _, d := range layerDirs {
-			_ = os.RemoveAll(d) // #nosec G703
-		}
-
-		if zipDir != "" {
-			_ = os.RemoveAll(zipDir) // #nosec G703
-		}
-
-		rt.startErr = fmt.Errorf("%w: container startup failed: %w", ErrLambdaUnavailable, containerErr)
-
-		return nil, rt.startErr
+		return nil, startErr
 	}
 
 	rt.zipDir = zipDir
 	rt.layerDirs = layerDirs
 	rt.containerID = containerID
+	rt.mu.Unlock()
 
 	return srv, nil
+}
+
+// handleContainerStartFailure cleans up all resources after startContainer returns an error.
+// It stops the runtime server, releases the port, removes any partial container and temp dirs,
+// sets rt.startErr, unlocks rt.mu, and then removes the stale map entry under b.mu so that
+// the next invocation can retry. This helper exists to keep getOrCreateRuntime within the
+// statement-count limit.
+func (b *InMemoryBackend) handleContainerStartFailure(
+	_ context.Context,
+	functionName string,
+	rt *functionRuntime,
+	srv *runtimeServer,
+	port int,
+	zipDir string,
+	layerDirs []string,
+	containerID string,
+	containerErr error,
+) error {
+	// Container startup failure is fatal: stop the runtime server, release the
+	// port, and surface the error so the caller gets an immediate failure instead
+	// of silently timing out on every subsequent invoke.
+	// context.Background is intentional: the caller's HTTP context may already be
+	// cancelled (e.g. client disconnect), but we still need to release resources.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+	defer cancel()
+	srv.stop(shutdownCtx)
+	_ = b.portAlloc.Release(port)
+
+	// Stop any container that was created before the error occurred.
+	if containerID != "" {
+		_ = b.docker.StopAndRemove(shutdownCtx, containerID) // #nosec G703
+	}
+
+	for _, d := range layerDirs {
+		_ = os.RemoveAll(d) // #nosec G703
+	}
+
+	if zipDir != "" {
+		_ = os.RemoveAll(zipDir) // #nosec G703
+	}
+
+	startErr := fmt.Errorf("%w: container startup failed: %w", ErrLambdaUnavailable, containerErr)
+	rt.startErr = startErr
+	rt.mu.Unlock()
+
+	// Remove the stale entry so the next invocation gets a fresh attempt rather
+	// than perpetually returning this error. Lock ordering is safe: rt.mu is
+	// released above before acquiring b.mu.
+	b.mu.Lock("getOrCreateRuntime-evict-failed")
+	if b.runtimes[functionName] == rt {
+		delete(b.runtimes, functionName)
+	}
+	b.mu.Unlock()
+
+	return startErr
 }
 
 // runtimeImageForRuntime maps a Lambda runtime identifier to the corresponding

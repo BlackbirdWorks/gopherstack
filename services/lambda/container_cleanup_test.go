@@ -2,6 +2,7 @@ package lambda_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,13 +21,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
-// Port ranges reserved for container cleanup tests: 20600–20649.
+// Port ranges reserved for container cleanup tests: 20600–20699.
 const (
-	containerCleanupTimeoutBase = 20600 // 20600–20609: invocation timeout cleanup
-	containerCleanupLRUBase     = 20610 // 20610–20619: LRU eviction test case 1
-	containerCleanupLRU2Base    = 20640 // 20640–20649: LRU eviction test case 2
-	containerCleanupStopBase    = 20620 // 20620–20629: container stop on timeout
+	containerCleanupTimeoutBase   = 20600 // 20600–20609: invocation timeout cleanup
+	containerCleanupLRUBase       = 20610 // 20610–20619: LRU eviction test case 1
+	containerCleanupStopBase      = 20620 // 20620–20629: container stop on timeout
+	containerCleanupLRU2Base      = 20640 // 20640–20649: LRU eviction test case 2
+	containerCleanupUpdateBase    = 20670 // 20670–20679: UpdateFunction runtime eviction
+	containerCleanupAsyncBase     = 20680 // 20680–20689: async timeout cleanup
+	containerCleanupStartFailBase = 20690 // 20690–20699: startup failure stale entry
 )
+
+// errSimulatedContainerCreate is a sentinel used by tests that need container creation to fail.
+var errSimulatedContainerCreate = errors.New("simulated container create error")
 
 // trackingDockerAPI is a mock Docker API client that records StopAndRemove calls.
 type trackingDockerAPI struct {
@@ -588,6 +595,191 @@ func TestReset_StopsContainers(t *testing.T) {
 			for _, cid := range tt.containerIDs {
 				assert.Contains(t, stops, cid, "expected container %s to be stopped after Reset", cid)
 			}
+		})
+	}
+}
+
+// TestUpdateFunction_EvictsRuntime verifies that calling UpdateFunction evicts any running
+// container so that the next invocation picks up the updated code or configuration.
+func TestUpdateFunction_EvictsRuntime(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		containerID string
+		wantStopped bool
+	}{
+		{
+			name:        "container_stopped_after_update",
+			containerID: "update-fn-container",
+			wantStopped: true,
+		},
+		{
+			name:        "no_container_no_stop_call",
+			containerID: "",
+			wantStopped: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			api := &trackingDockerAPI{}
+			dc := newTrackingDockerClient(api)
+
+			b := lambda.NewInMemoryBackend(dc, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+
+			fn := &lambda.FunctionConfiguration{
+				FunctionName: "update-fn",
+				PackageType:  lambda.PackageTypeImage,
+				ImageURI:     "test:latest",
+			}
+			require.NoError(t, b.CreateFunction(fn))
+
+			// Inject a pre-existing runtime (simulates a live container from a previous invocation).
+			lambda.InjectRuntimeEntryWithContainer(b, "update-fn", "", tt.containerID, nil, 0)
+			require.Equal(t, 1, lambda.RuntimesLen(b))
+
+			// Update the function (simulates UpdateFunctionCode / UpdateFunctionConfiguration).
+			fn.ImageURI = "test:v2"
+			require.NoError(t, b.UpdateFunction(fn))
+
+			// The runtime entry must be evicted immediately.
+			require.Equal(t, 0, lambda.RuntimesLen(b))
+
+			if tt.wantStopped {
+				// The container stop is asynchronous; wait for it.
+				require.EventuallyWithT(t, func(c *assert.CollectT) {
+					assert.Contains(c, api.StopCalls(), tt.containerID)
+				}, 2*time.Second, 10*time.Millisecond)
+			} else {
+				// No stop calls should be issued.
+				require.Never(t, func() bool {
+					return len(api.StopCalls()) > 0
+				}, 200*time.Millisecond, 10*time.Millisecond)
+			}
+		})
+	}
+}
+
+// TestAsyncInvocation_TimeoutCleansUpRuntime verifies that when an async (Event-type)
+// invocation times out, the runtime is evicted from the map so the next invocation
+// gets a fresh container. This mirrors the cleanup already done for sync timeouts.
+func TestAsyncInvocation_TimeoutCleansUpRuntime(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		port      int
+		fnTimeout int // function Timeout in seconds (minimum 1)
+	}{
+		{
+			name:      "runtime_evicted_after_async_timeout",
+			port:      containerCleanupAsyncBase,
+			fnTimeout: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+
+			fn := &lambda.FunctionConfiguration{
+				FunctionName: "async-timeout-fn",
+				PackageType:  lambda.PackageTypeImage,
+				ImageURI:     "test:latest",
+				Timeout:      tt.fnTimeout,
+			}
+			require.NoError(t, b.CreateFunction(fn))
+
+			// Start a runtime server that never picks up invocations (simulates a hung container).
+			srv := lambda.NewExportedRuntimeServer(tt.port)
+			require.NoError(t, srv.Start(t.Context()))
+
+			t.Cleanup(func() {
+				stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				srv.Stop(stopCtx)
+			})
+
+			lambda.InjectRuntimeEntryFull(b, "async-timeout-fn", srv, "")
+			require.Equal(t, 1, lambda.RuntimesLen(b))
+
+			// Invoke asynchronously — returns 202 immediately; the background goroutine times out.
+			_, _, invokeErr := b.InvokeFunction(
+				t.Context(), "async-timeout-fn", lambda.InvocationTypeEvent, []byte(`{}`),
+			)
+			require.NoError(t, invokeErr, "async InvokeFunction should return 202 without error")
+
+			// Wait for the background timeout + cleanup to evict the runtime.
+			require.EventuallyWithT(t, func(c *assert.CollectT) {
+				assert.Equal(c, 0, lambda.RuntimesLen(b))
+			}, 5*time.Second, 50*time.Millisecond, "runtime should be evicted after async timeout")
+		})
+	}
+}
+
+// TestStartupFailure_ClearsRuntimeEntry verifies that when a container fails to start,
+// the stale runtime entry is removed from the map so the next invocation retries
+// instead of perpetually returning the same startup error.
+func TestStartupFailure_ClearsRuntimeEntry(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		portStart int
+		portEnd   int
+	}{
+		{
+			name:      "stale_entry_removed_after_startup_failure",
+			portStart: containerCleanupStartFailBase,
+			portEnd:   containerCleanupStartFailBase + 9,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			api := &trackingDockerAPI{createErr: errSimulatedContainerCreate}
+			dc := newTrackingDockerClient(api)
+
+			pa, err := portalloc.New(tt.portStart, tt.portEnd)
+			require.NoError(t, err)
+
+			b := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
+
+			fn := &lambda.FunctionConfiguration{
+				FunctionName: "fail-start-fn",
+				PackageType:  lambda.PackageTypeImage,
+				ImageURI:     "test:latest",
+			}
+			require.NoError(t, b.CreateFunction(fn))
+
+			// First invocation — container creation fails.
+			_, _, firstErr := b.InvokeFunction(
+				t.Context(), "fail-start-fn", lambda.InvocationTypeRequestResponse, []byte(`{}`),
+			)
+			require.Error(t, firstErr, "first invocation should fail due to container startup error")
+			require.ErrorIs(t, firstErr, lambda.ErrLambdaUnavailable)
+
+			// The stale entry MUST be removed so a second invocation can retry.
+			assert.Equal(t, 0, lambda.RuntimesLen(b), "runtimes map must be empty after startup failure")
+
+			// Second invocation also fails (createErr is still set) but must not return a cached error.
+			_, _, secondErr := b.InvokeFunction(
+				t.Context(), "fail-start-fn", lambda.InvocationTypeRequestResponse, []byte(`{}`),
+			)
+			require.Error(t, secondErr)
+			require.ErrorIs(
+				t,
+				secondErr,
+				lambda.ErrLambdaUnavailable,
+				"second invocation should retry and fail with a fresh error",
+			)
 		})
 	}
 }
