@@ -8,11 +8,11 @@ import (
 	"maps"
 	"math/big"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -164,10 +164,10 @@ type InMemoryBackend struct {
 	experiments     map[string]*Experiment
 	faultStore      *chaos.FaultStore
 	safetyLever     *SafetyLever
+	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
 	actionProviders []service.FISActionProvider
-	mu              sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -179,6 +179,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		experiments: make(map[string]*Experiment),
 		accountID:   accountID,
 		region:      region,
+		mu:          lockmetrics.New("fis"),
 		safetyLever: &SafetyLever{
 			ID:    accountID,
 			Arn:   safetyLeverARN,
@@ -190,7 +191,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // SetFaultStore injects the chaos FaultStore.
 func (b *InMemoryBackend) SetFaultStore(store *chaos.FaultStore) {
-	b.mu.Lock()
+	b.mu.Lock("SetFaultStore")
 	defer b.mu.Unlock()
 
 	b.faultStore = store
@@ -198,7 +199,7 @@ func (b *InMemoryBackend) SetFaultStore(store *chaos.FaultStore) {
 
 // SetActionProviders registers external FIS action providers discovered from the registry.
 func (b *InMemoryBackend) SetActionProviders(providers []service.FISActionProvider) {
-	b.mu.Lock()
+	b.mu.Lock("SetActionProviders")
 	defer b.mu.Unlock()
 
 	b.actionProviders = providers
@@ -241,7 +242,7 @@ func (b *InMemoryBackend) CreateExperimentTemplate(
 		}
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateExperimentTemplate")
 	defer b.mu.Unlock()
 
 	b.templates[id] = tpl
@@ -251,7 +252,7 @@ func (b *InMemoryBackend) CreateExperimentTemplate(
 
 // GetExperimentTemplate retrieves an experiment template by ID.
 func (b *InMemoryBackend) GetExperimentTemplate(id string) (*ExperimentTemplate, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetExperimentTemplate")
 	defer b.mu.RUnlock()
 
 	tpl, ok := b.templates[id]
@@ -269,7 +270,7 @@ func (b *InMemoryBackend) UpdateExperimentTemplate(
 	id string,
 	input *updateExperimentTemplateRequest,
 ) (*ExperimentTemplate, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateExperimentTemplate")
 	defer b.mu.Unlock()
 
 	tpl, ok := b.templates[id]
@@ -315,7 +316,7 @@ func (b *InMemoryBackend) UpdateExperimentTemplate(
 
 // DeleteExperimentTemplate deletes an experiment template by ID.
 func (b *InMemoryBackend) DeleteExperimentTemplate(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteExperimentTemplate")
 	defer b.mu.Unlock()
 
 	if _, ok := b.templates[id]; !ok {
@@ -329,7 +330,7 @@ func (b *InMemoryBackend) DeleteExperimentTemplate(id string) error {
 
 // ListExperimentTemplates returns all experiment templates.
 func (b *InMemoryBackend) ListExperimentTemplates() ([]*ExperimentTemplate, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListExperimentTemplates")
 	defer b.mu.RUnlock()
 
 	result := make([]*ExperimentTemplate, 0, len(b.templates))
@@ -350,7 +351,7 @@ func (b *InMemoryBackend) StartExperiment(
 	input *startExperimentRequest,
 	accountID, region string,
 ) (*Experiment, error) {
-	b.mu.RLock()
+	b.mu.RLock("StartExperiment")
 	tpl, ok := b.templates[input.ExperimentTemplateID]
 	leverEngaged := b.safetyLever != nil && b.safetyLever.State.Status == "engaged"
 	b.mu.RUnlock()
@@ -448,7 +449,7 @@ func (b *InMemoryBackend) StartExperiment(
 	// Clone the template BEFORE passing to the goroutine so template updates don't race.
 	tplForRun := cloneTemplate(tpl)
 
-	b.mu.Lock()
+	b.mu.Lock("StartExperiment")
 	b.experiments[id] = exp
 	// Take the snapshot while holding the lock, before launching the goroutine,
 	// so the background goroutine cannot mutate exp while we're reading it.
@@ -463,7 +464,7 @@ func (b *InMemoryBackend) StartExperiment(
 
 // GetExperiment retrieves an experiment by ID.
 func (b *InMemoryBackend) GetExperiment(id string) (*Experiment, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetExperiment")
 	defer b.mu.RUnlock()
 
 	exp, ok := b.experiments[id]
@@ -476,7 +477,7 @@ func (b *InMemoryBackend) GetExperiment(id string) (*Experiment, error) {
 
 // StopExperiment stops a running experiment.
 func (b *InMemoryBackend) StopExperiment(id string) (*Experiment, error) {
-	b.mu.Lock()
+	b.mu.Lock("StopExperiment")
 
 	exp, ok := b.experiments[id]
 	if !ok {
@@ -504,7 +505,7 @@ func (b *InMemoryBackend) StopExperiment(id string) (*Experiment, error) {
 
 // ListExperiments returns all experiments.
 func (b *InMemoryBackend) ListExperiments() ([]*Experiment, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListExperiments")
 	defer b.mu.RUnlock()
 
 	result := make([]*Experiment, 0, len(b.experiments))
@@ -518,7 +519,7 @@ func (b *InMemoryBackend) ListExperiments() ([]*Experiment, error) {
 // StopAllExperiments cancels every running experiment goroutine.
 // Called during graceful shutdown to prevent goroutine leaks.
 func (b *InMemoryBackend) StopAllExperiments() {
-	b.mu.Lock()
+	b.mu.Lock("StopAllExperiments")
 	defer b.mu.Unlock()
 
 	for _, exp := range b.experiments {
@@ -535,7 +536,7 @@ func (b *InMemoryBackend) StopAllExperiments() {
 // ListExperimentResolvedTargets returns the resolved resource ARN counts for each
 // named target group in the given experiment.
 func (b *InMemoryBackend) ListExperimentResolvedTargets(id string) ([]ExperimentResolvedTarget, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListExperimentResolvedTargets")
 	defer b.mu.RUnlock()
 
 	exp, ok := b.experiments[id]
@@ -563,7 +564,7 @@ func (b *InMemoryBackend) ListExperimentResolvedTargets(id string) ([]Experiment
 // GetSafetyLever returns the current state of the account's safety lever.
 // The id must match the backend's accountID.
 func (b *InMemoryBackend) GetSafetyLever(id string) (*SafetyLever, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetSafetyLever")
 	defer b.mu.RUnlock()
 
 	if b.safetyLever == nil || b.safetyLever.ID != id {
@@ -581,7 +582,7 @@ func (b *InMemoryBackend) UpdateSafetyLeverState(
 	id string,
 	input *updateSafetyLeverStateRequest,
 ) (*SafetyLever, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateSafetyLeverState")
 	defer b.mu.Unlock()
 
 	if b.safetyLever == nil || b.safetyLever.ID != id {
@@ -604,7 +605,7 @@ func (b *InMemoryBackend) UpdateSafetyLeverState(
 
 // ListActions returns all available FIS actions: built-in + service-provided.
 func (b *InMemoryBackend) ListActions() []ActionSummary {
-	b.mu.RLock()
+	b.mu.RLock("ListActions")
 	providers := b.actionProviders
 	b.mu.RUnlock()
 
@@ -636,7 +637,7 @@ func (b *InMemoryBackend) GetAction(id string) (*ActionSummary, error) {
 
 // ListTargetResourceTypes returns all known target resource types.
 func (b *InMemoryBackend) ListTargetResourceTypes() []TargetResourceTypeSummary {
-	b.mu.RLock()
+	b.mu.RLock("ListTargetResourceTypes")
 	providers := b.actionProviders
 	b.mu.RUnlock()
 
@@ -691,7 +692,7 @@ func (b *InMemoryBackend) GetTargetResourceType(resourceType string) (*TargetRes
 
 // ListTagsForResource returns tags for a resource identified by its ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	// Check templates.
@@ -713,7 +714,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 
 // TagResource adds or updates tags on a resource.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	// Check templates.
@@ -747,7 +748,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 // UntagResource removes specific tags from a resource.
 func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	// Check templates.
@@ -874,7 +875,7 @@ type externalAction struct {
 // executeExternalAction calls the appropriate FISActionProvider for a non-built-in action.
 // Returns an error if the provider reports a failure.
 func (b *InMemoryBackend) executeExternalAction(ctx context.Context, ea externalAction) error {
-	b.mu.RLock()
+	b.mu.RLock("executeExternalAction")
 	providers := b.actionProviders
 	b.mu.RUnlock()
 
@@ -914,7 +915,7 @@ func (b *InMemoryBackend) cleanupActions(faultRules []chaos.FaultRule, expID, ex
 	}
 
 	now := time.Now()
-	b.mu.Lock()
+	b.mu.Lock("cleanupActions")
 
 	if exp, ok := b.experiments[expID]; ok {
 		exp.Status = ExperimentStatus{Status: expStatus}
@@ -933,7 +934,7 @@ func (b *InMemoryBackend) cleanupActions(faultRules []chaos.FaultRule, expID, ex
 
 // setExperimentStatus atomically updates an experiment's status.
 func (b *InMemoryBackend) setExperimentStatus(id, status, reason string) {
-	b.mu.Lock()
+	b.mu.Lock("setExperimentStatus")
 	defer b.mu.Unlock()
 
 	if exp, ok := b.experiments[id]; ok {
@@ -943,7 +944,7 @@ func (b *InMemoryBackend) setExperimentStatus(id, status, reason string) {
 
 // setAllActionStatuses atomically sets all actions in an experiment to the given status.
 func (b *InMemoryBackend) setAllActionStatuses(expID, status string) {
-	b.mu.Lock()
+	b.mu.Lock("setAllActionStatuses")
 	defer b.mu.Unlock()
 
 	if exp, ok := b.experiments[expID]; ok {
@@ -959,7 +960,7 @@ func (b *InMemoryBackend) setAllActionStatuses(expID, status string) {
 
 // getFaultStore safely returns the fault store (may be nil).
 func (b *InMemoryBackend) getFaultStore() *chaos.FaultStore {
-	b.mu.RLock()
+	b.mu.RLock("getFaultStore")
 	defer b.mu.RUnlock()
 
 	return b.faultStore
@@ -967,7 +968,7 @@ func (b *InMemoryBackend) getFaultStore() *chaos.FaultStore {
 
 // markExperimentFailed sets an experiment and all its actions to failed with a reason.
 func (b *InMemoryBackend) markExperimentFailed(expID, reason string) {
-	b.mu.Lock()
+	b.mu.Lock("markExperimentFailed")
 	defer b.mu.Unlock()
 
 	exp, ok := b.experiments[expID]

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/mediastore"
 )
 
@@ -576,4 +578,459 @@ func TestHandler_UnknownOperation(t *testing.T) {
 	err := h.Handler()(c)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_MetricPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		op         string
+		wantStatus int
+		withPolicy bool
+	}{
+		{
+			name:       "put metric policy",
+			op:         "PutMetricPolicy",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "get metric policy",
+			op:         "GetMetricPolicy",
+			withPolicy: true,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "delete metric policy",
+			op:         "DeleteMetricPolicy",
+			withPolicy: true,
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			setupRec := doRequest(t, h, "CreateContainer", map[string]any{"ContainerName": "metric-test"})
+			require.Equal(t, http.StatusOK, setupRec.Code)
+
+			metricPolicy := map[string]any{
+				"ContainerLevelMetrics": "ENABLED",
+			}
+
+			if tt.withPolicy {
+				putRec := doRequest(t, h, "PutMetricPolicy",
+					map[string]any{"ContainerName": "metric-test", "MetricPolicy": metricPolicy})
+				require.Equal(t, http.StatusOK, putRec.Code)
+			}
+
+			body := map[string]any{"ContainerName": "metric-test"}
+			if tt.op == "PutMetricPolicy" {
+				body["MetricPolicy"] = metricPolicy
+			}
+
+			result := doRequest(t, h, tt.op, body)
+			assert.Equal(t, tt.wantStatus, result.Code)
+		})
+	}
+}
+
+func TestHandler_Name(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "returns service name", want: "MediaStore"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			assert.Equal(t, tt.want, h.Name())
+		})
+	}
+}
+
+func TestHandler_GetSupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		wantOps []string
+	}{
+		{
+			name:    "contains CreateContainer and PutMetricPolicy",
+			wantOps: []string{"CreateContainer", "PutMetricPolicy", "GetMetricPolicy", "DeleteMetricPolicy"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			ops := h.GetSupportedOperations()
+
+			for _, op := range tt.wantOps {
+				assert.Contains(t, ops, op)
+			}
+		})
+	}
+}
+
+func TestHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+		wantOp string
+	}{
+		{
+			name:   "extracts CreateContainer",
+			target: "MediaStore_20170901.CreateContainer",
+			wantOp: "CreateContainer",
+		},
+		{
+			name:   "extracts PutMetricPolicy",
+			target: "MediaStore_20170901.PutMetricPolicy",
+			wantOp: "PutMetricPolicy",
+		},
+		{
+			name:   "unknown target returns Unknown",
+			target: "OtherService.SomeOp",
+			wantOp: "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
+			req.Header.Set("X-Amz-Target", tt.target)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantName string
+	}{
+		{
+			name:     "extracts ContainerName",
+			body:     map[string]any{"ContainerName": "my-container"},
+			wantName: "my-container",
+		},
+		{
+			name:     "extracts Resource ARN",
+			body:     map[string]any{"Resource": "arn:aws:mediastore:us-east-1:123:container/my-container"},
+			wantName: "arn:aws:mediastore:us-east-1:123:container/my-container",
+		},
+		{
+			name:     "empty body returns empty string",
+			body:     map[string]any{},
+			wantName: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+
+			bodyBytes, err := json.Marshal(tt.body)
+			require.NoError(t, err)
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(bodyBytes))
+			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.wantName, h.ExtractResource(c))
+		})
+	}
+}
+
+func TestHandler_RouteMatcher(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		target  string
+		wantHit bool
+	}{
+		{
+			name:    "matches X-Amz-Target prefix",
+			target:  "MediaStore_20170901.CreateContainer",
+			wantHit: true,
+		},
+		{
+			name:    "non-matching target",
+			target:  "OtherService.Op",
+			wantHit: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			matcher := h.RouteMatcher()
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
+
+			if tt.target != "" {
+				req.Header.Set("X-Amz-Target", tt.target)
+			}
+
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+
+			assert.Equal(t, tt.wantHit, matcher(c))
+		})
+	}
+}
+
+func TestHandler_ChaosAndPriority(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		testFunc func(h *mediastore.Handler) any
+		wantType string
+	}{
+		{
+			name:     "ChaosServiceName returns non-empty string",
+			testFunc: func(h *mediastore.Handler) any { return h.ChaosServiceName() },
+			wantType: "string",
+		},
+		{
+			name:     "ChaosOperations returns slice",
+			testFunc: func(h *mediastore.Handler) any { return len(h.ChaosOperations()) > 0 },
+			wantType: "bool",
+		},
+		{
+			name:     "ChaosRegions returns slice",
+			testFunc: func(h *mediastore.Handler) any { return len(h.ChaosRegions()) > 0 },
+			wantType: "bool",
+		},
+		{
+			name:     "MatchPriority returns positive int",
+			testFunc: func(h *mediastore.Handler) any { return h.MatchPriority() },
+			wantType: "int",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			result := tt.testFunc(h)
+			assert.NotNil(t, result)
+
+			if b, ok := result.(bool); ok {
+				assert.True(t, b)
+			}
+		})
+	}
+}
+
+func TestHandler_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		op         string
+		wantStatus int
+	}{
+		{
+			name:       "PutContainerPolicy missing container name",
+			op:         "PutContainerPolicy",
+			body:       map[string]any{"Policy": "{}"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "GetContainerPolicy missing container name",
+			op:         "GetContainerPolicy",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "DeleteContainerPolicy missing container name",
+			op:         "DeleteContainerPolicy",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "PutCorsPolicy missing container name",
+			op:         "PutCorsPolicy",
+			body:       map[string]any{"CorsPolicy": []any{}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "GetCorsPolicy missing container name",
+			op:         "GetCorsPolicy",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "DeleteCorsPolicy missing container name",
+			op:         "DeleteCorsPolicy",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "PutLifecyclePolicy missing container name",
+			op:         "PutLifecyclePolicy",
+			body:       map[string]any{"LifecyclePolicy": "{}"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "GetLifecyclePolicy missing container name",
+			op:         "GetLifecyclePolicy",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "DeleteLifecyclePolicy missing container name",
+			op:         "DeleteLifecyclePolicy",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "PutMetricPolicy missing container name",
+			op:         "PutMetricPolicy",
+			body:       map[string]any{"MetricPolicy": map[string]any{}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "GetMetricPolicy missing container name",
+			op:         "GetMetricPolicy",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "DeleteMetricPolicy missing container name",
+			op:         "DeleteMetricPolicy",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "StartAccessLogging missing container name",
+			op:         "StartAccessLogging",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "StopAccessLogging missing container name",
+			op:         "StopAccessLogging",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "DescribeContainer not found returns 404",
+			op:         "DescribeContainer",
+			body:       map[string]any{"ContainerName": "nonexistent"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "GetContainerPolicy not found returns 404",
+			op:         "GetContainerPolicy",
+			body:       map[string]any{"ContainerName": "nonexistent"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "GetCorsPolicy not found returns 404",
+			op:         "GetCorsPolicy",
+			body:       map[string]any{"ContainerName": "nonexistent"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "GetLifecyclePolicy not found returns 404",
+			op:         "GetLifecyclePolicy",
+			body:       map[string]any{"ContainerName": "nonexistent"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "GetMetricPolicy not found returns 404",
+			op:         "GetMetricPolicy",
+			body:       map[string]any{"ContainerName": "nonexistent"},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "TagResource missing resource",
+			op:         "TagResource",
+			body:       map[string]any{"Tags": []any{}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "UntagResource missing resource",
+			op:         "UntagResource",
+			body:       map[string]any{"TagKeys": []string{"k"}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "ListTagsForResource missing resource",
+			op:         "ListTagsForResource",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			result := doRequest(t, h, tt.op, tt.body)
+			assert.Equal(t, tt.wantStatus, result.Code)
+		})
+	}
+}
+
+func TestProvider(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "provider name", want: "MediaStore"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &mediastore.Provider{}
+			assert.Equal(t, tt.want, p.Name())
+
+			ctx := &service.AppContext{Logger: slog.Default()}
+			svc, err := p.Init(ctx)
+			require.NoError(t, err)
+			assert.NotNil(t, svc)
+		})
+	}
 }
