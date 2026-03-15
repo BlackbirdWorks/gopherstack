@@ -11,7 +11,9 @@ import (
 // FileStore persists blobs as JSON files on the local file system.
 // Data is stored at {baseDir}/{service}/{key}.json.
 type FileStore struct {
-	baseDir string
+	fileSyncFn func(*os.File) error
+	dirSyncFn  func(string) error
+	baseDir    string
 }
 
 // NewFileStore creates a FileStore rooted at baseDir.
@@ -74,7 +76,12 @@ func (f *FileStore) Save(service, key string, data []byte) error {
 
 	// Flush OS buffers to durable storage before closing so that a power loss
 	// between Close and Rename cannot leave a zero-length or truncated file.
-	if syncErr := tmp.Sync(); syncErr != nil {
+	syncFile := tmp.Sync
+	if f.fileSyncFn != nil {
+		syncFile = func() error { return f.fileSyncFn(tmp) }
+	}
+
+	if syncErr := syncFile(); syncErr != nil {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 
@@ -97,7 +104,12 @@ func (f *FileStore) Save(service, key string, data []byte) error {
 	}
 
 	// Sync the parent directory so the rename itself is durable.
-	if dirSyncErr := syncDirectory(dir); dirSyncErr != nil {
+	syncDir := syncDirectory
+	if f.dirSyncFn != nil {
+		syncDir = f.dirSyncFn
+	}
+
+	if dirSyncErr := syncDir(dir); dirSyncErr != nil {
 		return fmt.Errorf("persistence: sync dir %s: %w", dir, dirSyncErr)
 	}
 

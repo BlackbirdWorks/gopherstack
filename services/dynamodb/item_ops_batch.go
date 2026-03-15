@@ -27,38 +27,58 @@ func (db *InMemoryDB) BatchGetItem(
 	ctx context.Context,
 	input *dynamodb.BatchGetItemInput,
 ) (*dynamodb.BatchGetItemOutput, error) {
+	// Validate and collect table references under a single short-lived read lock.
+	// Releasing db.mu before spawning goroutines avoids the re-entrant RLock
+	// deadlock: if a writer is pending, goroutines calling db.mu.RLock while
+	// the outer db.mu.RLock is still held would block indefinitely.
 	db.mu.RLock("BatchGetItem")
-	defer db.mu.RUnlock()
 
 	if err := db.validateBatchGetInput(ctx, input); err != nil {
+		db.mu.RUnlock()
+
 		return nil, err
 	}
+
+	region := getRegionFromContext(ctx, db)
+	tables := make(map[string]*Table, len(input.RequestItems))
+
+	if regionTables, regionOK := db.Tables[region]; regionOK {
+		for tableName := range input.RequestItems {
+			if tbl, tblOK := regionTables[tableName]; tblOK {
+				tables[tableName] = tbl
+			}
+		}
+	}
+
+	db.mu.RUnlock()
 
 	responses := make(map[string][]map[string]types.AttributeValue)
 	mu := lockmetrics.New("dynamodb.batch.get")
 	defer mu.Close()
+
 	var wg sync.WaitGroup
 
 	for tableName, keysAndAttrs := range input.RequestItems {
+		tbl, exists := tables[tableName]
+		if !exists {
+			continue
+		}
+
 		wg.Add(1)
-		go func(tblName string, attrs types.KeysAndAttributes) {
+
+		go func(tblName string, t *Table, attrs types.KeysAndAttributes) {
 			defer wg.Done()
 
-			table, exists := db.getTableRLock(ctx, tblName)
-			if !exists {
-				return
-			}
-
-			table.mu.RLock("BatchGetItem")
-			results := db.processBatchGetTableNoLock(ctx, table, attrs)
-			table.mu.RUnlock()
+			t.mu.RLock("BatchGetItem")
+			results := db.processBatchGetTableNoLock(ctx, t, attrs)
+			t.mu.RUnlock()
 
 			if len(results) > 0 {
 				mu.Lock("BatchGetItem")
 				responses[tblName] = results
 				mu.Unlock()
 			}
-		}(tableName, keysAndAttrs)
+		}(tableName, tbl, keysAndAttrs)
 	}
 
 	wg.Wait()
