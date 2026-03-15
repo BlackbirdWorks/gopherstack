@@ -653,14 +653,14 @@ func TestBackend_CreateStack_RollbackOnProvisioningFailure(t *testing.T) {
 			name:              "only_resource_fails_no_partial_resources",
 			template:          simpleTemplate,
 			failResourceType:  "AWS::S3::Bucket",
-			wantStatus:        "CREATE_FAILED",
+			wantStatus:        "ROLLBACK_COMPLETE",
 			wantResourceCount: 0,
 		},
 		{
 			name:              "second_resource_fails_first_is_rolled_back",
 			template:          twoResourceTemplate,
 			failResourceType:  "AWS::SQS::Queue",
-			wantStatus:        "CREATE_FAILED",
+			wantStatus:        "ROLLBACK_COMPLETE",
 			wantResourceCount: 0,
 		},
 	}

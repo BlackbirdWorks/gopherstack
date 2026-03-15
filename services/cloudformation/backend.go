@@ -258,7 +258,7 @@ func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *St
 	}
 
 	physicalIDs := b.provisionResources(ctx, stack, tmpl, resolvedParams)
-	if stack.StackStatus == statusCreateFailed {
+	if stack.StackStatus == statusCreateFailed || stack.StackStatus == statusRollbackComplete {
 		return
 	}
 
@@ -280,8 +280,10 @@ func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *St
 }
 
 // provisionResources creates all resources defined in the template.
-// Returns the physicalIDs map. On failure, stack.StackStatus is set to
-// statusCreateFailed and rollback events are emitted.
+// Returns the physicalIDs map. On resource creation failure, rollback is
+// performed in reverse order; stack.StackStatus is then set to
+// statusRollbackComplete (matching real AWS behaviour). If the creation failure
+// itself needs to be recorded separately, it is preserved in StackStatusReason.
 func (b *InMemoryBackend) provisionResources(
 	ctx context.Context,
 	stack *Stack,
@@ -301,12 +303,12 @@ func (b *InMemoryBackend) provisionResources(
 		b.addEvent(arn, name, logicalID, "", res.Type, statusCreateInProgress, "")
 		physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
 		if cerr != nil {
-			stack.StackStatus = statusCreateFailed
 			stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
 			b.addEvent(arn, name, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
 			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, cerr.Error())
 			b.rollbackCreateResources(ctx, stack, created)
 			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
+			stack.StackStatus = statusRollbackComplete
 
 			return physicalIDs
 		}
