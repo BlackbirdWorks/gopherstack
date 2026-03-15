@@ -360,13 +360,16 @@ func TestACMBackend_ImportCertificate(t *testing.T) {
 func TestACMBackend_RenewCertificate(t *testing.T) {
 	t.Parallel()
 
+	certPEM, keyPEM := generateTestCert(t)
+
 	tests := []struct {
-		wantErr error
-		setup   func(t *testing.T, b *acm.InMemoryBackend) string
-		name    string
+		wantErr     error
+		setup       func(t *testing.T, b *acm.InMemoryBackend) string
+		name        string
+		wantNewCert bool
 	}{
 		{
-			name: "success",
+			name: "success_amazon_issued",
 			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
 				cert, err := b.RequestCertificate("renew.example.com", "", "", nil)
@@ -374,6 +377,18 @@ func TestACMBackend_RenewCertificate(t *testing.T) {
 
 				return cert.ARN
 			},
+			wantNewCert: true,
+		},
+		{
+			name: "imported_not_eligible",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.ImportCertificate(certPEM, keyPEM, "")
+				require.NoError(t, err)
+
+				return cert.ARN
+			},
+			wantErr: acm.ErrNotEligible,
 		},
 		{
 			name:    "not_found",
@@ -388,6 +403,16 @@ func TestACMBackend_RenewCertificate(t *testing.T) {
 
 			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
 			certARN := tt.setup(t, b)
+
+			var originalBody string
+			var originalNotAfter time.Time
+			if tt.wantNewCert {
+				orig, err := b.DescribeCertificate(certARN)
+				require.NoError(t, err)
+				originalBody = orig.CertificateBody
+				originalNotAfter = orig.NotAfter
+			}
+
 			err := b.RenewCertificate(certARN)
 
 			if tt.wantErr != nil {
@@ -398,6 +423,17 @@ func TestACMBackend_RenewCertificate(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+
+			if tt.wantNewCert {
+				renewed, descErr := b.DescribeCertificate(certARN)
+				require.NoError(t, descErr)
+				assert.NotEmpty(t, renewed.CertificateBody)
+				assert.NotEqual(t, originalBody, renewed.CertificateBody, "cert body should be regenerated")
+				assert.True(t, renewed.NotAfter.After(originalNotAfter) || renewed.NotAfter.Equal(originalNotAfter),
+					"NotAfter should be at least as late as the original")
+				assert.False(t, renewed.NotBefore.IsZero(), "NotBefore should be set")
+				assert.False(t, renewed.NotAfter.IsZero(), "NotAfter should be set")
+			}
 		})
 	}
 }
@@ -570,4 +606,58 @@ func TestACMBackend_CertificateBodyIsPEM(t *testing.T) {
 
 	assert.True(t, strings.HasPrefix(cert.CertificateBody, "-----BEGIN CERTIFICATE-----"))
 	assert.True(t, strings.HasPrefix(cert.PrivateKey, "-----BEGIN EC PRIVATE KEY-----"))
+}
+
+// TestACMBackend_ValidityAndEligibility verifies that NotBefore, NotAfter, and
+// RenewalEligibility are populated correctly for all certificate creation paths.
+func TestACMBackend_ValidityAndEligibility(t *testing.T) {
+	t.Parallel()
+
+	certPEM, keyPEM := generateTestCert(t)
+
+	tests := []struct {
+		setup                  func(t *testing.T, b *acm.InMemoryBackend) string
+		name                   string
+		wantRenewalEligibility string
+	}{
+		{
+			name: "amazon_issued_eligible",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.RequestCertificate("validity.example.com", "", "", nil)
+				require.NoError(t, err)
+
+				return cert.ARN
+			},
+			wantRenewalEligibility: "ELIGIBLE",
+		},
+		{
+			name: "imported_ineligible",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.ImportCertificate(certPEM, keyPEM, "")
+				require.NoError(t, err)
+
+				return cert.ARN
+			},
+			wantRenewalEligibility: "INELIGIBLE",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
+			certARN := tt.setup(t, b)
+
+			cert, err := b.DescribeCertificate(certARN)
+			require.NoError(t, err)
+
+			assert.False(t, cert.NotBefore.IsZero(), "NotBefore should be set")
+			assert.False(t, cert.NotAfter.IsZero(), "NotAfter should be set")
+			assert.True(t, cert.NotAfter.After(cert.NotBefore), "NotAfter should be after NotBefore")
+			assert.Equal(t, tt.wantRenewalEligibility, cert.RenewalEligibility)
+		})
+	}
 }
