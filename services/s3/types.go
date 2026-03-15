@@ -76,6 +76,10 @@ type StoredMultipartUpload struct {
 	UploadID  string                `json:"uploadID"`
 	Bucket    string                `json:"bucket"`
 	Key       string                `json:"key"`
+	// Tagging holds the URL-encoded tag string from the X-Amz-Tagging header
+	// supplied at CreateMultipartUpload time. It is applied to the resulting
+	// object version when CompleteMultipartUpload succeeds.
+	Tagging string `json:"tagging,omitempty"`
 	// closed is set to true by AbortMultipartUpload or CompleteMultipartUpload
 	// before the upload is removed from the index, so that concurrent UploadPart
 	// calls that already hold a pointer to this struct can detect the invalidation.

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
@@ -28,18 +30,60 @@ type lifecycleRule struct {
 	NoncurrentVersionTransitions   []lifecycleNoncurrentTransition      `xml:"NoncurrentVersionTransition"`
 }
 
-// prefix returns the effective filter prefix, preferring the nested Filter
-// element's Prefix over the legacy top-level Prefix.
+// prefix returns the effective filter prefix for the rule. The nested
+// Filter.Prefix and Filter.And.Prefix take precedence over the legacy
+// top-level Prefix field.
 func (r *lifecycleRule) prefix() string {
 	if r.Filter.Prefix != "" {
 		return r.Filter.Prefix
+	}
+
+	if ap := r.Filter.andPrefix(); ap != "" {
+		return ap
 	}
 
 	return r.Prefix
 }
 
 type lifecycleFilter struct {
-	Prefix string `xml:"Prefix"`
+	And    *lifecycleFilterAnd `xml:"And"`
+	Tag    *lifecycleTag       `xml:"Tag"`
+	Prefix string              `xml:"Prefix"`
+}
+
+// lifecycleFilterAnd combines multiple filter conditions (Prefix + Tags).
+type lifecycleFilterAnd struct {
+	Prefix string         `xml:"Prefix"`
+	Tags   []lifecycleTag `xml:"Tag"`
+}
+
+// lifecycleTag is a key/value pair used in lifecycle rule tag filters.
+type lifecycleTag struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
+}
+
+// tags returns the effective tag filters for the lifecycle rule, combining the
+// top-level Tag and the nested And/Tag elements.
+func (f *lifecycleFilter) tags() []lifecycleTag {
+	if f.And != nil {
+		return f.And.Tags
+	}
+
+	if f.Tag != nil {
+		return []lifecycleTag{*f.Tag}
+	}
+
+	return nil
+}
+
+// andPrefix returns the prefix from an And filter, if present.
+func (f *lifecycleFilter) andPrefix() string {
+	if f.And != nil {
+		return f.And.Prefix
+	}
+
+	return ""
 }
 
 type lifecycleExpiration struct {
@@ -215,12 +259,15 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 	now := time.Now().UTC()
 	totalEvicted := 0
 
-	// Snapshot bucket names and their lifecycle configs under a read-lock.
+	// Snapshot bucket names, lifecycle configs, and per-object tags under a
+	// read-lock so we can evaluate tag-based lifecycle filters without holding
+	// b.mu during the (potentially slow) object scan.
 	b.mu.RLock("S3Janitor.sweepLifecycle")
 	type bucketSnapshot struct {
-		name   string
-		bucket *StoredBucket
-		lcXML  string
+		bucket    *StoredBucket
+		tagsByKey map[string][]types.Tag
+		name      string
+		lcXML     string
 	}
 	var snapshots []bucketSnapshot
 
@@ -232,15 +279,31 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 			bucket.mu.RLock("S3Janitor.sweepLifecycleLCRead")
 			lcXML := bucket.LifecycleConfig
 			bucket.mu.RUnlock()
-			if lcXML != "" {
-				snapshots = append(snapshots, bucketSnapshot{name: name, bucket: bucket, lcXML: lcXML})
+			if lcXML == "" {
+				continue
 			}
+
+			// Snapshot tags for this bucket's objects.
+			tagsByKey := make(map[string][]types.Tag)
+			pfx := name + "/"
+			for k, v := range b.tags {
+				if strings.HasPrefix(k, pfx) {
+					tagsByKey[k] = v
+				}
+			}
+
+			snapshots = append(snapshots, bucketSnapshot{
+				name:      name,
+				bucket:    bucket,
+				lcXML:     lcXML,
+				tagsByKey: tagsByKey,
+			})
 		}
 	}
 	b.mu.RUnlock()
 
 	for _, snap := range snapshots {
-		evicted := j.applyLifecycleRules(ctx, snap.bucket, snap.name, snap.lcXML, now)
+		evicted := j.applyLifecycleRules(ctx, snap.bucket, snap.name, snap.lcXML, snap.tagsByKey, now)
 		totalEvicted += evicted
 	}
 
@@ -252,11 +315,13 @@ func (j *Janitor) sweepLifecycle(ctx context.Context) {
 }
 
 // applyLifecycleRules parses lifecycle rules and deletes expired objects from a bucket.
+// tagsByKey is a snapshot of the object-tags map for this bucket (key format: "bucket/key/versionID").
 // Returns the number of objects evicted.
 func (j *Janitor) applyLifecycleRules(
 	ctx context.Context,
 	bucket *StoredBucket,
 	bucketName, lcXML string,
+	tagsByKey map[string][]types.Tag,
 	now time.Time,
 ) int {
 	var cfg lifecycleConfiguration
@@ -276,13 +341,14 @@ func (j *Janitor) applyLifecycleRules(
 		}
 
 		prefix := rule.prefix()
+		tagFilters := rule.Filter.tags()
 
 		// Days-based expiration of current versions.
 		// Days >= 0 triggers expiration (Days=0 means expire immediately).
 		// Days < 0 is invalid and skipped.
 		if rule.Expiration.Days >= 0 && rule.Expiration.Date == "" {
 			expireBefore := now.Add(-time.Duration(rule.Expiration.Days) * 24 * time.Hour)
-			evicted += j.evictExpiredObjects(bucket, prefix, expireBefore)
+			evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireBefore)
 		}
 
 		// Date-based expiration of current versions.
@@ -291,7 +357,7 @@ func (j *Janitor) applyLifecycleRules(
 		if rule.Expiration.Date != "" {
 			expireDate, parseErr := parseLifecycleDate(rule.Expiration.Date)
 			if parseErr == nil && now.After(expireDate) {
-				evicted += j.evictExpiredObjects(bucket, prefix, expireDate)
+				evicted += j.evictExpiredObjects(bucket, bucketName, prefix, tagFilters, tagsByKey, expireDate)
 			}
 		}
 
@@ -325,15 +391,38 @@ func (j *Janitor) applyLifecycleRules(
 	return evicted
 }
 
-// evictExpiredObjects deletes objects from the bucket that match the prefix and
-// whose latest version was last modified before expireBefore.
-func (j *Janitor) evictExpiredObjects(bucket *StoredBucket, prefix string, expireBefore time.Time) int {
-	// Phase 1: Collect expired object keys under the bucket lock and evict them.
-	type evictedObject struct {
-		key string
+// evictExpiredObjects deletes objects from the bucket that match the prefix (and
+// optional tag filters), whose latest version was last modified before expireBefore.
+// tagFilters is a list of key/value pairs that must all be present on an object's
+// latest version for the rule to apply (empty slice means "match all objects").
+// tagsByKey is the pre-snapshotted object-tag map keyed by "bucket/key/versionID".
+func (j *Janitor) evictExpiredObjects(
+	bucket *StoredBucket,
+	bucketName, prefix string,
+	tagFilters []lifecycleTag,
+	tagsByKey map[string][]types.Tag,
+	expireBefore time.Time,
+) int {
+	evicted := j.collectExpiredKeys(bucket, bucketName, prefix, tagFilters, tagsByKey, expireBefore)
+	if len(evicted) == 0 {
+		return 0
 	}
 
-	var evicted []evictedObject
+	j.cleanupEvictedTags(bucket, evicted)
+
+	return len(evicted)
+}
+
+// collectExpiredKeys scans the bucket under its lock, deletes objects that have
+// expired and match the filters, and returns the evicted keys.
+func (j *Janitor) collectExpiredKeys(
+	bucket *StoredBucket,
+	bucketName, prefix string,
+	tagFilters []lifecycleTag,
+	tagsByKey map[string][]types.Tag,
+	expireBefore time.Time,
+) []string {
+	var evicted []string
 
 	bucket.mu.Lock("S3Janitor.evictExpiredObjects")
 	for key, obj := range bucket.Objects {
@@ -341,36 +430,74 @@ func (j *Janitor) evictExpiredObjects(bucket *StoredBucket, prefix string, expir
 			continue
 		}
 
-		latestMod := latestVersion(obj)
-		if latestMod.IsZero() {
+		if !isExpiredAndMatches(obj, key, bucketName, tagFilters, tagsByKey, expireBefore) {
 			continue
 		}
 
-		if !latestMod.After(expireBefore) {
-			evicted = append(evicted, evictedObject{key: key})
-			delete(bucket.Objects, key)
-			obj.mu.Close()
-		}
+		evicted = append(evicted, key)
+		delete(bucket.Objects, key)
+		obj.mu.Close()
 	}
 	bucket.mu.Unlock()
 
-	if len(evicted) == 0 {
-		return 0
+	return evicted
+}
+
+// isExpiredAndMatches returns true when the object's latest version has expired
+// before expireBefore and satisfies the tag filters (if any).
+// obj.mu is acquired internally so callers need not hold it.
+func isExpiredAndMatches(
+	obj *StoredObject,
+	key, bucketName string,
+	tagFilters []lifecycleTag,
+	tagsByKey map[string][]types.Tag,
+	expireBefore time.Time,
+) bool {
+	// Acquire obj.mu once to read both the modification time and the version ID
+	// atomically; reading LatestVersionID without obj.mu would race with writers
+	// (PutObject/DeleteObject) that update it under obj.mu.Lock.
+	obj.mu.RLock("isExpiredAndMatches")
+	latestMod, latestVID := latestVersionModAndID(obj)
+	obj.mu.RUnlock()
+
+	if latestMod.IsZero() || latestMod.After(expireBefore) {
+		return false
 	}
 
-	// Phase 2: Clean up tags for evicted objects. Must happen after releasing
-	// bucket.mu to preserve the lock ordering (b.mu must not be acquired while
-	// bucket.mu is held).
-	//
-	// Build a set of object-level prefixes ("bucket/key/") for all evicted keys.
-	// Then do a single O(totalTags) scan over b.tags, deriving each tag's object
-	// prefix via its last slash, and check against the set in O(1).
+	if len(tagFilters) == 0 {
+		return true
+	}
+
+	if latestVID == "" {
+		return false
+	}
+
+	objTags := tagsByKey[bucketName+"/"+key+"/"+latestVID]
+
+	return objectMatchesTags(objTags, tagFilters)
+}
+
+// latestVersionModAndID returns the LastModified time and VersionID of the latest
+// non-deleted version. Must be called with obj.mu held.
+func latestVersionModAndID(obj *StoredObject) (time.Time, string) {
+	for _, ver := range obj.Versions {
+		if ver.IsLatest && !ver.Deleted {
+			return ver.LastModified, ver.VersionID
+		}
+	}
+
+	return time.Time{}, ""
+}
+
+// cleanupEvictedTags removes tag entries for evicted keys from b.tags.
+// Must be called after the bucket lock has been released to preserve lock ordering.
+func (j *Janitor) cleanupEvictedTags(bucket *StoredBucket, evictedKeys []string) {
 	b := j.Backend
 	bucketPfx := bucket.Name + "/"
-	evictedPrefixes := make(map[string]struct{}, len(evicted))
+	evictedPrefixes := make(map[string]struct{}, len(evictedKeys))
 
-	for _, item := range evicted {
-		evictedPrefixes[bucketPfx+item.key+"/"] = struct{}{}
+	for _, key := range evictedKeys {
+		evictedPrefixes[bucketPfx+key+"/"] = struct{}{}
 	}
 
 	b.mu.Lock("S3Janitor.evictExpiredObjects.tags")
@@ -384,23 +511,33 @@ func (j *Janitor) evictExpiredObjects(bucket *StoredBucket, prefix string, expir
 		}
 	}
 	b.mu.Unlock()
-
-	return len(evicted)
 }
 
-// latestVersion returns the LastModified timestamp of the latest non-deleted
-// object version, or the zero time if none exists.
-func latestVersion(obj *StoredObject) time.Time {
-	obj.mu.RLock("latestVersion")
-	defer obj.mu.RUnlock()
+// objectMatchesTags returns true when all tag filters are satisfied by the given tag list.
+func objectMatchesTags(objTags []types.Tag, filters []lifecycleTag) bool {
+	for _, f := range filters {
+		found := false
 
-	for _, ver := range obj.Versions {
-		if ver.IsLatest && !ver.Deleted {
-			return ver.LastModified
+		for _, t := range objTags {
+			if tagMatchesFilter(t, f) {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return false
 		}
 	}
 
-	return time.Time{}
+	return true
+}
+
+// tagMatchesFilter returns true when the S3 Tag matches the lifecycle filter key/value.
+func tagMatchesFilter(t types.Tag, f lifecycleTag) bool {
+	return t.Key != nil && *t.Key == f.Key &&
+		t.Value != nil && *t.Value == f.Value
 }
 
 // findBucketAcrossRegions returns the bucket and its region for the given bucket name,
