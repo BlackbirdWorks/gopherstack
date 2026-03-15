@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -22,6 +23,7 @@ var ErrUnknownOperation = errors.New("UnknownOperationException")
 // Handler is the Echo HTTP service handler for SSM operations.
 type Handler struct {
 	Backend StorageBackend
+	janitor *Janitor
 }
 
 // NewHandler creates a new SSM handler with the given storage backend.
@@ -29,6 +31,25 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
 	}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+// The janitor periodically evicts expired commands. interval=0 uses the default.
+func (h *Handler) WithJanitor(interval time.Duration) *Handler {
+	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
+		h.janitor = NewJanitor(memBackend, interval)
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if it is configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // Name returns the service name.

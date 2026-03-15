@@ -37,6 +37,9 @@ const (
 	mockKMSKeyStr     = "gopherstack-mock-kms-key-32byte!"
 	maxHistoryResults = 50
 	commandExpirySecs = 3600
+	// maxHistoryCap is the maximum number of history entries retained per parameter.
+	// Older entries beyond this cap are evicted to prevent unbounded growth.
+	maxHistoryCap = 100
 )
 
 // validParamNameRegex matches only alphanumeric, ., -, _, and / characters.
@@ -240,6 +243,11 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 	}
 	b.history[input.Name] = append(b.history[input.Name], paramHistory)
 
+	// Cap history to the most recent maxHistoryCap entries to prevent unbounded growth.
+	if len(b.history[input.Name]) > maxHistoryCap {
+		b.history[input.Name] = b.history[input.Name][len(b.history[input.Name])-maxHistoryCap:]
+	}
+
 	return &PutParameterOutput{Version: version}, nil
 }
 
@@ -308,6 +316,8 @@ func (b *InMemoryBackend) DeleteParameter(input *DeleteParameterInput) (*DeleteP
 	}
 
 	delete(b.parameters, input.Name)
+	delete(b.history, input.Name)
+	delete(b.tags, input.Name)
 
 	return &DeleteParameterOutput{}, nil
 }
@@ -325,6 +335,8 @@ func (b *InMemoryBackend) DeleteParameters(input *DeleteParametersInput) (*Delet
 	for _, name := range input.Names {
 		if _, exists := b.parameters[name]; exists {
 			delete(b.parameters, name)
+			delete(b.history, name)
+			delete(b.tags, name)
 			output.DeletedParameters = append(output.DeletedParameters, name)
 		} else {
 			output.InvalidParameters = append(output.InvalidParameters, name)
