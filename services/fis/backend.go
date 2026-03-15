@@ -515,6 +515,19 @@ func (b *InMemoryBackend) ListExperiments() ([]*Experiment, error) {
 	return result, nil
 }
 
+// StopAllExperiments cancels every running experiment goroutine.
+// Called during graceful shutdown to prevent goroutine leaks.
+func (b *InMemoryBackend) StopAllExperiments() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for _, exp := range b.experiments {
+		if exp.cancel != nil {
+			exp.cancel()
+		}
+	}
+}
+
 // ----------------------------------------
 // Phase 3 — Resolved Targets
 // ----------------------------------------
