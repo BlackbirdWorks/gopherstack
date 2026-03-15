@@ -2,6 +2,7 @@ package eventbridge_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -394,18 +395,51 @@ func TestBackend_ResetRestoresDefaultEventBus(t *testing.T) {
 	assert.Equal(t, "default", buses[0].Name)
 }
 
-// hungLambdaInvoker blocks every invocation until the supplied channel is closed.
-type hungLambdaInvoker struct {
-	unblock <-chan struct{}
+// blockedLambdaInvoker completely ignores context cancellation: it blocks on
+// exit until the caller closes that channel. started is closed once the first
+// InvokeFunction call begins, so tests can synchronize on it.
+// This is used to drive the shutdown-timeout path in Close().
+type blockedLambdaInvoker struct {
+	started chan struct{}
+	exit    chan struct{}
+	once    sync.Once
 }
 
-func (h *hungLambdaInvoker) InvokeFunction(ctx context.Context, _ string, _ string, _ []byte) ([]byte, int, error) {
-	select {
-	case <-ctx.Done():
-		return nil, 0, ctx.Err()
-	case <-h.unblock:
-		return []byte(`{}`), 200, nil
+func newBlockedLambdaInvoker() *blockedLambdaInvoker {
+	return &blockedLambdaInvoker{
+		started: make(chan struct{}),
+		exit:    make(chan struct{}),
 	}
+}
+
+func (h *blockedLambdaInvoker) InvokeFunction(_ context.Context, _ string, _ string, _ []byte) ([]byte, int, error) {
+	h.once.Do(func() { close(h.started) })
+	<-h.exit
+
+	return []byte(`{}`), 200, nil
+}
+
+// contextAwareLambdaInvoker blocks until its context is cancelled. started is
+// closed once the first InvokeFunction call begins.
+// This is used to drive the delivery-timeout path via [context.WithTimeout].
+type contextAwareLambdaInvoker struct {
+	started chan struct{}
+	once    sync.Once
+}
+
+func newContextAwareLambdaInvoker() *contextAwareLambdaInvoker {
+	return &contextAwareLambdaInvoker{
+		started: make(chan struct{}),
+	}
+}
+
+func (h *contextAwareLambdaInvoker) InvokeFunction(
+	ctx context.Context, _ string, _ string, _ []byte,
+) ([]byte, int, error) {
+	h.once.Do(func() { close(h.started) })
+	<-ctx.Done()
+
+	return nil, 0, ctx.Err()
 }
 
 func TestBackend_Close_ReturnsAfterShutdownTimeout_WhenDeliveryIsHung(t *testing.T) {
@@ -417,6 +451,9 @@ func TestBackend_Close_ReturnsAfterShutdownTimeout_WhenDeliveryIsHung(t *testing
 		wantMaxDuration time.Duration
 	}{
 		{
+			// deliveryTimeout is disabled (0) so only shutdownTimeout limits Close.
+			// The blocked invoker ignores context — goroutines stay stuck until
+			// exit is signalled after the test, forcing the shutdown-timeout path.
 			name:            "close_returns_within_100ms_shutdown_timeout",
 			shutdownTimeout: 100 * time.Millisecond,
 			wantMaxDuration: 500 * time.Millisecond,
@@ -432,42 +469,48 @@ func TestBackend_Close_ReturnsAfterShutdownTimeout_WhenDeliveryIsHung(t *testing
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// never closed — delivery goroutine will block until ctx is cancelled
-			unblock := make(chan struct{})
+			invoker := newBlockedLambdaInvoker()
+			// Unblock the invoker goroutine after the test so it can terminate.
+			defer close(invoker.exit)
 
 			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			b.SetShutdownTimeout(tt.shutdownTimeout)
-			// Use a very short delivery timeout so the hung invoker times out quickly.
-			b.SetDeliveryTimeout(50 * time.Millisecond)
-			b.SetDeliveryTargets(&eventbridge.DeliveryTargets{
-				Lambda: &hungLambdaInvoker{unblock: unblock},
-			})
+			// Disable per-delivery timeout so only the shutdown timeout limits Close.
+			b.SetDeliveryTimeout(0)
+			b.SetDeliveryTargets(&eventbridge.DeliveryTargets{Lambda: invoker})
 
 			_, err := b.PutRule(eventbridge.PutRuleInput{
 				Name:         "hung-rule",
-				EventPattern: `{"source":["test"]}`,
+				EventPattern: `{"source":["hung-test"]}`,
 				State:        "ENABLED",
 			})
 			require.NoError(t, err)
 
 			_, err = b.PutTargets("hung-rule", "default", []eventbridge.Target{
-				{
-					ID:  "t1",
-					Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn",
-				},
+				{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn"},
 			})
 			require.NoError(t, err)
 
 			b.PutEvents([]eventbridge.EventEntry{
-				{Source: "test", DetailType: "T", Detail: `{}`, EventBusName: "default"},
+				{Source: "hung-test", DetailType: "T", Detail: `{}`, EventBusName: "default"},
 			})
+
+			// Wait until delivery has actually started so Close() is guaranteed to
+			// encounter an in-flight goroutine that is stuck in InvokeFunction.
+			select {
+			case <-invoker.started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("delivery did not start within 5s")
+			}
 
 			start := time.Now()
 			b.Close()
 			elapsed := time.Since(start)
 
+			assert.GreaterOrEqual(t, elapsed, tt.shutdownTimeout,
+				"Close should wait at least shutdownTimeout before giving up, took %s", elapsed)
 			assert.Less(t, elapsed, tt.wantMaxDuration,
-				"Close should return within %s when delivery is hung, took %s", tt.wantMaxDuration, elapsed)
+				"Close should return within %s, took %s", tt.wantMaxDuration, elapsed)
 		})
 	}
 }
@@ -481,6 +524,9 @@ func TestBackend_DeliveryTimeout_ContextPassedToTarget(t *testing.T) {
 		wantMaxClose    time.Duration
 	}{
 		{
+			// Invoker blocks until its context is cancelled. With a small
+			// deliveryTimeout the delivery context fires quickly, the goroutine
+			// unblocks, and Close() can return well before shutdownTimeout.
 			name:            "50ms_delivery_timeout_unblocks_goroutine",
 			deliveryTimeout: 50 * time.Millisecond,
 			wantMaxClose:    500 * time.Millisecond,
@@ -496,14 +542,12 @@ func TestBackend_DeliveryTimeout_ContextPassedToTarget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			unblock := make(chan struct{})
+			invoker := newContextAwareLambdaInvoker()
 
 			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 			b.SetDeliveryTimeout(tt.deliveryTimeout)
 			b.SetShutdownTimeout(2 * time.Second)
-			b.SetDeliveryTargets(&eventbridge.DeliveryTargets{
-				Lambda: &hungLambdaInvoker{unblock: unblock},
-			})
+			b.SetDeliveryTargets(&eventbridge.DeliveryTargets{Lambda: invoker})
 
 			_, err := b.PutRule(eventbridge.PutRuleInput{
 				Name:         "timeout-rule",
@@ -513,10 +557,7 @@ func TestBackend_DeliveryTimeout_ContextPassedToTarget(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = b.PutTargets("timeout-rule", "default", []eventbridge.Target{
-				{
-					ID:  "t1",
-					Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn",
-				},
+				{ID: "t1", Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn"},
 			})
 			require.NoError(t, err)
 
@@ -524,15 +565,22 @@ func TestBackend_DeliveryTimeout_ContextPassedToTarget(t *testing.T) {
 				{Source: "timeout-test", DetailType: "T", Detail: `{}`, EventBusName: "default"},
 			})
 
-			// Close should complete: delivery goroutine times out per deliveryTimeout,
-			// then finishes, and the WaitGroup is satisfied before shutdownTimeout.
+			// Wait until delivery has actually started before calling Close() so
+			// the test is guaranteed to exercise the delivery-timeout path.
+			select {
+			case <-invoker.started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("delivery did not start within 5s")
+			}
+
 			start := time.Now()
 			b.Close()
 			elapsed := time.Since(start)
 
-			// Should return well before the shutdown timeout since delivery timed out quickly.
+			// The per-delivery context fires (deliveryTimeout) before the
+			// shutdownTimeout, so Close() should return promptly.
 			assert.Less(t, elapsed, tt.wantMaxClose,
-				"Close should return promptly when delivery context times out, took %s", elapsed)
+				"Close should return promptly when delivery context is cancelled, took %s", elapsed)
 		})
 	}
 }
