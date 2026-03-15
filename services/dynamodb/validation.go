@@ -16,11 +16,10 @@ const (
 	wcuBytes = 1024 // 1 WCU per KB
 	rcuBytes = 4096 // 1 RCU per 4 KB
 
-	// base64Divisor is the divisor used to convert a base64-encoded string length back
-	// to its approximate raw byte length (base64 inflates size by 4/3).
-	base64Divisor = 4
-	// base64Numerator is paired with base64Divisor: rawBytes ≈ len(base64) * 3 / 4.
-	base64Numerator = 3
+	// base64GroupBits is the number of raw bytes encoded in each 4-character base64 group.
+	base64GroupBits = 3
+	// base64GroupChars is the number of base64 characters per encoded group.
+	base64GroupChars = 4
 	// ddbContainerOverhead is the fixed overhead DynamoDB adds for Map and List containers.
 	ddbContainerOverhead = 3
 	// perItemOverhead is the fixed overhead DynamoDB adds for each item.
@@ -77,7 +76,7 @@ func CalculateAttrSize(v any) int64 {
 		return calcNumericSize(n)
 	}
 	if b, ok := m["B"].(string); ok {
-		return int64(len(b)) * base64Numerator / base64Divisor
+		return base64DecodedLen(b)
 	}
 	if _, ok := m["BOOL"]; ok {
 		return 1
@@ -114,6 +113,31 @@ func calcNumericSize(n string) int64 {
 	}
 
 	return int64(sz)
+}
+
+// base64DecodedLen returns the exact decoded byte length of a standard base64-encoded
+// string, accounting for '=' padding characters. This avoids the overcounting that
+// occurs with the naive len(s)*3/4 formula when padding is present.
+// For example, "Zg==" encodes 1 byte but len*3/4 = 3; this function returns 1.
+func base64DecodedLen(s string) int64 {
+	n := len(s)
+	if n == 0 {
+		return 0
+	}
+
+	// base64 produces ceil(rawLen/3)*4 chars; each group of 4 chars → 3 bytes.
+	decoded := int64(n) * base64GroupBits / base64GroupChars
+
+	// Subtract the bytes represented by padding characters.
+	// Valid base64 with double-padding has s[n-2]='=' and s[n-1]='='.
+	// Valid base64 with single-padding has only s[n-1]='='.
+	if n >= 2 && s[n-2] == '=' && s[n-1] == '=' {
+		decoded -= 2
+	} else if n >= 1 && s[n-1] == '=' {
+		decoded--
+	}
+
+	return decoded
 }
 
 func calcSSSize(v any) (int64, bool) {
@@ -167,7 +191,7 @@ func calcBSSize(v any) (int64, bool) {
 	case []string:
 		var total int64
 		for _, b := range bs {
-			total += int64(len(b)) * base64Numerator / base64Divisor
+			total += base64DecodedLen(b)
 		}
 
 		return total, true
@@ -175,7 +199,7 @@ func calcBSSize(v any) (int64, bool) {
 		var total int64
 		for _, b := range bs {
 			if s, isStr := b.(string); isStr {
-				total += int64(len(s)) * base64Numerator / base64Divisor
+				total += base64DecodedLen(s)
 			}
 		}
 

@@ -292,6 +292,23 @@ func compareAny(v1, v2 any, typ string) int {
 	return 0
 }
 
+// fallbackCompare provides a deterministic ordering for values whose concrete type
+// doesn't match the expected type for a given DynamoDB attribute. It converts both
+// values to their [fmt.Sprintf] string representation and compares lexicographically,
+// ensuring stable sort order for pagination even with unexpected/mismatched types.
+func fallbackCompare(v1, v2 any) int {
+	s1 := fmt.Sprintf("%v", v1)
+	s2 := fmt.Sprintf("%v", v2)
+	if s1 < s2 {
+		return -1
+	}
+	if s1 > s2 {
+		return 1
+	}
+
+	return 0
+}
+
 func compareNumbers(v1, v2 any) int {
 	f1, _ := dynamoattr.ParseNumeric(v1)
 	f2, _ := dynamoattr.ParseNumeric(v2)
@@ -309,7 +326,7 @@ func compareStrings(v1, v2 any) int {
 	s1, ok1 := v1.(string)
 	s2, ok2 := v2.(string)
 	if !ok1 || !ok2 {
-		return 0
+		return fallbackCompare(v1, v2)
 	}
 	if s1 < s2 {
 		return -1
@@ -325,7 +342,7 @@ func compareBools(v1, v2 any) int {
 	b1, ok1 := v1.(bool)
 	b2, ok2 := v2.(bool)
 	if !ok1 || !ok2 {
-		return 0
+		return fallbackCompare(v1, v2)
 	}
 	if b1 == b2 {
 		return 0

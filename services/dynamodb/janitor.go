@@ -75,6 +75,9 @@ func (j *Janitor) runTableCleaner(ctx context.Context) {
 			depth++
 			names = append(names, name)
 			delete(db.deletingTables[region], name)
+			if table.Tags != nil {
+				table.Tags.Close()
+			}
 			table.mu.Close()
 		}
 	}

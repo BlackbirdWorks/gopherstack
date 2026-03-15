@@ -413,6 +413,9 @@ func (db *InMemoryDB) Reset() {
 			if table.activateTimer != nil {
 				table.activateTimer.Stop()
 			}
+			if table.Tags != nil {
+				table.Tags.Close()
+			}
 
 			table.mu.Close()
 		}
@@ -422,6 +425,9 @@ func (db *InMemoryDB) Reset() {
 		for _, table := range regionTables {
 			if table.activateTimer != nil {
 				table.activateTimer.Stop()
+			}
+			if table.Tags != nil {
+				table.Tags.Close()
 			}
 
 			table.mu.Close()

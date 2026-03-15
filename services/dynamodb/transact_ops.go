@@ -18,7 +18,7 @@ import (
 
 // errConditionalCheckFailed is a sentinel used internally to signal that a
 // ConditionExpression did not match during a TransactWriteItems condition check.
-var errConditionalCheckFailed = errors.New("ConditionalCheckFailed")
+var errConditionalCheckFailed = errors.New("conditional check failed")
 
 type tableStateSnapshot struct {
 	pkIndex   map[string]int

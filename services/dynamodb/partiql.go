@@ -23,6 +23,11 @@ var ErrInvalidStatement = errors.New("invalid PartiQL statement")
 // signal that the caller should fall back to a full Scan instead of Query.
 var errScanFallback = errors.New("scan fallback required")
 
+// errNoKeyCondition is returned by partiqlExtractKeyFromWhere when the WHERE
+// clause contains no equality condition on a key attribute. SELECT callers
+// treat this as a signal to fall back to Scan; UPDATE/DELETE treat it as an error.
+var errNoKeyCondition = errors.New("no key condition in WHERE clause")
+
 // fromClauseRegex extracts the table name from a SELECT/DELETE ... FROM "tableName" statement.
 // Supports DynamoDB table names: alphanumeric, hyphen, dot, and underscore.
 var fromClauseRegex = regexp.MustCompile(`(?i)FROM\s+"([\w.\-]+)"`)
@@ -224,14 +229,26 @@ func (h *DynamoDBHandler) tryQueryOptimization(
 		keyAttrs[aws.ToString(k.AttributeName)] = true
 	}
 
-	wireKey, _ := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
-	pkName, _ := getPKAndSK(models.FromSDKKeySchema(descOut.Table.KeySchema))
-
-	if wireKey == nil || wireKey[pkName.AttributeName] == nil {
-		return nil, errScanFallback // No PK in WHERE; fall back to scan
+	wireKey, err := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
+	if err != nil {
+		if !errors.Is(err, errNoKeyCondition) {
+			// A real validation error (e.g., missing placeholder): propagate it.
+			return nil, err
+		}
+		// No PK equality condition found in WHERE; fall back to full scan.
+		return nil, errScanFallback
 	}
 
-	queryInput := h.buildQueryInput(tableName, whereClause, filterExpr, eav, pkName.AttributeName, colList, limit)
+	pkName, _ := getPKAndSK(models.FromSDKKeySchema(descOut.Table.KeySchema))
+
+	if wireKey[pkName.AttributeName] == nil {
+		return nil, errScanFallback // PK value not present
+	}
+
+	queryInput, err := h.buildQueryInput(tableName, whereClause, filterExpr, eav, pkName.AttributeName, colList, limit)
+	if err != nil {
+		return nil, err
+	}
 
 	out, queryErr := h.Backend.Query(ctx, queryInput)
 	if queryErr != nil {
@@ -247,16 +264,18 @@ func (h *DynamoDBHandler) buildQueryInput(
 	eav map[string]any,
 	pkAttr, colList string,
 	limit int,
-) *dynamodb.QueryInput {
-	queryInput := &dynamodb.QueryInput{
-		TableName: aws.String(tableName),
+) (*dynamodb.QueryInput, error) {
+	sdkEAV, err := partiqlBuildSDKEAV(eav)
+	if err != nil {
+		return nil, fmt.Errorf("building QueryInput EAV: %w", err)
 	}
 
-	sdkEAV, _ := partiqlBuildSDKEAV(eav)
-	queryInput.ExpressionAttributeValues = sdkEAV
-
 	keyCond := fmt.Sprintf("%s = %s", pkAttr, findPlaceholderForKey(whereClause, pkAttr))
-	queryInput.KeyConditionExpression = aws.String(keyCond)
+	queryInput := &dynamodb.QueryInput{
+		TableName:                 aws.String(tableName),
+		ExpressionAttributeValues: sdkEAV,
+		KeyConditionExpression:    aws.String(keyCond),
+	}
 
 	if filterExpr != "" {
 		queryInput.FilterExpression = aws.String(filterExpr)
@@ -269,7 +288,7 @@ func (h *DynamoDBHandler) buildQueryInput(
 		queryInput.ProjectionExpression = aws.String(colList)
 	}
 
-	return queryInput
+	return queryInput, nil
 }
 
 // executeScanSelect runs a full Scan for a PartiQL SELECT that couldn't be optimized.
@@ -694,6 +713,13 @@ func partiqlExtractKeyFromWhere(
 			continue
 		}
 
+		// Only process named parameters (:name) or positional parameters (:pN).
+		// Literal values (e.g. 'hello', 42) are not suitable for Query optimization;
+		// skip them here and let the caller fall back to Scan.
+		if !strings.HasPrefix(placeholder, ":") {
+			continue
+		}
+
 		val, ok := eav[placeholder]
 		if !ok {
 			return nil, fmt.Errorf("%w: placeholder %q not found in parameters", ErrInvalidStatement, placeholder)
@@ -708,7 +734,7 @@ func partiqlExtractKeyFromWhere(
 	}
 
 	if len(key) == 0 {
-		return nil, fmt.Errorf("%w: no key conditions found in WHERE clause", ErrInvalidStatement)
+		return nil, errNoKeyCondition
 	}
 
 	return key, nil
