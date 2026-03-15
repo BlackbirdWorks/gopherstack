@@ -364,6 +364,7 @@ type tableSnapshot struct {
 	attrDefs       []models.AttributeDefinition
 	pt             models.ProvisionedThroughputDescription
 	itemCount      int64
+	itemSizeBytes  int64
 	streamsEnabled bool
 }
 
@@ -378,6 +379,7 @@ func snapshotTable(table *Table) tableSnapshot {
 		lsiList:        make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes)),
 		replicaList:    make([]models.ReplicaDescription, len(table.Replicas)),
 		itemCount:      int64(len(table.Items)),
+		itemSizeBytes:  estimateTableSizeBytes(table.Items),
 		pt:             table.ProvisionedThroughput,
 		tableStatus:    types.TableStatus(table.Status),
 		tableArn:       table.TableArn,
@@ -410,8 +412,7 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 	rcu := int64(s.pt.ReadCapacityUnits)
 	wcu := int64(s.pt.WriteCapacityUnits)
 
-	const avgItemSizeBytes = 400
-	tableSizeBytes := s.itemCount * avgItemSizeBytes
+	tableSizeBytes := s.itemSizeBytes
 
 	td := &types.TableDescription{
 		TableName:              tableName,
@@ -657,7 +658,10 @@ func applyGSICreate(table *Table, c *types.CreateGlobalSecondaryIndexAction) {
 	}
 
 	table.GlobalSecondaryIndexes = append(table.GlobalSecondaryIndexes, newGSI)
-	table.initializeIndexes()
+	// Rebuild (not just initialise) so existing items remain indexed after the GSI
+	// definition is added. initializeIndexes() would clear the primary key index,
+	// forcing O(n) scans for all subsequent primary-key queries.
+	table.rebuildIndexes()
 }
 
 func applyGSIUpdate(table *Table, u *types.UpdateGlobalSecondaryIndexAction) {
@@ -686,7 +690,10 @@ func applyGSIDelete(table *Table, d *types.DeleteGlobalSecondaryIndexAction) {
 	}
 
 	table.GlobalSecondaryIndexes = updated
-	table.initializeIndexes()
+	// Rebuild (not just initialise) so existing items remain indexed after the GSI
+	// definition is removed. initializeIndexes() would clear the primary key index,
+	// forcing O(n) scans for all subsequent primary-key queries.
+	table.rebuildIndexes()
 }
 
 // applyStreamSpec enables or disables streams on the table.

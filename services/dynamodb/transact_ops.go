@@ -37,7 +37,7 @@ func (db *InMemoryDB) TransactWriteItems(
 		committed = exists && time.Now().Before(expiry)
 		_, inProgress = db.txnPending[token]
 		if !committed && !inProgress {
-			db.txnPending[token] = struct{}{}
+			db.txnPending[token] = time.Now()
 		}
 		db.mu.Unlock()
 

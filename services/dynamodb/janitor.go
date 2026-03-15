@@ -46,6 +46,8 @@ func (j *Janitor) Run(ctx context.Context) {
 			j.runOnce(ctx)
 			j.sweepTTL(ctx)
 			j.sweepTxnTokens()
+			j.sweepTxnPending()
+			j.Backend.exprCache.Sweep()
 		}
 	}
 }
@@ -147,6 +149,23 @@ func (j *Janitor) sweepTxnTokens() {
 	for token, expiry := range db.txnTokens {
 		if now.After(expiry) {
 			delete(db.txnTokens, token)
+		}
+	}
+}
+
+// sweepTxnPending removes in-progress idempotency tokens that have exceeded txnPendingTTL.
+// Under normal operation the defer in TransactWriteItems cleans up pending entries.
+// This sweep is a safety net for orphaned entries (e.g. from a crashed goroutine).
+func (j *Janitor) sweepTxnPending() {
+	db := j.Backend
+	now := time.Now()
+
+	db.mu.Lock("sweepTxnPending")
+	defer db.mu.Unlock()
+
+	for token, startTime := range db.txnPending {
+		if now.Sub(startTime) > txnPendingTTL {
+			delete(db.txnPending, token)
 		}
 	}
 }
