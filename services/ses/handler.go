@@ -221,9 +221,7 @@ func (h *Handler) handleVerifyEmailIdentity(vals url.Values, reqID string) (any,
 func (h *Handler) handleDeleteIdentity(vals url.Values, reqID string) (any, error) {
 	identity := vals.Get("Identity")
 
-	if err := h.Backend.DeleteIdentity(identity); err != nil {
-		return nil, err
-	}
+	h.Backend.DeleteIdentity(identity)
 
 	return &deleteIdentityResponse{
 		Xmlns:     sesXMLNS,
@@ -332,6 +330,8 @@ func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr err
 		code = "NoSuchEntity"
 	case errors.Is(opErr, ErrInvalidParameter):
 		code = "InvalidParameterValue"
+	case errors.Is(opErr, ErrMessageRejected):
+		code = "MessageRejected"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError

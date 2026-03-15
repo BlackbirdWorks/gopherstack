@@ -2,11 +2,13 @@ package ses_test
 
 import (
 	"encoding/xml"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -53,6 +55,7 @@ func TestSESHandler(t *testing.T) {
 	tests := []struct {
 		name         string
 		body         string
+		setup        func(h *ses.Handler)
 		wantContains string
 		wantCode     int
 	}{
@@ -63,8 +66,11 @@ func TestSESHandler(t *testing.T) {
 			wantContains: "VerifyEmailIdentityResponse",
 		},
 		{
-			name:         "SendRawEmail",
-			body:         sendRawEmailBody,
+			name: "SendRawEmail",
+			body: sendRawEmailBody,
+			setup: func(h *ses.Handler) {
+				require.NoError(t, h.Backend.VerifyEmailIdentity("raw@example.com"))
+			},
 			wantCode:     http.StatusOK,
 			wantContains: "SendRawEmailResponse",
 		},
@@ -81,16 +87,22 @@ func TestSESHandler(t *testing.T) {
 			wantContains: "MissingAction",
 		},
 		{
-			name:         "DeleteIdentityNotFound",
+			name:         "DeleteIdentityIdempotent",
 			body:         "Action=DeleteIdentity&Version=2010-12-01&Identity=nonexistent@example.com",
-			wantCode:     http.StatusBadRequest,
-			wantContains: "NoSuchEntity",
+			wantCode:     http.StatusOK,
+			wantContains: "DeleteIdentityResponse",
 		},
 		{
 			name:         "VerifyEmailIdentityEmptyIdentity",
 			body:         "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=",
 			wantCode:     http.StatusBadRequest,
 			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "SendEmailUnverifiedSource",
+			body:         "Action=SendEmail&Version=2010-12-01&Source=unverified@example.com&Destination.ToAddresses.member.1=to@example.com&Message.Subject.Data=Test&Message.Body.Text.Data=Body",
+			wantCode:     http.StatusBadRequest,
+			wantContains: "MessageRejected",
 		},
 	}
 
@@ -99,6 +111,10 @@ func TestSESHandler(t *testing.T) {
 			t.Parallel()
 
 			h := newHandler()
+			if tt.setup != nil {
+				tt.setup(h)
+			}
+
 			rec := postForm(t, h, tt.body)
 
 			assert.Equal(t, tt.wantCode, rec.Code)
@@ -143,6 +159,11 @@ func TestSESHandler_DeleteIdentity(t *testing.T) {
 	// Verify it's gone.
 	listRec := postForm(t, h, "Action=ListIdentities&Version=2010-12-01")
 	assert.NotContains(t, listRec.Body.String(), "del@example.com")
+
+	// Deleting again is idempotent — returns success.
+	rec2 := postForm(t, h, "Action=DeleteIdentity&Version=2010-12-01&Identity=del@example.com")
+	assert.Equal(t, http.StatusOK, rec2.Code)
+	assert.Contains(t, rec2.Body.String(), "DeleteIdentityResponse")
 }
 
 func TestSESHandler_GetIdentityVerificationAttributes(t *testing.T) {
@@ -193,6 +214,9 @@ func TestSESHandler_SendEmail(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
+
+	// Must verify the source identity first.
+	postForm(t, h, "Action=VerifyEmailIdentity&Version=2010-12-01&EmailAddress=sender@example.com")
 
 	body := url.Values{
 		"Action":                           {"SendEmail"},
@@ -344,6 +368,35 @@ func TestSESHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "ListIdentities")
 }
 
+func TestSESHandler_ChaosInterface(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	assert.Equal(t, "ses", h.ChaosServiceName())
+	assert.NotEmpty(t, h.ChaosOperations())
+	assert.NotEmpty(t, h.ChaosRegions())
+}
+
+func TestSESBackend_GetEmailByID(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	require.NoError(t, b.VerifyEmailIdentity("find@test.com"))
+
+	msgID, err := b.SendEmail("find@test.com", []string{"to@test.com"}, "FindMe", "", "body")
+	require.NoError(t, err)
+
+	email, err := b.GetEmailByID(msgID)
+	require.NoError(t, err)
+	assert.Equal(t, "find@test.com", email.From)
+	assert.Equal(t, "FindMe", email.Subject)
+
+	// Not found case.
+	_, err = b.GetEmailByID("nonexistent")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ses.ErrEmailNotFound)
+}
+
 func TestSESHandler_MatchPriority(t *testing.T) {
 	t.Parallel()
 
@@ -364,4 +417,123 @@ func TestSESHandler_ProviderInitWithAppCtx(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, svc)
 	assert.Equal(t, "SES", svc.Name())
+}
+
+func TestSESBackend_EmailRetentionLimit(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	require.NoError(t, b.VerifyEmailIdentity("sender@test.com"))
+
+	// Send more emails than the cap.
+	for i := range ses.MaxRetainedEmails + 100 {
+		_, err := b.SendEmail("sender@test.com", []string{"to@test.com"},
+			fmt.Sprintf("Subject %d", i), "", "body")
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, ses.MaxRetainedEmails, b.EmailCount())
+}
+
+func TestSESBackend_SendEmailUnverifiedSource(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+
+	_, err := b.SendEmail("unverified@test.com", []string{"to@test.com"}, "subj", "", "body")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ses.ErrMessageRejected)
+}
+
+func TestSESBackend_DeleteIdentityIdempotent(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+
+	// Deleting a non-existent identity should not panic or error.
+	b.DeleteIdentity("nonexistent@test.com")
+	assert.Equal(t, 0, b.IdentityCount())
+
+	// Add and delete.
+	require.NoError(t, b.VerifyEmailIdentity("test@test.com"))
+	assert.Equal(t, 1, b.IdentityCount())
+
+	b.DeleteIdentity("test@test.com")
+	assert.Equal(t, 0, b.IdentityCount())
+
+	// Delete again — idempotent.
+	b.DeleteIdentity("test@test.com")
+	assert.Equal(t, 0, b.IdentityCount())
+}
+
+func TestSESBackend_SnapshotIsolation(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	require.NoError(t, b.VerifyEmailIdentity("snap@test.com"))
+
+	_, err := b.SendEmail("snap@test.com", []string{"to@test.com"}, "Test", "", "body")
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	// Mutate original after snapshot.
+	require.NoError(t, b.VerifyEmailIdentity("after@test.com"))
+
+	_, err = b.SendEmail("snap@test.com", []string{"to@test.com"}, "Test2", "", "body2")
+	require.NoError(t, err)
+
+	// Restore into a fresh backend.
+	fresh := ses.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(snap))
+
+	// Fresh backend should have the original state, not the mutated state.
+	assert.Equal(t, 1, fresh.IdentityCount())
+	assert.Equal(t, 1, fresh.EmailCount())
+}
+
+func TestSESBackend_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+
+	var wg sync.WaitGroup
+
+	// Concurrent verify.
+	for i := range 50 {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			_ = b.VerifyEmailIdentity(fmt.Sprintf("user%d@test.com", i))
+		}()
+	}
+
+	wg.Wait()
+
+	assert.Equal(t, 50, b.IdentityCount())
+
+	// Concurrent send + list.
+	for i := range 50 {
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+
+			_, _ = b.SendEmail(fmt.Sprintf("user%d@test.com", i), []string{"to@test.com"},
+				fmt.Sprintf("Subject %d", i), "", "body")
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			_ = b.ListEmails()
+		}()
+	}
+
+	wg.Wait()
+
+	assert.Equal(t, 50, b.EmailCount())
 }

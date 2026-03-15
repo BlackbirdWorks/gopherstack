@@ -1004,7 +1004,9 @@ func (rc *ResourceCreator) deleteSESEmailIdentity(emailIdentity string) error {
 		return nil
 	}
 
-	return rc.backends.SES.Backend.DeleteIdentity(emailIdentity)
+	rc.backends.SES.Backend.DeleteIdentity(emailIdentity)
+
+	return nil
 }
 
 // ---- ACM ----
