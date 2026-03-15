@@ -721,3 +721,82 @@ func TestFirehoseHandler_UpdateDestination(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_Shutdown_FlushesBufferedRecords(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		createStream     bool
+		withS3           bool
+		putRecords       bool
+		wantS3Deliveries int
+	}{
+		{
+			name:             "shutdown on idle backend completes promptly",
+			createStream:     false,
+			withS3:           false,
+			putRecords:       false,
+			wantS3Deliveries: 0,
+		},
+		{
+			name:             "shutdown with stream but no buffered records is a no-op",
+			createStream:     true,
+			withS3:           true,
+			putRecords:       false,
+			wantS3Deliveries: 0,
+		},
+		{
+			name:             "shutdown flushes buffered records to S3",
+			createStream:     true,
+			withS3:           true,
+			putRecords:       true,
+			wantS3Deliveries: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestFirehoseHandler(t)
+
+			var s3mock *mockS3Storer
+
+			if tt.createStream {
+				rec := doFirehoseRequest(t, h, "CreateDeliveryStream", map[string]any{
+					"DeliveryStreamName": "test-stream",
+					"S3DestinationConfiguration": map[string]any{
+						"BucketARN": "arn:aws:s3:::test-bucket",
+						"RoleARN":   "arn:aws:iam::000000000000:role/test",
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				if tt.withS3 {
+					s3mock = &mockS3Storer{}
+					h.Backend.SetS3Backend(s3mock)
+				}
+			}
+
+			if tt.putRecords {
+				rec := doFirehoseRequest(t, h, "PutRecord", map[string]any{
+					"DeliveryStreamName": "test-stream",
+					"Record": map[string]any{
+						"Data": "dGVzdC1kYXRh", // base64("test-data")
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			// Shutdown should complete without blocking or panicking,
+			// and should flush any buffered records.
+			h.Shutdown(t.Context())
+
+			if s3mock != nil {
+				assert.Len(t, s3mock.calls, tt.wantS3Deliveries,
+					"S3 deliveries after Shutdown should match expected count")
+			}
+		})
+	}
+}
