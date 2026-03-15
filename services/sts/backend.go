@@ -29,6 +29,12 @@ var (
 
 	// ErrAccessDenied is returned when ExternalId validation fails.
 	ErrAccessDenied = errors.New("AccessDenied")
+
+	// ErrMissingFederationTokenName is returned when GetFederationToken is called without a Name.
+	ErrMissingFederationTokenName = errors.New("Name is required for GetFederationToken")
+
+	// ErrMissingWebIdentityToken is returned when AssumeRoleWithWebIdentity is called without a WebIdentityToken.
+	ErrMissingWebIdentityToken = errors.New("WebIdentityToken is required for AssumeRoleWithWebIdentity")
 )
 
 const (
@@ -38,6 +44,18 @@ const (
 	secretKeyByteLen    = 20
 	sessionTokenByteLen = 64
 	arnComponentCount   = 6
+
+	// jwtPartCount is the number of dot-separated parts in a JWT (header.payload.signature).
+	jwtPartCount = 3
+	// jwtMinParts is the minimum number of parts required to attempt payload extraction.
+	jwtMinParts = 2
+	// base64Pad2 indicates two '=' padding characters are needed.
+	base64Pad2 = 2
+	// base64Pad1 indicates one '=' padding character is needed.
+	base64Pad1 = 3
+
+	// webIdentitySubjectPlaceholder is returned when the sub claim cannot be extracted from the token.
+	webIdentitySubjectPlaceholder = "WebIdentitySubject"
 )
 
 // RoleLookup is implemented by services (e.g. IAM) that can provide role metadata
@@ -68,7 +86,9 @@ type trustStatement struct {
 // StorageBackend defines the STS service backend interface.
 type StorageBackend interface {
 	AssumeRole(input *AssumeRoleInput) (*AssumeRoleResponse, error)
+	AssumeRoleWithWebIdentity(input *AssumeRoleWithWebIdentityInput) (*AssumeRoleWithWebIdentityResponse, error)
 	GetCallerIdentity(accessKeyID string) (*GetCallerIdentityResponse, error)
+	GetFederationToken(input *GetFederationTokenInput) (*GetFederationTokenResponse, error)
 	GetSessionToken(input *GetSessionTokenInput) (*GetSessionTokenResponse, error)
 }
 
@@ -205,6 +225,7 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 		SourceIdentity:    input.SourceIdentity,
 		Tags:              input.Tags,
 		TransitiveTagKeys: input.TransitiveTagKeys,
+		Expiration:        expiration,
 	}
 
 	b.mu.Lock()
@@ -238,6 +259,13 @@ func (b *InMemoryBackend) GetCallerIdentity(accessKeyID string) (*GetCallerIdent
 	if accessKeyID != "" {
 		b.mu.Lock()
 		session, ok := b.sessions[accessKeyID]
+
+		if ok && !session.Expiration.IsZero() && !time.Now().UTC().Before(session.Expiration) {
+			// Opportunistically evict the expired session.
+			delete(b.sessions, accessKeyID)
+			ok = false
+		}
+
 		b.mu.Unlock()
 
 		if ok {
@@ -306,6 +334,214 @@ func (b *InMemoryBackend) GetSessionToken(input *GetSessionTokenInput) (*GetSess
 		},
 		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
 	}, nil
+}
+
+// GetFederationToken generates temporary credentials for a federated user.
+// The federated user ARN has the form arn:aws:sts::ACCOUNT:federated-user/NAME.
+func (b *InMemoryBackend) GetFederationToken(input *GetFederationTokenInput) (*GetFederationTokenResponse, error) {
+	if input.Name == "" {
+		return nil, ErrMissingFederationTokenName
+	}
+
+	duration := input.DurationSeconds
+	if duration == 0 {
+		duration = DefaultSessionTokenDurationSeconds
+	}
+
+	if duration < MinSessionTokenDurationSeconds || duration > MaxFederationTokenDurationSeconds {
+		return nil, fmt.Errorf(
+			"%w: DurationSeconds must be between %d and %d for GetFederationToken",
+			ErrInvalidDuration, MinSessionTokenDurationSeconds, MaxFederationTokenDurationSeconds,
+		)
+	}
+
+	accessKeyID, err := generateAccessKeyID()
+	if err != nil {
+		return nil, fmt.Errorf("generate access key: %w", err)
+	}
+
+	secretKey, err := generateSecretKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate secret key: %w", err)
+	}
+
+	sessionToken, err := generateSessionToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate session token: %w", err)
+	}
+
+	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
+	federatedUserArn := arn.Build("sts", "", b.accountID, "federated-user/"+input.Name)
+	federatedUserID := b.accountID + ":" + input.Name
+
+	session := &SessionInfo{
+		Expiration:     expiration,
+		AssumedRoleArn: federatedUserArn,
+		AccountID:      b.accountID,
+		SessionName:    input.Name,
+		AccessKeyID:    accessKeyID,
+		AssumedRoleID:  federatedUserID,
+		Tags:           input.Tags,
+	}
+
+	b.mu.Lock()
+	b.sessions[accessKeyID] = session
+	b.mu.Unlock()
+
+	return &GetFederationTokenResponse{
+		Xmlns: STSNamespace,
+		GetFederationTokenResult: GetFederationTokenResult{
+			FederatedUser: FederatedUser{
+				Arn:             federatedUserArn,
+				FederatedUserID: federatedUserID,
+			},
+			Credentials: Credentials{
+				AccessKeyID:     accessKeyID,
+				SecretAccessKey: secretKey,
+				SessionToken:    sessionToken,
+				Expiration:      expiration.Format(time.RFC3339),
+			},
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+	}, nil
+}
+
+// AssumeRoleWithWebIdentity generates temporary credentials using a web identity token.
+// In this mock, the WebIdentityToken is not cryptographically validated; the subject
+// is extracted from the token's payload when parseable, otherwise a default is used.
+func (b *InMemoryBackend) AssumeRoleWithWebIdentity(
+	input *AssumeRoleWithWebIdentityInput,
+) (*AssumeRoleWithWebIdentityResponse, error) {
+	if input.RoleArn == "" {
+		return nil, ErrMissingRoleArn
+	}
+
+	if input.RoleSessionName == "" {
+		return nil, ErrMissingSessionName
+	}
+
+	if input.WebIdentityToken == "" {
+		return nil, ErrMissingWebIdentityToken
+	}
+
+	duration := input.DurationSeconds
+	if duration == 0 {
+		duration = DefaultDurationSeconds
+	}
+
+	if duration < MinDurationSeconds || duration > MaxDurationSeconds {
+		return nil, fmt.Errorf(
+			"%w: DurationSeconds must be between %d and %d",
+			ErrInvalidDuration, MinDurationSeconds, MaxDurationSeconds,
+		)
+	}
+
+	accessKeyID, err := generateAccessKeyID()
+	if err != nil {
+		return nil, fmt.Errorf("generate access key: %w", err)
+	}
+
+	secretKey, err := generateSecretKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate secret key: %w", err)
+	}
+
+	sessionToken, err := generateSessionToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate session token: %w", err)
+	}
+
+	expiration := time.Now().UTC().Add(time.Duration(duration) * time.Second)
+	roleID := deriveRoleID(input.RoleArn)
+	assumedRoleID := roleID + ":" + input.RoleSessionName
+	assumedRoleArn := buildAssumedRoleArn(input.RoleArn, input.RoleSessionName)
+
+	account := b.accountID
+	if parts := strings.SplitN(input.RoleArn, ":", arnComponentCount); len(parts) >= arnComponentCount {
+		account = parts[4]
+	}
+
+	subject := extractWebIdentitySubject(input.WebIdentityToken)
+	provider := input.ProviderID
+	if provider == "" {
+		provider = "cognito-identity.amazonaws.com"
+	}
+
+	session := &SessionInfo{
+		Expiration:     expiration,
+		AssumedRoleArn: assumedRoleArn,
+		AccountID:      account,
+		SessionName:    input.RoleSessionName,
+		AccessKeyID:    accessKeyID,
+		AssumedRoleID:  assumedRoleID,
+	}
+
+	b.mu.Lock()
+	b.sessions[accessKeyID] = session
+	b.mu.Unlock()
+
+	return &AssumeRoleWithWebIdentityResponse{
+		Xmlns: STSNamespace,
+		AssumeRoleWithWebIdentityResult: AssumeRoleWithWebIdentityResult{
+			AssumedRoleUser: AssumedRoleUser{
+				Arn:           assumedRoleArn,
+				AssumedRoleID: assumedRoleID,
+			},
+			Credentials: Credentials{
+				AccessKeyID:     accessKeyID,
+				SecretAccessKey: secretKey,
+				SessionToken:    sessionToken,
+				Expiration:      expiration.Format(time.RFC3339),
+			},
+			SubjectFromWebIdentityToken: subject,
+			Audience:                    subject,
+			Provider:                    provider,
+		},
+		ResponseMetadata: ResponseMetadata{RequestID: uuid.NewString()},
+	}, nil
+}
+
+// extractWebIdentitySubject attempts to extract the "sub" claim from a JWT token's
+// payload without validating the signature. If extraction fails, returns a placeholder.
+func extractWebIdentitySubject(token string) string {
+	// JWT format: header.payload.signature (base64url-encoded parts)
+	parts := strings.SplitN(token, ".", jwtPartCount)
+	if len(parts) < jwtMinParts {
+		return webIdentitySubjectPlaceholder
+	}
+
+	// Add padding if needed for base64url decode.
+	rawPayload := parts[1]
+	paddedPayload := rawPayload
+
+	switch len(rawPayload) % 4 {
+	case base64Pad2:
+		paddedPayload += "=="
+	case base64Pad1:
+		paddedPayload += "="
+	}
+
+	decoded, decodeErr := base64.URLEncoding.DecodeString(paddedPayload)
+	if decodeErr != nil {
+		// Try RawURLEncoding as fallback (no padding).
+		var fallbackErr error
+
+		decoded, fallbackErr = base64.RawURLEncoding.DecodeString(rawPayload)
+		if fallbackErr != nil {
+			return webIdentitySubjectPlaceholder
+		}
+	}
+
+	var claims map[string]any
+	if unmarshalErr := json.Unmarshal(decoded, &claims); unmarshalErr != nil {
+		return webIdentitySubjectPlaceholder
+	}
+
+	if sub, ok := claims["sub"].(string); ok && sub != "" {
+		return sub
+	}
+
+	return webIdentitySubjectPlaceholder
 }
 
 // validateExternalID parses a trust policy JSON document and validates that the
