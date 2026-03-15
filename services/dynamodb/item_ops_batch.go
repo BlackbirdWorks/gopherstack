@@ -40,10 +40,9 @@ func (db *InMemoryDB) BatchGetItem(
 	}
 
 	// Collect table references under db.mu.RLock and release the lock before
-	// spawning goroutines. Re-acquiring db.mu inside a goroutine while the outer
-	// lock is held can cause a deadlock when a writer is pending (Go's RWMutex
-	// blocks new readers once a writer is queued, leading to deadlock when the
-	// outer reader holds the lock and the inner goroutine waits for it).
+	// spawning goroutines. Releasing db.mu before spawning goroutines avoids the
+	// re-entrant RLock deadlock: if a writer is pending, goroutines calling
+	// db.mu.RLock while the outer db.mu.RLock is still held would block indefinitely.
 	tableRefs, tableErr := db.batchGetTableRefs(ctx, input.RequestItems)
 	if tableErr != nil {
 		return nil, tableErr
