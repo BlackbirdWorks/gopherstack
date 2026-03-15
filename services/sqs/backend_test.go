@@ -691,15 +691,17 @@ func TestSendMessageFIFOContentBasedDedup(t *testing.T) {
 
 	// First send - should succeed.
 	out1, err := b.SendMessage(&sqs.SendMessageInput{
-		QueueURL:    qURL,
-		MessageBody: "hello",
+		QueueURL:       qURL,
+		MessageBody:    "hello",
+		MessageGroupID: "g1",
 	})
 	require.NoError(t, err)
 
 	// Second send with same body - content-based dedup should return original MessageID.
 	out2, err := b.SendMessage(&sqs.SendMessageInput{
-		QueueURL:    qURL,
-		MessageBody: "hello",
+		QueueURL:       qURL,
+		MessageBody:    "hello",
+		MessageGroupID: "g1",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, out1.MessageID, out2.MessageID, "dedup should return original message ID")
@@ -715,6 +717,7 @@ func TestSendMessageFIFOExplicitDedup(t *testing.T) {
 	out1, err := b.SendMessage(&sqs.SendMessageInput{
 		QueueURL:               qURL,
 		MessageBody:            "hello",
+		MessageGroupID:         "g1",
 		MessageDeduplicationID: "unique-id-1",
 	})
 	require.NoError(t, err)
@@ -723,6 +726,7 @@ func TestSendMessageFIFOExplicitDedup(t *testing.T) {
 	out2, err := b.SendMessage(&sqs.SendMessageInput{
 		QueueURL:               qURL,
 		MessageBody:            "hello again",
+		MessageGroupID:         "g1",
 		MessageDeduplicationID: "unique-id-1",
 	})
 	require.NoError(t, err)
@@ -741,6 +745,7 @@ func TestSendMessageFIFOExpiredDedup(t *testing.T) {
 	out1, err := b.SendMessage(&sqs.SendMessageInput{
 		QueueURL:               qURL,
 		MessageBody:            "hello",
+		MessageGroupID:         "g1",
 		MessageDeduplicationID: "id-1",
 	})
 	require.NoError(t, err)
@@ -748,6 +753,7 @@ func TestSendMessageFIFOExpiredDedup(t *testing.T) {
 	out2, err := b.SendMessage(&sqs.SendMessageInput{
 		QueueURL:               qURL,
 		MessageBody:            "hello",
+		MessageGroupID:         "g1",
 		MessageDeduplicationID: "id-2", // different ID - NOT a duplicate
 	})
 	require.NoError(t, err)
