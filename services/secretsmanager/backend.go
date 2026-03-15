@@ -34,6 +34,8 @@ var (
 	ErrInvalidPasswordParameters = errors.New("InvalidParameterException")
 	// ErrCryptoRandInvalidRange is returned when cryptoRandInt is called with a non-positive bound.
 	ErrCryptoRandInvalidRange = errors.New("random integer bound must be positive")
+	// ErrSecretValueTooLarge is returned when a secret value exceeds the 64 KB AWS limit.
+	ErrSecretValueTooLarge = errors.New("InvalidParameterException")
 )
 
 const (
@@ -47,6 +49,11 @@ const (
 	arnNameIndex = 6
 	// arnSuffixLen is the length of the random ARN suffix: dash + 6 hex characters.
 	arnSuffixLen = 7
+	// maxVersionsPerSecret is the maximum number of versions retained per secret.
+	// Matches the AWS Secrets Manager limit of 100 versions.
+	maxVersionsPerSecret = 100
+	// maxSecretValueBytes is the maximum allowed size of a secret value in bytes (64 KB).
+	maxSecretValueBytes = 65536
 )
 
 // StorageBackend defines the interface for the Secrets Manager in-memory backend.
@@ -56,6 +63,7 @@ type StorageBackend interface {
 	PutSecretValue(input *PutSecretValueInput) (*PutSecretValueOutput, error)
 	DeleteSecret(input *DeleteSecretInput) (*DeleteSecretOutput, error)
 	ListSecrets(input *ListSecretsInput) (*ListSecretsOutput, error)
+	ListSecretVersionIDs(input *ListSecretVersionIDsInput) (*ListSecretVersionIDsOutput, error)
 	DescribeSecret(input *DescribeSecretInput) (*DescribeSecretOutput, error)
 	UpdateSecret(input *UpdateSecretInput) (*UpdateSecretOutput, error)
 	RestoreSecret(input *RestoreSecretInput) (*RestoreSecretOutput, error)
@@ -109,13 +117,13 @@ func resolveSecretID(secretID string) string {
 }
 
 // generateRandomSuffix generates a 6-character hex random suffix for ARNs.
-func generateRandomSuffix() string {
+func generateRandomSuffix() (string, error) {
 	b := make([]byte, randomSuffixBytes)
 	if _, err := rand.Read(b); err != nil {
-		return "000000"
+		return "", fmt.Errorf("generate ARN suffix: %w", err)
 	}
 
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 // buildARNWithRegion constructs a Secrets Manager ARN using the given region.
@@ -125,6 +133,10 @@ func (b *InMemoryBackend) buildARNWithRegion(region, name, suffix string) string
 
 // CreateSecret creates a new secret with an optional initial value.
 func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretOutput, error) {
+	if err := validateSecretSize(input.SecretString, input.SecretBinary); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateSecret")
 	defer b.mu.Unlock()
 
@@ -132,7 +144,11 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 		return nil, ErrSecretAlreadyExists
 	}
 
-	suffix := generateRandomSuffix()
+	suffix, err := generateRandomSuffix()
+	if err != nil {
+		return nil, err
+	}
+
 	region := b.region
 	if input.Region != "" {
 		region = input.Region
@@ -158,15 +174,17 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 
 	if input.SecretString != "" || len(input.SecretBinary) > 0 {
 		versionID = uuid.New().String()
+		now := UnixTimeFloat(time.Now())
 		version := &SecretVersion{
 			VersionID:     versionID,
 			SecretString:  input.SecretString,
 			SecretBinary:  input.SecretBinary,
 			StagingLabels: []string{StagingLabelCurrent},
-			CreatedDate:   UnixTimeFloat(time.Now()),
+			CreatedDate:   now,
 		}
 		secret.Versions[versionID] = version
 		secret.CurrentVersionID = versionID
+		secret.LastChangedDate = &now
 	}
 
 	b.secrets[input.Name] = secret
@@ -233,6 +251,10 @@ func (b *InMemoryBackend) findVersion(secret *Secret, versionID, versionStage st
 
 // PutSecretValue adds a new version to an existing secret.
 func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecretValueOutput, error) {
+	if err := validateSecretSize(input.SecretString, input.SecretBinary); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("PutSecretValue")
 	defer b.mu.Unlock()
 
@@ -252,30 +274,44 @@ func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecret
 		versionID = uuid.New().String()
 	}
 
-	b.rotateStagingLabels(secret, versionID)
+	b.rotateStagingLabels(secret)
 
+	// Determine staging labels: AWSCURRENT is always applied; any additional
+	// labels provided in VersionStages are merged in (e.g. AWSPENDING).
+	stagingLabels := []string{StagingLabelCurrent}
+
+	for _, label := range input.VersionStages {
+		if label != StagingLabelCurrent {
+			stagingLabels = append(stagingLabels, label)
+		}
+	}
+
+	now := UnixTimeFloat(time.Now())
 	version := &SecretVersion{
 		VersionID:     versionID,
 		SecretString:  input.SecretString,
 		SecretBinary:  input.SecretBinary,
-		StagingLabels: []string{StagingLabelCurrent},
-		CreatedDate:   UnixTimeFloat(time.Now()),
+		StagingLabels: stagingLabels,
+		CreatedDate:   now,
 	}
 
 	secret.Versions[versionID] = version
 	secret.CurrentVersionID = versionID
+	secret.LastChangedDate = &now
+
+	pruneVersions(secret)
 
 	return &PutSecretValueOutput{
 		ARN:           secret.ARN,
 		Name:          secret.Name,
 		VersionID:     versionID,
-		VersionStages: []string{StagingLabelCurrent},
+		VersionStages: stagingLabels,
 	}, nil
 }
 
 // rotateStagingLabels moves AWSCURRENT to AWSPREVIOUS and removes old AWSPREVIOUS.
 // Must be called with a write lock held.
-func (b *InMemoryBackend) rotateStagingLabels(secret *Secret, newVersionID string) {
+func (b *InMemoryBackend) rotateStagingLabels(secret *Secret) {
 	for _, v := range secret.Versions {
 		newLabels := make([]string, 0, len(v.StagingLabels))
 
@@ -293,11 +329,67 @@ func (b *InMemoryBackend) rotateStagingLabels(secret *Secret, newVersionID strin
 
 		v.StagingLabels = newLabels
 	}
-
-	_ = newVersionID // newVersionID will get AWSCURRENT from the caller
 }
 
-// DeleteSecret marks a secret as deleted.
+// pruneVersions removes the oldest unlabeled versions when the total version count
+// exceeds maxVersionsPerSecret. Versions with any staging labels are never pruned.
+// Must be called with a write lock held.
+func pruneVersions(secret *Secret) {
+	if len(secret.Versions) <= maxVersionsPerSecret {
+		return
+	}
+
+	type versionEntry struct {
+		id          string
+		createdDate float64
+	}
+
+	unlabeled := make([]versionEntry, 0, len(secret.Versions))
+
+	for id, v := range secret.Versions {
+		if len(v.StagingLabels) == 0 {
+			unlabeled = append(unlabeled, versionEntry{id: id, createdDate: v.CreatedDate})
+		}
+	}
+
+	// Sort oldest first; break ties by ID for deterministic eviction order.
+	sort.Slice(unlabeled, func(i, j int) bool {
+		if unlabeled[i].createdDate != unlabeled[j].createdDate {
+			return unlabeled[i].createdDate < unlabeled[j].createdDate
+		}
+
+		return unlabeled[i].id < unlabeled[j].id
+	})
+
+	toRemove := min(len(secret.Versions)-maxVersionsPerSecret, len(unlabeled))
+
+	for i := range toRemove {
+		delete(secret.Versions, unlabeled[i].id)
+	}
+}
+
+// validateSecretSize returns ErrSecretValueTooLarge when the secret value exceeds 64 KB.
+func validateSecretSize(secretString string, secretBinary []byte) error {
+	if len(secretString) > maxSecretValueBytes {
+		return fmt.Errorf(
+			"%w: secret string value exceeds maximum size of %d bytes",
+			ErrSecretValueTooLarge,
+			maxSecretValueBytes,
+		)
+	}
+
+	if len(secretBinary) > maxSecretValueBytes {
+		return fmt.Errorf(
+			"%w: secret binary value exceeds maximum size of %d bytes",
+			ErrSecretValueTooLarge,
+			maxSecretValueBytes,
+		)
+	}
+
+	return nil
+}
+
+// DeleteSecret marks a secret as deleted, or permanently removes it when ForceDeleteWithoutRecovery is set.
 func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretOutput, error) {
 	b.mu.Lock("DeleteSecret")
 	defer b.mu.Unlock()
@@ -310,6 +402,21 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 	}
 
 	now := UnixTimeFloat(time.Now())
+
+	if input.ForceDeleteWithoutRecovery {
+		if secret.Tags != nil {
+			secret.Tags.Close()
+		}
+
+		delete(b.secrets, name)
+
+		return &DeleteSecretOutput{
+			ARN:          secret.ARN,
+			Name:         secret.Name,
+			DeletionDate: now,
+		}, nil
+	}
+
 	secret.DeletedDate = &now
 
 	return &DeleteSecretOutput{
@@ -365,6 +472,73 @@ func (b *InMemoryBackend) ListSecrets(input *ListSecretsInput) (*ListSecretsOutp
 	}, nil
 }
 
+// ListSecretVersionIDs returns the list of versions for a secret with optional pagination.
+func (b *InMemoryBackend) ListSecretVersionIDs(input *ListSecretVersionIDsInput) (*ListSecretVersionIDsOutput, error) {
+	b.mu.RLock("ListSecretVersionIDs")
+	defer b.mu.RUnlock()
+
+	name := resolveSecretID(input.SecretID)
+
+	secret, exists := b.secrets[name]
+	if !exists {
+		return nil, ErrSecretNotFound
+	}
+
+	entries := make([]SecretVersionEntry, 0, len(secret.Versions))
+
+	for _, v := range secret.Versions {
+		if !input.IncludeDeprecated && len(v.StagingLabels) == 0 {
+			continue
+		}
+
+		entries = append(entries, SecretVersionEntry{
+			VersionID:     v.VersionID,
+			StagingLabels: v.StagingLabels,
+			CreatedDate:   v.CreatedDate,
+		})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].CreatedDate != entries[j].CreatedDate {
+			return entries[i].CreatedDate > entries[j].CreatedDate
+		}
+
+		return entries[i].VersionID > entries[j].VersionID
+	})
+
+	startIdx := parseToken(input.NextToken)
+	maxResults := int64(defaultMaxResults)
+
+	if input.MaxResults != nil && *input.MaxResults > 0 {
+		maxResults = *input.MaxResults
+	}
+
+	if startIdx >= len(entries) {
+		return &ListSecretVersionIDsOutput{
+			ARN:      secret.ARN,
+			Name:     secret.Name,
+			Versions: []SecretVersionEntry{},
+		}, nil
+	}
+
+	end := startIdx + int(maxResults)
+
+	var nextToken string
+
+	if end < len(entries) {
+		nextToken = strconv.Itoa(end)
+	} else {
+		end = len(entries)
+	}
+
+	return &ListSecretVersionIDsOutput{
+		ARN:       secret.ARN,
+		Name:      secret.Name,
+		Versions:  entries[startIdx:end],
+		NextToken: nextToken,
+	}, nil
+}
+
 // DescribeSecret returns metadata about a secret.
 func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeSecretOutput, error) {
 	b.mu.RLock("DescribeSecret")
@@ -389,12 +563,18 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 		Description:        secret.Description,
 		Tags:               secret.Tags,
 		DeletedDate:        secret.DeletedDate,
+		LastChangedDate:    secret.LastChangedDate,
 		VersionIDsToStages: versionIDsToStages,
+		RotationEnabled:    secret.RotationEnabled,
 	}, nil
 }
 
 // UpdateSecret updates the description of a secret and optionally creates a new version.
 func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretOutput, error) {
+	if err := validateSecretSize(input.SecretString, input.SecretBinary); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateSecret")
 	defer b.mu.Unlock()
 
@@ -418,18 +598,22 @@ func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretO
 	if input.SecretString != "" || len(input.SecretBinary) > 0 {
 		versionID = uuid.New().String()
 
-		b.rotateStagingLabels(secret, versionID)
+		b.rotateStagingLabels(secret)
 
+		now := UnixTimeFloat(time.Now())
 		version := &SecretVersion{
 			VersionID:     versionID,
 			SecretString:  input.SecretString,
 			SecretBinary:  input.SecretBinary,
 			StagingLabels: []string{StagingLabelCurrent},
-			CreatedDate:   UnixTimeFloat(time.Now()),
+			CreatedDate:   now,
 		}
 
 		secret.Versions[versionID] = version
 		secret.CurrentVersionID = versionID
+		secret.LastChangedDate = &now
+
+		pruneVersions(secret)
 	}
 
 	return &UpdateSecretOutput{
@@ -503,8 +687,18 @@ func parseToken(token string) int {
 }
 
 // generateVersionID generates a random version ID for secret rotation.
-func generateVersionID() string {
-	return fmt.Sprintf("%s-%s", generateRandomSuffix(), generateRandomSuffix())
+func generateVersionID() (string, error) {
+	s1, err := generateRandomSuffix()
+	if err != nil {
+		return "", err
+	}
+
+	s2, err := generateRandomSuffix()
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%s-%s", s1, s2), nil
 }
 
 // TagResource adds or updates tags on a secret.
@@ -569,7 +763,11 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 		return nil, ErrVersionNotFound
 	}
 
-	versionID := generateVersionID()
+	versionID, err := generateVersionID()
+	if err != nil {
+		return nil, err
+	}
+
 	newVer := &SecretVersion{
 		VersionID:     versionID,
 		SecretString:  currentVer.SecretString,
@@ -579,9 +777,14 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 	}
 	secret.Versions[versionID] = newVer
 
-	b.rotateStagingLabels(secret, versionID)
+	b.rotateStagingLabels(secret)
 	newVer.StagingLabels = []string{StagingLabelCurrent}
 	secret.CurrentVersionID = versionID
+	secret.RotationEnabled = true
+	now := UnixTimeFloat(time.Now())
+	secret.LastChangedDate = &now
+
+	pruneVersions(secret)
 
 	return &RotateSecretOutput{
 		ARN:       secret.ARN,
@@ -859,6 +1062,12 @@ func (b *InMemoryBackend) UntagSecretByARN(secretARN string, tagKeys []string) e
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	for _, secret := range b.secrets {
+		if secret.Tags != nil {
+			secret.Tags.Close()
+		}
+	}
 
 	b.secrets = make(map[string]*Secret)
 }
