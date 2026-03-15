@@ -6,8 +6,10 @@ import (
 )
 
 type backendSnapshot struct {
-	Identities map[string]bool `json:"identities"`
-	Emails     []Email         `json:"emails"`
+	Identities map[string]bool          `json:"identities"`
+	Templates  map[string]EmailTemplate `json:"templates"`
+	ConfigSets map[string]struct{}      `json:"configSets"`
+	Emails     []Email                  `json:"emails"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -22,9 +24,17 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	emails := make([]Email, len(b.emails))
 	copy(emails, b.emails)
 
+	tmpls := make(map[string]EmailTemplate, len(b.templates))
+	maps.Copy(tmpls, b.templates)
+
+	cfgs := make(map[string]struct{}, len(b.configSets))
+	maps.Copy(cfgs, b.configSets)
+
 	snap := backendSnapshot{
 		Identities: ids,
 		Emails:     emails,
+		Templates:  tmpls,
+		ConfigSets: cfgs,
 	}
 
 	data, err := json.Marshal(snap)
@@ -55,8 +65,24 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Emails = []Email{}
 	}
 
+	if snap.Templates == nil {
+		snap.Templates = make(map[string]EmailTemplate)
+	}
+
+	if snap.ConfigSets == nil {
+		snap.ConfigSets = make(map[string]struct{})
+	}
+
 	b.identities = snap.Identities
 	b.emails = snap.Emails
+	b.templates = snap.Templates
+	b.configSets = snap.ConfigSets
+
+	// Rebuild O(1) lookup map from the restored slice.
+	b.emailsByID = make(map[string]Email, len(b.emails))
+	for _, e := range b.emails {
+		b.emailsByID[e.MessageID] = e
+	}
 
 	return nil
 }

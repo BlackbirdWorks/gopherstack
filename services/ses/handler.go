@@ -1,6 +1,7 @@
 package ses
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -28,11 +30,35 @@ const (
 // Handler is the Echo HTTP handler for SES operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	janitor *Janitor
 }
 
 // NewHandler creates a new SES handler with the given backend and logger.
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+// The janitor periodically evicts emails older than the backend TTL.
+// interval=0 uses the default interval.
+func (h *Handler) WithJanitor(interval time.Duration) *Handler {
+	h.janitor = NewJanitor(h.Backend, interval)
+
+	return h
+}
+
+// StartWorker starts the background janitor if configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
+}
+
+// Reset clears all in-memory state. Used by the POST /_gopherstack/reset endpoint.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
@@ -49,6 +75,16 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListIdentities",
 		"GetIdentityVerificationAttributes",
 		"DeleteIdentity",
+		"CreateTemplate",
+		"UpdateTemplate",
+		"GetTemplate",
+		"ListTemplates",
+		"DeleteTemplate",
+		"CreateConfigurationSet",
+		"DeleteConfigurationSet",
+		"ListConfigurationSets",
+		"GetSendQuota",
+		"GetSendStatistics",
 	}
 }
 
@@ -162,30 +198,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 		log.DebugContext(ctx, "SES request", "action", action)
 
-		var (
-			resp  any
-			opErr error
-		)
+		resp, opErr := h.dispatch(vals, reqID, action)
 
-		switch action {
-		case "VerifyEmailIdentity":
-			resp, opErr = h.handleVerifyEmailIdentity(vals, reqID)
-		case "DeleteIdentity":
-			resp = h.handleDeleteIdentity(vals, reqID)
-		case "ListIdentities":
-			resp = h.handleListIdentities(vals, reqID)
-		case "GetIdentityVerificationAttributes":
-			resp = h.handleGetIdentityVerificationAttributes(vals, reqID)
-		case "SendEmail":
-			resp, opErr = h.handleSendEmail(vals, reqID)
-		case "SendRawEmail":
-			resp, opErr = h.handleSendRawEmail(vals, reqID)
-		default:
+		switch {
+		case errors.Is(opErr, errUnknownSESAction):
 			return h.writeError(c, reqID, http.StatusBadRequest, "InvalidAction",
 				fmt.Sprintf("%s is not a valid SES action", action))
-		}
-
-		if opErr != nil {
+		case opErr != nil:
 			return h.handleOpError(c, reqID, action, opErr)
 		}
 
@@ -197,6 +216,57 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		return c.Blob(http.StatusOK, "text/xml", xmlBytes)
+	}
+}
+
+// errUnknownSESAction is returned by dispatch when the action is not recognised.
+var errUnknownSESAction = errors.New("unknown SES action")
+
+// dispatch routes a parsed SES action to the appropriate handler.
+func (h *Handler) dispatch(vals url.Values, reqID, action string) (any, error) {
+	switch action {
+	case "VerifyEmailIdentity":
+		return h.handleVerifyEmailIdentity(vals, reqID)
+	case "DeleteIdentity":
+		return h.handleDeleteIdentity(vals, reqID), nil
+	case "ListIdentities":
+		return h.handleListIdentities(vals, reqID), nil
+	case "GetIdentityVerificationAttributes":
+		return h.handleGetIdentityVerificationAttributes(vals, reqID), nil
+	case "SendEmail":
+		return h.handleSendEmail(vals, reqID)
+	case "SendRawEmail":
+		return h.handleSendRawEmail(vals, reqID)
+	default:
+		return h.dispatchExtended(vals, reqID, action)
+	}
+}
+
+// dispatchExtended handles the template/config-set/stats operations.
+func (h *Handler) dispatchExtended(vals url.Values, reqID, action string) (any, error) {
+	switch action {
+	case "CreateTemplate":
+		return h.handleCreateTemplate(vals, reqID)
+	case "UpdateTemplate":
+		return h.handleUpdateTemplate(vals, reqID)
+	case "GetTemplate":
+		return h.handleGetTemplate(vals, reqID)
+	case "ListTemplates":
+		return h.handleListTemplates(vals, reqID), nil
+	case "DeleteTemplate":
+		return h.handleDeleteTemplate(vals, reqID), nil
+	case "CreateConfigurationSet":
+		return h.handleCreateConfigurationSet(vals, reqID)
+	case "DeleteConfigurationSet":
+		return h.handleDeleteConfigurationSet(vals, reqID)
+	case "ListConfigurationSets":
+		return h.handleListConfigurationSets(vals, reqID), nil
+	case "GetSendQuota":
+		return h.handleGetSendQuota(reqID), nil
+	case "GetSendStatistics":
+		return h.handleGetSendStatistics(reqID), nil
+	default:
+		return nil, errUnknownSESAction
 	}
 }
 
@@ -318,6 +388,190 @@ func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error)
 	}, nil
 }
 
+// ---- template action handlers ----
+
+func (h *Handler) handleCreateTemplate(vals url.Values, reqID string) (any, error) {
+	tmpl := EmailTemplate{
+		TemplateName: vals.Get("Template.TemplateName"),
+		SubjectPart:  vals.Get("Template.SubjectPart"),
+		TextPart:     vals.Get("Template.TextPart"),
+		HTMLPart:     vals.Get("Template.HTMLPart"),
+	}
+
+	if err := h.Backend.CreateTemplate(tmpl); err != nil {
+		return nil, err
+	}
+
+	return &createTemplateResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleUpdateTemplate(vals url.Values, reqID string) (any, error) {
+	tmpl := EmailTemplate{
+		TemplateName: vals.Get("Template.TemplateName"),
+		SubjectPart:  vals.Get("Template.SubjectPart"),
+		TextPart:     vals.Get("Template.TextPart"),
+		HTMLPart:     vals.Get("Template.HTMLPart"),
+	}
+
+	if err := h.Backend.UpdateTemplate(tmpl); err != nil {
+		return nil, err
+	}
+
+	return &updateTemplateResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleGetTemplate(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("TemplateName")
+
+	tmpl, err := h.Backend.GetTemplate(name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getTemplateResponse{
+		Xmlns: sesXMLNS,
+		Result: getTemplateResult{
+			Template: xmlTemplate(tmpl),
+		},
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleListTemplates(vals url.Values, reqID string) any {
+	nextToken := vals.Get("NextToken")
+	maxItems := 0
+
+	if s := vals.Get("MaxItems"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			maxItems = n
+		}
+	}
+
+	p := h.Backend.ListTemplates(nextToken, maxItems)
+	members := make([]xmlMember, 0, len(p.Data))
+
+	for _, name := range p.Data {
+		members = append(members, xmlMember{Value: name})
+	}
+
+	return &listTemplatesResponse{
+		Xmlns: sesXMLNS,
+		Result: listTemplatesResult{
+			TemplatesMetadata: xmlMemberList{Members: members},
+			NextToken:         p.Next,
+		},
+		RequestID: reqID,
+	}
+}
+
+func (h *Handler) handleDeleteTemplate(vals url.Values, reqID string) any {
+	name := vals.Get("TemplateName")
+
+	h.Backend.DeleteTemplate(name)
+
+	return &deleteTemplateResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}
+}
+
+// ---- configuration set action handlers ----
+
+func (h *Handler) handleCreateConfigurationSet(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("ConfigurationSet.Name")
+
+	if err := h.Backend.CreateConfigurationSet(name); err != nil {
+		return nil, err
+	}
+
+	return &createConfigurationSetResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleDeleteConfigurationSet(vals url.Values, reqID string) (any, error) {
+	name := vals.Get("ConfigurationSetName")
+
+	if err := h.Backend.DeleteConfigurationSet(name); err != nil {
+		return nil, err
+	}
+
+	return &deleteConfigurationSetResponse{
+		Xmlns:     sesXMLNS,
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleListConfigurationSets(vals url.Values, reqID string) any {
+	nextToken := vals.Get("NextToken")
+	maxItems := 0
+
+	if s := vals.Get("MaxItems"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			maxItems = n
+		}
+	}
+
+	p := h.Backend.ListConfigurationSets(nextToken, maxItems)
+	members := make([]xmlMember, 0, len(p.Data))
+
+	for _, name := range p.Data {
+		members = append(members, xmlMember{Value: name})
+	}
+
+	return &listConfigurationSetsResponse{
+		Xmlns: sesXMLNS,
+		Result: listConfigurationSetsResult{
+			ConfigurationSets: xmlMemberList{Members: members},
+			NextToken:         p.Next,
+		},
+		RequestID: reqID,
+	}
+}
+
+// ---- send quota / statistics action handlers ----
+
+func (h *Handler) handleGetSendQuota(reqID string) any {
+	q := h.Backend.GetSendQuota()
+
+	return &getSendQuotaResponse{
+		Xmlns:     sesXMLNS,
+		Result:    getSendQuotaResult(q),
+		RequestID: reqID,
+	}
+}
+
+func (h *Handler) handleGetSendStatistics(reqID string) any {
+	points := h.Backend.GetSendStatistics()
+
+	members := make([]xmlSendDataPoint, 0, len(points))
+
+	for _, p := range points {
+		members = append(members, xmlSendDataPoint{
+			Timestamp:        p.Timestamp.UTC().Format(time.RFC3339),
+			DeliveryAttempts: p.DeliveryAttempts,
+			Bounces:          p.Bounces,
+			Complaints:       p.Complaints,
+			Rejects:          p.Rejects,
+		})
+	}
+
+	return &getSendStatisticsResponse{
+		Xmlns: sesXMLNS,
+		Result: getSendStatisticsResult{
+			SendDataPoints: xmlSendDataPointList{Members: members},
+		},
+		RequestID: reqID,
+	}
+}
+
 // ---- error handling ----
 
 func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr error) error {
@@ -332,6 +586,14 @@ func (h *Handler) handleOpError(c *echo.Context, reqID, action string, opErr err
 		code = "InvalidParameterValue"
 	case errors.Is(opErr, ErrMessageRejected):
 		code = "MessageRejected"
+	case errors.Is(opErr, ErrTemplateNotFound):
+		code = "TemplateDoesNotExist"
+	case errors.Is(opErr, ErrTemplateExists):
+		code = "AlreadyExists"
+	case errors.Is(opErr, ErrConfigSetNotFound):
+		code = "ConfigurationSetDoesNotExist"
+	case errors.Is(opErr, ErrConfigSetExists):
+		code = "ConfigurationSetAlreadyExists"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
@@ -476,4 +738,118 @@ func parseSESMemberList(vals url.Values, prefix string) []string {
 		}
 		result = append(result, v)
 	}
+}
+
+// ---- template XML types ----
+
+type xmlTemplate struct {
+	TemplateName string `xml:"TemplateName"`
+	SubjectPart  string `xml:"SubjectPart,omitempty"`
+	TextPart     string `xml:"TextPart,omitempty"`
+	HTMLPart     string `xml:"HTMLPart,omitempty"`
+}
+
+type createTemplateResponse struct {
+	XMLName   xml.Name `xml:"CreateTemplateResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type updateTemplateResponse struct {
+	XMLName   xml.Name `xml:"UpdateTemplateResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type getTemplateResult struct {
+	Template xmlTemplate `xml:"Template"`
+}
+
+type getTemplateResponse struct {
+	XMLName   xml.Name          `xml:"GetTemplateResponse"`
+	Xmlns     string            `xml:"xmlns,attr"`
+	Result    getTemplateResult `xml:"GetTemplateResult"`
+	RequestID string            `xml:"ResponseMetadata>RequestId"`
+}
+
+type listTemplatesResult struct {
+	NextToken         string        `xml:"NextToken,omitempty"`
+	TemplatesMetadata xmlMemberList `xml:"TemplatesMetadata"`
+}
+
+type listTemplatesResponse struct {
+	XMLName   xml.Name            `xml:"ListTemplatesResponse"`
+	Xmlns     string              `xml:"xmlns,attr"`
+	RequestID string              `xml:"ResponseMetadata>RequestId"`
+	Result    listTemplatesResult `xml:"ListTemplatesResult"`
+}
+
+type deleteTemplateResponse struct {
+	XMLName   xml.Name `xml:"DeleteTemplateResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+// ---- configuration set XML types ----
+
+type createConfigurationSetResponse struct {
+	XMLName   xml.Name `xml:"CreateConfigurationSetResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type deleteConfigurationSetResponse struct {
+	XMLName   xml.Name `xml:"DeleteConfigurationSetResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"ResponseMetadata>RequestId"`
+}
+
+type listConfigurationSetsResult struct {
+	NextToken         string        `xml:"NextToken,omitempty"`
+	ConfigurationSets xmlMemberList `xml:"ConfigurationSets"`
+}
+
+type listConfigurationSetsResponse struct {
+	XMLName   xml.Name                    `xml:"ListConfigurationSetsResponse"`
+	Xmlns     string                      `xml:"xmlns,attr"`
+	RequestID string                      `xml:"ResponseMetadata>RequestId"`
+	Result    listConfigurationSetsResult `xml:"ListConfigurationSetsResult"`
+}
+
+// ---- send quota / statistics XML types ----
+
+type getSendQuotaResult struct {
+	Max24HourSend   float64 `xml:"Max24HourSend"`
+	MaxSendRate     float64 `xml:"MaxSendRate"`
+	SentLast24Hours float64 `xml:"SentLast24Hours"`
+}
+
+type getSendQuotaResponse struct {
+	XMLName   xml.Name           `xml:"GetSendQuotaResponse"`
+	Xmlns     string             `xml:"xmlns,attr"`
+	RequestID string             `xml:"ResponseMetadata>RequestId"`
+	Result    getSendQuotaResult `xml:"GetSendQuotaResult"`
+}
+
+type xmlSendDataPoint struct {
+	Timestamp        string  `xml:"Timestamp"`
+	DeliveryAttempts float64 `xml:"DeliveryAttempts"`
+	Bounces          float64 `xml:"Bounces"`
+	Complaints       float64 `xml:"Complaints"`
+	Rejects          float64 `xml:"Rejects"`
+}
+
+type xmlSendDataPointList struct {
+	Members []xmlSendDataPoint `xml:"member"`
+}
+
+type getSendStatisticsResult struct {
+	SendDataPoints xmlSendDataPointList `xml:"SendDataPoints"`
+}
+
+type getSendStatisticsResponse struct {
+	XMLName   xml.Name                `xml:"GetSendStatisticsResponse"`
+	Xmlns     string                  `xml:"xmlns,attr"`
+	RequestID string                  `xml:"ResponseMetadata>RequestId"`
+	Result    getSendStatisticsResult `xml:"GetSendStatisticsResult"`
 }

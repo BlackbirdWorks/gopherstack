@@ -15,15 +15,28 @@ import (
 
 // Errors returned by the SES backend.
 var (
-	ErrIdentityNotFound = errors.New("IdentityNotFound")
-	ErrEmailNotFound    = errors.New("EmailNotFound")
-	ErrInvalidParameter = errors.New("InvalidParameterValue")
-	ErrMessageRejected  = errors.New("MessageRejected")
+	ErrIdentityNotFound  = errors.New("IdentityNotFound")
+	ErrEmailNotFound     = errors.New("EmailNotFound")
+	ErrInvalidParameter  = errors.New("InvalidParameterValue")
+	ErrMessageRejected   = errors.New("MessageRejected")
+	ErrTemplateNotFound  = errors.New("TemplateDoesNotExist")
+	ErrTemplateExists    = errors.New("AlreadyExists")
+	ErrConfigSetNotFound = errors.New("ConfigurationSetDoesNotExist")
+	ErrConfigSetExists   = errors.New("ConfigurationSetAlreadyExists")
 )
 
 // maxRetainedEmails is the maximum number of sent emails retained in memory.
 // Oldest emails are evicted when the limit is exceeded.
 const maxRetainedEmails = 10000
+
+// defaultEmailTTL is the default time-to-live for retained emails.
+const defaultEmailTTL = 24 * time.Hour
+
+// maxSendQuota24Hours is the simulated 24-hour send quota returned by GetSendQuota.
+const maxSendQuota24Hours = 200
+
+// maxSendRate is the simulated max send rate (emails/second) returned by GetSendQuota.
+const maxSendRate = 1
 
 // Email captures a sent email for local inspection.
 type Email struct {
@@ -36,19 +49,56 @@ type Email struct {
 	To        []string  `json:"to"`
 }
 
-// InMemoryBackend is an in-memory store for SES emails and verified identities.
-type InMemoryBackend struct {
-	identities map[string]bool
-	mu         *lockmetrics.RWMutex
-	emails     []Email
+// EmailTemplate represents a stored SES email template.
+type EmailTemplate struct {
+	TemplateName string `json:"templateName"`
+	SubjectPart  string `json:"subjectPart"`
+	TextPart     string `json:"textPart"`
+	HTMLPart     string `json:"htmlPart"`
 }
 
-// NewInMemoryBackend creates a new InMemoryBackend.
+// InMemoryBackend is an in-memory store for SES emails, verified identities,
+// email templates, and configuration sets.
+type InMemoryBackend struct {
+	identities map[string]bool
+	emailsByID map[string]Email
+	templates  map[string]EmailTemplate
+	configSets map[string]struct{}
+	mu         *lockmetrics.RWMutex
+	emails     []Email
+	emailTTL   time.Duration
+}
+
+// NewInMemoryBackend creates a new InMemoryBackend with the default email TTL.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		identities: make(map[string]bool),
+		emailsByID: make(map[string]Email),
+		templates:  make(map[string]EmailTemplate),
+		configSets: make(map[string]struct{}),
+		emailTTL:   defaultEmailTTL,
 		mu:         lockmetrics.New("ses"),
 	}
+}
+
+// Reset clears all in-memory state, restoring the backend to its initial empty state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.identities = make(map[string]bool)
+	b.emails = nil
+	b.emailsByID = make(map[string]Email)
+	b.templates = make(map[string]EmailTemplate)
+	b.configSets = make(map[string]struct{})
+}
+
+// ttl returns the current email TTL under a read lock.
+func (b *InMemoryBackend) ttl() time.Duration {
+	b.mu.RLock("ttl")
+	defer b.mu.RUnlock()
+
+	return b.emailTTL
 }
 
 // VerifyEmailIdentity adds an identity (address or domain) and marks it as verified.
@@ -141,8 +191,14 @@ func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML,
 	}
 
 	b.emails = append(b.emails, email)
+	b.emailsByID[msgID] = email
 
 	if len(b.emails) > maxRetainedEmails {
+		evicted := b.emails[:len(b.emails)-maxRetainedEmails]
+		for _, ev := range evicted {
+			delete(b.emailsByID, ev.MessageID)
+		}
+
 		b.emails = b.emails[len(b.emails)-maxRetainedEmails:]
 	}
 
@@ -160,16 +216,218 @@ func (b *InMemoryBackend) ListEmails() []Email {
 	return out
 }
 
-// GetEmailByID returns the email with the given MessageID, or an error if not found.
+// GetEmailByID returns the email with the given MessageID in O(1) time, or an error if not found.
 func (b *InMemoryBackend) GetEmailByID(messageID string) (Email, error) {
 	b.mu.RLock("GetEmailByID")
 	defer b.mu.RUnlock()
 
-	for _, e := range b.emails {
-		if e.MessageID == messageID {
-			return e, nil
-		}
+	if e, ok := b.emailsByID[messageID]; ok {
+		return e, nil
 	}
 
 	return Email{}, fmt.Errorf("%w: %s", ErrEmailNotFound, messageID)
+}
+
+// sweepExpiredEmails removes emails older than emailTTL. Called by the janitor.
+// The caller must NOT hold the lock.
+func (b *InMemoryBackend) sweepExpiredEmails(cutoff time.Time) int {
+	b.mu.Lock("sweepExpiredEmails")
+	defer b.mu.Unlock()
+
+	first := 0
+
+	for first < len(b.emails) && b.emails[first].Timestamp.Before(cutoff) {
+		delete(b.emailsByID, b.emails[first].MessageID)
+		first++
+	}
+
+	if first == 0 {
+		return 0
+	}
+
+	b.emails = b.emails[first:]
+
+	return first
+}
+
+// ---- template operations ----
+
+// CreateTemplate stores a new email template. Returns ErrTemplateExists if the name is taken.
+func (b *InMemoryBackend) CreateTemplate(tmpl EmailTemplate) error {
+	if strings.TrimSpace(tmpl.TemplateName) == "" {
+		return fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateTemplate")
+	defer b.mu.Unlock()
+
+	if _, exists := b.templates[tmpl.TemplateName]; exists {
+		return fmt.Errorf("%w: template %s already exists", ErrTemplateExists, tmpl.TemplateName)
+	}
+
+	b.templates[tmpl.TemplateName] = tmpl
+
+	return nil
+}
+
+// UpdateTemplate overwrites an existing template. Returns ErrTemplateNotFound if it does not exist.
+func (b *InMemoryBackend) UpdateTemplate(tmpl EmailTemplate) error {
+	if strings.TrimSpace(tmpl.TemplateName) == "" {
+		return fmt.Errorf("%w: TemplateName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("UpdateTemplate")
+	defer b.mu.Unlock()
+
+	if _, exists := b.templates[tmpl.TemplateName]; !exists {
+		return fmt.Errorf("%w: %s", ErrTemplateNotFound, tmpl.TemplateName)
+	}
+
+	b.templates[tmpl.TemplateName] = tmpl
+
+	return nil
+}
+
+// GetTemplate returns the named template or ErrTemplateNotFound.
+func (b *InMemoryBackend) GetTemplate(name string) (EmailTemplate, error) {
+	b.mu.RLock("GetTemplate")
+	defer b.mu.RUnlock()
+
+	tmpl, ok := b.templates[name]
+	if !ok {
+		return EmailTemplate{}, fmt.Errorf("%w: %s", ErrTemplateNotFound, name)
+	}
+
+	return tmpl, nil
+}
+
+// DeleteTemplate removes the named template. Idempotent — missing template returns success.
+func (b *InMemoryBackend) DeleteTemplate(name string) {
+	b.mu.Lock("DeleteTemplate")
+	defer b.mu.Unlock()
+
+	delete(b.templates, name)
+}
+
+// ListTemplates returns template names sorted alphabetically, with pagination.
+func (b *InMemoryBackend) ListTemplates(nextToken string, maxItems int) page.Page[string] {
+	b.mu.RLock("ListTemplates")
+	defer b.mu.RUnlock()
+
+	names := make([]string, 0, len(b.templates))
+	for name := range b.templates {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return page.New(names, nextToken, maxItems, sesDefaultMaxItems)
+}
+
+// ---- configuration set operations ----
+
+// CreateConfigurationSet registers a new configuration set. Returns ErrConfigSetExists if it already exists.
+func (b *InMemoryBackend) CreateConfigurationSet(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("%w: ConfigurationSetName is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateConfigurationSet")
+	defer b.mu.Unlock()
+
+	if _, exists := b.configSets[name]; exists {
+		return fmt.Errorf("%w: configuration set %s already exists", ErrConfigSetExists, name)
+	}
+
+	b.configSets[name] = struct{}{}
+
+	return nil
+}
+
+// DeleteConfigurationSet removes a configuration set. Idempotent.
+func (b *InMemoryBackend) DeleteConfigurationSet(name string) error {
+	b.mu.Lock("DeleteConfigurationSet")
+	defer b.mu.Unlock()
+
+	if _, exists := b.configSets[name]; !exists {
+		return fmt.Errorf("%w: %s", ErrConfigSetNotFound, name)
+	}
+
+	delete(b.configSets, name)
+
+	return nil
+}
+
+// ListConfigurationSets returns configuration set names sorted alphabetically.
+func (b *InMemoryBackend) ListConfigurationSets(nextToken string, maxItems int) page.Page[string] {
+	b.mu.RLock("ListConfigurationSets")
+	defer b.mu.RUnlock()
+
+	names := make([]string, 0, len(b.configSets))
+	for name := range b.configSets {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return page.New(names, nextToken, maxItems, sesDefaultMaxItems)
+}
+
+// ---- send statistics / quota ----
+
+// SendQuota holds the simulated SES sending quota values.
+type SendQuota struct {
+	Max24HourSend   float64
+	MaxSendRate     float64
+	SentLast24Hours float64
+}
+
+// GetSendQuota returns simulated quota values.
+func (b *InMemoryBackend) GetSendQuota() SendQuota {
+	b.mu.RLock("GetSendQuota")
+	defer b.mu.RUnlock()
+
+	return SendQuota{
+		Max24HourSend:   maxSendQuota24Hours,
+		MaxSendRate:     maxSendRate,
+		SentLast24Hours: float64(len(b.emails)),
+	}
+}
+
+// SendDataPoint represents a single send statistics time bucket.
+type SendDataPoint struct {
+	Timestamp        time.Time `json:"timestamp"`
+	DeliveryAttempts float64   `json:"deliveryAttempts"`
+	Bounces          float64   `json:"bounces"`
+	Complaints       float64   `json:"complaints"`
+	Rejects          float64   `json:"rejects"`
+}
+
+// GetSendStatistics returns aggregated send data points (one per hour, last 14 days).
+func (b *InMemoryBackend) GetSendStatistics() []SendDataPoint {
+	b.mu.RLock("GetSendStatistics")
+	defer b.mu.RUnlock()
+
+	// Aggregate emails into hourly buckets.
+	buckets := make(map[time.Time]float64)
+
+	for _, e := range b.emails {
+		hour := e.Timestamp.UTC().Truncate(time.Hour)
+		buckets[hour]++
+	}
+
+	result := make([]SendDataPoint, 0, len(buckets))
+
+	for ts, count := range buckets {
+		result = append(result, SendDataPoint{
+			Timestamp:        ts,
+			DeliveryAttempts: count,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.Before(result[j].Timestamp)
+	})
+
+	return result
 }
