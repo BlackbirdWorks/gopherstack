@@ -33,6 +33,8 @@ func TestDashboard_SES_Index(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 
+		require.NoError(t, stack.SESHandler.Backend.VerifyEmailIdentity("sender@example.com"))
+
 		_, err := stack.SESHandler.Backend.SendEmail(
 			"sender@example.com",
 			[]string{"recv@example.com"},
@@ -86,6 +88,8 @@ func TestDashboard_SES_EmailDetail(t *testing.T) {
 	t.Run("view email detail", func(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
+
+		require.NoError(t, stack.SESHandler.Backend.VerifyEmailIdentity("sender@example.com"))
 
 		msgID, err := stack.SESHandler.Backend.SendEmail(
 			"sender@example.com",
@@ -214,7 +218,7 @@ func TestDashboard_SES_DeleteIdentity(t *testing.T) {
 		assert.NotContains(t, identities, "del@example.com")
 	})
 
-	t.Run("delete non-existent identity returns 404", func(t *testing.T) {
+	t.Run("delete non-existent identity is idempotent", func(t *testing.T) {
 		t.Parallel()
 		stack := newStack(t)
 
@@ -224,7 +228,7 @@ func TestDashboard_SES_DeleteIdentity(t *testing.T) {
 		w := httptest.NewRecorder()
 		serveHandler(stack.Dashboard, w, req)
 
-		assert.Equal(t, http.StatusNotFound, w.Code)
+		assert.Equal(t, http.StatusFound, w.Code)
 	})
 
 	t.Run("empty identity returns 400", func(t *testing.T) {

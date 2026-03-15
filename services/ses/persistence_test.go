@@ -71,3 +71,41 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	err := b.Restore([]byte("not-valid-json"))
 	require.Error(t, err)
 }
+
+func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
+	t.Parallel()
+
+	h := ses.NewHandler(ses.NewInMemoryBackend())
+	require.NoError(t, h.Backend.VerifyEmailIdentity("delegate@test.com"))
+
+	snap := h.Snapshot()
+	require.NotNil(t, snap)
+
+	h2 := ses.NewHandler(ses.NewInMemoryBackend())
+	require.NoError(t, h2.Restore(snap))
+
+	identities := h2.Backend.ListIdentities("", 0).Data
+	require.Len(t, identities, 1)
+	assert.Equal(t, "delegate@test.com", identities[0])
+}
+
+func TestInMemoryBackend_RestorePreservesEmails(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	require.NoError(t, b.VerifyEmailIdentity("persist@test.com"))
+
+	_, err := b.SendEmail("persist@test.com", []string{"to@test.com"}, "Test", "", "body")
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	fresh := ses.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(snap))
+
+	emails := fresh.ListEmails()
+	require.Len(t, emails, 1)
+	assert.Equal(t, "persist@test.com", emails[0].From)
+	assert.Equal(t, "Test", emails[0].Subject)
+}

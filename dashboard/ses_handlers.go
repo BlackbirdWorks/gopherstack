@@ -236,11 +236,7 @@ func (h *DashboardHandler) sesDeleteIdentity(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if err := h.SESOps.Backend.DeleteIdentity(identity); err != nil {
-		h.Logger.Error("failed to delete SES identity", "identity", identity, "error", err)
-
-		return c.NoContent(http.StatusNotFound)
-	}
+	h.SESOps.Backend.DeleteIdentity(identity)
 
 	return c.Redirect(http.StatusFound, "/dashboard/ses")
 }
