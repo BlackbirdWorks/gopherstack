@@ -3,659 +3,188 @@
 Comprehensive audit of all services comparing against LocalStack and real AWS behavior.
 Covers: resource leaks, memory leaks, race conditions, performance optimizations, missing features, and bugs.
 
----
-
-## Table of Contents
-
-1. [Critical Cross-Service Issues](#critical-cross-service-issues)
-2. [S3](#s3)
-3. [DynamoDB](#dynamodb)
-4. [SQS](#sqs)
-5. [SNS](#sns)
-6. [Lambda](#lambda)
-7. [IAM](#iam)
-8. [STS](#sts)
-9. [KMS](#kms)
-10. [Secrets Manager](#secrets-manager)
-11. [EventBridge](#eventbridge)
-12. [CloudWatch](#cloudwatch)
-13. [RDS](#rds)
-14. [EC2](#ec2)
-15. [ECS](#ecs)
-16. [Step Functions](#step-functions)
-17. [Kinesis](#kinesis)
-18. [CloudWatch Logs](#cloudwatch-logs)
-19. [CloudFormation](#cloudformation)
-20. [Cognito IDP](#cognito-idp)
-21. [Firehose](#firehose)
-22. [Route 53](#route-53)
-23. [AppSync](#appsync)
-24. [ElastiCache](#elasticache)
-25. [SSM (Systems Manager)](#ssm-systems-manager)
-26. [SES](#ses)
-27. [AWS Config](#aws-config)
-28. [API Gateway](#api-gateway)
-29. [ECR](#ecr)
-30. [Redshift](#redshift)
-31. [OpenSearch](#opensearch)
-32. [Batch](#batch)
-33. [Shared Packages](#shared-packages)
-34. [Summary Matrix](#summary-matrix)
+All findings have been filed as GitHub issues.
 
 ---
 
-## Critical Cross-Service Issues
+## Filed Issues
 
-### Persistence Layer — No fsync Before Rename
-- **Location:** `pkgs/persistence/file.go`
-- **Issue:** `FileStore.Save()` writes data to a temp file, closes it, and renames — but never calls `tmp.Sync()`. On power loss between Close and Rename, data may be lost or corrupted.
-- **Fix:** Add `tmp.Sync()` before `tmp.Close()`, and consider syncing the parent directory after rename to ensure the directory entry is persisted.
+### P0 — Immediate (production-breaking)
+- [#654](https://github.com/BlackbirdWorks/gopherstack/issues/654) SES VerifyEmailIdentity mutex hang
+- [#655](https://github.com/BlackbirdWorks/gopherstack/issues/655) Lambda container process leak on timeout
+- [#656](https://github.com/BlackbirdWorks/gopherstack/issues/656) ECS multi-container tracking bug
+- [#657](https://github.com/BlackbirdWorks/gopherstack/issues/657) Persistence FileStore.Save() missing fsync
+- [#658](https://github.com/BlackbirdWorks/gopherstack/issues/658) Firehose empty record panic and flush race
+- [#659](https://github.com/BlackbirdWorks/gopherstack/issues/659) CloudFormation DeleteStack memory leak
 
-### Lockmetrics — Prometheus Metric Leak
-- **Location:** `pkgs/lockmetrics/lockmetrics.go`
-- **Issue:** Every `RWMutex` creation registers Prometheus metrics. `Close()` removes from internal tracking but never unregisters from Prometheus. Long-running services with many table create/delete cycles accumulate thousands of leaked metric instances.
-- **Fix:** Cache Prometheus VecCollectors at package level; reuse by label set.
+### P1 — High (data loss / resource exhaustion)
+- [#660](https://github.com/BlackbirdWorks/gopherstack/issues/660) STS session tokens stored forever
+- [#661](https://github.com/BlackbirdWorks/gopherstack/issues/661) CloudWatch Logs unbounded event storage
+- [#662](https://github.com/BlackbirdWorks/gopherstack/issues/662) Kinesis records never expire
+- [#663](https://github.com/BlackbirdWorks/gopherstack/issues/663) Secrets Manager unbounded version accumulation
+- [#664](https://github.com/BlackbirdWorks/gopherstack/issues/664) EventBridge goroutine leak in delivery
+- [#665](https://github.com/BlackbirdWorks/gopherstack/issues/665) SNS HTTP delivery goroutine leak
+- [#666](https://github.com/BlackbirdWorks/gopherstack/issues/666) SES unbounded email storage
+- [#667](https://github.com/BlackbirdWorks/gopherstack/issues/667) EC2 ENI not cleaned on instance termination
+- [#688](https://github.com/BlackbirdWorks/gopherstack/issues/688) SSM unbounded parameter history
+- [#692](https://github.com/BlackbirdWorks/gopherstack/issues/692) ACM autoValidate goroutine leak and tags not persisted
+- [#693](https://github.com/BlackbirdWorks/gopherstack/issues/693) EKS nested map race — nil map panic
+- [#698](https://github.com/BlackbirdWorks/gopherstack/issues/698) DocumentDB tag cleanup missing on all delete paths
+- [#699](https://github.com/BlackbirdWorks/gopherstack/issues/699) Neptune DeleteDBCluster orphans instances
+- [#701](https://github.com/BlackbirdWorks/gopherstack/issues/701) Organizations missing cascading cleanup
+- [#711](https://github.com/BlackbirdWorks/gopherstack/issues/711) Kafka shared cluster pointer leaks
+- [#714](https://github.com/BlackbirdWorks/gopherstack/issues/714) IoT race condition in dispatchActions
+- [#713](https://github.com/BlackbirdWorks/gopherstack/issues/713) DMS data race in AddTagsToResource
+- [#720](https://github.com/BlackbirdWorks/gopherstack/issues/720) LakeFormation orphaned permissions on deregistration
+- [#723](https://github.com/BlackbirdWorks/gopherstack/issues/723) AppConfig tag memory leak and nil pointer dereference
+- [#722](https://github.com/BlackbirdWorks/gopherstack/issues/722) ServiceDiscovery orphaned instances on deletion
+- [#721](https://github.com/BlackbirdWorks/gopherstack/issues/721) TimestreamWrite tags memory leak on deletion
 
-### Handler ResponseWriter — Status Code Logic Bug
-- **Location:** `pkgs/handler/response_writer.go`
-- **Issue:** `statusCode` initialized to `http.StatusOK` (200) in constructor, so the `if w.statusCode == 0` check in `Write()` is dead code. If `Write()` is called without prior `WriteHeader()`, status tracking may be incorrect.
-- **Fix:** Initialize `statusCode` to 0 and handle the implicit 200 in `Write()`.
-
----
-
-## S3
-
-### Memory Leaks & Resource Issues
-- **Tag storage gaps:** Tags in `b.tags` not cleaned up on `CompleteMultipartUpload` failures or `UploadPart` failures — orphaned tag entries accumulate.
-
-### Race Conditions
-- **TOCTOU in PutObject:** Object retrieved under `bucket.mu`, then `obj.mu` acquired separately. Between these points another goroutine could modify the object.
-- **bucketIndex not atomic with buckets[region]:** Updated separately in `CreateBucket` — brief inconsistency possible if crash occurs between the two writes.
-
-### Performance
-- **Multipart parts linear search:** No index on part numbers — `ListParts` and `CompleteMultipartUpload` iterate all parts.
-- **ListBuckets sorting outside lock:** Concurrent `CreateBucket` during sort may produce inconsistent results.
-
-### Missing Features (vs LocalStack / AWS)
-- Object ACLs (`GetObjectAcl` returns 501)
-- Bucket tagging operations return 501
-- Request Payment, Intelligent-Tiering not implemented
-- Bucket policies stored but never evaluated/enforced
-- Object Lock retention only enforced on DELETE, not GET/PUT
-- Encryption config stored but objects not actually encrypted
-- Lifecycle tag filtering not supported; only Days-based, not Date-based expiration
-- Replication config stored but never executed
-- Logging config stored but no logs generated
-- Checksum values accepted but never computed or verified
-- Version ID format uses Unix nanoseconds instead of AWS random alphanumeric strings
-
----
-
-## DynamoDB
-
-### Memory Leaks
-- **Stream ring buffer:** `maxStreamRecords = 1000` limits count but no TTL. Heavy writes with deep copies on every mutation generate massive memory pressure. Slice reslicing pattern for eviction is allocation-heavy.
-- **Expression cache unbounded growth:** LRU cache has no TTL; entries persist indefinitely.
-
-### Race Conditions
-- **Shallow copy in Query/Scan:** Pointer snapshots taken but nested map/list attributes could be modified by concurrent writes before snapshot items are fully processed.
-- **Batch operations race:** `BatchGetItem` table structure could change during concurrent reads if `UpdateTable` runs.
-- **Transaction token cleanup incomplete:** `txnPending` entries not cleaned by janitor — only `txnTokens` are swept.
-
-### Performance
-- **Full index copy fallback:** Unknown PK values in query fall back to O(n) full index copy.
-- **Scan sort every call:** `sortScanResults()` sorts candidates on every scan — no caching for paginated scans.
-- **Batch goroutine overhead:** Single-table batch requests still spawn unnecessary goroutines.
-
-### Missing Features
-- No GSI backfill simulation when creating GSI on existing table
-- No GSI provisioning limits/throttling
-- Backup size calculated as `len(items) * 400` instead of actual item sizes
-- Point-in-time recovery flag present but not used for actual recovery
-- No encryption support (SSE-KMS, SSE-S3)
-- No DAX caching layer
-- PartiQL exists but not integrated
-- No Kinesis Data Streams export
-
----
-
-## SQS
-
-### Memory Leaks
-- **Unbounded deduplication IDs:** FIFO dedup IDs only pruned on `ReceiveMessage`, not on `SendMessage`. Send-only queues leak entries indefinitely.
-- **Queue notify channel never closed:** Buffered channel prevents full cleanup.
-
-### Bugs
-- **Missing WaitTimeSeconds validation:** Accepts unlimited wait times (should enforce 0–20s max per AWS) — potential DoS vector.
-- **Missing message size validation:** No enforcement of `MaximumMessageSize` (262,144 bytes).
-- **Batch response ordering:** `SendMessageBatch` response doesn't maintain input order.
-
-### Race Conditions
-- **Long-poll notify channel race:** Multiple concurrent receivers may miss notifications on shared buffered channel.
-- **ChangeMessageVisibility concurrent mutations:** Multiple threads modifying `InFlightMessage.VisibleAt` without full synchronization.
+### P2 — Medium (correctness / parity)
+- [#668](https://github.com/BlackbirdWorks/gopherstack/issues/668) SQS deduplication ID accumulation
+- [#669](https://github.com/BlackbirdWorks/gopherstack/issues/669) KMS key material leak
+- [#670](https://github.com/BlackbirdWorks/gopherstack/issues/670) IAM access key leak on user deletion
+- [#671](https://github.com/BlackbirdWorks/gopherstack/issues/671) CloudWatch alarm context leak
+- [#672](https://github.com/BlackbirdWorks/gopherstack/issues/672) Step Functions execution history unbounded
+- [#673](https://github.com/BlackbirdWorks/gopherstack/issues/673) RDS DNS deregistration race
+- [#674](https://github.com/BlackbirdWorks/gopherstack/issues/674) DynamoDB stream memory pressure
+- [#675](https://github.com/BlackbirdWorks/gopherstack/issues/675) Lambda race conditions and missing event sources
+- [#676](https://github.com/BlackbirdWorks/gopherstack/issues/676) Cognito IDP missing auth flows
+- [#677](https://github.com/BlackbirdWorks/gopherstack/issues/677) S3 missing features
+- [#678](https://github.com/BlackbirdWorks/gopherstack/issues/678) ECS task definition accumulation
+- [#679](https://github.com/BlackbirdWorks/gopherstack/issues/679) AppSync nil pointer and schema caching
+- [#680](https://github.com/BlackbirdWorks/gopherstack/issues/680) Route 53 DNS record leak
+- [#681](https://github.com/BlackbirdWorks/gopherstack/issues/681) AWS Config missing rules engine
+- [#682](https://github.com/BlackbirdWorks/gopherstack/issues/682) API Gateway resource tree orphaning
+- [#683](https://github.com/BlackbirdWorks/gopherstack/issues/683) ElastiCache miniredis instance leak
+- [#684](https://github.com/BlackbirdWorks/gopherstack/issues/684) OpenSearch silent error suppression
+- [#685](https://github.com/BlackbirdWorks/gopherstack/issues/685) Redshift missing state transitions
+- [#686](https://github.com/BlackbirdWorks/gopherstack/issues/686) ECR essentially non-functional
+- [#687](https://github.com/BlackbirdWorks/gopherstack/issues/687) Batch job execution non-functional
+- [#689](https://github.com/BlackbirdWorks/gopherstack/issues/689) Shared packages metric leak and panic risk
+- [#690](https://github.com/BlackbirdWorks/gopherstack/issues/690) ACM-PCA no persistence, shallow copy, missing CRL
+- [#691](https://github.com/BlackbirdWorks/gopherstack/issues/691) Scheduler tags race, no execution logic
+- [#694](https://github.com/BlackbirdWorks/gopherstack/issues/694) CloudTrail no event storage, EventSelectors copy bug
+- [#695](https://github.com/BlackbirdWorks/gopherstack/issues/695) CloudFront ETag race, missing invalidation tracking
+- [#696](https://github.com/BlackbirdWorks/gopherstack/issues/696) EFS lifecycle policy leak on deletion
+- [#697](https://github.com/BlackbirdWorks/gopherstack/issues/697) Backup plan deletion logic bug, jobs never complete
+- [#700](https://github.com/BlackbirdWorks/gopherstack/issues/700) WAFv2 O(n) ARN lookups, missing tag cleanup
+- [#703](https://github.com/BlackbirdWorks/gopherstack/issues/703) Shield O(n) duplicate detection, nil in UntagResource
+- [#704](https://github.com/BlackbirdWorks/gopherstack/issues/704) Athena nil pointer in UntagResource, empty query results
+- [#705](https://github.com/BlackbirdWorks/gopherstack/issues/705) Glue nil pointer in UntagResource, shallow copy leak
+- [#706](https://github.com/BlackbirdWorks/gopherstack/issues/706) SES v2 request body not closed, unbounded emails
+- [#707](https://github.com/BlackbirdWorks/gopherstack/issues/707) Cognito Identity silent crypto random failures
+- [#708](https://github.com/BlackbirdWorks/gopherstack/issues/708) Pipes O(n) ARN lookups
+- [#709](https://github.com/BlackbirdWorks/gopherstack/issues/709) Transfer silent JSON unmarshal errors
+- [#710](https://github.com/BlackbirdWorks/gopherstack/issues/710) MWAA missing environment status transitions
+- [#712](https://github.com/BlackbirdWorks/gopherstack/issues/712) IoT DataPlane missing shadow versioning
+- [#715](https://github.com/BlackbirdWorks/gopherstack/issues/715) CodePipeline O(n) ARN lookups
+- [#716](https://github.com/BlackbirdWorks/gopherstack/issues/716) CodeCommit O(n) ARN lookups
+- [#717](https://github.com/BlackbirdWorks/gopherstack/issues/717) CodeBuild orphaned builds on project deletion
+- [#718](https://github.com/BlackbirdWorks/gopherstack/issues/718) Glacier O(n) filtering, nil dereference
+- [#719](https://github.com/BlackbirdWorks/gopherstack/issues/719) QLDB O(n) ARN lookups, no tag cleanup
+- [#724](https://github.com/BlackbirdWorks/gopherstack/issues/724) TimestreamQuery all ARN operations O(n)
+- [#725](https://github.com/BlackbirdWorks/gopherstack/issues/725) EMR terminated clusters never removed
 
 ---
 
-## SNS
+## Services Audited
 
-### Resource Leaks
-- **HTTP delivery goroutine leak:** If `deliverHTTP` hangs indefinitely, semaphore slots never released. Repeated publishes exhaust goroutines.
-- **Untracked delivery goroutines:** Spawned without `WaitGroup`, orphaned on shutdown.
-- **Unbounded HTTP response body reading:** Large responses not bounded.
-
-### Bugs
-- **Silent delivery failures:** All HTTP errors ignored, no retry mechanism — violates AWS delivery semantics.
-- **Invalid context usage:** Uses `context.Background()` instead of request context for event emission.
-- **FilterPolicy JSON unbounded:** No size limits on JSON parsing — memory exhaustion possible.
-
-### Missing Features
-- FIFO topic support (deduplication, message groups)
-- Delivery retry policy
-- Dead-letter queue (redrive policy)
-- Message TTL / retention
-- SMS delivery
-- Email delivery
-- Platform endpoint actual invocation
-
----
-
-## Lambda
-
-### Resource Leaks (Critical)
-- **Container process leak on timeout:** Timed-out invocations leave Docker containers running, orphaned goroutines accumulate.
-- **Unbounded temp dirs:** Per-invocation zip extraction temp dirs only cleaned in `Close()`. Failed extractions leave dirs on disk.
-- **Docker container not stopped on failure:** If `startContainer` fails, container is abandoned.
-- **Unbounded runtimes map:** Each invoked function name creates a permanent entry — no LRU eviction.
-
-### Race Conditions
-- **Runtime server queue deadlock:** Buffered channel size 10 can block indefinitely on concurrent invokes.
-- **Pending invocations leak:** `sync.Map` unbounded, result channel send may panic if closed.
-- **Concurrency tracking race:** Check-then-increment not atomic — concurrent invokes slip through limits.
-
-### Bugs
-- **Async invocations silently dropped:** Queue full → message dropped (AWS queues indefinitely).
-- **Reserved concurrency 0 not enforced:** Event invocations bypass limit.
-
-### Missing Features
-- SQS / DynamoDB / S3 event source mappings (partial)
-- VPC execution
-- Custom ECR image support (incomplete)
-- SnapStart support
-- Async invocation DLQ
-- Code signing verification
-- Provisioned concurrency enforcement
-
----
-
-## IAM
-
-### Security Issues
-- **Access key secret generation:** Uses UUID (`uuid.New().String()`) instead of cryptographically secure 40-character random strings — reduces entropy.
-- **No login profile password validation:** Accepts empty passwords.
-- **Policy document JSON not validated:** Accepts malformed policy documents silently.
-
-### Memory Leaks
-- **User deletion doesn't clean access keys:** Access keys for deleted users remain in `b.accessKeys` indefinitely.
-- **Duplicate policy attachments:** `AttachUserPolicy` appends without dedup check — identical entries accumulate.
-
-### Missing Features
-- `AddRoleToInstanceProfile` not implemented — instance profiles non-functional
-- `GetSAMLProvider` / `ListSAMLProviders` not implemented
-- Missing group operations (`RemoveUserFromGroup`, `PutGroupPolicy`, `GetGroup`)
-- Permission boundaries stored but never enforced
-- No `GetAccountSummary` implementation
-
----
-
-## STS
-
-### Memory Leaks
-- **Session tokens stored forever:** `b.sessions` map has no expiration cleanup. Every `AssumeRole` call adds an entry that is never garbage-collected — OOM risk under sustained load.
-- **No token expiration enforcement:** `GetCallerIdentity` doesn't validate if session is expired.
-
-### Missing Features
-- `GetFederationToken` not implemented
-- `AssumeRoleWithSAML` / `AssumeRoleWithWebIdentity` not implemented
-- No session policy support — `Policy` field parsed but discarded
+| # | Service | Issues Filed | Key Findings |
+|---|---------|:---:|---|
+| 1 | S3 | #677 | Tag gaps, TOCTOU, missing bucket policy enforcement |
+| 2 | DynamoDB | #674 | Stream memory, txn token cleanup, missing GSI backfill |
+| 3 | SQS | #668 | Dedup ID accumulation, missing validations |
+| 4 | SNS | #665 | HTTP goroutine leak, silent failures, missing FIFO |
+| 5 | Lambda | #655, #675 | Container leak, race conditions, async drop |
+| 6 | IAM | #670 | Access key leak, missing group ops |
+| 7 | STS | #660 | Session tokens stored forever |
+| 8 | KMS | #669 | Key material leak, no rotation |
+| 9 | Secrets Manager | #663 | Unbounded versions, staging label race |
+| 10 | EventBridge | #664 | Goroutine leak, no DLQ |
+| 11 | CloudWatch | #671 | Alarm context leak, circular dependency |
+| 12 | RDS | #673 | DNS deregistration race |
+| 13 | EC2 | #667 | ENI leak on termination |
+| 14 | ECS | #656, #678 | Multi-container bug, task def accumulation |
+| 15 | Step Functions | #672 | Unbounded history, goroutine explosion |
+| 16 | Kinesis | #662 | Records never expire |
+| 17 | CloudWatch Logs | #661 | Unbounded events, no retention |
+| 18 | CloudFormation | #659 | DeleteStack leaks resources map |
+| 19 | Cognito IDP | #676 | Missing MFA, challenges, refresh tokens |
+| 20 | Firehose | #658 | Empty record panic, flush race |
+| 21 | Route 53 | #680 | DNS record leak, missing record types |
+| 22 | AppSync | #679 | Nil pointer, schema re-parsing |
+| 23 | ElastiCache | #683 | Miniredis instance leak |
+| 24 | SSM | #688 | Unbounded history, no command expiry |
+| 25 | SES | #654, #666 | Mutex hang, unbounded email storage |
+| 26 | AWS Config | #681 | Missing rules engine |
+| 27 | API Gateway | #682 | Resource tree orphaning |
+| 28 | ECR | #686 | Non-functional for image operations |
+| 29 | Redshift | #685 | Missing state transitions |
+| 30 | OpenSearch | #684 | Silent error suppression |
+| 31 | Batch | #687 | Job execution non-functional |
+| 32 | ACM | #692 | Goroutine leak, tags not persisted |
+| 33 | ACM-PCA | #690 | No persistence, missing CRL |
+| 34 | Scheduler | #691 | Tags race, no execution logic |
+| 35 | CloudFront | #695 | ETag race, missing invalidation |
+| 36 | CloudTrail | #694 | No event storage |
+| 37 | EKS | #693 | Nested map race — nil panic |
+| 38 | EFS | #696 | Lifecycle policy leak |
+| 39 | Backup | #697 | Deletion logic bug, jobs never complete |
+| 40 | DocumentDB | #698 | Tag cleanup missing on all deletes |
+| 41 | Neptune | #699 | Orphaned instances on cluster delete |
+| 42 | Organizations | #701 | Missing cascading cleanup |
+| 43 | WAFv2 | #700 | O(n) ARN lookups, no tag cleanup |
+| 44 | Glue | #705 | Nil pointer, shallow copy |
+| 45 | Athena | #704 | Nil pointer, empty query results |
+| 46 | Shield | #703 | O(n) duplicate detection |
+| 47 | SES v2 | #706 | Request body leak, unbounded emails |
+| 48 | Cognito Identity | #707 | Silent crypto random failures |
+| 49 | Pipes | #708 | O(n) ARN lookups |
+| 50 | Kafka (MSK) | #711 | Shared cluster pointer leaks |
+| 51 | Transfer | #709 | Silent JSON unmarshal errors |
+| 52 | MWAA | #710 | Missing status transitions |
+| 53 | IoT | #714 | Race in dispatchActions |
+| 54 | IoT DataPlane | #712 | Missing shadow versioning |
+| 55 | DMS | #713 | Tags data race, nil pointer |
+| 56 | CodeBuild | #717 | Orphaned builds, no deletion API |
+| 57 | CodePipeline | #715 | O(n) ARN lookups |
+| 58 | CodeCommit | #716 | O(n) ARN lookups |
+| 59 | QLDB | #719 | O(n) ARN lookups, no tag cleanup |
+| 60 | Glacier | #718 | O(n) filtering, nil dereference |
+| 61 | LakeFormation | #720 | Orphaned permissions |
+| 62 | AppConfig | #723 | Tag leak, nil pointer, panic |
+| 63 | ServiceDiscovery | #722 | Orphaned instances |
+| 64 | TimestreamWrite | #721 | Tags leak on deletion |
+| 65 | TimestreamQuery | #724 | All ARN ops O(n) |
+| 66 | EMR | #725 | Terminated clusters never removed |
+| 67 | Shared Packages | #689 | Prometheus leak, event panic, status code bug |
+| 68 | Persistence | #657 | Missing fsync before rename |
 
 ---
 
-## KMS
+## Cross-Cutting Patterns Found
 
-### Bugs
-- **Key material never rotated:** `EnableKeyRotation` / `DisableKeyRotation` defined but don't actually rotate keys.
-- **Encryption context not used:** AAD set to keyID only — custom encryption context from API ignored.
+### 1. Tag Cleanup on Deletion (Most Common Issue)
+Nearly every service fails to clean up tags when resources are deleted. Services with separate tag storage (`b.tags` map) are especially vulnerable. Affected: DocumentDB, Neptune, Organizations, AppConfig, ServiceDiscovery, TimestreamWrite, EFS, Backup, CodeBuild, QLDB, Glacier, EMR, and more.
 
-### Memory Leaks
-- **Key deletion doesn't purge key material:** `keyMaterials` map entry never deleted after deletion period — deleted keys accumulate indefinitely.
+### 2. O(n) ARN Lookups (Pervasive Performance Issue)
+Most services lack an ARN→resource reverse index. Tag operations, describe-by-ARN, and delete-by-ARN all do linear scans. Affected: CloudFront, CloudTrail, EKS, WAFv2, Shield, Pipes, MWAA, DMS, CodeBuild, CodePipeline, CodeCommit, QLDB, Glacier, TimestreamQuery, EMR, OpenSearch, ServiceDiscovery, and more.
 
-### Missing Features
-- `ImportKeyMaterial` / `DeleteImportedKeyMaterial`
-- Custom key stores
-- Multi-region key replication
-- Key policy enforcement (stored but never enforced)
-- Grant constraint validation
+### 3. Missing Persistence
+Several services lack Snapshot/Restore: ACM-PCA, DocumentDB, Amplify, ServiceDiscovery. State is completely lost on restart.
 
----
+### 4. Shallow Copy / Shared Pointer Leaks
+List operations in many services return direct pointers to internal state instead of deep copies. Callers can corrupt backend state. Affected: Kafka, Glue, EKS, and more.
 
-## Secrets Manager
-
-### Memory Leaks
-- **Secret versions never purged:** Every `PutSecretValue` adds a version — no maximum retention. Calling 1000× = 1000 versions in memory. `DeleteSecret` only marks deletion.
-
-### Bugs
-- **Staging label rotation bug:** `rotateStagingLabels` converts AWSCURRENT to AWSPREVIOUS but has an unused `newVersionID` parameter — old version temporarily shows as current during race.
-- **Secret ARN suffix generation race:** Suffix generated before lock acquired; two threads could generate the same random suffix. `rand.Read` failure returns hardcoded `"000000"`.
-- **No maximum secret size validation:** AWS limits to 64KB; gopherstack accepts arbitrarily large secrets.
-
-### Missing Features
-- Resource policies stubbed (stored but never evaluated)
-- No cross-region replication
-- No rotation Lambda retry on failure
-- `ListSecretVersionIds` not implemented
-
----
-
-## EventBridge
-
-### Resource Leaks
-- **Goroutine leak in event delivery:** If target service hangs, goroutine stays blocked. `Close()` calls `wg.Wait()` with no timeout — service shutdown hangs indefinitely.
-- **Unbounded `lastFired` map in scheduler:** Tracks all scheduled rule ARNs with cleanup only between ticks — orphaned entries from deleted rules accumulate.
-
-### Missing Features
-- No Dead-Letter Queues for failed delivery
-- No Event Replay / Archives
-- No partner event sources
-- No Input Transformer validation
-- No cross-account / cross-region routing
-
----
-
-## CloudWatch
-
-### Bugs
-- **Context leak in alarm actions:** `executeActions()` uses `context.Background()` instead of passed context. Lambda invocations cannot be cancelled during shutdown.
-- **Potential deadlock in `SetAlarmState`:** Lock released before action execution — between unlock and execution, other threads can modify alarms causing composite alarm inconsistency.
-- **No circular dependency detection:** Composite alarm A → B → A could loop infinitely with no recursion limit.
-
-### Memory Issues
-- **Unbounded metric storage:** Capped per-metric (1000 points) but no namespace-level limit and no time-based retention. Memory DoS via metric flooding possible.
-
-### Missing Features
-- Anomaly detection alarms
-- Full metric math expression support
-- Percentile statistics (p99, p99.9)
-- CloudWatch Logs metric filters integration
-- Alarm suppression / inhibition
-
----
-
-## RDS
-
-### Race Conditions
-- **DNS deregistration race:** `DeleteDBInstance` DNS deregistration happens after lock release. Another thread could create instance with same endpoint between delete and deregister.
-- **Tag mutation vulnerability:** `AddTagsToResource` modifies tag slice directly — concurrent `ListTagsForResource` could see partial updates.
-
-### Missing Features
-- `RestoreDBInstanceFromDBSnapshot` / `RestoreDBInstanceToPointInTime`
-- `CopyDBSnapshot`
-- Global database operations
-- Automated backup management / retention policies
-- Multi-AZ failover simulation
-- Performance Insights, database activity streams
-- IAM database authentication
-- RDS Proxy, Blue/Green deployments
-
----
-
-## EC2
-
-### Resource Leaks
-- **ENI not cleaned on instance termination:** `TerminateInstances()` only changes state to TERMINATED but does NOT delete associated ENIs. Long-running servers accumulate orphaned ENI objects.
-- **No secondary private IP cleanup:** `UnassignPrivateIPAddresses()` removes IPs from slice but doesn't reset allocation indices. `nextPrivateIPIndex` only increments.
-
-### Bugs
-- **No cascade cleanup for subnet/VPC deletion:** `DeleteSubnet()` and `DeleteVpc()` don't verify or clean up dependent resources (instances, ENIs, security groups, route tables).
-- **Tag operations on non-existent resources succeed silently.**
-
----
-
-## ECS
-
-### Resource Leaks (Critical)
-- **Docker container leak on error:** If container creation succeeds but `ContainerStart()` fails, the container is never removed.
-- **Multi-container tracking bug:** `containers` map uses `task.TaskArn` as key, but multiple containers per task share the same key — only last container tracked. `StopTask()` only stops the last container.
-- **No cascade cleanup on cluster deletion:** Docker containers continue running after ECS cluster deletion.
-
-### Memory Leaks
-- **Task definition revision accumulation:** All revisions stored indefinitely — no cleanup/archival. Memory grows linearly with updates.
-
----
-
-## Step Functions
-
-### Memory Leaks
-- **Execution history unbounded:** History events appended indefinitely with no limit. Long-running executions (>5K transitions) accumulate 10–20MB per execution. AWS limits to ~100K events.
-- **Tombstone cleanup only on normal exit:** Deleted state machines accumulate tombstones in `deletedExecs` map indefinitely.
-
-### Race Conditions
-- **Tag handler lock release before read:** `removeTags` releases RLock before reading tag data — use-after-free if concurrent delete.
-
-### Performance
-- **Quadratic goroutine explosion:** Deeply nested Parallel+Map states can spawn 2^N goroutines with no bound.
-- **Unbounded Map state semaphore:** No maximum for `MaxConcurrency` — ASL can allocate arbitrarily large channel buffers.
-
-### Missing Features
-- Activity task polling
-- Synchronous Express Execution Mode
-- State machine versioning
-- CloudWatch Logs / X-Ray integration
-
----
-
-## Kinesis
-
-### Memory Leaks
-- **Records never cleaned by retention period:** Records accumulate indefinitely despite `RetentionPeriod` field. AWS enforces 24-hour default.
-- **FIS throughput faults only cleaned per-stream:** No global cleanup — rapidly created/deleted streams leak fault entries.
-
-### Performance
-- **Shard trimming O(n) on every record at capacity:** `shard.Records[1:]` creates a new slice allocation for every `PutRecord` after 10K limit. Should use ring buffer.
-- **Linear sequence position search:** `findSequencePosition()` does O(n) scan through up to 10K records — should use binary search.
-
-### Missing Features
-- Retention period enforcement
-- Enhanced monitoring metrics (accepted but unused)
-- Full `SubscribeToShard` streaming response
-- Resharding status tracking
-
----
-
-## CloudWatch Logs
-
-### Memory Leaks
-- **Unbounded event storage:** Log streams grow indefinitely. No max events per stream, no total log group size limits, no age-based cleanup based on retention policy.
-- **Subscription filters stored indefinitely:** No cleanup on log group deletion.
-
-### Bugs
-- **Wrong query statistics:** `RecordsMatched` set to `len(allEvents)` after timestamp filtering — should track actual regex-matched records.
-- **Filter pattern matching too simple:** Uses `strings.Contains()` — AWS uses wildcard patterns like `[ERROR]` syntax.
-
-### Race Conditions
-- **TOCTOU in `StartQuery`:** RLock released, query executed unprotected, then write lock acquired. `b.events` could change between release and acquire.
-
-### Missing Features
-- Retention policy not enforced (accepted but never applied)
-- No metric filters / CloudWatch Metrics integration
-- Tags lost on persistence restore (stored separately from LogGroup struct)
-- Incomplete Insights query engine (no aggregation functions)
-- Single log group queries only (array parameter ignored)
-
----
-
-## CloudFormation
-
-### Memory Leaks (Critical)
-- **Resources map not deleted on stack deletion:** `DeleteStack()` iterates resources to delete them but never calls `delete(b.resources, stack.StackID)` — every deleted stack leaks its resources map entry.
-- **`stackIDIndex` never cleaned:** Deleted stack IDs accumulate indefinitely.
-- **Changeset map not cleaned on stack deletion.**
-- **Drift detections never pruned:** `driftDetections` map grows unbounded.
-
-### Bugs
-- **No rollback on provisioning failure:** `provisionResources` fails but doesn't delete partial resources already created.
-
-### Missing Features
-- No nested stack support
-- Change set diffs don't contain actual change details
-- Only ~161 of 350+ AWS resource types supported
-- Stack policies accepted but never enforced
-
----
-
-## Cognito IDP
-
-### Bugs
-- **No confirmation code validation:** `ConfirmSignUp` accepts any non-empty string as code.
-- **No password validation on ConfirmSignUp.**
-
-### Memory Leaks
-- **No refresh token tracking/validation:** Tokens issued but never stored for revocation.
-- **Users accumulate indefinitely:** No archival or deletion mechanism.
-
-### Missing Features (Major)
-- Refresh token flow (`REFRESH_TOKEN_AUTH`)
-- MFA support (TOTP, SMS, email OTP)
-- Challenge flows (`RespondToAuthChallenge`)
-- Device tracking
-- Group management (`CreateGroup`, `AdminAddUserToGroup`)
-- Identity providers (SAML, OAuth, OIDC)
-- Custom user attributes
-- Pre/post-auth Lambda triggers
-
----
-
-## Firehose
-
-### Bugs
-- **Buffer overflow:** `rec[len(rec)-1]` accessed without checking if `rec` is empty — will panic on empty byte slice.
-- **Lambda transform errors silently return original records:** Failed transformations go unnoticed.
-
-### Race Conditions
-- **Unlocked state during flush:** `PutRecord()` unlocks mutex BEFORE calling `flushStream()` — concurrent modifications possible during flush.
-- **`bufferSizeBytes` increment not atomic:** Concurrent puts may lose size increments, causing flush threshold misses.
-
-### Missing Features
-- Only S3 destinations — no HTTP endpoint, Splunk, DataDog
-- No record format conversion
-- No dynamic partitioning
-
----
-
-## Route 53
-
-### Bugs
-- **DNS record leak on zone delete:** If DNS registrar is nil at creation but set later, records created without registrar can't be cleaned.
-- **Health check status hardcoded to "Healthy":** No way to test failover scenarios.
-
-### Performance
-- **`ListResourceRecordSets` full sort every call:** O(n log n) for potentially large zones.
-- **Zone ID generation expensive:** `rand.Read()` called per character in loop.
-
-### Missing Features
-- Only A and CNAME have DNS registration — AAAA, MX, NS, SRV, TXT, CAA, PTR accepted but not registered
-- Weighted / Geolocation / Latency-based routing stored but not enforced
-- No traffic policy support
-- No query logging
-- No VPC associations for private zones
-
----
-
-## AppSync
-
-### Bugs
-- **Nil pointer dereference in data source lookup:** No nil check after map lookup in `graphql.go` — will panic if resolver references non-existent data source.
-- **Schema re-parsed on every GraphQL execution:** `gqlparser.LoadSchema()` called every time even if schema unchanged. Should cache parsed schema.
-- **VTL template errors silently return original value.**
-
-### Missing Features
-- HTTP / OpenSearch data source support (defined in models but not implemented)
-- WebSocket subscription support
-- Query result caching
-- Resolver pipeline support
-- Batch/async Lambda invocation
-- X-Ray tracing integration
-
----
-
-## ElastiCache
-
-### Resource Leaks
-- **Miniredis instance not closed on all error paths:** If `CreateClusterWithOptions` fails after miniredis started (e.g., parameter group check), the Redis instance leaks ports and memory.
-
-### Bugs
-- **Resource cleanup race in `CreateClusterWithOptions`:** Nested lock acquired after initial operation; if lock acquisition fails between unlock and `DeleteCluster`, double-delete error possible.
-- **Potential nil pointer in `ListTagsForResource`:** Multiple `clone()` calls on potentially nil Tags.
-
-### Missing Features
-- No automatic failover / primary-replica promotion
-- No multi-AZ support
-- No cluster scaling (horizontal or vertical)
-- No online resharding
-- No event notifications
-- No parameter group validation against family
-- No engine version upgrades
-- No maintenance window support
-
----
-
-## SSM (Systems Manager)
-
-### Memory Leaks
-- **Unbounded parameter history:** Every `PutParameter` appends a history entry with no size limit. AWS SSM limits to 100 versions per parameter.
-- **Expired commands never cleaned:** Commands have `ExpiresAfter` but no cleanup mechanism — `b.commands` and `b.commandInvocations` maps grow indefinitely.
-- **Document version accumulation:** Every `UpdateDocument` appends to version list with no limit.
-
-### Bugs
-- **Command status hardcoded to "Success":** Never changes regardless of execution.
-
-### Missing Features
-- Parameter version limit enforcement (AWS: 100 max)
-- Automatic command expiry cleanup
-- Parameter labels
-- Parameter change history with change reason
-
----
-
-## SES
-
-### Bugs (Critical)
-- **Mutex leak in `VerifyEmailIdentity`:** `b.mu.Lock()` and `b.mu.Unlock()` without `defer`. If an error occurs before Unlock, the mutex remains held indefinitely — **causes the entire SES service to hang**.
-
-### Memory Leaks
-- **Unbounded email storage:** `b.emails` slice grows indefinitely with every `SendEmail` — no size limit, no cleanup, no TTL. Persistence snapshot grows unbounded.
-
-### Performance
-- **O(n) `GetEmailByID`:** Linear search through all emails. Should use map for O(1) lookup.
-
-### Missing Features
-- Email templates (Create/Update/Get/List)
-- File attachments
-- Configuration sets
-- Bounce/complaint handling
-- Email authentication (DKIM/SPF)
-- Suppression list
-- Send statistics / quotas
-
----
-
-## AWS Config
-
-### Bugs
-- **No recorder state validation:** `StartConfigurationRecorder()` doesn't verify delivery channel exists. AWS requires at least one before starting.
-
-### Missing Features (Extensive)
-- Config rules evaluation engine
-- Aggregated view / aggregators
-- Conformance packs
-- Compliance tracking
-- Configuration items / resource config history
-- Remediation
-- Resource recording group filtering
-
----
-
-## API Gateway
-
-### Bugs
-- **Resource tree orphaning:** Deleting parent resources leaves children in `d.resources` as unreachable orphans.
-- **Method integration not mandatory:** Allows methods without integration — AWS returns error on invocation.
-
-### Missing Features
-- Request/response models and schemas
-- Request validators enforcement in proxying
-- Authorizer invocation (created but never called)
-- CORS support / gateway responses
-- Throttling / rate limiting
-- Usage plans / API keys
-- Caching configuration
-- Custom domain names
-- VPC links
-- OpenAPI/Swagger import
-
----
-
-## ECR
-
-### Bugs
-- **Silent JSON parsing error:** `json.Unmarshal` error explicitly ignored — malformed requests produce empty/default responses instead of validation errors.
-
-### Missing Features (Critical)
-- No image storage or management (PutImage, GetImage, ListImages, DescribeImages)
-- No image layer tracking
-- No image lifecycle policies
-- No image scanning
-- No tag mutability enforcement
-- ECR is essentially non-functional for actual image operations
-
----
-
-## Redshift
-
-### Bugs
-- **Missing cluster state transitions:** Clusters created with hardcoded `"available"` status — never transition through creating → available → deleting lifecycle.
-- **Unsafe DNS registrar cleanup:** `SetDNSRegistrar` uses Lock/Unlock without defer.
-
-### Missing Features
-- Cluster snapshots (Create/Restore/Delete/Describe)
-- Multiple node type support (always single hardcoded LEADER)
-- Parameter group management
-- Enhanced VPC routing
-- Cluster security groups
-
----
-
-## OpenSearch
-
-### Bugs
-- **Silent error suppression in tag operations:** `AddTags`, `RemoveTags`, and `ListTags` all silently ignore errors — client receives success even when domain doesn't exist.
-- **Hardcoded domain config:** `DescribeDomainConfig` returns fake values, not actual domain settings.
-
-### Performance
-- **O(n) domain lookup by ARN:** `findDomainByARN()` linear scan. Should use ARN → Domain map.
-- **TOCTOU in `ListDomainNames`:** Gets list then describes each separately — domain could be deleted between calls.
-
----
-
-## Batch
-
-### Missing Features (Critical)
-- **Job execution non-functional:** `SubmitJob` returns dummy response, `ListJobs`/`DescribeJobs` return empty. No job tracking, status transitions, or actual execution.
-- **No state persistence:** No `Snapshot()`/`Restore()` — all data lost on restart.
-- Job queue priority scheduling, dependencies, array jobs, timeouts, retry logic all missing.
-
----
-
-## Shared Packages
-
-### `pkgs/persistence` — Data Loss Risk
-- **No fsync before rename:** `FileStore.Save()` writes to temp file, closes, and renames without `Sync()`. Power loss can corrupt or lose data.
-
-### `pkgs/lockmetrics` — Metric Leak
-- **Prometheus metrics never unregistered:** Each `RWMutex` creates metrics; `Close()` only removes from tracking map. Long-running apps with dynamic resources leak thousands of metric instances.
-- **`WithLabelValues()` hot-loop overhead:** Hash lookup on every lock/unlock. Should cache label values.
-
-### `pkgs/handler` — Status Code Bug
-- **ResponseWriter:** `statusCode` initialized to 200, making the `if statusCode == 0` check in `Write()` dead code.
-
-### `pkgs/events` — Listener Panic Risk
-- **No panic recovery:** If a listener panics, the entire `Emit()` crashes. Should add recover wrapper.
-- **Inefficient unsubscribe:** `removeByID` uses `append([:i], [i+1:]...)` — should use in-place copy.
+### 5. Missing State Machine Transitions
+Many services create resources in final state (e.g., "available", "ACTIVE") without transitioning through creating → active → deleting lifecycle. Affected: Redshift, EKS, MWAA, Transfer, DMS, EMR, and more.
 
 ---
 
 ## Summary Matrix
 
-| Service | Resource Leaks | Memory Leaks | Race Conditions | Performance Issues | Missing Features |
+| Service | Resource Leaks | Memory Leaks | Race Conditions | Performance | Missing Features |
 |---------|:-:|:-:|:-:|:-:|:-:|
 | **S3** | ⚠️ | ⚠️ | ⚠️ | ⚠️ | 🔴 |
 | **DynamoDB** | — | 🔴 | ⚠️ | ⚠️ | ⚠️ |
@@ -688,44 +217,47 @@ Covers: resource leaks, memory leaks, race conditions, performance optimizations
 | **Redshift** | — | — | ⚠️ | — | 🔴 |
 | **OpenSearch** | — | — | ⚠️ | ⚠️ | ⚠️ |
 | **Batch** | — | ⚠️ | — | ⚠️ | 🔴 |
+| **ACM** | ⚠️ | ⚠️ | ⚠️ | — | ⚠️ |
+| **ACM-PCA** | — | — | ⚠️ | ⚠️ | 🔴 |
+| **Scheduler** | — | — | ⚠️ | — | 🔴 |
+| **CloudFront** | — | ⚠️ | ⚠️ | ⚠️ | 🔴 |
+| **CloudTrail** | — | — | ⚠️ | ⚠️ | 🔴 |
+| **EKS** | — | ⚠️ | 🔴 | ⚠️ | 🔴 |
+| **EFS** | — | ⚠️ | — | ⚠️ | ⚠️ |
+| **Backup** | — | ⚠️ | — | — | ⚠️ |
+| **DocumentDB** | — | 🔴 | ⚠️ | — | 🔴 |
+| **Neptune** | 🔴 | ⚠️ | ⚠️ | — | ⚠️ |
+| **Organizations** | — | 🔴 | — | ⚠️ | ⚠️ |
+| **WAFv2** | — | ⚠️ | — | 🔴 | 🔴 |
+| **Glue** | — | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
+| **Athena** | — | ⚠️ | — | ⚠️ | ⚠️ |
+| **Shield** | — | — | — | ⚠️ | ⚠️ |
+| **SES v2** | ⚠️ | ⚠️ | — | — | ⚠️ |
+| **Cognito Identity** | — | — | — | ⚠️ | ⚠️ |
+| **Pipes** | — | — | — | ⚠️ | ⚠️ |
+| **Kafka (MSK)** | — | 🔴 | ⚠️ | — | ⚠️ |
+| **Transfer** | — | — | — | — | ⚠️ |
+| **MWAA** | — | — | — | ⚠️ | ⚠️ |
+| **IoT** | — | — | 🔴 | ⚠️ | ⚠️ |
+| **IoT DataPlane** | — | — | — | ⚠️ | ⚠️ |
+| **DMS** | — | — | 🔴 | ⚠️ | ⚠️ |
+| **CodeBuild** | 🔴 | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
+| **CodePipeline** | — | — | ⚠️ | ⚠️ | ⚠️ |
+| **CodeCommit** | — | — | — | ⚠️ | — |
+| **QLDB** | — | ⚠️ | — | ⚠️ | — |
+| **Glacier** | — | ⚠️ | — | ⚠️ | — |
+| **LakeFormation** | — | 🔴 | — | ⚠️ | ⚠️ |
+| **AppConfig** | — | 🔴 | — | — | ⚠️ |
+| **ServiceDiscovery** | 🔴 | ⚠️ | — | 🔴 | ⚠️ |
+| **TimestreamWrite** | — | 🔴 | — | — | — |
+| **TimestreamQuery** | — | — | — | 🔴 | — |
+| **EMR** | — | ⚠️ | — | ⚠️ | — |
 | **Shared Pkgs** | — | ⚠️ | — | ⚠️ | — |
 
 **Legend:** 🔴 Critical | ⚠️ Moderate | — None/Minimal
 
-### Priority Fix Order
+---
 
-**P0 — Immediate (production-breaking):**
-1. SES `VerifyEmailIdentity` mutex hang (missing defer on mutex unlock)
-2. Lambda container process leaks on timeout
-3. ECS multi-container tracking bug (only last container tracked/stopped)
-4. CloudFormation `DeleteStack` resources map memory leak
-5. Firehose empty record panic (`rec[len(rec)-1]` without length check)
-6. Persistence `FileStore.Save()` missing fsync
-
-**P1 — High (data loss / resource exhaustion):**
-1. STS session tokens stored forever (no expiration cleanup)
-2. Kinesis records never expire despite retention period
-3. CloudWatch Logs unbounded event storage
-4. SSM unbounded parameter history growth
-5. Secrets Manager unbounded version accumulation
-6. EventBridge goroutine leak in delivery (no shutdown timeout)
-7. SNS HTTP delivery goroutine leak
-8. EC2 ENI not cleaned on instance termination
-
-**P2 — Medium (correctness / parity):**
-1. SQS deduplication ID accumulation
-2. DynamoDB transaction pending token cleanup
-3. CloudWatch composite alarm circular dependency detection
-4. CloudWatch alarm action context leak
-5. Cognito IDP missing auth flows (MFA, challenges, refresh tokens)
-6. API Gateway authorizer invocation
-7. Batch job execution implementation
-
-**P3 — Low (feature gaps for LocalStack parity):**
-1. S3 bucket policy enforcement
-2. S3 encryption implementation
-3. DynamoDB PartiQL integration
-4. SNS FIFO topic support
-5. Route 53 weighted/geo routing enforcement
-6. AppSync subscription support
-7. ECR image storage and management
+**Total Issues Filed:** 72 (issues #654–#725)
+**Services Audited:** 68 (including shared packages and persistence layer)
+**Audit Date:** 2026-03-15
