@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -39,6 +40,7 @@ const (
 // Handler is the Echo HTTP handler for STS operations.
 type Handler struct {
 	Backend StorageBackend
+	janitor *Janitor
 }
 
 // NewHandler creates a new STS handler with the given backend.
@@ -46,6 +48,25 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
 	}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+// The janitor periodically evicts expired sessions. interval=0 uses the default.
+func (h *Handler) WithJanitor(interval time.Duration) *Handler {
+	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
+		h.janitor = NewJanitor(memBackend, interval)
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if it is configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // Name returns the service name.

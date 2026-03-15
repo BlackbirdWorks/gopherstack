@@ -2,6 +2,7 @@ package sts
 
 import (
 	"encoding/xml"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 )
@@ -181,4 +182,6 @@ type SessionInfo struct {
 	SourceIdentity    string
 	Tags              []Tag
 	TransitiveTagKeys []string
+	// Expiration is the time at which this session expires and should be evicted.
+	Expiration time.Time
 }

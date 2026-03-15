@@ -205,6 +205,7 @@ func (b *InMemoryBackend) issueCredentials(input *AssumeRoleInput, duration int3
 		SourceIdentity:    input.SourceIdentity,
 		Tags:              input.Tags,
 		TransitiveTagKeys: input.TransitiveTagKeys,
+		Expiration:        expiration,
 	}
 
 	b.mu.Lock()
@@ -240,7 +241,7 @@ func (b *InMemoryBackend) GetCallerIdentity(accessKeyID string) (*GetCallerIdent
 		session, ok := b.sessions[accessKeyID]
 		b.mu.Unlock()
 
-		if ok {
+		if ok && (session.Expiration.IsZero() || time.Now().UTC().Before(session.Expiration)) {
 			return &GetCallerIdentityResponse{
 				Xmlns: STSNamespace,
 				GetCallerIdentityResult: GetCallerIdentityResult{
