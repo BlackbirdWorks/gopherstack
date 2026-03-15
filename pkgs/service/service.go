@@ -114,6 +114,14 @@ type BackgroundWorker interface {
 	StartWorker(ctx context.Context) error
 }
 
+// Shutdowner is an optional interface that services can implement to perform
+// cleanup of background goroutines and resources during graceful shutdown.
+// It is called after the HTTP server has stopped accepting new requests.
+// Services that do not implement this interface are silently skipped.
+type Shutdowner interface {
+	Shutdown(ctx context.Context)
+}
+
 // Resettable is an optional interface that services can implement to support
 // clearing all in-memory state without restarting the process. Used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.

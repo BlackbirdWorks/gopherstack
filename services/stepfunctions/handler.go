@@ -565,3 +565,14 @@ func (h *Handler) Reset() {
 		b.Reset()
 	}
 }
+
+// Shutdown implements service.Shutdowner.
+// It cancels all running execution goroutines and releases associated resources.
+func (h *Handler) Shutdown(_ context.Context) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Destroy()
+	}
+}
+
+// Ensure Handler implements service.Shutdowner at compile time.
+var _ service.Shutdowner = (*Handler)(nil)

@@ -698,3 +698,16 @@ func TestHandler_TagOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_Shutdown_ImplementsShutdowner(t *testing.T) {
+	t.Parallel()
+
+	backend := eventbridge.NewInMemoryBackend()
+	handler := eventbridge.NewHandler(backend)
+
+	// Verify the handler satisfies the Shutdowner interface.
+	var _ service.Shutdowner = handler
+
+	// Calling Shutdown should complete without blocking or panicking.
+	handler.Shutdown(t.Context())
+}

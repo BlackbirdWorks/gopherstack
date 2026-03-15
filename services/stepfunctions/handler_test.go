@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
 
@@ -903,6 +904,54 @@ func TestHandler_ValidateStateMachineDefinition(t *testing.T) {
 			} else {
 				assert.Empty(t, diag)
 			}
+		})
+	}
+}
+
+func TestHandler_Shutdown_CancelsRunningExecutions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{
+			name: "shutdown cancels execution goroutines",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			h, e := newSFNHandler(t)
+
+			// Verify the handler satisfies the Shutdowner interface.
+			var _ service.Shutdowner = h
+
+			// Create a state machine with a Wait state so the execution stays RUNNING.
+			waitStateDef := `{"StartAt":"W","States":{"W":{"Type":"Wait","Seconds":3600,"End":true}}}`
+			smRec := sfnPost(ctx, t, h, e, "CreateStateMachine", makeSMBody("test-sm", waitStateDef, ""))
+			require.Equal(t, http.StatusOK, smRec.Code)
+
+			var smResp struct {
+				StateMachineArn string `json:"stateMachineArn"`
+			}
+			require.NoError(t, json.Unmarshal(smRec.Body.Bytes(), &smResp))
+
+			// Start an execution.
+			execBody, err := json.Marshal(map[string]string{
+				"stateMachineArn": smResp.StateMachineArn,
+				"name":            "exec-1",
+				"input":           "{}",
+			})
+			require.NoError(t, err)
+
+			execRec := sfnPost(ctx, t, h, e, "StartExecution", string(execBody))
+			require.Equal(t, http.StatusOK, execRec.Code)
+
+			// Shutdown should cancel the long-running Wait execution and return promptly.
+			h.Shutdown(t.Context())
 		})
 	}
 }

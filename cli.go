@@ -1237,10 +1237,7 @@ func run(ctx context.Context, cli CLI) error {
 	}
 
 	runInitHooks(ctx, &cli, log)
-	// Shut down Lambda sub-servers after the main server exits to prevent resource leaks.
-	if closeFn := lambdaCloseFn(cli.lambdaHandler); closeFn != nil {
-		defer closeFn()
-	}
+	defer shutdownBackends(cli.lambdaHandler, services)
 
 	return startServer(ctx, cli.Port, e)
 }
@@ -1273,6 +1270,21 @@ func lambdaCloseFn(lambdaReg service.Registerable) func() {
 		defer cancel()
 		lambdaBk.Close(ctx)
 	}
+}
+
+// shutdownBackends shuts down the Lambda backend and any registered service that
+// implements service.Shutdowner. It is called via defer after the HTTP server has
+// stopped accepting requests so that background goroutines and resources are
+// cleaned up before the process exits.
+func shutdownBackends(lambdaHandler service.Registerable, services []service.Registerable) {
+	if closeFn := lambdaCloseFn(lambdaHandler); closeFn != nil {
+		closeFn()
+	}
+
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer shutCancel()
+
+	shutdownServices(shutCtx, services)
 }
 
 // wireDNSRegistrars connects DNS-aware backends to the embedded DNS server.
@@ -1893,6 +1905,20 @@ func startBackgroundWorkers(ctx context.Context, services []service.Registerable
 			if workerErr := worker.StartWorker(ctx); workerErr != nil {
 				log.ErrorContext(ctx, "failed to start background worker", "error", workerErr)
 			}
+		}
+	}
+}
+
+// shutdownServices calls Shutdown on every service that implements service.Shutdowner.
+// It is called after the HTTP server has stopped accepting new requests so that
+// background goroutines and held resources are cleaned up before the process exits.
+func shutdownServices(ctx context.Context, services []service.Registerable) {
+	log := logger.Load(ctx)
+
+	for _, svc := range services {
+		if s, ok := svc.(service.Shutdowner); ok {
+			log.InfoContext(ctx, "shutting down service", "service", svc.Name())
+			s.Shutdown(ctx)
 		}
 	}
 }
