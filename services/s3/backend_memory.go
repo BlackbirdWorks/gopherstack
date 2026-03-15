@@ -47,7 +47,7 @@ type InMemoryBackend struct {
 	buckets             map[string]map[string]*StoredBucket
 	bucketIndex         map[string]string // name → region for O(1) cross-region lookup
 	tags                map[string][]types.Tag
-	uploads             map[string]*StoredMultipartUpload
+	uploads             map[string]map[string]*StoredMultipartUpload // bucket → uploadID → upload
 	mu                  *lockmetrics.RWMutex
 	compressor          Compressor
 	defaultRegion       string
@@ -616,9 +616,28 @@ func (b *InMemoryBackend) DeleteObject(
 	}
 
 	bucket.mu.Lock("DeleteObject")
-	defer bucket.mu.Unlock()
+	out, err := b.deleteObjectLocked(bucket, *input.Key, input.VersionId)
+	bucket.mu.Unlock()
 
-	return b.deleteObjectLocked(bucket, *input.Key, input.VersionId)
+	if err != nil {
+		return nil, err
+	}
+
+	// Clean up tags for the deleted version (not when a delete marker is added).
+	if out.DeleteMarker == nil || !aws.ToBool(out.DeleteMarker) {
+		vid := NullVersion
+		if input.VersionId != nil && *input.VersionId != "" {
+			vid = *input.VersionId
+		}
+
+		b.mu.Lock("DeleteObject.tags")
+		if b.tags != nil {
+			delete(b.tags, fmt.Sprintf("%s/%s/%s", bucketName, *input.Key, vid))
+		}
+		b.mu.Unlock()
+	}
+
+	return out, nil
 }
 
 // deleteObjectLocked performs a single-object deletion assuming bucket.mu is
@@ -768,10 +787,11 @@ func (b *InMemoryBackend) DeleteObjects(
 
 	// Hold the bucket lock for the entire batch to avoid per-object lock churn
 	// when deleting thousands of objects.
+	var tagKeysToDelete []string
+
 	bucket.mu.Lock("DeleteObjects")
 	for _, obj := range input.Delete.Objects {
-		delOut, delErr := b.deleteObjectLocked(bucket, aws.ToString(obj.Key), obj.VersionId)
-
+		deleted, tagKey, delErr := b.deleteSingleObject(bucket, bucketName, obj)
 		if delErr != nil {
 			out.Errors = append(out.Errors, types.Error{
 				Key:     obj.Key,
@@ -782,22 +802,61 @@ func (b *InMemoryBackend) DeleteObjects(
 			continue
 		}
 
-		deleted := types.DeletedObject{
-			Key:       obj.Key,
-			VersionId: obj.VersionId,
-		}
-		if delOut.DeleteMarker != nil {
-			deleted.DeleteMarker = delOut.DeleteMarker
-		}
-		if delOut.VersionId != nil {
-			deleted.DeleteMarkerVersionId = delOut.VersionId
+		if tagKey != "" {
+			tagKeysToDelete = append(tagKeysToDelete, tagKey)
 		}
 
 		out.Deleted = append(out.Deleted, deleted)
 	}
 	bucket.mu.Unlock()
 
+	// Clean up tags after the bucket lock is released.
+	if len(tagKeysToDelete) > 0 {
+		b.mu.Lock("DeleteObjects.tags")
+		if b.tags != nil {
+			for _, k := range tagKeysToDelete {
+				delete(b.tags, k)
+			}
+		}
+		b.mu.Unlock()
+	}
+
 	return out, nil
+}
+
+// deleteSingleObject deletes one object from the bucket and returns the deleted record,
+// the tag key to clean up (if any), and any error. Must be called with bucket.mu held.
+func (b *InMemoryBackend) deleteSingleObject(
+	bucket *StoredBucket,
+	bucketName string,
+	obj types.ObjectIdentifier,
+) (types.DeletedObject, string, error) {
+	delOut, delErr := b.deleteObjectLocked(bucket, aws.ToString(obj.Key), obj.VersionId)
+	if delErr != nil {
+		return types.DeletedObject{}, "", delErr
+	}
+
+	tagKey := ""
+	if delOut.DeleteMarker == nil || !aws.ToBool(delOut.DeleteMarker) {
+		vid := NullVersion
+		if obj.VersionId != nil && *obj.VersionId != "" {
+			vid = *obj.VersionId
+		}
+		tagKey = fmt.Sprintf("%s/%s/%s", bucketName, aws.ToString(obj.Key), vid)
+	}
+
+	deleted := types.DeletedObject{
+		Key:       obj.Key,
+		VersionId: obj.VersionId,
+	}
+	if delOut.DeleteMarker != nil {
+		deleted.DeleteMarker = delOut.DeleteMarker
+	}
+	if delOut.VersionId != nil {
+		deleted.DeleteMarkerVersionId = delOut.VersionId
+	}
+
+	return deleted, tagKey, nil
 }
 
 func applyDelimiter(prefix, delimiter string, contents []types.Object) ([]types.Object, []types.CommonPrefix) {
@@ -871,12 +930,18 @@ func (b *InMemoryBackend) ListObjects(
 			continue
 		}
 
+		var checksumAlgos []types.ChecksumAlgorithm
+		if latest.ChecksumAlgorithm != "" {
+			checksumAlgos = []types.ChecksumAlgorithm{latest.ChecksumAlgorithm}
+		}
+
 		contents = append(contents, types.Object{
-			Key:          aws.String(latest.Key),
-			LastModified: aws.Time(latest.LastModified),
-			ETag:         aws.String(latest.ETag),
-			Size:         aws.Int64(latest.Size),
-			StorageClass: types.ObjectStorageClassStandard,
+			Key:               aws.String(latest.Key),
+			LastModified:      aws.Time(latest.LastModified),
+			ETag:              aws.String(latest.ETag),
+			Size:              aws.Int64(latest.Size),
+			StorageClass:      types.ObjectStorageClassStandard,
+			ChecksumAlgorithm: checksumAlgos,
 			Owner: &types.Owner{
 				ID:          aws.String("gopherstack"),
 				DisplayName: aws.String("gopherstack"),
@@ -948,45 +1013,71 @@ func (b *InMemoryBackend) ListObjectVersions(
 		return nil, err
 	}
 
-	bucket.mu.RLock("ListObjectVersions")
-	defer bucket.mu.RUnlock()
-
-	var versions []types.ObjectVersion
-	var deleteMarkers []types.DeleteMarkerEntry
 	prefix := aws.ToString(input.Prefix)
 
+	// Snapshot version metadata under lock to minimise lock hold time.
+	type versionSnapshot struct {
+		lastModified time.Time
+		key          string
+		versionID    string
+		etag         string
+		size         int64
+		isLatest     bool
+		deleted      bool
+	}
+
+	var snapshots []versionSnapshot
+
+	bucket.mu.RLock("ListObjectVersions")
 	for _, obj := range bucket.Objects {
 		if !strings.HasPrefix(obj.Key, prefix) {
 			continue
 		}
 
 		for _, v := range obj.Versions {
-			if v.Deleted {
-				deleteMarkers = append(deleteMarkers, types.DeleteMarkerEntry{
-					Key:          aws.String(v.Key),
-					VersionId:    aws.String(v.VersionID),
-					IsLatest:     aws.Bool(v.IsLatest),
-					LastModified: aws.Time(v.LastModified),
-					Owner: &types.Owner{
-						ID:          aws.String("gopherstack"),
-						DisplayName: aws.String("gopherstack"),
-					},
-				})
-			} else {
-				versions = append(versions, types.ObjectVersion{
-					Key:          aws.String(v.Key),
-					VersionId:    aws.String(v.VersionID),
-					IsLatest:     aws.Bool(v.IsLatest),
-					LastModified: aws.Time(v.LastModified),
-					ETag:         aws.String(v.ETag),
-					Size:         aws.Int64(v.Size),
-					StorageClass: types.ObjectVersionStorageClassStandard,
-					Owner: &types.Owner{
-						ID:          aws.String("gopherstack"),
-						DisplayName: aws.String("gopherstack"),
-					},
-				})
-			}
+			snapshots = append(snapshots, versionSnapshot{
+				key:          v.Key,
+				versionID:    v.VersionID,
+				etag:         v.ETag,
+				lastModified: v.LastModified,
+				size:         v.Size,
+				isLatest:     v.IsLatest,
+				deleted:      v.Deleted,
+			})
+		}
+	}
+	bucket.mu.RUnlock()
+
+	// Build the output outside the lock.
+	var versions []types.ObjectVersion
+	var deleteMarkers []types.DeleteMarkerEntry
+
+	for _, snap := range snapshots {
+		if snap.deleted {
+			deleteMarkers = append(deleteMarkers, types.DeleteMarkerEntry{
+				Key:          aws.String(snap.key),
+				VersionId:    aws.String(snap.versionID),
+				IsLatest:     aws.Bool(snap.isLatest),
+				LastModified: aws.Time(snap.lastModified),
+				Owner: &types.Owner{
+					ID:          aws.String("gopherstack"),
+					DisplayName: aws.String("gopherstack"),
+				},
+			})
+		} else {
+			versions = append(versions, types.ObjectVersion{
+				Key:          aws.String(snap.key),
+				VersionId:    aws.String(snap.versionID),
+				IsLatest:     aws.Bool(snap.isLatest),
+				LastModified: aws.Time(snap.lastModified),
+				ETag:         aws.String(snap.etag),
+				Size:         aws.Int64(snap.size),
+				StorageClass: types.ObjectVersionStorageClassStandard,
+				Owner: &types.Owner{
+					ID:          aws.String("gopherstack"),
+					DisplayName: aws.String("gopherstack"),
+				},
+			})
 		}
 	}
 
@@ -1236,15 +1327,20 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 
 	b.mu.Lock("CreateMultipartUpload")
 	if b.uploads == nil {
-		b.uploads = make(map[string]*StoredMultipartUpload)
+		b.uploads = make(map[string]map[string]*StoredMultipartUpload)
 	}
 
-	b.uploads[uploadID] = &StoredMultipartUpload{
+	if b.uploads[bucketName] == nil {
+		b.uploads[bucketName] = make(map[string]*StoredMultipartUpload)
+	}
+
+	b.uploads[bucketName][uploadID] = &StoredMultipartUpload{
 		UploadID:  uploadID,
 		Bucket:    bucketName,
 		Key:       key,
 		Parts:     make(map[int32]*StoredPart),
 		Initiated: time.Now().UTC(),
+		mu:        lockmetrics.New("s3.upload"),
 	}
 	b.mu.Unlock()
 
@@ -1261,6 +1357,7 @@ func (b *InMemoryBackend) UploadPart(
 ) (*s3.UploadPartOutput, error) {
 	uploadID := *input.UploadId
 	partNumber := *input.PartNumber
+	bucketName := aws.ToString(input.Bucket)
 
 	// 1. Read data outside the lock
 	data, err := io.ReadAll(input.Body)
@@ -1272,21 +1369,31 @@ func (b *InMemoryBackend) UploadPart(
 	hash := md5.Sum(data)
 	etag := fmt.Sprintf("%q", hex.EncodeToString(hash[:]))
 
-	// 2. Update upload state
-	b.mu.Lock("UploadPart")
-	defer b.mu.Unlock()
+	// 2. Find the upload using a read lock on the global map
+	b.mu.RLock("UploadPart")
+	upload := b.uploads[bucketName][uploadID] // reading nil map returns nil safely
+	b.mu.RUnlock()
 
-	upload, exists := b.uploads[uploadID]
-	if !exists {
+	if upload == nil {
 		return nil, ErrNoSuchUpload
 	}
 
+	// 3. Update the upload's part map under the per-upload lock only.
+	// Check closed first: AbortMultipartUpload or CompleteMultipartUpload may have
+	// invalidated this upload while we were reading the body.
+	upload.mu.Lock("UploadPart")
+	if upload.closed {
+		upload.mu.Unlock()
+
+		return nil, ErrNoSuchUpload
+	}
 	upload.Parts[partNumber] = &StoredPart{
 		PartNumber: partNumber,
 		ETag:       etag,
 		Size:       int64(len(data)),
 		Data:       data,
 	}
+	upload.mu.Unlock()
 
 	return &s3.UploadPartOutput{
 		ETag: aws.String(etag),
@@ -1301,49 +1408,31 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	bucketName := *input.Bucket
 	key := *input.Key
 
-	// 1. Get upload state
+	// 1. Read the upload pointer — we need it for assembly but don't consume
+	// the upload yet, since assembly may fail (e.g. ErrInvalidPart) and the
+	// caller should still be able to retry or abort.
 	b.mu.RLock("CompleteMultipartUpload")
-	upload, exists := b.uploads[uploadID]
+	upload := b.uploads[bucketName][uploadID] // nil map read returns nil safely
 	b.mu.RUnlock()
 
-	if !exists {
+	if upload == nil {
 		return nil, ErrNoSuchUpload
 	}
 
-	// 2. Reassemble data outside the lock
-	var data []byte
-	for _, part := range input.MultipartUpload.Parts {
-		pNum := *part.PartNumber
-		storedPart, ok := upload.Parts[pNum]
-		if !ok {
-			return nil, ErrInvalidPart
-		}
-		if *part.ETag != storedPart.ETag {
-			return nil, ErrInvalidPart
-		}
-		data = append(data, storedPart.Data...)
+	// 2. Assemble and compress data. If this fails, the upload is untouched and
+	// can be retried or aborted by the caller.
+	assembled, err := b.assembleMultipartData(upload, input)
+	if err != nil {
+		return nil, err
 	}
 
-	// Compress
-	var compressedData []byte
-	var isCompressed bool
-	if b.compressor != nil && (b.compressionMinBytes == 0 || len(data) >= b.compressionMinBytes) {
-		var err error
-		compressedData, err = b.compressor.Compress(data)
-		if err != nil {
-			return nil, err
-		}
-		isCompressed = true
-	} else {
-		compressedData = data
-		isCompressed = false
+	// 3. Atomically claim the upload: verify it is still present (wasn't aborted
+	// concurrently after step 1), mark it closed, and remove it from the index.
+	if claimErr := b.claimMultipartUpload(bucketName, uploadID); claimErr != nil {
+		return nil, claimErr
 	}
 
-	// ETag
-	hash := md5.Sum(data) //nolint:gosec // MD5 required
-	etag := fmt.Sprintf("%q", hex.EncodeToString(hash[:]))
-
-	// 3. Update bucket/object state
+	// 4. Update bucket/object state.
 	b.mu.RLock("CompleteMultipartUpload")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -1352,8 +1441,108 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, err
 	}
 
+	versionID := b.commitMultipartObject(bucket, key, assembled)
+
+	return &s3.CompleteMultipartUploadOutput{
+		Bucket:    input.Bucket,
+		Key:       input.Key,
+		ETag:      aws.String(assembled.etag),
+		VersionId: aws.String(versionID),
+	}, nil
+}
+
+// claimMultipartUpload atomically marks the upload as closed and removes it from
+// b.uploads under b.mu.Lock. Called by CompleteMultipartUpload after successful
+// assembly so that a concurrent AbortMultipartUpload cannot also succeed.
+func (b *InMemoryBackend) claimMultipartUpload(bucketName, uploadID string) error {
+	b.mu.Lock("CompleteMultipartUpload.claim")
+
+	upload := b.uploads[bucketName][uploadID] // nil map read returns nil safely
+	if upload == nil {
+		b.mu.Unlock()
+
+		return ErrNoSuchUpload
+	}
+
+	// Mark closed while holding b.mu to block concurrent UploadPart calls that
+	// already hold a pointer to this upload struct.
+	upload.mu.Lock("CompleteMultipartUpload.claim")
+	upload.closed = true
+	upload.mu.Unlock()
+
+	delete(b.uploads[bucketName], uploadID)
+	b.mu.Unlock()
+
+	return nil
+}
+
+// multipartAssemblyResult holds the results of assembleMultipartData.
+type multipartAssemblyResult struct {
+	etag           string
+	data           []byte
+	compressedData []byte
+	isCompressed   bool
+}
+
+// assembleMultipartData reads all parts under the per-upload read lock, assembles
+// the combined payload, compresses it, and returns the assembled result.
+func (b *InMemoryBackend) assembleMultipartData(
+	upload *StoredMultipartUpload,
+	input *s3.CompleteMultipartUploadInput,
+) (multipartAssemblyResult, error) {
+	var data []byte
+
+	upload.mu.RLock("CompleteMultipartUpload")
+	for _, part := range input.MultipartUpload.Parts {
+		pNum := *part.PartNumber
+		storedPart, ok := upload.Parts[pNum]
+		if !ok {
+			upload.mu.RUnlock()
+
+			return multipartAssemblyResult{}, ErrInvalidPart
+		}
+		if *part.ETag != storedPart.ETag {
+			upload.mu.RUnlock()
+
+			return multipartAssemblyResult{}, ErrInvalidPart
+		}
+		data = append(data, storedPart.Data...)
+	}
+	upload.mu.RUnlock()
+
+	var compressedData []byte
+	var isCompressed bool
+
+	if b.compressor != nil && (b.compressionMinBytes == 0 || len(data) >= b.compressionMinBytes) {
+		var compErr error
+		compressedData, compErr = b.compressor.Compress(data)
+		if compErr != nil {
+			return multipartAssemblyResult{}, compErr
+		}
+		isCompressed = true
+	} else {
+		compressedData = data
+	}
+
+	hash := md5.Sum(data) //nolint:gosec // MD5 required
+	etag := fmt.Sprintf("%q", hex.EncodeToString(hash[:]))
+
+	return multipartAssemblyResult{
+		data:           data,
+		compressedData: compressedData,
+		etag:           etag,
+		isCompressed:   isCompressed,
+	}, nil
+}
+
+// commitMultipartObject stores the assembled multipart data as an object version,
+// returning the new versionID. Acquires and releases bucket.mu internally.
+func (b *InMemoryBackend) commitMultipartObject(
+	bucket *StoredBucket,
+	key string,
+	assembled multipartAssemblyResult,
+) string {
 	bucket.mu.Lock("CompleteMultipartUpload")
-	defer bucket.mu.Unlock()
 
 	obj, exists := bucket.Objects[key]
 	if !exists {
@@ -1369,10 +1558,10 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	newVersion := &StoredObjectVersion{
 		VersionID:    versionID,
 		Key:          key,
-		Data:         compressedData,
-		IsCompressed: isCompressed,
-		Size:         int64(len(data)),
-		ETag:         etag,
+		Data:         assembled.compressedData,
+		IsCompressed: assembled.isCompressed,
+		Size:         int64(len(assembled.data)),
+		ETag:         assembled.etag,
 		LastModified: time.Now(),
 		IsLatest:     true,
 	}
@@ -1381,19 +1570,11 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		v.IsLatest = false
 	}
 	obj.Versions[versionID] = newVersion
-	obj.LatestVersionID = versionID // Update cache
+	obj.LatestVersionID = versionID
 
-	// Cleanup upload
-	b.mu.Lock("CompleteMultipartUpload")
-	delete(b.uploads, uploadID)
-	b.mu.Unlock()
+	bucket.mu.Unlock()
 
-	return &s3.CompleteMultipartUploadOutput{
-		Bucket:    input.Bucket,
-		Key:       input.Key,
-		ETag:      aws.String(etag),
-		VersionId: aws.String(versionID),
-	}, nil
+	return versionID
 }
 
 func (b *InMemoryBackend) AbortMultipartUpload(
@@ -1401,15 +1582,25 @@ func (b *InMemoryBackend) AbortMultipartUpload(
 	input *s3.AbortMultipartUploadInput,
 ) (*s3.AbortMultipartUploadOutput, error) {
 	uploadID := *input.UploadId
+	bucketName := aws.ToString(input.Bucket)
 
 	b.mu.Lock("AbortMultipartUpload")
-	defer b.mu.Unlock()
 
-	if _, exists := b.uploads[uploadID]; !exists {
+	upload := b.uploads[bucketName][uploadID]
+	if upload == nil {
+		b.mu.Unlock()
+
 		return nil, ErrNoSuchUpload
 	}
 
-	delete(b.uploads, uploadID)
+	// Mark closed while holding b.mu so concurrent UploadPart calls that already
+	// hold a pointer to this upload will observe the invalidation flag.
+	upload.mu.Lock("AbortMultipartUpload")
+	upload.closed = true
+	upload.mu.Unlock()
+
+	delete(b.uploads[bucketName], uploadID)
+	b.mu.Unlock()
 
 	return &s3.AbortMultipartUploadOutput{}, nil
 }
@@ -1431,11 +1622,7 @@ func (b *InMemoryBackend) ListMultipartUploads(
 	prefix := aws.ToString(input.Prefix)
 	var uploads []types.MultipartUpload
 
-	for _, u := range b.uploads {
-		if u.Bucket != bucketName {
-			continue
-		}
-
+	for _, u := range b.uploads[bucketName] {
 		if prefix != "" && !strings.HasPrefix(u.Key, prefix) {
 			continue
 		}
@@ -1468,15 +1655,17 @@ func (b *InMemoryBackend) ListParts(
 	input *s3.ListPartsInput,
 ) (*s3.ListPartsOutput, error) {
 	uploadID := aws.ToString(input.UploadId)
+	bucketName := aws.ToString(input.Bucket)
 
 	b.mu.RLock("ListParts")
-	defer b.mu.RUnlock()
+	upload := b.uploads[bucketName][uploadID] // reading nil map returns nil safely
+	b.mu.RUnlock()
 
-	upload, exists := b.uploads[uploadID]
-	if !exists {
+	if upload == nil {
 		return nil, ErrNoSuchUpload
 	}
 
+	upload.mu.RLock("ListParts")
 	partNumbers := make([]int32, 0, len(upload.Parts))
 	for pn := range upload.Parts {
 		partNumbers = append(partNumbers, pn)
@@ -1493,6 +1682,7 @@ func (b *InMemoryBackend) ListParts(
 			Size:       aws.Int64(p.Size),
 		})
 	}
+	upload.mu.RUnlock()
 
 	return &s3.ListPartsOutput{
 		Bucket:   input.Bucket,

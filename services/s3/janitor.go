@@ -192,11 +192,7 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 	}
 
 	// Purge in-progress multipart uploads that belong to this bucket.
-	for uploadID, upload := range b.uploads {
-		if upload.Bucket == name {
-			delete(b.uploads, uploadID)
-		}
-	}
+	delete(b.uploads, name)
 
 	// Purge per-object tags whose key is prefixed with "<bucketName>/".
 	prefix := name + "/"
@@ -329,11 +325,14 @@ func (j *Janitor) applyLifecycleRules(
 // evictExpiredObjects deletes objects from the bucket that match the prefix and
 // whose latest version was last modified before expireBefore.
 func (j *Janitor) evictExpiredObjects(bucket *StoredBucket, prefix string, expireBefore time.Time) int {
+	// Phase 1: Collect expired object keys under the bucket lock and evict them.
+	type evictedObject struct {
+		key string
+	}
+
+	var evicted []evictedObject
+
 	bucket.mu.Lock("S3Janitor.evictExpiredObjects")
-	defer bucket.mu.Unlock()
-
-	evicted := 0
-
 	for key, obj := range bucket.Objects {
 		if !strings.HasPrefix(key, prefix) {
 			continue
@@ -345,13 +344,45 @@ func (j *Janitor) evictExpiredObjects(bucket *StoredBucket, prefix string, expir
 		}
 
 		if !latestMod.After(expireBefore) {
+			evicted = append(evicted, evictedObject{key: key})
 			delete(bucket.Objects, key)
 			obj.mu.Close()
-			evicted++
 		}
 	}
+	bucket.mu.Unlock()
 
-	return evicted
+	if len(evicted) == 0 {
+		return 0
+	}
+
+	// Phase 2: Clean up tags for evicted objects. Must happen after releasing
+	// bucket.mu to preserve the lock ordering (b.mu must not be acquired while
+	// bucket.mu is held).
+	//
+	// Build a set of object-level prefixes ("bucket/key/") for all evicted keys.
+	// Then do a single O(totalTags) scan over b.tags, deriving each tag's object
+	// prefix via its last slash, and check against the set in O(1).
+	b := j.Backend
+	bucketPfx := bucket.Name + "/"
+	evictedPrefixes := make(map[string]struct{}, len(evicted))
+
+	for _, item := range evicted {
+		evictedPrefixes[bucketPfx+item.key+"/"] = struct{}{}
+	}
+
+	b.mu.Lock("S3Janitor.evictExpiredObjects.tags")
+	for k := range b.tags {
+		// Tag keys have the format "bucket/key/versionID".
+		// Derive the object prefix ("bucket/key/") by trimming after the last '/'.
+		if lastSlash := strings.LastIndex(k, "/"); lastSlash >= 0 {
+			if _, isEvicted := evictedPrefixes[k[:lastSlash+1]]; isEvicted {
+				delete(b.tags, k)
+			}
+		}
+	}
+	b.mu.Unlock()
+
+	return len(evicted)
 }
 
 // latestVersion returns the LastModified timestamp of the latest non-deleted

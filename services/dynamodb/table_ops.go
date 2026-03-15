@@ -97,6 +97,10 @@ func (db *InMemoryDB) CreateTable(
 
 	db.Tables[region][tableName] = newTable
 
+	if newTable.StreamARN != "" {
+		db.streamARNIndex[newTable.StreamARN] = newTable
+	}
+
 	rcu := int64(newTable.ProvisionedThroughput.ReadCapacityUnits)
 	wcu := int64(newTable.ProvisionedThroughput.WriteCapacityUnits)
 	db.throttler.SetTableCapacity(throttleKey(region, tableName), rcu, wcu)
@@ -225,6 +229,11 @@ func (db *InMemoryDB) DeleteTable(
 	}
 	db.deletingTables[region][tableName] = table
 	db.throttler.DeleteTable(throttleKey(region, tableName))
+
+	// Remove from stream ARN reverse index.
+	if table.StreamARN != "" {
+		delete(db.streamARNIndex, table.StreamARN)
+	}
 
 	// Capture state for return
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(table.GlobalSecondaryIndexes))
@@ -419,25 +428,59 @@ func (db *InMemoryDB) UpdateTable(
 		return nil, err
 	}
 
-	table.mu.Lock("UpdateTable")
-	defer table.mu.Unlock()
+	// Apply all table mutations under a single lock acquisition, then release
+	// before updating db-level state (stream ARN index, throttler) to minimize the
+	// table.mu critical section and avoid lock-ordering issues.
+	var (
+		oldStreamARN string
+		newStreamARN string
+		rcu          int64
+		wcu          int64
+		out          *dynamodb.UpdateTableOutput
+		region       = getRegionFromContext(ctx, db)
+	)
 
-	applyUpdateTableThroughput(table, input.ProvisionedThroughput)
-	applyUpdateTableAttrDefs(table, input.AttributeDefinitions)
-	applyGSIUpdates(table, input.GlobalSecondaryIndexUpdates)
-	db.applyStreamSpec(table, tableName, input.StreamSpecification)
+	if updateErr := func() error {
+		table.mu.Lock("UpdateTable")
+		defer table.mu.Unlock()
 
-	if replicaErr := applyReplicaUpdates(table, input.ReplicaUpdates); replicaErr != nil {
-		return nil, NewValidationException(replicaErr.Error())
+		applyUpdateTableThroughput(table, input.ProvisionedThroughput)
+		applyUpdateTableAttrDefs(table, input.AttributeDefinitions)
+		applyGSIUpdates(table, input.GlobalSecondaryIndexUpdates)
+		oldStreamARN, newStreamARN = db.applyStreamSpec(table, tableName, input.StreamSpecification)
+
+		if replicaErr := applyReplicaUpdates(table, input.ReplicaUpdates); replicaErr != nil {
+			return NewValidationException(replicaErr.Error())
+		}
+
+		rcu = int64(table.ProvisionedThroughput.ReadCapacityUnits)
+		wcu = int64(table.ProvisionedThroughput.WriteCapacityUnits)
+		out = buildUpdateTableOutput(input, table)
+
+		return nil
+	}(); updateErr != nil {
+		return nil, updateErr
 	}
 
-	// Update throttler with the (possibly new) throughput values.
-	region := getRegionFromContext(ctx, db)
-	rcu := int64(table.ProvisionedThroughput.ReadCapacityUnits)
-	wcu := int64(table.ProvisionedThroughput.WriteCapacityUnits)
+	// Update throttler outside table.mu: SetTableCapacity takes its own internal
+	// lock, so calling it inside the table lock would unnecessarily extend the
+	// critical section and increase contention with concurrent reads/writes.
 	db.throttler.SetTableCapacity(throttleKey(region, tableName), rcu, wcu)
 
-	return buildUpdateTableOutput(input, table), nil
+	// Update the stream ARN reverse index under db.mu (after the table lock has been
+	// released — never hold both table.mu and db.mu simultaneously to prevent deadlocks).
+	if oldStreamARN != newStreamARN {
+		db.mu.Lock("UpdateTable.streamARNIndex")
+		if oldStreamARN != "" {
+			delete(db.streamARNIndex, oldStreamARN)
+		}
+		if newStreamARN != "" {
+			db.streamARNIndex[newStreamARN] = table
+		}
+		db.mu.Unlock()
+	}
+
+	return out, nil
 }
 
 // applyReplicaUpdates processes Global Tables v2 replica create/delete actions.
@@ -594,10 +637,18 @@ func applyGSIDelete(table *Table, d *types.DeleteGlobalSecondaryIndexAction) {
 }
 
 // applyStreamSpec enables or disables streams on the table.
-func (db *InMemoryDB) applyStreamSpec(table *Table, tableName string, ss *types.StreamSpecification) {
+// Returns the old stream ARN (to remove from the index) and the new ARN (to add), so the caller
+// can update db.streamARNIndex under db.mu after releasing the table lock.
+func (db *InMemoryDB) applyStreamSpec(
+	table *Table,
+	tableName string,
+	ss *types.StreamSpecification,
+) (string, string) {
 	if ss == nil {
-		return
+		return "", ""
 	}
+
+	oldARN := table.StreamARN
 
 	if aws.ToBool(ss.StreamEnabled) {
 		table.StreamsEnabled = true
@@ -606,11 +657,15 @@ func (db *InMemoryDB) applyStreamSpec(table *Table, tableName string, ss *types.
 		if table.StreamARN == "" {
 			table.StreamARN = db.buildStreamARN(tableName)
 		}
-	} else {
-		table.StreamsEnabled = false
-		table.StreamViewType = ""
-		table.StreamARN = ""
+
+		return oldARN, table.StreamARN
 	}
+
+	table.StreamsEnabled = false
+	table.StreamViewType = ""
+	table.StreamARN = ""
+
+	return oldARN, ""
 }
 
 // buildUpdateTableOutput constructs the UpdateTable response from the current table state.

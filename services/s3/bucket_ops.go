@@ -518,8 +518,6 @@ func (h *S3Handler) listObjects(
 
 	seenPrefixes := make(map[string]struct{})
 	resp.Contents, resp.CommonPrefixes = h.mapObjectsToXML(
-		r,
-		bucketName,
 		objects,
 		prefix,
 		delimiter,
@@ -551,8 +549,6 @@ func (h *S3Handler) getBucketLocation(
 }
 
 func (h *S3Handler) mapObjectsToXML(
-	r *http.Request,
-	bucketName string,
 	objects []types.Object,
 	prefix, delimiter string,
 	seenPrefixes map[string]struct{},
@@ -571,46 +567,22 @@ func (h *S3Handler) mapObjectsToXML(
 			continue
 		}
 
-		ver, getErr := h.Backend.GetObject(r.Context(), &s3.GetObjectInput{
-			Bucket: aws.String(bucketName),
-			Key:    obj.Key,
-		})
-		if getErr != nil {
-			continue
+		checksumAlgo := ""
+		if len(obj.ChecksumAlgorithm) > 0 {
+			checksumAlgo = string(obj.ChecksumAlgorithm[0])
 		}
-		_ = ver.Body.Close()
 
 		contents = append(contents, ObjectXML{
-			Key:          key,
-			LastModified: obj.LastModified.Format(time.RFC3339),
-			Size:         *obj.Size,
-			ETag:         *ver.ETag,
-			StorageClass: storageStandard,
-			ChecksumAlgorithm: getChecksumAlgo(
-				ver.ChecksumCRC32,
-				ver.ChecksumCRC32C,
-				ver.ChecksumSHA1,
-				ver.ChecksumSHA256,
-			),
+			Key:               key,
+			LastModified:      obj.LastModified.Format(time.RFC3339),
+			Size:              *obj.Size,
+			ETag:              aws.ToString(obj.ETag),
+			StorageClass:      storageStandard,
+			ChecksumAlgorithm: checksumAlgo,
 		})
 	}
 
 	return contents, commonPrefixes
-}
-
-func getChecksumAlgo(crc32, crc32c, sha1, sha256 *string) string {
-	switch {
-	case crc32 != nil:
-		return checksumCRC32
-	case crc32c != nil:
-		return checksumCRC32C
-	case sha1 != nil:
-		return checksumSHA1
-	case sha256 != nil:
-		return checksumSHA256
-	default:
-		return ""
-	}
 }
 
 func (h *S3Handler) headBucket(

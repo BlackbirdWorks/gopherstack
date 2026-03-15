@@ -72,9 +72,14 @@ type StoredObjectVersion struct {
 type StoredMultipartUpload struct {
 	Initiated time.Time             `json:"initiated"`
 	Parts     map[int32]*StoredPart `json:"parts,omitempty"`
+	mu        *lockmetrics.RWMutex  `json:"-"`
 	UploadID  string                `json:"uploadID"`
 	Bucket    string                `json:"bucket"`
 	Key       string                `json:"key"`
+	// closed is set to true by AbortMultipartUpload or CompleteMultipartUpload
+	// before the upload is removed from the index, so that concurrent UploadPart
+	// calls that already hold a pointer to this struct can detect the invalidation.
+	closed bool `json:"-"`
 }
 
 // StoredPart represents a single part of a multipart upload.
