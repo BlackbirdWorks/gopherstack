@@ -69,8 +69,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	}
 
 	b.planARNIndex = make(map[string]string, len(b.plans))
+	b.planIDIndex = make(map[string]string, len(b.plans))
 	for name, p := range b.plans {
 		b.planARNIndex[p.BackupPlanArn] = name
+		b.planIDIndex[p.BackupPlanID] = name
 	}
 
 	return nil

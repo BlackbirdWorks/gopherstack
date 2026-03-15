@@ -81,6 +81,12 @@ func (j *Janitor) sweepCompletedBuilds(ctx context.Context) {
 			swept = append(swept, id)
 			delete(j.Backend.buildARNIndex, build.Arn)
 			delete(j.Backend.builds, id)
+			if proj := j.Backend.buildsByProject[build.ProjectName]; proj != nil {
+				delete(proj, id)
+				if len(proj) == 0 {
+					delete(j.Backend.buildsByProject, build.ProjectName)
+				}
+			}
 		}
 	}
 

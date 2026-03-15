@@ -136,6 +136,7 @@ func (b *InMemoryBackend) DeleteSchedule(name string) error {
 
 	delete(b.scheduleARNIndex, s.ARN)
 	delete(b.schedules, name)
+	s.Tags.Close()
 
 	return nil
 }

@@ -69,8 +69,9 @@ type Build struct {
 type InMemoryBackend struct {
 	projects        map[string]*Project
 	builds          map[string]*Build
-	projectARNIndex map[string]string // ARN → project name
-	buildARNIndex   map[string]string // ARN → build ID
+	buildsByProject map[string]map[string]struct{} // project name → set of build full IDs
+	projectARNIndex map[string]string              // ARN → project name
+	buildARNIndex   map[string]string              // ARN → build ID
 	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
@@ -81,6 +82,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		projects:        make(map[string]*Project),
 		builds:          make(map[string]*Build),
+		buildsByProject: make(map[string]map[string]struct{}),
 		projectARNIndex: make(map[string]string),
 		buildARNIndex:   make(map[string]string),
 		accountID:       accountID,
@@ -233,12 +235,14 @@ func (b *InMemoryBackend) DeleteProject(name string) error {
 	delete(b.projectARNIndex, p.Arn)
 	delete(b.projects, name)
 
-	for id, build := range b.builds {
-		if build.ProjectName == name {
-			delete(b.builds, id)
+	// Use the per-project build index for O(k) cleanup instead of O(n) scan.
+	for id := range b.buildsByProject[name] {
+		if build, ok2 := b.builds[id]; ok2 {
 			delete(b.buildARNIndex, build.Arn)
+			delete(b.builds, id)
 		}
 	}
+	delete(b.buildsByProject, name)
 
 	return nil
 }
@@ -277,6 +281,10 @@ func (b *InMemoryBackend) StartBuild(projectName string) (*Build, error) {
 	}
 	b.builds[fullID] = build
 	b.buildARNIndex[build.Arn] = fullID
+	if b.buildsByProject[projectName] == nil {
+		b.buildsByProject[projectName] = make(map[string]struct{})
+	}
+	b.buildsByProject[projectName][fullID] = struct{}{}
 
 	out := *build
 
@@ -331,12 +339,11 @@ func (b *InMemoryBackend) ListBuildsForProject(projectName string) ([]string, er
 		return nil, ErrNotFound
 	}
 
-	ids := make([]string, 0)
+	buildSet := b.buildsByProject[projectName]
+	ids := make([]string, 0, len(buildSet))
 
-	for id, build := range b.builds {
-		if build.ProjectName == projectName {
-			ids = append(ids, id)
-		}
+	for id := range buildSet {
+		ids = append(ids, id)
 	}
 
 	return ids, nil

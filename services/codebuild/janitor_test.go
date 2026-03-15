@@ -147,11 +147,14 @@ func TestDeleteProject_CleanupBuilds(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, backend.BuildCount(), "should have 2 builds before delete")
+	assert.Equal(t, 2, backend.BuildsByProjectSize("proj"), "project index should have 2 before delete")
 
 	err = backend.DeleteProject("proj")
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, backend.BuildCount(), "all builds should be removed after project deletion")
+	assert.Equal(t, 0, backend.BuildARNIndexSize(), "ARN index should be empty after project deletion")
+	assert.Equal(t, 0, backend.BuildsByProjectSize("proj"), "project index should be empty after project deletion")
 }
 
 // TestJanitor_SweepCleansARNIndex verifies that sweeping builds also removes
@@ -180,12 +183,14 @@ func TestJanitor_SweepCleansARNIndex(t *testing.T) {
 	backend.SetBuildEndTime(build.ID, "SUCCEEDED", time.Now().Add(-25*time.Hour))
 
 	assert.Equal(t, 1, backend.BuildARNIndexSize(), "ARN index should have 1 entry before sweep")
+	assert.Equal(t, 1, backend.BuildsByProjectSize("proj"), "project index should have 1 entry before sweep")
 
 	janitor := codebuild.NewJanitor(backend, time.Hour, 24*time.Hour)
 	janitor.SweepOnce(t.Context())
 
 	assert.Equal(t, 0, backend.BuildCount(), "build should be evicted")
 	assert.Equal(t, 0, backend.BuildARNIndexSize(), "ARN index should be empty after sweep")
+	assert.Equal(t, 0, backend.BuildsByProjectSize("proj"), "project index should be empty after sweep")
 
 	// Tag op on the evicted build's ARN must return ErrNotFound.
 	err = backend.TagResource(build.Arn, map[string]string{"key": "val"})

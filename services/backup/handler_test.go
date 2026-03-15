@@ -675,6 +675,26 @@ func TestBackupPersistence(t *testing.T) {
 			},
 		},
 		{
+			name: "restore_rebuilds_plan_id_index",
+			run: func(t *testing.T) {
+				t.Helper()
+				b := backup.NewInMemoryBackend("000000000000", "us-east-1")
+				plan, err := b.CreateBackupPlan("id-plan", nil, nil)
+				require.NoError(t, err)
+
+				snap := b.Snapshot()
+				require.NotNil(t, snap)
+
+				fresh := backup.NewInMemoryBackend("000000000000", "us-east-1")
+				require.NoError(t, fresh.Restore(snap))
+
+				// GetBackupPlan by plan ID must succeed using the rebuilt planIDIndex.
+				got, err := fresh.GetBackupPlan(plan.BackupPlanID)
+				require.NoError(t, err)
+				assert.Equal(t, plan.BackupPlanName, got.BackupPlanName)
+			},
+		},
+		{
 			name: "restore_invalid_json",
 			run: func(t *testing.T) {
 				t.Helper()

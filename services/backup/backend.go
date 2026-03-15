@@ -80,6 +80,7 @@ type InMemoryBackend struct {
 	jobs          map[string]*Job
 	vaultARNIndex map[string]string // ARN → vault name
 	planARNIndex  map[string]string // ARN → plan name
+	planIDIndex   map[string]string // plan ID → plan name
 	mu            *lockmetrics.RWMutex
 	accountID     string
 	region        string
@@ -93,6 +94,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		jobs:          make(map[string]*Job),
 		vaultARNIndex: make(map[string]string),
 		planARNIndex:  make(map[string]string),
+		planIDIndex:   make(map[string]string),
 		accountID:     accountID,
 		region:        region,
 		mu:            lockmetrics.New("backup"),
@@ -176,6 +178,7 @@ func (b *InMemoryBackend) DeleteBackupVault(name string) error {
 
 	delete(b.vaultARNIndex, v.BackupVaultArn)
 	delete(b.vaults, name)
+	v.Tags.Close()
 
 	return nil
 }
@@ -208,6 +211,7 @@ func (b *InMemoryBackend) CreateBackupPlan(planName string, rules []Rule, kv map
 	}
 	b.plans[planName] = p
 	b.planARNIndex[planARN] = planName
+	b.planIDIndex[id] = planName
 	cp := *p
 	cp.Rules = make([]Rule, len(p.Rules))
 	copy(cp.Rules, p.Rules)
@@ -228,15 +232,14 @@ func (b *InMemoryBackend) GetBackupPlan(idOrName string) (*Plan, error) {
 
 		return &cp, nil
 	}
-	// Try by ID.
-	for _, p := range b.plans {
-		if p.BackupPlanID == idOrName {
-			cp := *p
-			cp.Rules = make([]Rule, len(p.Rules))
-			copy(cp.Rules, p.Rules)
+	// Try by ID using the O(1) index.
+	if name, ok := b.planIDIndex[idOrName]; ok {
+		p := b.plans[name]
+		cp := *p
+		cp.Rules = make([]Rule, len(p.Rules))
+		copy(cp.Rules, p.Rules)
 
-			return &cp, nil
-		}
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: backup plan %s not found", ErrNotFound, idOrName)
@@ -263,18 +266,12 @@ func (b *InMemoryBackend) UpdateBackupPlan(idOrName string, rules []Rule) (*Plan
 	b.mu.Lock("UpdateBackupPlan")
 	defer b.mu.Unlock()
 
-	// Find by name or ID.
+	// Find by name first, then by ID using the O(1) index.
 	var found *Plan
 	if p, ok := b.plans[idOrName]; ok {
 		found = p
-	} else {
-		for _, p := range b.plans {
-			if p.BackupPlanID == idOrName {
-				found = p
-
-				break
-			}
-		}
+	} else if idName, ok2 := b.planIDIndex[idOrName]; ok2 {
+		found = b.plans[idName]
 	}
 
 	if found == nil {
@@ -295,23 +292,23 @@ func (b *InMemoryBackend) DeleteBackupPlan(idOrName string) error {
 	b.mu.Lock("DeleteBackupPlan")
 	defer b.mu.Unlock()
 
-	if p, ok := b.plans[idOrName]; ok {
-		delete(b.planARNIndex, p.BackupPlanArn)
-		delete(b.plans, p.BackupPlanName)
-
-		return nil
-	}
-	// Try by ID.
-	for name, p := range b.plans {
-		if p.BackupPlanID == idOrName {
-			delete(b.planARNIndex, p.BackupPlanArn)
-			delete(b.plans, name)
-
-			return nil
-		}
+	// Resolve by name or by ID using the O(1) index.
+	var planName string
+	if _, ok := b.plans[idOrName]; ok {
+		planName = idOrName
+	} else if idName, ok2 := b.planIDIndex[idOrName]; ok2 {
+		planName = idName
+	} else {
+		return fmt.Errorf("%w: backup plan %s not found", ErrNotFound, idOrName)
 	}
 
-	return fmt.Errorf("%w: backup plan %s not found", ErrNotFound, idOrName)
+	p := b.plans[planName]
+	delete(b.planARNIndex, p.BackupPlanArn)
+	delete(b.planIDIndex, p.BackupPlanID)
+	delete(b.plans, planName)
+	p.Tags.Close()
+
+	return nil
 }
 
 // StartBackupJob starts a new backup job.
