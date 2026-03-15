@@ -5,6 +5,9 @@ package ssm
 // MaxHistoryCap exposes the history cap constant for test assertions.
 const MaxHistoryCap = maxHistoryCap
 
+// MaxDocumentVersionCap exposes the document version cap constant for test assertions.
+const MaxDocumentVersionCap = maxDocumentVersionCap
+
 // HistoryLen returns the number of history entries stored for the given parameter name.
 func (b *InMemoryBackend) HistoryLen(name string) int {
 	b.mu.RLock("HistoryLen")
@@ -48,4 +51,12 @@ func (b *InMemoryBackend) HasTagEntry(name string) bool {
 	defer b.mu.RUnlock()
 
 	return b.tags[name] != nil
+}
+
+// DocumentVersionCount returns the number of versions stored for the given document.
+func (b *InMemoryBackend) DocumentVersionCount(name string) int {
+	b.mu.RLock("DocumentVersionCount")
+	defer b.mu.RUnlock()
+
+	return len(b.documentVersions[name])
 }

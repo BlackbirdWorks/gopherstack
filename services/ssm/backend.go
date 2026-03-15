@@ -40,6 +40,9 @@ const (
 	// maxHistoryCap is the maximum number of history entries retained per parameter.
 	// Older entries beyond this cap are evicted to prevent unbounded growth.
 	maxHistoryCap = 100
+	// maxDocumentVersionCap is the maximum number of versions retained per document.
+	// Matches the AWS-side limit and prevents unbounded growth via repeated UpdateDocument.
+	maxDocumentVersionCap = 1000
 )
 
 // validParamNameRegex matches only alphanumeric, ., -, _, and / characters.
@@ -910,6 +913,11 @@ func (b *InMemoryBackend) UpdateDocument(input *UpdateDocumentInput) (*UpdateDoc
 		Status:           "Active",
 		Content:          input.Content,
 	})
+
+	if len(b.documentVersions[input.Name]) > maxDocumentVersionCap {
+		vers := b.documentVersions[input.Name]
+		b.documentVersions[input.Name] = vers[len(vers)-maxDocumentVersionCap:]
+	}
 
 	return &UpdateDocumentOutput{DocumentDescription: doc}, nil
 }

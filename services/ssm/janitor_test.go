@@ -2,6 +2,7 @@ package ssm_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -171,4 +172,35 @@ func TestHandler_WithJanitor_StartWorker(t *testing.T) {
 
 	err := h.StartWorker(ctx)
 	require.NoError(t, err)
+}
+
+// TestInMemoryBackend_DocumentVersionCap verifies that UpdateDocument caps the
+// stored version list to MaxDocumentVersionCap entries, evicting the oldest.
+func TestInMemoryBackend_DocumentVersionCap(t *testing.T) {
+	t.Parallel()
+
+	b := ssm.NewInMemoryBackend()
+
+	_, err := b.CreateDocument(&ssm.CreateDocumentInput{
+		Name:    "CapTestDoc",
+		Content: "--- init",
+	})
+	require.NoError(t, err)
+
+	// Apply MaxDocumentVersionCap + 5 updates so the cap must evict old versions.
+	total := ssm.MaxDocumentVersionCap + 5
+	for i := range total {
+		_, err = b.UpdateDocument(&ssm.UpdateDocumentInput{
+			Name:    "CapTestDoc",
+			Content: fmt.Sprintf("--- version: %d", i),
+		})
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, ssm.MaxDocumentVersionCap, b.DocumentVersionCount("CapTestDoc"))
+
+	// The most recent version should be retrievable via ListDocumentVersions.
+	out, err := b.ListDocumentVersions(&ssm.ListDocumentVersionsInput{Name: "CapTestDoc"})
+	require.NoError(t, err)
+	assert.NotEmpty(t, out.DocumentVersions)
 }
