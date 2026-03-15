@@ -258,7 +258,7 @@ func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *St
 	}
 
 	physicalIDs := b.provisionResources(ctx, stack, tmpl, resolvedParams)
-	if stack.StackStatus == statusCreateFailed {
+	if stack.StackStatus == statusCreateFailed || stack.StackStatus == statusRollbackComplete {
 		return
 	}
 
@@ -280,8 +280,10 @@ func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *St
 }
 
 // provisionResources creates all resources defined in the template.
-// Returns the physicalIDs map. On failure, stack.StackStatus is set to
-// statusCreateFailed and rollback events are emitted.
+// Returns the physicalIDs map. On resource creation failure, rollback is
+// performed in reverse order; stack.StackStatus is then set to
+// statusRollbackComplete (matching real AWS behaviour). If the creation failure
+// itself needs to be recorded separately, it is preserved in StackStatusReason.
 func (b *InMemoryBackend) provisionResources(
 	ctx context.Context,
 	stack *Stack,
@@ -294,16 +296,19 @@ func (b *InMemoryBackend) provisionResources(
 
 	ordered := topoSortResources(tmpl.Resources)
 
+	var created []string
+
 	for _, logicalID := range ordered {
 		res := tmpl.Resources[logicalID]
 		b.addEvent(arn, name, logicalID, "", res.Type, statusCreateInProgress, "")
 		physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
 		if cerr != nil {
-			stack.StackStatus = statusCreateFailed
 			stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
 			b.addEvent(arn, name, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
 			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, cerr.Error())
+			b.rollbackCreateResources(ctx, stack, created)
 			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
+			stack.StackStatus = statusRollbackComplete
 
 			return physicalIDs
 		}
@@ -319,9 +324,27 @@ func (b *InMemoryBackend) provisionResources(
 			StackName:  name,
 		}
 		b.addEvent(arn, name, logicalID, physicalID, res.Type, statusCreateComplete, "")
+		created = append(created, logicalID)
 	}
 
 	return physicalIDs
+}
+
+// rollbackCreateResources deletes all resources that were created during a
+// failed CreateStack provisioning pass, in reverse order.
+func (b *InMemoryBackend) rollbackCreateResources(ctx context.Context, stack *Stack, created []string) {
+	for i := len(created) - 1; i >= 0; i-- {
+		logicalID := created[i]
+		res, ok := b.resources[stack.StackID][logicalID]
+		if !ok {
+			continue
+		}
+
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
+		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
+		delete(b.resources[stack.StackID], logicalID)
+	}
 }
 
 // topoSortResources returns the logical resource IDs in an order that respects
@@ -675,8 +698,20 @@ func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) erro
 	b.removeExports(stack.StackID)
 	delete(b.stackPolicies, stack.StackID)
 	delete(b.events, stack.StackID)
+	delete(b.resources, stack.StackID)
+	delete(b.changeSets, stack.StackName)
+	b.pruneDriftDetections(stack.StackID)
 
 	return nil
+}
+
+// pruneDriftDetections removes all drift detection entries associated with a stack.
+func (b *InMemoryBackend) pruneDriftDetections(stackID string) {
+	for detectionID, status := range b.driftDetections {
+		if status.StackID == stackID {
+			delete(b.driftDetections, detectionID)
+		}
+	}
 }
 
 // DescribeStack returns details for a single stack.
