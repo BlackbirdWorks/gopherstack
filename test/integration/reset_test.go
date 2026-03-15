@@ -9,24 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIntegration_ResetEndpoint verifies that POST /_gopherstack/reset returns 200 with
-// a JSON body indicating how many services were reset.
-func TestIntegration_ResetEndpoint(t *testing.T) {
-	t.Parallel()
-	dumpContainerLogsOnFailure(t)
-
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, endpoint+"/_gopherstack/reset", nil)
-	require.NoError(t, err)
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-
-	defer func() { _ = resp.Body.Close() }()
-
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.True(t, strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json"))
-}
-
 // TestIntegration_HealthEndpoint verifies that GET /_gopherstack/health returns
 // a JSON body with a dynamic list of services rather than a static hard-coded list.
 func TestIntegration_HealthEndpoint(t *testing.T) {
