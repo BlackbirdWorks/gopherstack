@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,7 +28,17 @@ var (
 	// ErrTransformPayload is a sentinel error indicating the Lambda transform
 	// payload could not be built. Use [errors.Is] to check for this condition.
 	ErrTransformPayload = errors.New("failed to build Lambda transform payload")
+	// ErrRecordTooLarge is returned when a record exceeds the 1,000 KB per-record limit.
+	ErrRecordTooLarge = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
+	// ErrBatchTooLarge is returned when a PutRecordBatch request exceeds the 500-record limit.
+	ErrBatchTooLarge = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
 )
+
+// maxRecordBytes is the maximum size of a single Firehose record (1,000 KB).
+const maxRecordBytes = 1_000 * 1024
+
+// maxBatchRecords is the maximum number of records allowed in a single PutRecordBatch call.
+const maxBatchRecords = 500
 
 // S3Storer is the subset of S3 operations that Firehose needs to deliver objects.
 type S3Storer interface {
@@ -189,7 +200,7 @@ func (b *InMemoryBackend) DescribeDeliveryStream(name string) (*DeliveryStream, 
 	return &cp, nil
 }
 
-// ListDeliveryStreams returns all delivery stream names.
+// ListDeliveryStreams returns all delivery stream names in alphabetical order.
 func (b *InMemoryBackend) ListDeliveryStreams() []string {
 	b.mu.RLock("ListDeliveryStreams")
 	defer b.mu.RUnlock()
@@ -199,11 +210,18 @@ func (b *InMemoryBackend) ListDeliveryStreams() []string {
 		names = append(names, name)
 	}
 
+	sort.Strings(names)
+
 	return names
 }
 
 // PutRecord appends a record to the delivery stream and flushes if buffer threshold is met.
 func (b *InMemoryBackend) PutRecord(streamName string, data []byte) error {
+	if len(data) > maxRecordBytes {
+		return fmt.Errorf("%w: record size %d exceeds maximum of %d bytes",
+			ErrRecordTooLarge, len(data), maxRecordBytes)
+	}
+
 	b.mu.Lock("PutRecord")
 
 	s, ok := b.streams[streamName]
@@ -227,6 +245,18 @@ func (b *InMemoryBackend) PutRecord(streamName string, data []byte) error {
 
 // PutRecordBatch appends multiple records to the delivery stream and flushes if buffer threshold is met.
 func (b *InMemoryBackend) PutRecordBatch(streamName string, records [][]byte) (int, error) {
+	if len(records) > maxBatchRecords {
+		return 0, fmt.Errorf("%w: batch size %d exceeds maximum of %d records",
+			ErrBatchTooLarge, len(records), maxBatchRecords)
+	}
+
+	for i, rec := range records {
+		if len(rec) > maxRecordBytes {
+			return 0, fmt.Errorf("%w: record %d size %d exceeds maximum of %d bytes",
+				ErrRecordTooLarge, i, len(rec), maxRecordBytes)
+		}
+	}
+
 	b.mu.Lock("PutRecordBatch")
 
 	s, ok := b.streams[streamName]

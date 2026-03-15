@@ -481,8 +481,10 @@ func TestS3Delivery_NoS3Backend(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	overLimit := make([]byte, 2*1024*1024)
-	require.NoError(t, b.PutRecord("no-s3-stream", overLimit))
+	// Two records of 512 KB each sum to 1 MB and would trigger a size-based flush —
+	// but with no S3 backend wired up, no delivery should be attempted.
+	require.NoError(t, b.PutRecord("no-s3-stream", make([]byte, 512*1024)))
+	require.NoError(t, b.PutRecord("no-s3-stream", make([]byte, 512*1024)))
 }
 
 func TestLambdaTransformation_OkRecordsDelivered(t *testing.T) {
@@ -700,15 +702,15 @@ func TestPutRecord_FlushSnapshotUnderLock(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Write exactly enough to trigger one flush.
-	overLimit := make([]byte, 2*1024*1024)
-	require.NoError(t, b.PutRecord("atomic-flush-stream", overLimit))
+	// Two records of 512 KB each sum to 1 MB and trigger one size-based flush.
+	require.NoError(t, b.PutRecord("atomic-flush-stream", make([]byte, 512*1024)))
+	require.NoError(t, b.PutRecord("atomic-flush-stream", make([]byte, 512*1024)))
 
 	// After the flush, the buffer is zeroed; a small subsequent record should not
 	// trigger another flush automatically.
 	require.NoError(t, b.PutRecord("atomic-flush-stream", []byte("small")))
 
-	// Only one S3 delivery should have occurred (from the over-limit put).
+	// Only one S3 delivery should have occurred (from the over-limit puts).
 	assert.Len(t, s3mock.calls, 1)
 }
 
@@ -758,4 +760,73 @@ func TestUpdateDestination(t *testing.T) {
 			assert.Equal(t, "arn:aws:s3:::new-bucket", s.S3Destination.BucketARN)
 		})
 	}
+}
+
+// TestListDeliveryStreams_SortedOrder verifies that ListDeliveryStreams returns names
+// in alphabetical order, matching AWS Firehose API behaviour.
+func TestListDeliveryStreams_SortedOrder(t *testing.T) {
+	t.Parallel()
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	for _, name := range []string{"zebra-stream", "alpha-stream", "middle-stream"} {
+		_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: name})
+		require.NoError(t, err)
+	}
+
+	names := b.ListDeliveryStreams()
+	require.Len(t, names, 3)
+	assert.Equal(t, []string{"alpha-stream", "middle-stream", "zebra-stream"}, names)
+}
+
+// TestPutRecord_RecordTooLarge verifies that records exceeding the 1,000 KB limit
+// are rejected with ErrRecordTooLarge.
+func TestPutRecord_RecordTooLarge(t *testing.T) {
+	t.Parallel()
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "limit-stream"})
+	require.NoError(t, err)
+
+	oversized := make([]byte, 1_001*1024) // 1,001 KB — one byte over the limit
+	putErr := b.PutRecord("limit-stream", oversized)
+	require.Error(t, putErr)
+	assert.ErrorIs(t, putErr, firehose.ErrRecordTooLarge)
+}
+
+// TestPutRecordBatch_TooManyRecords verifies that a batch exceeding 500 records
+// is rejected with ErrBatchTooLarge.
+func TestPutRecordBatch_TooManyRecords(t *testing.T) {
+	t.Parallel()
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "batch-limit-stream"})
+	require.NoError(t, err)
+
+	records := make([][]byte, 501)
+	for i := range records {
+		records[i] = []byte("x")
+	}
+
+	_, putErr := b.PutRecordBatch("batch-limit-stream", records)
+	require.Error(t, putErr)
+	assert.ErrorIs(t, putErr, firehose.ErrBatchTooLarge)
+}
+
+// TestPutRecordBatch_RecordInBatchTooLarge verifies that individual records within a
+// batch exceeding the 1,000 KB limit are also rejected with ErrRecordTooLarge.
+func TestPutRecordBatch_RecordInBatchTooLarge(t *testing.T) {
+	t.Parallel()
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{Name: "batch-rec-limit-stream"})
+	require.NoError(t, err)
+
+	records := [][]byte{
+		[]byte("ok"),
+		make([]byte, 1_001*1024), // oversized second record
+	}
+
+	_, putErr := b.PutRecordBatch("batch-rec-limit-stream", records)
+	require.Error(t, putErr)
+	assert.ErrorIs(t, putErr, firehose.ErrRecordTooLarge)
 }
