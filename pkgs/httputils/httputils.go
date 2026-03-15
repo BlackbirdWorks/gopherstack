@@ -17,21 +17,44 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+// bodyReadCloser wraps a bytes.Reader to provide a seekable io.ReadCloser
+// that also exposes the underlying bytes for direct access. This allows
+// httputils.ReadBody to cache the body transparently in the Request.Body field.
+type bodyReadCloser struct {
+	*bytes.Reader
+	body []byte
+}
+
+func (b *bodyReadCloser) Close() error { return nil }
+
 // ReadBody reads the request body and returns it as a byte slice.
 // It handles cases where r.Body might be nil (e.g. in some test environments).
-// It re-seeds the request body so it can be read multiple times.
+// It re-seeds the request body so it can be read multiple times and ensures
+// the original request body is closed.
+// It uses a custom ReadCloser to avoid redundant reads and allocations if
+// called multiple times.
 func ReadBody(r *http.Request) ([]byte, error) {
 	if r.Body == nil {
 		return nil, nil
 	}
 
+	// Check if we've already cached the body in a custom readCloser
+	if brc, ok := r.Body.(*bodyReadCloser); ok {
+		return brc.body, nil
+	}
+
 	body, err := io.ReadAll(r.Body)
+	_ = r.Body.Close() // Ensure original body is closed
 	if err != nil {
 		return nil, err
 	}
 
-	// Re-seed the body so it can be read again
-	r.Body = io.NopCloser(bytes.NewReader(body))
+	// Re-seed the body using our custom ReadCloser so subsequent calls to
+	// ReadBody or io.ReadAll(r.Body) are efficient.
+	r.Body = &bodyReadCloser{
+		Reader: bytes.NewReader(body),
+		body:   body,
+	}
 
 	return body, nil
 }

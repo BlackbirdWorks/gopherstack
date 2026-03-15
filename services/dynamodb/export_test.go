@@ -188,13 +188,13 @@ func (db *InMemoryDB) InjectStaleTxnPendingForTest(token string) {
 }
 
 // StreamRecordsInOrder exposes the ordered ring-buffer view for tests as a flat slice.
-func (t *Table) StreamRecordsInOrder() []StreamRecord {
+func (t *Table) StreamRecordsInOrder() []models.StreamRecord {
 	tail, head := t.streamRecordsInOrder()
 	if len(head) == 0 {
 		return tail
 	}
 
-	result := make([]StreamRecord, 0, len(tail)+len(head))
+	result := make([]models.StreamRecord, 0, len(tail)+len(head))
 	result = append(result, tail...)
 	result = append(result, head...)
 

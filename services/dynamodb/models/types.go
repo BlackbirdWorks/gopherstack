@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // --- Constants ---
 
 const (
@@ -87,7 +89,9 @@ type ProvisionedThroughputDescription struct {
 
 type GlobalSecondaryIndex struct {
 	ProvisionedThroughput ProvisionedThroughput `json:"ProvisionedThroughput"`
+	IndexStatusTimer      *time.Timer           `json:"-"`
 	IndexName             string                `json:"IndexName"`
+	IndexStatus           string                `json:"IndexStatus,omitempty"`
 	Projection            Projection            `json:"Projection"`
 	KeySchema             []KeySchemaElement    `json:"KeySchema"`
 }
@@ -263,6 +267,16 @@ type DeleteItemInput struct {
 type DeleteItemOutput struct{}
 
 // --- Query & Scan ---
+
+type StreamRecord struct {
+	OldImage                    map[string]any `json:"oldImage,omitempty"`
+	NewImage                    map[string]any `json:"newImage,omitempty"`
+	EventID                     string         `json:"eventID"`
+	EventName                   string         `json:"eventName"`
+	SequenceNumber              string         `json:"sequenceNumber"`
+	ApproximateCreationDateTime int64          `json:"approximateCreationDateTime"`
+	ExpireAt                    int64          `json:"expireAt,omitempty"`
+}
 
 type QueryInput struct {
 	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`

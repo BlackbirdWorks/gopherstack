@@ -2,14 +2,9 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
-	"sync"
 
-	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -39,20 +34,81 @@ func (db *InMemoryDB) BatchGetItem(
 		)
 	}
 
-	// Collect table references under db.mu.RLock and release the lock before
-	// spawning goroutines. Releasing db.mu before spawning goroutines avoids the
-	// re-entrant RLock deadlock: if a writer is pending, goroutines calling
-	// db.mu.RLock while the outer db.mu.RLock is still held would block indefinitely.
+	// Collect table references under db.mu.RLock.
 	tableRefs, tableErr := db.batchGetTableRefs(ctx, input.RequestItems)
 	if tableErr != nil {
 		return nil, tableErr
 	}
 
-	responses := db.batchGetResponses(ctx, tableRefs, input.RequestItems)
+	// Enforce 16MB response limit and collect results.
+	const responseSizeLimit = 16 * 1024 * 1024
+	currentSize := 0
+	responses := make(map[string][]map[string]types.AttributeValue)
+	unprocessedKeys := make(map[string]types.KeysAndAttributes)
+
+	// Sort table names for deterministic processing (AWS also tends toward this).
+	var tableNames []string
+	for name := range input.RequestItems {
+		tableNames = append(tableNames, name)
+	}
+	sort.Strings(tableNames)
+
+	for _, tableName := range tableNames {
+		keysAndAttrs := input.RequestItems[tableName]
+		table := tableRefs[tableName]
+
+		var tableResults []map[string]types.AttributeValue
+		pkDef, skDef := getPKAndSK(table.KeySchema)
+		proj := aws.ToString(keysAndAttrs.ProjectionExpression)
+		projector, _ := ParseProjector(proj, keysAndAttrs.ExpressionAttributeNames)
+
+		table.mu.RLock("BatchGetItem")
+		for i, sdkKey := range keysAndAttrs.Keys {
+			wireKey := models.FromSDKItem(sdkKey)
+			item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+
+			if item != nil {
+				itemSize, _ := CalculateItemSize(item)
+				if currentSize+itemSize > responseSizeLimit && len(tableResults) > 0 {
+					// Stop if we hit 16MB. Return remaining keys of THIS table as unprocessed.
+					unprocessedKeys[tableName] = types.KeysAndAttributes{
+						Keys:                     keysAndAttrs.Keys[i:],
+						AttributesToGet:          keysAndAttrs.AttributesToGet,
+						ConsistentRead:           keysAndAttrs.ConsistentRead,
+						ExpressionAttributeNames: keysAndAttrs.ExpressionAttributeNames,
+						ProjectionExpression:     keysAndAttrs.ProjectionExpression,
+					}
+					break
+				}
+				currentSize += itemSize
+
+				result := item
+				if proj != "" {
+					result = projector.Project(item)
+				}
+				sdkResult, _ := models.ToSDKItem(result)
+				tableResults = append(tableResults, sdkResult)
+			}
+		}
+		table.mu.RUnlock()
+
+		if len(tableResults) > 0 {
+			responses[tableName] = tableResults
+		}
+
+		// If we truncated this table's keys, any SUBSEQUENT tables are also unprocessed.
+		if _, ok := unprocessedKeys[tableName]; ok {
+			for j := sort.SearchStrings(tableNames, tableName) + 1; j < len(tableNames); j++ {
+				nextTable := tableNames[j]
+				unprocessedKeys[nextTable] = input.RequestItems[nextTable]
+			}
+			break
+		}
+	}
 
 	return &dynamodb.BatchGetItemOutput{
 		Responses:        responses,
-		UnprocessedKeys:  make(map[string]types.KeysAndAttributes),
+		UnprocessedKeys:  unprocessedKeys,
 		ConsumedCapacity: batchGetConsumedCapacity(input.ReturnConsumedCapacity, input.RequestItems),
 	}, nil
 }
@@ -66,7 +122,11 @@ func (db *InMemoryDB) batchGetTableRefs(
 	defer db.mu.RUnlock()
 
 	region := getRegionFromContext(ctx, db)
-	regionTables := db.Tables[region]
+	regionTables, ok := db.Tables[region]
+	if !ok {
+		// Region might not have tables yet
+		return nil, NewResourceNotFoundException("No tables found in region")
+	}
 	tableRefs := make(map[string]*Table, len(requestItems))
 
 	for tableName := range requestItems {
@@ -79,66 +139,6 @@ func (db *InMemoryDB) batchGetTableRefs(
 	}
 
 	return tableRefs, nil
-}
-
-// batchGetResponses processes all tables. Single-table requests bypass goroutines.
-func (db *InMemoryDB) batchGetResponses(
-	ctx context.Context,
-	tableRefs map[string]*Table,
-	requestItems map[string]types.KeysAndAttributes,
-) map[string][]map[string]types.AttributeValue {
-	responses := make(map[string][]map[string]types.AttributeValue)
-
-	if len(tableRefs) == 1 {
-		for tableName, keysAndAttrs := range requestItems {
-			table, ok := tableRefs[tableName]
-			if !ok {
-				continue
-			}
-
-			table.mu.RLock("BatchGetItem")
-			results := db.processBatchGetTableNoLock(ctx, table, keysAndAttrs)
-			table.mu.RUnlock()
-
-			if len(results) > 0 {
-				responses[tableName] = results
-			}
-		}
-
-		return responses
-	}
-
-	mu := lockmetrics.New("dynamodb.batch.get")
-	defer mu.Close()
-
-	var wg sync.WaitGroup
-
-	for tableName, keysAndAttrs := range requestItems {
-		tbl, ok := tableRefs[tableName]
-		if !ok {
-			continue
-		}
-
-		// Explicitly capture loop variables to avoid any ambiguity.
-		// In Go 1.22+ range variables are per-iteration, but explicit
-		// captures make the intent clear.
-		tblName, attrs, tblRef := tableName, keysAndAttrs, tbl
-		wg.Go(func() {
-			tblRef.mu.RLock("BatchGetItem")
-			results := db.processBatchGetTableNoLock(ctx, tblRef, attrs)
-			tblRef.mu.RUnlock()
-
-			if len(results) > 0 {
-				mu.Lock("BatchGetItem")
-				responses[tblName] = results
-				mu.Unlock()
-			}
-		})
-	}
-
-	wg.Wait()
-
-	return responses
 }
 
 func batchGetConsumedCapacity(
@@ -164,42 +164,6 @@ func batchGetConsumedCapacity(
 	}
 
 	return caps
-}
-
-func (db *InMemoryDB) processBatchGetTableNoLock(
-	ctx context.Context,
-	table *Table,
-	keysAndAttrs types.KeysAndAttributes,
-) []map[string]types.AttributeValue {
-	pkDef, skDef := getPKAndSK(table.KeySchema)
-	var results []map[string]types.AttributeValue
-
-	proj := aws.ToString(keysAndAttrs.ProjectionExpression)
-	if proj != "" {
-		log := logger.Load(ctx)
-		log.DebugContext(ctx, "Evaluating BatchGetItem ProjectionExpression",
-			"tableName", table.Name,
-			"expression", proj,
-			"attributeNames", keysAndAttrs.ExpressionAttributeNames)
-	}
-
-	for _, sdkKey := range keysAndAttrs.Keys {
-		wireKey := models.FromSDKItem(sdkKey)
-		item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
-		if item == nil {
-			continue
-		}
-
-		result := item
-		if proj != "" {
-			result = projectItem(item, proj, keysAndAttrs.ExpressionAttributeNames)
-		}
-
-		sdkResult, _ := models.ToSDKItem(result)
-		results = append(results, sdkResult)
-	}
-
-	return results
 }
 
 func (db *InMemoryDB) BatchWriteItem(
@@ -249,48 +213,17 @@ func (db *InMemoryDB) BatchWriteItem(
 	}
 	sort.Strings(tableNames)
 
-	// For a single table, skip goroutine overhead entirely.
-	if len(tableNames) == 1 {
-		if err = db.processTableWriteRequests(tables[tableNames[0]], toProcess[tableNames[0]]); err != nil {
+	// Sequential processing for simplicity and deadlock prevention
+	for _, tableName := range tableNames {
+		if err = db.processTableWriteRequests(tables[tableName], toProcess[tableName]); err != nil {
 			return nil, err
 		}
-
-		return &dynamodb.BatchWriteItemOutput{
-			UnprocessedItems: unprocessedItems,
-			ConsumedCapacity: batchWriteConsumedCapacity(input.ReturnConsumedCapacity, toProcess),
-		}, nil
 	}
 
-	// Parallelize table processing with error collection
-	var wg sync.WaitGroup
-	mu := lockmetrics.New("dynamodb.batch.write")
-	defer mu.Close()
-	var firstErr error
-
-	for _, tableName := range tableNames {
-		wg.Go(func() {
-			if e := db.processTableWriteRequests(tables[tableName], toProcess[tableName]); e != nil {
-				mu.Lock("BatchWriteItem")
-				if firstErr == nil {
-					firstErr = e
-				}
-				mu.Unlock()
-			}
-		})
-	}
-
-	wg.Wait()
-
-	if firstErr != nil {
-		return nil, firstErr
-	}
-
-	out := &dynamodb.BatchWriteItemOutput{
+	return &dynamodb.BatchWriteItemOutput{
 		UnprocessedItems: unprocessedItems,
 		ConsumedCapacity: batchWriteConsumedCapacity(input.ReturnConsumedCapacity, toProcess),
-	}
-
-	return out, nil
+	}, nil
 }
 
 func batchWriteConsumedCapacity(
@@ -314,7 +247,7 @@ func batchWriteConsumedCapacity(
 	return caps
 }
 
-// splitWriteRequestsBySize splits write requests into those whose cumulative estimated JSON size
+// splitWriteRequestsBySize splits write requests into those whose cumulative estimated size
 // fits within sizeLimit bytes and those that exceed it. Only PutRequests contribute to size.
 func splitWriteRequestsBySize(
 	requests []types.WriteRequest,
@@ -325,21 +258,22 @@ func splitWriteRequestsBySize(
 
 	for _, req := range requests {
 		if req.PutRequest != nil {
-			data, err := json.Marshal(req.PutRequest.Item)
+			wireItem := models.FromSDKItem(req.PutRequest.Item)
+			itemSize, err := CalculateItemSize(wireItem)
 			if err != nil {
-				// Cannot estimate size; process conservatively without counting toward limit.
+				// Process conservatively if size calculation fails
 				process = append(process, req)
 
 				continue
 			}
 
-			if accumulated+len(data) > sizeLimit {
+			if accumulated+itemSize > sizeLimit {
 				unprocessed = append(unprocessed, req)
 
 				continue
 			}
 
-			accumulated += len(data)
+			accumulated += itemSize
 		}
 
 		process = append(process, req)
@@ -382,8 +316,11 @@ func (db *InMemoryDB) processTableWriteRequests(table *Table, requests []types.W
 	deletedIndices := db.processBatchDeleteRequests(table, requests)
 
 	if len(deletedIndices) > 0 {
-		db.applyBatchDeletes(table, deletedIndices)
-		table.rebuildIndexes()
+		indices := make([]int, 0, len(deletedIndices))
+		for idx := range deletedIndices {
+			indices = append(indices, idx)
+		}
+		db.applyBatchDeletes(table, indices)
 	} else if len(modifiedIndices) > 0 {
 		db.updateBatchIndexes(table, modifiedIndices)
 	}
@@ -426,19 +363,27 @@ func (db *InMemoryDB) processBatchDeleteRequests(table *Table, requests []types.
 	return deletedIndices
 }
 
-func (db *InMemoryDB) applyBatchDeletes(table *Table, deletedIndices map[int]bool) {
-	if len(deletedIndices) == 0 {
+func (db *InMemoryDB) applyBatchDeletes(table *Table, indices []int) {
+	if len(indices) == 0 {
 		return
 	}
 
-	// Optimize: single-pass compaction instead of O(M*N)
-	newItems := make([]map[string]any, 0, len(table.Items)-len(deletedIndices))
-	for i, item := range table.Items {
-		if !deletedIndices[i] {
-			newItems = append(newItems, item)
+	// Sort indices in descending order to delete in-place without shifting issues
+	sort.Ints(indices)
+	for i := len(indices) - 1; i >= 0; i-- {
+		idx := indices[i]
+		if idx < 0 || idx >= len(table.Items) {
+			continue
 		}
+		// Capture stream record (REMOVE)
+		table.appendStreamRecord(streamEventRemove, deepCopyItem(table.Items[idx]), nil)
+
+		// Delete by swapping with last and truncating
+		table.Items[idx] = table.Items[len(table.Items)-1]
+		table.Items = table.Items[:len(table.Items)-1]
 	}
-	table.Items = newItems
+
+	table.rebuildIndexes()
 }
 
 func (db *InMemoryDB) updateBatchIndexes(
@@ -477,6 +422,7 @@ func (db *InMemoryDB) updateItemIndex(
 		table.pkIndex[pkVal] = idx
 	}
 }
+
 func (db *InMemoryDB) handleBatchPutWithIndex(table *Table, item map[string]any) int {
 	_, matchIndex := db.findMatchForPut(table, item)
 	if matchIndex != -1 {

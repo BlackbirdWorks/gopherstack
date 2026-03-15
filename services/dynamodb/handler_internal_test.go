@@ -43,7 +43,7 @@ func TestHandler_ClassifyError_Mapping(t *testing.T) {
 		},
 		{
 			name:           "TransactionCanceledException",
-			err:            NewTransactionCanceledException("cancel"),
+			err:            NewTransactionCanceledException("cancel", nil),
 			wantStatusCode: http.StatusBadRequest,
 			wantType:       "TransactionCanceledException",
 		},

@@ -162,15 +162,14 @@ func (db *InMemoryDB) doScan(
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	limit := int(aws.ToInt32(input.Limit))
 	proj := aws.ToString(input.ProjectionExpression)
+	filter := aws.ToString(input.FilterExpression)
 
-	// Collect all non-expired items that are in the target index (ignore FilterExpression here).
+	// Collect all non-expired items that are in the target index.
 	candidate := make([]map[string]any, 0, minScanAllocationSize)
-
 	for _, item := range items {
 		if isItemExpired(item, ttlAttr) {
 			continue
 		}
-
 		if isItemInIndex(item, input, pkDef, skDef) {
 			candidate = append(candidate, item)
 		}
@@ -185,22 +184,69 @@ func (db *InMemoryDB) doScan(
 	// Apply ExclusiveStartKey: skip items up to and including the start-key item.
 	candidate = applyExclusiveStartKey(candidate, input.ExclusiveStartKey, pkDef, skDef)
 
-	// Apply limit before FilterExpression (matches real DynamoDB semantics).
-	// ScannedCount = items examined in this page; Count = items passing FilterExpression.
-	candidate, lastKey := applyScanLimit(candidate, limit, pkDef, skDef)
-	scannedCount := int32(len(candidate)) // #nosec G115
+	// Projection optimization
+	projector, _ := ParseProjector(proj, input.ExpressionAttributeNames)
 
-	// Apply FilterExpression to the scanned set.
-	candidate = applyScanFilter(ctx, candidate, input, eav)
+	const maxResponseSize = 1024 * 1024 // 1MB
+	results := make([]map[string]any, 0)
+	var lastKey map[string]any
+	scannedCount := int32(0)
+	totalScannedSize := 0
 
-	// Apply projection after filtering so we still have key attrs for LastEvaluatedKey.
-	if proj != "" {
-		for i, item := range candidate {
-			candidate[i] = projectItem(item, proj, input.ExpressionAttributeNames)
+	for i, item := range candidate {
+		scannedCount++
+		itemSize, _ := CalculateItemSize(item)
+
+		// AWS scans up to 1MB of data before applying FilterExpression and returning.
+		if totalScannedSize+itemSize > maxResponseSize && i > 0 {
+			// Stop scanning if next item exceeds 1MB (unless it's the first item).
+			// We return LastEvaluatedKey of the item PRIOR to this one.
+			prevItem := candidate[i-1]
+			lastKey = map[string]any{pkDef.AttributeName: prevItem[pkDef.AttributeName]}
+			if skDef.AttributeName != "" {
+				lastKey[skDef.AttributeName] = prevItem[skDef.AttributeName]
+			}
+			scannedCount-- // Don't count this item as scanned for this page
+			break
+		}
+		totalScannedSize += itemSize
+
+		match := true
+		if filter != "" {
+			var err error
+			match, err = evaluateExpression(filter, item, eav, input.ExpressionAttributeNames)
+			if err != nil {
+				match = false
+			}
+		}
+
+		if match {
+			results = append(results, projector.Project(item))
+		}
+
+		if limit > 0 && int(scannedCount) >= limit {
+			if i < len(candidate)-1 {
+				lastKey = map[string]any{pkDef.AttributeName: item[pkDef.AttributeName]}
+				if skDef.AttributeName != "" {
+					lastKey[skDef.AttributeName] = item[skDef.AttributeName]
+				}
+			}
+			break
+		}
+
+		// Re-check size limit after addition
+		if totalScannedSize >= maxResponseSize {
+			if i < len(candidate)-1 {
+				lastKey = map[string]any{pkDef.AttributeName: item[pkDef.AttributeName]}
+				if skDef.AttributeName != "" {
+					lastKey[skDef.AttributeName] = item[skDef.AttributeName]
+				}
+			}
+			break
 		}
 	}
 
-	return candidate, lastKey, scannedCount
+	return results, lastKey, scannedCount
 }
 
 // applySegmentFilter partitions items by parallel scan segment using FNV hash on PK.

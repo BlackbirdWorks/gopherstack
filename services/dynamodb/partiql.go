@@ -187,6 +187,51 @@ func (h *DynamoDBHandler) executePartiQLSelect(
 	limit := partiqlExtractLimit(substituted)
 	colList := partiqlExtractColumns(substituted)
 
+	// Try to optimize for Query if PK is present
+	descOut, err := h.Backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	})
+	if err == nil {
+		keyAttrs := make(map[string]bool, len(descOut.Table.KeySchema))
+		for _, k := range descOut.Table.KeySchema {
+			keyAttrs[aws.ToString(k.AttributeName)] = true
+		}
+
+		wireKey, _ := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
+		pkName, _ := getPKAndSK(models.FromSDKKeySchema(descOut.Table.KeySchema))
+
+		if wireKey != nil && wireKey[pkName.AttributeName] != nil {
+			// Partition key found, use Query
+			queryInput := &dynamodb.QueryInput{
+				TableName: aws.String(tableName),
+			}
+
+			sdkEAV, _ := partiqlBuildSDKEAV(eav)
+			queryInput.ExpressionAttributeValues = sdkEAV
+			
+			// Build KeyConditionExpression
+			keyCond := fmt.Sprintf("%s = %s", pkName.AttributeName, findPlaceholderForKey(whereClause, pkName.AttributeName))
+			queryInput.KeyConditionExpression = aws.String(keyCond)
+
+			if filterExpr != "" {
+				queryInput.FilterExpression = aws.String(filterExpr)
+			}
+
+			if limit > 0 {
+				queryInput.Limit = aws.Int32(int32(limit))
+			}
+
+			if colList != "" && colList != "*" {
+				queryInput.ProjectionExpression = aws.String(colList)
+			}
+
+			out, queryErr := h.Backend.Query(ctx, queryInput)
+			if queryErr == nil {
+				return &executeStatementResponse{Items: itemsToWire(out.Items)}, nil
+			}
+		}
+	}
+
 	scanInput := &dynamodb.ScanInput{
 		TableName: aws.String(tableName),
 	}
@@ -216,12 +261,26 @@ func (h *DynamoDBHandler) executePartiQLSelect(
 		return nil, err
 	}
 
-	wireItems := make([]map[string]any, 0, len(out.Items))
-	for _, item := range out.Items {
+	return &executeStatementResponse{Items: itemsToWire(out.Items)}, nil
+}
+
+func itemsToWire(items []map[string]types.AttributeValue) []map[string]any {
+	wireItems := make([]map[string]any, 0, len(items))
+	for _, item := range items {
 		wireItems = append(wireItems, models.FromSDKItem(item))
 	}
+	return wireItems
+}
 
-	return &executeStatementResponse{Items: wireItems}, nil
+func findPlaceholderForKey(whereExpr, keyName string) string {
+	conditions := partiqlSplitANDConditions(whereExpr)
+	for _, cond := range conditions {
+		attrName, placeholder, found := strings.Cut(cond, "=")
+		if found && strings.TrimSpace(attrName) == keyName {
+			return strings.TrimSpace(placeholder)
+		}
+	}
+	return ""
 }
 
 // executePartiQLInsert handles INSERT INTO "table" VALUE {...} statements.
