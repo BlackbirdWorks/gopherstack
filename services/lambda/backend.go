@@ -108,14 +108,21 @@ type DNSRegistrar interface {
 }
 
 // functionRuntime holds the runtime server and startup state for a single Lambda function.
+//
+// Locking discipline:
+//   - lastUsed is read and written while b.mu is held (write lock); it does not require rt.mu.
+//   - started, startErr, srv, port, zipDir, layerDirs, and containerID are protected by rt.mu.
+//     They are set once during startup and read afterwards without b.mu held.
 type functionRuntime struct {
-	startErr  error
-	srv       *runtimeServer
-	mu        *lockmetrics.RWMutex
-	zipDir    string
-	layerDirs []string
-	port      int
-	started   bool
+	lastUsed    time.Time
+	startErr    error
+	srv         *runtimeServer
+	mu          *lockmetrics.RWMutex
+	zipDir      string
+	containerID string
+	layerDirs   []string
+	port        int
+	started     bool
 }
 
 // functionURLServer holds a running HTTP listener for a Lambda function URL.
@@ -231,23 +238,7 @@ func (b *InMemoryBackend) Close(ctx context.Context) {
 
 	for _, rt := range rts {
 		wg.Go(func() {
-			if rt.srv != nil {
-				rt.srv.stop(ctx)
-			}
-
-			if rt.port > 0 && b.portAlloc != nil {
-				_ = b.portAlloc.Release(rt.port)
-			}
-
-			if rt.zipDir != "" {
-				_ = os.RemoveAll(rt.zipDir)
-			}
-
-			for _, d := range rt.layerDirs {
-				_ = os.RemoveAll(d)
-			}
-
-			rt.mu.Close()
+			b.cleanupRuntime(ctx, rt)
 		})
 	}
 
@@ -733,40 +724,47 @@ func (b *InMemoryBackend) DeleteFunction(name string) error {
 
 	// Clean up runtime resources outside the lock to avoid blocking while stopping the server.
 	if rt != nil {
-		if rt.srv != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
-			defer cancel()
-			rt.srv.stop(shutdownCtx)
-		}
-
-		if rt.port > 0 && b.portAlloc != nil {
-			_ = b.portAlloc.Release(rt.port)
-		}
-
-		if rt.zipDir != "" {
-			_ = os.RemoveAll(rt.zipDir)
-		}
-
-		for _, d := range rt.layerDirs {
-			_ = os.RemoveAll(d)
-		}
-
-		rt.mu.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+		defer cancel()
+		b.cleanupRuntime(shutdownCtx, rt)
 	}
 
 	return nil
 }
 
 // UpdateFunction replaces a Lambda function's configuration.
+// Any running container is evicted so the next invocation picks up the new code/config.
 func (b *InMemoryBackend) UpdateFunction(fn *FunctionConfiguration) error {
 	b.mu.Lock("UpdateFunction")
-	defer b.mu.Unlock()
 
 	if _, ok := b.functions[fn.FunctionName]; !ok {
+		b.mu.Unlock()
+
 		return ErrFunctionNotFound
 	}
 
 	b.functions[fn.FunctionName] = fn
+
+	// Evict the running runtime so the next invocation gets a fresh container with the
+	// updated code or configuration (mirrors AWS/LocalStack behaviour).
+	rt := b.runtimes[fn.FunctionName]
+	if rt != nil {
+		delete(b.runtimes, fn.FunctionName)
+	}
+
+	b.mu.Unlock()
+
+	// Clean up the old container asynchronously — we must not hold b.mu while stopping.
+	// context.Background is intentional: the caller's ctx (HTTP request) completes long
+	// before the container shuts down. rt is passed as a parameter to make the capture
+	// explicit and safe against future refactoring.
+	if rt != nil {
+		go func(evicted *functionRuntime) { // #nosec G118 -- intentional detached context for background cleanup
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+			defer cancel()
+			b.cleanupRuntime(shutdownCtx, evicted)
+		}(rt)
+	}
 
 	return nil
 }
@@ -1204,6 +1202,13 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 
 	result, isError, invokeErr := srv.invoke(ctx, payload, timeout)
 	if invokeErr != nil {
+		// On invocation timeout the container process is likely hung or dead.
+		// Reset the runtime so the next invocation gets a fresh container instead
+		// of perpetually timing out.
+		if errors.Is(invokeErr, ErrInvocationTimeout) {
+			b.cleanupTimedOutRuntime(fn.FunctionName)
+		}
+
 		return nil, http.StatusInternalServerError, invokeErr
 	}
 
@@ -1305,9 +1310,15 @@ func (b *InMemoryBackend) runAsyncInvocationRetryLoop(
 	currentInv := inv
 
 	for attempt := range maxRetries + 1 {
-		result, ok := waitForAsyncResult(srv, currentInv, timeout, maxEventAgeDL)
+		result, ok, containerTimedOut := waitForAsyncResult(srv, currentInv, timeout, maxEventAgeDL)
 		if !ok {
-			return // timeout or event too old
+			// A container timeout means the process is hung; evict it so the next
+			// invocation gets a fresh container, matching the synchronous timeout path.
+			if containerTimedOut {
+				b.cleanupTimedOutRuntime(functionName)
+			}
+
+			return
 		}
 
 		if !result.isError || attempt == maxRetries {
@@ -1362,18 +1373,21 @@ func (b *InMemoryBackend) readAsyncRetryConfig(
 
 // waitForAsyncResult waits for a pending invocation to receive a container response or for
 // the function timeout to elapse. On timeout it removes the stale srv.pending entry that
-// handleNext stored (preventing a memory leak). Returns (result, true) on container response
-// and (zero, false) on timeout or event-age expiry.
+// handleNext stored (preventing a memory leak).
+// Returns:
+//   - (result, true, false)  — container responded in time
+//   - (zero, false, false)   — event too old; no container was involved
+//   - (zero, false, true)    — container timed out; the caller should clean up the runtime
 func waitForAsyncResult(
 	srv *runtimeServer,
 	inv *pendingInvocation,
 	timeout time.Duration,
 	maxEventAgeDL time.Time,
-) (invocationResult, bool) {
+) (invocationResult, bool, bool) {
 	if !maxEventAgeDL.IsZero() && time.Now().After(maxEventAgeDL) {
 		srv.pending.LoadAndDelete(inv.requestID)
 
-		return invocationResult{}, false
+		return invocationResult{}, false, false
 	}
 
 	waitTimer := time.NewTimer(timeout + containerResponseGracePeriod)
@@ -1388,12 +1402,12 @@ func waitForAsyncResult(
 
 	select {
 	case result := <-inv.result:
-		return result, true
+		return result, true, false
 	case <-waitTimer.C:
 		// Container timed out; remove the stale pending entry to prevent a memory leak.
 		srv.pending.LoadAndDelete(inv.requestID)
 
-		return invocationResult{}, false
+		return invocationResult{}, false, true
 	}
 }
 
@@ -1517,38 +1531,164 @@ const defaultFunctionTimeout = 3 * time.Second
 // containerShutdownTimeout is the maximum time to wait for a container to stop.
 const containerShutdownTimeout = 5 * time.Second
 
+// evictLRURuntimeLocked removes the least-recently-used runtime entry (other than
+// skipName) when the runtimes map exceeds the configured MaxRuntimes limit.
+// It returns the evicted entry so the caller can release its resources outside the lock.
+// The early-return on len(b.runtimes) <= maxRuntimes keeps the common (under-limit) path
+// cost to a single comparison, so callers do not need to guard the call site.
+// Must be called with b.mu held (write lock).
+func (b *InMemoryBackend) evictLRURuntimeLocked(skipName string) *functionRuntime {
+	maxRuntimes := b.settings.MaxRuntimes
+	if maxRuntimes <= 0 {
+		maxRuntimes = defaultMaxRuntimes
+	}
+
+	if len(b.runtimes) <= maxRuntimes {
+		return nil
+	}
+
+	var (
+		lruName string
+		lruRT   *functionRuntime
+	)
+
+	for name, rt := range b.runtimes {
+		if name == skipName {
+			continue
+		}
+
+		if lruRT == nil || rt.lastUsed.Before(lruRT.lastUsed) {
+			lruName = name
+			lruRT = rt
+		}
+	}
+
+	if lruRT != nil {
+		delete(b.runtimes, lruName)
+	}
+
+	return lruRT
+}
+
+// cleanupRuntime stops the container, shuts down the runtime server, releases the port,
+// and removes any temp directories associated with rt. It is safe to call with a nil rt.
+// Fields are snapshotted under rt.mu to avoid data races with concurrent startup.
+func (b *InMemoryBackend) cleanupRuntime(ctx context.Context, rt *functionRuntime) {
+	if rt == nil {
+		return
+	}
+
+	// Snapshot all resource handles under rt.mu so we don't race with getOrCreateRuntime
+	// which writes containerID, srv, port, zipDir, and layerDirs under rt.mu.
+	rt.mu.Lock("cleanupRuntime")
+	containerID := rt.containerID
+	srv := rt.srv
+	port := rt.port
+	zipDir := rt.zipDir
+	layerDirs := rt.layerDirs
+	rt.mu.Unlock()
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, containerShutdownTimeout)
+	defer cancel()
+
+	if containerID != "" && b.docker != nil {
+		_ = b.docker.StopAndRemove(shutdownCtx, containerID) // #nosec G703
+	}
+
+	if srv != nil {
+		srv.stop(shutdownCtx)
+	}
+
+	if port > 0 && b.portAlloc != nil {
+		_ = b.portAlloc.Release(port)
+	}
+
+	if zipDir != "" {
+		_ = os.RemoveAll(zipDir) // #nosec G703
+	}
+
+	for _, d := range layerDirs {
+		_ = os.RemoveAll(d) // #nosec G703
+	}
+
+	rt.mu.Close()
+}
+
+// cleanupTimedOutRuntime removes the named runtime from the runtimes map and
+// asynchronously stops its container and releases its resources. It is called when
+// an invocation times out so that the next invocation creates a fresh container.
+func (b *InMemoryBackend) cleanupTimedOutRuntime(functionName string) {
+	b.mu.Lock("cleanupTimedOutRuntime")
+	rt := b.runtimes[functionName]
+	delete(b.runtimes, functionName)
+	b.mu.Unlock()
+
+	if rt == nil {
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+		defer cancel()
+		b.cleanupRuntime(ctx, rt)
+	}()
+}
+
 // getOrCreateRuntime returns the runtime server for a function, creating it on first use.
 // Must not be called with b.mu held.
 func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionConfiguration) (*runtimeServer, error) {
-	if b.portAlloc == nil {
-		return nil, fmt.Errorf("%w: no port range configured", ErrLambdaUnavailable)
-	}
-
-	if b.docker == nil {
-		return nil, fmt.Errorf("%w: container runtime unavailable", ErrLambdaUnavailable)
-	}
-
 	b.mu.Lock("getOrCreateRuntime")
 	rt, ok := b.runtimes[fn.FunctionName]
 
-	if !ok {
-		rt = &functionRuntime{mu: lockmetrics.New("lambda.runtime")}
+	if ok {
+		// Touch lastUsed under the lock so concurrent callers see a consistent value.
+		rt.lastUsed = time.Now()
+		b.mu.Unlock()
+	} else {
+		// Only check for required infrastructure when actually creating a new runtime.
+		if b.portAlloc == nil {
+			b.mu.Unlock()
+
+			return nil, fmt.Errorf("%w: no port range configured", ErrLambdaUnavailable)
+		}
+
+		if b.docker == nil {
+			b.mu.Unlock()
+
+			return nil, fmt.Errorf("%w: container runtime unavailable", ErrLambdaUnavailable)
+		}
+
+		rt = &functionRuntime{mu: lockmetrics.New("lambda.runtime"), lastUsed: time.Now()}
 		b.runtimes[fn.FunctionName] = rt
+		evicted := b.evictLRURuntimeLocked(fn.FunctionName)
+		b.mu.Unlock()
+
+		// Clean up the evicted runtime asynchronously outside b.mu.
+		// context.Background is intentional: the caller's ctx may be cancelled by the
+		// time the goroutine runs, and we still need to release container/port resources.
+		if evicted != nil {
+			go func() { // #nosec G118 -- intentional detached context; caller ctx may be cancelled before cleanup completes
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+				defer cancel()
+				b.cleanupRuntime(cleanupCtx, evicted)
+			}()
+		}
 	}
 
-	b.mu.Unlock()
-
 	rt.mu.Lock("getOrCreateRuntime")
-	defer rt.mu.Unlock()
 
 	if rt.started {
-		return rt.srv, rt.startErr
+		srv, startErr := rt.srv, rt.startErr
+		rt.mu.Unlock()
+
+		return srv, startErr
 	}
 
 	port, portErr := b.portAlloc.Acquire(fmt.Sprintf("lambda:%s", fn.FunctionName))
 	if portErr != nil {
 		rt.startErr = fmt.Errorf("%w: port allocation failed: %w", ErrLambdaUnavailable, portErr)
 		rt.started = true
+		rt.mu.Unlock()
 
 		return nil, rt.startErr
 	}
@@ -1559,6 +1699,7 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 		_ = b.portAlloc.Release(port)
 		rt.startErr = fmt.Errorf("%w: runtime server start failed: %w", ErrLambdaUnavailable, startErr)
 		rt.started = true
+		rt.mu.Unlock()
 
 		return nil, rt.startErr
 	}
@@ -1567,33 +1708,76 @@ func (b *InMemoryBackend) getOrCreateRuntime(ctx context.Context, fn *FunctionCo
 	rt.port = port
 	rt.started = true
 
-	zipDir, layerDirs, containerErr := b.startContainer(ctx, fn, port)
+	zipDir, layerDirs, containerID, containerErr := b.startContainer(ctx, fn, port)
 	if containerErr != nil {
-		// Container startup failure is fatal: stop the runtime server, release the
-		// port, and surface the error so the caller gets an immediate failure instead
-		// of silently timing out on every subsequent invoke.
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
-		defer cancel()
-		srv.stop(shutdownCtx)
-		_ = b.portAlloc.Release(port)
+		startErr := b.handleContainerStartFailure(
+			ctx, fn.FunctionName, rt, srv, port, zipDir, layerDirs, containerID, containerErr,
+		)
 
-		for _, d := range layerDirs {
-			_ = os.RemoveAll(d) // #nosec G703
-		}
-
-		if zipDir != "" {
-			_ = os.RemoveAll(zipDir) // #nosec G703
-		}
-
-		rt.startErr = fmt.Errorf("%w: container startup failed: %w", ErrLambdaUnavailable, containerErr)
-
-		return nil, rt.startErr
+		return nil, startErr
 	}
 
 	rt.zipDir = zipDir
 	rt.layerDirs = layerDirs
+	rt.containerID = containerID
+	rt.mu.Unlock()
 
 	return srv, nil
+}
+
+// handleContainerStartFailure cleans up all resources after startContainer returns an error.
+// It stops the runtime server, releases the port, removes any partial container and temp dirs,
+// sets rt.startErr, unlocks rt.mu, and then removes the stale map entry under b.mu so that
+// the next invocation can retry. This helper exists to keep getOrCreateRuntime within the
+// statement-count limit.
+func (b *InMemoryBackend) handleContainerStartFailure(
+	_ context.Context,
+	functionName string,
+	rt *functionRuntime,
+	srv *runtimeServer,
+	port int,
+	zipDir string,
+	layerDirs []string,
+	containerID string,
+	containerErr error,
+) error {
+	// Container startup failure is fatal: stop the runtime server, release the
+	// port, and surface the error so the caller gets an immediate failure instead
+	// of silently timing out on every subsequent invoke.
+	// context.Background is intentional: the caller's HTTP context may already be
+	// cancelled (e.g. client disconnect), but we still need to release resources.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+	defer cancel()
+	srv.stop(shutdownCtx)
+	_ = b.portAlloc.Release(port)
+
+	// Stop any container that was created before the error occurred.
+	if containerID != "" {
+		_ = b.docker.StopAndRemove(shutdownCtx, containerID) // #nosec G703
+	}
+
+	for _, d := range layerDirs {
+		_ = os.RemoveAll(d) // #nosec G703
+	}
+
+	if zipDir != "" {
+		_ = os.RemoveAll(zipDir) // #nosec G703
+	}
+
+	startErr := fmt.Errorf("%w: container startup failed: %w", ErrLambdaUnavailable, containerErr)
+	rt.startErr = startErr
+	rt.mu.Unlock()
+
+	// Remove the stale entry so the next invocation gets a fresh attempt rather
+	// than perpetually returning this error. Lock ordering is safe: rt.mu is
+	// released above before acquiring b.mu.
+	b.mu.Lock("getOrCreateRuntime-evict-failed")
+	if b.runtimes[functionName] == rt {
+		delete(b.runtimes, functionName)
+	}
+	b.mu.Unlock()
+
+	return startErr
 }
 
 // runtimeImageForRuntime maps a Lambda runtime identifier to the corresponding
@@ -1707,12 +1891,12 @@ func extractZipFile(destDir string, f *zip.File) error {
 // startContainer creates and starts a Lambda container for the given function.
 // For Zip functions it extracts the code to a temp directory and bind-mounts it.
 // Returns the temp directory path (non-empty only for Zip functions), a list of
-// layer temp directories, and any error.
+// layer temp directories, the container ID (empty if creation failed), and any error.
 func (b *InMemoryBackend) startContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
 	runtimePort int,
-) (string, []string, error) {
+) (string, []string, string, error) {
 	env := []string{
 		fmt.Sprintf("AWS_LAMBDA_RUNTIME_API=%s:%d", b.settings.DockerHost, runtimePort),
 		"AWS_DEFAULT_REGION=" + b.region,
@@ -1740,9 +1924,9 @@ func (b *InMemoryBackend) startContainer(
 	}
 
 	if fn.PackageType == PackageTypeZip {
-		zipDir, err := b.startZipContainer(ctx, fn, env, layerMount)
+		zipDir, containerID, err := b.startZipContainer(ctx, fn, env, layerMount)
 
-		return zipDir, layerDirs, err
+		return zipDir, layerDirs, containerID, err
 	}
 
 	spec := container.Spec{
@@ -1755,48 +1939,49 @@ func (b *InMemoryBackend) startContainer(
 		spec.Mounts = append(spec.Mounts, layerMount)
 	}
 
-	_, err := b.docker.CreateAndStart(ctx, spec)
+	containerID, err := b.docker.CreateAndStart(ctx, spec)
 
-	return "", layerDirs, err
+	return "", layerDirs, containerID, err
 }
 
 // startZipContainer handles container startup for Zip-packaged Lambda functions.
 // It fetches the zip (from inline ZipData or S3), extracts it to a temp directory,
 // and bind-mounts the directory into the appropriate AWS base image container.
 // An optional layerMount bind-mount string (host:/opt:ro) can also be provided.
+// Returns the temp directory path, the container ID, and any error.
 func (b *InMemoryBackend) startZipContainer(
 	ctx context.Context,
 	fn *FunctionConfiguration,
 	env []string,
 	layerMount string,
-) (string, error) {
+) (string, string, error) {
 	baseImage := baseImageForRuntime(fn.Runtime)
 	if baseImage == "" {
-		return "", fmt.Errorf("%w: unsupported runtime %q", ErrLambdaUnavailable, fn.Runtime)
+		return "", "", fmt.Errorf("%w: unsupported runtime %q", ErrLambdaUnavailable, fn.Runtime)
 	}
 
 	// Resolve zip bytes from inline data or S3.
 	zipData := fn.ZipData
 	if len(zipData) == 0 && fn.S3BucketCode != "" && fn.S3KeyCode != "" {
 		if b.s3Fetcher == nil {
-			return "", fmt.Errorf("%w: S3 code delivery requires S3 integration", ErrLambdaUnavailable)
+			return "", "", fmt.Errorf("%w: S3 code delivery requires S3 integration", ErrLambdaUnavailable)
 		}
 
 		var fetchErr error
 
 		zipData, fetchErr = b.s3Fetcher.GetObjectBytes(ctx, fn.S3BucketCode, fn.S3KeyCode)
 		if fetchErr != nil {
-			return "", fmt.Errorf("%w: failed to fetch zip from S3: %w", ErrLambdaUnavailable, fetchErr)
+			return "", "", fmt.Errorf("%w: failed to fetch zip from S3: %w", ErrLambdaUnavailable, fetchErr)
 		}
 	}
 
 	if len(zipData) == 0 {
-		return "", fmt.Errorf("%w: no zip data available for function %q", ErrLambdaUnavailable, fn.FunctionName)
+		return "", "", fmt.Errorf("%w: no zip data available for function %q", ErrLambdaUnavailable, fn.FunctionName)
 	}
 
 	zipDir, extractErr := extractZip(zipData)
 	if extractErr != nil {
-		return "", fmt.Errorf("%w: zip extraction failed: %w", ErrLambdaUnavailable, extractErr)
+		return "", "", fmt.Errorf("%w: zip extraction failed: %w", ErrLambdaUnavailable, extractErr)
 	}
 
 	mounts := []string{zipDir + ":/var/task:ro"}
@@ -1815,13 +2000,14 @@ func (b *InMemoryBackend) startZipContainer(
 		spec.Cmd = []string{fn.Handler}
 	}
 
-	if _, err := b.docker.CreateAndStart(ctx, spec); err != nil {
+	containerID, err := b.docker.CreateAndStart(ctx, spec)
+	if err != nil {
 		_ = os.RemoveAll(zipDir) // #nosec G703
 
-		return "", err
+		return "", "", err
 	}
 
-	return zipDir, nil
+	return zipDir, containerID, nil
 }
 
 // parseLayerARN extracts the layer name and version number from a layer version ARN.
@@ -2657,7 +2843,7 @@ func (b *InMemoryBackend) Reset() {
 	}
 
 	for _, rt := range rts {
-		wg.Go(func() { rt.mu.Close() })
+		wg.Go(func() { b.cleanupRuntime(ctx, rt) })
 	}
 
 	wg.Wait()
