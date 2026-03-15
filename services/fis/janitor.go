@@ -72,7 +72,7 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 func (j *Janitor) sweepCompletedExperiments(ctx context.Context) {
 	cutoff := time.Now().Add(-j.ExperimentTTL)
 
-	j.Backend.mu.Lock()
+	j.Backend.mu.Lock("sweepCompletedExperiments")
 
 	var swept []string
 

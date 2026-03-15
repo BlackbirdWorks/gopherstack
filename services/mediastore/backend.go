@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 var (
@@ -77,13 +77,14 @@ type StorageBackend interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	containers map[string]*Container
-	mu         sync.RWMutex
+	mu         *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory MediaStore backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		containers: make(map[string]*Container),
+		mu:         lockmetrics.New("mediastore"),
 	}
 }
 
@@ -99,7 +100,7 @@ func containerEndpoint(name, region string) string {
 
 // CreateContainer creates a new MediaStore container.
 func (b *InMemoryBackend) CreateContainer(region, accountID, name string, tags map[string]string) (*Container, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateContainer")
 	defer b.mu.Unlock()
 
 	if _, exists := b.containers[name]; exists {
@@ -122,12 +123,12 @@ func (b *InMemoryBackend) CreateContainer(region, accountID, name string, tags m
 
 	b.containers[name] = c
 
-	return c, nil
+	return copyContainer(c), nil
 }
 
 // DeleteContainer removes a container.
 func (b *InMemoryBackend) DeleteContainer(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteContainer")
 	defer b.mu.Unlock()
 
 	if _, exists := b.containers[name]; !exists {
@@ -141,7 +142,7 @@ func (b *InMemoryBackend) DeleteContainer(name string) error {
 
 // DescribeContainer returns details about a container.
 func (b *InMemoryBackend) DescribeContainer(name string) (*Container, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeContainer")
 	defer b.mu.RUnlock()
 
 	c, exists := b.containers[name]
@@ -149,18 +150,18 @@ func (b *InMemoryBackend) DescribeContainer(name string) (*Container, error) {
 		return nil, ErrContainerNotFound
 	}
 
-	return c, nil
+	return copyContainer(c), nil
 }
 
 // ListContainers returns all containers sorted by name.
 func (b *InMemoryBackend) ListContainers() ([]*Container, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListContainers")
 	defer b.mu.RUnlock()
 
 	all := make([]*Container, 0, len(b.containers))
 
 	for _, c := range b.containers {
-		all = append(all, c)
+		all = append(all, copyContainer(c))
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -172,7 +173,7 @@ func (b *InMemoryBackend) ListContainers() ([]*Container, error) {
 
 // PutContainerPolicy stores a container access policy.
 func (b *InMemoryBackend) PutContainerPolicy(name, policy string) error {
-	b.mu.Lock()
+	b.mu.Lock("PutContainerPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.containers[name]
@@ -187,7 +188,7 @@ func (b *InMemoryBackend) PutContainerPolicy(name, policy string) error {
 
 // GetContainerPolicy retrieves the container access policy.
 func (b *InMemoryBackend) GetContainerPolicy(name string) (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetContainerPolicy")
 	defer b.mu.RUnlock()
 
 	c, exists := b.containers[name]
@@ -204,7 +205,7 @@ func (b *InMemoryBackend) GetContainerPolicy(name string) (string, error) {
 
 // DeleteContainerPolicy removes the container access policy.
 func (b *InMemoryBackend) DeleteContainerPolicy(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteContainerPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.containers[name]
@@ -219,7 +220,7 @@ func (b *InMemoryBackend) DeleteContainerPolicy(name string) error {
 
 // PutCorsPolicy stores a CORS policy for a container.
 func (b *InMemoryBackend) PutCorsPolicy(name string, rules []CorsRule) error {
-	b.mu.Lock()
+	b.mu.Lock("PutCorsPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.containers[name]
@@ -239,7 +240,7 @@ func (b *InMemoryBackend) PutCorsPolicy(name string, rules []CorsRule) error {
 
 // GetCorsPolicy retrieves the CORS policy for a container.
 func (b *InMemoryBackend) GetCorsPolicy(name string) ([]CorsRule, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetCorsPolicy")
 	defer b.mu.RUnlock()
 
 	c, exists := b.containers[name]
@@ -261,7 +262,7 @@ func (b *InMemoryBackend) GetCorsPolicy(name string) ([]CorsRule, error) {
 
 // DeleteCorsPolicy removes the CORS policy from a container.
 func (b *InMemoryBackend) DeleteCorsPolicy(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCorsPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.containers[name]
@@ -276,7 +277,7 @@ func (b *InMemoryBackend) DeleteCorsPolicy(name string) error {
 
 // PutLifecyclePolicy stores a lifecycle policy for a container.
 func (b *InMemoryBackend) PutLifecyclePolicy(name, policy string) error {
-	b.mu.Lock()
+	b.mu.Lock("PutLifecyclePolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.containers[name]
@@ -291,7 +292,7 @@ func (b *InMemoryBackend) PutLifecyclePolicy(name, policy string) error {
 
 // GetLifecyclePolicy retrieves the lifecycle policy for a container.
 func (b *InMemoryBackend) GetLifecyclePolicy(name string) (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetLifecyclePolicy")
 	defer b.mu.RUnlock()
 
 	c, exists := b.containers[name]
@@ -308,7 +309,7 @@ func (b *InMemoryBackend) GetLifecyclePolicy(name string) (string, error) {
 
 // DeleteLifecyclePolicy removes the lifecycle policy from a container.
 func (b *InMemoryBackend) DeleteLifecyclePolicy(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteLifecyclePolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.containers[name]
@@ -323,7 +324,7 @@ func (b *InMemoryBackend) DeleteLifecyclePolicy(name string) error {
 
 // PutMetricPolicy stores a metric policy for a container.
 func (b *InMemoryBackend) PutMetricPolicy(name string, policy MetricPolicy) error {
-	b.mu.Lock()
+	b.mu.Lock("PutMetricPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.containers[name]
@@ -343,7 +344,7 @@ func (b *InMemoryBackend) PutMetricPolicy(name string, policy MetricPolicy) erro
 
 // GetMetricPolicy retrieves the metric policy for a container.
 func (b *InMemoryBackend) GetMetricPolicy(name string) (MetricPolicy, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetMetricPolicy")
 	defer b.mu.RUnlock()
 
 	c, exists := b.containers[name]
@@ -365,7 +366,7 @@ func (b *InMemoryBackend) GetMetricPolicy(name string) (MetricPolicy, error) {
 
 // DeleteMetricPolicy removes the metric policy from a container.
 func (b *InMemoryBackend) DeleteMetricPolicy(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteMetricPolicy")
 	defer b.mu.Unlock()
 
 	c, exists := b.containers[name]
@@ -380,7 +381,7 @@ func (b *InMemoryBackend) DeleteMetricPolicy(name string) error {
 
 // StartAccessLogging enables access logging for a container.
 func (b *InMemoryBackend) StartAccessLogging(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("StartAccessLogging")
 	defer b.mu.Unlock()
 
 	c, exists := b.containers[name]
@@ -395,7 +396,7 @@ func (b *InMemoryBackend) StartAccessLogging(name string) error {
 
 // StopAccessLogging disables access logging for a container.
 func (b *InMemoryBackend) StopAccessLogging(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("StopAccessLogging")
 	defer b.mu.Unlock()
 
 	c, exists := b.containers[name]
@@ -410,7 +411,7 @@ func (b *InMemoryBackend) StopAccessLogging(name string) error {
 
 // TagResource adds or updates tags on a container identified by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	for _, c := range b.containers {
@@ -430,7 +431,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 // UntagResource removes tags from a container identified by ARN.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	for _, c := range b.containers {
@@ -448,7 +449,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 // ListTagsForResource returns tags for a container identified by ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	for _, c := range b.containers {
@@ -461,4 +462,25 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	}
 
 	return nil, ErrContainerNotFound
+}
+
+// copyContainer returns a deep copy of the Container, copying Tags and CreationTime.
+func copyContainer(c *Container) *Container {
+	if c == nil {
+		return nil
+	}
+
+	cp := *c
+
+	if c.CreationTime != nil {
+		t := *c.CreationTime
+		cp.CreationTime = &t
+	}
+
+	if c.Tags != nil {
+		cp.Tags = make(map[string]string, len(c.Tags))
+		maps.Copy(cp.Tags, c.Tags)
+	}
+
+	return &cp
 }
