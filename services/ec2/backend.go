@@ -31,6 +31,10 @@ const (
 	stateCodePending      = 0
 	stateCodeShuttingDown = 32
 	stateCodeStopping     = 64
+
+	// stateAvailable is the "available" state string shared by volumes, ENIs,
+	// and other resources that are not currently in use.
+	stateAvailable = "available"
 )
 
 // InstanceState represents the state of an EC2 instance.
@@ -336,6 +340,14 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 				delete(b.tags, eniID)
 			}
 		}
+
+		// Detach any EBS volumes whose attachment refers to this instance so they
+		// return to "available" state. AWS deletes the root volume by default
+		// (deleteOnTermination=true) but detaches additional volumes; since we do
+		// not track the deleteOnTermination flag per attachment, detaching all of
+		// them is the safe, non-destructive equivalent.
+		// Also disassociate any Elastic IPs associated with the terminated instance.
+		b.detachVolumesAndEIPsLocked(id)
 	}
 
 	return result, nil
@@ -456,9 +468,24 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 	return v, nil
 }
 
+// cascadeDeleteVpcIGWsLocked removes all internet gateways that have an
+// attachment to the given VPC. Must be called with b.mu held.
+func (b *InMemoryBackend) cascadeDeleteVpcIGWsLocked(vpcID string) {
+	for igwID, igw := range b.internetGateways {
+		for _, att := range igw.Attachments {
+			if att.VPCID == vpcID {
+				delete(b.internetGateways, igwID)
+				delete(b.tags, igwID)
+
+				break
+			}
+		}
+	}
+}
+
 // DeleteVpc removes a VPC by ID, cascade-deleting all dependent resources
-// (instances, route tables, security groups, network interfaces, and subnets)
-// along with their tags.
+// (instances, internet gateways, NAT gateways, route tables, security groups,
+// network interfaces, and subnets) along with their tags.
 func (b *InMemoryBackend) DeleteVpc(id string) error {
 	b.mu.Lock("DeleteVpc")
 	defer b.mu.Unlock()
@@ -473,6 +500,19 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 			inst.State = StateTerminated
 			inst.TerminatedAt = time.Now()
 			delete(b.tags, instID)
+			b.detachVolumesAndEIPsLocked(instID)
+		}
+	}
+
+	// Cascade: detach and delete internet gateways attached to this VPC.
+	b.cascadeDeleteVpcIGWsLocked(id)
+
+	// Cascade: delete NAT gateways in subnets belonging to this VPC.
+	for ngwID, ngw := range b.natGateways {
+		if sub, ok := b.subnets[ngw.SubnetID]; ok && sub.VPCID == id {
+			b.recycleIPLocked(ngw.PrivateIP)
+			delete(b.natGateways, ngwID)
+			delete(b.tags, ngwID)
 		}
 	}
 
@@ -572,8 +612,8 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 	return s, nil
 }
 
-// DeleteSubnet removes a subnet by ID, cascade-deleting any instances and
-// network interfaces in that subnet along with their tags.
+// DeleteSubnet removes a subnet by ID, cascade-deleting any instances, NAT
+// gateways, and network interfaces in that subnet along with their tags.
 func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	b.mu.Lock("DeleteSubnet")
 	defer b.mu.Unlock()
@@ -588,6 +628,16 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 			inst.State = StateTerminated
 			inst.TerminatedAt = time.Now()
 			delete(b.tags, instID)
+			b.detachVolumesAndEIPsLocked(instID)
+		}
+	}
+
+	// Cascade: delete NAT gateways in this subnet.
+	for ngwID, ngw := range b.natGateways {
+		if ngw.SubnetID == id {
+			b.recycleIPLocked(ngw.PrivateIP)
+			delete(b.natGateways, ngwID)
+			delete(b.tags, ngwID)
 		}
 	}
 
@@ -657,6 +707,26 @@ func (b *InMemoryBackend) recycleENIIPsLocked(eni *NetworkInterface) {
 
 	for _, ip := range eni.SecondaryPrivateIPs {
 		b.recycleIPLocked(ip)
+	}
+}
+
+// detachVolumesAndEIPsLocked clears volume attachments and Elastic IP
+// associations that reference instanceID so that no dangling references remain
+// after the instance transitions to the terminated state.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) detachVolumesAndEIPsLocked(instanceID string) {
+	for _, vol := range b.volumes {
+		if vol.Attachment != nil && vol.Attachment.InstanceID == instanceID {
+			vol.Attachment = nil
+			vol.State = stateAvailable
+		}
+	}
+
+	for _, addr := range b.addresses {
+		if addr.InstanceID == instanceID {
+			addr.AssociationID = ""
+			addr.InstanceID = ""
+		}
 	}
 }
 

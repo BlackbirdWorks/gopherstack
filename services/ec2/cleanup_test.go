@@ -715,3 +715,198 @@ func TestJanitor_DefensiveENISweep(t *testing.T) {
 	enis = b.DescribeNetworkInterfaces([]string{orphan.ID})
 	assert.Empty(t, enis, "orphaned ENI should be removed by janitor defensive sweep")
 }
+
+// TestTerminateInstances_DetachesVolumesAndEIPs verifies that when an instance
+// is terminated its EBS volume attachments are cleared and its Elastic IP
+// associations are removed, preventing zombie attachments/associations.
+func TestTerminateInstances_DetachesVolumesAndEIPs(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	insts, err := b.RunInstances("ami-test", "t2.micro", "", 1)
+	require.NoError(t, err)
+
+	instanceID := insts[0].ID
+
+	// Attach a volume to the instance.
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+	require.NoError(t, err)
+
+	_, err = b.AttachVolume(vol.ID, instanceID, "/dev/sdf")
+	require.NoError(t, err)
+
+	// Associate an EIP with the instance.
+	addr, err := b.AllocateAddress()
+	require.NoError(t, err)
+
+	_, err = b.AssociateAddress(addr.AllocationID, instanceID)
+	require.NoError(t, err)
+
+	// Terminate the instance.
+	_, err = b.TerminateInstances([]string{instanceID})
+	require.NoError(t, err)
+
+	// Volume must be detached (available).
+	vols := b.DescribeVolumes([]string{vol.ID})
+	require.Len(t, vols, 1)
+	assert.Equal(t, "available", vols[0].State, "volume must be detached after instance termination")
+	assert.Nil(t, vols[0].Attachment, "volume attachment must be nil after instance termination")
+
+	// EIP must be disassociated.
+	addrs := b.DescribeAddresses([]string{addr.AllocationID})
+	require.Len(t, addrs, 1)
+	assert.Empty(t, addrs[0].InstanceID, "EIP instance association must be cleared after termination")
+	assert.Empty(t, addrs[0].AssociationID, "EIP association ID must be cleared after termination")
+}
+
+// TestDeleteNetworkInterface_RecyclesPrivateIP verifies that explicitly
+// deleting an unattached ENI returns its private IP to the free list so it
+// can be reused by future allocations.
+func TestDeleteNetworkInterface_RecyclesPrivateIP(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	eni, err := b.CreateNetworkInterface("subnet-default", "test-eni")
+	require.NoError(t, err)
+
+	privateIP := eni.PrivateIP
+
+	err = b.DeleteNetworkInterface(eni.ID)
+	require.NoError(t, err)
+
+	// The next allocation should reuse the recycled IP.
+	eni2, err := b.CreateNetworkInterface("subnet-default", "test-eni-2")
+	require.NoError(t, err)
+
+	assert.Equal(t, privateIP, eni2.PrivateIP, "deleted ENI's private IP must be reused")
+}
+
+// TestDeleteNatGateway_RecyclesPrivateIP verifies that deleting a NAT gateway
+// returns its private IP to the free list.
+func TestDeleteNatGateway_RecyclesPrivateIP(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	addr, err := b.AllocateAddress()
+	require.NoError(t, err)
+
+	ngw, err := b.CreateNatGateway("subnet-default", addr.AllocationID)
+	require.NoError(t, err)
+
+	ngwPrivateIP := ngw.PrivateIP
+
+	err = b.DeleteNatGateway(ngw.ID)
+	require.NoError(t, err)
+
+	// The next allocation must reuse the recycled IP.
+	eni, err := b.CreateNetworkInterface("subnet-default", "test-eni")
+	require.NoError(t, err)
+
+	assert.Equal(t, ngwPrivateIP, eni.PrivateIP, "deleted NAT GW's private IP must be reused")
+}
+
+// TestDeleteSubnet_CascadeDeletesNatGateways verifies that deleting a subnet
+// cascade-deletes any NAT gateways in that subnet.
+func TestDeleteSubnet_CascadeDeletesNatGateways(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
+	require.NoError(t, err)
+
+	addr, err := b.AllocateAddress()
+	require.NoError(t, err)
+
+	ngw, err := b.CreateNatGateway(subnet.ID, addr.AllocationID)
+	require.NoError(t, err)
+
+	err = b.DeleteSubnet(subnet.ID)
+	require.NoError(t, err)
+
+	ngws := b.DescribeNatGateways([]string{ngw.ID})
+	assert.Empty(t, ngws, "NAT gateway must be deleted when its subnet is deleted")
+}
+
+// TestDeleteVpc_CascadeDeletesIGWsAndNatGateways verifies that deleting a VPC
+// cascade-deletes internet gateways attached to it and NAT gateways in its
+// subnets.
+func TestDeleteVpc_CascadeDeletesIGWsAndNatGateways(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	vpc, err := b.CreateVpc("10.88.0.0/16")
+	require.NoError(t, err)
+
+	subnet, err := b.CreateSubnet(vpc.ID, "10.88.1.0/24", "us-east-1a")
+	require.NoError(t, err)
+
+	// Create and attach an IGW to the VPC.
+	igw, err := b.CreateInternetGateway()
+	require.NoError(t, err)
+
+	err = b.AttachInternetGateway(igw.ID, vpc.ID)
+	require.NoError(t, err)
+
+	// Create a NAT gateway in the VPC's subnet.
+	addr, err := b.AllocateAddress()
+	require.NoError(t, err)
+
+	ngw, err := b.CreateNatGateway(subnet.ID, addr.AllocationID)
+	require.NoError(t, err)
+
+	err = b.DeleteVpc(vpc.ID)
+	require.NoError(t, err)
+
+	assert.Empty(t, b.DescribeInternetGateways([]string{igw.ID}),
+		"internet gateway must be deleted when its VPC is deleted")
+	assert.Empty(t, b.DescribeNatGateways([]string{ngw.ID}),
+		"NAT gateway must be deleted when its VPC is deleted")
+}
+
+// TestDeleteVpc_CascadeDetachesVolumesAndEIPs verifies that when a VPC is
+// deleted the volumes attached to its instances are detached and any Elastic
+// IPs associated with those instances are disassociated.
+func TestDeleteVpc_CascadeDetachesVolumesAndEIPs(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	vpc, err := b.CreateVpc("10.55.0.0/16")
+	require.NoError(t, err)
+
+	subnet, err := b.CreateSubnet(vpc.ID, "10.55.1.0/24", "us-east-1a")
+	require.NoError(t, err)
+
+	insts, err := b.RunInstances("ami-test", "t2.micro", subnet.ID, 1)
+	require.NoError(t, err)
+
+	instanceID := insts[0].ID
+
+	vol, err := b.CreateVolume("us-east-1a", "gp2", 20)
+	require.NoError(t, err)
+
+	_, err = b.AttachVolume(vol.ID, instanceID, "/dev/sdf")
+	require.NoError(t, err)
+
+	addr, err := b.AllocateAddress()
+	require.NoError(t, err)
+
+	_, err = b.AssociateAddress(addr.AllocationID, instanceID)
+	require.NoError(t, err)
+
+	err = b.DeleteVpc(vpc.ID)
+	require.NoError(t, err)
+
+	vols := b.DescribeVolumes([]string{vol.ID})
+	require.Len(t, vols, 1)
+	assert.Equal(t, "available", vols[0].State, "volume must be detached when VPC is deleted")
+
+	addrs := b.DescribeAddresses([]string{addr.AllocationID})
+	require.Len(t, addrs, 1)
+	assert.Empty(t, addrs[0].InstanceID, "EIP must be disassociated when VPC is deleted")
+}

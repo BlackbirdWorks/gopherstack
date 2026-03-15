@@ -517,7 +517,7 @@ func (b *InMemoryBackend) CreateVolume(az, volType string, size int) (*Volume, e
 		AZ:         az,
 		VolumeType: volType,
 		Size:       size,
-		State:      "available",
+		State:      stateAvailable,
 		CreateTime: time.Now(),
 	}
 	b.volumes[id] = vol
@@ -617,7 +617,7 @@ func (b *InMemoryBackend) DetachVolume(volumeID string, _ bool) (*VolumeAttachme
 	att := *vol.Attachment
 	att.State = "detached"
 	vol.Attachment = nil
-	vol.State = "available"
+	vol.State = stateAvailable
 
 	return &att, nil
 }
@@ -782,7 +782,7 @@ func (b *InMemoryBackend) AttachInternetGateway(igwID, vpcID string) error {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
-	igw.Attachments = append(igw.Attachments, IGWAttachment{VPCID: vpcID, State: "available"})
+	igw.Attachments = append(igw.Attachments, IGWAttachment{VPCID: vpcID, State: stateAvailable})
 
 	return nil
 }
@@ -972,7 +972,7 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 		AllocationID: allocationID,
 		PublicIP:     addr.PublicIP,
 		PrivateIP:    b.allocPrivateIP(),
-		State:        "available",
+		State:        stateAvailable,
 		CreateTime:   time.Now(),
 	}
 	b.natGateways[id] = ngw
@@ -980,15 +980,17 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 	return ngw, nil
 }
 
-// DeleteNatGateway removes a NAT Gateway.
+// DeleteNatGateway removes a NAT Gateway and recycles its private IP.
 func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	b.mu.Lock("DeleteNatGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.natGateways[id]; !ok {
+	ngw, ok := b.natGateways[id]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrNatGatewayNotFound, id)
 	}
 
+	b.recycleIPLocked(ngw.PrivateIP)
 	delete(b.natGateways, id)
 	delete(b.tags, id)
 
@@ -1126,7 +1128,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(subnetID, description string) (
 		VPCID:           sub.VPCID,
 		PrivateIP:       b.allocPrivateIP(),
 		Description:     description,
-		Status:          "available",
+		Status:          stateAvailable,
 		SourceDestCheck: true,
 	}
 	b.networkInterfaces[id] = eni
@@ -1149,6 +1151,7 @@ func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
 		return fmt.Errorf("%w: %s is currently attached to instance %s", ErrNetworkInterfaceInUse, id, eni.InstanceID)
 	}
 
+	b.recycleENIIPsLocked(eni)
 	delete(b.networkInterfaces, id)
 	delete(b.tags, id)
 
@@ -1192,7 +1195,7 @@ func (b *InMemoryBackend) DetachNetworkInterface(attachmentID string, _ bool) er
 			eni.InstanceID = ""
 			eni.AttachmentID = ""
 			eni.DeviceIndex = 0
-			eni.Status = "available"
+			eni.Status = stateAvailable
 
 			return nil
 		}
@@ -1402,7 +1405,7 @@ func (b *InMemoryBackend) CreatePlacementGroup(name, strategy string) (*Placemen
 	pg := &PlacementGroup{
 		Name:     name,
 		Strategy: strategy,
-		State:    "available",
+		State:    stateAvailable,
 	}
 	b.placementGroups[name] = pg
 
