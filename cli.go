@@ -2363,7 +2363,10 @@ func (a *ddbStreamsReaderAdapter) GetStreamShardIterator(streamARN, iteratorType
 	return aws.ToString(out.ShardIterator), nil
 }
 
-func (a *ddbStreamsReaderAdapter) GetStreamRecords(iteratorToken string, limit int) ([]lambdabackend.DynamoDBStreamRecord, string, error) {
+func (a *ddbStreamsReaderAdapter) GetStreamRecords(
+	iteratorToken string,
+	limit int,
+) ([]lambdabackend.DynamoDBStreamRecord, string, error) {
 	lim := int32(limit) //nolint:gosec // limit is bounded by BatchSize, never overflows int32
 	out, err := a.backend.GetRecords(context.Background(), &awsddbstreams.GetRecordsInput{
 		ShardIterator: aws.String(iteratorToken),
@@ -2381,35 +2384,42 @@ func (a *ddbStreamsReaderAdapter) GetStreamRecords(iteratorToken string, limit i
 			EventName: string(r.EventName),
 		}
 
-		if r.Dynamodb != nil {
-			rec.SequenceNumber = aws.ToString(r.Dynamodb.SequenceNumber)
-			rec.StreamViewType = string(r.Dynamodb.StreamViewType)
-
-			if r.Dynamodb.SizeBytes != nil {
-				rec.SizeBytes = *r.Dynamodb.SizeBytes
-			}
-
-			if r.Dynamodb.ApproximateCreationDateTime != nil {
-				rec.ApproximateCreationDateTime = float64(r.Dynamodb.ApproximateCreationDateTime.Unix())
-			}
-
-			if r.Dynamodb.NewImage != nil {
-				rec.NewImage = sdkDDBStreamItemToWire(r.Dynamodb.NewImage)
-			}
-
-			if r.Dynamodb.OldImage != nil {
-				rec.OldImage = sdkDDBStreamItemToWire(r.Dynamodb.OldImage)
-			}
-
-			if r.Dynamodb.Keys != nil {
-				rec.Keys = sdkDDBStreamItemToWire(r.Dynamodb.Keys)
-			}
-		}
-
+		populateDDBStreamRecord(&rec, r.Dynamodb)
 		records = append(records, rec)
 	}
 
 	return records, aws.ToString(out.NextShardIterator), nil
+}
+
+// populateDDBStreamRecord fills in the DynamoDB-specific fields of a DynamoDBStreamRecord
+// from the SDK StreamRecord payload.
+func populateDDBStreamRecord(rec *lambdabackend.DynamoDBStreamRecord, ddb *ddbstreamstypes.StreamRecord) {
+	if ddb == nil {
+		return
+	}
+
+	rec.SequenceNumber = aws.ToString(ddb.SequenceNumber)
+	rec.StreamViewType = string(ddb.StreamViewType)
+
+	if ddb.SizeBytes != nil {
+		rec.SizeBytes = *ddb.SizeBytes
+	}
+
+	if ddb.ApproximateCreationDateTime != nil {
+		rec.ApproximateCreationDateTime = float64(ddb.ApproximateCreationDateTime.Unix())
+	}
+
+	if ddb.NewImage != nil {
+		rec.NewImage = sdkDDBStreamItemToWire(ddb.NewImage)
+	}
+
+	if ddb.OldImage != nil {
+		rec.OldImage = sdkDDBStreamItemToWire(ddb.OldImage)
+	}
+
+	if ddb.Keys != nil {
+		rec.Keys = sdkDDBStreamItemToWire(ddb.Keys)
+	}
 }
 
 // sdkDDBStreamItemToWire converts a DynamoDB Streams SDK attribute map to DynamoDB JSON wire format.
@@ -3815,7 +3825,11 @@ type schedulerLambdaAdapter struct {
 	backend *lambdabackend.InMemoryBackend
 }
 
-func (a *schedulerLambdaAdapter) InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error) {
+func (a *schedulerLambdaAdapter) InvokeFunction(
+	ctx context.Context,
+	name, invocationType string,
+	payload []byte,
+) ([]byte, int, error) {
 	return a.backend.InvokeFunction(ctx, name, invocationType, payload)
 }
 
@@ -3864,7 +3878,10 @@ type pipesSQSReaderAdapter struct {
 	backend *sqsbackend.InMemoryBackend
 }
 
-func (a *pipesSQSReaderAdapter) ReceivePipeMessages(queueARN string, maxMessages int) ([]*pipesbackend.PipeSQSMessage, error) {
+func (a *pipesSQSReaderAdapter) ReceivePipeMessages(
+	queueARN string,
+	maxMessages int,
+) ([]*pipesbackend.SQSMessage, error) {
 	url := arnToSQSQueueURL(queueARN)
 
 	msgs, err := a.backend.ReceiveMessagesLocal(url, maxMessages)
@@ -3872,9 +3889,9 @@ func (a *pipesSQSReaderAdapter) ReceivePipeMessages(queueARN string, maxMessages
 		return nil, err
 	}
 
-	result := make([]*pipesbackend.PipeSQSMessage, len(msgs))
+	result := make([]*pipesbackend.SQSMessage, len(msgs))
 	for i, m := range msgs {
-		result[i] = &pipesbackend.PipeSQSMessage{
+		result[i] = &pipesbackend.SQSMessage{
 			MessageID:     m.MessageID,
 			ReceiptHandle: m.ReceiptHandle,
 			Body:          m.Body,

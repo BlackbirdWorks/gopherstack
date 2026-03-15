@@ -376,7 +376,11 @@ func isDynamoDBStreamARN(resourceARN string) bool {
 }
 
 // processDynamoDBStreamMapping polls a DynamoDB stream's single shard and invokes Lambda.
-func (p *EventSourcePoller) processDynamoDBStreamMapping(ctx context.Context, m *EventSourceMapping, reader DynamoDBStreamsReader) {
+func (p *EventSourcePoller) processDynamoDBStreamMapping(
+	ctx context.Context,
+	m *EventSourceMapping,
+	reader DynamoDBStreamsReader,
+) {
 	iterKey := m.UUID + ":" + ddbStreamShardID
 
 	p.mu.RLock("processDDBMapping.read")
@@ -428,22 +432,22 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 	records []DynamoDBStreamRecord,
 ) {
 	type ddbStreamRecord struct {
-		ApproximateCreationDateTime float64        `json:"ApproximateCreationDateTime,omitempty"`
 		Keys                        map[string]any `json:"Keys,omitempty"`
 		NewImage                    map[string]any `json:"NewImage,omitempty"`
 		OldImage                    map[string]any `json:"OldImage,omitempty"`
 		SequenceNumber              string         `json:"SequenceNumber"`
-		SizeBytes                   int64          `json:"SizeBytes,omitempty"`
 		StreamViewType              string         `json:"StreamViewType,omitempty"`
+		ApproximateCreationDateTime float64        `json:"ApproximateCreationDateTime,omitempty"`
+		SizeBytes                   int64          `json:"SizeBytes,omitempty"`
 	}
 	type lambdaRecord struct {
-		Dynamodb       ddbStreamRecord `json:"dynamodb"`
 		EventID        string          `json:"eventID"`
 		EventName      string          `json:"eventName"`
 		EventVersion   string          `json:"eventVersion"`
 		EventSource    string          `json:"eventSource"`
 		AWSRegion      string          `json:"awsRegion"`
 		EventSourceARN string          `json:"eventSourceARN"`
+		Dynamodb       ddbStreamRecord `json:"dynamodb"`
 	}
 	type lambdaEvent struct {
 		Records []lambdaRecord `json:"Records"`
@@ -452,11 +456,11 @@ func (p *EventSourcePoller) invokeLambdaForDDB(
 	eventRecords := make([]lambdaRecord, len(records))
 	for i, r := range records {
 		eventRecords[i] = lambdaRecord{
-			EventID:      r.EventID,
-			EventName:    r.EventName,
-			EventVersion: "1.1",
-			EventSource:  "aws:dynamodb",
-			AWSRegion:    p.lambdaBackend.region,
+			EventID:        r.EventID,
+			EventName:      r.EventName,
+			EventVersion:   "1.1",
+			EventSource:    "aws:dynamodb",
+			AWSRegion:      p.lambdaBackend.region,
 			EventSourceARN: m.EventSourceARN,
 			Dynamodb: ddbStreamRecord{
 				SequenceNumber:              r.SequenceNumber,

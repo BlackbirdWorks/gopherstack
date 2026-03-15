@@ -16,8 +16,8 @@ const (
 	pipeDefaultBatchSize = 10
 )
 
-// PipeSQSMessage is a single SQS message pulled by the pipe runner.
-type PipeSQSMessage struct {
+// SQSMessage is a single SQS message pulled by the pipe runner.
+type SQSMessage struct {
 	Attributes    map[string]string
 	MessageID     string
 	ReceiptHandle string
@@ -25,10 +25,10 @@ type PipeSQSMessage struct {
 	MD5OfBody     string
 }
 
-// PipeSQSReader reads and deletes SQS messages for a pipe source.
-type PipeSQSReader interface {
+// SQSReader reads and deletes SQS messages for a pipe source.
+type SQSReader interface {
 	// ReceivePipeMessages pulls up to maxMessages from the queue identified by queueARN.
-	ReceivePipeMessages(queueARN string, maxMessages int) ([]*PipeSQSMessage, error)
+	ReceivePipeMessages(queueARN string, maxMessages int) ([]*SQSMessage, error)
 	// DeletePipeMessages removes the messages identified by receiptHandles from the queue.
 	DeletePipeMessages(queueARN string, receiptHandles []string) error
 }
@@ -46,7 +46,7 @@ type PipeStepFunctionsStarter interface {
 // Runner polls pipe sources and forwards records to pipe targets for RUNNING pipes.
 type Runner struct {
 	backend   *InMemoryBackend
-	sqsReader PipeSQSReader
+	sqsReader SQSReader
 	lambda    PipeLambdaInvoker
 	sfn       PipeStepFunctionsStarter
 }
@@ -57,7 +57,7 @@ func NewRunner(backend *InMemoryBackend) *Runner {
 }
 
 // SetSQSReader configures the SQS reader for SQS pipe sources.
-func (r *Runner) SetSQSReader(s PipeSQSReader) { r.sqsReader = s }
+func (r *Runner) SetSQSReader(s SQSReader) { r.sqsReader = s }
 
 // SetLambdaInvoker configures the Lambda invoker for Lambda pipe targets.
 func (r *Runner) SetLambdaInvoker(l PipeLambdaInvoker) { r.lambda = l }
@@ -98,8 +98,7 @@ func (r *Runner) pollAllPipes(ctx context.Context) {
 }
 
 func (r *Runner) pollPipe(ctx context.Context, p *Pipe) {
-	switch {
-	case isSQSARN(p.Source):
+	if isSQSARN(p.Source) {
 		r.pollSQSPipe(ctx, p)
 	}
 }
@@ -142,7 +141,7 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 }
 
 // invokeTarget forwards the SQS messages to the pipe's target and returns the receipt handles.
-func (r *Runner) invokeTarget(ctx context.Context, p *Pipe, msgs []*PipeSQSMessage) ([]string, error) {
+func (r *Runner) invokeTarget(ctx context.Context, p *Pipe, msgs []*SQSMessage) ([]string, error) {
 	receiptHandles := make([]string, len(msgs))
 	for i, m := range msgs {
 		receiptHandles[i] = m.ReceiptHandle
@@ -166,17 +165,17 @@ type sqsPipeEvent struct {
 }
 
 type sqsPipeRecord struct {
-	Attributes    map[string]string `json:"attributes,omitempty"`
-	MessageID     string            `json:"messageId"`
-	ReceiptHandle string            `json:"receiptHandle"`
-	Body          string            `json:"body"`
-	MD5OfBody     string            `json:"md5OfBody"`
-	EventSource   string            `json:"eventSource"`
-	EventSourceARN string           `json:"eventSourceARN"`
-	AWSRegion     string            `json:"awsRegion"`
+	Attributes     map[string]string `json:"attributes,omitempty"`
+	MessageID      string            `json:"messageId"`
+	ReceiptHandle  string            `json:"receiptHandle"`
+	Body           string            `json:"body"`
+	MD5OfBody      string            `json:"md5OfBody"`
+	EventSource    string            `json:"eventSource"`
+	EventSourceARN string            `json:"eventSourceARN"`
+	AWSRegion      string            `json:"awsRegion"`
 }
 
-func (r *Runner) invokeLambdaTarget(ctx context.Context, p *Pipe, msgs []*PipeSQSMessage) error {
+func (r *Runner) invokeLambdaTarget(ctx context.Context, p *Pipe, msgs []*SQSMessage) error {
 	if r.lambda == nil {
 		return nil
 	}
@@ -214,7 +213,7 @@ func (r *Runner) invokeLambdaTarget(ctx context.Context, p *Pipe, msgs []*PipeSQ
 	return err
 }
 
-func (r *Runner) invokeSFNTarget(ctx context.Context, p *Pipe, msgs []*PipeSQSMessage) error {
+func (r *Runner) invokeSFNTarget(_ context.Context, p *Pipe, msgs []*SQSMessage) error {
 	if r.sfn == nil {
 		return nil
 	}

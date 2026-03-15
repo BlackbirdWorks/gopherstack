@@ -15,16 +15,16 @@ import (
 
 // --- mock implementations ---
 
-type mockPipeSQSReader struct {
-	mu           sync.Mutex
-	messages     []*pipes.PipeSQSMessage
+type mockSQSReader struct {
 	receiveErr   error
 	deleteErr    error
-	receiveCalls int
+	messages     []*pipes.SQSMessage
 	deletedIDs   []string
+	receiveCalls int
+	mu           sync.Mutex
 }
 
-func (m *mockPipeSQSReader) ReceivePipeMessages(_ string, _ int) ([]*pipes.PipeSQSMessage, error) {
+func (m *mockSQSReader) ReceivePipeMessages(_ string, _ int) ([]*pipes.SQSMessage, error) {
 	m.mu.Lock()
 	m.receiveCalls++
 	msgs := m.messages
@@ -38,7 +38,7 @@ func (m *mockPipeSQSReader) ReceivePipeMessages(_ string, _ int) ([]*pipes.PipeS
 	return msgs, nil
 }
 
-func (m *mockPipeSQSReader) DeletePipeMessages(_ string, receiptHandles []string) error {
+func (m *mockSQSReader) DeletePipeMessages(_ string, receiptHandles []string) error {
 	m.mu.Lock()
 	m.deletedIDs = append(m.deletedIDs, receiptHandles...)
 	m.mu.Unlock()
@@ -47,10 +47,10 @@ func (m *mockPipeSQSReader) DeletePipeMessages(_ string, receiptHandles []string
 }
 
 type mockPipeLambdaInvoker struct {
-	mu       sync.Mutex
-	calls    []string // function names
-	payloads [][]byte
 	err      error
+	calls    []string
+	payloads [][]byte
+	mu       sync.Mutex
 }
 
 func (m *mockPipeLambdaInvoker) InvokeFunction(_ context.Context, name, _ string, payload []byte) ([]byte, int, error) {
@@ -88,8 +88,8 @@ func TestPipesRunner_SQSToLambda(t *testing.T) {
 	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:my-fn"
 	createTestPipe(t, backend, "test-pipe", sqsARN, lambdaARN, "RUNNING")
 
-	sqsReader := &mockPipeSQSReader{
-		messages: []*pipes.PipeSQSMessage{
+	sqsReader := &mockSQSReader{
+		messages: []*pipes.SQSMessage{
 			{MessageID: "msg-1", ReceiptHandle: "rh-1", Body: "hello"},
 			{MessageID: "msg-2", ReceiptHandle: "rh-2", Body: "world"},
 		},
@@ -100,7 +100,7 @@ func TestPipesRunner_SQSToLambda(t *testing.T) {
 	runner.SetSQSReader(sqsReader)
 	runner.SetLambdaInvoker(lambdaInvoker)
 
-	pipes.PollAllPipesOnce(runner, t.Context())
+	pipes.PollAllPipesOnce(t.Context(), runner)
 
 	lambdaInvoker.mu.Lock()
 	calls := lambdaInvoker.calls
@@ -141,8 +141,8 @@ func TestPipesRunner_StoppedPipeSkipped(t *testing.T) {
 		"arn:aws:lambda:us-east-1:000000000000:function:fn",
 		"STOPPED")
 
-	sqsReader := &mockPipeSQSReader{
-		messages: []*pipes.PipeSQSMessage{{MessageID: "m1", Body: "test"}},
+	sqsReader := &mockSQSReader{
+		messages: []*pipes.SQSMessage{{MessageID: "m1", Body: "test"}},
 	}
 	lambdaInvoker := &mockPipeLambdaInvoker{}
 
@@ -150,7 +150,7 @@ func TestPipesRunner_StoppedPipeSkipped(t *testing.T) {
 	runner.SetSQSReader(sqsReader)
 	runner.SetLambdaInvoker(lambdaInvoker)
 
-	pipes.PollAllPipesOnce(runner, t.Context())
+	pipes.PollAllPipesOnce(t.Context(), runner)
 
 	lambdaInvoker.mu.Lock()
 	calls := lambdaInvoker.calls
@@ -175,7 +175,7 @@ func TestPipesRunner_SQSReceiveError(t *testing.T) {
 		"arn:aws:lambda:us-east-1:000000000000:function:fn",
 		"RUNNING")
 
-	sqsReader := &mockPipeSQSReader{receiveErr: assert.AnError}
+	sqsReader := &mockSQSReader{receiveErr: assert.AnError}
 	lambdaInvoker := &mockPipeLambdaInvoker{}
 
 	runner := pipes.NewRunner(backend)
@@ -183,7 +183,7 @@ func TestPipesRunner_SQSReceiveError(t *testing.T) {
 	runner.SetLambdaInvoker(lambdaInvoker)
 
 	// Should not panic
-	pipes.PollAllPipesOnce(runner, t.Context())
+	pipes.PollAllPipesOnce(t.Context(), runner)
 
 	lambdaInvoker.mu.Lock()
 	calls := lambdaInvoker.calls
@@ -202,14 +202,14 @@ func TestPipesRunner_EmptyQueueSkipsInvocation(t *testing.T) {
 		"arn:aws:lambda:us-east-1:000000000000:function:fn",
 		"RUNNING")
 
-	sqsReader := &mockPipeSQSReader{messages: nil}
+	sqsReader := &mockSQSReader{messages: nil}
 	lambdaInvoker := &mockPipeLambdaInvoker{}
 
 	runner := pipes.NewRunner(backend)
 	runner.SetSQSReader(sqsReader)
 	runner.SetLambdaInvoker(lambdaInvoker)
 
-	pipes.PollAllPipesOnce(runner, t.Context())
+	pipes.PollAllPipesOnce(t.Context(), runner)
 
 	lambdaInvoker.mu.Lock()
 	calls := lambdaInvoker.calls

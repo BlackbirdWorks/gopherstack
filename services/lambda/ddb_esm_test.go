@@ -60,12 +60,12 @@ func TestLambda_IsDynamoDBStreamARN(t *testing.T) {
 
 // fakeDDBStreamsReader is a test DynamoDBStreamsReader for unit tests.
 type fakeDDBStreamsReader struct {
-	mu           sync.Mutex
+	getIterErr   error
+	getRecErr    error
 	records      []lambda.DynamoDBStreamRecord
 	iterCalls    int
 	recordsCalls int
-	getIterErr   error
-	getRecErr    error
+	mu           sync.Mutex
 }
 
 func (f *fakeDDBStreamsReader) GetStreamShardIterator(_, _ string) (string, error) {
@@ -230,16 +230,16 @@ func TestLambda_DDB_Poller_InvokesLambdaWithRecords(t *testing.T) {
 
 	var event struct {
 		Records []struct {
+			Dynamodb struct {
+				NewImage       map[string]any `json:"NewImage"`
+				OldImage       map[string]any `json:"OldImage"`
+				SequenceNumber string         `json:"SequenceNumber"`
+			} `json:"dynamodb"`
 			EventID      string `json:"eventID"`
 			EventName    string `json:"eventName"`
 			EventSource  string `json:"eventSource"`
 			EventVersion string `json:"eventVersion"`
 			AWSRegion    string `json:"awsRegion"`
-			Dynamodb     struct {
-				SequenceNumber string         `json:"SequenceNumber"`
-				NewImage       map[string]any `json:"NewImage"`
-				OldImage       map[string]any `json:"OldImage"`
-			} `json:"dynamodb"`
 		} `json:"Records"`
 	}
 	require.NoError(t, json.Unmarshal(payloads[0], &event))

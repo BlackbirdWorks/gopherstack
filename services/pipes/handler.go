@@ -36,10 +36,10 @@ var (
 // Handler is the HTTP handler for the EventBridge Pipes REST API.
 type Handler struct {
 	Backend   *InMemoryBackend
-	AccountID string
-	Region    string
 	runner    *Runner
 	cancel    context.CancelFunc
+	AccountID string
+	Region    string
 }
 
 // NewHandler creates a new Pipes handler.

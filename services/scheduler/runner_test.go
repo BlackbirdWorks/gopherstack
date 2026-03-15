@@ -15,9 +15,9 @@ import (
 // --- mock target implementations ---
 
 type mockLambdaInvoker struct {
-	mu      sync.Mutex
-	calls   []string // function names called
-	err     error
+	err   error
+	calls []string
+	mu    sync.Mutex
 }
 
 func (m *mockLambdaInvoker) InvokeFunction(_ context.Context, name, _ string, _ []byte) ([]byte, int, error) {
@@ -39,9 +39,9 @@ func (m *mockLambdaInvoker) Called() []string {
 }
 
 type mockSQSSender struct {
-	mu   sync.Mutex
-	arns []string
 	err  error
+	arns []string
+	mu   sync.Mutex
 }
 
 func (m *mockSQSSender) SendMessageToQueue(_ context.Context, queueARN, _ string) error {
@@ -53,9 +53,9 @@ func (m *mockSQSSender) SendMessageToQueue(_ context.Context, queueARN, _ string
 }
 
 type mockSNSPublisher struct {
-	mu     sync.Mutex
-	topics []string
 	err    error
+	topics []string
+	mu     sync.Mutex
 }
 
 func (m *mockSNSPublisher) PublishToTopic(_ context.Context, topicARN, _ string) error {
@@ -67,9 +67,9 @@ func (m *mockSNSPublisher) PublishToTopic(_ context.Context, topicARN, _ string)
 }
 
 type mockSFNStarter struct {
-	mu   sync.Mutex
-	arns []string
 	err  error
+	arns []string
+	mu   sync.Mutex
 }
 
 func (m *mockSFNStarter) StartExecution(arn, _, _ string) error {
@@ -86,7 +86,13 @@ func newTestBackendWithSchedule(t *testing.T, name, expr, targetARN, state strin
 	t.Helper()
 
 	backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := backend.CreateSchedule(name, expr, scheduler.Target{ARN: targetARN, RoleARN: "arn:aws:iam::000000000000:role/r"}, state, scheduler.FlexibleTimeWindow{Mode: "OFF"})
+	_, err := backend.CreateSchedule(
+		name,
+		expr,
+		scheduler.Target{ARN: targetARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
+		state,
+		scheduler.FlexibleTimeWindow{Mode: "OFF"},
+	)
 	require.NoError(t, err)
 
 	return backend
@@ -191,7 +197,7 @@ func TestScheduler_Runner_RateFiresOnFirstPoll(t *testing.T) {
 	runner.SetLambdaInvoker(invoker)
 
 	// Manually call checkAndFireSchedules with a fixed time (simulates first poll - no lastFiredAt)
-	scheduler.CheckAndFireSchedules(runner, t.Context(), time.Now())
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
 
 	calls := invoker.Called()
 	require.Len(t, calls, 1)
@@ -212,15 +218,15 @@ func TestScheduler_Runner_RateRespectsCooldown(t *testing.T) {
 	now := time.Now()
 
 	// First poll - should fire
-	scheduler.CheckAndFireSchedules(runner, t.Context(), now)
+	scheduler.CheckAndFireSchedules(t.Context(), runner, now)
 	require.Len(t, invoker.Called(), 1, "should fire on first poll")
 
 	// Immediately after - should NOT fire again (interval not elapsed)
-	scheduler.CheckAndFireSchedules(runner, t.Context(), now.Add(1*time.Second))
+	scheduler.CheckAndFireSchedules(t.Context(), runner, now.Add(1*time.Second))
 	assert.Len(t, invoker.Called(), 1, "should not fire again within interval")
 
 	// After interval elapsed - should fire again
-	scheduler.CheckAndFireSchedules(runner, t.Context(), now.Add(6*time.Minute))
+	scheduler.CheckAndFireSchedules(t.Context(), runner, now.Add(6*time.Minute))
 	assert.Len(t, invoker.Called(), 2, "should fire again after interval")
 }
 
@@ -235,7 +241,7 @@ func TestScheduler_Runner_DisabledScheduleSkipped(t *testing.T) {
 	runner := scheduler.NewRunner(backend)
 	runner.SetLambdaInvoker(invoker)
 
-	scheduler.CheckAndFireSchedules(runner, t.Context(), time.Now())
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
 
 	assert.Empty(t, invoker.Called(), "disabled schedule should not fire")
 }
@@ -251,7 +257,7 @@ func TestScheduler_Runner_SQSTarget(t *testing.T) {
 	runner := scheduler.NewRunner(backend)
 	runner.SetSQSSender(sender)
 
-	scheduler.CheckAndFireSchedules(runner, t.Context(), time.Now())
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
 
 	sender.mu.Lock()
 	arns := sender.arns
@@ -272,7 +278,7 @@ func TestScheduler_Runner_SNSTarget(t *testing.T) {
 	runner := scheduler.NewRunner(backend)
 	runner.SetSNSPublisher(pub)
 
-	scheduler.CheckAndFireSchedules(runner, t.Context(), time.Now())
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
 
 	pub.mu.Lock()
 	topics := pub.topics
@@ -293,7 +299,7 @@ func TestScheduler_Runner_SFNTarget(t *testing.T) {
 	runner := scheduler.NewRunner(backend)
 	runner.SetStepFunctionsStarter(starter)
 
-	scheduler.CheckAndFireSchedules(runner, t.Context(), time.Now())
+	scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
 
 	starter.mu.Lock()
 	arns := starter.arns
@@ -317,12 +323,12 @@ func TestScheduler_Runner_CronMatches(t *testing.T) {
 
 	// Time that matches: Monday 2024-01-15 12:00:00 UTC
 	matchTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
-	scheduler.CheckAndFireSchedules(runner, t.Context(), matchTime)
+	scheduler.CheckAndFireSchedules(t.Context(), runner, matchTime)
 	require.Len(t, invoker.Called(), 1, "should fire at 12:00")
 
 	// Time that does NOT match: 12:01
 	noMatchTime := time.Date(2024, 1, 15, 12, 1, 0, 0, time.UTC)
-	scheduler.CheckAndFireSchedules(runner, t.Context(), noMatchTime)
+	scheduler.CheckAndFireSchedules(t.Context(), runner, noMatchTime)
 	assert.Len(t, invoker.Called(), 1, "should not fire at 12:01")
 }
 

@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -15,6 +16,17 @@ import (
 const (
 	// runnerTickInterval is how often the runner polls for due schedules.
 	runnerTickInterval = 1 * time.Second
+)
+
+var (
+	// ErrInvalidRateExpression is returned for malformed rate() expressions.
+	ErrInvalidRateExpression = errors.New("invalid rate expression")
+	// ErrInvalidRateValue is returned when the numeric value in a rate() expression is not valid.
+	ErrInvalidRateValue = errors.New("invalid rate value")
+	// ErrUnknownRateUnit is returned when the unit in a rate() expression is not recognised.
+	ErrUnknownRateUnit = errors.New("unknown rate unit")
+	// ErrInvalidCronExpression is returned for malformed cron() expressions.
+	ErrInvalidCronExpression = errors.New("invalid cron expression")
 )
 
 // LambdaInvoker can invoke a Lambda function by name with a payload.
@@ -219,7 +231,16 @@ func (r *Runner) invokeLambdaTarget(ctx context.Context, s *Schedule, log logger
 	payload := buildSchedulerPayload(s)
 
 	if _, _, err := r.lambda.InvokeFunction(ctx, fnName, "Event", payload); err != nil {
-		log.WarnContext(ctx, "scheduler: Lambda invocation failed", "function", fnName, "schedule", s.Name, "error", err)
+		log.WarnContext(
+			ctx,
+			"scheduler: Lambda invocation failed",
+			"function",
+			fnName,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
 	} else {
 		log.DebugContext(ctx, "scheduler: invoked Lambda", "function", fnName, "schedule", s.Name)
 	}
@@ -261,14 +282,30 @@ func (r *Runner) invokeSFNTarget(ctx context.Context, s *Schedule, log loggerIfa
 	payload := string(buildSchedulerPayload(s))
 
 	if err := r.sfn.StartExecution(s.Target.ARN, "", payload); err != nil {
-		log.WarnContext(ctx, "scheduler: StepFunctions start failed", "stateMachine", s.Target.ARN, "schedule", s.Name, "error", err)
+		log.WarnContext(
+			ctx,
+			"scheduler: StepFunctions start failed",
+			"stateMachine",
+			s.Target.ARN,
+			"schedule",
+			s.Name,
+			"error",
+			err,
+		)
 	} else {
-		log.DebugContext(ctx, "scheduler: started StepFunctions execution", "stateMachine", s.Target.ARN, "schedule", s.Name)
+		log.DebugContext(
+			ctx,
+			"scheduler: started StepFunctions execution",
+			"stateMachine",
+			s.Target.ARN,
+			"schedule",
+			s.Name,
+		)
 	}
 }
 
 // lambdaFunctionNameFromARN extracts the function name from a Lambda ARN.
-// Example: arn:aws:lambda:us-east-1:000000000000:function:my-func → my-func
+// Example: arn:aws:lambda:us-east-1:000000000000:function:my-func → my-func.
 func lambdaFunctionNameFromARN(arn string) string {
 	const lambdaARNParts = 7
 	parts := strings.SplitN(arn, ":", lambdaARNParts)
@@ -289,12 +326,12 @@ func parseRateExpression(expr string) (time.Duration, error) {
 
 	parts := strings.Fields(inner)
 	if len(parts) != 2 { //nolint:mnd // rate(N unit) always has 2 parts
-		return 0, fmt.Errorf("invalid rate expression: %q", expr)
+		return 0, fmt.Errorf("%w: %q", ErrInvalidRateExpression, expr)
 	}
 
 	n, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("invalid rate value: %q", parts[0])
+		return 0, fmt.Errorf("%w: %q", ErrInvalidRateValue, parts[0])
 	}
 
 	unit := strings.ToLower(parts[1])
@@ -310,11 +347,11 @@ func parseRateExpression(expr string) (time.Duration, error) {
 		return time.Duration(n) * 24 * time.Hour, nil
 	}
 
-	return 0, fmt.Errorf("unknown rate unit: %q", parts[1])
+	return 0, fmt.Errorf("%w: %q", ErrUnknownRateUnit, parts[1])
 }
 
 // cronFields holds the parsed fields of a 6-field AWS EventBridge cron expression.
-// AWS cron format: cron(Minutes Hours Day-of-month Month Day-of-week Year)
+// AWS cron format: cron(Minutes Hours Day-of-month Month Day-of-week Year).
 type cronFields struct {
 	minutes    string
 	hours      string
@@ -333,7 +370,7 @@ func parseCronExpression(expr string) (*cronFields, error) {
 
 	const cronFieldCount = 6
 	if len(parts) != cronFieldCount {
-		return nil, fmt.Errorf("cron expression must have 6 fields, got %d: %q", len(parts), expr)
+		return nil, fmt.Errorf("%w: must have 6 fields, got %d: %q", ErrInvalidCronExpression, len(parts), expr)
 	}
 
 	return &cronFields{
@@ -357,7 +394,7 @@ func matchesCron(t time.Time, cf *cronFields) bool {
 		matchesCronField(cf.year, t.Year())
 }
 
-// dayOfWeekAWS converts Go's time.Weekday to the AWS cron day-of-week (1=Sunday, 7=Saturday).
+// dayOfWeekAWS converts Go's [time.Weekday] to the AWS cron day-of-week (1=Sunday, 7=Saturday).
 func dayOfWeekAWS(wd time.Weekday) int {
 	return int(wd) + 1
 }
@@ -369,7 +406,7 @@ func matchesCronField(field string, value int) bool {
 		return true
 	}
 
-	for _, part := range strings.Split(field, ",") {
+	for part := range strings.SplitSeq(field, ",") {
 		part = strings.TrimSpace(part)
 		if n, err := strconv.Atoi(part); err == nil && n == value {
 			return true

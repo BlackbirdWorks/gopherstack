@@ -12,6 +12,6 @@ func ParseRateExpression(expr string) (time.Duration, error) {
 
 // CheckAndFireSchedules exports (r *Runner).checkAndFireSchedules for white-box testing
 // without running a full goroutine.
-func CheckAndFireSchedules(r *Runner, ctx context.Context, now time.Time) {
+func CheckAndFireSchedules(ctx context.Context, r *Runner, now time.Time) {
 	r.checkAndFireSchedules(ctx, now)
 }
