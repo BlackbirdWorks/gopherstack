@@ -23,13 +23,14 @@ var errContainerStopFailed = errors.New("stop failed")
 // fakeDockerClient is a test double for dockerClient.
 // It assigns sequential IDs to created containers and records all operations.
 type fakeDockerClient struct {
-	startErrOnID string
-	stopErrOnID  string
-	started      []string
-	stopped      []string
-	removed      []string
-	nextID       int
-	mu           sync.Mutex
+	startErrOnID  string
+	stopErrOnID   string
+	started       []string
+	stopped       []string
+	removed       []string
+	nextID        int
+	failAllStarts bool
+	mu            sync.Mutex
 }
 
 func (f *fakeDockerClient) ImagePull(_ context.Context, _ string, _ dockerimage.PullOptions) (io.ReadCloser, error) {
@@ -56,6 +57,10 @@ func (f *fakeDockerClient) ContainerCreate(
 func (f *fakeDockerClient) ContainerStart(_ context.Context, containerID string, _ dockertypes.StartOptions) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if f.failAllStarts {
+		return errContainerStartFailed
+	}
 
 	if f.startErrOnID != "" && containerID == f.startErrOnID {
 		return errContainerStartFailed
@@ -572,4 +577,106 @@ func TestDockerRunner_StopTask_PartialFailure(t *testing.T) {
 
 	assert.Contains(t, remaining, containerOneID, "failed container must remain in tracking for retry")
 	assert.NotContains(t, remaining, containerTwoID, "stopped container must be removed from tracking")
+}
+
+// TestBackend_RunTask_FailedRunnerSetsSTOPPED verifies that when a TaskRunner
+// returns an error, RunTask marks the task as STOPPED rather than leaving it
+// permanently in PROVISIONING (resource leak with wrong AWS semantics).
+func TestBackend_RunTask_FailedRunnerSetsSTOPPED(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		count     int
+		wantTasks int
+	}{
+		{
+			name:      "single task",
+			count:     1,
+			wantTasks: 1,
+		},
+		{
+			name:      "count=3 all fail",
+			count:     3,
+			wantTasks: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &fakeDockerClient{failAllStarts: true}
+			runner := newDockerRunnerWithClient(fake)
+			backend := NewInMemoryBackend("000000000000", "us-east-1", runner)
+
+			_, err := backend.CreateCluster(CreateClusterInput{ClusterName: "test"})
+			require.NoError(t, err)
+
+			_, err = backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+				Family:               "fail-task",
+				ContainerDefinitions: []ContainerDefinition{{Image: "bad:image"}},
+			})
+			require.NoError(t, err)
+
+			tasks, err := backend.RunTask(RunTaskInput{
+				Cluster:        "test",
+				TaskDefinition: "fail-task",
+				Count:          tt.count,
+			})
+			require.NoError(t, err, "RunTask API should not return an error (runner error is internal)")
+			require.Len(t, tasks, tt.wantTasks)
+
+			for i, task := range tasks {
+				assert.Equal(t, statusStopped, task.LastStatus, "task %d must be STOPPED", i)
+				assert.Equal(t, statusStopped, task.DesiredStatus, "task %d desired must be STOPPED", i)
+				assert.NotNil(t, task.StoppedAt, "task %d StoppedAt must be set", i)
+				assert.NotEmpty(t, task.StoppedReason, "task %d StoppedReason must explain the failure", i)
+				assert.Contains(t, task.StoppedReason, "container start failed")
+			}
+		})
+	}
+}
+
+// TestBackend_StopTask_LockReleasedBeforeDockerCall verifies that backend.StopTask
+// updates task state and releases the backend lock before calling the Docker runner,
+// so concurrent backend operations are not blocked.
+func TestBackend_StopTask_LockReleasedBeforeDockerCall(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeDockerClient{}
+	runner := newDockerRunnerWithClient(fake)
+	backend := NewInMemoryBackend("000000000000", "us-east-1", runner)
+
+	_, err := backend.CreateCluster(CreateClusterInput{ClusterName: "test"})
+	require.NoError(t, err)
+
+	_, err = backend.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+		Family:               "svc-task",
+		ContainerDefinitions: []ContainerDefinition{{Image: "app:latest"}},
+	})
+	require.NoError(t, err)
+
+	runOut, err := backend.RunTask(RunTaskInput{
+		Cluster:        "test",
+		TaskDefinition: "svc-task",
+		Count:          1,
+	})
+	require.NoError(t, err)
+	require.Len(t, runOut, 1)
+
+	stopped, err := backend.StopTask("test", runOut[0].TaskArn, "test stop")
+	require.NoError(t, err)
+
+	// Task must be STOPPED in the API response.
+	assert.Equal(t, statusStopped, stopped.LastStatus)
+	assert.Equal(t, statusStopped, stopped.DesiredStatus)
+	assert.Equal(t, "test stop", stopped.StoppedReason)
+
+	// Docker containers must have been stopped.
+	fake.mu.Lock()
+	stoppedCount := len(fake.stopped)
+	fake.mu.Unlock()
+
+	assert.Equal(t, 1, stoppedCount, "container must be stopped via Docker runner")
 }
