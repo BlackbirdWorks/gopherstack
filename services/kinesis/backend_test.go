@@ -221,3 +221,188 @@ func TestKinesisBackend_ListStreamsLimit(t *testing.T) {
 	assert.Len(t, out.StreamNames, 3)
 	assert.True(t, out.HasMoreStreams)
 }
+
+// TestListStreams_Sorted verifies that stream names are returned in alphabetical order.
+func TestListStreams_Sorted(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+
+	for _, name := range []string{"charlie", "alpha", "bravo"} {
+		require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: name}))
+	}
+
+	out, err := bk.ListStreams(&kinesis.ListStreamsInput{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alpha", "bravo", "charlie"}, out.StreamNames)
+}
+
+// TestIncreaseDecreaseRetentionPeriod covers happy paths and validation for retention period changes.
+func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(bk *kinesis.InMemoryBackend)
+		action  func(bk *kinesis.InMemoryBackend) error
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "increase_from_24_to_48",
+			setup: func(bk *kinesis.InMemoryBackend) {
+				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
+			},
+			action: func(bk *kinesis.InMemoryBackend) error {
+				return bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+					StreamName:           "s",
+					RetentionPeriodHours: 48,
+				})
+			},
+		},
+		{
+			name: "decrease_from_48_to_24",
+			setup: func(bk *kinesis.InMemoryBackend) {
+				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
+				_ = bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+					StreamName: "s", RetentionPeriodHours: 48,
+				})
+			},
+			action: func(bk *kinesis.InMemoryBackend) error {
+				return bk.DecreaseStreamRetentionPeriod(&kinesis.DecreaseStreamRetentionPeriodInput{
+					StreamName:           "s",
+					RetentionPeriodHours: 24,
+				})
+			},
+		},
+		{
+			name:    "increase_stream_not_found",
+			setup:   func(_ *kinesis.InMemoryBackend) {},
+			wantErr: true,
+			action: func(bk *kinesis.InMemoryBackend) error {
+				return bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+					StreamName: "missing", RetentionPeriodHours: 48,
+				})
+			},
+		},
+		{
+			name: "increase_same_value_is_noop",
+			setup: func(bk *kinesis.InMemoryBackend) {
+				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
+			},
+			wantErr: false, // idempotent: same value → success
+			action: func(bk *kinesis.InMemoryBackend) error {
+				return bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+					StreamName: "s", RetentionPeriodHours: 24, // same as default — no-op
+				})
+			},
+		},
+		{
+			name: "increase_above_max_rejected",
+			setup: func(bk *kinesis.InMemoryBackend) {
+				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
+			},
+			wantErr: true,
+			action: func(bk *kinesis.InMemoryBackend) error {
+				return bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+					StreamName: "s", RetentionPeriodHours: 9999,
+				})
+			},
+		},
+		{
+			name:    "decrease_stream_not_found",
+			setup:   func(_ *kinesis.InMemoryBackend) {},
+			wantErr: true,
+			action: func(bk *kinesis.InMemoryBackend) error {
+				return bk.DecreaseStreamRetentionPeriod(&kinesis.DecreaseStreamRetentionPeriodInput{
+					StreamName: "missing", RetentionPeriodHours: 24,
+				})
+			},
+		},
+		{
+			name: "decrease_below_min_rejected",
+			setup: func(bk *kinesis.InMemoryBackend) {
+				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
+				_ = bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+					StreamName: "s", RetentionPeriodHours: 48,
+				})
+			},
+			wantErr: true,
+			action: func(bk *kinesis.InMemoryBackend) error {
+				return bk.DecreaseStreamRetentionPeriod(&kinesis.DecreaseStreamRetentionPeriodInput{
+					StreamName: "s", RetentionPeriodHours: 10, // below 24h minimum
+				})
+			},
+		},
+		{
+			name: "decrease_same_value_is_noop",
+			setup: func(bk *kinesis.InMemoryBackend) {
+				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
+				_ = bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
+					StreamName: "s", RetentionPeriodHours: 48,
+				})
+			},
+			wantErr: false, // idempotent: same value → success
+			action: func(bk *kinesis.InMemoryBackend) error {
+				return bk.DecreaseStreamRetentionPeriod(&kinesis.DecreaseStreamRetentionPeriodInput{
+					StreamName: "s", RetentionPeriodHours: 48, // same as current — no-op
+				})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := kinesis.NewInMemoryBackend()
+			tt.setup(bk)
+			err := tt.action(bk)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestDeleteStream_ClosesTags verifies that deleting a stream does not leak the
+// stream-level tags Prometheus metric registry.
+func TestDeleteStream_ClosesTags(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "tagged-stream"}))
+
+	// Delete should not panic (Close is safe to call).
+	require.NoError(t, bk.DeleteStream(&kinesis.DeleteStreamInput{StreamName: "tagged-stream"}))
+
+	// Recreating with the same name should succeed (Tags registry released).
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "tagged-stream"}))
+}
+
+// TestPutRecords_ThroughputErrorCode verifies that when FIS throughput fault is active,
+// PutRecords records individual entries with the correct ProvisionedThroughputExceededException
+// error code (not InternalFailure).
+func TestPutRecords_ThroughputErrorCode(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackend()
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "fault-stream"}))
+
+	bk.InjectFaultForTest("fault-stream")
+
+	out, err := bk.PutRecords(&kinesis.PutRecordsInput{
+		StreamName: "fault-stream",
+		Records: []kinesis.PutRecordsEntry{
+			{PartitionKey: "pk", Data: []byte("data")},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Records, 1)
+	assert.Equal(t, "ProvisionedThroughputExceededException", out.Records[0].ErrorCode)
+	assert.Equal(t, 1, out.FailedRecordCount)
+}

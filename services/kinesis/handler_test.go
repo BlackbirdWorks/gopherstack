@@ -878,11 +878,27 @@ func TestHandleIncreaseStreamRetentionPeriod(t *testing.T) {
 
 	h := newTestHandler(t)
 
+	// Create stream with default retention (24 h).
+	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "retention-stream", "ShardCount": 1})
+
+	// Increase retention to 48 h.
 	rec := doRequest(t, h, "IncreaseStreamRetentionPeriod", map[string]any{
 		"StreamName":           "retention-stream",
 		"RetentionPeriodHours": 48,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify the new retention via DescribeStream.
+	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "retention-stream"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp struct {
+		StreamDescription struct {
+			RetentionPeriodHours int `json:"RetentionPeriodHours"`
+		} `json:"StreamDescription"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, 48, descResp.StreamDescription.RetentionPeriodHours)
 }
 
 func TestHandleDecreaseStreamRetentionPeriod(t *testing.T) {
@@ -890,11 +906,31 @@ func TestHandleDecreaseStreamRetentionPeriod(t *testing.T) {
 
 	h := newTestHandler(t)
 
+	// Create stream and first increase retention to 48 h so there is room to decrease.
+	doRequest(t, h, "CreateStream", map[string]any{"StreamName": "retention-stream", "ShardCount": 1})
+	doRequest(t, h, "IncreaseStreamRetentionPeriod", map[string]any{
+		"StreamName":           "retention-stream",
+		"RetentionPeriodHours": 48,
+	})
+
+	// Decrease retention back to 24 h.
 	rec := doRequest(t, h, "DecreaseStreamRetentionPeriod", map[string]any{
 		"StreamName":           "retention-stream",
 		"RetentionPeriodHours": 24,
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify the new retention via DescribeStream.
+	rec = doRequest(t, h, "DescribeStream", map[string]any{"StreamName": "retention-stream"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp struct {
+		StreamDescription struct {
+			RetentionPeriodHours int `json:"RetentionPeriodHours"`
+		} `json:"StreamDescription"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, 24, descResp.StreamDescription.RetentionPeriodHours)
 }
 
 func TestHandleDescribeLimits(t *testing.T) {
