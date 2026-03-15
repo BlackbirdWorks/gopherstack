@@ -1,7 +1,6 @@
 package dynamodb
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,6 +15,15 @@ const (
 
 	wcuBytes = 1024 // 1 WCU per KB
 	rcuBytes = 4096 // 1 RCU per 4 KB
+
+	// base64GroupBits is the number of raw bytes encoded in each 4-character base64 group.
+	base64GroupBits = 3
+	// base64GroupChars is the number of base64 characters per encoded group.
+	base64GroupChars = 4
+	// ddbContainerOverhead is the fixed overhead DynamoDB adds for Map and List containers.
+	ddbContainerOverhead = 3
+	// perItemOverhead is the fixed overhead DynamoDB adds for each item.
+	perItemOverhead = 100
 )
 
 // WriteCapacityUnits returns the WCUs consumed by a write: ceil(size / 1KB), minimum 1.
@@ -39,30 +47,184 @@ func ReadCapacityUnits(item map[string]any) float64 {
 	return float64((size+rcuBytes-1)/rcuBytes) * models.ConsumedReadUnit
 }
 
-// CalculateItemSize approximates the DynamoDB item size.
-// Size = sum of (len(attribute_name) + len(attribute_value))
-// For simplicity in V1, we serialize to JSON and use the length, which is a rough upper bound/approximation.
-// A more accurate specific calculation would iterate keys and values.
+// CalculateItemSize approximates the DynamoDB-encoded size of a wire-format item in bytes.
 func CalculateItemSize(item map[string]any) (int, error) {
-	// Accurate calculation per AWS:
-	// Strings: UTF-8 bytes
-	// Numbers: Approximate bytes? JSON len is decent proxy.
-	// Binary: Raw bytes.
-	// Boolean: 1 byte.
-	// Null: 1 byte.
-	// Map/List: Overhead + elements.
-
-	// For this implementation, let's just use a JSON dump size as a safe proxy.
-	// It overestimates structure syntax ({, ", :) but underestimates nothing.
-	// AWS size is pure data size.
-	// Let's implement a recursive sizer for better accuracy if needed,
-	// but JSON marshal is robust enough for "Validation & Limits" phase 1.
-	b, err := json.Marshal(item)
-	if err != nil {
-		return 0, err
+	if item == nil {
+		return 0, nil
 	}
 
-	return len(b), nil
+	size := int64(perItemOverhead)
+
+	for attrName, attrVal := range item {
+		size += int64(len(attrName)) + CalculateAttrSize(attrVal)
+	}
+
+	return int(size), nil
+}
+
+// CalculateAttrSize estimates the encoded size of a single DynamoDB wire-format attribute value.
+func CalculateAttrSize(v any) int64 {
+	m, isMap := v.(map[string]any)
+	if !isMap {
+		return 1
+	}
+
+	if s, ok := m["S"].(string); ok {
+		return int64(len(s))
+	}
+	if n, ok := m["N"].(string); ok {
+		return calcNumericSize(n)
+	}
+	if b, ok := m["B"].(string); ok {
+		return base64DecodedLen(b)
+	}
+	if _, ok := m["BOOL"]; ok {
+		return 1
+	}
+	if _, ok := m["NULL"]; ok {
+		return 1
+	}
+	if total, ok := calcSSSize(m["SS"]); ok {
+		return total
+	}
+	if total, ok := calcNSSize(m["NS"]); ok {
+		return total
+	}
+	if total, ok := calcBSSize(m["BS"]); ok {
+		return total
+	}
+	if nested, ok := m["M"].(map[string]any); ok {
+		return calcMapSize(nested)
+	}
+	if list, ok := m["L"].([]any); ok {
+		return calcListSize(list)
+	}
+
+	return 1
+}
+
+// calcNumericSize returns the byte size used by a DynamoDB numeric attribute value.
+// An empty string is treated as size 1 because DynamoDB requires at least one digit
+// and stores a minimum of 1 byte for any number attribute.
+func calcNumericSize(n string) int64 {
+	sz := len(n)
+	if sz == 0 {
+		sz = 1
+	}
+
+	return int64(sz)
+}
+
+// base64DecodedLen returns the exact decoded byte length of a standard base64-encoded
+// string, accounting for '=' padding characters. This avoids the overcounting that
+// occurs with the naive len(s)*3/4 formula when padding is present.
+// For example, "Zg==" encodes 1 byte but len*3/4 = 3; this function returns 1.
+func base64DecodedLen(s string) int64 {
+	n := len(s)
+	if n == 0 {
+		return 0
+	}
+
+	// base64 produces ceil(rawLen/3)*4 chars; each group of 4 chars → 3 bytes.
+	decoded := int64(n) * base64GroupBits / base64GroupChars
+
+	// Subtract the bytes represented by padding characters.
+	// Valid base64 with double-padding has s[n-2]='=' and s[n-1]='='.
+	// Valid base64 with single-padding has only s[n-1]='='.
+	if n >= 2 && s[n-2] == '=' && s[n-1] == '=' {
+		decoded -= 2
+	} else if n >= 1 && s[n-1] == '=' {
+		decoded--
+	}
+
+	return decoded
+}
+
+func calcSSSize(v any) (int64, bool) {
+	switch ss := v.(type) {
+	case []string:
+		var total int64
+		for _, s := range ss {
+			total += int64(len(s))
+		}
+
+		return total, true
+	case []any:
+		var total int64
+		for _, s := range ss {
+			if str, ok := s.(string); ok {
+				total += int64(len(str))
+			}
+		}
+
+		return total, true
+	}
+
+	return 0, false
+}
+
+func calcNSSize(v any) (int64, bool) {
+	switch ns := v.(type) {
+	case []string:
+		var total int64
+		for _, n := range ns {
+			total += calcNumericSize(n)
+		}
+
+		return total, true
+	case []any:
+		var total int64
+		for _, n := range ns {
+			if str, ok := n.(string); ok {
+				total += calcNumericSize(str)
+			}
+		}
+
+		return total, true
+	}
+
+	return 0, false
+}
+
+func calcBSSize(v any) (int64, bool) {
+	switch bs := v.(type) {
+	case []string:
+		var total int64
+		for _, b := range bs {
+			total += base64DecodedLen(b)
+		}
+
+		return total, true
+	case []any:
+		var total int64
+		for _, b := range bs {
+			if s, isStr := b.(string); isStr {
+				total += base64DecodedLen(s)
+			}
+		}
+
+		return total, true
+	}
+
+	return 0, false
+}
+
+func calcMapSize(nested map[string]any) int64 {
+	total := int64(ddbContainerOverhead)
+	for k, val := range nested {
+		total += int64(len(k)) + CalculateAttrSize(val)
+	}
+
+	return total
+}
+
+func calcListSize(list []any) int64 {
+	total := int64(ddbContainerOverhead)
+	for _, elem := range list {
+		total += CalculateAttrSize(elem)
+	}
+
+	return total
 }
 
 func ValidateItemSize(item map[string]any) error {
@@ -86,45 +248,46 @@ func validateKeySchema(item map[string]any, schema []models.KeySchemaElement) er
 			return NewValidationException(fmt.Sprintf("Missing key element: %s", k.AttributeName))
 		}
 
-		// Check for empty string value on a key attribute
-		if valMap, isMap := val.(map[string]any); isMap {
-			if sVal, hasS := valMap["S"]; hasS {
-				if str, isStr := sVal.(string); isStr && str == "" {
-					return NewValidationException(fmt.Sprintf(
-						"One or more parameter values not valid. "+
-							"The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
-						k.AttributeName,
-					))
-				}
-			}
+		if err := validateKeyAttribute(k, val); err != nil {
+			return err
 		}
+	}
 
-		// Check size
-		// We need to unwrap if it's a DynamoDB JSON format (e.g. {"S": "val"}) or raw?
-		// The `item` map typically comes from `PutItemInput` which uses `map[string]any`
-		// but the values are ostensibly map[string]any (the "S" wrapper).
+	return nil
+}
 
-		// Helper to get raw value size
-		// We reuse calculateItemSize for the value part
-		// Or just marshal the value
-		b, _ := json.Marshal(val)
-		size := len(b) // Approximation
+// validateKeyAttribute checks a single key attribute value for type constraints and size limits.
+func validateKeyAttribute(k models.KeySchemaElement, val any) error {
+	valMap, isMap := val.(map[string]any)
+	if !isMap {
+		return nil
+	}
 
-		limit := MaxPartitionKeySize
-		if k.KeyType == "RANGE" {
-			limit = MaxSortKeySize
+	if sVal, hasS := valMap["S"]; hasS {
+		if str, isStr := sVal.(string); isStr && str == "" {
+			return NewValidationException(fmt.Sprintf(
+				"One or more parameter values not valid. "+
+					"The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
+				k.AttributeName,
+			))
 		}
+	}
 
-		if size > limit {
-			return NewValidationException(
-				fmt.Sprintf(
-					"Key element %s size %d exceeds limit %d",
-					k.AttributeName,
-					size,
-					limit,
-				),
-			)
-		}
+	// AWS key size limit is based on the attribute value size alone (name + value bytes).
+	attrSize := int(int64(len(k.AttributeName)) + CalculateAttrSize(val))
+
+	limit := MaxPartitionKeySize
+	if k.KeyType == "RANGE" {
+		limit = MaxSortKeySize
+	}
+
+	if attrSize > limit {
+		return NewValidationException(fmt.Sprintf(
+			"Key element %s size %d exceeds limit %d",
+			k.AttributeName,
+			attrSize,
+			limit,
+		))
 	}
 
 	return nil
