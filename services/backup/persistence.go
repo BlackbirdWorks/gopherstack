@@ -62,6 +62,19 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	// Rebuild ARN indexes from restored state.
+	b.vaultARNIndex = make(map[string]string, len(b.vaults))
+	for name, v := range b.vaults {
+		b.vaultARNIndex[v.BackupVaultArn] = name
+	}
+
+	b.planARNIndex = make(map[string]string, len(b.plans))
+	b.planIDIndex = make(map[string]string, len(b.plans))
+	for name, p := range b.plans {
+		b.planARNIndex[p.BackupPlanArn] = name
+		b.planIDIndex[p.BackupPlanID] = name
+	}
+
 	return nil
 }
 
