@@ -343,29 +343,7 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 
 	now := time.Now().UnixMilli()
 	stream := b.streams[groupName][streamName]
-
-	for _, ev := range events {
-		out := &OutputLogEvent{
-			IngestionTime: now,
-			Message:       ev.Message,
-			Timestamp:     ev.Timestamp,
-		}
-		b.events[groupName][streamName] = append(b.events[groupName][streamName], out)
-
-		if stream.FirstEventTimestamp == nil || ev.Timestamp < *stream.FirstEventTimestamp {
-			ts := ev.Timestamp
-			stream.FirstEventTimestamp = &ts
-		}
-		if stream.LastEventTimestamp == nil || ev.Timestamp > *stream.LastEventTimestamp {
-			ts := ev.Timestamp
-			stream.LastEventTimestamp = &ts
-		}
-	}
-
-	// Enforce per-stream event cap: keep only the most recent maxEventsPerStream events.
-	if cur := b.events[groupName][streamName]; len(cur) > maxEventsPerStream {
-		b.events[groupName][streamName] = cur[len(cur)-maxEventsPerStream:]
-	}
+	b.appendEvents(groupName, streamName, stream, now, events)
 
 	stream.LastIngestionTime = &now
 	nextToken := strconv.FormatInt(int64(len(b.events[groupName][streamName])), 10)
@@ -402,6 +380,42 @@ func (b *InMemoryBackend) PutLogEvents(groupName, streamName string, events []In
 	}
 
 	return nextToken, nil
+}
+
+// appendEvents writes events into the stream, updates stream timestamp metadata,
+// and enforces the per-stream event cap.
+// Must be called while holding the backend write lock.
+// Note: log events may arrive with out-of-order timestamps (AWS allows this),
+// so min/max timestamp tracking must inspect all events.
+func (b *InMemoryBackend) appendEvents(
+	groupName, streamName string, stream *LogStream, now int64, events []InputLogEvent,
+) {
+	for _, ev := range events {
+		out := &OutputLogEvent{
+			IngestionTime: now,
+			Message:       ev.Message,
+			Timestamp:     ev.Timestamp,
+		}
+		b.events[groupName][streamName] = append(b.events[groupName][streamName], out)
+
+		if stream.FirstEventTimestamp == nil || ev.Timestamp < *stream.FirstEventTimestamp {
+			ts := ev.Timestamp
+			stream.FirstEventTimestamp = &ts
+		}
+		if stream.LastEventTimestamp == nil || ev.Timestamp > *stream.LastEventTimestamp {
+			ts := ev.Timestamp
+			stream.LastEventTimestamp = &ts
+		}
+	}
+
+	// Enforce per-stream event cap: keep only the most recent maxEventsPerStream events.
+	if cur := b.events[groupName][streamName]; len(cur) > maxEventsPerStream {
+		b.events[groupName][streamName] = cur[len(cur)-maxEventsPerStream:]
+		// Recalculate metadata from the remaining events: since events may have
+		// out-of-order timestamps, the dropped events might include the global
+		// min/max, so we must re-scan rather than assume positional ordering.
+		updateStreamTimestamps(stream, b.events[groupName][streamName])
+	}
 }
 
 // GetLogEvents returns events for a stream with optional time bounds, limit, and pagination.
@@ -458,6 +472,13 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 		streamSet[s] = true
 	}
 
+	// Compile the filter pattern once before iterating over events so that
+	// wildcard regexes are not recompiled for every event.
+	var compiled *compiledFilterPattern
+	if filterPattern != "" {
+		compiled = compileFilterPattern(filterPattern)
+	}
+
 	var all []*OutputLogEvent
 	streamOrder := sortedKeys(b.streams[groupName])
 	for _, sName := range streamOrder {
@@ -465,7 +486,7 @@ func (b *InMemoryBackend) FilterLogEvents(groupName string, streamNames []string
 			continue
 		}
 		for _, ev := range b.events[groupName][sName] {
-			if filterPattern != "" && !filterPatternMatches(filterPattern, ev.Message) {
+			if compiled != nil && !compiled.matches(ev.Message) {
 				continue
 			}
 			all = append(all, ev)
@@ -616,13 +637,16 @@ func (b *InMemoryBackend) matchingFilters(groupName string, events []InputLogEve
 
 // filterMatches returns true when the filter pattern matches at least one event.
 // An empty pattern matches all events.
+// The pattern is compiled once and reused across events.
 func filterMatches(pattern string, events []InputLogEvent) bool {
 	if pattern == "" {
 		return len(events) > 0
 	}
 
+	compiled := compileFilterPattern(pattern)
+
 	for _, ev := range events {
-		if filterPatternMatches(pattern, ev.Message) {
+		if compiled.matches(ev.Message) {
 			return true
 		}
 	}
@@ -701,6 +725,88 @@ func encodeSubscriptionPayload(payload subscriptionPayload) ([]byte, error) {
 	return []byte(encoded), nil
 }
 
+// compiledFilterPattern holds a parsed and pre-compiled filter pattern for efficient
+// repeated matching across many log events (used by FilterLogEvents).
+type compiledFilterPattern struct {
+	terms []compiledTerm
+}
+
+// compiledTerm holds a single pre-compiled term from a filter pattern.
+type compiledTerm struct {
+	// exact is the literal substring for quoted/plain terms (non-wildcard).
+	// re is used for wildcard terms.
+	re      *regexp.Regexp
+	exact   string
+	negate  bool
+	isExact bool // true => use exact (strings.Contains); false => use re
+}
+
+// compileFilterPattern parses pattern into a compiledFilterPattern for efficient reuse.
+// An empty pattern always matches all messages.
+func compileFilterPattern(pattern string) *compiledFilterPattern {
+	rawTerms := parseFilterPatternTerms(pattern)
+	terms := make([]compiledTerm, 0, len(rawTerms))
+
+	for _, raw := range rawTerms {
+		negate := strings.HasPrefix(raw, "?")
+		t := raw
+		if negate {
+			t = raw[1:]
+		}
+
+		var ct compiledTerm
+		ct.negate = negate
+
+		switch {
+		case len(t) >= 2 && t[0] == '"' && t[len(t)-1] == '"':
+			ct.isExact = true
+			ct.exact = t[1 : len(t)-1]
+		case strings.ContainsRune(t, '*'):
+			parts := strings.Split(t, "*")
+			escaped := make([]string, len(parts))
+			for i, p := range parts {
+				escaped[i] = regexp.QuoteMeta(p)
+			}
+			re, err := regexp.Compile(strings.Join(escaped, ".*"))
+			if err != nil {
+				// The wildcard expansion produced an invalid regex (this should not
+				// happen in practice because QuoteMeta escapes all special chars).
+				// Fall back to treating the raw term as a plain substring so the
+				// caller still receives a deterministic (if approximate) result.
+				ct.isExact = true
+				ct.exact = t
+			} else {
+				ct.re = re
+			}
+		default:
+			ct.isExact = true
+			ct.exact = t
+		}
+
+		terms = append(terms, ct)
+	}
+
+	return &compiledFilterPattern{terms: terms}
+}
+
+// matches reports whether the message satisfies all terms in the pattern.
+func (p *compiledFilterPattern) matches(message string) bool {
+	for _, ct := range p.terms {
+		var hit bool
+		if ct.isExact {
+			hit = strings.Contains(message, ct.exact)
+		} else {
+			hit = ct.re.MatchString(message)
+		}
+
+		if ct.negate == hit {
+			return false
+		}
+	}
+
+	return true
+}
+
 // filterPatternMatches returns true when the CloudWatch Logs filter pattern matches the message.
 //
 // Pattern syntax:
@@ -710,23 +816,7 @@ func encodeSubscriptionPayload(payload subscriptionPayload) ([]byte, error) {
 //   - Quoted terms ("...") require an exact substring match.
 //   - Terms without quotes use substring matching; "*" inside a term is a wildcard.
 func filterPatternMatches(pattern, message string) bool {
-	terms := parseFilterPatternTerms(pattern)
-
-	for _, term := range terms {
-		negate := strings.HasPrefix(term, "?")
-		t := term
-		if negate {
-			t = term[1:]
-		}
-
-		hit := filterTermMatches(t, message)
-		if negate == hit {
-			// negate && hit => excluded term found; !negate && !hit => required term missing.
-			return false
-		}
-	}
-
-	return true
+	return compileFilterPattern(pattern).matches(message)
 }
 
 // parseFilterPatternTerms splits a filter pattern into individual terms,
@@ -758,33 +848,6 @@ func parseFilterPatternTerms(pattern string) []string {
 	}
 
 	return terms
-}
-
-// filterTermMatches returns true when the term matches the message.
-// Quoted terms require an exact substring match; unquoted terms with "*"
-// use wildcard matching; otherwise a simple substring match is used.
-func filterTermMatches(term, message string) bool {
-	if len(term) >= 2 && term[0] == '"' && term[len(term)-1] == '"' {
-		return strings.Contains(message, term[1:len(term)-1])
-	}
-
-	if !strings.ContainsRune(term, '*') {
-		return strings.Contains(message, term)
-	}
-
-	// Build a regexp from the wildcard term.
-	parts := strings.Split(term, "*")
-	escaped := make([]string, len(parts))
-	for i, p := range parts {
-		escaped[i] = regexp.QuoteMeta(p)
-	}
-
-	re, err := regexp.Compile(strings.Join(escaped, ".*"))
-	if err != nil {
-		return strings.Contains(message, term)
-	}
-
-	return re.MatchString(message)
 }
 
 func filterByTime(events []*OutputLogEvent, startTime, endTime *int64) []*OutputLogEvent {
@@ -963,14 +1026,19 @@ func (b *InMemoryBackend) StartQuery(
 		return nil, fmt.Errorf("invalid query: %w", parseErr)
 	}
 
-	// Collect events and execute the query under a single read lock to avoid
-	// observing an inconsistent snapshot (TOCTOU: collect then release then store).
+	// Collect events under a read lock, then release the lock before running the
+	// query. This prevents regex matching and sorting from holding the lock while
+	// still delivering a consistent snapshot (no writes can interleave the collect
+	// and execute phases — a copy of the slice is taken under the lock).
 	b.mu.RLock("StartQuery")
-	allEvents, recordsScanned := b.collectQueryEvents(logGroupNames, startTime, endTime)
-	// Execute the query while still holding the read lock so the result is
-	// consistent with the collected events.
-	results := executeQuery(q, allEvents)
+	allEventsRaw, recordsScanned := b.collectQueryEvents(logGroupNames, startTime, endTime)
+	// Take a snapshot copy of the event pointers so we can safely release the lock.
+	allEvents := make([]*OutputLogEvent, len(allEventsRaw))
+	copy(allEvents, allEventsRaw)
 	b.mu.RUnlock()
+
+	// Execute the query outside the lock — regex matching and sorting can be non-trivial.
+	results := executeQuery(q, allEvents)
 
 	stats := QueryStatistics{
 		RecordsScanned: recordsScanned,

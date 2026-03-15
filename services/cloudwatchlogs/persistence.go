@@ -151,20 +151,23 @@ func (h *Handler) restoreBackend(backendData, rawData []byte) error {
 	return r.Restore(src)
 }
 
-// restoreTags merges the persisted tag map back into the handler's tag store.
+// restoreTags replaces the handler's tag store with the persisted tag map.
+// All existing tags are discarded and replaced with the snapshot values.
 func (h *Handler) restoreTags(tagMap map[string]map[string]string) {
-	if len(tagMap) == 0 {
-		return
-	}
-
 	h.tagsMu.Lock("Restore")
 	defer h.tagsMu.Unlock()
 
-	for resourceID, kv := range tagMap {
-		if h.tags[resourceID] == nil {
-			h.tags[resourceID] = tags.New("cwl." + resourceID + ".tags")
-		}
+	// Close existing tag collections to prevent Prometheus metric registry leaks.
+	for _, t := range h.tags {
+		t.Close()
+	}
 
-		h.tags[resourceID].Merge(kv)
+	// Replace with a fresh map seeded from the snapshot.
+	h.tags = make(map[string]*tags.Tags, len(tagMap))
+
+	for resourceID, kv := range tagMap {
+		t := tags.New("cwl." + resourceID + ".tags")
+		t.Merge(kv)
+		h.tags[resourceID] = t
 	}
 }

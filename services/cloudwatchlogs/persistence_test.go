@@ -107,6 +107,10 @@ func TestHandler_SnapshotRestore_PreservesTags(t *testing.T) {
 	require.NoError(t, err)
 
 	h := cloudwatchlogs.NewHandler(b)
+
+	// Set tags on the log group via the handler so the tag-serialization path is exercised.
+	h.SetTagsForTest("tagged-group", map[string]string{"env": "prod", "team": "ops"})
+
 	snap := h.Snapshot()
 	require.NotNil(t, snap)
 
@@ -120,6 +124,36 @@ func TestHandler_SnapshotRestore_PreservesTags(t *testing.T) {
 	require.NoError(t, gErr)
 	require.Len(t, groups, 1)
 	assert.Equal(t, "tagged-group", groups[0].LogGroupName)
+
+	// Tags should have been restored.
+	restoredTags := h2.GetTagsForTest("tagged-group")
+	assert.Equal(t, "prod", restoredTags["env"])
+	assert.Equal(t, "ops", restoredTags["team"])
+}
+
+func TestHandler_SnapshotRestore_StaleTagsCleared(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	_, err := b.CreateLogGroup("g")
+	require.NoError(t, err)
+
+	// Original handler has a tag.
+	h := cloudwatchlogs.NewHandler(b)
+	h.SetTagsForTest("g", map[string]string{"stale": "yes"})
+
+	// Snapshot a second handler that has no tags.
+	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	_, err = b2.CreateLogGroup("g")
+	require.NoError(t, err)
+	h2 := cloudwatchlogs.NewHandler(b2)
+	snap := h2.Snapshot()
+	require.NotNil(t, snap)
+
+	// Restore the snapshot into h — stale tags should be cleared.
+	require.NoError(t, h.Restore(snap))
+	restoredTags := h.GetTagsForTest("g")
+	assert.Empty(t, restoredTags)
 }
 
 func TestHandler_SnapshotRestore_InvalidData(t *testing.T) {

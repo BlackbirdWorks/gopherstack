@@ -7,3 +7,15 @@ const MaxEventsPerStream = maxEventsPerStream
 func FilterPatternMatches(pattern, message string) bool {
 	return filterPatternMatches(pattern, message)
 }
+
+// SetTagsForTest sets tags for a resource ID directly, bypassing JSON round-trip.
+// Used in persistence tests to populate tags before taking a snapshot.
+func (h *Handler) SetTagsForTest(resourceID string, kv map[string]string) {
+	h.setTags(resourceID, kv)
+}
+
+// GetTagsForTest returns a copy of the tags for a resource ID.
+// Used in persistence tests to verify tags after restore.
+func (h *Handler) GetTagsForTest(resourceID string) map[string]string {
+	return h.getTags(resourceID)
+}

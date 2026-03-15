@@ -1579,26 +1579,44 @@ func TestCloudWatchLogsBackend_PutLogEvents_EventCap(t *testing.T) {
 	_, err = b.CreateLogStream("g", "s")
 	require.NoError(t, err)
 
-	// Write MaxEventsPerStream + 100 events in batches to trigger the cap.
+	// Write MaxEventsPerStream + 500 events (guaranteed overflow) in batches.
 	const batchSize = 1000
+	const total = cloudwatchlogs.MaxEventsPerStream + 500
 	now := time.Now().UnixMilli()
-	batches := (cloudwatchlogs.MaxEventsPerStream + 100) / batchSize
-	for i := range batches {
-		events := make([]cloudwatchlogs.InputLogEvent, batchSize)
-		for j := range batchSize {
+	written := 0
+	for written < total {
+		size := batchSize
+		if written+size > total {
+			size = total - written
+		}
+		events := make([]cloudwatchlogs.InputLogEvent, size)
+		for j := range size {
 			events[j] = cloudwatchlogs.InputLogEvent{
-				Message:   fmt.Sprintf("msg-%d-%d", i, j),
-				Timestamp: now + int64(i*batchSize+j),
+				Message:   fmt.Sprintf("msg-%d", written+j),
+				Timestamp: now + int64(written+j),
 			}
 		}
 		_, putErr := b.PutLogEvents("g", "s", events)
 		require.NoError(t, putErr)
+		written += size
 	}
 
-	// Only MaxEventsPerStream events should remain.
-	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, cloudwatchlogs.MaxEventsPerStream+200, "")
+	// Exactly MaxEventsPerStream events should remain (the newest ones).
+	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, cloudwatchlogs.MaxEventsPerStream+1000, "")
 	require.NoError(t, err)
-	assert.LessOrEqual(t, len(got), cloudwatchlogs.MaxEventsPerStream)
+	assert.Len(t, got, cloudwatchlogs.MaxEventsPerStream)
+
+	// The oldest events (msg-0 through msg-499) should have been dropped.
+	// The newest events should be present: msg-500 through msg-10499.
+	assert.Equal(t, fmt.Sprintf("msg-%d", 500), got[0].Message)
+	assert.Equal(t, fmt.Sprintf("msg-%d", total-1), got[len(got)-1].Message)
+
+	// FirstEventTimestamp should reflect the oldest retained event.
+	streams, _, sErr := b.DescribeLogStreams("g", "", "", 10)
+	require.NoError(t, sErr)
+	require.Len(t, streams, 1)
+	require.NotNil(t, streams[0].FirstEventTimestamp)
+	assert.Equal(t, now+500, *streams[0].FirstEventTimestamp)
 }
 
 func TestCloudWatchLogsBackend_FilterPatternMatches(t *testing.T) {
@@ -1778,4 +1796,69 @@ func TestJanitor_SweepNoRetention(t *testing.T) {
 	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, 100, "")
 	require.NoError(t, err)
 	assert.Len(t, got, 1)
+}
+
+func TestJanitor_SweepUpdatesStreamMetadata(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	_, err := b.CreateLogGroup("g")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream("g", "s")
+	require.NoError(t, err)
+
+	// Old events (before retention cutoff).
+	old := time.Now().AddDate(0, 0, -10).UnixMilli()
+	// Recent event (within retention window).
+	recent := time.Now().UnixMilli()
+
+	_, err = b.PutLogEvents("g", "s", []cloudwatchlogs.InputLogEvent{
+		{Message: "old", Timestamp: old},
+		{Message: "recent", Timestamp: recent},
+	})
+	require.NoError(t, err)
+
+	// Set 7-day retention.
+	require.NoError(t, b.SetRetentionPolicy("g", ptr32(7)))
+
+	j := cloudwatchlogs.NewJanitor(b, 0)
+	j.SweepOnce(t.Context())
+
+	// Stream metadata should reflect only the remaining (recent) event.
+	streams, _, sErr := b.DescribeLogStreams("g", "", "", 10)
+	require.NoError(t, sErr)
+	require.Len(t, streams, 1)
+	require.NotNil(t, streams[0].FirstEventTimestamp)
+	assert.Equal(t, recent, *streams[0].FirstEventTimestamp)
+	require.NotNil(t, streams[0].LastEventTimestamp)
+	assert.Equal(t, recent, *streams[0].LastEventTimestamp)
+}
+
+func TestJanitor_SweepEmptyStreamClearsMetadata(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	_, err := b.CreateLogGroup("g")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream("g", "s")
+	require.NoError(t, err)
+
+	// Only old events (all should be evicted).
+	old := time.Now().AddDate(0, 0, -10).UnixMilli()
+	_, err = b.PutLogEvents("g", "s", []cloudwatchlogs.InputLogEvent{
+		{Message: "old", Timestamp: old},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.SetRetentionPolicy("g", ptr32(7)))
+
+	j := cloudwatchlogs.NewJanitor(b, 0)
+	j.SweepOnce(t.Context())
+
+	// All events gone — stream metadata should be cleared.
+	streams, _, sErr := b.DescribeLogStreams("g", "", "", 10)
+	require.NoError(t, sErr)
+	require.Len(t, streams, 1)
+	assert.Nil(t, streams[0].FirstEventTimestamp)
+	assert.Nil(t, streams[0].LastEventTimestamp)
 }
