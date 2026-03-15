@@ -6,19 +6,26 @@ import (
 	"time"
 )
 
-// shardRecords is a fixed-capacity ring buffer for Kinesis shard records.
-// The zero value is ready to use with capacity maxRecordsPerShard.
-// It serialises as a plain JSON array (oldest record first) so that the
-// on-disk snapshot format is unchanged.
+// shardRecords is a bounded ring buffer for Kinesis shard records.
+//
+// Backing store is lazily allocated on first push, so empty shards have
+// zero heap cost. Once allocated it is never grown beyond maxRecordsPerShard,
+// giving O(1) push with no further allocations.
+//
+// The zero value is ready to use and serialises as `[]` (not `null`).
 type shardRecords struct {
-	buf  [maxRecordsPerShard]*Record
-	head int // index of the oldest element in buf
-	n    int // number of valid elements
+	buf  []*Record // lazily allocated; len(buf) == maxRecordsPerShard once created
+	head int       // logical index 0 maps to buf[head]
+	n    int       // number of valid elements (0 ≤ n ≤ maxRecordsPerShard)
 }
 
 // push appends rec to the ring buffer.
 // If the buffer is already at capacity the oldest record is silently evicted.
 func (r *shardRecords) push(rec *Record) {
+	if r.buf == nil {
+		r.buf = make([]*Record, maxRecordsPerShard)
+	}
+
 	if r.n < maxRecordsPerShard {
 		r.buf[(r.head+r.n)%maxRecordsPerShard] = rec
 		r.n++
@@ -46,26 +53,6 @@ func (r *shardRecords) last() *Record {
 	return r.at(r.n - 1)
 }
 
-// slice returns the logical records in the half-open range [start, end).
-// It is safe to call with start == end (returns empty slice).
-func (r *shardRecords) slice(start, end int) []*Record {
-	if start >= end {
-		return nil
-	}
-
-	out := make([]*Record, end-start)
-	for i := range end - start {
-		out[i] = r.at(start + i)
-	}
-
-	return out
-}
-
-// toSlice materialises all records in logical order (oldest first).
-func (r *shardRecords) toSlice() []*Record {
-	return r.slice(0, r.n)
-}
-
 // trimBefore removes all records whose ApproximateArrivalTimestamp is before
 // cutoff. Because records are always appended in chronological order, trimming
 // is a simple advance of the head pointer.
@@ -83,17 +70,35 @@ func (r *shardRecords) trimBefore(cutoff time.Time) int {
 }
 
 // MarshalJSON serialises the ring buffer as an ordered JSON array.
-// This keeps the persistence format identical to the previous []*Record field.
+// Always emits [] (not null) when empty to keep the persistence format stable.
 func (r *shardRecords) MarshalJSON() ([]byte, error) {
-	return json.Marshal(r.toSlice())
+	if r.n == 0 {
+		return []byte("[]"), nil
+	}
+
+	// Materialise in logical order without allocating an intermediate slice.
+	out := make([]*Record, r.n)
+	for i := range r.n {
+		out[i] = r.at(i)
+	}
+
+	return json.Marshal(out)
 }
 
 // UnmarshalJSON restores the ring buffer from a JSON array.
 // After restore head = 0 and records occupy buf[0..n-1].
+// Any previously held pointers are cleared to allow GC.
 func (r *shardRecords) UnmarshalJSON(data []byte) error {
 	var records []*Record
 	if err := json.Unmarshal(data, &records); err != nil {
 		return err
+	}
+
+	// Clear any stale pointers from a previous incarnation.
+	if r.buf != nil {
+		for i := range r.buf {
+			r.buf[i] = nil
+		}
 	}
 
 	r.head = 0

@@ -75,3 +75,48 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	err := b.Restore([]byte("not-valid-json"))
 	require.Error(t, err)
 }
+
+// TestSnapshot_EmptyShardRecords_NoNull verifies that an empty shard serialises to []
+// (not null) so that snapshots remain stable after restore.
+func TestSnapshot_EmptyShardRecords_NoNull(t *testing.T) {
+	t.Parallel()
+
+	bk := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "empty-shard-stream"}))
+
+	snap := bk.Snapshot()
+	require.NotNil(t, snap)
+	// The JSON must not contain a null records field.
+	assert.NotContains(t, string(snap), `"records":null`)
+	assert.Contains(t, string(snap), `"records":[]`)
+}
+
+// TestSnapshot_RestoreClearsOldPointers verifies that restoring a smaller snapshot
+// into a backend that previously held records does not retain stale pointers.
+func TestSnapshot_RestoreClearsOldPointers(t *testing.T) {
+	t.Parallel()
+
+	// Create a backend with records in it.
+	bk := kinesis.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "ptr-stream"}))
+
+	for range 5 {
+		_, err := bk.PutRecord(&kinesis.PutRecordInput{
+			StreamName:   "ptr-stream",
+			PartitionKey: "pk",
+			Data:         []byte("data"),
+		})
+		require.NoError(t, err)
+	}
+
+	// Take a snapshot of the populated state.
+	snap := bk.Snapshot()
+	require.NotNil(t, snap)
+
+	// Now restore into the same backend (simulating an in-place restore).
+	require.NoError(t, bk.Restore(snap))
+
+	desc, err := bk.DescribeStream(&kinesis.DescribeStreamInput{StreamName: "ptr-stream"})
+	require.NoError(t, err)
+	assert.Len(t, desc.Shards, 1)
+}

@@ -117,8 +117,6 @@ func TestJanitor_Run_Cancel(t *testing.T) {
 		close(done)
 	}()
 
-	// Allow at least one tick.
-	time.Sleep(30 * time.Millisecond)
 	cancel()
 
 	select {

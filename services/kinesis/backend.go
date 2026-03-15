@@ -444,7 +444,8 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 	end := min(start+limit, shard.Records.len())
 
 	results := make([]GetRecordResult, 0, end-start)
-	for _, r := range shard.Records.slice(start, end) {
+	for i := start; i < end; i++ {
+		r := shard.Records.at(i)
 		results = append(results, GetRecordResult{
 			Data:                        r.Data,
 			PartitionKey:                r.PartitionKey,
@@ -810,7 +811,8 @@ func (b *InMemoryBackend) SubscribeToShard(input *SubscribeToShardInput) (*Subsc
 	n := shard.Records.len()
 	records := make([]GetRecordResult, 0, n-startPos)
 
-	for _, r := range shard.Records.slice(startPos, n) {
+	for i := startPos; i < n; i++ {
+		r := shard.Records.at(i)
 		records = append(records, GetRecordResult{
 			Data:                        r.Data,
 			PartitionKey:                r.PartitionKey,
