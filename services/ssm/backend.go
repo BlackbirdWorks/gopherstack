@@ -37,6 +37,12 @@ const (
 	mockKMSKeyStr     = "gopherstack-mock-kms-key-32byte!"
 	maxHistoryResults = 50
 	commandExpirySecs = 3600
+	// maxHistoryCap is the maximum number of history entries retained per parameter.
+	// Older entries beyond this cap are evicted to prevent unbounded growth.
+	maxHistoryCap = 100
+	// maxDocumentVersionCap is the maximum number of versions retained per document.
+	// Matches the AWS-side limit and prevents unbounded growth via repeated UpdateDocument.
+	maxDocumentVersionCap = 1000
 )
 
 // validParamNameRegex matches only alphanumeric, ., -, _, and / characters.
@@ -240,6 +246,11 @@ func (b *InMemoryBackend) PutParameter(input *PutParameterInput) (*PutParameterO
 	}
 	b.history[input.Name] = append(b.history[input.Name], paramHistory)
 
+	// Cap history to the most recent maxHistoryCap entries to prevent unbounded growth.
+	if len(b.history[input.Name]) > maxHistoryCap {
+		b.history[input.Name] = b.history[input.Name][len(b.history[input.Name])-maxHistoryCap:]
+	}
+
 	return &PutParameterOutput{Version: version}, nil
 }
 
@@ -308,6 +319,8 @@ func (b *InMemoryBackend) DeleteParameter(input *DeleteParameterInput) (*DeleteP
 	}
 
 	delete(b.parameters, input.Name)
+	delete(b.history, input.Name)
+	delete(b.tags, input.Name)
 
 	return &DeleteParameterOutput{}, nil
 }
@@ -325,6 +338,8 @@ func (b *InMemoryBackend) DeleteParameters(input *DeleteParametersInput) (*Delet
 	for _, name := range input.Names {
 		if _, exists := b.parameters[name]; exists {
 			delete(b.parameters, name)
+			delete(b.history, name)
+			delete(b.tags, name)
 			output.DeletedParameters = append(output.DeletedParameters, name)
 		} else {
 			output.InvalidParameters = append(output.InvalidParameters, name)
@@ -899,6 +914,11 @@ func (b *InMemoryBackend) UpdateDocument(input *UpdateDocumentInput) (*UpdateDoc
 		Content:          input.Content,
 	})
 
+	if len(b.documentVersions[input.Name]) > maxDocumentVersionCap {
+		vers := b.documentVersions[input.Name]
+		b.documentVersions[input.Name] = vers[len(vers)-maxDocumentVersionCap:]
+	}
+
 	return &UpdateDocumentOutput{DocumentDescription: doc}, nil
 }
 
@@ -1184,5 +1204,7 @@ func (b *InMemoryBackend) Reset() {
 	b.documentPermissions = make(map[string][]string)
 	b.commands = make(map[string]Command)
 	b.commandInvocations = make(map[string][]CommandInvocation)
+
+
 	b.registerDefaultDocuments()
 }
