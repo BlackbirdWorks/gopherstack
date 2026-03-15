@@ -285,14 +285,14 @@ func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "increase_same_value_rejected",
+			name: "increase_same_value_is_noop",
 			setup: func(bk *kinesis.InMemoryBackend) {
 				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
 			},
-			wantErr: true,
+			wantErr: false, // idempotent: same value → success
 			action: func(bk *kinesis.InMemoryBackend) error {
 				return bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
-					StreamName: "s", RetentionPeriodHours: 24, // same as default
+					StreamName: "s", RetentionPeriodHours: 24, // same as default — no-op
 				})
 			},
 		},
@@ -334,17 +334,17 @@ func TestIncreaseDecreaseRetentionPeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "decrease_same_value_rejected",
+			name: "decrease_same_value_is_noop",
 			setup: func(bk *kinesis.InMemoryBackend) {
 				_ = bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "s"})
 				_ = bk.IncreaseStreamRetentionPeriod(&kinesis.IncreaseStreamRetentionPeriodInput{
 					StreamName: "s", RetentionPeriodHours: 48,
 				})
 			},
-			wantErr: true,
+			wantErr: false, // idempotent: same value → success
 			action: func(bk *kinesis.InMemoryBackend) error {
 				return bk.DecreaseStreamRetentionPeriod(&kinesis.DecreaseStreamRetentionPeriodInput{
-					StreamName: "s", RetentionPeriodHours: 48, // same as current
+					StreamName: "s", RetentionPeriodHours: 48, // same as current — no-op
 				})
 			},
 		},

@@ -977,8 +977,10 @@ func (b *InMemoryBackend) DisableEnhancedMonitoring(
 }
 
 // IncreaseStreamRetentionPeriod increases the retention period for a stream.
-// The new retention period must be greater than the current one and at most
-// maxRetentionHours (8 760 h = 365 days), matching AWS behaviour.
+// If the new value equals the current retention period the call is a no-op
+// and returns success — this matches the idempotent behaviour expected by the
+// AWS Terraform provider, which may call this with the default value (24h) even
+// on freshly created streams. The new value must not exceed maxRetentionHours.
 func (b *InMemoryBackend) IncreaseStreamRetentionPeriod(
 	input *IncreaseStreamRetentionPeriodInput,
 ) error {
@@ -990,7 +992,12 @@ func (b *InMemoryBackend) IncreaseStreamRetentionPeriod(
 		return ErrStreamNotFound
 	}
 
-	if input.RetentionPeriodHours <= stream.RetentionPeriod ||
+	// Idempotent: same value → no-op.
+	if input.RetentionPeriodHours == stream.RetentionPeriod {
+		return nil
+	}
+
+	if input.RetentionPeriodHours < stream.RetentionPeriod ||
 		input.RetentionPeriodHours > maxRetentionHours {
 		return ErrInvalidArgument
 	}
@@ -1001,8 +1008,8 @@ func (b *InMemoryBackend) IncreaseStreamRetentionPeriod(
 }
 
 // DecreaseStreamRetentionPeriod decreases the retention period for a stream.
-// The new retention period must be less than the current one and at least
-// minRetentionHours (24 h), matching AWS behaviour.
+// If the new value equals the current retention period the call is a no-op
+// and returns success. The new value must be at least minRetentionHours.
 func (b *InMemoryBackend) DecreaseStreamRetentionPeriod(
 	input *DecreaseStreamRetentionPeriodInput,
 ) error {
@@ -1014,7 +1021,12 @@ func (b *InMemoryBackend) DecreaseStreamRetentionPeriod(
 		return ErrStreamNotFound
 	}
 
-	if input.RetentionPeriodHours >= stream.RetentionPeriod ||
+	// Idempotent: same value → no-op.
+	if input.RetentionPeriodHours == stream.RetentionPeriod {
+		return nil
+	}
+
+	if input.RetentionPeriodHours > stream.RetentionPeriod ||
 		input.RetentionPeriodHours < minRetentionHours {
 		return ErrInvalidArgument
 	}
