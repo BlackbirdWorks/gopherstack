@@ -286,15 +286,13 @@ func (db *InMemoryDB) DeleteTable(
 		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
 	}
 
-	// Move to the deleting map — the Janitor will do the final removal.
-	// Cancel any pending activation timer. Stop() is called while db.mu is held, which
-	// prevents a concurrent CreateTable from racing with us. If the timer has already fired
-	// and the callback is in progress, Stop() returns false but the callback only writes
-	// table.Status (guarded by table.mu) on an object that is about to move to
-	// deletingTables — this is benign; the janitor will clean it up regardless.
-	if table.activateTimer != nil {
-		table.activateTimer.Stop()
-	}
+	// Cancel any pending activation timer and any in-flight GSI lifecycle timers.
+	// Stop() is called while db.mu is held, which prevents a concurrent CreateTable from
+	// racing with us. If a timer has already fired and the callback is in progress, Stop()
+	// returns false but the callback only writes table.Status or GSI.IndexStatus (both
+	// guarded by table.mu) on an object that is about to move to deletingTables —
+	// this is benign; the janitor will clean it up regardless.
+	stopTableTimers(table)
 
 	delete(db.Tables[region], tableName)
 	if _, deletingExists := db.deletingTables[region]; !deletingExists {
