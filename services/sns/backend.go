@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -54,6 +56,14 @@ const (
 	// snsMaxConcurrentDeliveries caps the number of HTTP/HTTPS subscription
 	// deliveries that may run concurrently for a single Publish call.
 	snsMaxConcurrentDeliveries = 8
+
+	// maxDeliveryResponseBytes is the maximum number of bytes read from an HTTP
+	// delivery response body to prevent unbounded memory growth from large responses.
+	maxDeliveryResponseBytes = 64 * 1024 // 64 KiB
+
+	// maxFilterPolicySizeBytes is the maximum byte size of a FilterPolicy JSON string
+	// that will be parsed. Policies exceeding this limit are treated as no filter.
+	maxFilterPolicySizeBytes = 256 * 1024 // 256 KiB
 )
 
 // StorageBackend defines the interface for an SNS storage backend.
@@ -98,15 +108,18 @@ type StorageBackend interface {
 // InMemoryBackend implements StorageBackend using an in-memory concurrency-safe store.
 type InMemoryBackend struct {
 	emitter              events.EventEmitter[*events.SNSPublishedEvent]
-	httpClient           *http.Client
+	platformEndpoints    map[string]*PlatformEndpoint
 	topics               map[string]*Topic
 	subscriptions        map[string]*Subscription
 	topicTags            map[string]*svcTags.Tags
 	platformApplications map[string]*PlatformApplication
-	platformEndpoints    map[string]*PlatformEndpoint
+	httpClient           *http.Client
+	workerSem            chan struct{}
 	mu                   *lockmetrics.RWMutex
 	accountID            string
 	region               string
+	deliveryWg           sync.WaitGroup
+	closing              atomic.Bool
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -126,6 +139,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		region:               region,
 		mu:                   lockmetrics.New("sns"),
 		httpClient:           &http.Client{Timeout: snsHTTPTimeout},
+		workerSem:            make(chan struct{}, snsMaxConcurrentDeliveries),
 	}
 }
 
@@ -488,8 +502,10 @@ func (b *InMemoryBackend) collectPublishTargets(
 }
 
 // Publish publishes a message to a topic and returns the message ID.
-// HTTP/HTTPS subscriptions receive an asynchronous best-effort delivery after
-// the read lock is released, avoiding lock starvation from slow endpoints.
+// HTTP/HTTPS subscriptions each receive an asynchronous best-effort delivery
+// goroutine after the read lock is released to avoid lock starvation. Goroutines
+// wait for a concurrency slot (up to snsMaxConcurrentDeliveries concurrent HTTP
+// calls) or exit early if the backend is shutting down.
 // All subscriptions are also broadcast via the publish emitter (e.g. to SQS).
 func (b *InMemoryBackend) Publish(
 	topicArn, message, subject, messageStructure string, attrs map[string]MessageAttribute,
@@ -528,19 +544,22 @@ func (b *InMemoryBackend) Publish(
 	b.mu.RUnlock()
 
 	// Deliver to HTTP/HTTPS endpoints asynchronously with bounded concurrency.
-	// The semaphore channel limits the number of in-flight goroutines to
-	// snsMaxConcurrentDeliveries so that a large subscription list cannot
-	// exhaust OS resources.
-	if len(targets.httpDeliveries) > 0 {
-		sem := make(chan struct{}, snsMaxConcurrentDeliveries)
-
+	// Each subscription gets its own goroutine which blocks until a concurrency
+	// slot is available from workerSem. Publish returns immediately after
+	// launching all goroutines — it never blocks on the semaphore itself.
+	// Goroutines that were launched before WaitDeliveries was called always
+	// complete their delivery; none are silently dropped.
+	//
+	// The closing check is evaluated once before the loop so that either all
+	// HTTP subscriptions for this Publish call are scheduled or none are,
+	// avoiding partial delivery when shutdown is in progress.
+	if !b.closing.Load() {
 		for _, d := range targets.httpDeliveries {
-			sem <- struct{}{}
-
-			go func() {
-				defer func() { <-sem }()
+			b.deliveryWg.Go(func() {
+				b.workerSem <- struct{}{} // wait for a delivery slot
+				defer func() { <-b.workerSem }()
 				deliverHTTP(d.endpoint, d.body, client)
-			}()
+			})
 		}
 	}
 
@@ -568,9 +587,13 @@ func (b *InMemoryBackend) Publish(
 }
 
 // matchesFilterPolicy returns true if the message attributes satisfy all conditions in the filter policy.
-// If filterPolicy is empty or invalid JSON, it returns true (no filtering).
+// If filterPolicy is empty, exceeds maxFilterPolicySizeBytes, or is invalid JSON, it returns true (no filtering).
 func matchesFilterPolicy(filterPolicy string, attrs map[string]MessageAttribute) bool {
 	if filterPolicy == "" {
+		return true
+	}
+
+	if len(filterPolicy) > maxFilterPolicySizeBytes {
 		return true
 	}
 
@@ -706,7 +729,8 @@ func (b *InMemoryBackend) sortedSubscriptions() []Subscription {
 
 // deliverHTTP sends a best-effort HTTP POST with the message body to the endpoint
 // using the provided client. Errors are intentionally ignored: delivery is
-// fire-and-forget for HTTP/HTTPS subscriptions.
+// fire-and-forget for HTTP/HTTPS subscriptions. Response bodies are capped at
+// maxDeliveryResponseBytes to prevent unbounded memory growth.
 func deliverHTTP(endpoint, body string, client *http.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), snsHTTPTimeout)
 	defer cancel()
@@ -727,7 +751,7 @@ func deliverHTTP(endpoint, body string, client *http.Client) {
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDeliveryResponseBytes))
 }
 
 // decodeToken decodes a base64 pagination token into an integer offset.
@@ -1119,6 +1143,22 @@ func (b *InMemoryBackend) sortedEndpoints() []PlatformEndpoint {
 	})
 
 	return eps
+}
+
+// WaitDeliveries stops accepting new HTTP/HTTPS delivery goroutines and blocks
+// until all currently in-flight delivery goroutines have finished. It is called
+// during graceful shutdown by Handler.Shutdown.
+//
+// Goroutines that were already launched (before WaitDeliveries is called) always
+// complete their delivery. Subsequent calls are safe (idempotent via closing flag).
+func (b *InMemoryBackend) WaitDeliveries() {
+	// Mark as closing so that Publish does not schedule new delivery goroutines.
+	// This must happen before Wait() to ensure no goroutine can be added to
+	// deliveryWg once Wait() has returned. In practice, Shutdowner is called
+	// after the HTTP server stops accepting requests, so no new Publish calls
+	// can race with WaitDeliveries.
+	b.closing.Store(true)
+	b.deliveryWg.Wait()
 }
 
 // Reset clears all in-memory state from the backend. It is used by the
