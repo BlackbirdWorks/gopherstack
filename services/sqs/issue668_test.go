@@ -21,13 +21,13 @@ func TestFIFODedupPrunedOnSendMessage(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		dedupIDs     []string // IDs to register with an already-expired timestamp
-		wantDedupLen int
+		expiredIDs   []string // IDs to inject with an expired timestamp
+		wantDedupLen int      // expected dedup map size after the pruning SendMessage
 	}{
 		{
-			name:         "expired_dedup_ids_cleaned_on_send",
-			dedupIDs:     []string{"id-1", "id-2"},
-			wantDedupLen: 1, // only the fresh entry added by the new send remains
+			name:         "expired_ids_removed_on_send",
+			expiredIDs:   []string{"id-1", "id-2"},
+			wantDedupLen: 1, // only the freshly added entry remains
 		},
 	}
 
@@ -36,45 +36,30 @@ func TestFIFODedupPrunedOnSendMessage(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend()
-			qURL := createFIFOQueueWithDedup(t, b, "prune-send.fifo")
+			const qName = "prune-send.fifo"
+			qURL := createFIFOQueueWithDedup(t, b, qName)
 
-			// Send unique dedup IDs so they are recorded in the map.
-			for _, id := range tt.dedupIDs {
-				_, err := b.SendMessage(&sqs.SendMessageInput{
-					QueueURL:               qURL,
-					MessageBody:            "body",
-					MessageGroupID:         "g1",
-					MessageDeduplicationID: id,
-				})
-				require.NoError(t, err)
+			// Inject expired dedup IDs directly so we don't have to wait 300 s for
+			// the real window to expire.
+			for _, id := range tt.expiredIDs {
+				b.InjectExpiredDedupID(qName, id)
 			}
 
-			// Force the deduplication window to expire by injecting a far-future
-			// timestamp in the past — we achieve this by waiting briefly and
-			// relying on a very short dedup window set up by the test queue, or by
-			// calling ReceiveMessage to trigger the prune.  Since we cannot control
-			// the window directly from outside the package, we exercise the prune
-			// that happens in SendMessage by sending another message after time has
-			// advanced.  The deduplication window is 300 s so we cannot wait that
-			// long in a unit test; instead we verify that the pruneDedup code path
-			// is reached (indirectly) by sending a brand-new dedup ID and confirming
-			// that the queue does not refuse it as a duplicate.
+			// Sanity-check: expired entries are now present in the map.
+			require.Equal(t, len(tt.expiredIDs), b.DedupMapLen(qName))
+
+			// SendMessage on a FIFO queue calls pruneDedup before storing the new
+			// entry; the expired entries should be swept out.
 			_, err := b.SendMessage(&sqs.SendMessageInput{
 				QueueURL:               qURL,
-				MessageBody:            "new-body",
+				MessageBody:            "fresh-body",
 				MessageGroupID:         "g1",
 				MessageDeduplicationID: "fresh-id",
 			})
 			require.NoError(t, err)
 
-			// All three messages should be unique (3 entries in the queue).
-			out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-				QueueURL:            qURL,
-				MaxNumberOfMessages: 10,
-				VisibilityTimeout:   30,
-			})
-			require.NoError(t, err)
-			assert.Len(t, out.Messages, len(tt.dedupIDs)+1)
+			// After SendMessage, only the freshly added entry should remain.
+			assert.Equal(t, tt.wantDedupLen, b.DedupMapLen(qName))
 		})
 	}
 }
@@ -118,7 +103,7 @@ func TestDeleteQueueClosesNotifyChannel(t *testing.T) {
 				// return ErrQueueNotFound from the next receiveOnce call.
 				require.ErrorIs(t, err, sqs.ErrQueueNotFound, tt.name)
 			case <-time.After(2 * time.Second):
-				t.Fatal("goroutine did not wake up after queue deletion")
+				require.FailNow(t, "goroutine did not wake up after queue deletion")
 			}
 		})
 	}
@@ -440,7 +425,7 @@ func TestLongPollBroadcastWakeup(t *testing.T) {
 				case n := <-results:
 					assert.Equal(t, 1, n)
 				case <-deadline:
-					t.Fatal("at least one long-poll receiver did not wake in time")
+					require.FailNow(t, "at least one long-poll receiver did not wake in time")
 				}
 			}
 		})

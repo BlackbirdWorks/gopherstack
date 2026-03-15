@@ -393,8 +393,8 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	md5Body := computeMD5(input.MessageBody)
 	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
 
-	// Capture now once so that pruneDedup, checkDedup, and message timestamps
-	// all use the same consistent clock value.
+	// Capture now once so that pruneDedup, checkDedup, storeDedup, and message
+	// timestamps all use the same consistent clock value.
 	now := time.Now()
 
 	if q.IsFIFO {
@@ -405,6 +405,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 			input.MessageDeduplicationID,
 			md5Body,
 			q.Attributes[attrContentBasedDeduplication],
+			now,
 		); dup {
 			return out, nil
 		}
@@ -479,7 +480,8 @@ func resolveMessageVisibleAt(now time.Time, msgDelaySeconds int, queueDelayAttr 
 }
 
 // checkDedup checks for a duplicate FIFO message and returns the original output if found.
-func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string) (*SendMessageOutput, bool) {
+// now is the reference time used for window expiry comparison.
+func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.Time) (*SendMessageOutput, bool) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
 		effectiveID = md5Body
@@ -490,7 +492,7 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string) (*SendMess
 	}
 
 	expiry, found := q.DeduplicationIDs[effectiveID]
-	if !found || !time.Now().Before(expiry) {
+	if !found || !now.Before(expiry) {
 		return nil, false
 	}
 
@@ -768,6 +770,26 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 	return out, nil
 }
 
+// validateBatchEntryIDs checks that all entries in a batch have non-empty IDs and
+// that no two entries share the same ID (AWS requires IDs to be distinct within a batch).
+func validateBatchEntryIDs(entries []SendMessageBatchEntry) error {
+	seen := make(map[string]struct{}, len(entries))
+
+	for _, entry := range entries {
+		if entry.ID == "" {
+			return ErrInvalidBatchEntry
+		}
+
+		if _, dup := seen[entry.ID]; dup {
+			return ErrBatchEntryIDsNotDistinct
+		}
+
+		seen[entry.ID] = struct{}{}
+	}
+
+	return nil
+}
+
 // SendMessageBatch sends a batch of messages to the specified queue.
 // Results in the Successful and Failed slices are returned in the same
 // order as the corresponding entries in the input slice.
@@ -780,15 +802,14 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 		return nil, ErrTooManyEntriesInBatch
 	}
 
-	// inputOrder maps entry ID to its position in the input slice so that results
-	// can be sorted to match the original request order.
-	inputOrder := make(map[string]int, len(input.Entries))
-	for i, entry := range input.Entries {
-		inputOrder[entry.ID] = i
+	if err := validateBatchEntryIDs(input.Entries); err != nil {
+		return nil, err
 	}
 
 	out := &SendMessageBatchOutput{}
 
+	// Process entries in input order; append results directly so Successful and
+	// Failed slices already match the original entry order without sorting.
 	for _, entry := range input.Entries {
 		sendOut, err := b.SendMessage(&SendMessageInput{
 			QueueURL:               input.QueueURL,
@@ -816,15 +837,6 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 			MD5OfMessageAttributes: sendOut.MD5OfMessageAttributes,
 		})
 	}
-
-	// Sort Successful and Failed results to match the input entry order.
-	sort.Slice(out.Successful, func(i, j int) bool {
-		return inputOrder[out.Successful[i].ID] < inputOrder[out.Successful[j].ID]
-	})
-
-	sort.Slice(out.Failed, func(i, j int) bool {
-		return inputOrder[out.Failed[i].ID] < inputOrder[out.Failed[j].ID]
-	})
 
 	return out, nil
 }

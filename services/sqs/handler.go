@@ -918,6 +918,10 @@ func errorDetails(err error) (string, string, int) {
 		return "com.amazonaws.sqs#TooManyEntriesInBatchRequest",
 			"Too many entries in batch request.",
 			http.StatusBadRequest
+	case errors.Is(err, ErrBatchEntryIDsNotDistinct):
+		return "com.amazonaws.sqs#BatchEntryIdsNotDistinct",
+			"Two or more batch entries in the request have the same Id.",
+			http.StatusBadRequest
 	case errors.Is(err, ErrInvalidBatchEntry):
 		return "com.amazonaws.sqs#EmptyBatchRequest",
 			"The batch request is empty.",
