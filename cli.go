@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -1175,6 +1176,8 @@ func run(ctx context.Context, cli CLI) error {
 	initializeClients(&cli, awsCfgVal)
 
 	janitorCtx, janitorCancel := context.WithCancel(ctx)
+	// janitorCancel is also passed to shutdownBackends so janitors stop before
+	// backends are torn down. The defer here handles early-return error paths.
 	defer janitorCancel()
 
 	// --- Persistence ---
@@ -1237,10 +1240,7 @@ func run(ctx context.Context, cli CLI) error {
 	}
 
 	runInitHooks(ctx, &cli, log)
-	// Shut down Lambda sub-servers after the main server exits to prevent resource leaks.
-	if closeFn := lambdaCloseFn(cli.lambdaHandler); closeFn != nil {
-		defer closeFn()
-	}
+	defer shutdownBackends(janitorCancel, cli.lambdaHandler, services)
 
 	return startServer(ctx, cli.Port, e)
 }
@@ -1273,6 +1273,29 @@ func lambdaCloseFn(lambdaReg service.Registerable) func() {
 		defer cancel()
 		lambdaBk.Close(ctx)
 	}
+}
+
+// shutdownBackends cancels background workers, shuts down the Lambda backend,
+// and then shuts down every service that implements service.Shutdowner. It is
+// called via defer after the HTTP server has stopped accepting requests.
+// janitorCancel is called first so that janitor goroutines stop before the
+// backends they access are torn down.
+func shutdownBackends(
+	janitorCancel context.CancelFunc,
+	lambdaHandler service.Registerable,
+	services []service.Registerable,
+) {
+	// Stop janitor workers before closing backends they may still be accessing.
+	janitorCancel()
+
+	if closeFn := lambdaCloseFn(lambdaHandler); closeFn != nil {
+		closeFn()
+	}
+
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer shutCancel()
+
+	shutdownServices(shutCtx, services)
 }
 
 // wireDNSRegistrars connects DNS-aware backends to the embedded DNS server.
@@ -1894,6 +1917,41 @@ func startBackgroundWorkers(ctx context.Context, services []service.Registerable
 				log.ErrorContext(ctx, "failed to start background worker", "error", workerErr)
 			}
 		}
+	}
+}
+
+// shutdownServices calls Shutdown on every service that implements service.Shutdowner.
+// All shutdowns run concurrently. shutdownServices blocks until all complete or ctx
+// expires (whichever comes first), logging a warning if the deadline is exceeded.
+func shutdownServices(ctx context.Context, services []service.Registerable) {
+	log := logger.Load(ctx)
+
+	var wg sync.WaitGroup
+
+	for _, svc := range services {
+		if s, ok := svc.(service.Shutdowner); ok {
+			wg.Add(1)
+
+			go func(s service.Shutdowner, name string, ctx context.Context) {
+				defer wg.Done()
+
+				log.InfoContext(ctx, "shutting down service", "service", name)
+				s.Shutdown(ctx)
+			}(s, svc.Name(), ctx)
+		}
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		log.WarnContext(ctx, "service shutdown timed out; some background goroutines may still be running")
 	}
 }
 
