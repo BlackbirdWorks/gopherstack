@@ -11,8 +11,9 @@ import (
 )
 
 // TestTagsCleanedUpOnDelete verifies that b.tags entries are removed when EC2
-// resources are deleted, so terminated/deleted resources do not accumulate tags
-// in memory forever.
+// resources are deleted, so deleted resources do not accumulate tags in memory
+// forever. Terminated instances are handled separately by the janitor; see
+// TestJanitor_TerminatedInstancesSweep.
 func TestTagsCleanedUpOnDelete(t *testing.T) {
 	t.Parallel()
 
@@ -21,21 +22,6 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 		deleteFn func(b *ec2.InMemoryBackend, id string) error
 		name     string
 	}{
-		{
-			name: "TerminateInstances",
-			setupFn: func(b *ec2.InMemoryBackend) string {
-				insts, err := b.RunInstances("ami-test", "t2.micro", "", 1)
-				require.NoError(t, err)
-
-				return insts[0].ID
-			},
-			deleteFn: func(b *ec2.InMemoryBackend, id string) error {
-				_, err := b.TerminateInstances([]string{id})
-				// After terminate, manually set TerminatedAt in the past so janitor sweeps it.
-				// For this tag test we just need to verify tags are cleaned on sweep.
-				return err
-			},
-		},
 		{
 			name: "DeleteSecurityGroup",
 			setupFn: func(b *ec2.InMemoryBackend) string {
@@ -168,14 +154,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 			err = tt.deleteFn(b, id)
 			require.NoError(t, err)
 
-			// For TerminateInstances, the instance is still visible (AWS TTL grace period),
-			// but tags should remain until the janitor sweeps. Skip the tag-gone check here;
-			// the janitor test covers the full sweep.
-			if tt.name == "TerminateInstances" {
-				return
-			}
-
-			// For all other resources, tags must be removed immediately on delete.
+			// Tags must be removed immediately on delete.
 			entries = b.DescribeTags([]string{id})
 			assert.Empty(t, entries, "tags should be removed after deletion")
 		})

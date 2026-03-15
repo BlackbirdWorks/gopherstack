@@ -62,7 +62,7 @@ func (j *Janitor) Run(ctx context.Context) {
 func (j *Janitor) sweepTerminatedInstances(ctx context.Context) {
 	cutoff := time.Now().Add(-j.TerminatedTTL)
 
-	j.Backend.mu.Lock("EC2Janitor")
+	j.Backend.mu.Lock("sweepTerminatedInstances")
 
 	var swept []string
 
