@@ -402,38 +402,33 @@ func TestBackend_ConcurrencySlot(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		invocationType  lambda.InvocationType
 		reservedLimit   int
 		acquireTimes    int
 		wantAcquired    bool
 		wantErrOnExceed bool
 	}{
 		{
-			name:           "no_limit_always_returns_false",
-			reservedLimit:  -1, // skip PutFunctionConcurrency
-			invocationType: lambda.InvocationTypeRequestResponse,
-			acquireTimes:   1,
-			wantAcquired:   false,
+			name:          "no_limit_always_returns_false",
+			reservedLimit: -1, // skip PutFunctionConcurrency
+			acquireTimes:  1,
+			wantAcquired:  false,
 		},
 		{
 			name:            "reserved_zero_returns_too_many_requests",
 			reservedLimit:   0,
-			invocationType:  lambda.InvocationTypeRequestResponse,
 			acquireTimes:    1,
 			wantAcquired:    false,
 			wantErrOnExceed: true,
 		},
 		{
-			name:           "event_type_never_acquires_slot",
-			reservedLimit:  5,
-			invocationType: lambda.InvocationTypeEvent,
-			acquireTimes:   1,
-			wantAcquired:   false,
+			name:          "acquires_slot_with_nonzero_limit",
+			reservedLimit: 5,
+			acquireTimes:  1,
+			wantAcquired:  true,
 		},
 		{
 			name:            "exceeds_reserved_concurrency_limit",
 			reservedLimit:   1,
-			invocationType:  lambda.InvocationTypeRequestResponse,
 			acquireTimes:    2,
 			wantAcquired:    true,
 			wantErrOnExceed: true,
@@ -458,12 +453,12 @@ func TestBackend_ConcurrencySlot(t *testing.T) {
 
 			// Acquire slots up to acquireTimes-1 (expected to succeed) to reach the boundary.
 			for range tt.acquireTimes - 1 {
-				_, priorErr := lambda.AcquireConcurrencySlot(bk, fnName, tt.invocationType)
+				_, priorErr := lambda.AcquireConcurrencySlot(bk, fnName)
 				require.NoError(t, priorErr, "setup acquires must not fail")
 			}
 
 			// The final acquisition is the one under test.
-			lastAcquired, lastErr := lambda.AcquireConcurrencySlot(bk, fnName, tt.invocationType)
+			lastAcquired, lastErr := lambda.AcquireConcurrencySlot(bk, fnName)
 
 			if tt.wantErrOnExceed {
 				require.Error(t, lastErr)
@@ -491,7 +486,7 @@ func TestBackend_ReleaseConcurrencySlot(t *testing.T) {
 	require.NoError(t, err)
 
 	// Acquire one slot.
-	acquired, acquireErr := lambda.AcquireConcurrencySlot(bk, fnName, lambda.InvocationTypeRequestResponse)
+	acquired, acquireErr := lambda.AcquireConcurrencySlot(bk, fnName)
 	require.NoError(t, acquireErr)
 	assert.True(t, acquired, "first acquire should succeed")
 
@@ -499,7 +494,7 @@ func TestBackend_ReleaseConcurrencySlot(t *testing.T) {
 	lambda.ReleaseConcurrencySlot(bk, fnName)
 
 	// After release, we should still be able to acquire up to the limit again.
-	acquired2, acquireErr2 := lambda.AcquireConcurrencySlot(bk, fnName, lambda.InvocationTypeRequestResponse)
+	acquired2, acquireErr2 := lambda.AcquireConcurrencySlot(bk, fnName)
 	require.NoError(t, acquireErr2)
 	assert.True(t, acquired2, "acquire after release should succeed")
 }

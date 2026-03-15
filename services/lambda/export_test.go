@@ -162,8 +162,8 @@ func ReleaseConcurrencySlot(b *InMemoryBackend, functionName string) {
 }
 
 // AcquireConcurrencySlot exports acquireConcurrencySlot for testing.
-func AcquireConcurrencySlot(b *InMemoryBackend, functionName string, invocationType InvocationType) (bool, error) {
-	return b.acquireConcurrencySlot(functionName, invocationType)
+func AcquireConcurrencySlot(b *InMemoryBackend, functionName string) (bool, error) {
+	return b.acquireConcurrencySlot(functionName)
 }
 
 // ShardIteratorsLen returns the number of entries in the poller's shardIterators map.

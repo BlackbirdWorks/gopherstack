@@ -1131,6 +1131,11 @@ func (b *InMemoryBackend) InvokeFunction(
 	return b.InvokeFunctionWithQualifier(ctx, name, "", invocationType, payload)
 }
 
+// asyncInvocationEnqueueTimeout is the maximum time a background goroutine will wait
+// to place an async (Event) invocation into the runtime queue. If the queue remains
+// full after this duration the invocation is dropped with a warning log.
+const asyncInvocationEnqueueTimeout = 5 * time.Minute
+
 // InvokeFunctionWithQualifier invokes a Lambda function using an optional qualifier.
 func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	ctx context.Context,
@@ -1153,20 +1158,28 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 		return fisPayload, fisStatus, fisErr
 	}
 
-	// Enforce reserved concurrency limits.
-	// For async (Event) invocations: if reserved concurrency is 0, reject immediately.
-	// For sync (RequestResponse) invocations: if active count >= reserved, reject.
-	trackConcurrency, concErr := b.acquireConcurrencySlot(fn.FunctionName, invocationType)
+	// Enforce reserved concurrency limits for all invocation types.
+	// Reserved concurrency of 0 blocks all invocations; non-zero limits are enforced
+	// for both synchronous (RequestResponse) and asynchronous (Event) invocations.
+	trackConcurrency, concErr := b.acquireConcurrencySlot(fn.FunctionName)
 	if concErr != nil {
 		return nil, http.StatusTooManyRequests, concErr
 	}
 
-	if trackConcurrency {
+	// For synchronous invocations, release the concurrency slot when this function returns.
+	// For async (Event) invocations, enqueueAsyncInvocation releases the slot after the
+	// invocation completes or times out.
+	if trackConcurrency && invocationType != InvocationTypeEvent {
 		defer b.releaseConcurrencySlot(fn.FunctionName)
 	}
 
 	srv, srvErr := b.getOrCreateRuntime(ctx, fn)
 	if srvErr != nil {
+		// Release the slot on error regardless of invocation type.
+		if trackConcurrency {
+			b.releaseConcurrencySlot(fn.FunctionName)
+		}
+
 		return nil, http.StatusInternalServerError, srvErr
 	}
 
@@ -1183,11 +1196,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 			result:    make(chan invocationResult, 1),
 		}
 
-		select {
-		case srv.queue <- inv:
-		default:
-			// Queue full — drop for async (Event) invocations.
-		}
+		b.enqueueAsyncInvocation(ctx, srv, fn.FunctionName, inv, timeout, trackConcurrency)
 
 		return nil, http.StatusAccepted, nil
 	}
@@ -1205,11 +1214,68 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	return result, http.StatusOK, nil
 }
 
+// enqueueAsyncInvocation launches a background goroutine that places inv into the
+// runtime queue, blocking until space is available or asyncInvocationEnqueueTimeout
+// elapses. When trackConcurrency is true the goroutine releases the concurrency slot
+// once the container finishes processing the invocation (or after a deadline timeout).
+// [context.WithoutCancel] is used so the goroutine is not affected by the caller's
+// HTTP-request context being cancelled after the 202 response is sent.
+func (b *InMemoryBackend) enqueueAsyncInvocation(
+	ctx context.Context,
+	srv *runtimeServer,
+	functionName string,
+	inv *pendingInvocation,
+	timeout time.Duration,
+	trackConcurrency bool,
+) {
+	go func() {
+		enqueueCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncInvocationEnqueueTimeout)
+		defer cancel()
+
+		select {
+		case srv.queue <- inv:
+			if !trackConcurrency {
+				return
+			}
+
+			// Wait for the container to finish processing this invocation before
+			// releasing the concurrency slot.
+			waitTimer := time.NewTimer(timeout + containerResponseGracePeriod)
+
+			select {
+			case <-inv.result:
+			case <-waitTimer.C:
+			}
+
+			// Stop the timer and drain the channel if it already fired to
+			// prevent a stale value accumulating in the channel buffer.
+			if !waitTimer.Stop() {
+				select {
+				case <-waitTimer.C:
+				default:
+				}
+			}
+
+			b.releaseConcurrencySlot(functionName)
+
+		case <-enqueueCtx.Done():
+			slog.Default().Warn(
+				"lambda: async invocation dropped: queue full",
+				"function", functionName, "requestID", inv.requestID,
+			)
+
+			if trackConcurrency {
+				b.releaseConcurrencySlot(functionName)
+			}
+		}
+	}()
+}
+
 // acquireConcurrencySlot checks and optionally increments the active concurrency counter
 // for a function. It returns (true, nil) when a slot was acquired (caller must release),
 // (false, nil) when the function has no reserved concurrency limit, or (false, err) when
 // the limit is already exhausted. Must not be called with b.mu held.
-func (b *InMemoryBackend) acquireConcurrencySlot(functionName string, invocationType InvocationType) (bool, error) {
+func (b *InMemoryBackend) acquireConcurrencySlot(functionName string) (bool, error) {
 	b.mu.Lock("acquireConcurrencySlot")
 	defer b.mu.Unlock()
 
@@ -1221,11 +1287,6 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName string, invocation
 	// Reserved concurrency of 0 disables all invocations regardless of type.
 	if reserved == 0 {
 		return false, fmt.Errorf("%w: reserved concurrency is 0 for function %s", ErrTooManyRequests, functionName)
-	}
-
-	// For async (Event) invocations we don't track the slot — queue depth handles back-pressure.
-	if invocationType == InvocationTypeEvent {
-		return false, nil
 	}
 
 	active := b.activeConcurrencies[functionName]
