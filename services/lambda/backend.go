@@ -1214,12 +1214,16 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	return result, http.StatusOK, nil
 }
 
-// enqueueAsyncInvocation launches a background goroutine that places inv into the
-// runtime queue, blocking until space is available or asyncInvocationEnqueueTimeout
-// elapses. When trackConcurrency is true the goroutine releases the concurrency slot
-// once the container finishes processing the invocation (or after a deadline timeout).
-// [context.WithoutCancel] is used so the goroutine is not affected by the caller's
-// HTTP-request context being cancelled after the 202 response is sent.
+// enqueueAsyncInvocation places inv into the runtime queue and then waits for the
+// container to respond. The wait serves two purposes:
+//  1. Hold the concurrency slot for the full execution duration when trackConcurrency is true.
+//  2. Remove any stale srv.pending entry when a container picks up the invocation via
+//     /next but never calls /response or /error (e.g., crash), preventing a memory leak.
+//
+// The enqueue attempts a non-blocking fast path first. If the queue is full a background
+// goroutine blocks for up to asyncInvocationEnqueueTimeout before giving up.
+// [context.WithoutCancel] detaches the goroutine from the caller's HTTP-request context
+// so cancellation of the 202 response does not abort the background work.
 func (b *InMemoryBackend) enqueueAsyncInvocation(
 	ctx context.Context,
 	srv *runtimeServer,
@@ -1228,35 +1232,30 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 	timeout time.Duration,
 	trackConcurrency bool,
 ) {
+	// Fast path: try a non-blocking enqueue without spawning a goroutine.
+	// Even on the fast path we still need a goroutine to clean up srv.pending on
+	// container timeout, so only skip the goroutine when there's nothing to track
+	// and the queue has immediate space.
+	if !trackConcurrency {
+		select {
+		case srv.queue <- inv:
+			// Invocation queued; spawn a minimal goroutine only to clean up srv.pending
+			// if the container picks up the invocation but never responds.
+			go b.waitAndCleanPending(srv, inv, timeout, false, functionName)
+
+			return
+		default:
+		}
+	}
+
+	// Slow path: queue was full (or a slot is held); block until space is available.
 	go func() {
 		enqueueCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncInvocationEnqueueTimeout)
 		defer cancel()
 
 		select {
 		case srv.queue <- inv:
-			if !trackConcurrency {
-				return
-			}
-
-			// Wait for the container to finish processing this invocation before
-			// releasing the concurrency slot.
-			waitTimer := time.NewTimer(timeout + containerResponseGracePeriod)
-
-			select {
-			case <-inv.result:
-			case <-waitTimer.C:
-			}
-
-			// Stop the timer and drain the channel if it already fired to
-			// prevent a stale value accumulating in the channel buffer.
-			if !waitTimer.Stop() {
-				select {
-				case <-waitTimer.C:
-				default:
-				}
-			}
-
-			b.releaseConcurrencySlot(functionName)
+			b.waitAndCleanPending(srv, inv, timeout, trackConcurrency, functionName)
 
 		case <-enqueueCtx.Done():
 			slog.Default().Warn(
@@ -1269,6 +1268,40 @@ func (b *InMemoryBackend) enqueueAsyncInvocation(
 			}
 		}
 	}()
+}
+
+// waitAndCleanPending waits for the container to post a response for inv or for the
+// function timeout to expire. On timeout it removes the stale srv.pending entry left by
+// handleNext to prevent an unbounded memory leak. If trackConcurrency is true the
+// concurrency slot is released once the wait completes.
+func (b *InMemoryBackend) waitAndCleanPending(
+	srv *runtimeServer,
+	inv *pendingInvocation,
+	timeout time.Duration,
+	trackConcurrency bool,
+	functionName string,
+) {
+	waitTimer := time.NewTimer(timeout + containerResponseGracePeriod)
+
+	select {
+	case <-inv.result:
+		// Container responded; handleInvocationResult already removed the pending entry.
+	case <-waitTimer.C:
+		// Container timed out; remove the stale pending entry to prevent a memory leak.
+		srv.pending.LoadAndDelete(inv.requestID)
+	}
+
+	// Drain the timer channel if it fired concurrently with inv.result being received.
+	if !waitTimer.Stop() {
+		select {
+		case <-waitTimer.C:
+		default:
+		}
+	}
+
+	if trackConcurrency {
+		b.releaseConcurrencySlot(functionName)
+	}
 }
 
 // acquireConcurrencySlot checks and optionally increments the active concurrency counter

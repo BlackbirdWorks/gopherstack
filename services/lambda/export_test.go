@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -173,4 +175,80 @@ func ShardIteratorsLen(p *EventSourcePoller) int {
 	defer p.mu.RUnlock()
 
 	return len(p.shardIterators)
+}
+
+// RuntimeQueueSize exposes the internal runtimeQueueSize constant for test use.
+const RuntimeQueueSize = runtimeQueueSize
+
+// PendingLen returns the number of entries in the runtime server's pending invocations map.
+// Intended for use in unit tests to verify stale-pending cleanup.
+func PendingLen(s *ExportedRuntimeServer) int {
+	count := 0
+	s.inner.pending.Range(func(_, _ any) bool {
+		count++
+
+		return true
+	})
+
+	return count
+}
+
+// QueueLen returns the current number of items in the runtime server's invocation queue.
+func QueueLen(s *ExportedRuntimeServer) int {
+	return len(s.inner.queue)
+}
+
+// FillQueue fills the runtime server's queue with dummy placeholder entries up to n items.
+// Returns the actual number added.
+func FillQueue(s *ExportedRuntimeServer, n int) int {
+	added := 0
+
+	for range n {
+		select {
+		case s.inner.queue <- &pendingInvocation{}:
+			added++
+		default:
+			return added
+		}
+	}
+
+	return added
+}
+
+// DrainQueue removes all items currently in the queue and returns the count drained.
+func DrainQueue(s *ExportedRuntimeServer) int {
+	n := 0
+
+	for {
+		select {
+		case <-s.inner.queue:
+			n++
+		default:
+			return n
+		}
+	}
+}
+
+// EnqueueAsync calls enqueueAsyncInvocation on b with a synthetic pendingInvocation.
+// It returns the requestID of the created invocation so tests can simulate container
+// responses or verify pending-map cleanup.
+func EnqueueAsync(
+	ctx context.Context,
+	b *InMemoryBackend,
+	srv *ExportedRuntimeServer,
+	functionName string,
+	payload []byte,
+	timeout time.Duration,
+	trackConcurrency bool,
+) string {
+	inv := &pendingInvocation{
+		requestID: uuid.New().String(),
+		payload:   payload,
+		deadline:  time.Now().Add(timeout),
+		result:    make(chan invocationResult, 1),
+	}
+
+	b.enqueueAsyncInvocation(ctx, srv.inner, functionName, inv, timeout, trackConcurrency)
+
+	return inv.requestID
 }
