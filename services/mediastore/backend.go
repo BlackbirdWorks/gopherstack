@@ -123,7 +123,7 @@ func (b *InMemoryBackend) CreateContainer(region, accountID, name string, tags m
 
 	b.containers[name] = c
 
-	return c, nil
+	return copyContainer(c), nil
 }
 
 // DeleteContainer removes a container.
@@ -464,13 +464,18 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return nil, ErrContainerNotFound
 }
 
-// copyContainer returns a shallow copy of the Container with the Tags map deep-copied.
+// copyContainer returns a deep copy of the Container, copying Tags and CreationTime.
 func copyContainer(c *Container) *Container {
 	if c == nil {
 		return nil
 	}
 
 	cp := *c
+
+	if c.CreationTime != nil {
+		t := *c.CreationTime
+		cp.CreationTime = &t
+	}
 
 	if c.Tags != nil {
 		cp.Tags = make(map[string]string, len(c.Tags))

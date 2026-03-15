@@ -78,7 +78,7 @@ func (b *InMemoryBackend) PutDataLakeSettings(settings *DataLakeSettings) {
 	b.mu.Lock("PutDataLakeSettings")
 	defer b.mu.Unlock()
 
-	b.dataLakeSettings = settings
+	b.dataLakeSettings = copyDataLakeSettings(settings)
 }
 
 // RegisterResource registers an S3 location as a data lake resource.
@@ -263,7 +263,7 @@ func (b *InMemoryBackend) GetLFTag(catalogID, tagKey string) (*LFTag, error) {
 		)
 	}
 
-	return tag, nil
+	return copyLFTag(tag), nil
 }
 
 // UpdateLFTag adds and removes values from an existing LF tag.
@@ -479,13 +479,11 @@ func copyDataLakeSettings(s *DataLakeSettings) *DataLakeSettings {
 	}
 
 	if s.CreateDatabaseDefaultPermissions != nil {
-		cp.CreateDatabaseDefaultPermissions = make([]PrincipalPermissions, len(s.CreateDatabaseDefaultPermissions))
-		copy(cp.CreateDatabaseDefaultPermissions, s.CreateDatabaseDefaultPermissions)
+		cp.CreateDatabaseDefaultPermissions = copyPrincipalPermissions(s.CreateDatabaseDefaultPermissions)
 	}
 
 	if s.CreateTableDefaultPermissions != nil {
-		cp.CreateTableDefaultPermissions = make([]PrincipalPermissions, len(s.CreateTableDefaultPermissions))
-		copy(cp.CreateTableDefaultPermissions, s.CreateTableDefaultPermissions)
+		cp.CreateTableDefaultPermissions = copyPrincipalPermissions(s.CreateTableDefaultPermissions)
 	}
 
 	if s.TrustedResourceOwners != nil {
@@ -494,4 +492,44 @@ func copyDataLakeSettings(s *DataLakeSettings) *DataLakeSettings {
 	}
 
 	return cp
+}
+
+// copyPrincipalPermissions returns a deep copy of a []PrincipalPermissions slice,
+// copying the Permissions []string slice and cloning the Principal pointer for each element.
+func copyPrincipalPermissions(src []PrincipalPermissions) []PrincipalPermissions {
+	dst := make([]PrincipalPermissions, len(src))
+
+	for i, pp := range src {
+		elem := PrincipalPermissions{}
+
+		if pp.Principal != nil {
+			p := *pp.Principal
+			elem.Principal = &p
+		}
+
+		if pp.Permissions != nil {
+			elem.Permissions = make([]string, len(pp.Permissions))
+			copy(elem.Permissions, pp.Permissions)
+		}
+
+		dst[i] = elem
+	}
+
+	return dst
+}
+
+// copyLFTag returns a deep copy of the LFTag, including a copy of TagValues.
+func copyLFTag(t *LFTag) *LFTag {
+	if t == nil {
+		return nil
+	}
+
+	cp := *t
+
+	if t.TagValues != nil {
+		cp.TagValues = make([]string, len(t.TagValues))
+		copy(cp.TagValues, t.TagValues)
+	}
+
+	return &cp
 }

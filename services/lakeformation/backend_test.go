@@ -798,3 +798,91 @@ func TestPaginate_InvalidNextToken(t *testing.T) {
 		})
 	}
 }
+
+func TestPutDataLakeSettings_StoresCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "mutating settings pointer after Put does not affect backend state"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			settings := &lakeformation.DataLakeSettings{
+				DataLakeAdmins: []lakeformation.DataLakePrincipal{
+					{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/admin"},
+				},
+				CreateDatabaseDefaultPermissions: []lakeformation.PrincipalPermissions{
+					{
+						Principal:   &lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:role/r"},
+						Permissions: []string{"CREATE_TABLE"},
+					},
+				},
+			}
+
+			b.PutDataLakeSettings(settings)
+
+			// Mutate the original settings pointer after Put.
+			settings.DataLakeAdmins = append(settings.DataLakeAdmins, lakeformation.DataLakePrincipal{
+				DataLakePrincipalIdentifier: "arn:aws:iam::123:user/evil",
+			})
+			settings.CreateDatabaseDefaultPermissions[0].Permissions = append(
+				settings.CreateDatabaseDefaultPermissions[0].Permissions, "DROP",
+			)
+			settings.CreateDatabaseDefaultPermissions[0].Principal.DataLakePrincipalIdentifier = "MUTATED"
+
+			// Backend state must be unchanged.
+			s := b.GetDataLakeSettings()
+			assert.Len(
+				t,
+				s.DataLakeAdmins,
+				1,
+				"mutating settings pointer after PutDataLakeSettings must not affect backend",
+			)
+			assert.Len(t, s.CreateDatabaseDefaultPermissions[0].Permissions, 1,
+				"mutating Permissions slice after PutDataLakeSettings must not affect backend")
+			assert.Equal(t, "arn:role/r",
+				s.CreateDatabaseDefaultPermissions[0].Principal.DataLakePrincipalIdentifier,
+				"mutating Principal after PutDataLakeSettings must not affect backend")
+		})
+	}
+}
+
+func TestGetLFTag_ReturnsCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "mutating returned LFTag does not affect backend state"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			require.NoError(t, b.CreateLFTag("cat1", "env", []string{"prod", "dev"}))
+
+			tag, err := b.GetLFTag("cat1", "env")
+			require.NoError(t, err)
+
+			// Mutate the returned copy.
+			tag.TagValues = append(tag.TagValues, "injected")
+			tag.TagKey = "MUTATED"
+
+			// Backend state must be unchanged.
+			tag2, err := b.GetLFTag("cat1", "env")
+			require.NoError(t, err)
+			assert.Equal(t, "env", tag2.TagKey, "mutating returned LFTag must not affect backend TagKey")
+			assert.Len(t, tag2.TagValues, 2, "mutating returned LFTag TagValues must not affect backend")
+		})
+	}
+}

@@ -453,7 +453,7 @@ func TestInMemoryBackend_MetricPolicy(t *testing.T) {
 
 	tests := []struct {
 		errSentinel error
-		setup       func(b *mediastore.InMemoryBackend)
+		setup       func(t *testing.T, b *mediastore.InMemoryBackend)
 		name        string
 		container   string
 		policy      mediastore.MetricPolicy
@@ -475,11 +475,10 @@ func TestInMemoryBackend_MetricPolicy(t *testing.T) {
 		{
 			name:      "get metric policy when none set",
 			container: "no-metric",
-			setup: func(b *mediastore.InMemoryBackend) {
+			setup: func(t *testing.T, b *mediastore.InMemoryBackend) {
+				t.Helper()
 				_, err := b.CreateContainer(testRegion, testAccountID, "no-metric", nil)
-				if err != nil {
-					panic(err)
-				}
+				require.NoError(t, err)
 			},
 			wantErr:     true,
 			errSentinel: awserr.ErrNotFound,
@@ -493,7 +492,7 @@ func TestInMemoryBackend_MetricPolicy(t *testing.T) {
 			b := newBackend()
 
 			if tt.setup != nil {
-				tt.setup(b)
+				tt.setup(t, b)
 			}
 
 			if tt.wantErr {
@@ -519,6 +518,42 @@ func TestInMemoryBackend_MetricPolicy(t *testing.T) {
 
 			_, err = b.GetMetricPolicy(tt.container)
 			require.Error(t, err)
+		})
+	}
+}
+
+func TestInMemoryBackend_CreateContainer_ReturnsCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "mutating returned container does not affect backend state"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+
+			c, err := b.CreateContainer(testRegion, testAccountID, "create-copy", map[string]string{"k": "v"})
+			require.NoError(t, err)
+
+			// Mutate the returned copy.
+			c.Tags["injected"] = "evil"
+			c.Status = "MUTATED"
+			if c.CreationTime != nil {
+				zeroTime := c.CreationTime.Add(-1e9)
+				c.CreationTime = &zeroTime
+			}
+
+			// Backend state must be unchanged.
+			c2, err := b.DescribeContainer("create-copy")
+			require.NoError(t, err)
+			assert.Equal(t, "ACTIVE", c2.Status)
+			_, hasInjected := c2.Tags["injected"]
+			assert.False(t, hasInjected, "mutating returned Container from CreateContainer must not affect backend")
 		})
 	}
 }
