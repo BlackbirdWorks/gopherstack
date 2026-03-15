@@ -174,6 +174,46 @@ func TestHandler_WithJanitor_StartWorker(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestInMemoryBackend_ResetRestoresDefaultDocuments verifies that Reset() clears user
+// state but re-registers the built-in AWS documents so they remain available.
+func TestInMemoryBackend_ResetRestoresDefaultDocuments(t *testing.T) {
+	t.Parallel()
+
+	b := ssm.NewInMemoryBackend()
+
+	// Create a parameter and a user document to verify both are cleared by Reset.
+	_, err := b.PutParameter(&ssm.PutParameterInput{
+		Name:  "my-param",
+		Value: "value",
+		Type:  "String",
+	})
+	require.NoError(t, err)
+
+	_, err = b.CreateDocument(&ssm.CreateDocumentInput{
+		Name:    "MyUserDoc",
+		Content: "--- user",
+	})
+	require.NoError(t, err)
+
+	// Reset should clear user data.
+	b.Reset()
+
+	// Parameter must be gone.
+	_, err = b.GetParameter(&ssm.GetParameterInput{Name: "my-param"})
+	require.Error(t, err)
+
+	// User document must be gone.
+	_, err = b.GetDocument(&ssm.GetDocumentInput{Name: "MyUserDoc"})
+	require.Error(t, err)
+
+	// Default AWS document must still be present so SendCommand works.
+	_, err = b.SendCommand(&ssm.SendCommandInput{
+		DocumentName: "AWS-RunShellScript",
+		InstanceIDs:  []string{"i-1234567890abcdef0"},
+	})
+	require.NoError(t, err, "default document AWS-RunShellScript must be available after Reset")
+}
+
 // TestInMemoryBackend_DocumentVersionCap verifies that UpdateDocument caps the
 // stored version list to MaxDocumentVersionCap entries, evicting the oldest.
 func TestInMemoryBackend_DocumentVersionCap(t *testing.T) {

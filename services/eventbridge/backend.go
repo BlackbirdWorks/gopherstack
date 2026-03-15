@@ -579,4 +579,11 @@ func (b *InMemoryBackend) Reset() {
 	b.rules = make(map[string]map[string]*Rule)
 	b.targets = make(map[string]map[string]*Target)
 	b.eventLog = nil
+
+	// Re-create the default event bus so it is always available after reset.
+	b.buses[defaultEventBusName] = &EventBus{
+		Name:        defaultEventBusName,
+		Arn:         b.busARN(defaultEventBusName),
+		CreatedTime: time.Now(),
+	}
 }
