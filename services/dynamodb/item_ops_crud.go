@@ -2,7 +2,6 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -597,18 +596,41 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 
 // deepCopyItem returns a deep copy of a wire-format item so that mutations
 // to nested map/list structures in the copy do not affect the original.
+// It uses a recursive approach rather than JSON round-trip for better performance.
 func deepCopyItem(item map[string]any) map[string]any {
-	b, err := json.Marshal(item)
-	if err == nil {
-		var out map[string]any
-		if unmarshalErr := json.Unmarshal(b, &out); unmarshalErr == nil {
-			return out
-		}
+	return deepCopyMap(item)
+}
+
+// deepCopyMap recursively copies a map[string]any.
+func deepCopyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
 	}
 
-	// Fallback to shallow copy if marshal/unmarshal fails.
-	out := make(map[string]any, len(item))
-	maps.Copy(out, item)
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = deepCopyAny(v)
+	}
 
 	return out
+}
+
+// deepCopyAny recursively copies any DynamoDB wire-format value.
+// Scalars (string, float64, bool, nil) are immutable value types and are returned as-is.
+// Maps and slices are deep-copied to prevent shared mutation.
+func deepCopyAny(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		return deepCopyMap(t)
+	case []any:
+		out := make([]any, len(t))
+		for i, elem := range t {
+			out[i] = deepCopyAny(elem)
+		}
+
+		return out
+	default:
+		// string, float64, bool, nil — immutable or value types; safe to share.
+		return v
+	}
 }

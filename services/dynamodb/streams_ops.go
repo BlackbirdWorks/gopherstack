@@ -66,11 +66,16 @@ func (db *InMemoryDB) EnableStream(ctx context.Context, tableName, viewType stri
 	}
 
 	table.mu.Lock("EnableStream")
-	defer table.mu.Unlock()
-
 	table.StreamsEnabled = true
 	table.StreamViewType = viewType
 	table.StreamARN = db.buildStreamARN(tableName)
+	newARN := table.StreamARN
+	table.mu.Unlock()
+
+	// Update the reverse index under db.mu (after releasing table lock to preserve lock ordering).
+	db.mu.Lock("EnableStream.streamARNIndex")
+	db.streamARNIndex[newARN] = table
+	db.mu.Unlock()
 
 	return nil
 }
@@ -83,12 +88,19 @@ func (db *InMemoryDB) DisableStream(ctx context.Context, tableName string) error
 	}
 
 	table.mu.Lock("DisableStream")
-	defer table.mu.Unlock()
-
+	oldARN := table.StreamARN
 	table.StreamsEnabled = false
 	table.StreamARN = ""
 	table.StreamRecords = nil
 	table.streamSeq = 0
+	table.mu.Unlock()
+
+	// Remove from reverse index under db.mu (after releasing table lock to preserve lock ordering).
+	if oldARN != "" {
+		db.mu.Lock("DisableStream.streamARNIndex")
+		delete(db.streamARNIndex, oldARN)
+		db.mu.Unlock()
+	}
 
 	return nil
 }
@@ -434,15 +446,11 @@ func toStringSliceFrom(v any) []string {
 	}
 }
 
-// findTableByStreamARN searches all regions for a table with the given stream ARN.
+// findTableByStreamARN looks up a table by stream ARN using the reverse index.
 // Must be called with db.mu held.
 func (db *InMemoryDB) findTableByStreamARN(streamARN string) *Table {
-	for _, regionTables := range db.Tables {
-		for _, t := range regionTables {
-			if t.StreamARN == streamARN {
-				return t
-			}
-		}
+	if t, ok := db.streamARNIndex[streamARN]; ok {
+		return t
 	}
 
 	return nil

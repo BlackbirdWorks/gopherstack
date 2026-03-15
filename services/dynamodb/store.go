@@ -12,13 +12,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
+// txnTokenTTL is how long a committed idempotency token is retained.
+// AWS DynamoDB expires tokens after 10 minutes.
+const txnTokenTTL = 10 * time.Minute
+
 // InMemoryDB stores tables and items organized by region.
 type InMemoryDB struct {
 	Tables               map[string]map[string]*Table
 	deletingTables       map[string]map[string]*Table
 	Backups              map[string]*Backup   // backupARN → Backup
-	txnTokens            map[string]struct{}  // committed idempotency tokens
+	txnTokens            map[string]time.Time // committed idempotency tokens → expiry time
 	txnPending           map[string]struct{}  // in-progress idempotency tokens
+	streamARNIndex       map[string]*Table    // streamARN → Table (reverse index)
 	fisReplicationPaused map[string]time.Time // keyed by table ARN; value is expiry (zero = no expiry)
 	exprCache            *ExpressionCache
 	throttler            *Throttler
@@ -109,8 +114,9 @@ func NewInMemoryDB() *InMemoryDB {
 		Tables:               make(map[string]map[string]*Table),
 		deletingTables:       make(map[string]map[string]*Table),
 		Backups:              make(map[string]*Backup),
-		txnTokens:            make(map[string]struct{}),
+		txnTokens:            make(map[string]time.Time),
 		txnPending:           make(map[string]struct{}),
+		streamARNIndex:       make(map[string]*Table),
 		fisReplicationPaused: make(map[string]time.Time),
 		exprCache:            NewExpressionCache(exprCacheSize),
 		defaultRegion:        config.DefaultRegion,

@@ -45,6 +45,7 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ticker.C:
 			j.runOnce(ctx)
 			j.sweepTTL(ctx)
+			j.sweepTxnTokens()
 		}
 	}
 }
@@ -132,4 +133,20 @@ func (j *Janitor) sweepTTL(ctx context.Context) {
 		telemetry.RecordWorkerItems("dynamodb", "TTLSweeper", totalEvicted)
 	}
 	telemetry.RecordWorkerTask("dynamodb", "TTLSweeper", "success")
+}
+
+// sweepTxnTokens removes committed idempotency tokens that have exceeded their TTL.
+// AWS DynamoDB expires tokens after 10 minutes; this prevents unbounded map growth.
+func (j *Janitor) sweepTxnTokens() {
+	db := j.Backend
+	now := time.Now()
+
+	db.mu.Lock("sweepTxnTokens")
+	defer db.mu.Unlock()
+
+	for token, expiry := range db.txnTokens {
+		if now.After(expiry) {
+			delete(db.txnTokens, token)
+		}
+	}
 }

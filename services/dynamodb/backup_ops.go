@@ -52,7 +52,7 @@ func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, e
 	table.mu.RLock("CreateBackup")
 	// Deep copy items inside the read lock so the snapshot is consistent
 	// and races with concurrent writes are avoided.
-	itemsCopy, err := deepCopyItems(table.Items)
+	itemsCopy := deepCopyItems(table.Items)
 	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
 	copy(keySchema, table.KeySchema)
 	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
@@ -60,10 +60,6 @@ func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, e
 	tableArn := table.TableArn
 	tableID := table.TableID
 	table.mu.RUnlock()
-
-	if err != nil {
-		return nil, NewInternalServerError(fmt.Sprintf("failed to snapshot items: %s", err.Error()))
-	}
 
 	now := time.Now()
 	bkpARN := backupARN(region, db.accountID, req.TableName, now)
@@ -308,12 +304,7 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 	}
 
 	// Deep copy items from the backup.
-	itemsCopy, err := deepCopyItems(backup.Items)
-	if err != nil {
-		db.mu.Unlock()
-
-		return nil, NewInternalServerError(fmt.Sprintf("failed to copy items: %s", err.Error()))
-	}
+	itemsCopy := deepCopyItems(backup.Items)
 
 	keySchema := make([]models.KeySchemaElement, len(backup.KeySchema))
 	copy(keySchema, backup.KeySchema)
@@ -386,16 +377,12 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 	sourceTable.mu.RLock("RestoreTableToPointInTime")
 	pitrEnabled := sourceTable.PITREnabled
 	// Deep copy items inside the read lock to avoid races with concurrent writes.
-	itemsCopy, err := deepCopyItems(sourceTable.Items)
+	itemsCopy := deepCopyItems(sourceTable.Items)
 	keySchema := make([]models.KeySchemaElement, len(sourceTable.KeySchema))
 	copy(keySchema, sourceTable.KeySchema)
 	attrDefs := make([]models.AttributeDefinition, len(sourceTable.AttributeDefinitions))
 	copy(attrDefs, sourceTable.AttributeDefinitions)
 	sourceTable.mu.RUnlock()
-
-	if err != nil {
-		return nil, NewInternalServerError(fmt.Sprintf("failed to copy items: %s", err.Error()))
-	}
 
 	if !pitrEnabled {
 		return nil, NewValidationException(
@@ -483,24 +470,18 @@ func (h *DynamoDBHandler) regionFromHandlerContext(ctx context.Context) string {
 	return h.DefaultRegion
 }
 
-// deepCopyItems returns a deep copy of DynamoDB items via JSON round-trip.
+// deepCopyItems returns a deep copy of all provided DynamoDB items.
 // DynamoDB attribute values may contain nested maps and lists, so a simple
-// shallow copy is insufficient. The JSON round-trip handles arbitrary depth.
-func deepCopyItems(items []map[string]any) ([]map[string]any, error) {
+// shallow copy is insufficient. Uses recursive map copy for efficiency.
+func deepCopyItems(items []map[string]any) []map[string]any {
 	if len(items) == 0 {
-		return []map[string]any{}, nil
+		return []map[string]any{}
 	}
 
-	data, err := json.Marshal(items)
-	if err != nil {
-		return nil, fmt.Errorf("deep copy marshal: %w", err)
+	copied := make([]map[string]any, len(items))
+	for i, item := range items {
+		copied[i] = deepCopyItem(item)
 	}
 
-	var copied []map[string]any
-	err = json.Unmarshal(data, &copied)
-	if err != nil {
-		return nil, fmt.Errorf("deep copy unmarshal: %w", err)
-	}
-
-	return copied, nil
+	return copied
 }

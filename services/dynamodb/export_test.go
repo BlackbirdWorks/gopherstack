@@ -121,3 +121,47 @@ func (db *InMemoryDB) ScheduleReplicationPauseCleanupForTest(
 ) {
 	db.scheduleReplicationPauseCleanup(ctx, tableARNs, dur)
 }
+
+// DeepCopyItem exposes deepCopyItem for testing.
+func DeepCopyItem(item map[string]any) map[string]any {
+	return deepCopyItem(item)
+}
+
+// TxnTokenCount returns the number of committed idempotency tokens currently stored.
+func (db *InMemoryDB) TxnTokenCount() int {
+	db.mu.RLock("TxnTokenCount")
+	defer db.mu.RUnlock()
+
+	return len(db.txnTokens)
+}
+
+// InjectExpiredTxnTokenForTest inserts an already-expired token into the committed map.
+func (db *InMemoryDB) InjectExpiredTxnTokenForTest(token string) {
+	db.mu.Lock("InjectExpiredTxnTokenForTest")
+	defer db.mu.Unlock()
+
+	db.txnTokens[token] = time.Now().Add(-time.Hour) // already expired
+}
+
+// StreamARNIndexSize returns the number of entries in the stream ARN reverse index.
+func (db *InMemoryDB) StreamARNIndexSize() int {
+	db.mu.RLock("StreamARNIndexSize")
+	defer db.mu.RUnlock()
+
+	return len(db.streamARNIndex)
+}
+
+// LookupStreamARNIndex looks up a table by stream ARN in the reverse index (for tests).
+func (db *InMemoryDB) LookupStreamARNIndex(streamARN string) (*Table, bool) {
+	db.mu.RLock("LookupStreamARNIndex")
+	defer db.mu.RUnlock()
+
+	t, ok := db.streamARNIndex[streamARN]
+
+	return t, ok
+}
+
+// SweepTxnTokens exposes sweepTxnTokens for tests.
+func (j *Janitor) SweepTxnTokens() {
+	j.sweepTxnTokens()
+}
