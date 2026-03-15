@@ -3,11 +3,16 @@ package pipes
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
+
+// ErrUnsupportedPipeTarget is returned when a pipe's target ARN is not supported by the runner.
+var ErrUnsupportedPipeTarget = errors.New("pipes: unsupported target ARN")
 
 const (
 	// pipeRunnerTickInterval is how often the runner polls sources for new records.
@@ -141,6 +146,7 @@ func (r *Runner) pollSQSPipe(ctx context.Context, p *Pipe) {
 }
 
 // invokeTarget forwards the SQS messages to the pipe's target and returns the receipt handles.
+// Returns an error (and does NOT delete messages) when the target ARN is unsupported.
 func (r *Runner) invokeTarget(ctx context.Context, p *Pipe, msgs []*SQSMessage) ([]string, error) {
 	receiptHandles := make([]string, len(msgs))
 	for i, m := range msgs {
@@ -154,9 +160,7 @@ func (r *Runner) invokeTarget(ctx context.Context, p *Pipe, msgs []*SQSMessage) 
 		return receiptHandles, r.invokeSFNTarget(ctx, p, msgs)
 	}
 
-	logger.Load(ctx).WarnContext(ctx, "pipes: unsupported target ARN", "pipe", p.Name, "target", p.Target)
-
-	return receiptHandles, nil
+	return nil, fmt.Errorf("%w %q for pipe %q", ErrUnsupportedPipeTarget, p.Target, p.Name)
 }
 
 // sqsPipeEvent is the Lambda event format for SQS pipe sources.

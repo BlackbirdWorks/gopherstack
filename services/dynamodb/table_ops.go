@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -343,55 +344,84 @@ func (db *InMemoryDB) DescribeTable(
 		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
 	}
 
-	// Snapshot table metadata under lock, release immediately, then build descriptions outside lock
+	tableDesc := buildTableDescription(input.TableName, table)
+
+	return &dynamodb.DescribeTableOutput{Table: tableDesc}, nil
+}
+
+// tableSnapshot is a lock-free snapshot of table metadata for building SDK responses.
+type tableSnapshot struct {
+	creationDT     time.Time
+	tableStatus    types.TableStatus
+	tableArn       string
+	tableID        string
+	streamARN      string
+	streamViewType string
+	gsiList        []models.GlobalSecondaryIndex
+	lsiList        []models.LocalSecondaryIndex
+	replicaList    []models.ReplicaDescription
+	keySchema      []models.KeySchemaElement
+	attrDefs       []models.AttributeDefinition
+	pt             models.ProvisionedThroughputDescription
+	itemCount      int64
+	streamsEnabled bool
+}
+
+func snapshotTable(table *Table) tableSnapshot {
 	table.mu.RLock("DescribeTable")
-	keySchema := make([]models.KeySchemaElement, len(table.KeySchema))
-	copy(keySchema, table.KeySchema)
-	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
-	copy(attrDefs, table.AttributeDefinitions)
-	gsiList := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
-	copy(gsiList, table.GlobalSecondaryIndexes)
-	lsiList := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
-	copy(lsiList, table.LocalSecondaryIndexes)
-	replicaList := make([]models.ReplicaDescription, len(table.Replicas))
-	copy(replicaList, table.Replicas)
-	itemCount := int64(len(table.Items))
-	pt := table.ProvisionedThroughput
-	tableStatus := types.TableStatus(table.Status)
-	if tableStatus == "" {
-		tableStatus = types.TableStatusActive
+	defer table.mu.RUnlock()
+
+	s := tableSnapshot{
+		keySchema:      make([]models.KeySchemaElement, len(table.KeySchema)),
+		attrDefs:       make([]models.AttributeDefinition, len(table.AttributeDefinitions)),
+		gsiList:        make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes)),
+		lsiList:        make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes)),
+		replicaList:    make([]models.ReplicaDescription, len(table.Replicas)),
+		itemCount:      int64(len(table.Items)),
+		pt:             table.ProvisionedThroughput,
+		tableStatus:    types.TableStatus(table.Status),
+		tableArn:       table.TableArn,
+		tableID:        table.TableID,
+		creationDT:     table.CreationDateTime,
+		streamARN:      table.StreamARN,
+		streamsEnabled: table.StreamsEnabled,
+		streamViewType: table.StreamViewType,
 	}
-	tableArn := table.TableArn
-	tableID := table.TableID
-	creationDateTime := table.CreationDateTime
+	copy(s.keySchema, table.KeySchema)
+	copy(s.attrDefs, table.AttributeDefinitions)
+	copy(s.gsiList, table.GlobalSecondaryIndexes)
+	copy(s.lsiList, table.LocalSecondaryIndexes)
+	copy(s.replicaList, table.Replicas)
 
-	table.mu.RUnlock()
+	if s.tableStatus == "" {
+		s.tableStatus = types.TableStatusActive
+	}
 
-	// Build index descriptions outside lock
-	gsiDescs := buildGSIDescriptions(gsiList, itemCount)
-	lsiDescs := buildLSIDescriptions(lsiList)
+	return s
+}
 
-	sdkGSIs := models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs)
-	sdkLSIs := models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs)
-	sdkKeySchema := models.ToSDKKeySchema(keySchema)
-	sdkAttrDefs := models.ToSDKAttributeDefinitions(attrDefs)
+// buildTableDescription constructs the SDK TableDescription for a DescribeTable response.
+func buildTableDescription(tableName *string, table *Table) *types.TableDescription {
+	s := snapshotTable(table)
 
-	rcu := int64(pt.ReadCapacityUnits)
-	wcu := int64(pt.WriteCapacityUnits)
+	gsiDescs := buildGSIDescriptions(s.gsiList, s.itemCount)
+	lsiDescs := buildLSIDescriptions(s.lsiList)
 
-	// Estimate table size: item count * average item size (400 bytes).
+	rcu := int64(s.pt.ReadCapacityUnits)
+	wcu := int64(s.pt.WriteCapacityUnits)
+
 	const avgItemSizeBytes = 400
-	tableSizeBytes := itemCount * avgItemSizeBytes
+	tableSizeBytes := s.itemCount * avgItemSizeBytes
 
-	tableDesc := &types.TableDescription{
-		TableName:              input.TableName,
-		TableStatus:            tableStatus,
-		KeySchema:              sdkKeySchema,
-		AttributeDefinitions:   sdkAttrDefs,
-		GlobalSecondaryIndexes: sdkGSIs,
-		LocalSecondaryIndexes:  sdkLSIs,
-		Replicas:               toSDKReplicaDescriptions(replicaList),
-		ItemCount:              &itemCount,
+	td := &types.TableDescription{
+		TableName:              tableName,
+		TableStatus:            s.tableStatus,
+		KeySchema:              models.ToSDKKeySchema(s.keySchema),
+		AttributeDefinitions:   models.ToSDKAttributeDefinitions(s.attrDefs),
+		GlobalSecondaryIndexes: models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs),
+		LocalSecondaryIndexes:  models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs),
+		Replicas:               toSDKReplicaDescriptions(s.replicaList),
+		ItemCount:              &s.itemCount,
 		TableSizeBytes:         &tableSizeBytes,
 		BillingModeSummary:     &types.BillingModeSummary{BillingMode: types.BillingModeProvisioned},
 		ProvisionedThroughput: &types.ProvisionedThroughputDescription{
@@ -400,17 +430,40 @@ func (db *InMemoryDB) DescribeTable(
 		},
 	}
 
-	if tableArn != "" {
-		tableDesc.TableArn = &tableArn
+	if s.tableArn != "" {
+		td.TableArn = &s.tableArn
 	}
-	if tableID != "" {
-		tableDesc.TableId = &tableID
+	if s.tableID != "" {
+		td.TableId = &s.tableID
 	}
-	if !creationDateTime.IsZero() {
-		tableDesc.CreationDateTime = &creationDateTime
+	if !s.creationDT.IsZero() {
+		td.CreationDateTime = &s.creationDT
 	}
 
-	return &dynamodb.DescribeTableOutput{Table: tableDesc}, nil
+	applyStreamSpec(td, s.streamsEnabled, s.streamARN, s.streamViewType)
+
+	return td
+}
+
+// applyStreamSpec fills the stream-related fields of a TableDescription when streams are enabled.
+func applyStreamSpec(td *types.TableDescription, enabled bool, streamARN, viewType string) {
+	if !enabled || streamARN == "" {
+		return
+	}
+
+	td.LatestStreamArn = &streamARN
+
+	// LatestStreamLabel is the last path segment of the stream ARN (the timestamp portion).
+	streamLabel := streamARN
+	if idx := strings.LastIndex(streamARN, "/"); idx >= 0 {
+		streamLabel = streamARN[idx+1:]
+	}
+
+	td.LatestStreamLabel = &streamLabel
+	td.StreamSpecification = &types.StreamSpecification{
+		StreamEnabled:  aws.Bool(true),
+		StreamViewType: types.StreamViewType(viewType),
+	}
 }
 
 // UpdateTable modifies a DynamoDB table's provisioned throughput, GSI list, stream spec, and replicas.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -2350,10 +2351,14 @@ type ddbStreamsReaderAdapter struct {
 	backend *ddbbackend.InMemoryDB
 }
 
+// ddbStreamsShardID is the canonical shard ID used by the DynamoDB Streams in-memory backend.
+// It must match the value defined in services/dynamodb/streams_ops.go (streamShardID).
+const ddbStreamsShardID = "shardId-00000000000000000001-00000001"
+
 func (a *ddbStreamsReaderAdapter) GetStreamShardIterator(streamARN, iteratorType string) (string, error) {
 	out, err := a.backend.GetShardIterator(context.Background(), &awsddbstreams.GetShardIteratorInput{
 		StreamArn:         aws.String(streamARN),
-		ShardId:           aws.String("shardId-00000000000000000001-00000001"),
+		ShardId:           aws.String(ddbStreamsShardID),
 		ShardIteratorType: ddbstreamstypes.ShardIteratorType(iteratorType),
 	})
 	if err != nil {
@@ -2367,7 +2372,14 @@ func (a *ddbStreamsReaderAdapter) GetStreamRecords(
 	iteratorToken string,
 	limit int,
 ) ([]lambdabackend.DynamoDBStreamRecord, string, error) {
-	lim := int32(limit) //nolint:gosec // limit is bounded by BatchSize, never overflows int32
+	// Clamp limit to a valid int32 range. BatchSize is bounded by the Lambda ESM (max 10 000),
+	// but we guard defensively against any caller passing a value outside int32 range.
+	const maxStreamRecordsLimit = math.MaxInt32
+	if limit <= 0 || limit > maxStreamRecordsLimit {
+		limit = maxStreamRecordsLimit
+	}
+
+	lim := int32(limit) // safe: limit is clamped to [1, math.MaxInt32] above
 	out, err := a.backend.GetRecords(context.Background(), &awsddbstreams.GetRecordsInput{
 		ShardIterator: aws.String(iteratorToken),
 		Limit:         &lim,
@@ -2427,14 +2439,18 @@ func sdkDDBStreamItemToWire(item map[string]ddbstreamstypes.AttributeValue) map[
 	out := make(map[string]any, len(item))
 
 	for k, v := range item {
-		out[k] = sdkDDBStreamAttrToWire(v)
+		if w := sdkDDBStreamAttrToWire(v); w != nil {
+			out[k] = w
+		}
 	}
 
 	return out
 }
 
-// sdkDDBStreamAttrToWire converts a single DynamoDB Streams SDK attribute value to wire format.
-func sdkDDBStreamAttrToWire(av ddbstreamstypes.AttributeValue) any { //nolint:ireturn // wire format map or nil
+// sdkDDBStreamAttrToWire converts a single DynamoDB Streams SDK attribute value to DynamoDB JSON
+// wire format (map[string]any). Unknown attribute types are returned as nil and are excluded by
+// the caller.
+func sdkDDBStreamAttrToWire(av ddbstreamstypes.AttributeValue) map[string]any {
 	switch v := av.(type) {
 	case *ddbstreamstypes.AttributeValueMemberS:
 		return map[string]any{"S": v.Value}

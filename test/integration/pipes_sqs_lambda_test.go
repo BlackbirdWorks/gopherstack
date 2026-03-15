@@ -114,9 +114,10 @@ func pipesARNToURL(arn string) string {
 // forwarded by the Pipes Runner to a Lambda target.
 //
 // This test uses in-process backends and a mock Lambda invoker (no Docker required).
-//
-//nolint:paralleltest // in-process test server; avoids port conflicts with parallel tests
 func TestIntegration_Pipes_SQS_To_Lambda(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
 	ctx := t.Context()
 
 	// --- Build backends ---

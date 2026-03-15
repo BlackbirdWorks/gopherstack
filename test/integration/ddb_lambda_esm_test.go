@@ -8,6 +8,7 @@ import (
 	ddbsdktypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	lambdasdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdaesdktypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,13 +24,15 @@ import (
 //  5. Verify the ESM can be deleted.
 func TestIntegration_Lambda_DynamoDB_ESM_CRUD(t *testing.T) {
 	t.Parallel()
+	dumpContainerLogsOnFailure(t)
 
 	ctx := t.Context()
 	ddbClient := createDynamoDBClient(t)
 	lambdaClient := createLambdaClient(t)
 
 	// --- Step 1: Create a DynamoDB table with streams enabled ---
-	tableName := "esm-ddb-crud-test"
+	// Use a unique name to avoid collisions with other parallel test runs.
+	tableName := "esm-ddb-crud-" + uuid.NewString()
 
 	_, err := ddbClient.CreateTable(ctx, &ddbsdk.CreateTableInput{
 		TableName: aws.String(tableName),

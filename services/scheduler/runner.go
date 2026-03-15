@@ -321,11 +321,13 @@ func lambdaFunctionNameFromARN(arn string) string {
 // Supported units: minutes, hours, days (and singular forms).
 // Non-standard unit "seconds" is also supported for local testing.
 func parseRateExpression(expr string) (time.Duration, error) {
+	const rateFieldCount = 2 // rate(N unit) always has exactly two whitespace-separated fields
+
 	inner := strings.TrimSuffix(strings.TrimPrefix(expr, "rate("), ")")
 	inner = strings.TrimSpace(inner)
 
 	parts := strings.Fields(inner)
-	if len(parts) != 2 { //nolint:mnd // rate(N unit) always has 2 parts
+	if len(parts) != rateFieldCount {
 		return 0, fmt.Errorf("%w: %q", ErrInvalidRateExpression, expr)
 	}
 

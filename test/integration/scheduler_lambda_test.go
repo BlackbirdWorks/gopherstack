@@ -56,9 +56,10 @@ func (m *mockSchedulerLambdaInvoker) CallCount() int {
 // invokes its Lambda target via the Scheduler Runner.
 //
 // This test uses in-process backends and a mock Lambda invoker (no Docker required).
-//
-//nolint:paralleltest // in-process test server; avoids port conflicts with parallel tests
 func TestIntegration_Scheduler_Lambda_Target(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
 	ctx := t.Context()
 
 	// --- Build backends ---
