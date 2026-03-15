@@ -20,12 +20,17 @@ type Settings struct {
 	PoolSize int `name:"pool-size" env:"LAMBDA_POOL_SIZE" default:"3" help:"Max warm containers per Lambda function."` //nolint:lll // config struct tags are intentionally verbose
 	// IdleTimeout is how long an idle container is kept before reaping.
 	IdleTimeout time.Duration `name:"idle-timeout" env:"LAMBDA_IDLE_TIMEOUT" default:"10m" help:"Idle container timeout."` //nolint:lll // config struct tags are intentionally verbose
+	// MaxRuntimes is the maximum number of per-function runtimes kept alive simultaneously.
+	// When the limit is exceeded, the least-recently-used runtime is stopped and evicted.
+	// Defaults to defaultMaxRuntimes. Set to 0 to use the default.
+	MaxRuntimes int `name:"max-runtimes" env:"LAMBDA_MAX_RUNTIMES" default:"50" help:"Maximum number of simultaneous per-function Lambda runtimes."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 const (
 	defaultPoolSize         = 3
 	defaultIdleTimeout      = 10 * time.Minute
 	defaultContainerRuntime = "docker"
+	defaultMaxRuntimes      = 50
 )
 
 // DefaultSettings returns Settings with sensible defaults for use without Kong.
@@ -58,10 +63,18 @@ func DefaultSettings() Settings {
 		containerRuntime = r
 	}
 
+	maxRuntimes := defaultMaxRuntimes
+	if m := os.Getenv("LAMBDA_MAX_RUNTIMES"); m != "" {
+		if val, err := strconv.Atoi(m); err == nil && val > 0 {
+			maxRuntimes = val
+		}
+	}
+
 	return Settings{
 		DockerHost:       dockerHost,
 		ContainerRuntime: containerRuntime,
 		PoolSize:         poolSize,
 		IdleTimeout:      idleTimeout,
+		MaxRuntimes:      maxRuntimes,
 	}
 }

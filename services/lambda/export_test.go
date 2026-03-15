@@ -127,8 +127,104 @@ func InjectRuntimeEntry(b *InMemoryBackend, functionName, zipDir string, layerDi
 		layerDirs: layerDirs,
 		port:      port,
 		started:   true,
+		lastUsed:  time.Now(),
 	}
 }
+
+// InjectRuntimeEntryWithContainer inserts a synthetic functionRuntime with a container ID
+// into the backend's runtimes map for testing container-stop behavior.
+func InjectRuntimeEntryWithContainer(
+	b *InMemoryBackend,
+	functionName, zipDir, containerID string,
+	layerDirs []string,
+	port int,
+) {
+	b.mu.Lock("InjectRuntimeEntryWithContainer")
+	defer b.mu.Unlock()
+
+	b.runtimes[functionName] = &functionRuntime{
+		mu:          lockmetrics.New("lambda.runtime.test"),
+		zipDir:      zipDir,
+		layerDirs:   layerDirs,
+		containerID: containerID,
+		port:        port,
+		started:     true,
+		lastUsed:    time.Now(),
+	}
+}
+
+// InjectRuntimeEntryWithSrv inserts a synthetic functionRuntime with an already-started
+// runtime server so that tests can trigger real invocation timeouts via InvokeFunction.
+func InjectRuntimeEntryWithSrv(b *InMemoryBackend, functionName string, srv *ExportedRuntimeServer) {
+	b.mu.Lock("InjectRuntimeEntryWithSrv")
+	defer b.mu.Unlock()
+
+	b.runtimes[functionName] = &functionRuntime{
+		mu:       lockmetrics.New("lambda.runtime.test"),
+		srv:      srv.inner,
+		started:  true,
+		lastUsed: time.Now(),
+	}
+}
+
+// InjectRuntimeEntryFull inserts a synthetic functionRuntime with a server, container ID,
+// and optional temp directories. This is used in tests that need full runtime state.
+func InjectRuntimeEntryFull(
+	b *InMemoryBackend,
+	functionName string,
+	srv *ExportedRuntimeServer,
+	containerID string,
+) {
+	b.mu.Lock("InjectRuntimeEntryFull")
+	defer b.mu.Unlock()
+
+	var innerSrv *runtimeServer
+	if srv != nil {
+		innerSrv = srv.inner
+	}
+
+	b.runtimes[functionName] = &functionRuntime{
+		mu:          lockmetrics.New("lambda.runtime.test"),
+		srv:         innerSrv,
+		containerID: containerID,
+		started:     true,
+		lastUsed:    time.Now(),
+	}
+}
+
+// RuntimesLen returns the number of entries in the backend's runtimes map.
+func RuntimesLen(b *InMemoryBackend) int {
+	b.mu.RLock("RuntimesLen")
+	defer b.mu.RUnlock()
+
+	return len(b.runtimes)
+}
+
+// RuntimeContainerID returns the containerID stored in the named runtime entry, or "" if not found.
+func RuntimeContainerID(b *InMemoryBackend, functionName string) string {
+	b.mu.RLock("RuntimeContainerID")
+	defer b.mu.RUnlock()
+
+	if rt, ok := b.runtimes[functionName]; ok {
+		return rt.containerID
+	}
+
+	return ""
+}
+
+// SetRuntimeLastUsed sets the lastUsed timestamp on a runtime entry.
+// It is used by LRU eviction tests to control which runtime is evicted.
+func SetRuntimeLastUsed(b *InMemoryBackend, functionName string, t time.Time) {
+	b.mu.Lock("SetRuntimeLastUsed")
+	defer b.mu.Unlock()
+
+	if rt, ok := b.runtimes[functionName]; ok {
+		rt.lastUsed = t
+	}
+}
+
+// DefaultMaxRuntimes exposes the defaultMaxRuntimes constant for tests.
+const DefaultMaxRuntimes = defaultMaxRuntimes
 
 // FunctionNamesFromARNs exports functionNamesFromARNs for testing.
 func FunctionNamesFromARNs(arns []string) []string { return functionNamesFromARNs(arns) }
