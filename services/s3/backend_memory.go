@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5" //nolint:gosec // MD5 required for S3 ETag compatibility
+	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -22,6 +23,23 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
+
+// objectVersionIDBytes is the number of random bytes used to generate a version ID.
+// 16 bytes produces a 32-character lowercase hex string.
+const objectVersionIDBytes = 16
+
+// newObjectVersionID generates a random S3-compatible version ID using 16 random
+// bytes encoded as a 32-character lowercase hex string. This matches the format
+// expected by AWS clients better than the previous Unix-nanosecond approach.
+func newObjectVersionID() string {
+	b := make([]byte, objectVersionIDBytes)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to time-based ID if crypto/rand fails (should never happen).
+		return strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
+
+	return hex.EncodeToString(b)
+}
 
 const maxInt32 = 2147483647
 const defaultRegionName = config.DefaultRegion
@@ -310,14 +328,17 @@ func (b *InMemoryBackend) PutObject(
 		return nil, err
 	}
 
-	// First, get or create the object under bucket lock (brief)
-	var obj *StoredObject
+	// Perform object creation and version insertion entirely under bucket.mu.Lock
+	// to prevent a TOCTOU race: previously bucket.mu was released before acquiring
+	// obj.mu, which allowed a concurrent DeleteObject to close obj.mu between the
+	// two lock operations, leading to a use-after-close on obj.mu.
 	var newVersionID string
 
 	bucket.mu.Lock("PutObject")
-	newVersionID = "null"
+
+	newVersionID = NullVersion
 	if bucket.Versioning == types.BucketVersioningStatusEnabled {
-		newVersionID = strconv.FormatInt(time.Now().UnixNano(), 10)
+		newVersionID = newObjectVersionID()
 	}
 
 	obj, objExists := bucket.Objects[key]
@@ -328,12 +349,15 @@ func (b *InMemoryBackend) PutObject(
 			mu:       lockmetrics.New("s3.object"),
 		}
 		bucket.Objects[key] = obj
-	}
-	bucket.mu.Unlock()
+	} else if err = checkObjectLockForOverwrite(obj); err != nil {
+		// Object Lock: COMPLIANCE/GOVERNANCE retention prevents overwriting
+		// a protected version when versioning is not enabled (null version).
+		if bucket.Versioning != types.BucketVersioningStatusEnabled {
+			bucket.mu.Unlock()
 
-	// Now update the object versions under object lock (reduces contention on bucket)
-	obj.mu.Lock("PutObject")
-	defer obj.mu.Unlock()
+			return nil, err
+		}
+	}
 
 	finalQuotedETag := "\"" + etag + "\""
 	newVersion := &StoredObjectVersion{
@@ -357,14 +381,16 @@ func (b *InMemoryBackend) PutObject(
 	}
 
 	for _, v := range obj.Versions {
-		if v.IsLatest {
-			v.IsLatest = false
-		}
+		v.IsLatest = false
 	}
 
 	obj.Versions[newVersionID] = newVersion
-	obj.LatestVersionID = newVersionID // Update the cached latest version ID
+	obj.LatestVersionID = newVersionID
 
+	bucket.mu.Unlock()
+
+	// Store tags outside bucket.mu to respect the lock ordering
+	// (b.mu must not be acquired while bucket.mu is held).
 	b.storeObjectTags(input.Tagging, bucketName, key, newVersionID)
 
 	logger.Load(ctx).DebugContext(ctx, "S3 Backend PutObject",
@@ -705,6 +731,34 @@ func checkObjectLockForDelete(obj *StoredObject, versionID *string) error {
 	return nil
 }
 
+// checkObjectLockForOverwrite returns ErrObjectLocked if the null version (current
+// when versioning is not enabled) is under a legal hold or an active retention
+// policy. This prevents PutObject from silently overwriting a protected object.
+// Must be called with bucket.mu held.
+func checkObjectLockForOverwrite(obj *StoredObject) error {
+	var ver *StoredObjectVersion
+
+	if obj.LatestVersionID != "" {
+		ver = obj.Versions[obj.LatestVersionID]
+	} else {
+		ver = findLatestVersion(obj.Versions)
+	}
+
+	if ver == nil || ver.Deleted {
+		return nil
+	}
+
+	if ver.LegalHold {
+		return ErrObjectLocked
+	}
+
+	if ver.RetentionMode != "" && !ver.RetainUntil.IsZero() && time.Now().Before(ver.RetainUntil) {
+		return ErrObjectLocked
+	}
+
+	return nil
+}
+
 // deleteSpecificVersion removes the specified version from the object.
 func deleteSpecificVersion(
 	bucket *StoredBucket,
@@ -729,7 +783,7 @@ func deleteSpecificVersion(
 func deleteLatestVersion(bucket *StoredBucket, obj *StoredObject, key string) *s3.DeleteObjectOutput {
 	// Delete latest (Versioning enabled -> add delete marker, Suspended -> delete null version)
 	if bucket.Versioning == types.BucketVersioningStatusEnabled {
-		newVersionID := strconv.FormatInt(time.Now().UnixNano(), 10)
+		newVersionID := newObjectVersionID()
 
 		// Create delete marker; mark others as not latest
 		for _, v := range obj.Versions {
@@ -1323,7 +1377,8 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		return nil, err
 	}
 
-	uploadID := strconv.FormatInt(time.Now().UnixNano(), 10)
+	uploadID := newObjectVersionID()
+	tagging := aws.ToString(input.Tagging)
 
 	b.mu.Lock("CreateMultipartUpload")
 	if b.uploads == nil {
@@ -1340,6 +1395,7 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		Key:       key,
 		Parts:     make(map[int32]*StoredPart),
 		Initiated: time.Now().UTC(),
+		Tagging:   tagging,
 		mu:        lockmetrics.New("s3.upload"),
 	}
 	b.mu.Unlock()
@@ -1419,6 +1475,12 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, ErrNoSuchUpload
 	}
 
+	// Snapshot the upload's tagging before claiming (the upload is removed from
+	// the index during claim, so we must capture it first).
+	upload.mu.RLock("CompleteMultipartUpload.tagging")
+	tagging := upload.Tagging
+	upload.mu.RUnlock()
+
 	// 2. Assemble and compress data. If this fails, the upload is untouched and
 	// can be retried or aborted by the caller.
 	assembled, err := b.assembleMultipartData(upload, input)
@@ -1441,7 +1503,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, err
 	}
 
-	versionID := b.commitMultipartObject(bucket, key, assembled)
+	versionID := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging)
 
 	return &s3.CompleteMultipartUploadOutput{
 		Bucket:    input.Bucket,
@@ -1537,10 +1599,12 @@ func (b *InMemoryBackend) assembleMultipartData(
 
 // commitMultipartObject stores the assembled multipart data as an object version,
 // returning the new versionID. Acquires and releases bucket.mu internally.
+// tagging is an optional URL-encoded tag string to associate with the new version.
 func (b *InMemoryBackend) commitMultipartObject(
 	bucket *StoredBucket,
-	key string,
+	bucketName, key string,
 	assembled multipartAssemblyResult,
+	tagging string,
 ) string {
 	bucket.mu.Lock("CompleteMultipartUpload")
 
@@ -1550,9 +1614,9 @@ func (b *InMemoryBackend) commitMultipartObject(
 		bucket.Objects[key] = obj
 	}
 
-	versionID := "null"
+	versionID := NullVersion
 	if bucket.Versioning == types.BucketVersioningStatusEnabled {
-		versionID = strconv.FormatInt(time.Now().UnixNano(), 10)
+		versionID = newObjectVersionID()
 	}
 
 	newVersion := &StoredObjectVersion{
@@ -1573,6 +1637,11 @@ func (b *InMemoryBackend) commitMultipartObject(
 	obj.LatestVersionID = versionID
 
 	bucket.mu.Unlock()
+
+	// Store tags outside bucket.mu to respect lock ordering.
+	if tagging != "" {
+		b.storeObjectTags(&tagging, bucketName, key, versionID)
+	}
 
 	return versionID
 }

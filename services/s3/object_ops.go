@@ -95,8 +95,7 @@ func (h *S3Handler) routeObjectGet(
 	case r.URL.Query().Has("tagging"):
 		h.getObjectTagging(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("acl"):
-		h.setOperation(ctx, "GetObjectAcl")
-		w.WriteHeader(http.StatusNotImplemented) // ACLs ignored
+		h.getObjectACL(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("uploadId"):
 		h.listParts(ctx, w, r, bucket, key)
 	case r.URL.Query().Has("retention"):
@@ -263,16 +262,8 @@ func (h *S3Handler) putObject(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "PutObject")
-	logger.Load(ctx).DebugContext(
-		ctx,
-		"S3 putObject input",
-		"bucket",
-		bucketName,
-		"key",
-		key,
-		"contentType",
-		r.Header.Get("Content-Type"),
-	)
+	logger.Load(ctx).DebugContext(ctx, "S3 putObject input",
+		"bucket", bucketName, "key", key, "contentType", r.Header.Get("Content-Type"))
 
 	data, err := httputils.ReadBody(r)
 	if err != nil {
@@ -285,46 +276,16 @@ func (h *S3Handler) putObject(
 		return
 	}
 
-	userMeta := parseUserMetadata(r.Header)
-	algo := strings.ToUpper(r.Header.Get("X-Amz-Checksum-Algorithm"))
+	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)
 
-	if algo == "" {
-		algo = strings.ToUpper(r.Header.Get("X-Amz-Sdk-Checksum-Algorithm"))
-	}
-
-	checksumCRC32, checksumCRC32C, checksumSHA1, checksumSHA256 := extractChecksumPointers(
-		r.Header,
-		algo,
-	)
-
-	contentType := r.Header.Get("Content-Type")
-	contentEncoding := r.Header.Get("Content-Encoding")
-	contentDisposition := r.Header.Get("Content-Disposition")
-
-	ver, err := h.Backend.PutObject(
-		ctx,
-		&s3.PutObjectInput{
-			Bucket:             aws.String(bucketName),
-			Key:                aws.String(key),
-			Body:               bytes.NewReader(data),
-			Metadata:           userMeta,
-			ContentType:        aws.String(contentType),
-			ContentEncoding:    nilStringIfEmpty(contentEncoding),
-			ContentDisposition: nilStringIfEmpty(contentDisposition),
-			ChecksumAlgorithm:  types.ChecksumAlgorithm(algo),
-			ChecksumCRC32:      checksumCRC32,
-			ChecksumCRC32C:     checksumCRC32C,
-			ChecksumSHA1:       checksumSHA1,
-			ChecksumSHA256:     checksumSHA256,
-			Tagging:            aws.String(r.Header.Get("X-Amz-Tagging")),
-		},
-	)
-	if errors.Is(err, ErrNoSuchBucket) {
+	if err = verifyChecksumIfPresent(data, algo, crc32p, crc32cp, sha1p, sha256p); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
 	}
 
+	ver, err := h.Backend.PutObject(ctx, buildPutObjectInput(r, bucketName, key, data,
+		algo, crc32p, crc32cp, sha1p, sha256p, parseUserMetadata(r.Header)))
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -333,19 +294,14 @@ func (h *S3Handler) putObject(
 
 	h.setPutObjectResponseHeaders(w, ver)
 
-	logger.Load(ctx).DebugContext(ctx,
-		"S3 putObject output",
+	logger.Load(ctx).DebugContext(ctx, "S3 putObject output",
 		"bucket", bucketName, "key", key, "etag", aws.ToString(ver.ETag),
-		"versionId", aws.ToString(ver.VersionId),
-	)
+		"versionId", aws.ToString(ver.VersionId))
 
-	// Dispatch S3 notification if configured.
 	if h.notifier != nil {
 		if notifXML, ncErr := h.Backend.GetBucketNotificationConfiguration(
-			ctx,
-			bucketName,
-		); ncErr == nil &&
-			notifXML != "" {
+			ctx, bucketName,
+		); ncErr == nil && notifXML != "" {
 			etag := aws.ToString(ver.ETag)
 			size := aws.ToInt64(ver.Size)
 			go h.notifier.DispatchObjectCreated(context.WithoutCancel(ctx), bucketName, key, etag, size, notifXML)
@@ -353,6 +309,44 @@ func (h *S3Handler) putObject(
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// extractAlgoAndChecksums reads the checksum algorithm and individual checksum
+// headers from the request.
+func extractAlgoAndChecksums(r *http.Request) (string, *string, *string, *string, *string) {
+	algo := strings.ToUpper(r.Header.Get("X-Amz-Checksum-Algorithm"))
+	if algo == "" {
+		algo = strings.ToUpper(r.Header.Get("X-Amz-Sdk-Checksum-Algorithm"))
+	}
+
+	crc32, crc32c, sha1, sha256 := extractChecksumPointers(r.Header, algo)
+
+	return algo, crc32, crc32c, sha1, sha256
+}
+
+// buildPutObjectInput assembles an s3.PutObjectInput from the HTTP request fields.
+func buildPutObjectInput(
+	r *http.Request,
+	bucketName, key string,
+	data []byte,
+	algo string, crc32p, crc32cp, sha1p, sha256p *string,
+	userMeta map[string]string,
+) *s3.PutObjectInput {
+	return &s3.PutObjectInput{
+		Bucket:             aws.String(bucketName),
+		Key:                aws.String(key),
+		Body:               bytes.NewReader(data),
+		Metadata:           userMeta,
+		ContentType:        aws.String(r.Header.Get("Content-Type")),
+		ContentEncoding:    nilStringIfEmpty(r.Header.Get("Content-Encoding")),
+		ContentDisposition: nilStringIfEmpty(r.Header.Get("Content-Disposition")),
+		ChecksumAlgorithm:  types.ChecksumAlgorithm(algo),
+		ChecksumCRC32:      crc32p,
+		ChecksumCRC32C:     crc32cp,
+		ChecksumSHA1:       sha1p,
+		ChecksumSHA256:     sha256p,
+		Tagging:            aws.String(r.Header.Get("X-Amz-Tagging")),
+	}
 }
 
 // copySourceData reads source object data for CopyObject.
@@ -824,6 +818,63 @@ func (h *S3Handler) deleteObjectTagging(
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// getObjectACL returns a minimal owner-full-control ACL for the requested object.
+// Object ACLs are not enforced in this mock implementation; all objects are owned
+// by the mock account and grant full control to the owner only.
+func (h *S3Handler) getObjectACL(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucketName, key string,
+) {
+	h.setOperation(ctx, "GetObjectAcl")
+
+	// Verify the object exists before returning an ACL.
+	versionID := r.URL.Query().Get("versionId")
+	var vid *string
+	if versionID != "" {
+		vid = aws.String(versionID)
+	}
+
+	_, err := h.Backend.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket:    aws.String(bucketName),
+		Key:       aws.String(key),
+		VersionId: vid,
+	})
+	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	const ownerID = "gopherstack-mock-owner"
+
+	acp := AccessControlPolicy{
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/",
+		Owner: Owner{ID: ownerID, DisplayName: "gopherstack"},
+		ACL: AccessControlList{
+			Grants: []Grant{
+				{
+					Grantee: Grantee{
+						XmlnsXsi: "http://www.w3.org/2001/XMLSchema-instance",
+						XsiType:  "CanonicalUser",
+						ID:       ownerID,
+					},
+					Permission: "FULL_CONTROL",
+				},
+			},
+		},
+	}
+
+	httputils.WriteXML(ctx, w, http.StatusOK, acp)
 }
 
 func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDetails) {
