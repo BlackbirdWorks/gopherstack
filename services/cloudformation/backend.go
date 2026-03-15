@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"time"
@@ -523,7 +524,12 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 }
 
 // updateResources reconciles existing resources and creates newly declared ones.
-// Returns true on success; on failure it sets stack.StackStatus and returns false.
+// On creation failure it rolls back: newly-created resources are deleted and
+// previously-existing resources are restored to their pre-update state.
+// Stale resources (present in the stack but absent from the new template) are
+// deleted after all new resources are created successfully.
+// Returns true on success; on failure it sets stack.StackStatus to
+// UPDATE_ROLLBACK_COMPLETE and returns false.
 func (b *InMemoryBackend) updateResources(
 	ctx context.Context,
 	stack *Stack,
@@ -531,6 +537,15 @@ func (b *InMemoryBackend) updateResources(
 	resolvedParams map[string]string,
 	physicalIDs map[string]string,
 ) bool {
+	// Snapshot pre-update state for rollback.
+	prevResources := make(map[string]*StackResource, len(b.resources[stack.StackID]))
+	for k, v := range b.resources[stack.StackID] {
+		cp := *v
+		prevResources[k] = &cp
+	}
+
+	var created []string
+
 	for logicalID, res := range tmpl.Resources {
 		if existing, exists := b.resources[stack.StackID][logicalID]; exists {
 			existing.Status = statusUpdateComplete
@@ -548,7 +563,8 @@ func (b *InMemoryBackend) updateResources(
 			b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateInProgress, "")
 			physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
 			if cerr != nil {
-				stack.StackStatus = statusUpdateFailed
+				b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
+				b.rollbackUpdateResources(ctx, stack, prevResources, created)
 				stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
 
 				return false
@@ -566,10 +582,69 @@ func (b *InMemoryBackend) updateResources(
 				StackName:  stack.StackName,
 			}
 			b.addEvent(stack.StackID, stack.StackName, logicalID, physicalID, res.Type, statusCreateComplete, "")
+			created = append(created, logicalID)
 		}
 	}
 
+	// Delete stale resources — logical IDs present in the stack before the
+	// update but absent from the new template. This matches real AWS behavior
+	// where UpdateStack removes resources that are no longer in the template.
+	var stale []string
+	for logicalID := range b.resources[stack.StackID] {
+		if _, inTemplate := tmpl.Resources[logicalID]; !inTemplate {
+			stale = append(stale, logicalID)
+		}
+	}
+
+	sort.Strings(stale)
+
+	for _, logicalID := range stale {
+		res := b.resources[stack.StackID][logicalID]
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
+		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
+		delete(b.resources[stack.StackID], logicalID)
+	}
+
 	return true
+}
+
+// rollbackUpdateResources undoes a partially-applied update: it deletes every
+// resource that was newly created in this update pass and restores resources that
+// were modified to their pre-update snapshots, then sets the stack status to
+// UPDATE_ROLLBACK_COMPLETE.
+func (b *InMemoryBackend) rollbackUpdateResources(
+	ctx context.Context,
+	stack *Stack,
+	prevResources map[string]*StackResource,
+	created []string,
+) {
+	stack.StackStatus = statusUpdateRollbackInProgress
+	b.addEvent(
+		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+		cfnStackType, statusUpdateRollbackInProgress, "",
+	)
+
+	for _, logicalID := range created {
+		res, ok := b.resources[stack.StackID][logicalID]
+		if !ok {
+			continue
+		}
+
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
+		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
+		delete(b.resources[stack.StackID], logicalID)
+	}
+
+	// Restore resources that existed before the update.
+	maps.Copy(b.resources[stack.StackID], prevResources)
+
+	stack.StackStatus = statusUpdateRollbackComplete
+	b.addEvent(
+		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+		cfnStackType, statusUpdateRollbackComplete, "",
+	)
 }
 
 // DeleteStack marks a stack as deleted and deletes its resources.
