@@ -166,6 +166,7 @@ func TestResourceCreator_Phase3Types_RealBackends(t *testing.T) {
 		name         string
 		logicalID    string
 		resourceType string
+		wantPhysID   string // if non-empty, assert physID equals this value
 		wantNotEmpty bool
 	}{
 		{
@@ -176,7 +177,7 @@ func TestResourceCreator_Phase3Types_RealBackends(t *testing.T) {
 				"Name":    "unit-eks-cluster",
 				"RoleArn": "arn:aws:iam::000000000000:role/EKSRole",
 			},
-			wantNotEmpty: true,
+			wantPhysID: "unit-eks-cluster", // must be cluster name, not ARN
 		},
 		{
 			name: "efs_filesystem", logicalID: "MyEFS", resourceType: "AWS::EFS::FileSystem",
@@ -340,6 +341,10 @@ func TestResourceCreator_Phase3Types_RealBackends(t *testing.T) {
 				assert.NotEmpty(t, physID, "expected non-empty physID for %s", tt.resourceType)
 			}
 
+			if tt.wantPhysID != "" {
+				assert.Equal(t, tt.wantPhysID, physID, "unexpected physID for %s", tt.resourceType)
+			}
+
 			// Delete should succeed.
 			err = rc.Delete(ctx, tt.resourceType, physID, nil)
 			require.NoError(t, err)
@@ -424,7 +429,9 @@ func TestResourceCreator_Phase3_BatchJobQueueWithCE(t *testing.T) {
 }
 
 // TestResourceCreator_Phase3_EKSNodegroupAfterCluster verifies nodegroup creation
-// succeeds when the cluster exists.
+// succeeds when the cluster exists. It also verifies that the cluster physical ID
+// is the cluster name (not the ARN), so a CloudFormation !Ref on the cluster
+// can be passed directly as ClusterName to the nodegroup.
 func TestResourceCreator_Phase3_EKSNodegroupAfterCluster(t *testing.T) {
 	t.Parallel()
 
@@ -432,28 +439,29 @@ func TestResourceCreator_Phase3_EKSNodegroupAfterCluster(t *testing.T) {
 	rc := cloudformation.NewResourceCreator(backends)
 	ctx := t.Context()
 
-	// Create EKS cluster first.
-	clusterARN, err := rc.Create(ctx, "MyCluster", "AWS::EKS::Cluster",
+	// Create EKS cluster first; physical ID must be the cluster *name*.
+	clusterPhysID, err := rc.Create(ctx, "MyCluster", "AWS::EKS::Cluster",
 		map[string]any{
 			"Name":    "unit-eks-cluster",
 			"RoleArn": "arn:aws:iam::000000000000:role/EKSRole",
 		}, nil, nil)
 	require.NoError(t, err)
-	require.NotEmpty(t, clusterARN)
+	require.Equal(t, "unit-eks-cluster", clusterPhysID, "EKS cluster physical ID must be the cluster name, not the ARN")
 
-	// Create nodegroup.
+	// Create nodegroup referencing the cluster via CF !Ref syntax (physIDs lookup).
+	physIDs := map[string]string{"MyCluster": clusterPhysID}
 	ngARN, err := rc.Create(ctx, "MyNG", "AWS::EKS::Nodegroup",
 		map[string]any{
-			"ClusterName":   "unit-eks-cluster",
+			"ClusterName":   map[string]any{"Ref": "MyCluster"}, // simulates CF !Ref
 			"NodegroupName": "unit-nodegroup",
 			"NodeRole":      "arn:aws:iam::000000000000:role/NodeRole",
-		}, nil, nil)
+		}, nil, physIDs)
 	require.NoError(t, err)
 	require.NotEmpty(t, ngARN)
 
 	// Delete nodegroup then cluster.
 	require.NoError(t, rc.Delete(ctx, "AWS::EKS::Nodegroup", ngARN, nil))
-	require.NoError(t, rc.Delete(ctx, "AWS::EKS::Cluster", clusterARN, nil))
+	require.NoError(t, rc.Delete(ctx, "AWS::EKS::Cluster", clusterPhysID, nil))
 }
 
 // TestResourceCreator_Phase3_APIGatewayV2StageAfterAPI verifies stage creation

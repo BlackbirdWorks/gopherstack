@@ -38,22 +38,20 @@ func (rc *ResourceCreator) createEKSCluster(
 	version := strProp(props, "Version", params, physicalIDs)
 	roleARN := strProp(props, "RoleArn", params, physicalIDs)
 
-	cluster, err := rc.backends.EKS.Backend.CreateCluster(name, version, roleARN, nil)
+	_, err := rc.backends.EKS.Backend.CreateCluster(name, version, roleARN, nil)
 	if err != nil {
 		return "", fmt.Errorf("create EKS cluster %s: %w", name, err)
 	}
 
-	return cluster.ARN, nil
+	return name, nil
 }
 
-func (rc *ResourceCreator) deleteEKSCluster(arn string) error {
+func (rc *ResourceCreator) deleteEKSCluster(physicalID string) error {
 	if rc.backends.EKS == nil {
 		return nil
 	}
 
-	name := resourceNameFromARN(arn)
-
-	_, err := rc.backends.EKS.Backend.DeleteCluster(name)
+	_, err := rc.backends.EKS.Backend.DeleteCluster(physicalID)
 
 	return err
 }
@@ -711,9 +709,10 @@ func (rc *ResourceCreator) createDocDBCluster(
 
 	engine := strProp(props, "Engine", params, physicalIDs)
 	masterUser := strProp(props, "MasterUsername", params, physicalIDs)
-	dbName := strProp(props, "DBClusterParameterGroupName", params, physicalIDs)
+	dbName := strProp(props, "DatabaseName", params, physicalIDs)
+	paramGroupName := strProp(props, "DBClusterParameterGroupName", params, physicalIDs)
 
-	cluster, err := rc.backends.DocDB.Backend.CreateDBCluster(id, engine, masterUser, dbName, "", 0)
+	cluster, err := rc.backends.DocDB.Backend.CreateDBCluster(id, engine, masterUser, dbName, paramGroupName, 0)
 	if err != nil {
 		return "", fmt.Errorf("create DocDB cluster %s: %w", id, err)
 	}
