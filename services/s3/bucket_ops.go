@@ -95,6 +95,8 @@ func (h *S3Handler) routeBucketDelete(
 		h.deleteBucketOwnershipControls(ctx, w, r, bucket)
 	case r.URL.Query().Has("replication"):
 		h.deleteBucketReplication(ctx, w, r, bucket)
+	case r.URL.Query().Has("tagging"):
+		h.deleteBucketTagging(ctx, w, r, bucket)
 	default:
 		h.deleteBucket(ctx, w, r, bucket)
 	}
@@ -123,6 +125,8 @@ func (h *S3Handler) routeBucketPut(
 		h.putBucketWebsite(ctx, w, r, bucket)
 	case q.Has("lifecycle"):
 		h.putBucketLifecycleConfiguration(ctx, w, r, bucket)
+	case q.Has("tagging"):
+		h.putBucketTagging(ctx, w, r, bucket)
 	default:
 		h.routeBucketPutExtra(ctx, w, r, bucket)
 	}
@@ -149,8 +153,6 @@ func (h *S3Handler) routeBucketPutExtra(
 		h.putBucketOwnershipControls(ctx, w, r, bucket)
 	case q.Has("logging"):
 		h.putBucketLogging(ctx, w, r, bucket)
-	case q.Has("tagging"):
-		WriteError(ctx, w, r, ErrNotImplemented)
 	default:
 		h.createBucket(ctx, w, r, bucket)
 	}
@@ -251,7 +253,7 @@ func (h *S3Handler) routeBucketGetOrList(
 	case r.URL.Query().Has("location"):
 		h.getBucketLocation(ctx, w, r, bucket)
 	case r.URL.Query().Has("tagging"):
-		WriteError(ctx, w, r, ErrNotImplemented)
+		h.getBucketTagging(ctx, w, r, bucket)
 	case r.URL.Query().Get("list-type") == "2":
 		h.listObjectsV2(ctx, w, r, bucket)
 	default:
@@ -1259,6 +1261,76 @@ func (h *S3Handler) deleteBucketReplication(
 
 		return
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) putBucketTagging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "PutBucketTagging")
+
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	var tagging Tagging
+	if xmlErr := xml.Unmarshal(body, &tagging); xmlErr != nil {
+		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
+			Code:    "MalformedXML",
+			Message: "The XML you provided was not well-formed or did not validate against our published schema.",
+		}, http.StatusBadRequest)
+
+		return
+	}
+
+	tags := make([]types.Tag, 0, len(tagging.TagSet.Tags))
+	for _, t := range tagging.TagSet.Tags {
+		tags = append(tags, types.Tag{
+			Key:   aws.String(t.Key),
+			Value: aws.String(t.Value),
+		})
+	}
+
+	if putErr := h.Backend.PutBucketTagging(ctx, bucket, tags); putErr != nil {
+		WriteError(ctx, w, r, putErr)
+
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) getBucketTagging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "GetBucketTagging")
+
+	tags, err := h.Backend.GetBucketTagging(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
+	tagging := Tagging{}
+	for _, t := range tags {
+		tagging.TagSet.Tags = append(tagging.TagSet.Tags, Tag{
+			Key:   aws.ToString(t.Key),
+			Value: aws.ToString(t.Value),
+		})
+	}
+
+	httputils.WriteXML(ctx, w, http.StatusOK, tagging)
+}
+
+func (h *S3Handler) deleteBucketTagging(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "DeleteBucketTagging")
+
+	if err := h.Backend.DeleteBucketTagging(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

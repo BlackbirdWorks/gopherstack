@@ -2254,3 +2254,74 @@ func findObjectVersion(bucket *StoredBucket, key string, versionID *string) (*St
 
 	return nil, ErrNoSuchKey
 }
+
+// PutBucketTagging sets the tag set for a bucket.
+func (b *InMemoryBackend) PutBucketTagging(_ context.Context, bucketName string, tags []types.Tag) error {
+	b.mu.RLock("PutBucketTagging")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketTagging")
+	defer bucket.mu.Unlock()
+
+	bucket.Tags = tags
+
+	return nil
+}
+
+// GetBucketTagging returns the tag set for a bucket.
+func (b *InMemoryBackend) GetBucketTagging(_ context.Context, bucketName string) ([]types.Tag, error) {
+	b.mu.RLock("GetBucketTagging")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	bucket.mu.RLock("GetBucketTagging")
+	defer bucket.mu.RUnlock()
+
+	if len(bucket.Tags) == 0 {
+		return nil, ErrNoSuchTagSet
+	}
+
+	result := make([]types.Tag, len(bucket.Tags))
+	copy(result, bucket.Tags)
+
+	return result, nil
+}
+
+// DeleteBucketTagging removes the tag set from a bucket.
+func (b *InMemoryBackend) DeleteBucketTagging(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketTagging")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketTagging")
+	defer bucket.mu.Unlock()
+
+	bucket.Tags = nil
+
+	return nil
+}
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.buckets = make(map[string]map[string]*StoredBucket)
+	b.bucketIndex = make(map[string]string)
+	b.tags = make(map[string][]types.Tag)
+	b.uploads = make(map[string]*StoredMultipartUpload)
+}

@@ -1680,3 +1680,26 @@ func (b *InMemoryBackend) GetCredentialReport() string {
 
 	return strings.Join(lines, "\n")
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.users = make(map[string]User)
+	b.roles = make(map[string]Role)
+	b.policies = make(map[string]Policy)
+	b.groups = make(map[string]Group)
+	b.accessKeys = make(map[string]AccessKey)
+	b.instanceProfiles = make(map[string]InstanceProfile)
+	b.samlProviders = make(map[string]SAMLProvider)
+	b.oidcProviders = make(map[string]OIDCProvider)
+	b.loginProfiles = make(map[string]LoginProfile)
+	b.userPolicies = make(map[string][]string)
+	b.rolePolicies = make(map[string][]string)
+	b.groupPolicies = make(map[string][]string)
+	b.userInlinePolicies = make(map[string]map[string]string)
+	b.roleInlinePolicies = make(map[string]map[string]string)
+	b.groupInlinePolicies = make(map[string]map[string]string)
+}

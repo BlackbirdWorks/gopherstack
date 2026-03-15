@@ -2363,3 +2363,29 @@ func (b *InMemoryBackend) ListProvisionedConcurrencyConfigs(name string) ([]*Pro
 
 	return configs, nil
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+// Note: active function URL servers are left running; only the in-memory
+// mapping state is cleared.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.functions = make(map[string]*FunctionConfiguration)
+	b.aliases = make(map[string]map[string]*FunctionAlias)
+	b.versionCounters = make(map[string]int)
+	b.versions = make(map[string][]*FunctionVersion)
+	b.layers = make(map[string][]*LayerVersion)
+	b.layerVersionCounters = make(map[string]int64)
+	b.layerPolicies = make(map[string]map[int64]map[string]*LayerVersionStatement)
+	b.eventSourceMappings = make(map[string]*EventSourceMapping)
+	b.eventInvokeConfigs = make(map[string]*FunctionEventInvokeConfig)
+	b.functionConcurrencies = make(map[string]int)
+	b.activeConcurrencies = make(map[string]int)
+	b.provisionedConcurrencies = make(map[string]map[string]*ProvisionedConcurrencyConfig)
+	b.fisFaults = make(map[string]*FISInvocationFault)
+	b.runtimes = make(map[string]*functionRuntime)
+	b.functionURLServers = make(map[string]*functionURLServer)
+	b.functionURLConfigs = make(map[string]*FunctionURLConfig)
+}

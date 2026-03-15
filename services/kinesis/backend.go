@@ -988,3 +988,13 @@ func (b *InMemoryBackend) DisableEnhancedMonitoring(
 		DesiredShardLevelMetrics: desired,
 	}, nil
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.streams = make(map[string]*Stream)
+	b.fisThroughputFaults = make(map[string]*kinesisThrottleFault)
+}

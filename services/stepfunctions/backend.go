@@ -684,3 +684,25 @@ func parseNextToken(token string) int {
 
 	return idx
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+// Running executions are cancelled before state is cleared.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+
+	// Cancel all running execution goroutines.
+	for _, cancel := range b.cancelFns {
+		cancel()
+	}
+
+	b.stateMachines = make(map[string]*StateMachine)
+	b.executions = make(map[string]*Execution)
+	b.history = make(map[string][]*HistoryEvent)
+	b.nameIndex = make(map[string]string)
+	b.smExecutions = make(map[string][]string)
+	b.cancelFns = make(map[string]context.CancelFunc)
+	b.deletedExecs = make(map[string]bool)
+
+	b.mu.Unlock()
+}

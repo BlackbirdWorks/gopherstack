@@ -1209,3 +1209,16 @@ func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyO
 
 	return &GetKeyPolicyOutput{Policy: policy, PolicyName: policyName}, nil
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.keys = make(map[string]*Key)
+	b.aliases = make(map[string]*Alias)
+	b.grants = make(map[string]*Grant)
+	b.policies = make(map[string]string)
+	b.keyMaterials = make(map[string]*keyMaterial)
+}
