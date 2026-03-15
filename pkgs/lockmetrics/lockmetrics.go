@@ -153,7 +153,7 @@ type RWMutex struct {
 	activeReadersLock prometheus.Gauge
 	// writeOp and name follow; each contains a pointer so the GC scan extends
 	// through them, but their trailing non-pointer word (len/cap) falls outside
-	// the scan range, minimising pointer bytes to 56.
+	// the scan range.
 	writeOp atomic.Value // string — current write-lock operation name
 	name    string
 

@@ -219,6 +219,7 @@ func TestInMemoryEmitter_PanicRecovery(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErrMsg)
+				assert.ErrorIs(t, err, events.ErrListenerPanicked)
 			} else {
 				require.NoError(t, err)
 			}
