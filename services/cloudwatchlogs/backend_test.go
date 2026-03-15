@@ -1490,3 +1490,292 @@ func TestCloudWatchLogsBackend_QueryEviction_MaxCap(t *testing.T) {
 		})
 	}
 }
+
+func TestCloudWatchLogsBackend_SetRetentionPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(t *testing.T, b *cloudwatchlogs.InMemoryBackend)
+		days    *int32
+		name    string
+		group   string
+	}{
+		{
+			name: "set_retention",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateLogGroup("grp")
+				require.NoError(t, err)
+			},
+			group: "grp",
+			days:  ptr32(30),
+		},
+		{
+			name: "clear_retention",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateLogGroup("grp")
+				require.NoError(t, err)
+				require.NoError(t, b.SetRetentionPolicy("grp", ptr32(30)))
+			},
+			group: "grp",
+			days:  nil,
+		},
+		{
+			name:    "group_not_found",
+			group:   "nonexistent",
+			days:    ptr32(7),
+			wantErr: cloudwatchlogs.ErrLogGroupNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(t, b)
+			}
+
+			err := b.SetRetentionPolicy(tt.group, tt.days)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Verify the retention is reflected in DescribeLogGroups.
+			groups, _, gErr := b.DescribeLogGroups("", "", 100)
+			require.NoError(t, gErr)
+			require.Len(t, groups, 1)
+
+			if tt.days == nil {
+				assert.Nil(t, groups[0].RetentionInDays)
+			} else {
+				require.NotNil(t, groups[0].RetentionInDays)
+				assert.Equal(t, *tt.days, *groups[0].RetentionInDays)
+			}
+		})
+	}
+}
+
+func ptr32(v int32) *int32 {
+	r := v
+
+	return &r
+}
+
+func TestCloudWatchLogsBackend_PutLogEvents_EventCap(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	_, err := b.CreateLogGroup("g")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream("g", "s")
+	require.NoError(t, err)
+
+	// Write MaxEventsPerStream + 100 events in batches to trigger the cap.
+	const batchSize = 1000
+	now := time.Now().UnixMilli()
+	batches := (cloudwatchlogs.MaxEventsPerStream + 100) / batchSize
+	for i := range batches {
+		events := make([]cloudwatchlogs.InputLogEvent, batchSize)
+		for j := range batchSize {
+			events[j] = cloudwatchlogs.InputLogEvent{
+				Message:   fmt.Sprintf("msg-%d-%d", i, j),
+				Timestamp: now + int64(i*batchSize+j),
+			}
+		}
+		_, putErr := b.PutLogEvents("g", "s", events)
+		require.NoError(t, putErr)
+	}
+
+	// Only MaxEventsPerStream events should remain.
+	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, cloudwatchlogs.MaxEventsPerStream+200, "")
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(got), cloudwatchlogs.MaxEventsPerStream)
+}
+
+func TestCloudWatchLogsBackend_FilterPatternMatches(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		pattern string
+		message string
+		name    string
+		want    bool
+	}{
+		{
+			name:    "empty_pattern_matches_all",
+			pattern: "",
+			message: "anything",
+			want:    true,
+		},
+		{
+			name:    "simple_substring_match",
+			pattern: "ERROR",
+			message: "2024-01-01 ERROR: something bad",
+			want:    true,
+		},
+		{
+			name:    "simple_substring_no_match",
+			pattern: "ERROR",
+			message: "2024-01-01 INFO: all good",
+			want:    false,
+		},
+		{
+			name:    "multi_term_and_all_present",
+			pattern: "ERROR bad",
+			message: "ERROR: something bad happened",
+			want:    true,
+		},
+		{
+			name:    "multi_term_and_one_missing",
+			pattern: "ERROR bad",
+			message: "ERROR: something happened",
+			want:    false,
+		},
+		{
+			name:    "negation_term_present",
+			pattern: "?DEBUG ERROR",
+			message: "ERROR but not debug",
+			want:    true,
+		},
+		{
+			name:    "negation_term_excluded",
+			pattern: "?DEBUG",
+			message: "DEBUG: verbose log",
+			want:    false,
+		},
+		{
+			name:    "quoted_exact_match",
+			pattern: `"exact phrase"`,
+			message: "this is an exact phrase in here",
+			want:    true,
+		},
+		{
+			name:    "quoted_no_match",
+			pattern: `"exact phrase"`,
+			message: "not in this message",
+			want:    false,
+		},
+		{
+			name:    "wildcard_asterisk",
+			pattern: "ERR*",
+			message: "ERRORED: bad",
+			want:    true,
+		},
+		{
+			name:    "wildcard_asterisk_no_match",
+			pattern: "ERR*bad",
+			message: "WARNbad",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := cloudwatchlogs.FilterPatternMatches(tt.pattern, tt.message)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_RecordsMatched(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	_, err := b.CreateLogGroup("g")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream("g", "s")
+	require.NoError(t, err)
+
+	now := time.Now().UnixMilli()
+	events := []cloudwatchlogs.InputLogEvent{
+		{Message: "ERROR: oops", Timestamp: now},
+		{Message: "INFO: ok", Timestamp: now + 1},
+		{Message: "ERROR: again", Timestamp: now + 2},
+	}
+	_, err = b.PutLogEvents("g", "s", events)
+	require.NoError(t, err)
+
+	// Query with a filter that matches only 2 of the 3 events.
+	_, err = b.StartQuery("q1",
+		`filter @message like /ERROR/`,
+		[]string{"g"}, 0, 0)
+	require.NoError(t, err)
+
+	rows, stats, status, err := b.GetQueryResults("q1")
+	require.NoError(t, err)
+	assert.Equal(t, cloudwatchlogs.QueryStatusComplete, status)
+	assert.InDelta(t, float64(2), stats.RecordsMatched, 0)
+	assert.InDelta(t, float64(3), stats.RecordsScanned, 0)
+	assert.Len(t, rows, 2)
+}
+
+func TestJanitor_SweepRetention(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	_, err := b.CreateLogGroup("g")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream("g", "s")
+	require.NoError(t, err)
+
+	// Events from 10 days ago (should be evicted with 7-day retention).
+	old := time.Now().AddDate(0, 0, -10).UnixMilli()
+	// Recent events (should be kept).
+	recent := time.Now().UnixMilli()
+
+	events := []cloudwatchlogs.InputLogEvent{
+		{Message: "old-1", Timestamp: old},
+		{Message: "old-2", Timestamp: old + 1},
+		{Message: "recent-1", Timestamp: recent},
+	}
+	_, err = b.PutLogEvents("g", "s", events)
+	require.NoError(t, err)
+
+	// Set retention to 7 days.
+	require.NoError(t, b.SetRetentionPolicy("g", ptr32(7)))
+
+	// Run janitor sweep.
+	j := cloudwatchlogs.NewJanitor(b, 0)
+	j.SweepOnce(t.Context())
+
+	// Only recent events should remain.
+	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, 100, "")
+	require.NoError(t, err)
+	assert.Len(t, got, 1)
+	assert.Equal(t, "recent-1", got[0].Message)
+}
+
+func TestJanitor_SweepNoRetention(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	_, err := b.CreateLogGroup("g")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream("g", "s")
+	require.NoError(t, err)
+
+	old := time.Now().AddDate(0, 0, -10).UnixMilli()
+	_, err = b.PutLogEvents("g", "s", []cloudwatchlogs.InputLogEvent{
+		{Message: "old", Timestamp: old},
+	})
+	require.NoError(t, err)
+
+	// No retention policy set — janitor should leave events untouched.
+	j := cloudwatchlogs.NewJanitor(b, 0)
+	j.SweepOnce(t.Context())
+
+	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, 100, "")
+	require.NoError(t, err)
+	assert.Len(t, got, 1)
+}
