@@ -130,8 +130,9 @@ func (db *InMemoryDB) DescribeStream(
 	seqLast := ""
 
 	if len(found.StreamRecords) > 0 {
-		seqFirst = found.StreamRecords[0].SequenceNumber
-		seqLast = found.StreamRecords[len(found.StreamRecords)-1].SequenceNumber
+		ordered := found.streamRecordsInOrder()
+		seqFirst = ordered[0].SequenceNumber
+		seqLast = ordered[len(ordered)-1].SequenceNumber
 	}
 	found.mu.RUnlock()
 
@@ -240,7 +241,7 @@ func (db *InMemoryDB) GetRecords(
 	table.mu.RLock("GetRecords")
 	defer table.mu.RUnlock()
 
-	records, nextSeq := collectStreamRecords(table.StreamRecords, startSeq, limit, table.streamSeq)
+	records, nextSeq := collectStreamRecords(table.streamRecordsInOrder(), startSeq, limit, table.streamSeq)
 
 	telemetry.RecordStreamEvents("dynamodb", len(records))
 

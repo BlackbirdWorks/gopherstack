@@ -27,49 +27,115 @@ func (db *InMemoryDB) BatchGetItem(
 	ctx context.Context,
 	input *dynamodb.BatchGetItemInput,
 ) (*dynamodb.BatchGetItemOutput, error) {
+	// Validate size limit (no lock needed — only inspects input).
+	const batchSizeLimit = 100
+	totalItems := 0
+	for _, keysAndAttrs := range input.RequestItems {
+		totalItems += len(keysAndAttrs.Keys)
+	}
+	if totalItems > batchSizeLimit {
+		return nil, NewValidationException(
+			fmt.Sprintf("Batch size limit exceeded: Max %d items per request", batchSizeLimit),
+		)
+	}
+
+	// Collect table references under db.mu.RLock and release the lock before
+	// spawning goroutines. Re-acquiring db.mu inside a goroutine while the outer
+	// lock is held can cause a deadlock when a writer is pending (Go's RWMutex
+	// blocks new readers once a writer is queued, leading to deadlock when the
+	// outer reader holds the lock and the inner goroutine waits for it).
+	tableRefs, tableErr := db.batchGetTableRefs(ctx, input.RequestItems)
+	if tableErr != nil {
+		return nil, tableErr
+	}
+
+	responses := db.batchGetResponses(ctx, tableRefs, input.RequestItems)
+
+	return &dynamodb.BatchGetItemOutput{
+		Responses:        responses,
+		UnprocessedKeys:  make(map[string]types.KeysAndAttributes),
+		ConsumedCapacity: batchGetConsumedCapacity(input.ReturnConsumedCapacity, input.RequestItems),
+	}, nil
+}
+
+// batchGetTableRefs collects table references under db.mu.RLock.
+func (db *InMemoryDB) batchGetTableRefs(
+	ctx context.Context,
+	requestItems map[string]types.KeysAndAttributes,
+) (map[string]*Table, error) {
 	db.mu.RLock("BatchGetItem")
 	defer db.mu.RUnlock()
 
-	if err := db.validateBatchGetInput(ctx, input); err != nil {
-		return nil, err
+	region := getRegionFromContext(ctx, db)
+	regionTables := db.Tables[region]
+	tableRefs := make(map[string]*Table, len(requestItems))
+
+	for tableName := range requestItems {
+		t, ok := regionTables[tableName]
+		if !ok {
+			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
+		}
+
+		tableRefs[tableName] = t
 	}
 
+	return tableRefs, nil
+}
+
+// batchGetResponses processes all tables. Single-table requests bypass goroutines.
+func (db *InMemoryDB) batchGetResponses(
+	ctx context.Context,
+	tableRefs map[string]*Table,
+	requestItems map[string]types.KeysAndAttributes,
+) map[string][]map[string]types.AttributeValue {
 	responses := make(map[string][]map[string]types.AttributeValue)
-	mu := lockmetrics.New("dynamodb.batch.get")
-	defer mu.Close()
-	var wg sync.WaitGroup
 
-	for tableName, keysAndAttrs := range input.RequestItems {
-		wg.Add(1)
-		go func(tblName string, attrs types.KeysAndAttributes) {
-			defer wg.Done()
-
-			table, exists := db.getTableRLock(ctx, tblName)
-			if !exists {
-				return
+	if len(tableRefs) == 1 {
+		for tableName, keysAndAttrs := range requestItems {
+			table, ok := tableRefs[tableName]
+			if !ok {
+				continue
 			}
 
 			table.mu.RLock("BatchGetItem")
-			results := db.processBatchGetTableNoLock(ctx, table, attrs)
+			results := db.processBatchGetTableNoLock(ctx, table, keysAndAttrs)
+			table.mu.RUnlock()
+
+			if len(results) > 0 {
+				responses[tableName] = results
+			}
+		}
+
+		return responses
+	}
+
+	mu := lockmetrics.New("dynamodb.batch.get")
+	defer mu.Close()
+
+	var wg sync.WaitGroup
+
+	for tableName, keysAndAttrs := range requestItems {
+		table, ok := tableRefs[tableName]
+		if !ok {
+			continue
+		}
+
+		wg.Go(func() {
+			table.mu.RLock("BatchGetItem")
+			results := db.processBatchGetTableNoLock(ctx, table, keysAndAttrs)
 			table.mu.RUnlock()
 
 			if len(results) > 0 {
 				mu.Lock("BatchGetItem")
-				responses[tblName] = results
+				responses[tableName] = results
 				mu.Unlock()
 			}
-		}(tableName, keysAndAttrs)
+		})
 	}
 
 	wg.Wait()
 
-	out := &dynamodb.BatchGetItemOutput{
-		Responses:        responses,
-		UnprocessedKeys:  make(map[string]types.KeysAndAttributes),
-		ConsumedCapacity: batchGetConsumedCapacity(input.ReturnConsumedCapacity, input.RequestItems),
-	}
-
-	return out, nil
+	return responses
 }
 
 func batchGetConsumedCapacity(
@@ -95,42 +161,6 @@ func batchGetConsumedCapacity(
 	}
 
 	return caps
-}
-
-func (db *InMemoryDB) validateBatchGetInput(ctx context.Context, input *dynamodb.BatchGetItemInput) error {
-	const batchSizeLimit = 100
-
-	totalItems := 0
-	for _, keysAndAttrs := range input.RequestItems {
-		totalItems += len(keysAndAttrs.Keys)
-	}
-	if totalItems > batchSizeLimit {
-		return NewValidationException(
-			fmt.Sprintf("Batch size limit exceeded: Max %d items per request", batchSizeLimit),
-		)
-	}
-
-	region := getRegionFromContext(ctx, db)
-	regionTables, exists := db.Tables[region]
-	if !exists {
-		// No tables in this region
-		if len(input.RequestItems) > 0 {
-			// Check if any table is requested
-			for tableName := range input.RequestItems {
-				return NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
-			}
-		}
-
-		return nil
-	}
-
-	for tableName := range input.RequestItems {
-		if _, tableExists := regionTables[tableName]; !tableExists {
-			return NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
-		}
-	}
-
-	return nil
 }
 
 func (db *InMemoryDB) processBatchGetTableNoLock(
@@ -216,6 +246,18 @@ func (db *InMemoryDB) BatchWriteItem(
 	}
 	sort.Strings(tableNames)
 
+	// For a single table, skip goroutine overhead entirely.
+	if len(tableNames) == 1 {
+		if err = db.processTableWriteRequests(tables[tableNames[0]], toProcess[tableNames[0]]); err != nil {
+			return nil, err
+		}
+
+		return &dynamodb.BatchWriteItemOutput{
+			UnprocessedItems: unprocessedItems,
+			ConsumedCapacity: batchWriteConsumedCapacity(input.ReturnConsumedCapacity, toProcess),
+		}, nil
+	}
+
 	// Parallelize table processing with error collection
 	var wg sync.WaitGroup
 	mu := lockmetrics.New("dynamodb.batch.write")
@@ -223,17 +265,15 @@ func (db *InMemoryDB) BatchWriteItem(
 	var firstErr error
 
 	for _, tableName := range tableNames {
-		wg.Add(1)
-		go func(tblName string) {
-			defer wg.Done()
-			if e := db.processTableWriteRequests(tables[tblName], toProcess[tblName]); e != nil {
+		wg.Go(func() {
+			if e := db.processTableWriteRequests(tables[tableName], toProcess[tableName]); e != nil {
 				mu.Lock("BatchWriteItem")
 				if firstErr == nil {
 					firstErr = e
 				}
 				mu.Unlock()
 			}
-		}(tableName)
+		})
 	}
 
 	wg.Wait()
