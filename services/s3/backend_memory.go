@@ -1378,8 +1378,15 @@ func (b *InMemoryBackend) UploadPart(
 		return nil, ErrNoSuchUpload
 	}
 
-	// 3. Update the upload's part map under the per-upload lock only
+	// 3. Update the upload's part map under the per-upload lock only.
+	// Check closed first: AbortMultipartUpload or CompleteMultipartUpload may have
+	// invalidated this upload while we were reading the body.
 	upload.mu.Lock("UploadPart")
+	if upload.closed {
+		upload.mu.Unlock()
+
+		return nil, ErrNoSuchUpload
+	}
 	upload.Parts[partNumber] = &StoredPart{
 		PartNumber: partNumber,
 		ETag:       etag,
@@ -1401,22 +1408,31 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	bucketName := *input.Bucket
 	key := *input.Key
 
-	// 1. Get upload state
+	// 1. Read the upload pointer — we need it for assembly but don't consume
+	// the upload yet, since assembly may fail (e.g. ErrInvalidPart) and the
+	// caller should still be able to retry or abort.
 	b.mu.RLock("CompleteMultipartUpload")
-	upload := b.uploads[bucketName][uploadID] // reading nil map returns nil safely
+	upload := b.uploads[bucketName][uploadID] // nil map read returns nil safely
 	b.mu.RUnlock()
 
 	if upload == nil {
 		return nil, ErrNoSuchUpload
 	}
 
-	// 2. Reassemble and compress data
+	// 2. Assemble and compress data. If this fails, the upload is untouched and
+	// can be retried or aborted by the caller.
 	assembled, err := b.assembleMultipartData(upload, input)
 	if err != nil {
 		return nil, err
 	}
 
-	// 3. Update bucket/object state
+	// 3. Atomically claim the upload: verify it is still present (wasn't aborted
+	// concurrently after step 1), mark it closed, and remove it from the index.
+	if claimErr := b.claimMultipartUpload(bucketName, uploadID); claimErr != nil {
+		return nil, claimErr
+	}
+
+	// 4. Update bucket/object state.
 	b.mu.RLock("CompleteMultipartUpload")
 	bucket, err := b.getBucket(bucketName)
 	b.mu.RUnlock()
@@ -1427,17 +1443,37 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 
 	versionID := b.commitMultipartObject(bucket, key, assembled)
 
-	// 4. Cleanup upload — must happen after releasing bucket lock to avoid lock ordering issues.
-	b.mu.Lock("CompleteMultipartUpload")
-	delete(b.uploads[bucketName], uploadID)
-	b.mu.Unlock()
-
 	return &s3.CompleteMultipartUploadOutput{
 		Bucket:    input.Bucket,
 		Key:       input.Key,
 		ETag:      aws.String(assembled.etag),
 		VersionId: aws.String(versionID),
 	}, nil
+}
+
+// claimMultipartUpload atomically marks the upload as closed and removes it from
+// b.uploads under b.mu.Lock. Called by CompleteMultipartUpload after successful
+// assembly so that a concurrent AbortMultipartUpload cannot also succeed.
+func (b *InMemoryBackend) claimMultipartUpload(bucketName, uploadID string) error {
+	b.mu.Lock("CompleteMultipartUpload.claim")
+
+	upload := b.uploads[bucketName][uploadID] // nil map read returns nil safely
+	if upload == nil {
+		b.mu.Unlock()
+
+		return ErrNoSuchUpload
+	}
+
+	// Mark closed while holding b.mu to block concurrent UploadPart calls that
+	// already hold a pointer to this upload struct.
+	upload.mu.Lock("CompleteMultipartUpload.claim")
+	upload.closed = true
+	upload.mu.Unlock()
+
+	delete(b.uploads[bucketName], uploadID)
+	b.mu.Unlock()
+
+	return nil
 }
 
 // multipartAssemblyResult holds the results of assembleMultipartData.
@@ -1549,13 +1585,22 @@ func (b *InMemoryBackend) AbortMultipartUpload(
 	bucketName := aws.ToString(input.Bucket)
 
 	b.mu.Lock("AbortMultipartUpload")
-	defer b.mu.Unlock()
 
-	if b.uploads[bucketName] == nil || b.uploads[bucketName][uploadID] == nil {
+	upload := b.uploads[bucketName][uploadID]
+	if upload == nil {
+		b.mu.Unlock()
+
 		return nil, ErrNoSuchUpload
 	}
 
+	// Mark closed while holding b.mu so concurrent UploadPart calls that already
+	// hold a pointer to this upload will observe the invalidation flag.
+	upload.mu.Lock("AbortMultipartUpload")
+	upload.closed = true
+	upload.mu.Unlock()
+
 	delete(b.uploads[bucketName], uploadID)
+	b.mu.Unlock()
 
 	return &s3.AbortMultipartUploadOutput{}, nil
 }

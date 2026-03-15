@@ -179,24 +179,38 @@ func TestUploadPartConcurrent(t *testing.T) {
 	uploadID := createOut.UploadId
 	const numParts = 10
 
-	var wg sync.WaitGroup
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		partErr error
+	)
+
 	etags := make([]string, numParts)
 
 	for i := range numParts {
 		wg.Go(func() {
-			partOut, partErr := b.UploadPart(t.Context(), &sdk_s3.UploadPartInput{
+			out, uploadErr := b.UploadPart(t.Context(), &sdk_s3.UploadPartInput{
 				Bucket:     aws.String("bkt"),
 				Key:        aws.String("large-file"),
 				UploadId:   uploadID,
 				PartNumber: aws.Int32(int32(i + 1)), // i is bounded by numParts const
 				Body:       bytes.NewReader(fmt.Appendf(nil, "part%d", i)),
 			})
-			if partErr == nil {
-				etags[i] = aws.ToString(partOut.ETag)
+			if uploadErr != nil {
+				mu.Lock()
+				partErr = uploadErr
+				mu.Unlock()
+
+				return
 			}
+			mu.Lock()
+			etags[i] = aws.ToString(out.ETag)
+			mu.Unlock()
 		})
 	}
 	wg.Wait()
+
+	require.NoError(t, partErr, "all concurrent UploadPart calls should succeed")
 
 	// Verify all parts were stored
 	listOut, err := b.ListParts(t.Context(), &sdk_s3.ListPartsInput{
@@ -206,6 +220,10 @@ func TestUploadPartConcurrent(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Len(t, listOut.Parts, numParts, "all parts should be stored")
+
+	for i, tag := range etags {
+		assert.NotEmpty(t, tag, "part %d should have a non-empty ETag", i+1)
+	}
 }
 
 // TestListObjectVersionsSnapshot verifies that ListObjectVersions returns all versions

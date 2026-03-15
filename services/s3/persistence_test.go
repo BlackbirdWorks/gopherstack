@@ -158,3 +158,44 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	err := b.Restore([]byte("not-valid-json"))
 	require.Error(t, err)
 }
+
+// TestInMemoryBackend_RestoreLegacyFlatUploads verifies that a snapshot using the
+// pre-issue-620 flat uploads format (map[uploadID]*StoredMultipartUpload) can be
+// restored into the current nested format (map[bucket]map[uploadID]*…).
+func TestInMemoryBackend_RestoreLegacyFlatUploads(t *testing.T) {
+	t.Parallel()
+
+	// Craft a snapshot with the legacy flat uploads format.
+	snap := []byte(`{
+		"buckets": {
+			"us-east-1": {
+				"my-bucket": {
+					"name": "my-bucket",
+					"deletePending": false,
+					"objects": {}
+				}
+			}
+		},
+		"tags": {},
+		"uploads": {
+			"1234567890": {
+				"uploadID": "1234567890",
+				"bucket":   "my-bucket",
+				"key":      "large-file",
+				"initiated": "2024-01-01T00:00:00Z",
+				"parts": {}
+			}
+		},
+		"defaultRegion": "us-east-1"
+	}`)
+
+	b := s3.NewInMemoryBackend(nil)
+	require.NoError(t, b.Restore(snap))
+
+	out, err := b.ListMultipartUploads(t.Context(), &sdk_s3.ListMultipartUploadsInput{
+		Bucket: aws.String("my-bucket"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Uploads, 1, "legacy upload should be present after restore")
+	assert.Equal(t, "large-file", aws.ToString(out.Uploads[0].Key))
+}

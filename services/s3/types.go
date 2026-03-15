@@ -79,6 +79,10 @@ type StoredMultipartUpload struct {
 	UploadID  string                `json:"uploadID"`
 	Bucket    string                `json:"bucket"`
 	Key       string                `json:"key"`
+	// closed is set to true by AbortMultipartUpload or CompleteMultipartUpload
+	// before the upload is removed from the index, so that concurrent UploadPart
+	// calls that already hold a pointer to this struct can detect the invalidation.
+	closed bool `json:"-"`
 }
 
 // StoredPart represents a single part of a multipart upload.

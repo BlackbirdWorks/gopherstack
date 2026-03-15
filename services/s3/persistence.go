@@ -15,6 +15,72 @@ type backendSnapshot struct {
 	DefaultRegion string                                       `json:"defaultRegion"`
 }
 
+// UnmarshalJSON implements [json.Unmarshaler] so that backendSnapshot can decode
+// both the current nested uploads format introduced in issue #620 and the
+// legacy flat format used by older snapshots:
+//
+//	legacy:  {"uploads": {"<uploadID>": {uploadID, bucket, key, …}}}
+//	current: {"uploads": {"<bucket>":   {"<uploadID>": {…}}}}
+//
+// Detection: if a top-level uploads value has a non-empty "uploadID" field it
+// is a StoredMultipartUpload (legacy); otherwise it is a bucket-level map.
+func (s *backendSnapshot) UnmarshalJSON(data []byte) error {
+	type snapshotRaw struct {
+		Buckets       map[string]map[string]*StoredBucket `json:"buckets"`
+		Tags          map[string][]types.Tag              `json:"tags"`
+		Uploads       map[string]json.RawMessage          `json:"uploads"`
+		DefaultRegion string                              `json:"defaultRegion"`
+	}
+
+	var raw snapshotRaw
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	s.Buckets = raw.Buckets
+	s.Tags = raw.Tags
+	s.DefaultRegion = raw.DefaultRegion
+	s.Uploads = migrateUploads(raw.Uploads)
+
+	return nil
+}
+
+// migrateUploads converts the raw uploads JSON into the nested
+// map[bucket]map[uploadID]*StoredMultipartUpload format, transparently
+// upgrading the legacy flat map[uploadID]*StoredMultipartUpload shape.
+func migrateUploads(raw map[string]json.RawMessage) map[string]map[string]*StoredMultipartUpload {
+	nested := make(map[string]map[string]*StoredMultipartUpload, len(raw))
+
+	for topKey, value := range raw {
+		// Probe: does this value look like a StoredMultipartUpload (legacy flat entry)?
+		var probe struct {
+			UploadID string `json:"uploadID"`
+		}
+
+		if err := json.Unmarshal(value, &probe); err == nil && probe.UploadID != "" {
+			// Legacy flat format — top key is the upload ID.
+			var upload StoredMultipartUpload
+			if unmarshalErr := json.Unmarshal(value, &upload); unmarshalErr == nil {
+				bkt := upload.Bucket
+				if nested[bkt] == nil {
+					nested[bkt] = make(map[string]*StoredMultipartUpload)
+				}
+				nested[bkt][upload.UploadID] = &upload
+			}
+
+			continue
+		}
+
+		// Current nested format — top key is the bucket name.
+		var bucketUploads map[string]*StoredMultipartUpload
+		if err := json.Unmarshal(value, &bucketUploads); err == nil {
+			nested[topKey] = bucketUploads
+		}
+	}
+
+	return nested
+}
+
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot() []byte {

@@ -301,14 +301,24 @@ func (j *Janitor) evictExpiredObjects(bucket *StoredBucket, prefix string, expir
 	// Phase 2: Clean up tags for evicted objects. Must happen after releasing
 	// bucket.mu to preserve the lock ordering (b.mu must not be acquired while
 	// bucket.mu is held).
+	//
+	// Build a set of object-level prefixes ("bucket/key/") for all evicted keys.
+	// Then do a single O(totalTags) scan over b.tags, deriving each tag's object
+	// prefix via its last slash, and check against the set in O(1).
 	b := j.Backend
-	bucketPrefix := bucket.Name + "/"
+	bucketPfx := bucket.Name + "/"
+	evictedPrefixes := make(map[string]struct{}, len(evicted))
+
+	for _, item := range evicted {
+		evictedPrefixes[bucketPfx+item.key+"/"] = struct{}{}
+	}
 
 	b.mu.Lock("S3Janitor.evictExpiredObjects.tags")
-	for _, item := range evicted {
-		objPrefix := bucketPrefix + item.key + "/"
-		for k := range b.tags {
-			if strings.HasPrefix(k, objPrefix) {
+	for k := range b.tags {
+		// Tag keys have the format "bucket/key/versionID".
+		// Derive the object prefix ("bucket/key/") by trimming after the last '/'.
+		if lastSlash := strings.LastIndex(k, "/"); lastSlash >= 0 {
+			if _, isEvicted := evictedPrefixes[k[:lastSlash+1]]; isEvicted {
 				delete(b.tags, k)
 			}
 		}
