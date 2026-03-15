@@ -169,38 +169,68 @@ func (p *EventSourcePoller) run(ctx context.Context) {
 // poll iterates over all enabled event source mappings and processes new records.
 func (p *EventSourcePoller) poll(ctx context.Context) {
 	mappings := p.lambdaBackend.ListEventSourceMappings("", "", 0).Data
+
+	activeUUIDs := make(map[string]struct{}, len(mappings))
+
 	for _, m := range mappings {
+		activeUUIDs[m.UUID] = struct{}{}
+
 		if m.State != ESMStateEnabled {
 			continue
 		}
 
-		if isSQSARN(m.EventSourceARN) {
-			p.mu.RLock("poll")
-			sqsR := p.sqsReader
-			p.mu.RUnlock()
+		p.processOneMapping(ctx, m)
+	}
 
-			if sqsR != nil {
-				p.processSQSMapping(ctx, m, sqsR)
-			}
+	p.sweepStaleIterators(activeUUIDs)
+}
 
+// processOneMapping dispatches a single enabled event source mapping to the appropriate handler.
+func (p *EventSourcePoller) processOneMapping(ctx context.Context, m *EventSourceMapping) {
+	if isSQSARN(m.EventSourceARN) {
+		p.mu.RLock("poll")
+		sqsR := p.sqsReader
+		p.mu.RUnlock()
+
+		if sqsR != nil {
+			p.processSQSMapping(ctx, m, sqsR)
+		}
+
+		return
+	}
+
+	if isDynamoDBStreamARN(m.EventSourceARN) {
+		ddbR := p.getDDBStreamsReader()
+		if ddbR != nil {
+			p.processDynamoDBStreamMapping(ctx, m, ddbR)
+		}
+
+		return
+	}
+
+	streamName := streamNameFromARN(m.EventSourceARN)
+	if streamName == "" {
+		return
+	}
+
+	p.processMapping(ctx, m, streamName)
+}
+
+// sweepStaleIterators removes shard iterator entries for ESMs that no longer exist.
+// This prevents unbounded map growth when ESMs are deleted.
+func (p *EventSourcePoller) sweepStaleIterators(activeUUIDs map[string]struct{}) {
+	p.mu.Lock("sweepStaleIterators")
+	defer p.mu.Unlock()
+
+	for key := range p.shardIterators {
+		uuid, _, ok := strings.Cut(key, ":")
+		if !ok {
 			continue
 		}
 
-		if isDynamoDBStreamARN(m.EventSourceARN) {
-			ddbR := p.getDDBStreamsReader()
-			if ddbR != nil {
-				p.processDynamoDBStreamMapping(ctx, m, ddbR)
-			}
-
-			continue
+		if _, active := activeUUIDs[uuid]; !active {
+			delete(p.shardIterators, key)
 		}
-
-		streamName := streamNameFromARN(m.EventSourceARN)
-		if streamName == "" {
-			continue
-		}
-
-		p.processMapping(ctx, m, streamName)
 	}
 }
 

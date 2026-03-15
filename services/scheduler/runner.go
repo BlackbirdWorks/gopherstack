@@ -16,6 +16,9 @@ import (
 const (
 	// runnerTickInterval is how often the runner polls for due schedules.
 	runnerTickInterval = 1 * time.Second
+	// cronStepMaxRange is the inclusive upper bound used when a cron step has no explicit end
+	// (e.g. "*/5"). It must be larger than any valid field value (year ~9999).
+	cronStepMaxRange = 9999
 )
 
 var (
@@ -103,7 +106,11 @@ func (r *Runner) run(ctx context.Context) {
 func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
 	schedules := r.backend.ListSchedules()
 
+	activeNames := make(map[string]struct{}, len(schedules))
+
 	for _, s := range schedules {
+		activeNames[s.Name] = struct{}{}
+
 		if s.State != "ENABLED" {
 			continue
 		}
@@ -116,6 +123,15 @@ func (r *Runner) checkAndFireSchedules(ctx context.Context, now time.Time) {
 			r.invokeTarget(ctx, s)
 		}
 	}
+
+	// Sweep lastFiredAt entries for schedules that no longer exist to prevent unbounded growth.
+	r.mu.Lock()
+	for name := range r.lastFiredAt {
+		if _, ok := activeNames[name]; !ok {
+			delete(r.lastFiredAt, name)
+		}
+	}
+	r.mu.Unlock()
 }
 
 // isDue reports whether the schedule s should fire at time now.
@@ -213,6 +229,17 @@ func buildSchedulerPayload(s *Schedule) []byte {
 	return b
 }
 
+// targetPayload returns the payload to send to a schedule target.
+// When the target has a custom Input set, it is used verbatim (AWS behaviour).
+// Otherwise the default EventBridge Scheduler event is built.
+func targetPayload(s *Schedule) []byte {
+	if s.Target.Input != "" {
+		return []byte(s.Target.Input)
+	}
+
+	return buildSchedulerPayload(s)
+}
+
 type loggerIface interface {
 	WarnContext(ctx context.Context, msg string, args ...any)
 	DebugContext(ctx context.Context, msg string, args ...any)
@@ -228,7 +255,7 @@ func (r *Runner) invokeLambdaTarget(ctx context.Context, s *Schedule, log logger
 		fnName = s.Target.ARN
 	}
 
-	payload := buildSchedulerPayload(s)
+	payload := targetPayload(s)
 
 	if _, _, err := r.lambda.InvokeFunction(ctx, fnName, "Event", payload); err != nil {
 		log.WarnContext(
@@ -251,7 +278,7 @@ func (r *Runner) invokeSQSTarget(ctx context.Context, s *Schedule, log loggerIfa
 		return
 	}
 
-	payload := string(buildSchedulerPayload(s))
+	payload := string(targetPayload(s))
 
 	if err := r.sqs.SendMessageToQueue(ctx, s.Target.ARN, payload); err != nil {
 		log.WarnContext(ctx, "scheduler: SQS send failed", "queue", s.Target.ARN, "schedule", s.Name, "error", err)
@@ -265,7 +292,7 @@ func (r *Runner) invokeSNSTarget(ctx context.Context, s *Schedule, log loggerIfa
 		return
 	}
 
-	payload := string(buildSchedulerPayload(s))
+	payload := string(targetPayload(s))
 
 	if err := r.sns.PublishToTopic(ctx, s.Target.ARN, payload); err != nil {
 		log.WarnContext(ctx, "scheduler: SNS publish failed", "topic", s.Target.ARN, "schedule", s.Name, "error", err)
@@ -279,7 +306,7 @@ func (r *Runner) invokeSFNTarget(ctx context.Context, s *Schedule, log loggerIfa
 		return
 	}
 
-	payload := string(buildSchedulerPayload(s))
+	payload := string(targetPayload(s))
 
 	if err := r.sfn.StartExecution(s.Target.ARN, "", payload); err != nil {
 		log.WarnContext(
@@ -386,7 +413,8 @@ func parseCronExpression(expr string) (*cronFields, error) {
 }
 
 // matchesCron returns true if t matches the given cron fields.
-// Only supports wildcard (*), don't-care (?), single integers, and comma-separated lists.
+// Supports wildcard (*), don't-care (?), single integers, comma-separated lists,
+// ranges (n-m), steps (*/s, n/s, n-m/s), and month/weekday name aliases.
 func matchesCron(t time.Time, cf *cronFields) bool {
 	return matchesCronField(cf.minutes, t.Minute()) &&
 		matchesCronField(cf.hours, t.Hour()) &&
@@ -402,7 +430,8 @@ func dayOfWeekAWS(wd time.Weekday) int {
 }
 
 // matchesCronField checks whether a cron field pattern matches a numeric value.
-// Supports: * (any), ? (any), single integers, and comma-separated values.
+// Supports: * (any), ? (any), comma-separated lists, ranges (n-m), steps (*/s, n/s, n-m/s),
+// and month/weekday name aliases (JAN-DEC, SUN-SAT).
 func matchesCronField(field string, value int) bool {
 	if field == "*" || field == "?" {
 		return true
@@ -410,10 +439,176 @@ func matchesCronField(field string, value int) bool {
 
 	for part := range strings.SplitSeq(field, ",") {
 		part = strings.TrimSpace(part)
-		if n, err := strconv.Atoi(part); err == nil && n == value {
+		if matchesCronPart(part, value) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// matchesCronPart evaluates a single cron token (no commas) against value.
+// Handles: integer, name alias, range (n-m), step (*/s, n/s, n-m/s).
+func matchesCronPart(part string, value int) bool {
+	// Step: base/step
+	if baseStr, stepStr, isStep := strings.Cut(part, "/"); isStep {
+		return matchesCronStep(baseStr, stepStr, cronStepMaxRange, value)
+	}
+
+	// Range: n-m
+	if lo, hi, isRange := strings.Cut(part, "-"); isRange {
+		start, err1 := parseCronValue(lo)
+		end, err2 := parseCronValue(hi)
+		if err1 != nil || err2 != nil {
+			return false
+		}
+
+		return value >= start && value <= end
+	}
+
+	// Single value or name alias
+	n, err := parseCronValue(part)
+
+	return err == nil && n == value
+}
+
+// matchesCronStep evaluates a step token (base/step) against value.
+func matchesCronStep(baseStr, stepStr string, maxVal, value int) bool {
+	step, err := strconv.Atoi(stepStr)
+	if err != nil || step <= 0 {
+		return false
+	}
+
+	start, end := 0, maxVal
+
+	switch baseStr {
+	case "*", "?":
+		// */step — every step starting from 0; end stays at maxVal
+	default:
+		if lo, hi, isRange := strings.Cut(baseStr, "-"); isRange {
+			s, err1 := parseCronValue(lo)
+			e, err2 := parseCronValue(hi)
+			if err1 != nil || err2 != nil {
+				return false
+			}
+
+			start, end = s, e
+		} else {
+			s, parseErr := parseCronValue(baseStr)
+			if parseErr != nil {
+				return false
+			}
+
+			start = s
+		}
+	}
+
+	if value < start || value > end {
+		return false
+	}
+
+	return (value-start)%step == 0
+}
+
+// ErrUnknownCronValue is returned when a cron field token cannot be parsed.
+var ErrUnknownCronValue = errors.New("unknown cron value")
+
+// Month and weekday numeric constants used in AWS EventBridge cron expressions.
+const (
+	cronJan = 1
+	cronFeb = 2
+	cronMar = 3
+	cronApr = 4
+	cronMay = 5
+	cronJun = 6
+	cronJul = 7
+	cronAug = 8
+	cronSep = 9
+	cronOct = 10
+	cronNov = 11
+	cronDec = 12
+
+	// AWS cron day-of-week: 1=SUN, 2=MON, ..., 7=SAT.
+	cronSun = 1
+	cronMon = 2
+	cronTue = 3
+	cronWed = 4
+	cronThu = 5
+	cronFri = 6
+	cronSat = 7
+)
+
+// cronMonthValue maps a 3-letter month abbreviation (uppercase) to its numeric value (1=JAN..12=DEC).
+// Cases are ordered alphabetically for lint compliance (cyclop/cyclop keeps the count within limits).
+func cronMonthValue(upper string) (int, bool) {
+	switch upper {
+	case "APR":
+		return cronApr, true
+	case "AUG":
+		return cronAug, true
+	case "DEC":
+		return cronDec, true
+	case "FEB":
+		return cronFeb, true
+	case "JAN":
+		return cronJan, true
+	case "JUL":
+		return cronJul, true
+	case "JUN":
+		return cronJun, true
+	case "MAR":
+		return cronMar, true
+	case "MAY":
+		return cronMay, true
+	case "NOV":
+		return cronNov, true
+	case "OCT":
+		return cronOct, true
+	case "SEP":
+		return cronSep, true
+	}
+
+	return 0, false
+}
+
+// cronDOWValue maps a 3-letter weekday abbreviation (uppercase) to its AWS numeric value.
+// AWS uses 1=SUN, 2=MON, ..., 7=SAT.
+func cronDOWValue(upper string) (int, bool) {
+	switch upper {
+	case "FRI":
+		return cronFri, true
+	case "MON":
+		return cronMon, true
+	case "SAT":
+		return cronSat, true
+	case "SUN":
+		return cronSun, true
+	case "THU":
+		return cronThu, true
+	case "TUE":
+		return cronTue, true
+	case "WED":
+		return cronWed, true
+	}
+
+	return 0, false
+}
+
+// parseCronValue parses a single cron field token: an integer or a month/weekday name alias.
+func parseCronValue(s string) (int, error) {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n, nil
+	}
+
+	upper := strings.ToUpper(s)
+
+	if n, ok := cronMonthValue(upper); ok {
+		return n, nil
+	}
+
+	if n, ok := cronDOWValue(upper); ok {
+		return n, nil
+	}
+
+	return 0, fmt.Errorf("%w: %q", ErrUnknownCronValue, s)
 }

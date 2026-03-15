@@ -346,3 +346,287 @@ func TestScheduler_Runner_StartAndShutdown(t *testing.T) {
 	<-ctx.Done()
 	// No panic - goroutine should have stopped cleanly
 }
+
+// TestScheduler_Runner_TargetInput tests that a schedule with Target.Input sends the custom
+// payload to every supported target type instead of the default scheduler event.
+func TestScheduler_Runner_TargetInput(t *testing.T) {
+	t.Parallel()
+
+	const customInput = `{"key":"custom-value"}`
+	const role = "arn:aws:iam::000000000000:role/r"
+
+	tests := []struct {
+		setup     func(runner *scheduler.Runner) func() string
+		name      string
+		targetARN string
+		wantBody  string
+	}{
+		{
+			name:      "Lambda target",
+			targetARN: "arn:aws:lambda:us-east-1:000000000000:function:my-fn",
+			setup: func(r *scheduler.Runner) func() string {
+				inv := &mockLambdaInvokerWithPayload{}
+				r.SetLambdaInvoker(inv)
+
+				return func() string {
+					calls := inv.Called()
+					if len(calls) == 0 {
+						return ""
+					}
+
+					return string(calls[0].payload)
+				}
+			},
+		},
+		{
+			name:      "SQS target",
+			targetARN: "arn:aws:sqs:us-east-1:000000000000:my-queue",
+			setup: func(r *scheduler.Runner) func() string {
+				m := &mockSQSSenderWithPayload{}
+				r.SetSQSSender(m)
+
+				return func() string { return m.Last() }
+			},
+		},
+		{
+			name:      "SNS target",
+			targetARN: "arn:aws:sns:us-east-1:000000000000:my-topic",
+			setup: func(r *scheduler.Runner) func() string {
+				m := &mockSNSPublisherWithPayload{}
+				r.SetSNSPublisher(m)
+
+				return func() string { return m.Last() }
+			},
+		},
+		{
+			name:      "SFN target",
+			targetARN: "arn:aws:states:us-east-1:000000000000:stateMachine:my-sm",
+			setup: func(r *scheduler.Runner) func() string {
+				m := &mockSFNStarterWithPayload{}
+				r.SetStepFunctionsStarter(m)
+
+				return func() string { return m.Last() }
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := backend.CreateSchedule(
+				"custom-input-sched",
+				"rate(1 second)",
+				scheduler.Target{ARN: tt.targetARN, RoleARN: role, Input: customInput},
+				"ENABLED",
+				scheduler.FlexibleTimeWindow{Mode: "OFF"},
+			)
+			require.NoError(t, err)
+
+			runner := scheduler.NewRunner(backend)
+			getPayload := tt.setup(runner)
+
+			scheduler.CheckAndFireSchedules(t.Context(), runner, time.Now())
+
+			assert.JSONEq(t, customInput, getPayload(), "custom Input should be sent verbatim to %s", tt.name)
+		})
+	}
+}
+
+// TestScheduler_Runner_CronRangeAndStep tests range and step cron expressions.
+func TestScheduler_Runner_CronRangeAndStep(t *testing.T) {
+	t.Parallel()
+
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:range-fn"
+
+	tests := []struct {
+		matchAt   time.Time
+		noMatchAt time.Time
+		name      string
+		cronExpr  string
+	}{
+		{
+			name:      "range in minutes",
+			cronExpr:  "cron(0-5 * * * ? *)",
+			matchAt:   time.Date(2024, 1, 15, 10, 3, 0, 0, time.UTC),
+			noMatchAt: time.Date(2024, 1, 15, 10, 7, 0, 0, time.UTC),
+		},
+		{
+			name:      "step in minutes",
+			cronExpr:  "cron(*/15 * * * ? *)",
+			matchAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
+			noMatchAt: time.Date(2024, 1, 15, 10, 31, 0, 0, time.UTC),
+		},
+		{
+			name:      "month name alias",
+			cronExpr:  "cron(0 0 1 JAN ? *)",
+			matchAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			noMatchAt: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name:      "day-of-week name alias MON",
+			cronExpr:  "cron(0 9 ? * MON *)",
+			matchAt:   time.Date(2024, 1, 15, 9, 0, 0, 0, time.UTC), // 2024-01-15 is a Monday
+			noMatchAt: time.Date(2024, 1, 16, 9, 0, 0, 0, time.UTC), // Tuesday
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := scheduler.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := backend.CreateSchedule(
+				tt.name,
+				tt.cronExpr,
+				scheduler.Target{ARN: lambdaARN, RoleARN: "arn:aws:iam::000000000000:role/r"},
+				"ENABLED",
+				scheduler.FlexibleTimeWindow{Mode: "OFF"},
+			)
+			require.NoError(t, err)
+
+			invoker := &mockLambdaInvoker{}
+			runner := scheduler.NewRunner(backend)
+			runner.SetLambdaInvoker(invoker)
+
+			scheduler.CheckAndFireSchedules(t.Context(), runner, tt.matchAt)
+			require.Len(t, invoker.Called(), 1, "should fire at match time")
+
+			invoker2 := &mockLambdaInvoker{}
+			runner2 := scheduler.NewRunner(backend)
+			runner2.SetLambdaInvoker(invoker2)
+			scheduler.CheckAndFireSchedules(t.Context(), runner2, tt.noMatchAt)
+			assert.Empty(t, invoker2.Called(), "should not fire at no-match time")
+		})
+	}
+}
+
+// TestScheduler_Runner_LastFiredAtCleanup tests that lastFiredAt entries are swept when
+// a schedule is deleted.
+func TestScheduler_Runner_LastFiredAtCleanup(t *testing.T) {
+	t.Parallel()
+
+	lambdaARN := "arn:aws:lambda:us-east-1:000000000000:function:cleanup-fn"
+	backend := newTestBackendWithSchedule(t, "sweep-sched", "rate(1 second)", lambdaARN, "ENABLED")
+
+	invoker := &mockLambdaInvoker{}
+	runner := scheduler.NewRunner(backend)
+	runner.SetLambdaInvoker(invoker)
+
+	now := time.Now()
+	scheduler.CheckAndFireSchedules(t.Context(), runner, now)
+	require.Len(t, invoker.Called(), 1, "schedule should have fired")
+
+	assert.Equal(t, 1, scheduler.LastFiredAtLen(runner), "lastFiredAt should have one entry")
+
+	// Delete the schedule.
+	require.NoError(t, backend.DeleteSchedule("sweep-sched"))
+
+	// Fire again: the stale entry should be swept.
+	scheduler.CheckAndFireSchedules(t.Context(), runner, now.Add(2*time.Second))
+	assert.Equal(t, 0, scheduler.LastFiredAtLen(runner), "lastFiredAt should be empty after schedule deletion")
+}
+
+// mockLambdaInvokerWithPayload records the payload sent to Lambda.
+type mockLambdaInvokerWithPayload struct {
+	calls []struct {
+		name    string
+		payload []byte
+	}
+	mu sync.Mutex
+}
+
+func (m *mockLambdaInvokerWithPayload) InvokeFunction(
+	_ context.Context,
+	name, _ string,
+	payload []byte,
+) ([]byte, int, error) {
+	m.mu.Lock()
+	m.calls = append(m.calls, struct {
+		name    string
+		payload []byte
+	}{name: name, payload: payload})
+	m.mu.Unlock()
+
+	return nil, 200, nil
+}
+
+func (m *mockLambdaInvokerWithPayload) Called() []struct {
+	name    string
+	payload []byte
+} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cp := make([]struct {
+		name    string
+		payload []byte
+	}, len(m.calls))
+	copy(cp, m.calls)
+
+	return cp
+}
+
+// mockSQSSenderWithPayload records the last message body sent to SQS.
+type mockSQSSenderWithPayload struct {
+	last string
+	mu   sync.Mutex
+}
+
+func (m *mockSQSSenderWithPayload) SendMessageToQueue(_ context.Context, _, body string) error {
+	m.mu.Lock()
+	m.last = body
+	m.mu.Unlock()
+
+	return nil
+}
+
+func (m *mockSQSSenderWithPayload) Last() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.last
+}
+
+// mockSNSPublisherWithPayload records the last message published to SNS.
+type mockSNSPublisherWithPayload struct {
+	last string
+	mu   sync.Mutex
+}
+
+func (m *mockSNSPublisherWithPayload) PublishToTopic(_ context.Context, _, msg string) error {
+	m.mu.Lock()
+	m.last = msg
+	m.mu.Unlock()
+
+	return nil
+}
+
+func (m *mockSNSPublisherWithPayload) Last() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.last
+}
+
+// mockSFNStarterWithPayload records the last input passed to StepFunctions.
+type mockSFNStarterWithPayload struct {
+	last string
+	mu   sync.Mutex
+}
+
+func (m *mockSFNStarterWithPayload) StartExecution(_, _, input string) error {
+	m.mu.Lock()
+	m.last = input
+	m.mu.Unlock()
+
+	return nil
+}
+
+func (m *mockSFNStarterWithPayload) Last() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.last
+}

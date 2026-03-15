@@ -33,10 +33,12 @@ type scheduleNameInput struct {
 	Name string `json:"Name"`
 }
 
-// scheduleTarget holds the ARN and IAM role for a schedule target.
+// scheduleTarget holds the ARN, IAM role, and optional custom input for a schedule target.
 type scheduleTarget struct {
 	Arn     string `json:"Arn"`
 	RoleArn string `json:"RoleArn"`
+	// Input is an optional custom event payload sent to the target instead of the default event.
+	Input string `json:"Input,omitempty"`
 }
 
 // scheduleFlexibleTimeWindow holds the flexible time window configuration for a schedule.
@@ -347,7 +349,7 @@ func (h *Handler) handleCreateSchedule(_ context.Context, in *scheduleInput) (*c
 	s, err := h.Backend.CreateSchedule(
 		in.Name,
 		in.ScheduleExpression,
-		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn},
+		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn, Input: in.Target.Input},
 		state,
 		FlexibleTimeWindow{
 			Mode:                   in.FlexibleTimeWindow.Mode,
@@ -364,6 +366,8 @@ func (h *Handler) handleCreateSchedule(_ context.Context, in *scheduleInput) (*c
 type scheduleTargetOutput struct {
 	Arn     string `json:"Arn"`
 	RoleArn string `json:"RoleArn"`
+	// Input is echoed back when a custom payload was set on the target.
+	Input string `json:"Input,omitempty"`
 }
 
 type flexibleTimeWindowOutput struct {
@@ -391,7 +395,7 @@ func (h *Handler) handleGetSchedule(_ context.Context, in *scheduleNameInput) (*
 		Arn:                s.ARN,
 		ScheduleExpression: s.ScheduleExpression,
 		State:              s.State,
-		Target:             scheduleTargetOutput{Arn: s.Target.ARN, RoleArn: s.Target.RoleARN},
+		Target:             scheduleTargetOutput{Arn: s.Target.ARN, RoleArn: s.Target.RoleARN, Input: s.Target.Input},
 		FlexibleTimeWindow: flexibleTimeWindowOutput{
 			Mode:                   s.FlexibleTimeWindow.Mode,
 			MaximumWindowInMinutes: s.FlexibleTimeWindow.MaximumWindowInMinutes,
@@ -445,7 +449,7 @@ func (h *Handler) handleUpdateSchedule(_ context.Context, in *scheduleInput) (*u
 	s, err := h.Backend.UpdateSchedule(
 		in.Name,
 		in.ScheduleExpression,
-		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn},
+		Target{ARN: in.Target.Arn, RoleARN: in.Target.RoleArn, Input: in.Target.Input},
 		in.State,
 		FlexibleTimeWindow{
 			Mode:                   in.FlexibleTimeWindow.Mode,

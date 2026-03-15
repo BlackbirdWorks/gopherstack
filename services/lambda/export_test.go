@@ -165,3 +165,12 @@ func ReleaseConcurrencySlot(b *InMemoryBackend, functionName string) {
 func AcquireConcurrencySlot(b *InMemoryBackend, functionName string, invocationType InvocationType) (bool, error) {
 	return b.acquireConcurrencySlot(functionName, invocationType)
 }
+
+// ShardIteratorsLen returns the number of entries in the poller's shardIterators map.
+// Intended for use in unit tests to verify memory-leak cleanup.
+func ShardIteratorsLen(p *EventSourcePoller) int {
+	p.mu.RLock("ShardIteratorsLen")
+	defer p.mu.RUnlock()
+
+	return len(p.shardIterators)
+}

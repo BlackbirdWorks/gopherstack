@@ -327,3 +327,43 @@ func TestLambda_DDB_Poller_DisabledMappingSkipped(t *testing.T) {
 
 	assert.Equal(t, 0, recCalls, "GetStreamRecords should not be called for disabled ESM")
 }
+
+// TestLambda_ESM_ShardIteratorCleanup tests that shard iterator entries for deleted ESMs
+// are swept on the next poll cycle, preventing unbounded map growth.
+func TestLambda_ESM_ShardIteratorCleanup(t *testing.T) {
+	t.Parallel()
+
+	const streamARN = "arn:aws:dynamodb:us-east-1:000000000000:table/cleanup-table/stream/2024-01-01T00:00:00.000"
+
+	_, backend := newRealHandler(t)
+
+	esm, err := backend.CreateEventSourceMapping(&lambda.CreateEventSourceMappingInput{
+		EventSourceARN:   streamARN,
+		FunctionName:     "cleanup-fn",
+		StartingPosition: "TRIM_HORIZON",
+		Enabled:          true,
+	})
+	require.NoError(t, err)
+
+	reader := &fakeDDBStreamsReader{
+		records: []lambda.DynamoDBStreamRecord{
+			{EventID: "e1", EventName: "INSERT"},
+		},
+	}
+
+	poller := lambda.NewEventSourcePoller(backend, &fakeKinesisReader{})
+	lambda.SetDynamoDBStreamsReaderOnPoller(poller, reader)
+	lambda.SetDDBInvoker(poller, func(_ context.Context, _ string, _ []byte) error { return nil })
+
+	// First poll: a shard iterator entry should be stored.
+	lambda.PollOnce(t.Context(), poller)
+	assert.Equal(t, 1, lambda.ShardIteratorsLen(poller), "iterator should exist after first poll")
+
+	// Delete the ESM.
+	_, delErr := backend.DeleteEventSourceMapping(esm.UUID)
+	require.NoError(t, delErr)
+
+	// Second poll: the stale iterator entry should be swept.
+	lambda.PollOnce(t.Context(), poller)
+	assert.Equal(t, 0, lambda.ShardIteratorsLen(poller), "iterator should be swept after ESM deletion")
+}
