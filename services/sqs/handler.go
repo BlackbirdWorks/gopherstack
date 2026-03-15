@@ -926,6 +926,14 @@ func errorDetails(err error) (string, string, int) {
 		return "com.amazonaws.sqs#InvalidAttributeValue",
 			"Invalid attribute value.",
 			http.StatusBadRequest
+	case errors.Is(err, ErrMessageTooLarge):
+		return "com.amazonaws.sqs#InvalidMessageContents",
+			"The message exceeds the maximum message size.",
+			http.StatusBadRequest
+	case errors.Is(err, ErrInvalidWaitTime):
+		return "com.amazonaws.sqs#InvalidParameterValue",
+			"Value for parameter WaitTimeSeconds is invalid. Reason: Must be between 0 and 20, if provided.",
+			http.StatusBadRequest
 	case errors.Is(err, ErrUnknownAction):
 		return "com.amazonaws.sqs#InvalidAction",
 			"The action or operation requested is invalid.",

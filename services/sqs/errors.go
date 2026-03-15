@@ -16,4 +16,6 @@ var (
 	ErrMessageNotInflight    = errors.New("MessageNotInflight")
 	ErrTooManyEntriesInBatch = errors.New("AWS.SimpleQueueService.TooManyEntriesInBatchRequest")
 	ErrUnknownAction         = errors.New("InvalidAction")
+	ErrMessageTooLarge       = errors.New("MessageTooLarge")
+	ErrInvalidWaitTime       = errors.New("InvalidParameterValue")
 )

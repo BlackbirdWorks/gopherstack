@@ -224,7 +224,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		Attributes:          attrs,
 		DeduplicationIDs:    make(map[string]time.Time),
 		deduplicationMsgIDs: make(map[string]string),
-		notify:              make(chan struct{}, 1),
+		notify:              make(chan struct{}),
 	}
 
 	b.queues[input.QueueName] = q
@@ -241,9 +241,14 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	if _, exists := b.queues[name]; !exists {
+	q, ok := b.queues[name]
+	if !ok {
 		return ErrQueueNotFound
 	}
+
+	// Close the notify channel so that any goroutines blocked on long-polling
+	// wake up immediately and receive ErrQueueNotFound on their next receiveOnce call.
+	close(q.notify)
 
 	delete(b.queues, name)
 
@@ -366,6 +371,9 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 	return nil
 }
 
+// maxWaitTimeSeconds is the AWS maximum for ReceiveMessage WaitTimeSeconds.
+const maxWaitTimeSeconds = 20
+
 // SendMessage adds a message to the specified queue.
 func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutput, error) {
 	b.mu.Lock("SendMessage")
@@ -378,10 +386,20 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		return nil, ErrQueueNotFound
 	}
 
+	if err := validateMessageSize(input.MessageBody, q); err != nil {
+		return nil, err
+	}
+
 	md5Body := computeMD5(input.MessageBody)
 	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
 
+	// Capture now once so that pruneDedup, checkDedup, and message timestamps
+	// all use the same consistent clock value.
+	now := time.Now()
+
 	if q.IsFIFO {
+		pruneDedup(q, now)
+
 		if out, dup := checkDedup(
 			q,
 			input.MessageDeduplicationID,
@@ -392,7 +410,6 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		}
 	}
 
-	now := time.Now()
 	msgID := uuid.New().String()
 	sentTS := strconv.FormatInt(now.UnixMilli(), 10)
 
@@ -418,18 +435,31 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	q.messages = append(q.messages, msg)
 
-	// Signal long-polling receivers on the empty→non-empty transition.
-	// The notify channel is a buffered(1), never-closed channel; a non-blocking
-	// send avoids the close/recreate race where a receiver holding a stale
-	// reference would immediately drain a closed channel and spin.
-	if len(q.messages) == 1 {
-		select {
-		case q.notify <- struct{}{}:
-		default:
-		}
-	}
+	// Broadcast to all long-polling receivers: close the current generation channel
+	// (which unblocks all goroutines waiting on it) and replace it with a new one.
+	// Any receiver holding a reference to the old closed channel will wake up, re-check
+	// for messages under the lock, and (if no messages are found yet) capture the new
+	// channel for the next wait. This provides fair wake-up for all concurrent receivers.
+	old := q.notify
+	q.notify = make(chan struct{})
+	close(old)
 
 	return &SendMessageOutput{MessageID: msgID, MD5OfBody: md5Body, MD5OfMessageAttributes: md5Attrs}, nil
+}
+
+// validateMessageSize checks whether the message body exceeds the queue's MaximumMessageSize.
+func validateMessageSize(body string, q *Queue) error {
+	maxSize := defaultMaxMessageSize
+
+	if v, err := strconv.Atoi(q.Attributes[attrMaximumMessageSize]); err == nil && v > 0 {
+		maxSize = v
+	}
+
+	if len(body) > maxSize {
+		return ErrMessageTooLarge
+	}
+
+	return nil
 }
 
 // resolveMessageVisibleAt computes the earliest time the message should be visible.
@@ -496,15 +526,17 @@ func pruneDedup(q *Queue, now time.Time) {
 
 // ReceiveMessage retrieves messages from the queue, with optional long-poll wait.
 //
-// Long polling uses a single long-lived buffered(1) notify channel: receiveOnce
-// captures q.notify under the write lock. When SendMessage transitions the queue
-// from empty to non-empty it writes a value to the channel (non-blocking), waking
-// one blocked receiver. The channel is never closed, eliminating the stale-reference
-// race of the old close/recreate pattern.
+// Long polling uses a broadcast notify channel: SendMessage closes the current generation
+// channel (waking all waiting receivers) and replaces it with a new one. This ensures
+// all concurrent long-poll receivers are woken on each message arrival rather than just one.
 // A 1-second recheck interval is also applied so that messages which reappear
 // due to visibility-timeout expiry (reQueueExpired) are picked up promptly even
 // when no new SendMessage occurs.
 func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMessageOutput, error) {
+	if input.WaitTimeSeconds < 0 || input.WaitTimeSeconds > maxWaitTimeSeconds {
+		return nil, ErrInvalidWaitTime
+	}
+
 	name := queueNameFromInput(input.QueueURL)
 	deadline := time.Now().Add(time.Duration(input.WaitTimeSeconds) * time.Second)
 
@@ -737,6 +769,8 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 }
 
 // SendMessageBatch sends a batch of messages to the specified queue.
+// Results in the Successful and Failed slices are returned in the same
+// order as the corresponding entries in the input slice.
 func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendMessageBatchOutput, error) {
 	if len(input.Entries) == 0 {
 		return nil, ErrInvalidBatchEntry
@@ -744,6 +778,13 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 
 	if len(input.Entries) > maxBatchSize {
 		return nil, ErrTooManyEntriesInBatch
+	}
+
+	// inputOrder maps entry ID to its position in the input slice so that results
+	// can be sorted to match the original request order.
+	inputOrder := make(map[string]int, len(input.Entries))
+	for i, entry := range input.Entries {
+		inputOrder[entry.ID] = i
 	}
 
 	out := &SendMessageBatchOutput{}
@@ -775,6 +816,15 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 			MD5OfMessageAttributes: sendOut.MD5OfMessageAttributes,
 		})
 	}
+
+	// Sort Successful and Failed results to match the input entry order.
+	sort.Slice(out.Successful, func(i, j int) bool {
+		return inputOrder[out.Successful[i].ID] < inputOrder[out.Successful[j].ID]
+	})
+
+	sort.Slice(out.Failed, func(i, j int) bool {
+		return inputOrder[out.Failed[i].ID] < inputOrder[out.Failed[j].ID]
+	})
 
 	return out, nil
 }
