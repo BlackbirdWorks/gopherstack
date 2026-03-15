@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 
@@ -302,6 +303,53 @@ func TestRWMutex_Close(t *testing.T) {
 			m.Close()
 		})
 	}
+}
+
+func TestRWMutex_CloseRemovesLabelValues(t *testing.T) {
+	t.Parallel()
+
+	// Use a unique name so the test is isolated from parallel runs.
+	name := "test.close.leak." + t.Name()
+	m := lockmetrics.New(name)
+
+	// Perform operations that create labelled series.
+	m.Lock("op-a")
+	m.Unlock()
+	m.RLock("op-b")
+	m.RUnlock()
+
+	// Gather before close to confirm the series exist.
+	beforeMFs, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+
+	beforeCount := countSeriesForLock(beforeMFs, name)
+	assert.Positive(t, beforeCount, "expected at least one series before Close")
+
+	m.Close()
+
+	// Gather after close — all series for this lock should be gone.
+	afterMFs, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+
+	afterCount := countSeriesForLock(afterMFs, name)
+	assert.Equal(t, 0, afterCount, "expected no series after Close")
+}
+
+// countSeriesForLock counts metric series whose "lock" label equals name.
+func countSeriesForLock(mfs []*dto.MetricFamily, name string) int {
+	count := 0
+
+	for _, mf := range mfs {
+		for _, m := range mf.GetMetric() {
+			for _, lp := range m.GetLabel() {
+				if lp.GetName() == "lock" && lp.GetValue() == name {
+					count++
+				}
+			}
+		}
+	}
+
+	return count
 }
 
 func TestRWMutex_CollectMetrics(t *testing.T) {
