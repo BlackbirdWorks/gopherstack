@@ -1204,7 +1204,5 @@ func (b *InMemoryBackend) Reset() {
 	b.documentPermissions = make(map[string][]string)
 	b.commands = make(map[string]Command)
 	b.commandInvocations = make(map[string][]CommandInvocation)
-
-
 	b.registerDefaultDocuments()
 }
