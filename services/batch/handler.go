@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -32,12 +33,31 @@ const (
 // Handler is the Echo HTTP handler for AWS Batch operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	janitor *Janitor
 }
 
 // NewHandler creates a new Batch handler backed by backend.
 // backend must not be nil.
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+// Zero values for interval or inactiveJobDefTTL use defaults (1 minute interval, 24 h TTL).
+func (h *Handler) WithJanitor(interval, inactiveJobDefTTL time.Duration) *Handler {
+	h.janitor = NewJanitor(h.Backend, interval, inactiveJobDefTTL)
+
+	return h
+}
+
+// StartWorker starts the background janitor if configured.
+// It always returns nil; the error return satisfies the service.BackgroundWorker interface.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // Name returns the service name.
