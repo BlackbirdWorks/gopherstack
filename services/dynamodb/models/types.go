@@ -65,10 +65,13 @@ type DescribeTableOutput struct {
 
 type TableDescription struct {
 	ProvisionedThroughput  *ProvisionedThroughputDescription `json:"ProvisionedThroughput,omitempty"`
+	StreamSpecification    *StreamSpecificationInput         `json:"StreamSpecification,omitempty"`
 	TableName              string                            `json:"TableName"`
 	TableStatus            string                            `json:"TableStatus"`
 	TableArn               string                            `json:"TableArn,omitempty"`
 	TableID                string                            `json:"TableId,omitempty"`
+	LatestStreamArn        string                            `json:"LatestStreamArn,omitempty"`
+	LatestStreamLabel      string                            `json:"LatestStreamLabel,omitempty"`
 	KeySchema              []KeySchemaElement                `json:"KeySchema"`
 	AttributeDefinitions   []AttributeDefinition             `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`

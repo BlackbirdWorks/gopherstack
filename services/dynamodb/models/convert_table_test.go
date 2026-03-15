@@ -383,14 +383,18 @@ func TestFromSDKTableDescription(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		input            *types.TableDescription
-		name             string
-		wantTableName    string
-		wantTableStatus  string
-		wantItemCount    int
-		wantKeySchemaLen int
-		wantAttrDefsLen  int
-		wantEmpty        bool
+		input                 *types.TableDescription
+		name                  string
+		wantTableName         string
+		wantTableStatus       string
+		wantLatestStreamArn   string
+		wantLatestStreamLabel string
+		wantStreamViewType    string
+		wantItemCount         int
+		wantKeySchemaLen      int
+		wantAttrDefsLen       int
+		wantEmpty             bool
+		wantStreamEnabled     bool
 	}{
 		{
 			name: "active_table_with_schema",
@@ -410,6 +414,27 @@ func TestFromSDKTableDescription(t *testing.T) {
 			wantItemCount:    50,
 			wantKeySchemaLen: 1,
 			wantAttrDefsLen:  1,
+		},
+		{
+			name: "streaming_enabled_returns_stream_fields",
+			input: &types.TableDescription{
+				TableName:   aws.String("StreamTable"),
+				TableStatus: types.TableStatusActive,
+				LatestStreamArn: aws.String(
+					"arn:aws:dynamodb:us-east-1:000000000000:table/StreamTable/stream/2024-01-01T00:00:00.000",
+				),
+				LatestStreamLabel: aws.String("2024-01-01T00:00:00.000"),
+				StreamSpecification: &types.StreamSpecification{
+					StreamEnabled:  aws.Bool(true),
+					StreamViewType: types.StreamViewTypeNewImage,
+				},
+			},
+			wantTableName:         "StreamTable",
+			wantTableStatus:       "ACTIVE",
+			wantLatestStreamArn:   "arn:aws:dynamodb:us-east-1:000000000000:table/StreamTable/stream/2024-01-01T00:00:00.000",
+			wantLatestStreamLabel: "2024-01-01T00:00:00.000",
+			wantStreamEnabled:     true,
+			wantStreamViewType:    "NEW_IMAGE",
 		},
 		{
 			name:      "nil_returns_empty_struct",
@@ -435,6 +460,18 @@ func TestFromSDKTableDescription(t *testing.T) {
 			assert.Equal(t, tt.wantItemCount, result.ItemCount)
 			assert.Len(t, result.KeySchema, tt.wantKeySchemaLen)
 			assert.Len(t, result.AttributeDefinitions, tt.wantAttrDefsLen)
+			assert.Equal(t, tt.wantLatestStreamArn, result.LatestStreamArn)
+			assert.Equal(t, tt.wantLatestStreamLabel, result.LatestStreamLabel)
+
+			if !tt.wantStreamEnabled {
+				assert.Nil(t, result.StreamSpecification)
+
+				return
+			}
+
+			require.NotNil(t, result.StreamSpecification)
+			assert.True(t, result.StreamSpecification.StreamEnabled)
+			assert.Equal(t, tt.wantStreamViewType, result.StreamSpecification.StreamViewType)
 		})
 	}
 }
