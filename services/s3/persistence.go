@@ -9,10 +9,10 @@ import (
 )
 
 type backendSnapshot struct {
-	Buckets       map[string]map[string]*StoredBucket `json:"buckets"`
-	Tags          map[string][]types.Tag              `json:"tags"`
-	Uploads       map[string]*StoredMultipartUpload   `json:"uploads"`
-	DefaultRegion string                              `json:"defaultRegion"`
+	Buckets       map[string]map[string]*StoredBucket          `json:"buckets"`
+	Tags          map[string][]types.Tag                       `json:"tags"`
+	Uploads       map[string]map[string]*StoredMultipartUpload `json:"uploads"`
+	DefaultRegion string                                       `json:"defaultRegion"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -50,6 +50,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	normalizeSnapshot(&snap)
 	reinitBucketMutexes(snap.Buckets)
+	reinitUploadMutexes(snap.Uploads)
 
 	b.buckets = snap.Buckets
 	b.tags = snap.Tags
@@ -71,7 +72,7 @@ func normalizeSnapshot(snap *backendSnapshot) {
 	}
 
 	if snap.Uploads == nil {
-		snap.Uploads = make(map[string]*StoredMultipartUpload)
+		snap.Uploads = make(map[string]map[string]*StoredMultipartUpload)
 	}
 }
 
@@ -92,6 +93,17 @@ func reinitBucketMutexes(buckets map[string]map[string]*StoredBucket) {
 				if obj.mu == nil {
 					obj.mu = lockmetrics.New("s3-object")
 				}
+			}
+		}
+	}
+}
+
+// reinitUploadMutexes reinitialises per-upload mutexes after deserialisation.
+func reinitUploadMutexes(uploads map[string]map[string]*StoredMultipartUpload) {
+	for _, bucketUploads := range uploads {
+		for _, u := range bucketUploads {
+			if u.mu == nil {
+				u.mu = lockmetrics.New("s3.upload")
 			}
 		}
 	}

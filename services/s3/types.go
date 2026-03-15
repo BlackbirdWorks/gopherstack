@@ -75,6 +75,7 @@ type StoredObjectVersion struct {
 type StoredMultipartUpload struct {
 	Initiated time.Time             `json:"initiated"`
 	Parts     map[int32]*StoredPart `json:"parts,omitempty"`
+	mu        *lockmetrics.RWMutex  `json:"-"`
 	UploadID  string                `json:"uploadID"`
 	Bucket    string                `json:"bucket"`
 	Key       string                `json:"key"`
