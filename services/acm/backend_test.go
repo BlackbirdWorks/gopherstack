@@ -360,13 +360,16 @@ func TestACMBackend_ImportCertificate(t *testing.T) {
 func TestACMBackend_RenewCertificate(t *testing.T) {
 	t.Parallel()
 
+	certPEM, keyPEM := generateTestCert(t)
+
 	tests := []struct {
-		wantErr error
-		setup   func(t *testing.T, b *acm.InMemoryBackend) string
-		name    string
+		wantErr     error
+		setup       func(t *testing.T, b *acm.InMemoryBackend) string
+		name        string
+		wantNewCert bool
 	}{
 		{
-			name: "success",
+			name: "success_amazon_issued",
 			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
 				t.Helper()
 				cert, err := b.RequestCertificate("renew.example.com", "", "", nil)
@@ -374,6 +377,18 @@ func TestACMBackend_RenewCertificate(t *testing.T) {
 
 				return cert.ARN
 			},
+			wantNewCert: true,
+		},
+		{
+			name: "imported_not_eligible",
+			setup: func(t *testing.T, b *acm.InMemoryBackend) string {
+				t.Helper()
+				cert, err := b.ImportCertificate(certPEM, keyPEM, "")
+				require.NoError(t, err)
+
+				return cert.ARN
+			},
+			wantErr: acm.ErrNotEligible,
 		},
 		{
 			name:    "not_found",
@@ -388,6 +403,14 @@ func TestACMBackend_RenewCertificate(t *testing.T) {
 
 			b := acm.NewInMemoryBackend("000000000000", "us-east-1")
 			certARN := tt.setup(t, b)
+
+			var originalBody string
+			if tt.wantNewCert {
+				orig, err := b.DescribeCertificate(certARN)
+				require.NoError(t, err)
+				originalBody = orig.CertificateBody
+			}
+
 			err := b.RenewCertificate(certARN)
 
 			if tt.wantErr != nil {
@@ -398,6 +421,13 @@ func TestACMBackend_RenewCertificate(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+
+			if tt.wantNewCert {
+				renewed, descErr := b.DescribeCertificate(certARN)
+				require.NoError(t, descErr)
+				assert.NotEmpty(t, renewed.CertificateBody)
+				assert.NotEqual(t, originalBody, renewed.CertificateBody, "cert body should be regenerated")
+			}
 		})
 	}
 }

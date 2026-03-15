@@ -241,16 +241,29 @@ func (b *InMemoryBackend) ImportCertificate(certBody, privateKey, certChain stri
 	return &cp, nil
 }
 
-// RenewCertificate is a no-op that succeeds for any existing certificate in the mock backend.
-// It validates that the certificate exists but does not enforce type-based eligibility.
+// RenewCertificate regenerates the certificate material for an AMAZON_ISSUED certificate,
+// extending its validity by one year. Returns ErrNotEligible for IMPORTED certificates,
+// as AWS ACM does not support renewing imported certificates.
 func (b *InMemoryBackend) RenewCertificate(certARN string) error {
-	b.mu.RLock("RenewCertificate")
-	_, ok := b.certs[certARN]
-	b.mu.RUnlock()
+	b.mu.Lock("RenewCertificate")
+	defer b.mu.Unlock()
 
+	cert, ok := b.certs[certARN]
 	if !ok {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
+
+	if cert.Type == "IMPORTED" {
+		return fmt.Errorf("%w: only AMAZON_ISSUED certificates can be renewed", ErrNotEligible)
+	}
+
+	certBody, privateKey, err := generateSelfSignedCert(cert.DomainName, cert.SubjectAlternativeNames)
+	if err != nil {
+		return fmt.Errorf("failed to regenerate certificate: %w", err)
+	}
+
+	cert.CertificateBody = certBody
+	cert.PrivateKey = privateKey
 
 	return nil
 }

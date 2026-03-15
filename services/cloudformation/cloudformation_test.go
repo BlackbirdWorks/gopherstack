@@ -2,6 +2,7 @@ package cloudformation_test
 
 import (
 	"encoding/xml"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -434,6 +435,52 @@ func TestBackend_UpdateStack(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, updated.StackStatus)
 		})
 	}
+}
+
+// TestBackend_UpdateStack_RollbackOnCreationFailure verifies that when a new
+// resource added during UpdateStack fails to create, the stack rolls back to
+// its pre-update state and ends up with status UPDATE_ROLLBACK_COMPLETE.
+func TestBackend_UpdateStack_RollbackOnCreationFailure(t *testing.T) {
+	t.Parallel()
+
+	// Template with the original bucket resource.
+	originalTemplate := `{"AWSTemplateFormatVersion":"2010-09-09",` +
+		`"Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`
+	// Template that adds a queue resource which we will force to fail.
+	updatedTemplate := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}},` +
+		`"NewQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
+
+	b := newBackend()
+
+	_, err := b.CreateStack(t.Context(), "rollback-stack", originalTemplate, nil, nil)
+	require.NoError(t, err)
+
+	// Inject a hook that fails when creating the new SQS queue.
+	b.GetCreator().InjectCreateHook(func(resourceType string) error {
+		if resourceType == "AWS::SQS::Queue" {
+			return errors.New("simulated queue creation failure") //nolint:err113 // test-only sentinel
+		}
+
+		return nil
+	})
+
+	updated, err := b.UpdateStack(t.Context(), "rollback-stack", updatedTemplate, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, "UPDATE_ROLLBACK_COMPLETE", updated.StackStatus)
+
+	// The original resource should still exist; the new one must not.
+	resources, err := b.ListStackResources("rollback-stack", "")
+	require.NoError(t, err)
+
+	logicalIDs := make([]string, 0, len(resources.Data))
+	for _, r := range resources.Data {
+		logicalIDs = append(logicalIDs, r.LogicalResourceID)
+	}
+
+	assert.Contains(t, logicalIDs, "MyBucket")
+	assert.NotContains(t, logicalIDs, "NewQueue")
 }
 
 // ---- Backend: DeleteStack ---------------------------------------------------

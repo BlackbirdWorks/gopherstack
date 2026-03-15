@@ -118,7 +118,8 @@ type ServiceBackends struct {
 
 // ResourceCreator creates and deletes cloud resources.
 type ResourceCreator struct {
-	backends *ServiceBackends
+	backends   *ServiceBackends
+	createHook func(resourceType string) error // used by tests to inject creation errors
 }
 
 // NewResourceCreator returns a ResourceCreator backed by the given services.
@@ -134,6 +135,12 @@ func (rc *ResourceCreator) Create(
 	params map[string]string,
 	physicalIDs map[string]string,
 ) (string, error) {
+	if rc.createHook != nil {
+		if err := rc.createHook(resourceType); err != nil {
+			return "", err
+		}
+	}
+
 	if rc == nil || rc.backends == nil {
 		return logicalID + "-" + uuid.New().String()[:8], nil
 	}
