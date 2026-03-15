@@ -21,6 +21,9 @@ type FlexibleTimeWindow struct {
 }
 
 type Target struct {
+	// Input is an optional custom event payload sent to the target instead of the default
+	// scheduler event. When empty the runner constructs a default EventBridge Scheduler event.
+	Input   string `json:"input,omitempty"`
 	ARN     string `json:"arn"`
 	RoleARN string `json:"roleARN"`
 }
