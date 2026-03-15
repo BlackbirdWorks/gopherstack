@@ -65,6 +65,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutSecretValue",
 		"DeleteSecret",
 		"ListSecrets",
+		"ListSecretVersionIDs",
 		"DescribeSecret",
 		"UpdateSecret",
 		"RestoreSecret",
@@ -154,6 +155,7 @@ type smActionFn func(ctx context.Context, region string, body []byte) (any, erro
 func (h *Handler) smDispatchTable() map[string]smActionFn {
 	table := make(map[string]smActionFn)
 	maps.Copy(table, h.smCRUDActions())
+	maps.Copy(table, h.smVersionActions())
 	maps.Copy(table, h.smTagActions())
 	maps.Copy(table, h.smPolicyActions())
 
@@ -267,6 +269,19 @@ func (h *Handler) smTagActions() map[string]smActionFn {
 	}
 }
 
+func (h *Handler) smVersionActions() map[string]smActionFn {
+	return map[string]smActionFn{
+		"ListSecretVersionIDs": func(_ context.Context, _ string, b []byte) (any, error) {
+			var input ListSecretVersionIDsInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return h.Backend.ListSecretVersionIDs(&input)
+		},
+	}
+}
+
 func (h *Handler) smPolicyActions() map[string]smActionFn {
 	return map[string]smActionFn{
 		"GetResourcePolicy": func(_ context.Context, _ string, b []byte) (any, error) {
@@ -319,7 +334,7 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "ResourceExistsException"
 	case errors.Is(reqErr, ErrSecretDeleted):
 		errorType = "InvalidRequestException"
-	case errors.Is(reqErr, ErrInvalidPasswordParameters):
+	case errors.Is(reqErr, ErrSecretValueTooLarge), errors.Is(reqErr, ErrInvalidPasswordParameters):
 		errorType = "InvalidParameterException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"
