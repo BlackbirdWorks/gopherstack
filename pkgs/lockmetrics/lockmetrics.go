@@ -148,9 +148,12 @@ type RWMutex struct {
 	holdSeconds   *prometheus.HistogramVec
 	activeWriters *prometheus.GaugeVec
 	activeReaders *prometheus.GaugeVec
+	// activeReadersLock is a curried gauge pre-scoped to this lock name,
+	// eliminating the per-call label hash lookup on RLock/RUnlock.
+	activeReadersLock prometheus.Gauge
 	// writeOp and name follow; each contains a pointer so the GC scan extends
 	// through them, but their trailing non-pointer word (len/cap) falls outside
-	// the scan range, minimising pointer bytes to 56.
+	// the scan range.
 	writeOp atomic.Value // string — current write-lock operation name
 	name    string
 
@@ -216,6 +219,10 @@ func New(name string) *RWMutex {
 	coll := registerOrReuse(newLiveCollector())
 	coll.allMutexes.Store(m, struct{}{})
 
+	// Pre-curry the activeReaders gauge to this lock's name so RLock/RUnlock
+	// avoid a label hash lookup on every call.
+	m.activeReadersLock = m.activeReaders.WithLabelValues(m.name)
+
 	return m
 }
 
@@ -225,6 +232,14 @@ func New(name string) *RWMutex {
 func (m *RWMutex) Close() {
 	coll := registerOrReuse(newLiveCollector())
 	coll.allMutexes.Delete(m)
+
+	// Remove all label-value combinations for this lock name from every metric
+	// family. Because "operation" is dynamic we use DeletePartialMatch to sweep
+	// all series whose "lock" label equals m.name in a single call.
+	m.waitSeconds.DeletePartialMatch(prometheus.Labels{"lock": m.name})
+	m.holdSeconds.DeletePartialMatch(prometheus.Labels{"lock": m.name})
+	m.activeWriters.DeletePartialMatch(prometheus.Labels{"lock": m.name})
+	m.activeReaders.DeleteLabelValues(m.name)
 }
 
 // WriteWaiters returns the current number of goroutines blocked waiting for
@@ -294,11 +309,11 @@ func (m *RWMutex) RLock(op string) {
 	m.readWaiters.Add(-1) // acquired — no longer waiting
 
 	m.waitSeconds.WithLabelValues(m.name, op, "read").Observe(time.Since(start).Seconds())
-	m.activeReaders.WithLabelValues(m.name).Inc()
+	m.activeReadersLock.Inc()
 }
 
 // RUnlock releases the shared read lock.
 func (m *RWMutex) RUnlock() {
-	m.activeReaders.WithLabelValues(m.name).Dec()
+	m.activeReadersLock.Dec()
 	m.mu.RUnlock()
 }
