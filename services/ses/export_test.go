@@ -1,7 +1,12 @@
 package ses
 
+import "time"
+
 // MaxRetainedEmails exposes the email retention cap for testing.
 const MaxRetainedEmails = maxRetainedEmails
+
+// DefaultEmailTTL exposes the default email TTL for testing.
+const DefaultEmailTTL = defaultEmailTTL
 
 // EmailCount returns the number of stored emails.
 func (b *InMemoryBackend) EmailCount() int {
@@ -11,10 +16,50 @@ func (b *InMemoryBackend) EmailCount() int {
 	return len(b.emails)
 }
 
+// EmailsByIDCount returns the number of entries in the O(1) lookup map.
+func (b *InMemoryBackend) EmailsByIDCount() int {
+	b.mu.RLock("EmailsByIDCount")
+	defer b.mu.RUnlock()
+
+	return len(b.emailsByID)
+}
+
 // IdentityCount returns the number of verified identities.
 func (b *InMemoryBackend) IdentityCount() int {
 	b.mu.RLock("IdentityCount")
 	defer b.mu.RUnlock()
 
 	return len(b.identities)
+}
+
+// TemplateCount returns the number of stored templates.
+func (b *InMemoryBackend) TemplateCount() int {
+	b.mu.RLock("TemplateCount")
+	defer b.mu.RUnlock()
+
+	return len(b.templates)
+}
+
+// ConfigSetCount returns the number of stored configuration sets.
+func (b *InMemoryBackend) ConfigSetCount() int {
+	b.mu.RLock("ConfigSetCount")
+	defer b.mu.RUnlock()
+
+	return len(b.configSets)
+}
+
+// SetEmailTTL overrides the email TTL — useful for tests that need fast expiry.
+func (b *InMemoryBackend) SetEmailTTL(d time.Duration) {
+	b.mu.Lock("SetEmailTTL")
+	defer b.mu.Unlock()
+
+	b.emailTTL = d
+}
+
+// GetEmailTTL returns the current email TTL — useful for asserting Reset restores it.
+func (b *InMemoryBackend) GetEmailTTL() time.Duration {
+	b.mu.RLock("GetEmailTTL")
+	defer b.mu.RUnlock()
+
+	return b.emailTTL
 }
