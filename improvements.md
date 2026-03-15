@@ -265,7 +265,6 @@ All findings have been filed as GitHub issues.
 | MediaStore Data | Proper copying, no tags |
 | MemoryDB | Excellent: O(1) lookups, proper cleanup |
 | S3 Control | Simple, has persistence |
-| Route53 Resolver | Has persistence (missing tags in snapshot) |
 
 ---
 
@@ -414,5 +413,5 @@ Many services create resources in final state (e.g., "available", "ACTIVE") with
 ---
 
 **Total Issues Filed:** 119 (issues #654–#785)
-**Services Audited:** 114 (including shared packages, persistence layer, and clean services)
+**Services Audited:** 121 (114 with issues filed + 7 clean services)
 **Audit Date:** 2026-03-15
