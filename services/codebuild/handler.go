@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -26,11 +27,28 @@ var (
 // Handler is the Echo HTTP handler for CodeBuild operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	janitor *Janitor
 }
 
 // NewHandler creates a new CodeBuild handler backed by backend.
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+func (h *Handler) WithJanitor(interval, buildTTL time.Duration) *Handler {
+	h.janitor = NewJanitor(h.Backend, interval, buildTTL)
+
+	return h
+}
+
+// StartWorker starts the background janitor if configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // Name returns the service name.

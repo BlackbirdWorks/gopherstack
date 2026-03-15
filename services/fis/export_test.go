@@ -83,3 +83,27 @@ func (m *MockFISActionProvider) ExecuteFISAction(_ context.Context, _ service.FI
 
 // ErrMockAction is a sentinel error for mock action failures.
 var ErrMockAction = errors.New("mock action failed")
+
+// SetExperimentTerminal sets an experiment to a terminal state with a specific end time.
+// Used only in tests.
+func (b *InMemoryBackend) SetExperimentTerminal(id, status string, endTime time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	exp, ok := b.experiments[id]
+	if !ok {
+		return
+	}
+
+	exp.Status = ExperimentStatus{Status: status}
+	exp.EndTime = &endTime
+}
+
+// ExperimentCount returns the number of experiments stored.
+// Used only in tests.
+func (b *InMemoryBackend) ExperimentCount() int {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	return len(b.experiments)
+}

@@ -382,23 +382,24 @@ func (b *InMemoryBackend) DescribeJobDefinitions(names []string) []*JobDefinitio
 	return list
 }
 
-// DeregisterJobDefinition marks a job definition as INACTIVE by ARN or name:revision.
+// DeregisterJobDefinition removes a job definition by ARN or name:revision.
+// The revision counter is retained so subsequent registrations receive a higher revision.
 func (b *InMemoryBackend) DeregisterJobDefinition(arnOrNameRev string) error {
 	b.mu.Lock("DeregisterJobDefinition")
 	defer b.mu.Unlock()
 
 	// Try direct ARN lookup first.
-	if jd, ok := b.jobDefinitions[arnOrNameRev]; ok {
-		jd.Status = "INACTIVE"
+	if _, ok := b.jobDefinitions[arnOrNameRev]; ok {
+		delete(b.jobDefinitions, arnOrNameRev)
 
 		return nil
 	}
 
 	// Fall back to name:revision lookup (e.g. "my-job:3").
-	for _, jd := range b.jobDefinitions {
+	for arnKey, jd := range b.jobDefinitions {
 		nameRev := fmt.Sprintf("%s:%d", jd.JobDefinitionName, jd.Revision)
 		if nameRev == arnOrNameRev {
-			jd.Status = "INACTIVE"
+			delete(b.jobDefinitions, arnKey)
 
 			return nil
 		}

@@ -217,7 +217,7 @@ func (b *InMemoryBackend) UpdateProject(
 	return &out, nil
 }
 
-// DeleteProject removes a project by name.
+// DeleteProject removes a project by name and all builds associated with it.
 func (b *InMemoryBackend) DeleteProject(name string) error {
 	b.mu.Lock("DeleteProject")
 	defer b.mu.Unlock()
@@ -227,6 +227,12 @@ func (b *InMemoryBackend) DeleteProject(name string) error {
 	}
 
 	delete(b.projects, name)
+
+	for id, build := range b.builds {
+		if build.ProjectName == name {
+			delete(b.builds, id)
+		}
+	}
 
 	return nil
 }

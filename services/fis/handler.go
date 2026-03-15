@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -43,6 +44,7 @@ const (
 // Handler is the Echo HTTP handler for the FIS REST API.
 type Handler struct {
 	Backend       StorageBackend
+	janitor       *Janitor
 	DefaultRegion string
 	AccountID     string
 }
@@ -50,6 +52,25 @@ type Handler struct {
 // NewHandler creates a new FIS handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+// If the backend is not an *InMemoryBackend, this is a no-op.
+func (h *Handler) WithJanitor(interval, experimentTTL time.Duration) *Handler {
+	if mem, ok := h.Backend.(*InMemoryBackend); ok {
+		h.janitor = NewJanitor(mem, interval, experimentTTL)
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // SetFaultStore injects the chaos FaultStore into the backend for inject-api-* actions.
