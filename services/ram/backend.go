@@ -240,13 +240,19 @@ func (b *InMemoryBackend) DeleteResourceShare(shareARN string) error {
 
 	delete(b.resourceShares, shareARN)
 
-	// Remove all associations that belonged to this share.
+	// Remove all associations that belonged to this share. Nil the truncated
+	// tail slots so the GC can collect the removed association objects.
 	kept := b.associations[:0]
 	for _, a := range b.associations {
 		if a.ResourceShareARN != shareARN {
 			kept = append(kept, a)
 		}
 	}
+
+	for i := len(kept); i < len(b.associations); i++ {
+		b.associations[i] = nil
+	}
+
 	b.associations = kept
 
 	return nil
@@ -340,6 +346,11 @@ func (b *InMemoryBackend) DisassociateResourceShare(
 		}
 
 		kept = append(kept, a)
+	}
+
+	// Nil the truncated tail slots so the GC can collect the removed associations.
+	for i := len(kept); i < len(b.associations); i++ {
+		b.associations[i] = nil
 	}
 
 	b.associations = kept

@@ -15,56 +15,45 @@ import (
 func TestEMR_Janitor_SweepsTerminatedClusters(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name            string
-		terminatedTTL   time.Duration
-		terminateFirst  bool
-		wantSweptByTime bool
-	}{
-		{
-			name:            "expired terminated cluster is swept",
-			terminatedTTL:   50 * time.Millisecond,
-			terminateFirst:  true,
-			wantSweptByTime: true,
-		},
-		{
-			name:            "active cluster is not swept",
-			terminatedTTL:   50 * time.Millisecond,
-			terminateFirst:  false,
-			wantSweptByTime: false,
-		},
-	}
+	b := emr.NewInMemoryBackend(testAccountID, testRegion)
+	cluster, err := b.RunJobFlow("sweep-test", "emr-6.0.0", nil, nil)
+	require.NoError(t, err)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
 
-			b := emr.NewInMemoryBackend(testAccountID, testRegion)
-			cluster, err := b.RunJobFlow("sweep-test", "emr-6.0.0", nil, nil)
-			require.NoError(t, err)
+	janitor := emr.NewJanitor(b, 10*time.Millisecond, 50*time.Millisecond)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 
-			if tt.terminateFirst {
-				require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
-			}
+	go janitor.Run(ctx)
 
-			janitor := emr.NewJanitor(b, 10*time.Millisecond, tt.terminatedTTL)
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
+	// Wait until the cluster is swept from the backend.
+	require.Eventually(t, func() bool {
+		_, descErr := b.DescribeCluster(cluster.ID)
 
-			go janitor.Run(ctx)
+		return descErr != nil
+	}, 2*time.Second, 20*time.Millisecond, "terminated cluster should be swept")
+}
 
-			// Wait long enough for the sweep to run.
-			time.Sleep(200 * time.Millisecond)
-			cancel()
+func TestEMR_Janitor_ActiveClusterNotSwept(t *testing.T) {
+	t.Parallel()
 
-			_, err = b.DescribeCluster(cluster.ID)
-			if tt.wantSweptByTime {
-				require.Error(t, err, "cluster should have been swept")
-			} else {
-				require.NoError(t, err, "active cluster should still exist")
-			}
-		})
-	}
+	b := emr.NewInMemoryBackend(testAccountID, testRegion)
+	cluster, err := b.RunJobFlow("active-test", "emr-6.0.0", nil, nil)
+	require.NoError(t, err)
+
+	// Do NOT terminate the cluster — it should never be swept.
+	janitor := emr.NewJanitor(b, 10*time.Millisecond, 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	go janitor.Run(ctx)
+
+	// Wait for the janitor context to expire (several ticks), then verify cluster still exists.
+	<-ctx.Done()
+
+	_, err = b.DescribeCluster(cluster.ID)
+	require.NoError(t, err, "active cluster must not be swept")
 }
 
 func TestEMR_Janitor_RecentlyTerminatedNotSwept(t *testing.T) {
@@ -76,17 +65,16 @@ func TestEMR_Janitor_RecentlyTerminatedNotSwept(t *testing.T) {
 
 	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
 
-	// Use a very long TTL so the cluster should not be swept yet.
+	// Use a very long TTL so the cluster should not be swept.
 	janitor := emr.NewJanitor(b, 10*time.Millisecond, 24*time.Hour)
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 
 	go janitor.Run(ctx)
 
-	time.Sleep(100 * time.Millisecond)
-	cancel()
+	<-ctx.Done()
 
-	// Cluster should still exist (DescribeCluster works on terminated clusters).
+	// Cluster should still be reachable with TERMINATED state.
 	c, err := b.DescribeCluster(cluster.ID)
 	require.NoError(t, err)
 	assert.Equal(t, emr.StateTerminated, c.Status.State)

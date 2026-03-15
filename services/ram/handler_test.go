@@ -920,17 +920,14 @@ func TestRAM_Backend_DeleteResourceShare_RemovesFromMemory(t *testing.T) {
 	tests := []struct {
 		name       string
 		principals []string
-		wantFound  bool
 	}{
 		{
 			name:       "share with associations is fully removed",
 			principals: []string{"123456789012"},
-			wantFound:  false,
 		},
 		{
 			name:       "share without associations is fully removed",
 			principals: nil,
-			wantFound:  false,
 		},
 	}
 
