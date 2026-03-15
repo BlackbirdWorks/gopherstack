@@ -18,11 +18,13 @@ import (
 )
 
 var errContainerStartFailed = errors.New("start failed")
+var errContainerStopFailed = errors.New("stop failed")
 
 // fakeDockerClient is a test double for dockerClient.
 // It assigns sequential IDs to created containers and records all operations.
 type fakeDockerClient struct {
 	startErrOnID string
+	stopErrOnID  string
 	started      []string
 	stopped      []string
 	removed      []string
@@ -67,6 +69,10 @@ func (f *fakeDockerClient) ContainerStart(_ context.Context, containerID string,
 func (f *fakeDockerClient) ContainerStop(_ context.Context, containerID string, _ dockertypes.StopOptions) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if f.stopErrOnID != "" && containerID == f.stopErrOnID {
+		return errContainerStopFailed
+	}
 
 	f.stopped = append(f.stopped, containerID)
 
@@ -473,4 +479,97 @@ func TestDeleteCluster_CascadesContainerStops(t *testing.T) {
 			assert.Equal(t, tt.wantStopped, stoppedCount, "all task containers must be stopped on cluster deletion")
 		})
 	}
+}
+
+// TestDockerRunner_RunTask_RollbackOnPartialStart verifies that when a later
+// container in a multi-container task fails to start, all previously-started
+// containers are stopped and removed so RunTask is atomic.
+func TestDockerRunner_RunTask_RollbackOnPartialStart(t *testing.T) {
+	t.Parallel()
+
+	// 3-container task: containers 1 and 2 start fine, container 3 fails.
+	// After the failure, containers 1 and 2 must be stopped and removed.
+	containerThreeID := fmt.Sprintf("%s%02d", strings.Repeat("a", 12), 3)
+
+	fake := &fakeDockerClient{startErrOnID: containerThreeID}
+	runner := newDockerRunnerWithClient(fake)
+	task := &Task{TaskArn: "arn:aws:ecs:us-east-1:000000000000:task/default/task-1"}
+	td := &TaskDefinition{
+		ContainerDefinitions: []ContainerDefinition{
+			{Image: "app:latest"},
+			{Image: "sidecar:latest"},
+			{Image: "proxy:latest"},
+		},
+	}
+
+	err := runner.RunTask(task, td)
+	require.Error(t, err, "RunTask must return an error when a container fails to start")
+
+	fake.mu.Lock()
+	stopped := append([]string(nil), fake.stopped...)
+	removed := append([]string(nil), fake.removed...)
+	fake.mu.Unlock()
+
+	// Containers 1 and 2 were started successfully and must be rolled back.
+	c1 := fmt.Sprintf("%s%02d", strings.Repeat("a", 12), 1)
+	c2 := fmt.Sprintf("%s%02d", strings.Repeat("a", 12), 2)
+
+	assert.Contains(t, stopped, c1, "first container must be stopped on rollback")
+	assert.Contains(t, stopped, c2, "second container must be stopped on rollback")
+	assert.Contains(t, removed, c1, "first container must be removed on rollback")
+	assert.Contains(t, removed, c2, "second container must be removed on rollback")
+	// Container 3 was never started; it must be removed (cleanup of the create).
+	assert.Contains(t, removed, containerThreeID, "failed container must be removed to prevent a leak")
+
+	runner.mu.Lock()
+	_, tracked := runner.containers[task.TaskArn]
+	runner.mu.Unlock()
+
+	assert.False(t, tracked, "no containers must be tracked after a failed RunTask")
+}
+
+// TestDockerRunner_StopTask_PartialFailure verifies that when stopping one
+// container fails, StopTask still attempts to stop the remaining containers,
+// returns an aggregated error, and retains only the failed entries in tracking.
+func TestDockerRunner_StopTask_PartialFailure(t *testing.T) {
+	t.Parallel()
+
+	// Two-container task; the first container's stop will fail.
+	containerOneID := fmt.Sprintf("%s%02d", strings.Repeat("a", 12), 1)
+	containerTwoID := fmt.Sprintf("%s%02d", strings.Repeat("a", 12), 2)
+
+	fake := &fakeDockerClient{}
+	runner := newDockerRunnerWithClient(fake)
+	task := &Task{TaskArn: "arn:aws:ecs:us-east-1:000000000000:task/default/task-1"}
+	td := &TaskDefinition{
+		ContainerDefinitions: []ContainerDefinition{
+			{Image: "app:latest"},
+			{Image: "sidecar:latest"},
+		},
+	}
+
+	require.NoError(t, runner.RunTask(task, td))
+
+	// Inject the stop error AFTER RunTask so it doesn't interfere with start.
+	fake.mu.Lock()
+	fake.stopErrOnID = containerOneID
+	fake.mu.Unlock()
+
+	err := runner.StopTask(task)
+	require.Error(t, err, "StopTask must return an error when a container stop fails")
+
+	fake.mu.Lock()
+	stopped := append([]string(nil), fake.stopped...)
+	fake.mu.Unlock()
+
+	// Container 2 must have been stopped even though container 1 failed.
+	assert.Contains(t, stopped, containerTwoID, "successful container must still be stopped")
+
+	// Container 1 failed; its ID must remain in tracking for a potential retry.
+	runner.mu.Lock()
+	remaining := append([]string(nil), runner.containers[task.TaskArn]...)
+	runner.mu.Unlock()
+
+	assert.Contains(t, remaining, containerOneID, "failed container must remain in tracking for retry")
+	assert.NotContains(t, remaining, containerTwoID, "stopped container must be removed from tracking")
 }

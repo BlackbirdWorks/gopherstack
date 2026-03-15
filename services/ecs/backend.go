@@ -304,18 +304,22 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	key := clusterKey(clusterName)
 
 	b.mu.Lock("DeleteCluster")
-	defer b.mu.Unlock()
 
 	c, ok := b.clusters[key]
 	if !ok {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
 	}
 
-	// Stop all Docker containers for running tasks in this cluster before
-	// removing the task map, preventing container leaks on cluster deletion.
+	// Snapshot task pointers while still holding the lock so we can stop their
+	// Docker containers after releasing it.  Performing Docker API calls under
+	// the backend lock would unnecessarily serialize all other operations.
+	tasksToStop := make([]*Task, 0, len(b.tasks[key]))
+
 	if b.runner != nil {
 		for _, task := range b.tasks[key] {
-			_ = b.runner.StopTask(task)
+			tasksToStop = append(tasksToStop, task)
 		}
 	}
 
@@ -333,6 +337,14 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	delete(b.containerInstances, key)
 
 	cp := *c
+
+	// Release the lock before issuing Docker API calls so other backend
+	// operations are not serialized behind potentially slow container stops.
+	b.mu.Unlock()
+
+	for _, task := range tasksToStop {
+		_ = b.runner.StopTask(task)
+	}
 
 	return &cp, nil
 }
