@@ -278,7 +278,7 @@ type ErrorResponse struct {
 
 // SecretVersionEntry is a brief descriptor for a single secret version, used in ListSecretVersionIDs.
 type SecretVersionEntry struct {
-	// VersionID is the unique version UUID.
+	// VersionID is the unique version identifier.
 	VersionID string `json:"VersionId"`
 	// StagingLabels are the labels attached to this version.
 	StagingLabels []string `json:"VersionStages,omitempty"`

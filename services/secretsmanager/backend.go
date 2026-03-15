@@ -338,9 +338,13 @@ func pruneVersions(secret *Secret) {
 		}
 	}
 
-	// Sort oldest first.
+	// Sort oldest first; break ties by ID for deterministic eviction order.
 	sort.Slice(unlabeled, func(i, j int) bool {
-		return unlabeled[i].createdDate < unlabeled[j].createdDate
+		if unlabeled[i].createdDate != unlabeled[j].createdDate {
+			return unlabeled[i].createdDate < unlabeled[j].createdDate
+		}
+
+		return unlabeled[i].id < unlabeled[j].id
 	})
 
 	toRemove := min(len(secret.Versions)-maxVersionsPerSecret, len(unlabeled))
@@ -466,7 +470,11 @@ func (b *InMemoryBackend) ListSecretVersionIDs(input *ListSecretVersionIDsInput)
 	}
 
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].CreatedDate > entries[j].CreatedDate
+		if entries[i].CreatedDate != entries[j].CreatedDate {
+			return entries[i].CreatedDate > entries[j].CreatedDate
+		}
+
+		return entries[i].VersionID > entries[j].VersionID
 	})
 
 	startIdx := parseToken(input.NextToken)

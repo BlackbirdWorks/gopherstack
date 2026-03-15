@@ -1472,7 +1472,12 @@ func TestSecretsManagerSecretSizeValidation(t *testing.T) {
 		{
 			name: "put_secret_value_string_too_large",
 			op: func(b *secretsmanager.InMemoryBackend) error {
-				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "existing", SecretString: "ok"})
+				if _, err := b.CreateSecret(
+					&secretsmanager.CreateSecretInput{Name: "existing", SecretString: "ok"},
+				); err != nil {
+					return err
+				}
+
 				_, err := b.PutSecretValue(&secretsmanager.PutSecretValueInput{
 					SecretID:     "existing",
 					SecretString: bigString,
@@ -1485,7 +1490,12 @@ func TestSecretsManagerSecretSizeValidation(t *testing.T) {
 		{
 			name: "put_secret_value_binary_too_large",
 			op: func(b *secretsmanager.InMemoryBackend) error {
-				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "existing-bin", SecretString: "ok"})
+				if _, err := b.CreateSecret(
+					&secretsmanager.CreateSecretInput{Name: "existing-bin", SecretString: "ok"},
+				); err != nil {
+					return err
+				}
+
 				_, err := b.PutSecretValue(&secretsmanager.PutSecretValueInput{
 					SecretID:     "existing-bin",
 					SecretBinary: bigBinary,
@@ -1498,7 +1508,12 @@ func TestSecretsManagerSecretSizeValidation(t *testing.T) {
 		{
 			name: "update_secret_string_too_large",
 			op: func(b *secretsmanager.InMemoryBackend) error {
-				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "update-big", SecretString: "ok"})
+				if _, err := b.CreateSecret(
+					&secretsmanager.CreateSecretInput{Name: "update-big", SecretString: "ok"},
+				); err != nil {
+					return err
+				}
+
 				_, err := b.UpdateSecret(&secretsmanager.UpdateSecretInput{
 					SecretID:     "update-big",
 					SecretString: bigString,
@@ -1545,7 +1560,7 @@ func TestSecretsManagerListSecretVersionIDs(t *testing.T) {
 
 	tests := []struct {
 		wantErrIs error
-		setup     func(b *secretsmanager.InMemoryBackend)
+		setup     func(t *testing.T, b *secretsmanager.InMemoryBackend)
 		checkFn   func(t *testing.T, out *secretsmanager.ListSecretVersionIDsOutput)
 		name      string
 		input     secretsmanager.ListSecretVersionIDsInput
@@ -1553,9 +1568,12 @@ func TestSecretsManagerListSecretVersionIDs(t *testing.T) {
 	}{
 		{
 			name: "returns_labeled_versions",
-			setup: func(b *secretsmanager.InMemoryBackend) {
-				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "lsv-test", SecretString: "v1"})
-				_, _ = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-test", SecretString: "v2"})
+			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "lsv-test", SecretString: "v1"})
+				require.NoError(t, err)
+				_, err = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-test", SecretString: "v2"})
+				require.NoError(t, err)
 			},
 			input: secretsmanager.ListSecretVersionIDsInput{SecretID: "lsv-test"},
 			checkFn: func(t *testing.T, out *secretsmanager.ListSecretVersionIDsOutput) {
@@ -1566,10 +1584,14 @@ func TestSecretsManagerListSecretVersionIDs(t *testing.T) {
 		},
 		{
 			name: "include_deprecated_returns_all",
-			setup: func(b *secretsmanager.InMemoryBackend) {
-				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "lsv-depr", SecretString: "v1"})
-				_, _ = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-depr", SecretString: "v2"})
-				_, _ = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-depr", SecretString: "v3"})
+			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "lsv-depr", SecretString: "v1"})
+				require.NoError(t, err)
+				_, err = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-depr", SecretString: "v2"})
+				require.NoError(t, err)
+				_, err = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-depr", SecretString: "v3"})
+				require.NoError(t, err)
 			},
 			input: secretsmanager.ListSecretVersionIDsInput{SecretID: "lsv-depr", IncludeDeprecated: true},
 			checkFn: func(t *testing.T, out *secretsmanager.ListSecretVersionIDsOutput) {
@@ -1579,16 +1601,19 @@ func TestSecretsManagerListSecretVersionIDs(t *testing.T) {
 		},
 		{
 			name:      "not_found",
-			setup:     func(_ *secretsmanager.InMemoryBackend) {},
+			setup:     func(_ *testing.T, _ *secretsmanager.InMemoryBackend) {},
 			input:     secretsmanager.ListSecretVersionIDsInput{SecretID: "nonexistent"},
 			wantErr:   true,
 			wantErrIs: secretsmanager.ErrSecretNotFound,
 		},
 		{
 			name: "pagination",
-			setup: func(b *secretsmanager.InMemoryBackend) {
-				_, _ = b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "lsv-page", SecretString: "v1"})
-				_, _ = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-page", SecretString: "v2"})
+			setup: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{Name: "lsv-page", SecretString: "v1"})
+				require.NoError(t, err)
+				_, err = b.PutSecretValue(&secretsmanager.PutSecretValueInput{SecretID: "lsv-page", SecretString: "v2"})
+				require.NoError(t, err)
 			},
 			input: secretsmanager.ListSecretVersionIDsInput{
 				SecretID:          "lsv-page",
@@ -1612,7 +1637,7 @@ func TestSecretsManagerListSecretVersionIDs(t *testing.T) {
 			t.Parallel()
 
 			b := secretsmanager.NewInMemoryBackend()
-			tt.setup(b)
+			tt.setup(t, b)
 
 			out, err := b.ListSecretVersionIDs(&tt.input)
 
