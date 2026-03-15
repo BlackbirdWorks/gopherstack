@@ -224,7 +224,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		Attributes:          attrs,
 		DeduplicationIDs:    make(map[string]time.Time),
 		deduplicationMsgIDs: make(map[string]string),
-		notify:              make(chan struct{}, 1),
+		notify:              make(chan struct{}),
 	}
 
 	b.queues[input.QueueName] = q
@@ -241,8 +241,17 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 
 	name := queueNameFromInput(input.QueueURL)
 
-	if _, exists := b.queues[name]; !exists {
+	q, ok := b.queues[name]
+	if !ok {
 		return ErrQueueNotFound
+	}
+
+	// Close the notify channel so that any goroutines blocked on long-polling
+	// wake up immediately and receive ErrQueueNotFound on their next receiveOnce call.
+	close(q.notify)
+
+	if q.Tags != nil {
+		q.Tags.Close()
 	}
 
 	delete(b.queues, name)
@@ -285,8 +294,8 @@ func (b *InMemoryBackend) GetQueueURL(input *GetQueueURLInput) (*GetQueueURLOutp
 
 // GetQueueAttributes returns queue attributes, computing dynamic ones on the fly.
 func (b *InMemoryBackend) GetQueueAttributes(input *GetQueueAttributesInput) (*GetQueueAttributesOutput, error) {
-	b.mu.Lock("GetQueueAttributes")
-	defer b.mu.Unlock()
+	b.mu.RLock("GetQueueAttributes")
+	defer b.mu.RUnlock()
 
 	name := queueNameFromInput(input.QueueURL)
 
@@ -366,6 +375,12 @@ func (b *InMemoryBackend) SetQueueAttributes(input *SetQueueAttributesInput) err
 	return nil
 }
 
+// maxWaitTimeSeconds is the AWS maximum for ReceiveMessage WaitTimeSeconds.
+const maxWaitTimeSeconds = 20
+
+// maxVisibilityTimeoutSeconds is the AWS maximum for VisibilityTimeout (12 hours).
+const maxVisibilityTimeoutSeconds = 43200
+
 // SendMessage adds a message to the specified queue.
 func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutput, error) {
 	b.mu.Lock("SendMessage")
@@ -378,21 +393,37 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 		return nil, ErrQueueNotFound
 	}
 
+	if err := validateMessageSize(input.MessageBody, q); err != nil {
+		return nil, err
+	}
+
+	if q.IsFIFO {
+		if err := validateFIFOParams(input, q); err != nil {
+			return nil, err
+		}
+	}
+
 	md5Body := computeMD5(input.MessageBody)
 	md5Attrs := computeMD5OfMessageAttributes(input.MessageAttributes)
 
+	// Capture now once so that pruneDedup, checkDedup, storeDedup, and message
+	// timestamps all use the same consistent clock value.
+	now := time.Now()
+
 	if q.IsFIFO {
+		pruneDedup(q, now)
+
 		if out, dup := checkDedup(
 			q,
 			input.MessageDeduplicationID,
 			md5Body,
 			q.Attributes[attrContentBasedDeduplication],
+			now,
 		); dup {
 			return out, nil
 		}
 	}
 
-	now := time.Now()
 	msgID := uuid.New().String()
 	sentTS := strconv.FormatInt(now.UnixMilli(), 10)
 
@@ -418,18 +449,47 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 
 	q.messages = append(q.messages, msg)
 
-	// Signal long-polling receivers on the empty→non-empty transition.
-	// The notify channel is a buffered(1), never-closed channel; a non-blocking
-	// send avoids the close/recreate race where a receiver holding a stale
-	// reference would immediately drain a closed channel and spin.
-	if len(q.messages) == 1 {
-		select {
-		case q.notify <- struct{}{}:
-		default:
-		}
-	}
+	// Broadcast to all long-polling receivers: close the current generation channel
+	// (which unblocks all goroutines waiting on it) and replace it with a new one.
+	// Any receiver holding a reference to the old closed channel will wake up, re-check
+	// for messages under the lock, and (if no messages are found yet) capture the new
+	// channel for the next wait. This provides fair wake-up for all concurrent receivers.
+	old := q.notify
+	q.notify = make(chan struct{})
+	close(old)
 
 	return &SendMessageOutput{MessageID: msgID, MD5OfBody: md5Body, MD5OfMessageAttributes: md5Attrs}, nil
+}
+
+// validateMessageSize checks whether the message body exceeds the queue's MaximumMessageSize.
+func validateMessageSize(body string, q *Queue) error {
+	maxSize := defaultMaxMessageSize
+
+	if v, err := strconv.Atoi(q.Attributes[attrMaximumMessageSize]); err == nil && v > 0 {
+		maxSize = v
+	}
+
+	if len(body) > maxSize {
+		return ErrMessageTooLarge
+	}
+
+	return nil
+}
+
+// validateFIFOParams validates FIFO-specific parameters for a SendMessage request.
+// AWS requires MessageGroupID for all FIFO sends, and MessageDeduplicationID when
+// ContentBasedDeduplication is disabled on the queue.
+func validateFIFOParams(input *SendMessageInput, q *Queue) error {
+	if input.MessageGroupID == "" {
+		return ErrMissingMessageGroupID
+	}
+
+	contentBasedDedup := q.Attributes[attrContentBasedDeduplication]
+	if contentBasedDedup != attrValTrue && input.MessageDeduplicationID == "" {
+		return ErrMissingDeduplicationID
+	}
+
+	return nil
 }
 
 // resolveMessageVisibleAt computes the earliest time the message should be visible.
@@ -449,7 +509,8 @@ func resolveMessageVisibleAt(now time.Time, msgDelaySeconds int, queueDelayAttr 
 }
 
 // checkDedup checks for a duplicate FIFO message and returns the original output if found.
-func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string) (*SendMessageOutput, bool) {
+// now is the reference time used for window expiry comparison.
+func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string, now time.Time) (*SendMessageOutput, bool) {
 	effectiveID := dedupID
 	if effectiveID == "" && contentBasedDedup == attrValTrue {
 		effectiveID = md5Body
@@ -460,7 +521,7 @@ func checkDedup(q *Queue, dedupID, md5Body, contentBasedDedup string) (*SendMess
 	}
 
 	expiry, found := q.DeduplicationIDs[effectiveID]
-	if !found || !time.Now().Before(expiry) {
+	if !found || !now.Before(expiry) {
 		return nil, false
 	}
 
@@ -496,15 +557,17 @@ func pruneDedup(q *Queue, now time.Time) {
 
 // ReceiveMessage retrieves messages from the queue, with optional long-poll wait.
 //
-// Long polling uses a single long-lived buffered(1) notify channel: receiveOnce
-// captures q.notify under the write lock. When SendMessage transitions the queue
-// from empty to non-empty it writes a value to the channel (non-blocking), waking
-// one blocked receiver. The channel is never closed, eliminating the stale-reference
-// race of the old close/recreate pattern.
+// Long polling uses a broadcast notify channel: SendMessage closes the current generation
+// channel (waking all waiting receivers) and replaces it with a new one. This ensures
+// all concurrent long-poll receivers are woken on each message arrival rather than just one.
 // A 1-second recheck interval is also applied so that messages which reappear
 // due to visibility-timeout expiry (reQueueExpired) are picked up promptly even
 // when no new SendMessage occurs.
 func (b *InMemoryBackend) ReceiveMessage(input *ReceiveMessageInput) (*ReceiveMessageOutput, error) {
+	if input.WaitTimeSeconds < 0 || input.WaitTimeSeconds > maxWaitTimeSeconds {
+		return nil, ErrInvalidWaitTime
+	}
+
 	name := queueNameFromInput(input.QueueURL)
 	deadline := time.Now().Add(time.Duration(input.WaitTimeSeconds) * time.Second)
 
@@ -566,6 +629,7 @@ func (b *InMemoryBackend) receiveOnce(name string, input *ReceiveMessageInput) (
 
 	now := time.Now()
 	reQueueExpired(q, now)
+	expireRetainedMessages(q, now)
 	drainToDLQ(q)
 
 	if q.IsFIFO {
@@ -611,6 +675,31 @@ func reQueueExpired(q *Queue, now time.Time) {
 	}
 
 	q.inFlightMessages = stillInFlight
+}
+
+// expireRetainedMessages removes messages that have exceeded the queue's
+// MessageRetentionPeriod. AWS silently discards such messages; they never
+// reach a consumer. The expiry is computed from SentTimestamp.
+func expireRetainedMessages(q *Queue, now time.Time) {
+	retentionSecs, err := strconv.Atoi(q.Attributes[attrMessageRetentionPeriod])
+	if err != nil || retentionSecs <= 0 {
+		retentionSecs = defaultMessageRetentionPeriod
+	}
+
+	cutoff := now.Add(-time.Duration(retentionSecs) * time.Second)
+
+	fresh := q.messages[:0]
+
+	for _, msg := range q.messages {
+		sentAt := time.UnixMilli(msg.SentTimestamp)
+		if sentAt.Before(cutoff) {
+			continue // silently discard expired message
+		}
+
+		fresh = append(fresh, msg)
+	}
+
+	q.messages = fresh
 }
 
 // pickMessages moves up to maxMessages visible (non-delayed) messages from the
@@ -678,6 +767,10 @@ func (b *InMemoryBackend) DeleteMessage(input *DeleteMessageInput) error {
 
 // ChangeMessageVisibility updates the visibility timeout for an in-flight message.
 func (b *InMemoryBackend) ChangeMessageVisibility(input *ChangeMessageVisibilityInput) error {
+	if input.VisibilityTimeout < 0 || input.VisibilityTimeout > maxVisibilityTimeoutSeconds {
+		return ErrInvalidVisibilityTimeout
+	}
+
 	b.mu.Lock("ChangeMessageVisibility")
 	defer b.mu.Unlock()
 
@@ -736,7 +829,29 @@ func (b *InMemoryBackend) ChangeMessageVisibilityBatch(
 	return out, nil
 }
 
+// validateBatchEntryIDs checks that all entries in a batch have non-empty IDs and
+// that no two entries share the same ID (AWS requires IDs to be distinct within a batch).
+func validateBatchEntryIDs(entries []SendMessageBatchEntry) error {
+	seen := make(map[string]struct{}, len(entries))
+
+	for _, entry := range entries {
+		if entry.ID == "" {
+			return ErrInvalidBatchEntry
+		}
+
+		if _, dup := seen[entry.ID]; dup {
+			return ErrBatchEntryIDsNotDistinct
+		}
+
+		seen[entry.ID] = struct{}{}
+	}
+
+	return nil
+}
+
 // SendMessageBatch sends a batch of messages to the specified queue.
+// Results in the Successful and Failed slices are returned in the same
+// order as the corresponding entries in the input slice.
 func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendMessageBatchOutput, error) {
 	if len(input.Entries) == 0 {
 		return nil, ErrInvalidBatchEntry
@@ -746,8 +861,14 @@ func (b *InMemoryBackend) SendMessageBatch(input *SendMessageBatchInput) (*SendM
 		return nil, ErrTooManyEntriesInBatch
 	}
 
+	if err := validateBatchEntryIDs(input.Entries); err != nil {
+		return nil, err
+	}
+
 	out := &SendMessageBatchOutput{}
 
+	// Process entries in input order; append results directly so Successful and
+	// Failed slices already match the original entry order without sorting.
 	for _, entry := range input.Entries {
 		sendOut, err := b.SendMessage(&SendMessageInput{
 			QueueURL:               input.QueueURL,
@@ -1052,4 +1173,13 @@ func (b *InMemoryBackend) DeleteMessagesLocal(queueURL string, receiptHandles []
 	}
 
 	return nil
+}
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.queues = make(map[string]*Queue)
 }

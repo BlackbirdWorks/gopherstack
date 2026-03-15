@@ -45,8 +45,31 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-// Ensure Handler implements service.BackgroundWorker at compile time.
+// Shutdown implements service.Shutdowner.
+// It flushes any buffered records to their destinations before the process
+// exits so that records received since the last interval flush are not lost.
+// If ctx expires before FlushAll returns, Shutdown returns immediately.
+func (h *Handler) Shutdown(ctx context.Context) {
+	if h.Backend == nil {
+		return
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		h.Backend.FlushAll(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+// Ensure Handler implements service.BackgroundWorker and service.Shutdowner at compile time.
 var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
 
 // GetSupportedOperations returns the list of supported Firehose operations.
 func (h *Handler) GetSupportedOperations() []string {

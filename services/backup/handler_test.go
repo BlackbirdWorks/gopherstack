@@ -629,6 +629,72 @@ func TestBackupPersistence(t *testing.T) {
 			},
 		},
 		{
+			name: "restore_rebuilds_arn_index_for_vault",
+			run: func(t *testing.T) {
+				t.Helper()
+				b := backup.NewInMemoryBackend("000000000000", "us-east-1")
+				vault, err := b.CreateBackupVault("my-vault", "", "", nil)
+				require.NoError(t, err)
+
+				snap := b.Snapshot()
+				require.NotNil(t, snap)
+
+				fresh := backup.NewInMemoryBackend("000000000000", "us-east-1")
+				require.NoError(t, fresh.Restore(snap))
+
+				// Tag by ARN must succeed using the rebuilt index.
+				err = fresh.TagResource(vault.BackupVaultArn, map[string]string{"env": "prod"})
+				require.NoError(t, err)
+
+				kv, err := fresh.ListTags(vault.BackupVaultArn)
+				require.NoError(t, err)
+				assert.Equal(t, "prod", kv["env"])
+			},
+		},
+		{
+			name: "restore_rebuilds_arn_index_for_plan",
+			run: func(t *testing.T) {
+				t.Helper()
+				b := backup.NewInMemoryBackend("000000000000", "us-east-1")
+				plan, err := b.CreateBackupPlan("my-plan", nil, nil)
+				require.NoError(t, err)
+
+				snap := b.Snapshot()
+				require.NotNil(t, snap)
+
+				fresh := backup.NewInMemoryBackend("000000000000", "us-east-1")
+				require.NoError(t, fresh.Restore(snap))
+
+				// Tag by ARN must succeed using the rebuilt index.
+				err = fresh.TagResource(plan.BackupPlanArn, map[string]string{"team": "ops"})
+				require.NoError(t, err)
+
+				kv, err := fresh.ListTags(plan.BackupPlanArn)
+				require.NoError(t, err)
+				assert.Equal(t, "ops", kv["team"])
+			},
+		},
+		{
+			name: "restore_rebuilds_plan_id_index",
+			run: func(t *testing.T) {
+				t.Helper()
+				b := backup.NewInMemoryBackend("000000000000", "us-east-1")
+				plan, err := b.CreateBackupPlan("id-plan", nil, nil)
+				require.NoError(t, err)
+
+				snap := b.Snapshot()
+				require.NotNil(t, snap)
+
+				fresh := backup.NewInMemoryBackend("000000000000", "us-east-1")
+				require.NoError(t, fresh.Restore(snap))
+
+				// GetBackupPlan by plan ID must succeed using the rebuilt planIDIndex.
+				got, err := fresh.GetBackupPlan(plan.BackupPlanID)
+				require.NoError(t, err)
+				assert.Equal(t, plan.BackupPlanName, got.BackupPlanName)
+			},
+		},
+		{
 			name: "restore_invalid_json",
 			run: func(t *testing.T) {
 				t.Helper()

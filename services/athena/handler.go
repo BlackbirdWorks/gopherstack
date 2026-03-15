@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -22,11 +23,31 @@ var ErrUnknownOperation = errors.New("InvalidRequestException")
 // Handler is the Echo HTTP service handler for Athena operations.
 type Handler struct {
 	Backend StorageBackend
+	janitor *Janitor
 }
 
 // NewHandler creates a new Athena handler with the given storage backend.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+// If the backend is not an *InMemoryBackend, this is a no-op.
+func (h *Handler) WithJanitor(interval, executionTTL time.Duration) *Handler {
+	if mem, ok := h.Backend.(*InMemoryBackend); ok {
+		h.janitor = NewJanitor(mem, interval, executionTTL)
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // Name returns the service name.

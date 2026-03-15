@@ -64,8 +64,7 @@ func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, e
 	now := time.Now()
 	bkpARN := backupARN(region, db.accountID, req.TableName, now)
 
-	const avgItemSizeBytes = 400
-	sizeBytes := int64(len(itemsCopy)) * avgItemSizeBytes
+	sizeBytes := estimateTableSizeBytes(itemsCopy)
 
 	backup := &Backup{
 		BackupArn:            bkpARN,

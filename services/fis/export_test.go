@@ -83,3 +83,60 @@ func (m *MockFISActionProvider) ExecuteFISAction(_ context.Context, _ service.FI
 
 // ErrMockAction is a sentinel error for mock action failures.
 var ErrMockAction = errors.New("mock action failed")
+
+// SetExperimentTerminal sets an experiment to a terminal state with a specific end time,
+// cancelling the background goroutine to prevent races.
+// Used only in tests.
+func (b *InMemoryBackend) SetExperimentTerminal(id, status string, endTime time.Time) {
+	b.mu.Lock("SetExperimentTerminal")
+
+	exp, ok := b.experiments[id]
+	if !ok {
+		b.mu.Unlock()
+
+		return
+	}
+
+	// Cancel the background goroutine before mutating so it cannot race
+	// and overwrite the forced terminal values.
+	if exp.cancel != nil {
+		exp.cancel()
+	}
+
+	exp.Status = ExperimentStatus{Status: status}
+	exp.EndTime = &endTime
+
+	b.mu.Unlock()
+}
+
+// InjectExperiment inserts a pre-built experiment directly into the store without
+// starting a background goroutine. This allows tests to create experiments in arbitrary
+// terminal states without racing against the normal lifecycle goroutine.
+// Used only in tests.
+func (b *InMemoryBackend) InjectExperiment(exp *Experiment) {
+	b.mu.Lock("InjectExperiment")
+	defer b.mu.Unlock()
+
+	b.experiments[exp.ID] = exp
+}
+
+// ExperimentCount returns the number of experiments stored.
+// Used only in tests.
+func (b *InMemoryBackend) ExperimentCount() int {
+	b.mu.RLock("ExperimentCount")
+	defer b.mu.RUnlock()
+
+	return len(b.experiments)
+}
+
+// InjectCancel injects a cancel function for an experiment, simulating the one
+// stored when StartExperiment creates a background goroutine.
+// Used only in tests.
+func (b *InMemoryBackend) InjectCancel(id string, cancel context.CancelFunc) {
+	b.mu.Lock("InjectCancel")
+	defer b.mu.Unlock()
+
+	if exp, ok := b.experiments[id]; ok {
+		exp.cancel = cancel
+	}
+}

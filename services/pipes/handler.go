@@ -36,6 +36,8 @@ var (
 // Handler is the HTTP handler for the EventBridge Pipes REST API.
 type Handler struct {
 	Backend   *InMemoryBackend
+	runner    *Runner
+	cancel    context.CancelFunc
 	AccountID string
 	Region    string
 }
@@ -46,11 +48,43 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 		Backend:   backend,
 		AccountID: backend.accountID,
 		Region:    backend.region,
+		runner:    NewRunner(backend),
 	}
+}
+
+// GetRunner returns the handler's Runner so callers can configure target invokers.
+func (h *Handler) GetRunner() *Runner {
+	return h.runner
 }
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "Pipes" }
+
+// StartWorker implements service.BackgroundWorker.
+// It starts the pipe runner as a background goroutine.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.runner == nil {
+		return nil
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	h.cancel = cancel
+	h.runner.Start(runCtx)
+
+	return nil
+}
+
+// Shutdown implements service.Shutdowner.
+// It stops the pipe runner goroutine.
+func (h *Handler) Shutdown(_ context.Context) {
+	if h.cancel != nil {
+		h.cancel()
+	}
+}
+
+// Ensure Handler implements service.BackgroundWorker and service.Shutdowner at compile time.
+var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
 
 // GetSupportedOperations returns the list of supported Pipes operations.
 func (h *Handler) GetSupportedOperations() []string {

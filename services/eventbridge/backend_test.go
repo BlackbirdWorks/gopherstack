@@ -353,3 +353,42 @@ func TestBackend_Close(t *testing.T) {
 	// Close should return without blocking even when no goroutines are active.
 	b.Close()
 }
+
+func TestBackend_ResetRestoresDefaultEventBus(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	// Create a user-defined event bus and a rule.
+	_, err := b.CreateEventBus("user-bus", "")
+	require.NoError(t, err)
+
+	_, err = b.PutRule(eventbridge.PutRuleInput{
+		Name:         "user-rule",
+		EventPattern: `{"source":["test"]}`,
+		State:        "ENABLED",
+	})
+	require.NoError(t, err)
+
+	// Reset clears user data.
+	b.Reset()
+
+	// User bus must be gone.
+	_, err = b.DescribeEventBus("user-bus")
+	require.Error(t, err)
+
+	// Default event bus must still exist so PutRule works.
+	_, err = b.PutRule(eventbridge.PutRuleInput{
+		Name:         "post-reset-rule",
+		EventBusName: "default",
+		EventPattern: `{"source":["test"]}`,
+		State:        "ENABLED",
+	})
+	require.NoError(t, err, "default event bus must be available after Reset")
+
+	// Default bus must appear in ListEventBuses.
+	buses, _, err := b.ListEventBuses("", "")
+	require.NoError(t, err)
+	assert.Len(t, buses, 1, "only the default bus should exist after Reset")
+	assert.Equal(t, "default", buses[0].Name)
+}

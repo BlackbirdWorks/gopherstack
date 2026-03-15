@@ -697,3 +697,9 @@ type enableSharingWithAwsOrganizationResponse struct {
 func (h *Handler) handleEnableSharingWithAwsOrganization() ([]byte, error) {
 	return json.Marshal(enableSharingWithAwsOrganizationResponse{ReturnValue: true})
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}

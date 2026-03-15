@@ -321,3 +321,96 @@ func TestS3Janitor_LifecycleExpiry(t *testing.T) {
 		})
 	}
 }
+
+// TestS3Janitor_NoncurrentVersionExpiration verifies that noncurrent object versions
+// are deleted when the NoncurrentVersionExpiration rule fires.
+func TestS3Janitor_NoncurrentVersionExpiration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		bucket   string
+		lcXML    string
+		wantGone bool
+	}{
+		{
+			name:   "zero noncurrent days removes old noncurrent versions",
+			bucket: "nv-expire-bucket",
+			lcXML: `<LifecycleConfiguration>
+<Rule>
+  <ID>nv-expire</ID>
+  <Status>Enabled</Status>
+  <Filter><Prefix></Prefix></Filter>
+  <NoncurrentVersionExpiration><NoncurrentDays>0</NoncurrentDays></NoncurrentVersionExpiration>
+</Rule>
+</LifecycleConfiguration>`,
+			wantGone: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := s3.NewInMemoryBackend(nil)
+			mustCreateBucket(t, backend, tt.bucket)
+
+			// Enable versioning.
+			_, err := backend.PutBucketVersioning(
+				t.Context(),
+				&sdk_s3.PutBucketVersioningInput{
+					Bucket: aws.String(tt.bucket),
+					VersioningConfiguration: &sdk_s3types.VersioningConfiguration{
+						Status: sdk_s3types.BucketVersioningStatusEnabled,
+					},
+				},
+			)
+			require.NoError(t, err)
+
+			// Write two versions of the object to create one noncurrent version.
+			mustPutObject(t, backend, tt.bucket, "obj.txt", []byte("v1"))
+			mustPutObject(t, backend, tt.bucket, "obj.txt", []byte("v2"))
+
+			err = backend.PutBucketLifecycleConfiguration(t.Context(), tt.bucket, tt.lcXML)
+			require.NoError(t, err)
+
+			j := newFastJanitor(backend)
+			go j.Run(t.Context())
+
+			if tt.wantGone {
+				require.Eventually(t, func() bool {
+					out, listErr := backend.ListObjectVersions(t.Context(), &sdk_s3.ListObjectVersionsInput{
+						Bucket: aws.String(tt.bucket),
+					})
+
+					return listErr == nil && len(out.Versions) <= 1
+				}, 500*time.Millisecond, 10*time.Millisecond)
+			}
+		})
+	}
+}
+
+// TestS3Backend_Reset verifies that Reset() clears all stored state from the backend.
+func TestS3Backend_Reset(t *testing.T) {
+	t.Parallel()
+
+	backend := s3.NewInMemoryBackend(nil)
+	mustCreateBucket(t, backend, "reset-test")
+	mustPutObject(t, backend, "reset-test", "key1", []byte("data"))
+
+	// Confirm state exists before reset.
+	out, err := backend.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
+		Bucket: aws.String("reset-test"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Contents, 1)
+
+	// Reset clears all buckets and objects.
+	backend.Reset()
+
+	// Confirm bucket is gone after reset.
+	_, err = backend.ListObjects(t.Context(), &sdk_s3.ListObjectsInput{
+		Bucket: aws.String("reset-test"),
+	})
+	require.Error(t, err)
+}

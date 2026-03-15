@@ -88,14 +88,28 @@ func PrepareLayerMount(b *InMemoryBackend, fn *FunctionConfiguration) (string, [
 // IsSQSARN exports the internal isSQSARN function for testing.
 func IsSQSARN(resourceARN string) bool { return isSQSARN(resourceARN) }
 
+// IsDynamoDBStreamARN exports the internal isDynamoDBStreamARN function for testing.
+func IsDynamoDBStreamARN(resourceARN string) bool { return isDynamoDBStreamARN(resourceARN) }
+
 // SetSQSReaderOnPoller exports SetSQSReader on EventSourcePoller for testing.
 func SetSQSReaderOnPoller(p *EventSourcePoller, r SQSReader) { p.SetSQSReader(r) }
+
+// SetDynamoDBStreamsReaderOnPoller exports SetDynamoDBStreamsReader on EventSourcePoller for testing.
+func SetDynamoDBStreamsReaderOnPoller(p *EventSourcePoller, r DynamoDBStreamsReader) {
+	p.SetDynamoDBStreamsReader(r)
+}
 
 // SetSQSInvoker sets a test-only override for the Lambda invocation step in the
 // SQS ESM poller. When fn is non-nil it is called instead of InvokeFunction,
 // allowing unit tests to make Lambda invocation succeed without a Docker daemon.
 func SetSQSInvoker(p *EventSourcePoller, fn func(ctx context.Context, fnName string) error) {
 	p.sqsInvoker = fn
+}
+
+// SetDDBInvoker sets a test-only override for the Lambda invocation step in the
+// DynamoDB Streams ESM poller. When fn is non-nil it is called instead of InvokeFunction.
+func SetDDBInvoker(p *EventSourcePoller, fn func(ctx context.Context, fnName string, payload []byte) error) {
+	p.ddbInvoker = fn
 }
 
 // InjectRuntimeEntry inserts a synthetic functionRuntime into the backend's runtimes map
@@ -150,4 +164,13 @@ func ReleaseConcurrencySlot(b *InMemoryBackend, functionName string) {
 // AcquireConcurrencySlot exports acquireConcurrencySlot for testing.
 func AcquireConcurrencySlot(b *InMemoryBackend, functionName string, invocationType InvocationType) (bool, error) {
 	return b.acquireConcurrencySlot(functionName, invocationType)
+}
+
+// ShardIteratorsLen returns the number of entries in the poller's shardIterators map.
+// Intended for use in unit tests to verify memory-leak cleanup.
+func ShardIteratorsLen(p *EventSourcePoller) int {
+	p.mu.RLock("ShardIteratorsLen")
+	defer p.mu.RUnlock()
+
+	return len(p.shardIterators)
 }

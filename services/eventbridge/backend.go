@@ -568,3 +568,22 @@ func parseNextToken(token string) int {
 
 	return idx
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.buses = make(map[string]*EventBus)
+	b.rules = make(map[string]map[string]*Rule)
+	b.targets = make(map[string]map[string]*Target)
+	b.eventLog = nil
+
+	// Re-create the default event bus so it is always available after reset.
+	b.buses[defaultEventBusName] = &EventBus{
+		Name:        defaultEventBusName,
+		Arn:         b.busARN(defaultEventBusName),
+		CreatedTime: time.Now(),
+	}
+}

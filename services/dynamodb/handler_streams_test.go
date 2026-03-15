@@ -3,6 +3,7 @@ package dynamodb_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -382,4 +383,33 @@ func TestHandler_GetRecords_InvalidIterator(t *testing.T) {
 	w := doStreamsRequest(t, handler, "GetRecords", `{"ShardIterator":"BAD_NO_COLON"}`)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestHandler_DescribeTable_ReturnsStreamFields verifies that DescribeTable includes
+// LatestStreamArn, LatestStreamLabel, and StreamSpecification in the HTTP response.
+func TestHandler_DescribeTable_ReturnsStreamFields(t *testing.T) {
+	t.Parallel()
+
+	handler, streamARN := newStreamEnabledHandler(t)
+
+	reqBody, err := json.Marshal(models.DescribeTableInput{TableName: "StreamHandlerTable"})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(reqBody))
+	req.Header.Set("X-Amz-Target", "DynamoDB_20120810.DescribeTable")
+	w := httptest.NewRecorder()
+
+	echoHandler := handler.Handler()
+	_ = serveEchoHandler(echoHandler, w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var out models.DescribeTableOutput
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+
+	assert.Equal(t, streamARN, out.Table.LatestStreamArn, "DescribeTable should return LatestStreamArn")
+	assert.NotEmpty(t, out.Table.LatestStreamLabel, "DescribeTable should return LatestStreamLabel")
+	require.NotNil(t, out.Table.StreamSpecification, "DescribeTable should return StreamSpecification")
+	assert.True(t, out.Table.StreamSpecification.StreamEnabled)
+	assert.Equal(t, "NEW_AND_OLD_IMAGES", out.Table.StreamSpecification.StreamViewType)
 }
