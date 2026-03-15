@@ -135,3 +135,75 @@ func TestBackupJanitor_RunContext(t *testing.T) {
 		require.FailNow(t, "janitor did not stop after context cancellation")
 	}
 }
+
+// TestBackupPlanIDIndex verifies that plan operations by plan ID are O(1)
+// via the planIDIndex and that the index is cleaned up on delete.
+func TestBackupPlanIDIndex(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, b *backup.InMemoryBackend)
+		name string
+	}{
+		{
+			name: "get_by_id",
+			run: func(t *testing.T, b *backup.InMemoryBackend) {
+				t.Helper()
+
+				plan, err := b.CreateBackupPlan("idx-plan", nil, nil)
+				require.NoError(t, err)
+
+				got, err := b.GetBackupPlan(plan.BackupPlanID)
+				require.NoError(t, err)
+				assert.Equal(t, "idx-plan", got.BackupPlanName)
+			},
+		},
+		{
+			name: "update_by_id",
+			run: func(t *testing.T, b *backup.InMemoryBackend) {
+				t.Helper()
+
+				plan, err := b.CreateBackupPlan("upd-plan", nil, nil)
+				require.NoError(t, err)
+
+				rules := []backup.Rule{{RuleName: "r1", TargetVaultName: "vault1"}}
+				updated, err := b.UpdateBackupPlan(plan.BackupPlanID, rules)
+				require.NoError(t, err)
+				require.Len(t, updated.Rules, 1)
+				assert.Equal(t, "r1", updated.Rules[0].RuleName)
+			},
+		},
+		{
+			name: "delete_by_id_cleans_indexes",
+			run: func(t *testing.T, b *backup.InMemoryBackend) {
+				t.Helper()
+
+				plan, err := b.CreateBackupPlan("del-plan", nil, nil)
+				require.NoError(t, err)
+
+				err = b.DeleteBackupPlan(plan.BackupPlanID)
+				require.NoError(t, err)
+
+				// Plan should not be accessible by name or ID.
+				_, err = b.GetBackupPlan(plan.BackupPlanName)
+				require.Error(t, err)
+
+				_, err = b.GetBackupPlan(plan.BackupPlanID)
+				require.Error(t, err)
+
+				// Tags by ARN should return ErrNotFound too.
+				err = b.TagResource(plan.BackupPlanArn, map[string]string{"k": "v"})
+				require.ErrorIs(t, err, backup.ErrNotFound)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackupBackend(t)
+			tt.run(t, b)
+		})
+	}
+}

@@ -67,21 +67,27 @@ type Build struct {
 
 // InMemoryBackend is a thread-safe in-memory store for CodeBuild resources.
 type InMemoryBackend struct {
-	projects  map[string]*Project
-	builds    map[string]*Build
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	projects        map[string]*Project
+	builds          map[string]*Build
+	buildsByProject map[string]map[string]struct{} // project name → set of build full IDs
+	projectARNIndex map[string]string              // ARN → project name
+	buildARNIndex   map[string]string              // ARN → build ID
+	mu              *lockmetrics.RWMutex
+	accountID       string
+	region          string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		projects:  make(map[string]*Project),
-		builds:    make(map[string]*Build),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("codebuild"),
+		projects:        make(map[string]*Project),
+		builds:          make(map[string]*Build),
+		buildsByProject: make(map[string]map[string]struct{}),
+		projectARNIndex: make(map[string]string),
+		buildARNIndex:   make(map[string]string),
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("codebuild"),
 	}
 }
 
@@ -106,10 +112,8 @@ func (b *InMemoryBackend) lookupByNameOrARN(nameOrARN string) (*Project, bool) {
 		return p, true
 	}
 
-	for _, p := range b.projects {
-		if p.Arn == nameOrARN {
-			return p, true
-		}
+	if name, ok := b.projectARNIndex[nameOrARN]; ok {
+		return b.projects[name], true
 	}
 
 	return nil, false
@@ -148,6 +152,7 @@ func (b *InMemoryBackend) CreateProject(
 		LastModified: now,
 	}
 	b.projects[name] = p
+	b.projectARNIndex[p.Arn] = name
 
 	out := *p
 
@@ -222,17 +227,22 @@ func (b *InMemoryBackend) DeleteProject(name string) error {
 	b.mu.Lock("DeleteProject")
 	defer b.mu.Unlock()
 
-	if _, ok := b.projects[name]; !ok {
+	p, ok := b.projects[name]
+	if !ok {
 		return ErrNotFound
 	}
 
+	delete(b.projectARNIndex, p.Arn)
 	delete(b.projects, name)
 
-	for id, build := range b.builds {
-		if build.ProjectName == name {
+	// Use the per-project build index for O(k) cleanup instead of O(n) scan.
+	for id := range b.buildsByProject[name] {
+		if build, ok2 := b.builds[id]; ok2 {
+			delete(b.buildARNIndex, build.Arn)
 			delete(b.builds, id)
 		}
 	}
+	delete(b.buildsByProject, name)
 
 	return nil
 }
@@ -270,6 +280,11 @@ func (b *InMemoryBackend) StartBuild(projectName string) (*Build, error) {
 		CurrentPhase: "SUBMITTED",
 	}
 	b.builds[fullID] = build
+	b.buildARNIndex[build.Arn] = fullID
+	if b.buildsByProject[projectName] == nil {
+		b.buildsByProject[projectName] = make(map[string]struct{})
+	}
+	b.buildsByProject[projectName][fullID] = struct{}{}
 
 	out := *build
 
@@ -324,12 +339,11 @@ func (b *InMemoryBackend) ListBuildsForProject(projectName string) ([]string, er
 		return nil, ErrNotFound
 	}
 
-	ids := make([]string, 0)
+	buildSet := b.buildsByProject[projectName]
+	ids := make([]string, 0, len(buildSet))
 
-	for id, build := range b.builds {
-		if build.ProjectName == projectName {
-			ids = append(ids, id)
-		}
+	for id := range buildSet {
+		ids = append(ids, id)
 	}
 
 	return ids, nil
@@ -340,22 +354,20 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, p := range b.projects {
-		if p.Arn == resourceARN {
-			out := make(map[string]string, len(p.Tags))
-			maps.Copy(out, p.Tags)
+	if name, ok := b.projectARNIndex[resourceARN]; ok {
+		p := b.projects[name]
+		out := make(map[string]string, len(p.Tags))
+		maps.Copy(out, p.Tags)
 
-			return out, nil
-		}
+		return out, nil
 	}
 
-	for _, build := range b.builds {
-		if build.Arn == resourceARN {
-			out := make(map[string]string, len(build.Tags))
-			maps.Copy(out, build.Tags)
+	if id, ok := b.buildARNIndex[resourceARN]; ok {
+		build := b.builds[id]
+		out := make(map[string]string, len(build.Tags))
+		maps.Copy(out, build.Tags)
 
-			return out, nil
-		}
+		return out, nil
 	}
 
 	return nil, ErrNotFound
@@ -366,28 +378,26 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, p := range b.projects {
-		if p.Arn == resourceARN {
-			if p.Tags == nil {
-				p.Tags = make(map[string]string)
-			}
-
-			maps.Copy(p.Tags, tags)
-
-			return nil
+	if name, ok := b.projectARNIndex[resourceARN]; ok {
+		p := b.projects[name]
+		if p.Tags == nil {
+			p.Tags = make(map[string]string)
 		}
+
+		maps.Copy(p.Tags, tags)
+
+		return nil
 	}
 
-	for _, build := range b.builds {
-		if build.Arn == resourceARN {
-			if build.Tags == nil {
-				build.Tags = make(map[string]string)
-			}
-
-			maps.Copy(build.Tags, tags)
-
-			return nil
+	if id, ok := b.buildARNIndex[resourceARN]; ok {
+		build := b.builds[id]
+		if build.Tags == nil {
+			build.Tags = make(map[string]string)
 		}
+
+		maps.Copy(build.Tags, tags)
+
+		return nil
 	}
 
 	return ErrNotFound
@@ -398,24 +408,22 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, p := range b.projects {
-		if p.Arn == resourceARN {
-			for _, k := range tagKeys {
-				delete(p.Tags, k)
-			}
-
-			return nil
+	if name, ok := b.projectARNIndex[resourceARN]; ok {
+		p := b.projects[name]
+		for _, k := range tagKeys {
+			delete(p.Tags, k)
 		}
+
+		return nil
 	}
 
-	for _, build := range b.builds {
-		if build.Arn == resourceARN {
-			for _, k := range tagKeys {
-				delete(build.Tags, k)
-			}
-
-			return nil
+	if id, ok := b.buildARNIndex[resourceARN]; ok {
+		build := b.builds[id]
+		for _, k := range tagKeys {
+			delete(build.Tags, k)
 		}
+
+		return nil
 	}
 
 	return ErrNotFound

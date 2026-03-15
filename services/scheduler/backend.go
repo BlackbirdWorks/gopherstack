@@ -41,18 +41,20 @@ type Schedule struct {
 }
 
 type InMemoryBackend struct {
-	schedules map[string]*Schedule
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	schedules        map[string]*Schedule
+	scheduleARNIndex map[string]string // ARN → schedule name
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
 }
 
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		schedules: make(map[string]*Schedule),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("scheduler"),
+		schedules:        make(map[string]*Schedule),
+		scheduleARNIndex: make(map[string]string),
+		accountID:        accountID,
+		region:           region,
+		mu:               lockmetrics.New("scheduler"),
 	}
 }
 
@@ -88,6 +90,7 @@ func (b *InMemoryBackend) CreateSchedule(
 		Tags:               tags.New("scheduler.group." + name + ".tags"),
 	}
 	b.schedules[name] = s
+	b.scheduleARNIndex[schedARN] = name
 	cp := *s
 
 	return &cp, nil
@@ -129,10 +132,14 @@ func (b *InMemoryBackend) DeleteSchedule(name string) error {
 	b.mu.Lock("DeleteSchedule")
 	defer b.mu.Unlock()
 
-	if _, ok := b.schedules[name]; !ok {
+	s, ok := b.schedules[name]
+	if !ok {
 		return fmt.Errorf("%w: schedule %s not found", ErrNotFound, name)
 	}
+
+	delete(b.scheduleARNIndex, s.ARN)
 	delete(b.schedules, name)
+	s.Tags.Close()
 
 	return nil
 }
@@ -162,30 +169,28 @@ func (b *InMemoryBackend) UpdateSchedule(
 	return &cp, nil
 }
 
-func (b *InMemoryBackend) TagResource(arn string, kv map[string]string) error {
+func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, s := range b.schedules {
-		if s.ARN == arn {
-			s.Tags.Merge(kv)
-
-			return nil
-		}
+	name, ok := b.scheduleARNIndex[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, arn)
+	b.schedules[name].Tags.Merge(kv)
+
+	return nil
 }
 
-func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, error) {
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, s := range b.schedules {
-		if s.ARN == arn {
-			return s.Tags.Clone(), nil
-		}
+	name, ok := b.scheduleARNIndex[resourceARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, arn)
+	return b.schedules[name].Tags.Clone(), nil
 }
