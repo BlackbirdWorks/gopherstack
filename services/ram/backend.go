@@ -259,6 +259,7 @@ func (b *InMemoryBackend) DeleteResourceShare(shareARN string) error {
 }
 
 // AssociateResourceShare associates principals or resource ARNs with a resource share.
+// Entities that are already associated are silently skipped (idempotent), matching AWS behavior.
 // Returns deep copies of the new associations so callers cannot mutate backend state.
 func (b *InMemoryBackend) AssociateResourceShare(
 	shareARN string,
@@ -272,10 +273,24 @@ func (b *InMemoryBackend) AssociateResourceShare(
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
 
+	// Build a set of already-associated entities for O(1) deduplication.
+	// We don't know how many belong to this share without scanning first,
+	// so we start with no hint and let the map grow naturally.
+	existing := make(map[string]struct{})
+	for _, a := range b.associations {
+		if a.ResourceShareARN == shareARN {
+			existing[a.AssociatedEntity] = struct{}{}
+		}
+	}
+
 	now := time.Now()
 	added := make([]*ResourceShareAssociation, 0, len(principals)+len(resourceARNs))
 
 	for _, p := range principals {
+		if _, dup := existing[p]; dup {
+			continue
+		}
+
 		assoc := &ResourceShareAssociation{
 			ResourceShareARN:  shareARN,
 			ResourceShareName: rs.Name,
@@ -290,6 +305,10 @@ func (b *InMemoryBackend) AssociateResourceShare(
 	}
 
 	for _, r := range resourceARNs {
+		if _, dup := existing[r]; dup {
+			continue
+		}
+
 		assoc := &ResourceShareAssociation{
 			ResourceShareARN:  shareARN,
 			ResourceShareName: rs.Name,
@@ -377,10 +396,6 @@ func (b *InMemoryBackend) GetResourceShareAssociations(
 	result := make([]*ResourceShareAssociation, 0)
 
 	for _, a := range b.associations {
-		if a.Status == associationStatusDisassociated {
-			continue
-		}
-
 		if associationType != "" && a.AssociationType != associationType {
 			continue
 		}

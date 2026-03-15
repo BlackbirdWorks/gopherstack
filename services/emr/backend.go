@@ -25,6 +25,10 @@ const (
 	StateTerminated = "TERMINATED"
 	// StateTerminatedWithErrors is the final cluster state for a failed termination.
 	StateTerminatedWithErrors = "TERMINATED_WITH_ERRORS"
+
+	// Timeline keys used in ClusterStatus.Timeline.
+	timelineKeyCreation = "CreationDateTime"
+	timelineKeyEnd      = "EndDateTime"
 )
 
 // ClusterStatus holds the status fields for a Cluster.
@@ -166,7 +170,7 @@ func (b *InMemoryBackend) RunJobFlow(
 		Status: ClusterStatus{
 			State:             StateWaiting,
 			StateChangeReason: map[string]any{"Code": "USER_REQUEST", "Message": ""},
-			Timeline:          map[string]any{"CreationDateTime": 0},
+			Timeline:          map[string]any{timelineKeyCreation: 0},
 		},
 		Tags:           tagsCopy,
 		instanceGroups: groups,
@@ -237,6 +241,7 @@ func (b *InMemoryBackend) ListClusters() []ClusterSummary {
 }
 
 // TerminateJobFlows marks the specified clusters as TERMINATED and removes them from active listing.
+// Clusters that are already in a terminal state are silently skipped, matching AWS behavior.
 func (b *InMemoryBackend) TerminateJobFlows(ids []string) error {
 	b.mu.Lock("TerminateJobFlows")
 	defer b.mu.Unlock()
@@ -247,8 +252,15 @@ func (b *InMemoryBackend) TerminateJobFlows(ids []string) error {
 			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
 		}
 
+		// AWS is idempotent: terminating an already-terminal cluster is a no-op.
+		if cluster.Status.State == StateTerminated || cluster.Status.State == StateTerminatedWithErrors {
+			continue
+		}
+
+		now := time.Now()
 		cluster.Status.State = StateTerminated
-		cluster.TerminatedAt = time.Now()
+		cluster.Status.Timeline[timelineKeyEnd] = now.UnixMilli()
+		cluster.TerminatedAt = now
 	}
 
 	return nil

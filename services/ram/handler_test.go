@@ -1060,3 +1060,25 @@ func TestRAM_Handler_Reset(t *testing.T) {
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
 	assert.Empty(t, out.ResourceShares)
 }
+
+func TestRAM_Backend_AssociateResourceShare_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+	rs, err := b.CreateResourceShare("idem-share", true, nil, nil, nil)
+	require.NoError(t, err)
+
+	// First association creates one entry.
+	added1, err := b.AssociateResourceShare(rs.ARN, []string{"111111111111"}, nil)
+	require.NoError(t, err)
+	assert.Len(t, added1, 1)
+
+	// Repeated association with the same entity must be a no-op (no new entry).
+	added2, err := b.AssociateResourceShare(rs.ARN, []string{"111111111111"}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, added2, "re-associating the same entity must return no new associations")
+
+	// Exactly one association should exist in total.
+	assocs := b.GetResourceShareAssociations("PRINCIPAL", []string{rs.ARN})
+	assert.Len(t, assocs, 1)
+}
