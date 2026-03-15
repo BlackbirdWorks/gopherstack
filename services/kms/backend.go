@@ -44,6 +44,8 @@ var (
 	// ErrKeyMaterialUnavailable is returned when key material is missing (e.g. restored from
 	// an older snapshot that predates key material persistence).
 	ErrKeyMaterialUnavailable = errors.New("key material unavailable for this key")
+	// ErrUnsupportedOrigin is returned when an operation is incompatible with the key's origin.
+	ErrUnsupportedOrigin = errors.New("UnsupportedOperationException")
 )
 
 const (
@@ -106,18 +108,21 @@ type StorageBackend interface {
 	ListRetirableGrants(input *ListRetirableGrantsInput) (*ListGrantsOutput, error)
 	PutKeyPolicy(input *PutKeyPolicyInput) error
 	GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyOutput, error)
+	ImportKeyMaterial(input *ImportKeyMaterialInput) error
+	DeleteImportedKeyMaterial(input *DeleteImportedKeyMaterialInput) error
 }
 
 // InMemoryBackend is a concurrency-safe in-memory KMS backend.
 type InMemoryBackend struct {
-	keys         map[string]*Key
-	aliases      map[string]*Alias
-	grants       map[string]*Grant
-	policies     map[string]string
-	keyMaterials map[string]*keyMaterial
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	keys               map[string]*Key
+	aliases            map[string]*Alias
+	grants             map[string]*Grant
+	policies           map[string]string
+	keyMaterials       map[string]*keyMaterial
+	keyMaterialHistory map[string][]*keyMaterial
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
 }
 
 // NewInMemoryBackend creates and returns a new empty KMS backend with default account/region.
@@ -128,14 +133,15 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a new KMS backend with the given account ID and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		keys:         make(map[string]*Key),
-		aliases:      make(map[string]*Alias),
-		grants:       make(map[string]*Grant),
-		policies:     make(map[string]string),
-		keyMaterials: make(map[string]*keyMaterial),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("kms"),
+		keys:               make(map[string]*Key),
+		aliases:            make(map[string]*Alias),
+		grants:             make(map[string]*Grant),
+		policies:           make(map[string]string),
+		keyMaterials:       make(map[string]*keyMaterial),
+		keyMaterialHistory: make(map[string][]*keyMaterial),
+		accountID:          accountID,
+		region:             region,
+		mu:                 lockmetrics.New("kms"),
 	}
 }
 
@@ -162,14 +168,14 @@ func (b *InMemoryBackend) resolveKeyID(keyID string) (string, error) {
 
 // encryptData encrypts plaintext using the per-key AES-256-GCM material, embedding the key ID.
 // Kept as a compatibility shim; callers should use encryptSymmetric directly.
-func encryptData(plaintext []byte, keyID string, km *keyMaterial) ([]byte, error) {
-	return encryptSymmetric(plaintext, keyID, km)
+func encryptData(plaintext []byte, keyID string, encCtx map[string]string, km *keyMaterial) ([]byte, error) {
+	return encryptSymmetric(plaintext, keyID, encCtx, km)
 }
 
 // decryptData decrypts a ciphertext blob produced by encryptData.
 // Returns (plaintext, resolvedKeyID, error).
-func decryptData(blob []byte, km *keyMaterial) ([]byte, string, error) {
-	return decryptSymmetric(blob, km)
+func decryptData(blob []byte, encCtx map[string]string, km *keyMaterial) ([]byte, string, error) {
+	return decryptSymmetric(blob, encCtx, km)
 }
 
 // requireKeyMaterial returns the key material for keyID or an error if absent.
@@ -244,30 +250,47 @@ func (b *InMemoryBackend) CreateKey(input *CreateKeyInput) (*CreateKeyOutput, er
 		}
 	}
 
+	// Resolve origin: EXTERNAL keys require the caller to import key material later.
+	origin := input.Origin
+	if origin == "" {
+		origin = KeyOriginAWSKMS
+	}
+
 	region := b.region
 	if input.Region != "" {
 		region = input.Region
 	}
 
 	keyARN := arn.Build("kms", region, b.accountID, "key/"+keyID)
+
+	// External-origin keys start in PendingImport; no key material is generated.
+	keyState := KeyStateEnabled
+	if origin == KeyOriginExternal {
+		keyState = KeyStatePendingImport
+	}
+
 	key := &Key{
 		KeyID:        keyID,
 		Arn:          keyARN,
 		Description:  input.Description,
-		KeyState:     KeyStateEnabled,
+		KeyState:     keyState,
 		KeyUsage:     keyUsage,
 		KeySpec:      keySpec,
+		Origin:       origin,
 		CreationDate: UnixTimeFloat(time.Now()),
-		Enabled:      true,
+		Enabled:      keyState == KeyStateEnabled,
 	}
 
-	km, err := generateKeyMaterial(keySpec)
-	if err != nil {
-		return nil, fmt.Errorf("generating key material for spec %q: %w", keySpec, err)
+	if origin != KeyOriginExternal {
+		km, err := generateKeyMaterial(keySpec)
+		if err != nil {
+			return nil, fmt.Errorf("generating key material for spec %q: %w", keySpec, err)
+		}
+
+		b.keyMaterials[keyID] = km
 	}
 
 	b.keys[keyID] = key
-	b.keyMaterials[keyID] = km
 
 	return &CreateKeyOutput{
 		KeyMetadata: keyToMetadata(key),
@@ -355,7 +378,7 @@ func (b *InMemoryBackend) Encrypt(input *EncryptInput) (*EncryptOutput, error) {
 		return nil, err
 	}
 
-	blob, encErr := encryptData(input.Plaintext, key.KeyID, km)
+	blob, encErr := encryptData(input.Plaintext, key.KeyID, input.EncryptionContext, km)
 	if encErr != nil {
 		return nil, encErr
 	}
@@ -396,15 +419,33 @@ func (b *InMemoryBackend) Decrypt(input *DecryptInput) (*DecryptOutput, error) {
 		return nil, err
 	}
 
-	plaintext, _, err := decryptData(input.CiphertextBlob, km)
-	if err != nil {
-		return nil, err
+	plaintext, _, decErr := decryptData(input.CiphertextBlob, input.EncryptionContext, km)
+	if decErr != nil {
+		// Try previous key material versions (produced by key rotation).
+		plaintext, decErr = b.decryptWithHistory(input.CiphertextBlob, input.EncryptionContext, key.KeyID)
+		if decErr != nil {
+			return nil, decErr
+		}
 	}
 
 	return &DecryptOutput{
 		Plaintext: plaintext,
 		KeyID:     key.Arn,
 	}, nil
+}
+
+// decryptWithHistory attempts to decrypt a blob using previous key material versions.
+// Must be called with at least a read lock held.
+func (b *InMemoryBackend) decryptWithHistory(blob []byte, encCtx map[string]string, keyID string) ([]byte, error) {
+	history := b.keyMaterialHistory[keyID]
+	for i := len(history) - 1; i >= 0; i-- {
+		plaintext, _, err := decryptData(blob, encCtx, history[i])
+		if err == nil {
+			return plaintext, nil
+		}
+	}
+
+	return nil, ErrInvalidCiphertext
 }
 
 // GenerateDataKey generates a random data key, returning both plaintext and encrypted forms.
@@ -444,7 +485,7 @@ func (b *InMemoryBackend) GenerateDataKey(input *GenerateDataKeyInput) (*Generat
 		return nil, err
 	}
 
-	blob, encErr := encryptData(plaintextKey, key.KeyID, km)
+	blob, encErr := encryptData(plaintextKey, key.KeyID, input.EncryptionContext, km)
 	if encErr != nil {
 		return nil, encErr
 	}
@@ -487,9 +528,13 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 		return nil, err
 	}
 
-	plaintext, _, err := decryptData(input.CiphertextBlob, sourceKM)
-	if err != nil {
-		return nil, err
+	plaintext, _, decErr := decryptData(input.CiphertextBlob, input.SourceEncryptionContext, sourceKM)
+	if decErr != nil {
+		// Try previous key material versions produced by rotation.
+		plaintext, decErr = b.decryptWithHistory(input.CiphertextBlob, input.SourceEncryptionContext, sourceKey.KeyID)
+		if decErr != nil {
+			return nil, decErr
+		}
 	}
 
 	destKey, lookupErr := b.lookupKey(input.DestinationKeyID)
@@ -510,7 +555,7 @@ func (b *InMemoryBackend) ReEncrypt(input *ReEncryptInput) (*ReEncryptOutput, er
 		return nil, err
 	}
 
-	blob, encErr := encryptData(plaintext, destKey.KeyID, destKM)
+	blob, encErr := encryptData(plaintext, destKey.KeyID, input.DestinationEncryptionContext, destKM)
 	if encErr != nil {
 		return nil, encErr
 	}
@@ -747,7 +792,10 @@ func (b *InMemoryBackend) ListAliases(input *ListAliasesInput) (*ListAliasesOutp
 	}, nil
 }
 
-// EnableKeyRotation enables automatic key rotation for the specified key.
+// EnableKeyRotation enables automatic key rotation for the specified key and immediately
+// rotates the key material. For symmetric keys a new AES key is generated; the previous
+// key material is preserved in history so that ciphertexts produced before rotation
+// can still be decrypted.
 func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error {
 	b.mu.Lock("EnableKeyRotation")
 	defer b.mu.Unlock()
@@ -755,6 +803,30 @@ func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error
 	key, err := b.lookupKeyWrite(input.KeyID)
 	if err != nil {
 		return err
+	}
+
+	if key.KeyState != KeyStateEnabled {
+		return keyStateError(key)
+	}
+
+	// Rotate the key material for symmetric keys, preserving history for decryption.
+	if key.KeySpec == keySpecSymmetric {
+		if current := b.keyMaterials[key.KeyID]; current != nil {
+			b.keyMaterialHistory[key.KeyID] = append(b.keyMaterialHistory[key.KeyID], current)
+		}
+
+		newKM, kmErr := generateKeyMaterial(key.KeySpec)
+		if kmErr != nil {
+			// Roll back history if we can't generate new material.
+			if len(b.keyMaterialHistory[key.KeyID]) > 0 {
+				b.keyMaterials[key.KeyID] = b.keyMaterialHistory[key.KeyID][len(b.keyMaterialHistory[key.KeyID])-1]
+				b.keyMaterialHistory[key.KeyID] = b.keyMaterialHistory[key.KeyID][:len(b.keyMaterialHistory[key.KeyID])-1]
+			}
+
+			return fmt.Errorf("rotating key material: %w", kmErr)
+		}
+
+		b.keyMaterials[key.KeyID] = newKM
 	}
 
 	key.RotationEnabled = true
@@ -904,6 +976,11 @@ func keyStateError(key *Key) error {
 
 // keyToMetadata converts a Key to its KeyMetadata representation.
 func keyToMetadata(k *Key) KeyMetadata {
+	origin := k.Origin
+	if origin == "" {
+		origin = KeyOriginAWSKMS
+	}
+
 	meta := KeyMetadata{
 		KeyID:        k.KeyID,
 		Arn:          k.Arn,
@@ -913,7 +990,7 @@ func keyToMetadata(k *Key) KeyMetadata {
 		KeySpec:      k.KeySpec,
 		CreationDate: k.CreationDate,
 		KeyManager:   "CUSTOMER",
-		Origin:       "AWS_KMS",
+		Origin:       origin,
 		MultiRegion:  false,
 	}
 
@@ -1147,9 +1224,10 @@ func (b *InMemoryBackend) GenerateDataKeyWithoutPlaintext(
 	input *GenerateDataKeyWithoutPlaintextInput,
 ) (*GenerateDataKeyWithoutPlaintextOutput, error) {
 	out, err := b.GenerateDataKey(&GenerateDataKeyInput{
-		KeyID:         input.KeyID,
-		KeySpec:       input.KeySpec,
-		NumberOfBytes: input.NumberOfBytes,
+		KeyID:             input.KeyID,
+		KeySpec:           input.KeySpec,
+		NumberOfBytes:     input.NumberOfBytes,
+		EncryptionContext: input.EncryptionContext,
 	})
 	if err != nil {
 		return nil, err
@@ -1210,6 +1288,76 @@ func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyO
 	return &GetKeyPolicyOutput{Policy: policy, PolicyName: policyName}, nil
 }
 
+// ImportKeyMaterial imports externally supplied key material into a key created with
+// Origin=EXTERNAL. The key must be in PendingImport state. On success the key transitions
+// to Enabled.
+func (b *InMemoryBackend) ImportKeyMaterial(input *ImportKeyMaterialInput) error {
+	b.mu.Lock("ImportKeyMaterial")
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	if key.Origin != KeyOriginExternal {
+		return fmt.Errorf(
+			"%w: ImportKeyMaterial is only valid for keys with Origin=%s",
+			ErrUnsupportedOrigin,
+			KeyOriginExternal,
+		)
+	}
+
+	if key.KeyState != KeyStatePendingImport && key.KeyState != KeyStateEnabled {
+		return keyStateError(key)
+	}
+
+	if len(input.KeyMaterial) == 0 {
+		return fmt.Errorf("%w: KeyMaterial must not be empty", ErrInvalidKeyUsage)
+	}
+
+	if key.KeySpec == keySpecSymmetric && len(input.KeyMaterial) != aes256Bytes {
+		return fmt.Errorf(
+			"%w: symmetric key material must be exactly %d bytes, got %d",
+			ErrInvalidKeyUsage, aes256Bytes, len(input.KeyMaterial),
+		)
+	}
+
+	km := &keyMaterial{symmetricKey: input.KeyMaterial}
+	b.keyMaterials[key.KeyID] = km
+	key.KeyState = KeyStateEnabled
+	key.Enabled = true
+
+	return nil
+}
+
+// DeleteImportedKeyMaterial removes the imported key material from an EXTERNAL-origin key.
+// The key transitions to PendingImport; it can receive new material via ImportKeyMaterial.
+func (b *InMemoryBackend) DeleteImportedKeyMaterial(input *DeleteImportedKeyMaterialInput) error {
+	b.mu.Lock("DeleteImportedKeyMaterial")
+	defer b.mu.Unlock()
+
+	key, err := b.lookupKeyWrite(input.KeyID)
+	if err != nil {
+		return err
+	}
+
+	if key.Origin != KeyOriginExternal {
+		return fmt.Errorf(
+			"%w: DeleteImportedKeyMaterial is only valid for keys with Origin=%s",
+			ErrUnsupportedOrigin,
+			KeyOriginExternal,
+		)
+	}
+
+	delete(b.keyMaterials, key.KeyID)
+	delete(b.keyMaterialHistory, key.KeyID)
+	key.KeyState = KeyStatePendingImport
+	key.Enabled = false
+
+	return nil
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
@@ -1221,4 +1369,5 @@ func (b *InMemoryBackend) Reset() {
 	b.grants = make(map[string]*Grant)
 	b.policies = make(map[string]string)
 	b.keyMaterials = make(map[string]*keyMaterial)
+	b.keyMaterialHistory = make(map[string][]*keyMaterial)
 }

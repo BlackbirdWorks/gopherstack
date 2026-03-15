@@ -117,6 +117,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DisableKey",
 		"DisableKeyRotation",
 		"Decrypt",
+		"DeleteImportedKeyMaterial",
 		"EnableKey",
 		"EnableKeyRotation",
 		"Encrypt",
@@ -124,6 +125,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GenerateDataKeyWithoutPlaintext",
 		"GetKeyRotationStatus",
 		"GetPublicKey",
+		"ImportKeyMaterial",
 		"ListAliases",
 		"ListKeys",
 		"ReEncrypt",
@@ -287,6 +289,22 @@ func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 			}
 
 			return struct{}{}, h.Backend.CancelKeyDeletion(&input)
+		},
+		"ImportKeyMaterial": func(_ string, b []byte) (any, error) {
+			var input ImportKeyMaterialInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.ImportKeyMaterial(&input)
+		},
+		"DeleteImportedKeyMaterial": func(_ string, b []byte) (any, error) {
+			var input DeleteImportedKeyMaterialInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DeleteImportedKeyMaterial(&input)
 		},
 	}
 }
@@ -585,6 +603,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "InvalidCiphertextException"
 	case errors.Is(reqErr, ErrInvalidSignature):
 		errorType = "KMSInvalidSignatureException"
+	case errors.Is(reqErr, ErrUnsupportedOrigin):
+		errorType = "UnsupportedOperationException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"
 	default:

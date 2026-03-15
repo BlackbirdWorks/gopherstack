@@ -7,13 +7,14 @@ import (
 )
 
 type backendSnapshot struct {
-	Keys         map[string]*Key                  `json:"keys"`
-	Aliases      map[string]*Alias                `json:"aliases"`
-	Grants       map[string]*Grant                `json:"grants"`
-	Policies     map[string]string                `json:"policies"`
-	KeyMaterials map[string]serializedKeyMaterial `json:"key_materials,omitempty"`
-	AccountID    string                           `json:"accountID"`
-	Region       string                           `json:"region"`
+	Keys               map[string]*Key                    `json:"keys"`
+	Aliases            map[string]*Alias                  `json:"aliases"`
+	Grants             map[string]*Grant                  `json:"grants"`
+	Policies           map[string]string                  `json:"policies"`
+	KeyMaterials       map[string]serializedKeyMaterial   `json:"key_materials,omitempty"`
+	KeyMaterialHistory map[string][]serializedKeyMaterial `json:"key_material_history,omitempty"`
+	AccountID          string                             `json:"accountID"`
+	Region             string                             `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -37,14 +38,38 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		serialized[keyID] = s
 	}
 
+	// Snapshot key material history.
+	serializedHistory := make(map[string][]serializedKeyMaterial, len(b.keyMaterialHistory))
+
+	for keyID, history := range b.keyMaterialHistory {
+		entries := make([]serializedKeyMaterial, 0, len(history))
+
+		for _, km := range history {
+			s, err := marshalKeyMaterial(km)
+			if err != nil {
+				slog.Default().Warn("KMS snapshot: skipping historical key material that could not be serialized",
+					"keyID", keyID, "error", err)
+
+				continue
+			}
+
+			entries = append(entries, s)
+		}
+
+		if len(entries) > 0 {
+			serializedHistory[keyID] = entries
+		}
+	}
+
 	snap := backendSnapshot{
-		Keys:         b.keys,
-		Aliases:      b.aliases,
-		Grants:       b.grants,
-		Policies:     b.policies,
-		KeyMaterials: serialized,
-		AccountID:    b.accountID,
-		Region:       b.region,
+		Keys:               b.keys,
+		Aliases:            b.aliases,
+		Grants:             b.grants,
+		Policies:           b.policies,
+		KeyMaterials:       serialized,
+		KeyMaterialHistory: serializedHistory,
+		AccountID:          b.accountID,
+		Region:             b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -97,8 +122,30 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		restored[keyID] = km
 	}
 
+	// Restore key material history.
+	restoredHistory := make(map[string][]*keyMaterial, len(snap.KeyMaterialHistory))
+
+	for keyID, entries := range snap.KeyMaterialHistory {
+		history := make([]*keyMaterial, 0, len(entries))
+
+		for i, s := range entries {
+			km, err := unmarshalKeyMaterial(s)
+			if err != nil {
+				return fmt.Errorf("restoring historical key material[%d] for %s: %w", i, keyID, err)
+			}
+
+			history = append(history, km)
+		}
+
+		restoredHistory[keyID] = history
+	}
+
 	// Warn about keys that lack material in the snapshot (older snapshots may omit key_materials).
-	for keyID := range snap.Keys {
+	for keyID, key := range snap.Keys {
+		if key.KeyState == KeyStatePendingImport {
+			continue
+		}
+
 		if _, hasMaterial := restored[keyID]; !hasMaterial {
 			slog.Default().Warn("KMS restore: key has no material in snapshot; crypto operations will fail",
 				"keyID", keyID)
@@ -110,6 +157,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.grants = snap.Grants
 	b.policies = snap.Policies
 	b.keyMaterials = restored
+	b.keyMaterialHistory = restoredHistory
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
