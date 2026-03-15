@@ -1,6 +1,7 @@
 package cloudwatchlogs_test
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -230,4 +231,24 @@ func TestHandler_InsightsInvalidJSON(t *testing.T) {
 			assert.Equal(t, http.StatusInternalServerError, rec.Code)
 		})
 	}
+}
+
+func TestHandler_WithJanitor_StartWorker(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(b).WithJanitor(0)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	require.NoError(t, h.StartWorker(ctx))
+}
+
+func TestHandler_StartWorker_NoJanitor(t *testing.T) {
+	t.Parallel()
+
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+	// Should be a no-op.
+	require.NoError(t, h.StartWorker(t.Context()))
 }
