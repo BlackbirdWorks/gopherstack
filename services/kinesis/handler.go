@@ -109,6 +109,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AddTagsToStream",
 		"RemoveTagsFromStream",
 		"ListTagsForStream",
+		"IncreaseStreamRetentionPeriod",
+		"DecreaseStreamRetentionPeriod",
 		"RegisterStreamConsumer",
 		"DescribeStreamConsumer",
 		"ListStreamConsumers",
@@ -405,6 +407,11 @@ type describeLimitsOutput struct {
 	OpenShardCount int `json:"OpenShardCount"`
 }
 
+type jsonRetentionPeriodReq struct {
+	StreamName           string `json:"StreamName"`
+	RetentionPeriodHours int    `json:"RetentionPeriodHours"`
+}
+
 // --- handler methods ---
 
 func (h *Handler) handleCreateStream(
@@ -454,6 +461,15 @@ func (h *Handler) handleDeleteStream(
 	if err := h.Backend.DeleteStream(&DeleteStreamInput{StreamName: req.StreamName}); err != nil {
 		return nil, err
 	}
+
+	// Clean up handler-level tags to prevent resource/metric leaks.
+	h.tagsMu.Lock("handleDeleteStream")
+	if t := h.tags[req.StreamName]; t != nil {
+		t.Close()
+	}
+
+	delete(h.tags, req.StreamName)
+	h.tagsMu.Unlock()
 
 	return struct{}{}, nil
 }
@@ -732,6 +748,10 @@ func errorDetails(err error) (string, string, int) {
 		return "ResourceInUseException",
 			"A consumer with this name already exists.",
 			http.StatusBadRequest
+	case errors.Is(err, ErrProvisionedThroughputExceeded):
+		return "ProvisionedThroughputExceededException",
+			"Rate exceeded for shard.",
+			http.StatusBadRequest
 	case errors.Is(err, ErrInvalidArgument):
 		return "InvalidArgumentException",
 			"Invalid argument.",
@@ -817,16 +837,40 @@ func (h *Handler) handleListTagsForStream(
 func (h *Handler) handleIncreaseStreamRetentionPeriod(
 	_ context.Context,
 	_ *http.Request,
-	_ []byte,
+	body []byte,
 ) (any, error) {
+	var req jsonRetentionPeriodReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.IncreaseStreamRetentionPeriod(&IncreaseStreamRetentionPeriodInput{
+		StreamName:           req.StreamName,
+		RetentionPeriodHours: req.RetentionPeriodHours,
+	}); err != nil {
+		return nil, err
+	}
+
 	return struct{}{}, nil
 }
 
 func (h *Handler) handleDecreaseStreamRetentionPeriod(
 	_ context.Context,
 	_ *http.Request,
-	_ []byte,
+	body []byte,
 ) (any, error) {
+	var req jsonRetentionPeriodReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrInvalidArgument
+	}
+
+	if err := h.Backend.DecreaseStreamRetentionPeriod(&DecreaseStreamRetentionPeriodInput{
+		StreamName:           req.StreamName,
+		RetentionPeriodHours: req.RetentionPeriodHours,
+	}); err != nil {
+		return nil, err
+	}
+
 	return struct{}{}, nil
 }
 
@@ -1265,4 +1309,15 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	// Close and discard handler-level tag registries to prevent metric leaks.
+	h.tagsMu.Lock("Reset")
+	for _, t := range h.tags {
+		if t != nil {
+			t.Close()
+		}
+	}
+
+	h.tags = make(map[string]*svcTags.Tags)
+	h.tagsMu.Unlock()
 }

@@ -3,6 +3,7 @@ package kinesis
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/rand/v2"
@@ -37,6 +38,8 @@ type StorageBackend interface {
 	UpdateShardCount(input *UpdateShardCountInput) (*UpdateShardCountOutput, error)
 	EnableEnhancedMonitoring(input *EnableEnhancedMonitoringInput) (*EnableEnhancedMonitoringOutput, error)
 	DisableEnhancedMonitoring(input *DisableEnhancedMonitoringInput) (*DisableEnhancedMonitoringOutput, error)
+	IncreaseStreamRetentionPeriod(input *IncreaseStreamRetentionPeriodInput) error
+	DecreaseStreamRetentionPeriod(input *DecreaseStreamRetentionPeriodInput) error
 	ListAll() []StreamInfo
 }
 
@@ -176,8 +179,13 @@ func (b *InMemoryBackend) DeleteStream(input *DeleteStreamInput) error {
 	b.mu.Lock("DeleteStream")
 	defer b.mu.Unlock()
 
-	if _, exists := b.streams[input.StreamName]; !exists {
+	stream, exists := b.streams[input.StreamName]
+	if !exists {
 		return ErrStreamNotFound
+	}
+
+	if stream.Tags != nil {
+		stream.Tags.Close()
 	}
 
 	delete(b.streams, input.StreamName)
@@ -236,6 +244,9 @@ func (b *InMemoryBackend) ListStreams(input *ListStreamsInput) (*ListStreamsOutp
 		names = append(names, name)
 	}
 
+	// AWS returns stream names in alphabetical order.
+	sort.Strings(names)
+
 	limit := input.Limit
 	if limit <= 0 {
 		limit = len(names)
@@ -288,6 +299,16 @@ func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, er
 	}, nil
 }
 
+// putRecordErrorCode maps a per-record PutRecord error to the AWS error code string
+// that should appear in a PutRecords result entry.
+func putRecordErrorCode(err error) string {
+	if errors.Is(err, ErrProvisionedThroughputExceeded) {
+		return "ProvisionedThroughputExceededException"
+	}
+
+	return "InternalFailure"
+}
+
 // PutRecords writes multiple records to a stream.
 func (b *InMemoryBackend) PutRecords(input *PutRecordsInput) (*PutRecordsOutput, error) {
 	results := make([]PutRecordsResultEntry, len(input.Records))
@@ -300,8 +321,9 @@ func (b *InMemoryBackend) PutRecords(input *PutRecordsInput) (*PutRecordsOutput,
 			Data:         entry.Data,
 		})
 		if err != nil {
+			errCode := putRecordErrorCode(err)
 			results[i] = PutRecordsResultEntry{
-				ErrorCode:    "InternalFailure",
+				ErrorCode:    errCode,
 				ErrorMessage: err.Error(),
 			}
 			failedCount++
@@ -954,11 +976,65 @@ func (b *InMemoryBackend) DisableEnhancedMonitoring(
 	}, nil
 }
 
+// IncreaseStreamRetentionPeriod increases the retention period for a stream.
+// The new retention period must be greater than the current one and at most
+// maxRetentionHours (8 760 h = 365 days), matching AWS behaviour.
+func (b *InMemoryBackend) IncreaseStreamRetentionPeriod(
+	input *IncreaseStreamRetentionPeriodInput,
+) error {
+	b.mu.Lock("IncreaseStreamRetentionPeriod")
+	defer b.mu.Unlock()
+
+	stream, ok := b.streams[input.StreamName]
+	if !ok {
+		return ErrStreamNotFound
+	}
+
+	if input.RetentionPeriodHours <= stream.RetentionPeriod ||
+		input.RetentionPeriodHours > maxRetentionHours {
+		return ErrInvalidArgument
+	}
+
+	stream.RetentionPeriod = input.RetentionPeriodHours
+
+	return nil
+}
+
+// DecreaseStreamRetentionPeriod decreases the retention period for a stream.
+// The new retention period must be less than the current one and at least
+// minRetentionHours (24 h), matching AWS behaviour.
+func (b *InMemoryBackend) DecreaseStreamRetentionPeriod(
+	input *DecreaseStreamRetentionPeriodInput,
+) error {
+	b.mu.Lock("DecreaseStreamRetentionPeriod")
+	defer b.mu.Unlock()
+
+	stream, ok := b.streams[input.StreamName]
+	if !ok {
+		return ErrStreamNotFound
+	}
+
+	if input.RetentionPeriodHours >= stream.RetentionPeriod ||
+		input.RetentionPeriodHours < minRetentionHours {
+		return ErrInvalidArgument
+	}
+
+	stream.RetentionPeriod = input.RetentionPeriodHours
+
+	return nil
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	for _, stream := range b.streams {
+		if stream.Tags != nil {
+			stream.Tags.Close()
+		}
+	}
 
 	b.streams = make(map[string]*Stream)
 	b.fisThroughputFaults = make(map[string]*kinesisThrottleFault)

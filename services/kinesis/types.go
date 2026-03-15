@@ -44,6 +44,11 @@ const (
 	// maxShardCount is the maximum number of shards allowed in a stream.
 	maxShardCount = 1000
 
+	// minRetentionHours is the minimum retention period AWS allows (24 h).
+	minRetentionHours = 24
+	// maxRetentionHours is the maximum retention period AWS allows (8 760 h = 365 days).
+	maxRetentionHours = 8760
+
 	// consumerStatusActive is the status when a consumer is ready for use.
 	consumerStatusActive = "ACTIVE"
 
@@ -353,4 +358,16 @@ type DisableEnhancedMonitoringOutput struct {
 	StreamName               string
 	CurrentShardLevelMetrics []string
 	DesiredShardLevelMetrics []string
+}
+
+// IncreaseStreamRetentionPeriodInput is the input for IncreaseStreamRetentionPeriod.
+type IncreaseStreamRetentionPeriodInput struct {
+	StreamName           string
+	RetentionPeriodHours int
+}
+
+// DecreaseStreamRetentionPeriodInput is the input for DecreaseStreamRetentionPeriod.
+type DecreaseStreamRetentionPeriodInput struct {
+	StreamName           string
+	RetentionPeriodHours int
 }
