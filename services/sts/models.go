@@ -37,12 +37,15 @@ const (
 
 	// MaxTagCount is the maximum number of session tags allowed per AssumeRole call.
 	MaxTagCount = 50
+
+	// MaxFederationTokenDurationSeconds is the maximum allowed lifetime for GetFederationToken (36 hours).
+	MaxFederationTokenDurationSeconds = 129600
 )
 
 // Tag represents a session tag key-value pair passed to AssumeRole.
 type Tag struct {
-	Key   string
-	Value string
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 // AssumeRoleInput holds the parameters for an AssumeRole call.
@@ -173,15 +176,73 @@ type DecodeAuthorizationMessageResponse struct {
 // SessionInfo stores metadata about an issued assumed-role session for GetCallerIdentity lookups.
 type SessionInfo struct {
 	// Expiration is the time at which this session expires and should be evicted.
-	Expiration     time.Time
-	AssumedRoleArn string
-	AccountID      string
-	SessionName    string
-	AccessKeyID    string
+	Expiration     time.Time `json:"expiration"`
+	AssumedRoleArn string    `json:"assumed_role_arn"`
+	AccountID      string    `json:"account_id"`
+	SessionName    string    `json:"session_name"`
+	AccessKeyID    string    `json:"access_key_id"`
 	// AssumedRoleID is the AROA-prefixed role ID + session name (e.g. "AROATESTROLEID:session").
 	// It is the value returned by GetCallerIdentity as the UserId for assumed-role credentials.
-	AssumedRoleID     string
-	SourceIdentity    string
-	Tags              []Tag
-	TransitiveTagKeys []string
+	AssumedRoleID     string   `json:"assumed_role_id"`
+	SourceIdentity    string   `json:"source_identity,omitempty"`
+	Tags              []Tag    `json:"tags,omitempty"`
+	TransitiveTagKeys []string `json:"transitive_tag_keys,omitempty"`
+}
+
+// GetFederationTokenInput holds the parameters for a GetFederationToken call.
+type GetFederationTokenInput struct {
+	Name            string
+	Policy          string
+	Tags            []Tag
+	DurationSeconds int32
+}
+
+// FederatedUser contains the ARN and ID of the resulting federated-user principal.
+type FederatedUser struct {
+	Arn             string `xml:"Arn"`
+	FederatedUserID string `xml:"FederatedUserId"`
+}
+
+// GetFederationTokenResult wraps the federated user and credentials.
+type GetFederationTokenResult struct {
+	FederatedUser    FederatedUser `xml:"FederatedUser"`
+	Credentials      Credentials   `xml:"Credentials"`
+	PackedPolicySize int32         `xml:"PackedPolicySize,omitempty"`
+}
+
+// GetFederationTokenResponse is the top-level XML envelope returned by GetFederationToken.
+type GetFederationTokenResponse struct {
+	XMLName                  xml.Name                 `xml:"GetFederationTokenResponse"`
+	Xmlns                    string                   `xml:"xmlns,attr"`
+	ResponseMetadata         ResponseMetadata         `xml:"ResponseMetadata"`
+	GetFederationTokenResult GetFederationTokenResult `xml:"GetFederationTokenResult"`
+}
+
+// AssumeRoleWithWebIdentityInput holds the parameters for an AssumeRoleWithWebIdentity call.
+type AssumeRoleWithWebIdentityInput struct {
+	RoleArn          string
+	RoleSessionName  string
+	WebIdentityToken string
+	ProviderID       string
+	Policy           string
+	DurationSeconds  int32
+}
+
+// AssumeRoleWithWebIdentityResult wraps the assumed-role user, credentials, and OIDC provider details.
+type AssumeRoleWithWebIdentityResult struct {
+	AssumedRoleUser             AssumedRoleUser `xml:"AssumedRoleUser"`
+	Credentials                 Credentials     `xml:"Credentials"`
+	SubjectFromWebIdentityToken string          `xml:"SubjectFromWebIdentityToken,omitempty"`
+	Audience                    string          `xml:"Audience,omitempty"`
+	Provider                    string          `xml:"Provider,omitempty"`
+	SourceIdentity              string          `xml:"SourceIdentity,omitempty"`
+	PackedPolicySize            int32           `xml:"PackedPolicySize,omitempty"`
+}
+
+// AssumeRoleWithWebIdentityResponse is the top-level XML envelope returned by AssumeRoleWithWebIdentity.
+type AssumeRoleWithWebIdentityResponse struct {
+	XMLName                         xml.Name                        `xml:"AssumeRoleWithWebIdentityResponse"`
+	Xmlns                           string                          `xml:"xmlns,attr"`
+	ResponseMetadata                ResponseMetadata                `xml:"ResponseMetadata"`
+	AssumeRoleWithWebIdentityResult AssumeRoleWithWebIdentityResult `xml:"AssumeRoleWithWebIdentityResult"`
 }

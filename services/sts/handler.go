@@ -78,9 +78,11 @@ func (h *Handler) Name() string {
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AssumeRole",
+		"AssumeRoleWithWebIdentity",
 		"DecodeAuthorizationMessage",
 		"GetAccessKeyInfo",
 		"GetCallerIdentity",
+		"GetFederationToken",
 		"GetSessionToken",
 	}
 }
@@ -196,8 +198,12 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request) (any, error) {
 	switch action {
 	case "AssumeRole":
 		return h.dispatchAssumeRole(r)
+	case "AssumeRoleWithWebIdentity":
+		return h.dispatchAssumeRoleWithWebIdentity(r)
 	case "GetCallerIdentity":
 		return h.Backend.GetCallerIdentity(extractAccessKeyFromAuth(r))
+	case "GetFederationToken":
+		return h.dispatchGetFederationToken(r)
 	case "GetSessionToken":
 		return h.dispatchGetSessionToken(r)
 	case "GetAccessKeyInfo":
@@ -258,6 +264,50 @@ func (h *Handler) dispatchGetSessionToken(r *http.Request) (*GetSessionTokenResp
 	return h.Backend.GetSessionToken(input)
 }
 
+// dispatchGetFederationToken handles the GetFederationToken action.
+func (h *Handler) dispatchGetFederationToken(r *http.Request) (*GetFederationTokenResponse, error) {
+	input := &GetFederationTokenInput{
+		Name:   r.FormValue("Name"),
+		Policy: r.FormValue("Policy"),
+		Tags:   parseSessionTags(r),
+	}
+
+	durationStr := r.FormValue("DurationSeconds")
+	if durationStr != "" {
+		d, err := strconv.ParseInt(durationStr, 10, 32)
+		if err != nil {
+			return nil, ErrInvalidDuration
+		}
+
+		input.DurationSeconds = int32(d)
+	}
+
+	return h.Backend.GetFederationToken(input)
+}
+
+// dispatchAssumeRoleWithWebIdentity handles the AssumeRoleWithWebIdentity action.
+func (h *Handler) dispatchAssumeRoleWithWebIdentity(r *http.Request) (*AssumeRoleWithWebIdentityResponse, error) {
+	input := &AssumeRoleWithWebIdentityInput{
+		RoleArn:          r.FormValue("RoleArn"),
+		RoleSessionName:  r.FormValue("RoleSessionName"),
+		WebIdentityToken: r.FormValue("WebIdentityToken"),
+		ProviderID:       r.FormValue("ProviderId"),
+		Policy:           r.FormValue("Policy"),
+	}
+
+	durationStr := r.FormValue("DurationSeconds")
+	if durationStr != "" {
+		d, err := strconv.ParseInt(durationStr, 10, 32)
+		if err != nil {
+			return nil, ErrInvalidDuration
+		}
+
+		input.DurationSeconds = int32(d)
+	}
+
+	return h.Backend.AssumeRoleWithWebIdentity(input)
+}
+
 // dispatchGetAccessKeyInfo handles the GetAccessKeyInfo action.
 func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoResponse, error) {
 	_ = r.FormValue("AccessKeyId") // consumed but not validated in mock
@@ -311,7 +361,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 	httpStatus := http.StatusInternalServerError
 
 	switch {
-	case errors.Is(reqErr, ErrMissingRoleArn), errors.Is(reqErr, ErrMissingSessionName):
+	case errors.Is(reqErr, ErrMissingRoleArn), errors.Is(reqErr, ErrMissingSessionName),
+		errors.Is(reqErr, ErrMissingFederationTokenName), errors.Is(reqErr, ErrMissingWebIdentityToken):
 		code = "MissingParameter"
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidDuration):

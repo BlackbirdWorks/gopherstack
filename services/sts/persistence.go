@@ -1,16 +1,66 @@
 package sts
 
+import (
+	"encoding/json"
+	"time"
+)
+
+type backendSnapshot struct {
+	Sessions map[string]*SessionInfo `json:"sessions"`
+}
+
 // Snapshot serialises the backend state to JSON.
-// STS has no mutable in-memory data to persist, so it always returns nil.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot() []byte {
-	return nil
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	snap := backendSnapshot{
+		Sessions: b.sessions,
+	}
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return nil
+	}
+
+	return data
 }
 
 // Restore loads backend state from a JSON snapshot.
-// STS has no mutable in-memory data to restore, so it is a no-op.
+// Expired sessions are discarded on load.
 // It implements persistence.Persistable.
-func (b *InMemoryBackend) Restore(_ []byte) error {
+func (b *InMemoryBackend) Restore(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+
+	var snap backendSnapshot
+
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+
+	now := time.Now().UTC()
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.sessions = make(map[string]*SessionInfo)
+
+	for k, s := range snap.Sessions {
+		if s == nil {
+			continue
+		}
+
+		// Discard already-expired sessions; keep zero-valued (non-expiring) sessions.
+		if !s.Expiration.IsZero() && !now.Before(s.Expiration) {
+			continue
+		}
+
+		b.sessions[k] = s
+	}
+
 	return nil
 }
 
