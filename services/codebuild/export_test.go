@@ -11,6 +11,24 @@ func (b *InMemoryBackend) BuildCount() int {
 	return len(b.builds)
 }
 
+// BuildARNIndexSize returns the number of entries in the build ARN index.
+// Used only in tests.
+func (b *InMemoryBackend) BuildARNIndexSize() int {
+	b.mu.RLock("BuildARNIndexSize")
+	defer b.mu.RUnlock()
+
+	return len(b.buildARNIndex)
+}
+
+// BuildsByProjectSize returns the number of build IDs tracked for projectName.
+// Used only in tests.
+func (b *InMemoryBackend) BuildsByProjectSize(projectName string) int {
+	b.mu.RLock("BuildsByProjectSize")
+	defer b.mu.RUnlock()
+
+	return len(b.buildsByProject[projectName])
+}
+
 // SetBuildEndTime overrides the EndTime and BuildStatus of a build.
 // If endTime is zero, EndTime is set to 0 (meaning "not yet completed").
 // Used only in tests to simulate a completed build at a specific time.

@@ -79,7 +79,14 @@ func (j *Janitor) sweepCompletedBuilds(ctx context.Context) {
 	for id, build := range j.Backend.builds {
 		if isTerminalBuild(build.BuildStatus) && build.EndTime > 0 && build.EndTime < cutoff {
 			swept = append(swept, id)
+			delete(j.Backend.buildARNIndex, build.Arn)
 			delete(j.Backend.builds, id)
+			if proj := j.Backend.buildsByProject[build.ProjectName]; proj != nil {
+				delete(proj, id)
+				if len(proj) == 0 {
+					delete(j.Backend.buildsByProject, build.ProjectName)
+				}
+			}
 		}
 	}
 
