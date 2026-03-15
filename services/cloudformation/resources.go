@@ -13,22 +13,38 @@ import (
 
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
+	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
+	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
@@ -42,6 +58,7 @@ import (
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
 // ServiceBackends holds references to all service backends.
@@ -77,8 +94,26 @@ type ServiceBackends struct {
 	SES             *sesbackend.Handler
 	ACM             *acmbackend.Handler
 	CognitoIDP      *cognitoidpbackend.Handler
-	AccountID       string
-	Region          string
+	// Phase-3 backends
+	EKS          *eksbackend.Handler
+	EFS          *efsbackend.Handler
+	Batch        *batchbackend.Handler
+	CloudFront   *cloudfrontbackend.Handler
+	Autoscaling  *autoscalingbackend.Handler
+	APIGatewayV2 *apigatewayv2backend.Handler
+	CodeBuild    *codebuildbackend.Handler
+	Glue         *gluebackend.Handler
+	DocDB        *docdbbackend.Handler
+	Neptune      *neptunebackend.Handler
+	Kafka        *kafkabackend.Handler
+	Transfer     *transferbackend.Handler
+	CloudTrail   *cloudtrailbackend.Handler
+	CodePipeline *codepipelinebackend.Handler
+	IoT          *iotbackend.Handler
+	Pipes        *pipesbackend.Handler
+	EMR          *emrbackend.Handler
+	AccountID    string
+	Region       string
 }
 
 // ResourceCreator creates and deletes cloud resources.
@@ -467,39 +502,220 @@ func (rc *ResourceCreator) createContainerResource(
 }
 
 // createMiscServiceResource handles Redshift, OpenSearch, Firehose, Route53Resolver, SWF, AppSync,
-// SES, ACM, Cognito, and extended EC2 resource creation.
+// SES, ACM, Cognito, extended EC2, and phase-3 resource creation.
 func (rc *ResourceCreator) createMiscServiceResource(
 	logicalID, resourceType string,
 	props map[string]any,
 	params, physicalIDs map[string]string,
 ) (string, error) {
+	if physID, ok, err := rc.createMiscLegacyResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return physID, err
+	}
+
+	if physID, ok, err := rc.createPhase3ComputeResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return physID, err
+	}
+
+	return rc.createPhase3DataResource(logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createMiscLegacyResource handles Redshift, OpenSearch, Firehose, Route53Resolver, SWF, AppSync,
+// SES, ACM, Cognito, and EC2 NatGateway/EIP resource creation.
+func (rc *ResourceCreator) createMiscLegacyResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
 	switch resourceType {
 	case "AWS::Redshift::Cluster":
-		return rc.createRedshiftCluster(logicalID, props, params, physicalIDs)
+		physID, err := rc.createRedshiftCluster(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::OpenSearch::Domain":
-		return rc.createOpenSearchDomain(logicalID, props, params, physicalIDs)
+		physID, err := rc.createOpenSearchDomain(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::Firehose::DeliveryStream":
-		return rc.createFirehoseDeliveryStream(logicalID, props, params, physicalIDs)
+		physID, err := rc.createFirehoseDeliveryStream(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::Route53Resolver::ResolverEndpoint":
-		return rc.createRoute53ResolverEndpoint(logicalID, props, params, physicalIDs)
+		physID, err := rc.createRoute53ResolverEndpoint(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::Route53Resolver::ResolverRule":
-		return rc.createRoute53ResolverRule(logicalID, props, params, physicalIDs)
+		physID, err := rc.createRoute53ResolverRule(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::SWF::Domain":
-		return rc.createSWFDomain(logicalID, props, params, physicalIDs)
+		physID, err := rc.createSWFDomain(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::AppSync::GraphQLApi":
-		return rc.createAppSyncGraphQLAPI(logicalID, props, params, physicalIDs)
+		physID, err := rc.createAppSyncGraphQLAPI(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::SES::EmailIdentity":
-		return rc.createSESEmailIdentity(logicalID, props, params, physicalIDs)
+		physID, err := rc.createSESEmailIdentity(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::ACM::Certificate":
-		return rc.createACMCertificate(logicalID, props, params, physicalIDs)
+		physID, err := rc.createACMCertificate(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::Cognito::UserPool":
-		return rc.createCognitoUserPool(logicalID, props, params, physicalIDs)
+		physID, err := rc.createCognitoUserPool(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::Cognito::UserPoolClient":
-		return rc.createCognitoUserPoolClient(logicalID, props, params, physicalIDs)
+		physID, err := rc.createCognitoUserPoolClient(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::EC2::NatGateway":
-		return rc.createEC2NatGateway(logicalID, props, params, physicalIDs)
+		physID, err := rc.createEC2NatGateway(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
 	case "AWS::EC2::EIP":
-		return rc.createEC2EIP(logicalID)
+		physID, err := rc.createEC2EIP(logicalID)
+
+		return physID, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+// createPhase3ComputeResource handles EKS, EFS, Batch, CloudFront, AutoScaling,
+// ApiGatewayV2, CodeBuild, and Glue resource creation.
+func (rc *ResourceCreator) createPhase3ComputeResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	if physID, ok, err := rc.createPhase3InfraResource(logicalID, resourceType, props, params, physicalIDs); ok {
+		return physID, true, err
+	}
+
+	return rc.createPhase3AppServiceResource(logicalID, resourceType, props, params, physicalIDs)
+}
+
+// createPhase3InfraResource handles EKS, EFS, Batch, and CloudFront resource creation.
+func (rc *ResourceCreator) createPhase3InfraResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::EKS::Cluster":
+		physID, err := rc.createEKSCluster(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EKS::Nodegroup":
+		physID, err := rc.createEKSNodegroup(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EFS::FileSystem":
+		physID, err := rc.createEFSFileSystem(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::EFS::MountTarget":
+		physID, err := rc.createEFSMountTarget(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Batch::ComputeEnvironment":
+		physID, err := rc.createBatchComputeEnvironment(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Batch::JobQueue":
+		physID, err := rc.createBatchJobQueue(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Batch::JobDefinition":
+		physID, err := rc.createBatchJobDefinition(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::CloudFront::Distribution":
+		physID, err := rc.createCloudFrontDistribution(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+// createPhase3AppServiceResource handles AutoScaling, ApiGatewayV2, CodeBuild, and Glue resource creation.
+func (rc *ResourceCreator) createPhase3AppServiceResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, bool, error) {
+	switch resourceType {
+	case "AWS::AutoScaling::AutoScalingGroup":
+		physID, err := rc.createAutoScalingGroup(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::AutoScaling::LaunchConfiguration":
+		physID, err := rc.createLaunchConfiguration(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ApiGatewayV2::Api":
+		physID, err := rc.createAPIGatewayV2API(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::ApiGatewayV2::Stage":
+		physID, err := rc.createAPIGatewayV2Stage(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::CodeBuild::Project":
+		physID, err := rc.createCodeBuildProject(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Glue::Database":
+		physID, err := rc.createGlueDatabase(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	case "AWS::Glue::Job":
+		physID, err := rc.createGlueJob(logicalID, props, params, physicalIDs)
+
+		return physID, true, err
+	default:
+		return "", false, nil
+	}
+}
+
+// createPhase3DataResource handles DocDB, Neptune, MSK, Transfer, CloudTrail,
+// CodePipeline, IoT, Pipes, EMR, and CloudWatch Dashboard resource creation.
+func (rc *ResourceCreator) createPhase3DataResource(
+	logicalID, resourceType string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	switch resourceType {
+	case "AWS::DocDB::DBCluster":
+		return rc.createDocDBCluster(logicalID, props, params, physicalIDs)
+	case "AWS::DocDB::DBInstance":
+		return rc.createDocDBInstance(logicalID, props, params, physicalIDs)
+	case "AWS::Neptune::DBCluster":
+		return rc.createNeptuneCluster(logicalID, props, params, physicalIDs)
+	case "AWS::Neptune::DBInstance":
+		return rc.createNeptuneInstance(logicalID, props, params, physicalIDs)
+	case "AWS::MSK::Cluster":
+		return rc.createMSKCluster(logicalID, props, params, physicalIDs)
+	case "AWS::Transfer::Server":
+		return rc.createTransferServer(logicalID, props, params, physicalIDs)
+	case "AWS::CloudTrail::Trail":
+		return rc.createCloudTrailTrail(logicalID, props, params, physicalIDs)
+	case "AWS::CodePipeline::Pipeline":
+		return rc.createCodePipelinePipeline(logicalID, props, params, physicalIDs)
+	case "AWS::IoT::Thing":
+		return rc.createIoTThing(logicalID, props, params, physicalIDs)
+	case "AWS::IoT::TopicRule":
+		return rc.createIoTTopicRule(logicalID, props, params, physicalIDs)
+	case "AWS::Pipes::Pipe":
+		return rc.createPipesPipe(logicalID, props, params, physicalIDs)
+	case "AWS::EMR::Cluster":
+		return rc.createEMRCluster(logicalID, props, params, physicalIDs)
+	case "AWS::CloudWatch::Dashboard":
+		return rc.createCloudWatchDashboard(logicalID, props, params, physicalIDs)
 	default:
 		return logicalID + "-stub", nil
 	}
@@ -676,9 +892,13 @@ func (rc *ResourceCreator) deleteDataPlatformResource(ctx context.Context, resou
 }
 
 // deleteNewServiceResource handles RDS, ECS, ECR, Redshift, OpenSearch, Firehose,
-// Route53Resolver, SWF, AppSync, SES, ACM, Cognito, and extended EC2 resource deletions.
+// Route53Resolver, SWF, AppSync, SES, ACM, Cognito, extended EC2, and phase-3 resource deletions.
 func (rc *ResourceCreator) deleteNewServiceResource(physicalID, resourceType string) error {
 	if handled, err := rc.deleteComputeStorageResource(physicalID, resourceType); handled {
+		return err
+	}
+
+	if handled, err := rc.deletePhase3ComputeResource(physicalID, resourceType); handled {
 		return err
 	}
 
@@ -716,7 +936,7 @@ func (rc *ResourceCreator) deleteComputeStorageResource(physicalID, resourceType
 }
 
 // deleteAppNetworkResource handles Firehose, Route53Resolver, SWF, AppSync, SES, ACM,
-// Cognito, and extended EC2 resource deletions.
+// Cognito, extended EC2, and phase-3 data/managed service resource deletions.
 func (rc *ResourceCreator) deleteAppNetworkResource(physicalID, resourceType string) error {
 	switch resourceType {
 	case "AWS::Firehose::DeliveryStream":
@@ -742,7 +962,7 @@ func (rc *ResourceCreator) deleteAppNetworkResource(physicalID, resourceType str
 	case "AWS::EC2::EIP":
 		return rc.deleteEC2EIP(physicalID)
 	default:
-		return nil
+		return rc.deletePhase3DataResource(physicalID, resourceType)
 	}
 }
 
