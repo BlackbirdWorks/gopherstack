@@ -165,3 +165,58 @@ func (db *InMemoryDB) LookupStreamARNIndex(streamARN string) (*Table, bool) {
 func (j *Janitor) SweepTxnTokens() {
 	j.sweepTxnTokens()
 }
+
+// SweepTxnPending exposes sweepTxnPending for tests.
+func (j *Janitor) SweepTxnPending() {
+	j.sweepTxnPending()
+}
+
+// TxnPendingCount returns the number of in-progress idempotency tokens.
+func (db *InMemoryDB) TxnPendingCount() int {
+	db.mu.RLock("TxnPendingCount")
+	defer db.mu.RUnlock()
+
+	return len(db.txnPending)
+}
+
+// InjectStaleTxnPendingForTest inserts a stale in-progress token into the pending map.
+func (db *InMemoryDB) InjectStaleTxnPendingForTest(token string) {
+	db.mu.Lock("InjectStaleTxnPendingForTest")
+	defer db.mu.Unlock()
+
+	db.txnPending[token] = time.Now().Add(-time.Hour) // already stale
+}
+
+// StreamRecordsInOrder exposes the ordered ring-buffer view for tests as a flat slice.
+func (t *Table) StreamRecordsInOrder() []StreamRecord {
+	tail, head := t.streamRecordsInOrder()
+	if len(head) == 0 {
+		return tail
+	}
+
+	result := make([]StreamRecord, 0, len(tail)+len(head))
+	result = append(result, tail...)
+	result = append(result, head...)
+
+	return result
+}
+
+// SweepExprCache exposes ExpressionCache.Sweep for tests.
+func (db *InMemoryDB) SweepExprCache() {
+	db.exprCache.Sweep()
+}
+
+// ExprCacheGet exposes ExpressionCache.Get for tests.
+func (db *InMemoryDB) ExprCacheGet(key string) (any, bool) {
+	return db.exprCache.Get(key)
+}
+
+// ExprCachePut exposes ExpressionCache.Put for tests.
+func (db *InMemoryDB) ExprCachePut(key string, value any) {
+	db.exprCache.Put(key, value)
+}
+
+// NewExpressionCacheWithTTL exposes newExpressionCacheWithTTL for tests.
+func NewExpressionCacheWithTTL(capacity int, ttl time.Duration) *ExpressionCache {
+	return newExpressionCacheWithTTL(capacity, ttl)
+}
