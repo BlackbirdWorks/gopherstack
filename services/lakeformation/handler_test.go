@@ -2,6 +2,7 @@ package lakeformation_test
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/lakeformation"
 )
 
@@ -501,6 +503,180 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			c := e.NewContext(req, rec)
 
 			assert.Equal(t, tt.wantOp, h.ExtractOperation(c))
+		})
+	}
+}
+
+func TestProvider(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "provider name", want: "LakeFormation"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := &lakeformation.Provider{}
+			assert.Equal(t, tt.want, p.Name())
+
+			ctx := &service.AppContext{Logger: slog.Default()}
+			svc, err := p.Init(ctx)
+			require.NoError(t, err)
+			assert.NotNil(t, svc)
+		})
+	}
+}
+
+func TestHandler_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "RegisterResource missing ResourceArn",
+			path:       "/lakeformation/RegisterResource",
+			body:       `{"RoleArn":"arn:role"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "DeregisterResource missing ResourceArn",
+			path:       "/lakeformation/DeregisterResource",
+			body:       `{}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "GrantPermissions missing Principal",
+			path:       "/lakeformation/GrantPermissions",
+			body:       `{"Resource":{"Catalog":{}}}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "RevokePermissions missing Principal",
+			path:       "/lakeformation/RevokePermissions",
+			body:       `{"Resource":{"Catalog":{}}}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "CreateLFTag missing TagKey",
+			path:       "/lakeformation/CreateLFTag",
+			body:       `{"TagValues":["v1"]}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "DeleteLFTag missing TagKey",
+			path:       "/lakeformation/DeleteLFTag",
+			body:       `{}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "UpdateLFTag missing TagKey",
+			path:       "/lakeformation/UpdateLFTag",
+			body:       `{"TagValuesToAdd":["v1"]}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "BatchGrantPermissions missing Entries",
+			path:       "/lakeformation/BatchGrantPermissions",
+			body:       `{}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "BatchRevokePermissions missing Entries",
+			path:       "/lakeformation/BatchRevokePermissions",
+			body:       `{}`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			result := doLFRequest(t, h, tt.path, tt.body)
+			assert.Equal(t, tt.wantStatus, result.Code)
+		})
+	}
+}
+
+func TestHandler_Name(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "returns service name", want: "LakeFormation"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			assert.Equal(t, tt.want, h.Name())
+		})
+	}
+}
+
+func TestHandler_ChaosAndPriority(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		testFunc func(h *lakeformation.Handler) any
+		name     string
+	}{
+		{
+			name:     "ChaosServiceName returns non-empty string",
+			testFunc: func(h *lakeformation.Handler) any { return h.ChaosServiceName() != "" },
+		},
+		{
+			name:     "ChaosOperations returns non-empty slice",
+			testFunc: func(h *lakeformation.Handler) any { return len(h.ChaosOperations()) > 0 },
+		},
+		{
+			name:     "ChaosRegions returns non-empty slice",
+			testFunc: func(h *lakeformation.Handler) any { return len(h.ChaosRegions()) > 0 },
+		},
+		{
+			name:     "GetSupportedOperations returns non-empty slice",
+			testFunc: func(h *lakeformation.Handler) any { return len(h.GetSupportedOperations()) > 0 },
+		},
+		{
+			name:     "MatchPriority returns positive int",
+			testFunc: func(h *lakeformation.Handler) any { return h.MatchPriority() > 0 },
+		},
+		{
+			name: "ExtractResource returns empty string",
+			testFunc: func(h *lakeformation.Handler) any {
+				e := echo.New()
+				req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+				rec := httptest.NewRecorder()
+				c := e.NewContext(req, rec)
+
+				return h.ExtractResource(c) == ""
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			result := tt.testFunc(h)
+			b, ok := result.(bool)
+			require.True(t, ok)
+			assert.True(t, b)
 		})
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -88,14 +90,28 @@ func PrepareLayerMount(b *InMemoryBackend, fn *FunctionConfiguration) (string, [
 // IsSQSARN exports the internal isSQSARN function for testing.
 func IsSQSARN(resourceARN string) bool { return isSQSARN(resourceARN) }
 
+// IsDynamoDBStreamARN exports the internal isDynamoDBStreamARN function for testing.
+func IsDynamoDBStreamARN(resourceARN string) bool { return isDynamoDBStreamARN(resourceARN) }
+
 // SetSQSReaderOnPoller exports SetSQSReader on EventSourcePoller for testing.
 func SetSQSReaderOnPoller(p *EventSourcePoller, r SQSReader) { p.SetSQSReader(r) }
+
+// SetDynamoDBStreamsReaderOnPoller exports SetDynamoDBStreamsReader on EventSourcePoller for testing.
+func SetDynamoDBStreamsReaderOnPoller(p *EventSourcePoller, r DynamoDBStreamsReader) {
+	p.SetDynamoDBStreamsReader(r)
+}
 
 // SetSQSInvoker sets a test-only override for the Lambda invocation step in the
 // SQS ESM poller. When fn is non-nil it is called instead of InvokeFunction,
 // allowing unit tests to make Lambda invocation succeed without a Docker daemon.
 func SetSQSInvoker(p *EventSourcePoller, fn func(ctx context.Context, fnName string) error) {
 	p.sqsInvoker = fn
+}
+
+// SetDDBInvoker sets a test-only override for the Lambda invocation step in the
+// DynamoDB Streams ESM poller. When fn is non-nil it is called instead of InvokeFunction.
+func SetDDBInvoker(p *EventSourcePoller, fn func(ctx context.Context, fnName string, payload []byte) error) {
+	p.ddbInvoker = fn
 }
 
 // InjectRuntimeEntry inserts a synthetic functionRuntime into the backend's runtimes map
@@ -111,8 +127,104 @@ func InjectRuntimeEntry(b *InMemoryBackend, functionName, zipDir string, layerDi
 		layerDirs: layerDirs,
 		port:      port,
 		started:   true,
+		lastUsed:  time.Now(),
 	}
 }
+
+// InjectRuntimeEntryWithContainer inserts a synthetic functionRuntime with a container ID
+// into the backend's runtimes map for testing container-stop behavior.
+func InjectRuntimeEntryWithContainer(
+	b *InMemoryBackend,
+	functionName, zipDir, containerID string,
+	layerDirs []string,
+	port int,
+) {
+	b.mu.Lock("InjectRuntimeEntryWithContainer")
+	defer b.mu.Unlock()
+
+	b.runtimes[functionName] = &functionRuntime{
+		mu:          lockmetrics.New("lambda.runtime.test"),
+		zipDir:      zipDir,
+		layerDirs:   layerDirs,
+		containerID: containerID,
+		port:        port,
+		started:     true,
+		lastUsed:    time.Now(),
+	}
+}
+
+// InjectRuntimeEntryWithSrv inserts a synthetic functionRuntime with an already-started
+// runtime server so that tests can trigger real invocation timeouts via InvokeFunction.
+func InjectRuntimeEntryWithSrv(b *InMemoryBackend, functionName string, srv *ExportedRuntimeServer) {
+	b.mu.Lock("InjectRuntimeEntryWithSrv")
+	defer b.mu.Unlock()
+
+	b.runtimes[functionName] = &functionRuntime{
+		mu:       lockmetrics.New("lambda.runtime.test"),
+		srv:      srv.inner,
+		started:  true,
+		lastUsed: time.Now(),
+	}
+}
+
+// InjectRuntimeEntryFull inserts a synthetic functionRuntime with a server, container ID,
+// and optional temp directories. This is used in tests that need full runtime state.
+func InjectRuntimeEntryFull(
+	b *InMemoryBackend,
+	functionName string,
+	srv *ExportedRuntimeServer,
+	containerID string,
+) {
+	b.mu.Lock("InjectRuntimeEntryFull")
+	defer b.mu.Unlock()
+
+	var innerSrv *runtimeServer
+	if srv != nil {
+		innerSrv = srv.inner
+	}
+
+	b.runtimes[functionName] = &functionRuntime{
+		mu:          lockmetrics.New("lambda.runtime.test"),
+		srv:         innerSrv,
+		containerID: containerID,
+		started:     true,
+		lastUsed:    time.Now(),
+	}
+}
+
+// RuntimesLen returns the number of entries in the backend's runtimes map.
+func RuntimesLen(b *InMemoryBackend) int {
+	b.mu.RLock("RuntimesLen")
+	defer b.mu.RUnlock()
+
+	return len(b.runtimes)
+}
+
+// RuntimeContainerID returns the containerID stored in the named runtime entry, or "" if not found.
+func RuntimeContainerID(b *InMemoryBackend, functionName string) string {
+	b.mu.RLock("RuntimeContainerID")
+	defer b.mu.RUnlock()
+
+	if rt, ok := b.runtimes[functionName]; ok {
+		return rt.containerID
+	}
+
+	return ""
+}
+
+// SetRuntimeLastUsed sets the lastUsed timestamp on a runtime entry.
+// It is used by LRU eviction tests to control which runtime is evicted.
+func SetRuntimeLastUsed(b *InMemoryBackend, functionName string, t time.Time) {
+	b.mu.Lock("SetRuntimeLastUsed")
+	defer b.mu.Unlock()
+
+	if rt, ok := b.runtimes[functionName]; ok {
+		rt.lastUsed = t
+	}
+}
+
+// DefaultMaxRuntimes exposes the defaultMaxRuntimes constant for tests.
+const DefaultMaxRuntimes = defaultMaxRuntimes
 
 // FunctionNamesFromARNs exports functionNamesFromARNs for testing.
 func FunctionNamesFromARNs(arns []string) []string { return functionNamesFromARNs(arns) }
@@ -148,6 +260,119 @@ func ReleaseConcurrencySlot(b *InMemoryBackend, functionName string) {
 }
 
 // AcquireConcurrencySlot exports acquireConcurrencySlot for testing.
-func AcquireConcurrencySlot(b *InMemoryBackend, functionName string, invocationType InvocationType) (bool, error) {
-	return b.acquireConcurrencySlot(functionName, invocationType)
+func AcquireConcurrencySlot(b *InMemoryBackend, functionName string) (bool, error) {
+	return b.acquireConcurrencySlot(functionName)
+}
+
+// MinEventAgeInSeconds exports minEventAgeInSeconds for use in tests.
+const MinEventAgeInSeconds = minEventAgeInSeconds
+
+func ShardIteratorsLen(p *EventSourcePoller) int {
+	p.mu.RLock("ShardIteratorsLen")
+	defer p.mu.RUnlock()
+
+	return len(p.shardIterators)
+}
+
+// RuntimeQueueSize exposes the internal runtimeQueueSize constant for test use.
+const RuntimeQueueSize = runtimeQueueSize
+
+// PendingLen returns the number of entries in the runtime server's pending invocations map.
+// Intended for use in unit tests to verify stale-pending cleanup.
+func PendingLen(s *ExportedRuntimeServer) int {
+	count := 0
+	s.inner.pending.Range(func(_, _ any) bool {
+		count++
+
+		return true
+	})
+
+	return count
+}
+
+// QueueLen returns the current number of items in the runtime server's invocation queue.
+func QueueLen(s *ExportedRuntimeServer) int {
+	return len(s.inner.queue)
+}
+
+// FillQueue fills the runtime server's queue with dummy placeholder entries up to n items.
+// Returns the actual number added.
+func FillQueue(s *ExportedRuntimeServer, n int) int {
+	added := 0
+
+	for range n {
+		select {
+		case s.inner.queue <- &pendingInvocation{}:
+			added++
+		default:
+			return added
+		}
+	}
+
+	return added
+}
+
+// DrainQueue removes all items currently in the queue and returns the count drained.
+func DrainQueue(s *ExportedRuntimeServer) int {
+	n := 0
+
+	for {
+		select {
+		case <-s.inner.queue:
+			n++
+		default:
+			return n
+		}
+	}
+}
+
+// DrainN removes at most n items from the runtime server's invocation queue,
+// returning the actual number removed. Unlike DrainQueue, it stops after n
+// dequeues so that items inserted concurrently by background goroutines (e.g.
+// the slow-path in enqueueAsyncInvocation) are not inadvertently consumed.
+func DrainN(s *ExportedRuntimeServer, n int) int {
+	removed := 0
+
+	for removed < n {
+		select {
+		case <-s.inner.queue:
+			removed++
+		default:
+			return removed
+		}
+	}
+
+	return removed
+}
+
+// EnqueueAsync calls enqueueAsyncInvocation on b with a synthetic pendingInvocation.
+// It returns the requestID of the created invocation so tests can simulate container
+// responses or verify pending-map cleanup. createdAt sets the event creation time; pass
+// a zero [time.Time] to default to [time.Now].
+func EnqueueAsync(
+	ctx context.Context,
+	b *InMemoryBackend,
+	srv *ExportedRuntimeServer,
+	functionName string,
+	payload []byte,
+	timeout time.Duration,
+	trackConcurrency bool,
+	createdAt ...time.Time,
+) string {
+	eventTime := time.Now()
+	if len(createdAt) > 0 && !createdAt[0].IsZero() {
+		eventTime = createdAt[0]
+	}
+
+	inv := &pendingInvocation{
+		requestID: uuid.New().String(),
+		payload:   payload,
+		deadline:  eventTime.Add(timeout),
+		createdAt: eventTime,
+		result:    make(chan invocationResult, 1),
+	}
+
+	b.enqueueAsyncInvocation(ctx, srv.inner, functionName, inv, timeout, trackConcurrency)
+
+	return inv.requestID
 }

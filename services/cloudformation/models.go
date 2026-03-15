@@ -127,3 +127,45 @@ type ResourceChange struct {
 	LogicalID    string `xml:"LogicalResourceId" json:"logicalID"`
 	ResourceType string `xml:"ResourceType"      json:"resourceType"`
 }
+
+// DriftDetectionStatus holds the status of a stack drift detection operation.
+type DriftDetectionStatus struct {
+	Timestamp                 time.Time `xml:"Timestamp"                       json:"timestamp"`
+	StackID                   string    `xml:"StackId"                         json:"stackID"`
+	StackDriftDetectionID     string    `xml:"StackDriftDetectionId"           json:"stackDriftDetectionID"`
+	StackDriftStatus          string    `xml:"StackDriftStatus"                json:"stackDriftStatus"`
+	DetectionStatus           string    `xml:"DetectionStatus"                 json:"detectionStatus"`
+	DetectionStatusReason     string    `xml:"DetectionStatusReason,omitempty" json:"detectionStatusReason,omitempty"`
+	DriftedStackResourceCount int       `xml:"DriftedStackResourceCount"       json:"driftedStackResourceCount"`
+}
+
+// StackResourceDrift holds drift information for a single stack resource.
+type StackResourceDrift struct {
+	Timestamp                time.Time `xml:"Timestamp"                    json:"timestamp"`
+	StackID                  string    `xml:"StackId"                      json:"stackID"`
+	LogicalResourceID        string    `xml:"LogicalResourceId"            json:"logicalResourceID"`
+	PhysicalResourceID       string    `xml:"PhysicalResourceId,omitempty" json:"physicalResourceID,omitempty"`
+	ResourceType             string    `xml:"ResourceType"                 json:"resourceType"`
+	StackResourceDriftStatus string    `xml:"StackResourceDriftStatus"     json:"stackResourceDriftStatus"`
+}
+
+// ParameterDeclaration describes a parameter declared in a CloudFormation template.
+type ParameterDeclaration struct {
+	ParameterKey  string `xml:"ParameterKey"           json:"parameterKey"`
+	ParameterType string `xml:"ParameterType"          json:"parameterType"`
+	DefaultValue  string `xml:"DefaultValue,omitempty" json:"defaultValue,omitempty"`
+	Description   string `xml:"Description,omitempty"  json:"description,omitempty"`
+}
+
+// TemplateSummary holds summary information about a CloudFormation template.
+type TemplateSummary struct {
+	Description   string                 `xml:"Description,omitempty"          json:"description,omitempty"`
+	Parameters    []ParameterDeclaration `xml:"Parameters>member,omitempty"    json:"parameters,omitempty"`
+	ResourceTypes []string               `xml:"ResourceTypes>member,omitempty" json:"resourceTypes,omitempty"`
+}
+
+// AccountLimit holds a single CloudFormation account limit.
+type AccountLimit struct {
+	Name  string `xml:"Name"  json:"name"`
+	Value int    `xml:"Value" json:"value"`
+}

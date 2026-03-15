@@ -2,12 +2,16 @@ package bedrock
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+const bedrockDefaultPageSize = 100
 
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
@@ -221,8 +225,8 @@ func (b *InMemoryBackend) GetGuardrail(idOrARN string) (*Guardrail, error) {
 	return &cp, nil
 }
 
-// ListGuardrails returns all guardrails.
-func (b *InMemoryBackend) ListGuardrails() []*GuardrailSummary {
+// ListGuardrails returns guardrails with optional pagination.
+func (b *InMemoryBackend) ListGuardrails(nextToken string) ([]*GuardrailSummary, string) {
 	b.mu.RLock("ListGuardrails")
 	defer b.mu.RUnlock()
 
@@ -241,7 +245,9 @@ func (b *InMemoryBackend) ListGuardrails() []*GuardrailSummary {
 		})
 	}
 
-	return list
+	sort.Slice(list, func(i, j int) bool { return list[i].GuardrailID < list[j].GuardrailID })
+
+	return paginateBedrockSlice(list, nextToken)
 }
 
 // UpdateGuardrail updates a guardrail's description and messaging.
@@ -305,15 +311,15 @@ func (b *InMemoryBackend) findGuardrailByIDOrARN(idOrARN string) (*Guardrail, bo
 	return nil, false
 }
 
-// ListFoundationModels returns all seeded foundation models.
-func (b *InMemoryBackend) ListFoundationModels() []*FoundationModelSummary {
+// ListFoundationModels returns seeded foundation models with optional pagination.
+func (b *InMemoryBackend) ListFoundationModels(nextToken string) ([]*FoundationModelSummary, string) {
 	b.mu.RLock("ListFoundationModels")
 	defer b.mu.RUnlock()
 
 	list := make([]*FoundationModelSummary, len(b.foundationModels))
 	copy(list, b.foundationModels)
 
-	return list
+	return paginateBedrockSlice(list, nextToken)
 }
 
 // GetFoundationModel returns a single foundation model by ID.
@@ -391,8 +397,8 @@ func (b *InMemoryBackend) GetProvisionedModelThroughput(idOrARN string) (*Provis
 	return &cp, nil
 }
 
-// ListProvisionedModelThroughputs returns all provisioned model throughputs.
-func (b *InMemoryBackend) ListProvisionedModelThroughputs() []*ProvisionedModelThroughput {
+// ListProvisionedModelThroughputs returns provisioned model throughputs with optional pagination.
+func (b *InMemoryBackend) ListProvisionedModelThroughputs(nextToken string) ([]*ProvisionedModelThroughput, string) {
 	b.mu.RLock("ListProvisionedModelThroughputs")
 	defer b.mu.RUnlock()
 
@@ -403,7 +409,9 @@ func (b *InMemoryBackend) ListProvisionedModelThroughputs() []*ProvisionedModelT
 		list = append(list, &cp)
 	}
 
-	return list
+	sort.Slice(list, func(i, j int) bool { return list[i].ProvisionedModelArn < list[j].ProvisionedModelArn })
+
+	return paginateBedrockSlice(list, nextToken)
 }
 
 // UpdateProvisionedModelThroughput updates a provisioned model throughput.
@@ -577,4 +585,35 @@ func (b *InMemoryBackend) findTagsByARNPointer(resourceARN string) (*[]Tag, bool
 	}
 
 	return nil, false
+}
+
+// paginateBedrockSlice applies pagination to a slice using an integer-offset NextToken.
+func paginateBedrockSlice[T any](list []T, nextToken string) ([]T, string) {
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(list) {
+		return []T{}, ""
+	}
+	end := startIdx + bedrockDefaultPageSize
+	var outToken string
+	if end < len(list) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(list)
+	}
+
+	return list[startIdx:end], outToken
+}
+
+// parseNextToken parses a pagination token (integer offset) into a slice index.
+func parseNextToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	idx, err := strconv.Atoi(token)
+	if err != nil || idx < 0 {
+		return 0
+	}
+
+	return idx
 }

@@ -3,7 +3,6 @@ package eventbridge
 import (
 	"context"
 	"encoding/json"
-	"maps"
 	"strings"
 	"time"
 
@@ -37,10 +36,11 @@ type DeliveryTargets struct {
 // It runs asynchronously and does not block PutEvents.
 func (b *InMemoryBackend) deliverEvents(ctx context.Context, entries []EventEntry, targets DeliveryTargets) {
 	b.mu.RLock("deliverEvents")
-	busRules := make(map[string]map[string]*Rule)
-	busTargets := make(map[string]map[string]*Target)
-	maps.Copy(busRules, b.rules)
-	maps.Copy(busTargets, b.targets)
+	// Deep copy rules and targets within the lock so concurrent mutations to the
+	// inner maps (PutRule/DeleteRule/PutTargets/RemoveTargets) cannot race with
+	// the iteration below.
+	busRules := deepCopyBusRules(b.rules)
+	busTargets := deepCopyBusTargets(b.targets)
 	accountID := b.accountID
 	region := b.region
 	b.mu.RUnlock()
@@ -78,6 +78,38 @@ func (b *InMemoryBackend) deliverEvents(ctx context.Context, entries []EventEntr
 			}
 		}
 	}
+}
+
+// deepCopyBusRules returns a deep copy of the bus-to-rules map so that the
+// caller can iterate it without holding any lock.
+func deepCopyBusRules(src map[string]map[string]*Rule) map[string]map[string]*Rule {
+	dst := make(map[string]map[string]*Rule, len(src))
+	for bus, ruleMap := range src {
+		cp := make(map[string]*Rule, len(ruleMap))
+		for k, v := range ruleMap {
+			r := *v
+			cp[k] = &r
+		}
+		dst[bus] = cp
+	}
+
+	return dst
+}
+
+// deepCopyBusTargets returns a deep copy of the target-key-to-targets map so
+// that the caller can iterate it without holding any lock.
+func deepCopyBusTargets(src map[string]map[string]*Target) map[string]map[string]*Target {
+	dst := make(map[string]map[string]*Target, len(src))
+	for key, targetMap := range src {
+		cp := make(map[string]*Target, len(targetMap))
+		for k, v := range targetMap {
+			t := *v
+			cp[k] = &t
+		}
+		dst[key] = cp
+	}
+
+	return dst
 }
 
 // buildEventEnvelope creates a JSON string representing the normalized event for pattern matching.

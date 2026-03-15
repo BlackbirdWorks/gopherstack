@@ -73,6 +73,17 @@ func (db *InMemoryDB) Restore(data []byte) error {
 	db.defaultRegion = snap.DefaultRegion
 	db.accountID = snap.AccountID
 
+	// Rebuild the stream ARN reverse index from the restored tables.
+	db.streamARNIndex = make(map[string]*Table)
+
+	for _, regionTables := range db.Tables {
+		for _, t := range regionTables {
+			if t.StreamARN != "" {
+				db.streamARNIndex[t.StreamARN] = t
+			}
+		}
+	}
+
 	return nil
 }
 

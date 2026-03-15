@@ -3,6 +3,7 @@ package emrserverless_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -240,6 +241,128 @@ func TestHandler_ListApplications(t *testing.T) {
 }
 
 // --- UpdateApplication ---
+
+func TestHandler_ListApplicationsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		queryString   string
+		wantCount     int
+		wantNextToken bool
+	}{
+		{
+			name:        "no_pagination_returns_all",
+			queryString: "",
+			wantCount:   4,
+		},
+		{
+			name:          "first_page",
+			queryString:   "?maxResults=2",
+			wantCount:     2,
+			wantNextToken: true,
+		},
+		{
+			name:        "second_page",
+			queryString: "?maxResults=2&nextToken=2",
+			wantCount:   2,
+		},
+		{
+			name:        "token_beyond_end",
+			queryString: "?maxResults=2&nextToken=100",
+			wantCount:   0,
+		},
+		{
+			name:        "invalid_max_results_ignored",
+			queryString: "?maxResults=notanumber",
+			wantCount:   4,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for i := range 4 {
+				createApp(t, h, fmt.Sprintf("app-%d", i))
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/applications"+tt.queryString, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			mustUnmarshal(t, rec, &out)
+			apps := out["applications"].([]any)
+			assert.Len(t, apps, tt.wantCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, out["nextToken"])
+			}
+		})
+	}
+}
+
+func TestHandler_ListJobRunsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		queryString   string
+		wantCount     int
+		wantNextToken bool
+	}{
+		{
+			name:        "no_pagination_returns_all",
+			queryString: "",
+			wantCount:   4,
+		},
+		{
+			name:          "first_page",
+			queryString:   "?maxResults=2",
+			wantCount:     2,
+			wantNextToken: true,
+		},
+		{
+			name:        "second_page",
+			queryString: "?maxResults=2&nextToken=2",
+			wantCount:   2,
+		},
+		{
+			name:        "token_beyond_end",
+			queryString: "?maxResults=2&nextToken=100",
+			wantCount:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			appID := createApp(t, h, "pagination-app")
+
+			jobBody := map[string]any{"executionRoleArn": "arn:aws:iam::000000000000:role/r"}
+			for range 4 {
+				rec := doRequest(t, h, http.MethodPost, "/applications/"+appID+"/jobruns", jobBody)
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			rec := doRequest(t, h, http.MethodGet, "/applications/"+appID+"/jobruns"+tt.queryString, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			mustUnmarshal(t, rec, &out)
+			runs := out["jobRuns"].([]any)
+			assert.Len(t, runs, tt.wantCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, out["nextToken"])
+			}
+		})
+	}
+}
 
 func TestHandler_UpdateApplication(t *testing.T) {
 	t.Parallel()

@@ -50,19 +50,21 @@ func clonePipe(p *Pipe) *Pipe {
 }
 
 type InMemoryBackend struct {
-	pipes     map[string]*Pipe
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	pipes        map[string]*Pipe
+	pipeARNIndex map[string]string // ARN → pipe name
+	mu           *lockmetrics.RWMutex
+	accountID    string
+	region       string
 }
 
 // NewInMemoryBackend creates a new in-memory Pipes backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		pipes:     make(map[string]*Pipe),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("pipes"),
+		pipes:        make(map[string]*Pipe),
+		pipeARNIndex: make(map[string]string),
+		accountID:    accountID,
+		region:       region,
+		mu:           lockmetrics.New("pipes"),
 	}
 }
 
@@ -103,6 +105,7 @@ func (b *InMemoryBackend) CreatePipe(
 		Tags:             mergeTags(nil, tags),
 	}
 	b.pipes[name] = p
+	b.pipeARNIndex[pipeARN] = name
 
 	return clonePipe(p), nil
 }
@@ -162,9 +165,12 @@ func (b *InMemoryBackend) DeletePipe(name string) error {
 	b.mu.Lock("DeletePipe")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pipes[name]; !ok {
+	p, ok := b.pipes[name]
+	if !ok {
 		return fmt.Errorf("%w: pipe %s not found", ErrNotFound, name)
 	}
+
+	delete(b.pipeARNIndex, p.ARN)
 	delete(b.pipes, name)
 
 	return nil
@@ -209,15 +215,15 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, p := range b.pipes {
-		if p.ARN == resourceARN {
-			p.Tags = mergeTags(p.Tags, kv)
-
-			return nil
-		}
+	name, ok := b.pipeARNIndex[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	p := b.pipes[name]
+	p.Tags = mergeTags(p.Tags, kv)
+
+	return nil
 }
 
 // UntagResource removes specified tag keys from a pipe.
@@ -225,17 +231,18 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, p := range b.pipes {
-		if p.ARN == resourceARN {
-			for _, k := range keys {
-				delete(p.Tags, k)
-			}
-
-			return nil
-		}
+	name, ok := b.pipeARNIndex[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	p := b.pipes[name]
+
+	for _, k := range keys {
+		delete(p.Tags, k)
+	}
+
+	return nil
 }
 
 // ListTagsForResource returns tags for a pipe identified by ARN.
@@ -243,16 +250,16 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, p := range b.pipes {
-		if p.ARN == resourceARN {
-			result := make(map[string]string, len(p.Tags))
-			maps.Copy(result, p.Tags)
-
-			return result, nil
-		}
+	name, ok := b.pipeARNIndex[resourceARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	p := b.pipes[name]
+	result := make(map[string]string, len(p.Tags))
+	maps.Copy(result, p.Tags)
+
+	return result, nil
 }
 
 // mergeTags merges new tags into existing ones, returning a new map.

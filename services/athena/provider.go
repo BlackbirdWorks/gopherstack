@@ -16,6 +16,7 @@ func (p *Provider) Name() string { return "Athena" }
 func (p *Provider) Init(_ *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
 	handler := NewHandler(backend)
+	handler.WithJanitor(0, 0)
 
 	return handler, nil
 }

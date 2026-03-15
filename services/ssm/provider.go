@@ -17,7 +17,7 @@ func (p *Provider) Name() string {
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(_ *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend()
-	handler := NewHandler(backend)
+	handler := NewHandler(backend).WithJanitor(0)
 
 	return handler, nil
 }

@@ -30,5 +30,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	handler.AccountID = accountID
 	handler.Region = region
 
+	handler.WithJanitor(0, 0)
+
 	return handler, nil
 }

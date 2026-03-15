@@ -830,3 +830,365 @@ func TestHandler_Metadata(t *testing.T) {
 		assert.True(t, strings.HasPrefix(string(body), xml.Header))
 	})
 }
+
+func TestHandler_DescribeDBClusters_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, id := range []string{"cluster-1", "cluster-2", "cluster-3"} {
+		doRequest(t, h, url.Values{
+			"Action":              {"CreateDBCluster"},
+			"Version":             {"2014-10-31"},
+			"DBClusterIdentifier": {id},
+		})
+	}
+
+	tests := []struct {
+		vals       url.Values
+		name       string
+		wantCode   int
+		wantMarker bool
+	}{
+		{
+			name: "all clusters",
+			vals: url.Values{
+				"Action":  {"DescribeDBClusters"},
+				"Version": {"2014-10-31"},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "paginated with MaxRecords=1",
+			vals: url.Values{
+				"Action":     {"DescribeDBClusters"},
+				"Version":    {"2014-10-31"},
+				"MaxRecords": {"1"},
+			},
+			wantCode:   http.StatusOK,
+			wantMarker: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantCode, rr.Code)
+			assert.Contains(t, rr.Body.String(), "DescribeDBClustersResponse")
+
+			if tt.wantMarker {
+				assert.Contains(t, rr.Body.String(), "<Marker>")
+			}
+		})
+	}
+}
+
+func TestHandler_DescribeDBInstances_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createCluster(t, h, "test-cluster")
+
+	for _, id := range []string{"inst-1", "inst-2"} {
+		createInstance(t, h, id, "test-cluster")
+	}
+
+	tests := []struct {
+		vals       url.Values
+		name       string
+		wantCode   int
+		wantMarker bool
+	}{
+		{
+			name: "all instances",
+			vals: url.Values{
+				"Action":  {"DescribeDBInstances"},
+				"Version": {"2014-10-31"},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "paginated with MaxRecords=1",
+			vals: url.Values{
+				"Action":     {"DescribeDBInstances"},
+				"Version":    {"2014-10-31"},
+				"MaxRecords": {"1"},
+			},
+			wantCode:   http.StatusOK,
+			wantMarker: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantCode, rr.Code)
+
+			if tt.wantMarker {
+				assert.Contains(t, rr.Body.String(), "<Marker>")
+			}
+		})
+	}
+}
+
+func TestHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Positive(t, h.MatchPriority())
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+	body := "Action=DescribeDBClusters&Version=2014-10-31&DBClusterIdentifier=my-cluster"
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "aws-sdk-go-v2/1.0 api/neptune#1.0")
+	c := e.NewContext(req, httptest.NewRecorder())
+	resource := h.ExtractResource(c)
+	assert.Equal(t, "my-cluster", resource)
+}
+
+func TestNeptune_Provider(t *testing.T) {
+	t.Parallel()
+
+	p := &neptune.Provider{}
+	assert.Equal(t, "Neptune", p.Name())
+}
+
+func TestHandler_DescribeSubnetGroupsPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, name := range []string{"sg-1", "sg-2", "sg-3"} {
+		doRequest(t, h, url.Values{
+			"Action":                   {"CreateDBSubnetGroup"},
+			"Version":                  {"2014-10-31"},
+			"DBSubnetGroupName":        {name},
+			"DBSubnetGroupDescription": {"test"},
+		})
+	}
+
+	rr := doRequest(t, h, url.Values{
+		"Action":     {"DescribeDBSubnetGroups"},
+		"Version":    {"2014-10-31"},
+		"MaxRecords": {"1"},
+	})
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), "<Marker>")
+}
+
+func TestHandler_DescribeClusterSnapshotsPagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createCluster(t, h, "snap-cluster")
+
+	for _, id := range []string{"snap-1", "snap-2"} {
+		doRequest(t, h, url.Values{
+			"Action":                      {"CreateDBClusterSnapshot"},
+			"Version":                     {"2014-10-31"},
+			"DBClusterSnapshotIdentifier": {id},
+			"DBClusterIdentifier":         {"snap-cluster"},
+		})
+	}
+
+	rr := doRequest(t, h, url.Values{
+		"Action":     {"DescribeDBClusterSnapshots"},
+		"Version":    {"2014-10-31"},
+		"MaxRecords": {"1"},
+	})
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), "<Marker>")
+}
+
+func TestHandler_ChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.ChaosOperations()
+	assert.Contains(t, ops, "CreateDBCluster")
+}
+
+func TestHandler_ChaosRegions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	regions := h.ChaosRegions()
+	assert.NotEmpty(t, regions)
+}
+
+func TestHandler_ModifyReboot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals     url.Values
+		name     string
+		wantBody string
+		wantCode int
+	}{
+		{
+			name: "modify cluster",
+			vals: url.Values{
+				"Action":              {"ModifyDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"mod-cluster"},
+			},
+			wantCode: http.StatusOK,
+			wantBody: "ModifyDBClusterResponse",
+		},
+		{
+			name: "stop cluster",
+			vals: url.Values{
+				"Action":              {"StopDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"mod-cluster"},
+			},
+			wantCode: http.StatusOK,
+			wantBody: "StopDBClusterResponse",
+		},
+		{
+			name: "start cluster",
+			vals: url.Values{
+				"Action":              {"StartDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"mod-cluster"},
+			},
+			wantCode: http.StatusOK,
+			wantBody: "StartDBClusterResponse",
+		},
+		{
+			name: "failover cluster",
+			vals: url.Values{
+				"Action":              {"FailoverDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"mod-cluster"},
+			},
+			wantCode: http.StatusOK,
+			wantBody: "FailoverDBClusterResponse",
+		},
+		{
+			name: "modify instance",
+			vals: url.Values{
+				"Action":               {"ModifyDBInstance"},
+				"Version":              {"2014-10-31"},
+				"DBInstanceIdentifier": {"mod-inst"},
+				"DBInstanceClass":      {"db.r5.large"},
+			},
+			wantCode: http.StatusOK,
+			wantBody: "ModifyDBInstanceResponse",
+		},
+		{
+			name: "reboot instance",
+			vals: url.Values{
+				"Action":               {"RebootDBInstance"},
+				"Version":              {"2014-10-31"},
+				"DBInstanceIdentifier": {"mod-inst"},
+			},
+			wantCode: http.StatusOK,
+			wantBody: "RebootDBInstanceResponse",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createCluster(t, h, "mod-cluster")
+			createInstance(t, h, "mod-inst", "mod-cluster")
+
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantCode, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantBody)
+		})
+	}
+}
+
+func TestHandler_DeleteClusterAndInstance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals     url.Values
+		name     string
+		wantBody string
+		wantCode int
+	}{
+		{
+			name: "delete instance",
+			vals: url.Values{
+				"Action":               {"DeleteDBInstance"},
+				"Version":              {"2014-10-31"},
+				"DBInstanceIdentifier": {"del-inst"},
+			},
+			wantCode: http.StatusOK,
+			wantBody: "DeleteDBInstanceResponse",
+		},
+		{
+			name: "delete cluster",
+			vals: url.Values{
+				"Action":              {"DeleteDBCluster"},
+				"Version":             {"2014-10-31"},
+				"DBClusterIdentifier": {"del-cluster"},
+			},
+			wantCode: http.StatusOK,
+			wantBody: "DeleteDBClusterResponse",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createCluster(t, h, "del-cluster")
+			createInstance(t, h, "del-inst", "del-cluster")
+
+			rr := doRequest(t, h, tt.vals)
+			assert.Equal(t, tt.wantCode, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantBody)
+		})
+	}
+}
+
+func TestHandler_DescribeGlobalClusters(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rr := doRequest(t, h, url.Values{
+		"Action":  {"DescribeGlobalClusters"},
+		"Version": {"2014-10-31"},
+	})
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), "DescribeGlobalClustersResponse")
+}
+
+func TestHandler_DeleteClusterSnapshot(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createCluster(t, h, "snap2-cluster")
+	doRequest(t, h, url.Values{
+		"Action":                      {"CreateDBClusterSnapshot"},
+		"Version":                     {"2014-10-31"},
+		"DBClusterSnapshotIdentifier": {"snap2"},
+		"DBClusterIdentifier":         {"snap2-cluster"},
+	})
+
+	rr := doRequest(t, h, url.Values{
+		"Action":                      {"DeleteDBClusterSnapshot"},
+		"Version":                     {"2014-10-31"},
+		"DBClusterSnapshotIdentifier": {"snap2"},
+	})
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), "DeleteDBClusterSnapshotResponse")
+}

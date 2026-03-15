@@ -49,6 +49,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"RemoveTags",
 		"ListTags",
 		"ListTrails",
+		"LookupEvents",
 	}
 }
 
@@ -106,7 +107,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
-//nolint:cyclop // dispatch table for 14 operations is inherently wide
+//nolint:cyclop // dispatch table for 15 operations is inherently wide
 func (h *Handler) dispatch(c *echo.Context, operation string, body []byte) error {
 	switch operation {
 	case "CreateTrail":
@@ -137,6 +138,8 @@ func (h *Handler) dispatch(c *echo.Context, operation string, body []byte) error
 		return h.handleListTags(c, body)
 	case "ListTrails":
 		return h.handleListTrails(c)
+	case "LookupEvents":
+		return h.handleLookupEvents(c)
 	default:
 		return c.JSON(
 			http.StatusBadRequest,
@@ -529,6 +532,13 @@ func (h *Handler) handleListTrails(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"Trails": items})
+}
+
+// --- LookupEvents ---
+
+// handleLookupEvents returns an empty list of CloudTrail events (stub).
+func (h *Handler) handleLookupEvents(c *echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]any{"Events": []any{}})
 }
 
 // trailToMap converts a Trail to the JSON map used in API responses.

@@ -2,6 +2,8 @@ package transcribe
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -15,6 +17,8 @@ var (
 	// ErrAlreadyExists is returned when a transcription job already exists.
 	ErrAlreadyExists = awserr.New("ConflictException", awserr.ErrAlreadyExists)
 )
+
+const transcribeDefaultPageSize = 100
 
 // TranscriptionJob represents an Amazon Transcribe transcription job.
 type TranscriptionJob struct {
@@ -82,17 +86,59 @@ func (b *InMemoryBackend) GetTranscriptionJob(jobName string) (*TranscriptionJob
 	return &cp, nil
 }
 
-// ListTranscriptionJobs returns all transcription jobs, optionally filtered by status.
-func (b *InMemoryBackend) ListTranscriptionJobs(statusFilter string) []TranscriptionJob {
+// ListTranscriptionJobs returns transcription jobs, optionally filtered by status, with pagination.
+func (b *InMemoryBackend) ListTranscriptionJobs(statusFilter, nextToken string) ([]TranscriptionJob, string) {
 	b.mu.RLock("ListTranscriptionJobs")
 	defer b.mu.RUnlock()
 
-	out := make([]TranscriptionJob, 0, len(b.jobs))
+	all := make([]TranscriptionJob, 0, len(b.jobs))
 	for _, j := range b.jobs {
 		if statusFilter == "" || j.JobStatus == statusFilter {
-			out = append(out, *j)
+			all = append(all, *j)
 		}
 	}
 
-	return out
+	sort.Slice(all, func(i, j int) bool { return all[i].JobName < all[j].JobName })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(all) {
+		return []TranscriptionJob{}, ""
+	}
+	end := startIdx + transcribeDefaultPageSize
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken
+}
+
+// DeleteTranscriptionJob removes a transcription job by name.
+func (b *InMemoryBackend) DeleteTranscriptionJob(jobName string) error {
+	b.mu.Lock("DeleteTranscriptionJob")
+	defer b.mu.Unlock()
+
+	if _, ok := b.jobs[jobName]; !ok {
+		return fmt.Errorf("%w: job %s not found", ErrNotFound, jobName)
+	}
+
+	delete(b.jobs, jobName)
+
+	return nil
+}
+
+// parseNextToken parses a pagination token (integer offset) into a slice index.
+func parseNextToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	idx, err := strconv.Atoi(token)
+	if err != nil || idx < 0 {
+		return 0
+	}
+
+	return idx
 }

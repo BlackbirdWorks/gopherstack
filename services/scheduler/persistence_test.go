@@ -50,6 +50,37 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			},
 		},
 		{
+			name: "restore_rebuilds_arn_index",
+			setup: func(b *scheduler.InMemoryBackend) string {
+				sched, err := b.CreateSchedule(
+					"idx-schedule",
+					"rate(5 minutes)",
+					scheduler.Target{
+						ARN:     "arn:aws:lambda:us-east-1:000000000000:function:idx",
+						RoleARN: "arn:aws:iam::000000000000:role/idx",
+					},
+					"ENABLED",
+					scheduler.FlexibleTimeWindow{Mode: "OFF"},
+				)
+				if err != nil {
+					return ""
+				}
+
+				return sched.ARN
+			},
+			verify: func(t *testing.T, b *scheduler.InMemoryBackend, resourceARN string) {
+				t.Helper()
+
+				// TagResource uses the scheduleARNIndex; must succeed after restore.
+				err := b.TagResource(resourceARN, map[string]string{"env": "test"})
+				require.NoError(t, err)
+
+				kv, err := b.ListTagsForResource(resourceARN)
+				require.NoError(t, err)
+				assert.Equal(t, "test", kv["env"])
+			},
+		},
+		{
 			name:  "empty_backend_round_trip",
 			setup: func(_ *scheduler.InMemoryBackend) string { return "" },
 			verify: func(t *testing.T, b *scheduler.InMemoryBackend, _ string) {

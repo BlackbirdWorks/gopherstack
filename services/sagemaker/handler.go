@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -134,7 +135,7 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 	case "DescribeModel":
 		return h.handleDescribeModel(ctx, body)
 	case "ListModels":
-		return h.handleListModels()
+		return h.handleListModels(body)
 	case "DeleteModel":
 		return h.handleDeleteModel(ctx, body)
 	case "CreateEndpointConfig":
@@ -142,7 +143,7 @@ func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte,
 	case "DescribeEndpointConfig":
 		return h.handleDescribeEndpointConfig(ctx, body)
 	case "ListEndpointConfigs":
-		return h.handleListEndpointConfigs()
+		return h.handleListEndpointConfigs(body)
 	case "DeleteEndpointConfig":
 		return h.handleDeleteEndpointConfig(ctx, body)
 	case "AddTags":
@@ -310,8 +311,16 @@ func (h *Handler) handleDescribeModel(_ context.Context, body []byte) ([]byte, e
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleListModels() ([]byte, error) {
-	models := h.Backend.ListModels()
+func (h *Handler) handleListModels(body []byte) ([]byte, error) {
+	var req struct {
+		NextToken string `json:"NextToken"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	models, nextToken := h.Backend.ListModels(req.NextToken)
 	summaries := make([]modelSummary, 0, len(models))
 
 	for _, m := range models {
@@ -322,7 +331,12 @@ func (h *Handler) handleListModels() ([]byte, error) {
 		})
 	}
 
-	return json.Marshal(map[string]any{"Models": summaries})
+	resp := map[string]any{"Models": summaries}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleDeleteModel(ctx context.Context, body []byte) ([]byte, error) {
@@ -432,8 +446,16 @@ func (h *Handler) handleDescribeEndpointConfig(_ context.Context, body []byte) (
 	return json.Marshal(resp)
 }
 
-func (h *Handler) handleListEndpointConfigs() ([]byte, error) {
-	configs := h.Backend.ListEndpointConfigs()
+func (h *Handler) handleListEndpointConfigs(body []byte) ([]byte, error) {
+	var req struct {
+		NextToken string `json:"NextToken"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	configs, nextToken := h.Backend.ListEndpointConfigs(req.NextToken)
 	summaries := make([]endpointConfigSummary, 0, len(configs))
 
 	for _, ec := range configs {
@@ -444,7 +466,12 @@ func (h *Handler) handleListEndpointConfigs() ([]byte, error) {
 		})
 	}
 
-	return json.Marshal(map[string]any{"EndpointConfigs": summaries})
+	resp := map[string]any{"EndpointConfigs": summaries}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleDeleteEndpointConfig(ctx context.Context, body []byte) ([]byte, error) {
@@ -499,6 +526,7 @@ func (h *Handler) handleAddTags(ctx context.Context, body []byte) ([]byte, error
 func (h *Handler) handleListTags(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ResourceArn string `json:"ResourceArn"`
+		NextToken   string `json:"NextToken"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -514,7 +542,25 @@ func (h *Handler) handleListTags(_ context.Context, body []byte) ([]byte, error)
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{"Tags": toTagObjects(tags)})
+	allTags := toTagObjects(tags)
+	startIdx := parseNextToken(req.NextToken)
+	if startIdx >= len(allTags) {
+		return json.Marshal(map[string]any{"Tags": []tagObject{}})
+	}
+	end := startIdx + sagemakerDefaultPageSize
+	var outToken string
+	if end < len(allTags) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(allTags)
+	}
+
+	resp := map[string]any{"Tags": allTags[startIdx:end]}
+	if outToken != "" {
+		resp["NextToken"] = outToken
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleDeleteTags(ctx context.Context, body []byte) ([]byte, error) {

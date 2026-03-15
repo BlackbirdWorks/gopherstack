@@ -1,6 +1,7 @@
 package kms_test
 
 import (
+	"bytes"
 	"crypto/sha512"
 	"encoding/json"
 	"log/slog"
@@ -2725,4 +2726,252 @@ func TestKMSBackendGetPublicKeyMaterialUnavailable(t *testing.T) {
 
 	_, err = restored.GetPublicKey(&kms.GetPublicKeyInput{KeyID: key.KeyMetadata.KeyID})
 	require.ErrorIs(t, err, kms.ErrKeyMaterialUnavailable)
+}
+
+// TestKMSBackendListGrantsPagination verifies Limit/Marker pagination for ListGrants.
+func TestKMSBackendListGrantsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		marker         string
+		wantCount      int
+		limit          int32
+		wantTruncated  bool
+		wantNextMarker bool
+	}{
+		{
+			name:           "first_page",
+			limit:          2,
+			wantCount:      2,
+			wantTruncated:  true,
+			wantNextMarker: true,
+		},
+		{
+			name:           "second_page_via_marker",
+			limit:          2,
+			marker:         "2",
+			wantCount:      2,
+			wantTruncated:  true,
+			wantNextMarker: true,
+		},
+		{
+			name:           "last_page",
+			limit:          2,
+			marker:         "4",
+			wantCount:      1,
+			wantTruncated:  false,
+			wantNextMarker: false,
+		},
+		{
+			name:      "marker_beyond_end",
+			limit:     2,
+			marker:    "100",
+			wantCount: 0,
+		},
+		{
+			name:           "invalid_marker_treated_as_start",
+			limit:          2,
+			marker:         "not-a-number",
+			wantCount:      2,
+			wantTruncated:  true,
+			wantNextMarker: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			key, err := b.CreateKey(&kms.CreateKeyInput{})
+			require.NoError(t, err)
+
+			for range 5 {
+				_, err = b.CreateGrant(&kms.CreateGrantInput{
+					KeyID:            key.KeyMetadata.KeyID,
+					GranteePrincipal: "arn:aws:iam::000000000000:role/r",
+					Operations:       []string{"Decrypt"},
+				})
+				require.NoError(t, err)
+			}
+
+			lim := tt.limit
+			out, err := b.ListGrants(&kms.ListGrantsInput{
+				KeyID:  key.KeyMetadata.KeyID,
+				Limit:  &lim,
+				Marker: tt.marker,
+			})
+			require.NoError(t, err)
+			assert.Len(t, out.Grants, tt.wantCount)
+			assert.Equal(t, tt.wantTruncated, out.Truncated)
+
+			if tt.wantNextMarker {
+				assert.NotEmpty(t, out.NextMarker)
+			} else {
+				assert.Empty(t, out.NextMarker)
+			}
+		})
+	}
+}
+
+// TestKMSBackendListRetirableGrantsPagination verifies filtering by RetiringPrincipal and pagination.
+func TestKMSBackendListRetirableGrantsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		retiringPrincipal string
+		marker            string
+		wantCount         int
+		limit             int32
+		wantTruncated     bool
+	}{
+		{
+			name:              "filters_by_retiring_principal",
+			retiringPrincipal: "arn:aws:iam::000000000000:role/retiring",
+			limit:             10,
+			wantCount:         3,
+		},
+		{
+			name:              "no_match",
+			retiringPrincipal: "arn:aws:iam::000000000000:role/nobody",
+			limit:             10,
+			wantCount:         0,
+		},
+		{
+			name:              "pagination_first_page",
+			retiringPrincipal: "arn:aws:iam::000000000000:role/retiring",
+			limit:             2,
+			wantCount:         2,
+			wantTruncated:     true,
+		},
+		{
+			name:              "pagination_second_page",
+			retiringPrincipal: "arn:aws:iam::000000000000:role/retiring",
+			limit:             2,
+			marker:            "2",
+			wantCount:         1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			key, err := b.CreateKey(&kms.CreateKeyInput{})
+			require.NoError(t, err)
+
+			for range 3 {
+				_, err = b.CreateGrant(&kms.CreateGrantInput{
+					KeyID:             key.KeyMetadata.KeyID,
+					GranteePrincipal:  "arn:aws:iam::000000000000:role/grantee",
+					RetiringPrincipal: "arn:aws:iam::000000000000:role/retiring",
+					Operations:        []string{"Decrypt"},
+				})
+				require.NoError(t, err)
+			}
+
+			// Grant with a different retiring principal — must not appear in results.
+			_, err = b.CreateGrant(&kms.CreateGrantInput{
+				KeyID:             key.KeyMetadata.KeyID,
+				GranteePrincipal:  "arn:aws:iam::000000000000:role/grantee",
+				RetiringPrincipal: "arn:aws:iam::000000000000:role/other",
+				Operations:        []string{"Decrypt"},
+			})
+			require.NoError(t, err)
+
+			lim := tt.limit
+			out, err := b.ListRetirableGrants(&kms.ListRetirableGrantsInput{
+				RetiringPrincipal: tt.retiringPrincipal,
+				Limit:             &lim,
+				Marker:            tt.marker,
+			})
+			require.NoError(t, err)
+			assert.Len(t, out.Grants, tt.wantCount)
+			assert.Equal(t, tt.wantTruncated, out.Truncated)
+		})
+	}
+}
+
+// TestKMSHandlerListResourceTagsPagination verifies Marker/Limit pagination on ListResourceTags.
+func TestKMSHandlerListResourceTagsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		body           string
+		wantCount      int
+		wantTruncated  bool
+		wantNextMarker bool
+	}{
+		{
+			name:           "first_page",
+			body:           `{"Limit":2}`,
+			wantCount:      2,
+			wantTruncated:  true,
+			wantNextMarker: true,
+		},
+		{
+			name:           "second_page_via_marker",
+			body:           `{"Limit":2,"Marker":"2"}`,
+			wantCount:      2,
+			wantTruncated:  true,
+			wantNextMarker: true,
+		},
+		{
+			name:      "last_page",
+			body:      `{"Limit":2,"Marker":"4"}`,
+			wantCount: 1,
+		},
+		{
+			name:      "marker_beyond_end",
+			body:      `{"Limit":10,"Marker":"100"}`,
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := kms.NewHandler(kms.NewInMemoryBackend())
+			key, err := h.Backend.CreateKey(&kms.CreateKeyInput{})
+			require.NoError(t, err)
+
+			tagMap := map[string]string{
+				"alpha": "1", "beta": "2", "gamma": "3", "delta": "4", "epsilon": "5",
+			}
+			h.SetTags(key.KeyMetadata.KeyID, tagMap)
+
+			body := []byte(strings.ReplaceAll(tt.body, "}", `,"KeyId":"`+key.KeyMetadata.KeyID+`"}`))
+
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+			req.Header.Set("X-Amz-Target", "TrentService.ListResourceTags")
+			rec := httptest.NewRecorder()
+
+			e := echo.New()
+			c := e.NewContext(req, rec)
+			err = h.Handler()(c)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				NextMarker string `json:"NextMarker"`
+				Tags       []any  `json:"Tags"`
+				Truncated  bool   `json:"Truncated"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out.Tags, tt.wantCount)
+			assert.Equal(t, tt.wantTruncated, out.Truncated)
+
+			if tt.wantNextMarker {
+				assert.NotEmpty(t, out.NextMarker)
+			} else {
+				assert.Empty(t, out.NextMarker)
+			}
+		})
+	}
 }

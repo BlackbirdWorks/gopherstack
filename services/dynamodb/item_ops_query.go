@@ -3,7 +3,6 @@ package dynamodb
 import (
 	"context"
 	"fmt"
-	"maps"
 	"sort"
 	"strings"
 
@@ -59,7 +58,16 @@ func (db *InMemoryDB) QueryWithContext(
 		return nil, err
 	}
 
-	// Snapshot table metadata and items under lock
+	idxName := aws.ToString(input.IndexName)
+
+	// For primary-table queries, pre-parse the PK value from the expression
+	// before taking the lock so we can do a targeted single-PK index copy
+	// instead of copying the entire index (which may have hundreds of thousands of entries).
+	precomputedPKValue := preParseQueryPKValue(input, idxName)
+
+	// Snapshot table metadata and items under lock.
+	// Items are shallow-copied (pointers only): writes always replace table.Items[i] with a
+	// new map rather than mutating the old one in place, so our references remain safe.
 	table.mu.RLock("Query")
 	itemsCopy := make([]map[string]any, len(table.Items))
 	copy(itemsCopy, table.Items)
@@ -72,15 +80,14 @@ func (db *InMemoryDB) QueryWithContext(
 	attrDefs := make([]models.AttributeDefinition, len(table.AttributeDefinitions))
 	copy(attrDefs, table.AttributeDefinitions)
 	ttlAttr := table.TTLAttribute
-	// Copy pk/sk indices for efficient lookups
-	pkIndexCopy := make(map[string]int, len(table.pkIndex))
-	maps.Copy(pkIndexCopy, table.pkIndex)
-	pkskIndexCopy := make(map[string]map[string]int, len(table.pkskIndex))
-	for k, m := range table.pkskIndex {
-		m2 := make(map[string]int, len(m))
-		maps.Copy(m2, m)
-		pkskIndexCopy[k] = m2
-	}
+
+	// Copy only the index entries we actually need:
+	// - GSI/LSI queries never use the primary index, so skip it entirely.
+	// - Primary-table queries with a known PK copy only that PK's entries.
+	// - Primary-table queries with an unknown PK fall back to copying the full index.
+	pkIndexCopy, pkskIndexCopy := db.snapshotIndexForQuery(
+		table, idxName, precomputedPKValue,
+	)
 	table.mu.RUnlock()
 
 	// Reconstruct snapshot table for querying
@@ -95,7 +102,6 @@ func (db *InMemoryDB) QueryWithContext(
 		pkskIndex:              pkskIndexCopy,
 	}
 
-	idxName := aws.ToString(input.IndexName)
 	keySchema, projection, err := db.extractKeySchema(snapshotTable, idxName)
 	if err != nil {
 		return nil, err
@@ -501,4 +507,29 @@ func inferSKType(candidates []map[string]any, skName string) string {
 	}
 
 	return "S"
+}
+
+// preParseQueryPKValue extracts the partition key value from a QueryInput's
+// KeyConditionExpression before taking any lock. Returns "" when the PK value
+// cannot be determined (unknown index, unparseable expression, etc.).
+// Only operates on primary-table queries (idxName == "") because GSI/LSI
+// queries do not use the primary index.
+func preParseQueryPKValue(input *dynamodb.QueryInput, idxName string) string {
+	if idxName != "" {
+		return ""
+	}
+
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
+	exprParts := dynamoattr.SplitANDConditions(aws.ToString(input.KeyConditionExpression))
+
+	if len(exprParts) == 0 {
+		return ""
+	}
+
+	pkExpr := strings.TrimSpace(exprParts[0])
+	for strings.HasPrefix(pkExpr, "(") && strings.HasSuffix(pkExpr, ")") {
+		pkExpr = strings.TrimSpace(pkExpr[1 : len(pkExpr)-1])
+	}
+
+	return extractPKValueFromExpression(pkExpr, eav, input.ExpressionAttributeNames)
 }

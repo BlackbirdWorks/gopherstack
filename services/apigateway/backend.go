@@ -1131,3 +1131,12 @@ func parsePosition(position string) int {
 
 	return idx
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.apis = make(map[string]*apiData)
+}

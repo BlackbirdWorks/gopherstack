@@ -51,9 +51,12 @@ type certificateDetail struct {
 	DomainName              string                   `json:"DomainName"`
 	Status                  string                   `json:"Status"`
 	Type                    string                   `json:"Type"`
+	RenewalEligibility      string                   `json:"RenewalEligibility,omitempty"`
 	SubjectAlternativeNames []string                 `json:"SubjectAlternativeNames,omitempty"`
 	DomainValidationOptions []domainValidationOption `json:"DomainValidationOptions"`
 	CreatedAt               int64                    `json:"CreatedAt"`
+	NotBefore               int64                    `json:"NotBefore,omitempty"`
+	NotAfter                int64                    `json:"NotAfter,omitempty"`
 }
 
 type describeCertificateOutput struct {
@@ -393,7 +396,10 @@ func (h *Handler) jsonDescribeCertificate(body []byte) (any, error) {
 			DomainName:              cert.DomainName,
 			Status:                  cert.Status,
 			Type:                    cert.Type,
+			RenewalEligibility:      cert.RenewalEligibility,
 			CreatedAt:               cert.CreatedAt.Unix(),
+			NotBefore:               cert.NotBefore.Unix(),
+			NotAfter:                cert.NotAfter.Unix(),
 			SubjectAlternativeNames: cert.SubjectAlternativeNames,
 			DomainValidationOptions: dvoList,
 		},

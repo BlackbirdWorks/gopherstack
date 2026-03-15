@@ -238,9 +238,10 @@ func TestToSDKListTablesInput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		input     *models.ListTablesInput
-		name      string
-		wantLimit int32
+		input                   *models.ListTablesInput
+		name                    string
+		wantExclusiveStartTable string
+		wantLimit               int32
 	}{
 		{
 			name:      "normal_limit",
@@ -252,6 +253,12 @@ func TestToSDKListTablesInput(t *testing.T) {
 			input:     &models.ListTablesInput{Limit: 3000000000},
 			wantLimit: int32(2147483647),
 		},
+		{
+			name:                    "exclusive_start_table_name_set",
+			input:                   &models.ListTablesInput{Limit: 5, ExclusiveStartTableName: "my-table"},
+			wantLimit:               int32(5),
+			wantExclusiveStartTable: "my-table",
+		},
 	}
 
 	for _, tt := range tests {
@@ -262,6 +269,13 @@ func TestToSDKListTablesInput(t *testing.T) {
 
 			require.NotNil(t, output.Limit)
 			assert.Equal(t, tt.wantLimit, *output.Limit)
+
+			if tt.wantExclusiveStartTable != "" {
+				require.NotNil(t, output.ExclusiveStartTableName)
+				assert.Equal(t, tt.wantExclusiveStartTable, *output.ExclusiveStartTableName)
+			} else {
+				assert.Nil(t, output.ExclusiveStartTableName)
+			}
 		})
 	}
 }
@@ -270,14 +284,24 @@ func TestFromSDKListTablesOutput(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name           string
-		input          *dynamodb_sdk.ListTablesOutput
-		wantTableNames []string
+		input                  *dynamodb_sdk.ListTablesOutput
+		name                   string
+		wantLastEvaluatedTable string
+		wantTableNames         []string
 	}{
 		{
 			name:           "multiple_tables",
 			input:          &dynamodb_sdk.ListTablesOutput{TableNames: []string{"table1", "table2", "table3"}},
 			wantTableNames: []string{"table1", "table2", "table3"},
+		},
+		{
+			name: "with_last_evaluated_table_name",
+			input: &dynamodb_sdk.ListTablesOutput{
+				TableNames:             []string{"table1"},
+				LastEvaluatedTableName: aws.String("table1"),
+			},
+			wantTableNames:         []string{"table1"},
+			wantLastEvaluatedTable: "table1",
 		},
 	}
 
@@ -289,6 +313,7 @@ func TestFromSDKListTablesOutput(t *testing.T) {
 
 			require.NotNil(t, result)
 			assert.Equal(t, tt.wantTableNames, result.TableNames)
+			assert.Equal(t, tt.wantLastEvaluatedTable, result.LastEvaluatedTableName)
 		})
 	}
 }
@@ -358,14 +383,18 @@ func TestFromSDKTableDescription(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		input            *types.TableDescription
-		name             string
-		wantTableName    string
-		wantTableStatus  string
-		wantItemCount    int
-		wantKeySchemaLen int
-		wantAttrDefsLen  int
-		wantEmpty        bool
+		input                 *types.TableDescription
+		name                  string
+		wantTableName         string
+		wantTableStatus       string
+		wantLatestStreamArn   string
+		wantLatestStreamLabel string
+		wantStreamViewType    string
+		wantItemCount         int
+		wantKeySchemaLen      int
+		wantAttrDefsLen       int
+		wantEmpty             bool
+		wantStreamEnabled     bool
 	}{
 		{
 			name: "active_table_with_schema",
@@ -385,6 +414,27 @@ func TestFromSDKTableDescription(t *testing.T) {
 			wantItemCount:    50,
 			wantKeySchemaLen: 1,
 			wantAttrDefsLen:  1,
+		},
+		{
+			name: "streaming_enabled_returns_stream_fields",
+			input: &types.TableDescription{
+				TableName:   aws.String("StreamTable"),
+				TableStatus: types.TableStatusActive,
+				LatestStreamArn: aws.String(
+					"arn:aws:dynamodb:us-east-1:000000000000:table/StreamTable/stream/2024-01-01T00:00:00.000",
+				),
+				LatestStreamLabel: aws.String("2024-01-01T00:00:00.000"),
+				StreamSpecification: &types.StreamSpecification{
+					StreamEnabled:  aws.Bool(true),
+					StreamViewType: types.StreamViewTypeNewImage,
+				},
+			},
+			wantTableName:         "StreamTable",
+			wantTableStatus:       "ACTIVE",
+			wantLatestStreamArn:   "arn:aws:dynamodb:us-east-1:000000000000:table/StreamTable/stream/2024-01-01T00:00:00.000",
+			wantLatestStreamLabel: "2024-01-01T00:00:00.000",
+			wantStreamEnabled:     true,
+			wantStreamViewType:    "NEW_IMAGE",
 		},
 		{
 			name:      "nil_returns_empty_struct",
@@ -410,6 +460,18 @@ func TestFromSDKTableDescription(t *testing.T) {
 			assert.Equal(t, tt.wantItemCount, result.ItemCount)
 			assert.Len(t, result.KeySchema, tt.wantKeySchemaLen)
 			assert.Len(t, result.AttributeDefinitions, tt.wantAttrDefsLen)
+			assert.Equal(t, tt.wantLatestStreamArn, result.LatestStreamArn)
+			assert.Equal(t, tt.wantLatestStreamLabel, result.LatestStreamLabel)
+
+			if !tt.wantStreamEnabled {
+				assert.Nil(t, result.StreamSpecification)
+
+				return
+			}
+
+			require.NotNil(t, result.StreamSpecification)
+			assert.True(t, result.StreamSpecification.StreamEnabled)
+			assert.Equal(t, tt.wantStreamViewType, result.StreamSpecification.StreamViewType)
 		})
 	}
 }

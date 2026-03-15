@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +26,7 @@ var (
 type StorageBackend interface {
 	CreateApp(name, description, repository, platform string, tagMap map[string]string) (*App, error)
 	GetApp(appID string) (*App, error)
-	ListApps() ([]*App, error)
+	ListApps(nextToken string, maxResults int) ([]*App, string, error)
 	DeleteApp(appID string) error
 	CreateBranch(
 		appID, branchName, description, stage string,
@@ -32,7 +34,7 @@ type StorageBackend interface {
 		tagMap map[string]string,
 	) (*Branch, error)
 	GetBranch(appID, branchName string) (*Branch, error)
-	ListBranches(appID string) ([]*Branch, error)
+	ListBranches(appID, nextToken string, maxResults int) ([]*Branch, string, error)
 	DeleteBranch(appID, branchName string) error
 	TagResource(resourceARN string, tagMap map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
@@ -135,18 +137,22 @@ func (b *InMemoryBackend) GetApp(appID string) (*App, error) {
 	return &cp, nil
 }
 
-// ListApps returns all Amplify applications.
-func (b *InMemoryBackend) ListApps() ([]*App, error) {
+// ListApps returns Amplify applications with optional pagination.
+func (b *InMemoryBackend) ListApps(nextToken string, maxResults int) ([]*App, string, error) {
 	b.mu.RLock("ListApps")
 	defer b.mu.RUnlock()
 
-	out := make([]*App, 0, len(b.apps))
+	all := make([]*App, 0, len(b.apps))
 	for _, app := range b.apps {
 		cp := *app
-		out = append(out, &cp)
+		all = append(all, &cp)
 	}
 
-	return out, nil
+	sort.Slice(all, func(i, j int) bool { return all[i].AppID < all[j].AppID })
+
+	page, token := amplifyPaginate(all, nextToken, maxResults)
+
+	return page, token, nil
 }
 
 // DeleteApp deletes an Amplify application by ID.
@@ -232,24 +238,28 @@ func (b *InMemoryBackend) GetBranch(appID, branchName string) (*Branch, error) {
 	return &cp, nil
 }
 
-// ListBranches returns all branches for an Amplify application.
-func (b *InMemoryBackend) ListBranches(appID string) ([]*Branch, error) {
+// ListBranches returns branches for an Amplify application with optional pagination.
+func (b *InMemoryBackend) ListBranches(appID, nextToken string, maxResults int) ([]*Branch, string, error) {
 	b.mu.RLock("ListBranches")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.apps[appID]; !ok {
-		return nil, fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
+		return nil, "", fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
 	branches := b.branches[appID]
-	out := make([]*Branch, 0, len(branches))
+	all := make([]*Branch, 0, len(branches))
 
 	for _, branch := range branches {
 		cp := *branch
-		out = append(out, &cp)
+		all = append(all, &cp)
 	}
 
-	return out, nil
+	sort.Slice(all, func(i, j int) bool { return all[i].BranchName < all[j].BranchName })
+
+	page, token := amplifyPaginate(all, nextToken, maxResults)
+
+	return page, token, nil
 }
 
 // DeleteBranch deletes a branch from an Amplify application.
@@ -361,3 +371,35 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (*tags.Tags, error) 
 
 // compile-time assertion that InMemoryBackend implements StorageBackend.
 var _ StorageBackend = (*InMemoryBackend)(nil)
+
+// amplifyPaginate applies token-based pagination to a sorted slice of pointers.
+func amplifyPaginate[T any](all []*T, nextToken string, maxResults int) ([]*T, string) {
+	const defaultLimit = 100
+
+	startIdx := 0
+	if nextToken != "" {
+		if idx, err := strconv.Atoi(nextToken); err == nil && idx >= 0 {
+			startIdx = idx
+		}
+	}
+
+	if startIdx >= len(all) {
+		return []*T{}, ""
+	}
+
+	limit := defaultLimit
+	if maxResults > 0 {
+		limit = maxResults
+	}
+
+	end := startIdx + limit
+
+	var outToken string
+	if end < len(all) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(all)
+	}
+
+	return all[startIdx:end], outToken
+}

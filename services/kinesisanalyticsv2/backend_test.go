@@ -1,6 +1,7 @@
 package kinesisanalyticsv2_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -160,7 +161,7 @@ func TestBackend_ListApplications(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			apps := b.ListApplications()
+			apps, _ := b.ListApplications("")
 			assert.Len(t, apps, tt.wantLen)
 		})
 	}
@@ -334,7 +335,7 @@ func TestBackend_SnapshotLifecycle(t *testing.T) {
 	assert.Equal(t, "READY", snap.SnapshotStatus)
 
 	// List snapshots.
-	snaps, err := b.ListApplicationSnapshots("snap-app")
+	snaps, _, err := b.ListApplicationSnapshots("snap-app", "")
 	require.NoError(t, err)
 	assert.Len(t, snaps, 1)
 
@@ -346,7 +347,7 @@ func TestBackend_SnapshotLifecycle(t *testing.T) {
 	err = b.DeleteApplicationSnapshot("snap-app", "snap-1")
 	require.NoError(t, err)
 
-	snaps, err = b.ListApplicationSnapshots("snap-app")
+	snaps, _, err = b.ListApplicationSnapshots("snap-app", "")
 	require.NoError(t, err)
 	assert.Empty(t, snaps)
 }
@@ -408,4 +409,111 @@ func TestBackend_Tags_NotFound(t *testing.T) {
 
 	err = b.UntagResource("arn:aws:kinesisanalytics:us-east-1:000000000000:application/missing", nil)
 	require.Error(t, err)
+}
+
+func TestBackend_ListApplicationsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		count         int
+		wantNextToken bool
+	}{
+		{
+			name:          "single_page",
+			count:         5,
+			wantNextToken: false,
+		},
+		{
+			name:          "multi_page",
+			count:         55, // exceeds kav2DefaultPageSize=50
+			wantNextToken: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+
+			for i := range tt.count {
+				_, err := b.CreateApplication(
+					fmt.Sprintf("paged-app-%04d", i),
+					"FLINK-1_18", "", "", "", nil,
+				)
+				require.NoError(t, err)
+			}
+
+			apps, outToken := b.ListApplications("")
+			if tt.wantNextToken {
+				assert.Len(t, apps, 50)
+				assert.NotEmpty(t, outToken)
+
+				// Second page.
+				apps2, outToken2 := b.ListApplications(outToken)
+				assert.Len(t, apps2, tt.count-50)
+				assert.Empty(t, outToken2)
+			} else {
+				assert.Len(t, apps, tt.count)
+				assert.Empty(t, outToken)
+			}
+		})
+	}
+}
+
+func TestBackend_ListApplicationSnapshotsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		count         int
+		wantNextToken bool
+	}{
+		{
+			name:          "single_page",
+			count:         5,
+			wantNextToken: false,
+		},
+		{
+			name:          "multi_page",
+			count:         55, // exceeds kav2DefaultPageSize=50
+			wantNextToken: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend(t)
+
+			_, err := b.CreateApplication("paged-snap-app", "FLINK-1_18", "", "", "", nil)
+			require.NoError(t, err)
+
+			for i := range tt.count {
+				_, err = b.CreateApplicationSnapshot("paged-snap-app", fmt.Sprintf("snap-%04d", i))
+				require.NoError(t, err)
+			}
+
+			snaps, outToken, err := b.ListApplicationSnapshots("paged-snap-app", "")
+			require.NoError(t, err)
+
+			if tt.wantNextToken {
+				assert.Len(t, snaps, 50)
+				assert.NotEmpty(t, outToken)
+
+				// Second page.
+				var snaps2 []*kinesisanalyticsv2.Snapshot
+				var outToken2 string
+				snaps2, outToken2, err = b.ListApplicationSnapshots("paged-snap-app", outToken)
+				require.NoError(t, err)
+				assert.Len(t, snaps2, tt.count-50)
+				assert.Empty(t, outToken2)
+			} else {
+				assert.Len(t, snaps, tt.count)
+				assert.Empty(t, outToken)
+			}
+		})
+	}
 }

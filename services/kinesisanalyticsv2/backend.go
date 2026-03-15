@@ -2,12 +2,16 @@ package kinesisanalyticsv2
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+const kav2DefaultPageSize = 50
 
 var (
 	// ErrNotFound is returned when a requested resource does not exist.
@@ -128,8 +132,8 @@ func (b *InMemoryBackend) DescribeApplication(name string) (*Application, error)
 	return app, nil
 }
 
-// ListApplications returns all applications.
-func (b *InMemoryBackend) ListApplications() []*Application {
+// ListApplications returns applications with optional pagination.
+func (b *InMemoryBackend) ListApplications(nextToken string) ([]*Application, string) {
 	b.mu.RLock("ListApplications")
 	defer b.mu.RUnlock()
 
@@ -138,7 +142,21 @@ func (b *InMemoryBackend) ListApplications() []*Application {
 		out = append(out, app)
 	}
 
-	return out
+	sort.Slice(out, func(i, j int) bool { return out[i].ApplicationName < out[j].ApplicationName })
+
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(out) {
+		return []*Application{}, ""
+	}
+	end := startIdx + kav2DefaultPageSize
+	var outToken string
+	if end < len(out) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(out)
+	}
+
+	return out[startIdx:end], outToken
 }
 
 // UpdateApplication updates an application's description and service role.
@@ -238,20 +256,32 @@ func (b *InMemoryBackend) CreateApplicationSnapshot(appName, snapshotName string
 	return snap, nil
 }
 
-// ListApplicationSnapshots returns all snapshots for an application.
-func (b *InMemoryBackend) ListApplicationSnapshots(appName string) ([]*Snapshot, error) {
+// ListApplicationSnapshots returns snapshots for an application with optional pagination.
+func (b *InMemoryBackend) ListApplicationSnapshots(appName, nextToken string) ([]*Snapshot, string, error) {
 	b.mu.RLock("ListApplicationSnapshots")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.applications[appName]; !ok {
-		return nil, ErrNotFound
+		return nil, "", ErrNotFound
 	}
 
 	snaps := b.snapshots[appName]
 	out := make([]*Snapshot, len(snaps))
 	copy(out, snaps)
 
-	return out, nil
+	startIdx := parseNextToken(nextToken)
+	if startIdx >= len(out) {
+		return []*Snapshot{}, "", nil
+	}
+	end := startIdx + kav2DefaultPageSize
+	var outToken string
+	if end < len(out) {
+		outToken = strconv.Itoa(end)
+	} else {
+		end = len(out)
+	}
+
+	return out[startIdx:end], outToken, nil
 }
 
 // DeleteApplicationSnapshot deletes a snapshot.
@@ -433,4 +463,18 @@ func toSnapshotDetail(s *Snapshot) snapshotDetail {
 		ApplicationVersion:        s.ApplicationVersion,
 		SnapshotCreationTimestamp: float64(s.SnapshotCreation.Unix()),
 	}
+}
+
+// parseNextToken parses a pagination token (integer offset) into a slice index.
+func parseNextToken(token string) int {
+	if token == "" {
+		return 0
+	}
+
+	idx, err := strconv.Atoi(token)
+	if err != nil || idx < 0 {
+		return 0
+	}
+
+	return idx
 }

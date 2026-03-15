@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -13,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -188,7 +190,8 @@ type domainConfigOutput struct {
 }
 
 type listDomainsOutput struct {
-	DomainInfos []Domain `json:"domainInfos"`
+	NextPageToken string   `json:"nextPageToken,omitempty"`
+	DomainInfos   []Domain `json:"domainInfos"`
 }
 
 type deprecateDomainOutput struct{}
@@ -196,7 +199,8 @@ type deprecateDomainOutput struct{}
 type registerWorkflowTypeOutput struct{}
 
 type listWorkflowTypesOutput struct {
-	TypeInfos []WorkflowType `json:"typeInfos"`
+	NextPageToken string         `json:"nextPageToken,omitempty"`
+	TypeInfos     []WorkflowType `json:"typeInfos"`
 }
 
 type startWorkflowExecutionOutput struct {
@@ -244,12 +248,18 @@ func (h *Handler) handleDescribeDomain(
 
 type handleListDomainsInput struct {
 	RegistrationStatus string `json:"registrationStatus"`
+	NextPageToken      string `json:"nextPageToken,omitempty"`
+	MaximumPageSize    int    `json:"maximumPageSize,omitempty"`
 }
 
 func (h *Handler) handleListDomains(_ context.Context, in *handleListDomainsInput) (*listDomainsOutput, error) {
 	domains := h.Backend.ListDomains(in.RegistrationStatus)
 
-	return &listDomainsOutput{DomainInfos: domains}, nil
+	sort.Slice(domains, func(i, j int) bool { return domains[i].Name < domains[j].Name })
+
+	domains, nextPageToken := applyPageTokenSlice(domains, in.NextPageToken, in.MaximumPageSize)
+
+	return &listDomainsOutput{DomainInfos: domains, NextPageToken: nextPageToken}, nil
 }
 
 type handleDeprecateDomainInput struct {
@@ -285,7 +295,9 @@ func (h *Handler) handleRegisterWorkflowType(
 }
 
 type handleListWorkflowTypesInput struct {
-	Domain string `json:"domain"`
+	Domain          string `json:"domain"`
+	NextPageToken   string `json:"nextPageToken,omitempty"`
+	MaximumPageSize int    `json:"maximumPageSize,omitempty"`
 }
 
 func (h *Handler) handleListWorkflowTypes(
@@ -294,7 +306,11 @@ func (h *Handler) handleListWorkflowTypes(
 ) (*listWorkflowTypesOutput, error) {
 	wts := h.Backend.ListWorkflowTypes(in.Domain)
 
-	return &listWorkflowTypesOutput{TypeInfos: wts}, nil
+	sort.Slice(wts, func(i, j int) bool { return wts[i].Name < wts[j].Name })
+
+	wts, nextPageToken := applyPageTokenSlice(wts, in.NextPageToken, in.MaximumPageSize)
+
+	return &listWorkflowTypesOutput{TypeInfos: wts, NextPageToken: nextPageToken}, nil
 }
 
 type handleStartWorkflowExecutionInput struct {
@@ -337,4 +353,14 @@ func (h *Handler) handleDescribeWorkflowExecution(
 	}
 
 	return &describeWorkflowExecutionOutput{ExecutionInfo: exec}, nil
+}
+
+const defaultSWFMaxPageSize = 1000
+
+// applyPageTokenSlice applies nextPageToken-based pagination using the shared
+// pkgs/page opaque token format.
+func applyPageTokenSlice[T any](items []T, nextPageToken string, maximumPageSize int) ([]T, string) {
+	p := page.New(items, nextPageToken, maximumPageSize, defaultSWFMaxPageSize)
+
+	return p.Data, p.Next
 }

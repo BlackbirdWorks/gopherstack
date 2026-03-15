@@ -71,7 +71,7 @@ func (h *S3Handler) handleListObjectsV2Error(
 func (h *S3Handler) renderListObjectsV2Response(
 	ctx context.Context,
 	w http.ResponseWriter,
-	r *http.Request,
+	_ *http.Request,
 	bucketName string,
 	q url.Values,
 	objects []types.Object,
@@ -114,8 +114,6 @@ func (h *S3Handler) renderListObjectsV2Response(
 
 	seenPrefixes := make(map[string]struct{})
 	resp.Contents, resp.CommonPrefixes = h.mapObjectsToXML(
-		r,
-		bucketName,
 		objects,
 		q.Get("prefix"),
 		q.Get("delimiter"),

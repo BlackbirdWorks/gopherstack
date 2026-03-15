@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -14,6 +15,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -391,9 +393,12 @@ func (h *Handler) handleDeregisterTaskDefinition(
 
 type listTaskDefinitionsInput struct {
 	FamilyPrefix string `json:"familyPrefix,omitempty"`
+	NextToken    string `json:"nextToken,omitempty"`
+	MaxResults   int    `json:"maxResults,omitempty"`
 }
 
 type listTaskDefinitionsOutput struct {
+	NextToken          string   `json:"nextToken,omitempty"`
 	TaskDefinitionArns []string `json:"taskDefinitionArns"`
 }
 
@@ -410,7 +415,11 @@ func (h *Handler) handleListTaskDefinitions(
 		arns = []string{}
 	}
 
-	return &listTaskDefinitionsOutput{TaskDefinitionArns: arns}, nil
+	sort.Strings(arns)
+
+	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
+
+	return &listTaskDefinitionsOutput{TaskDefinitionArns: arns, NextToken: nextToken}, nil
 }
 
 // ----- Service handlers -----
@@ -613,11 +622,14 @@ func (h *Handler) handleStopTask(_ context.Context, in *stopTaskInput) (*stopTas
 }
 
 type listTasksInput struct {
-	Cluster string `json:"cluster,omitempty"`
+	Cluster    string `json:"cluster,omitempty"`
+	NextToken  string `json:"nextToken,omitempty"`
+	MaxResults int    `json:"maxResults,omitempty"`
 }
 
 type listTasksOutput struct {
-	TaskArns []string `json:"taskArns"`
+	NextToken string   `json:"nextToken,omitempty"`
+	TaskArns  []string `json:"taskArns"`
 }
 
 func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listTasksOutput, error) {
@@ -630,7 +642,11 @@ func (h *Handler) handleListTasks(_ context.Context, in *listTasksInput) (*listT
 		arns = []string{}
 	}
 
-	return &listTasksOutput{TaskArns: arns}, nil
+	sort.Strings(arns)
+
+	arns, nextToken := applyNextTokenSlice(arns, in.NextToken, in.MaxResults)
+
+	return &listTasksOutput{TaskArns: arns, NextToken: nextToken}, nil
 }
 
 // ----- View types (JSON serialization) -----
@@ -745,4 +761,14 @@ func toTaskView(t Task) taskView {
 	}
 
 	return v
+}
+
+const defaultECSMaxResults = 100
+
+// applyNextTokenSlice applies nextToken-based pagination to a string slice
+// using the shared pkgs/page opaque token format.
+func applyNextTokenSlice(items []string, nextToken string, maxResults int) ([]string, string) {
+	p := page.New(items, nextToken, maxResults, defaultECSMaxResults)
+
+	return p.Data, p.Next
 }

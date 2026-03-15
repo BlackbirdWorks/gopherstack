@@ -314,3 +314,81 @@ func TestPutRule(t *testing.T) {
 		})
 	}
 }
+
+func TestScheduler_LastFiredCleanupOnDeleteRule(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	defer b.Close()
+
+	rule, err := b.PutRule(eventbridge.PutRuleInput{
+		Name:               "sched-rule",
+		ScheduleExpression: "rate(1 minute)",
+		State:              "ENABLED",
+		EventBusName:       "default",
+	})
+	require.NoError(t, err)
+
+	// Seed lastFired as the scheduler would after init.
+	lastFired := map[string]time.Time{
+		rule.Arn: time.Now().Add(-2 * time.Minute),
+	}
+
+	// Delete the rule then run a scheduler tick.
+	err = b.DeleteRule("sched-rule", "default")
+	require.NoError(t, err)
+
+	sched := eventbridge.NewScheduler(b, 0)
+	sched.ProcessTickForTest(t.Context(), time.Now(), lastFired)
+
+	// The stale entry for the deleted rule must have been purged.
+	_, still := lastFired[rule.Arn]
+	assert.False(t, still, "lastFired should not contain entries for deleted rules")
+}
+
+func TestBackend_Close(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	// Close should return without blocking even when no goroutines are active.
+	b.Close()
+}
+
+func TestBackend_ResetRestoresDefaultEventBus(t *testing.T) {
+	t.Parallel()
+
+	b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	// Create a user-defined event bus and a rule.
+	_, err := b.CreateEventBus("user-bus", "")
+	require.NoError(t, err)
+
+	_, err = b.PutRule(eventbridge.PutRuleInput{
+		Name:         "user-rule",
+		EventPattern: `{"source":["test"]}`,
+		State:        "ENABLED",
+	})
+	require.NoError(t, err)
+
+	// Reset clears user data.
+	b.Reset()
+
+	// User bus must be gone.
+	_, err = b.DescribeEventBus("user-bus")
+	require.Error(t, err)
+
+	// Default event bus must still exist so PutRule works.
+	_, err = b.PutRule(eventbridge.PutRuleInput{
+		Name:         "post-reset-rule",
+		EventBusName: "default",
+		EventPattern: `{"source":["test"]}`,
+		State:        "ENABLED",
+	})
+	require.NoError(t, err, "default event bus must be available after Reset")
+
+	// Default bus must appear in ListEventBuses.
+	buses, _, err := b.ListEventBuses("", "")
+	require.NoError(t, err)
+	assert.Len(t, buses, 1, "only the default bus should exist after Reset")
+	assert.Equal(t, "default", buses[0].Name)
+}

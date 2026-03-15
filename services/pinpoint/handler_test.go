@@ -368,3 +368,131 @@ func TestHandler_ApplicationSettings(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_GetAppsPagination verifies pageSize and token query parameter support.
+func TestHandler_GetAppsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		pageSize  string
+		appNames  []string
+		wantCount int
+		wantToken bool
+	}{
+		{
+			name:      "first_page_limited",
+			appNames:  []string{"app-a", "app-b", "app-c"},
+			pageSize:  "2",
+			wantCount: 2,
+			wantToken: true,
+		},
+		{
+			name:      "all_results_no_token",
+			appNames:  []string{"app-x", "app-y"},
+			pageSize:  "10",
+			wantCount: 2,
+			wantToken: false,
+		},
+		{
+			name:      "zero_page_size_uses_default",
+			appNames:  []string{"app-p", "app-q"},
+			pageSize:  "",
+			wantCount: 2,
+			wantToken: false,
+		},
+		{
+			name:      "empty_list_no_token",
+			appNames:  nil,
+			pageSize:  "5",
+			wantCount: 0,
+			wantToken: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandlerForTest(t)
+
+			for _, n := range tt.appNames {
+				rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": n})
+				require.Equal(t, http.StatusCreated, rec.Code)
+			}
+
+			path := "/v1/apps"
+			if tt.pageSize != "" {
+				path += "?pageSize=" + url.QueryEscape(tt.pageSize)
+			}
+
+			rec := doPinpointRequest(t, h, http.MethodGet, path, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+
+			items, ok := resp["Item"].([]any)
+			if tt.wantCount > 0 {
+				require.True(t, ok, "expected Item array in response")
+			}
+			assert.Len(t, items, tt.wantCount)
+
+			_, hasToken := resp["NextToken"]
+			assert.Equal(t, tt.wantToken, hasToken)
+		})
+	}
+}
+
+// TestHandler_GetAppsContinuation verifies two-page traversal using the NextToken cursor.
+func TestHandler_GetAppsContinuation(t *testing.T) {
+	t.Parallel()
+
+	h := newHandlerForTest(t)
+
+	for _, n := range []string{"app-a", "app-b", "app-c"} {
+		rec := doPinpointRequest(t, h, http.MethodPost, "/v1/apps", map[string]any{"Name": n})
+		require.Equal(t, http.StatusCreated, rec.Code)
+	}
+
+	// First page: 2 of 3.
+	rec1 := doPinpointRequest(t, h, http.MethodGet, "/v1/apps?pageSize=2", nil)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	var resp1 map[string]any
+	require.NoError(t, json.NewDecoder(rec1.Body).Decode(&resp1))
+
+	page1, ok := resp1["Item"].([]any)
+	require.True(t, ok, "expected Item array in first-page response")
+	assert.Len(t, page1, 2)
+
+	nextToken, hasToken := resp1["NextToken"].(string)
+	require.True(t, hasToken, "expected NextToken in first-page response")
+	require.NotEmpty(t, nextToken)
+
+	// Second page: remaining 1.
+	path2 := "/v1/apps?pageSize=2&token=" + url.QueryEscape(nextToken)
+	rec2 := doPinpointRequest(t, h, http.MethodGet, path2, nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp2 map[string]any
+	require.NoError(t, json.NewDecoder(rec2.Body).Decode(&resp2))
+
+	page2, ok := resp2["Item"].([]any)
+	require.True(t, ok, "expected Item array in second-page response")
+	assert.Len(t, page2, 1)
+
+	_, stillHasToken := resp2["NextToken"]
+	assert.False(t, stillHasToken, "last page should have no NextToken")
+
+	// All app names should be present across both pages.
+	names := make([]string, 0, 3)
+
+	for _, item := range append(page1, page2...) {
+		app, isMap := item.(map[string]any)
+		require.True(t, isMap)
+		names = append(names, app["Name"].(string))
+	}
+
+	assert.ElementsMatch(t, []string{"app-a", "app-b", "app-c"}, names)
+}

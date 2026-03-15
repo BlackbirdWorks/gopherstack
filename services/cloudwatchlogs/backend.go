@@ -981,3 +981,17 @@ func (b *InMemoryBackend) DescribeQueries(
 
 	return all[startIdx:end], outToken, nil
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.groups = make(map[string]*LogGroup)
+	b.streams = make(map[string]map[string]*LogStream)
+	b.events = make(map[string]map[string][]*OutputLogEvent)
+	b.subscriptionFilters = make(map[string][]*SubscriptionFilter)
+	b.queries = make(map[string]*storedQuery)
+	b.queriesOrder = nil
+}

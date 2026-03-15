@@ -971,20 +971,21 @@ func (b *InMemoryBackend) CreateGrant(input *CreateGrantInput) (*CreateGrantOutp
 	grantID := uuid.New().String()
 	grantToken := uuid.New().String()
 	grant := &Grant{
-		GrantID:          grantID,
-		KeyID:            keyID,
-		GranteePrincipal: input.GranteePrincipal,
-		Operations:       input.Operations,
-		Name:             input.Name,
-		GrantToken:       grantToken,
-		CreationDate:     UnixTimeFloat(time.Now()),
+		GrantID:           grantID,
+		KeyID:             keyID,
+		GranteePrincipal:  input.GranteePrincipal,
+		RetiringPrincipal: input.RetiringPrincipal,
+		Operations:        input.Operations,
+		Name:              input.Name,
+		GrantToken:        grantToken,
+		CreationDate:      UnixTimeFloat(time.Now()),
 	}
 	b.grants[grantID] = grant
 
 	return &CreateGrantOutput{GrantID: grantID, GrantToken: grantToken}, nil
 }
 
-// ListGrants returns the grants for a specified key.
+// ListGrants returns the grants for a specified key with optional pagination.
 func (b *InMemoryBackend) ListGrants(input *ListGrantsInput) (*ListGrantsOutput, error) {
 	b.mu.RLock("ListGrants")
 	defer b.mu.RUnlock()
@@ -1007,7 +1008,31 @@ func (b *InMemoryBackend) ListGrants(input *ListGrantsInput) (*ListGrantsOutput,
 
 	sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
 
-	return &ListGrantsOutput{Grants: grants}, nil
+	startIdx := parseMarker(input.Marker)
+	limit := int32(defaultListLimit)
+
+	if input.Limit != nil && *input.Limit > 0 {
+		limit = *input.Limit
+	}
+
+	if startIdx >= len(grants) {
+		return &ListGrantsOutput{Grants: []Grant{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextMarker string
+	if end < len(grants) {
+		nextMarker = strconv.Itoa(end)
+	} else {
+		end = len(grants)
+	}
+
+	return &ListGrantsOutput{
+		Grants:     grants[startIdx:end],
+		NextMarker: nextMarker,
+		Truncated:  nextMarker != "",
+	}, nil
 }
 
 // RevokeGrant revokes a grant by ID.
@@ -1077,18 +1102,44 @@ func (b *InMemoryBackend) RetireGrant(input *RetireGrantInput) error {
 }
 
 // ListRetirableGrants returns all grants for which the given principal is the retiring principal.
-func (b *InMemoryBackend) ListRetirableGrants(_ *ListRetirableGrantsInput) (*ListGrantsOutput, error) {
+func (b *InMemoryBackend) ListRetirableGrants(input *ListRetirableGrantsInput) (*ListGrantsOutput, error) {
 	b.mu.RLock("ListRetirableGrants")
 	defer b.mu.RUnlock()
 
 	grants := make([]Grant, 0, len(b.grants))
 	for _, g := range b.grants {
-		grants = append(grants, *g)
+		if g.RetiringPrincipal == input.RetiringPrincipal {
+			grants = append(grants, *g)
+		}
 	}
 
 	sort.Slice(grants, func(i, j int) bool { return grants[i].GrantID < grants[j].GrantID })
 
-	return &ListGrantsOutput{Grants: grants}, nil
+	startIdx := parseMarker(input.Marker)
+	limit := int32(defaultListLimit)
+
+	if input.Limit != nil && *input.Limit > 0 {
+		limit = *input.Limit
+	}
+
+	if startIdx >= len(grants) {
+		return &ListGrantsOutput{Grants: []Grant{}}, nil
+	}
+
+	end := startIdx + int(limit)
+
+	var nextMarker string
+	if end < len(grants) {
+		nextMarker = strconv.Itoa(end)
+	} else {
+		end = len(grants)
+	}
+
+	return &ListGrantsOutput{
+		Grants:     grants[startIdx:end],
+		NextMarker: nextMarker,
+		Truncated:  nextMarker != "",
+	}, nil
 }
 
 // GenerateDataKeyWithoutPlaintext generates a data key but returns only the encrypted copy.
@@ -1157,4 +1208,17 @@ func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyO
 	}
 
 	return &GetKeyPolicyOutput{Policy: policy, PolicyName: policyName}, nil
+}
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.keys = make(map[string]*Key)
+	b.aliases = make(map[string]*Alias)
+	b.grants = make(map[string]*Grant)
+	b.policies = make(map[string]string)
+	b.keyMaterials = make(map[string]*keyMaterial)
 }

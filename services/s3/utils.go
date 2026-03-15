@@ -53,3 +53,40 @@ func CalculateChecksum(data []byte, algorithm string) string {
 
 	return base64.StdEncoding.EncodeToString(sum)
 }
+
+// verifyChecksumIfPresent validates the uploaded data against a client-supplied
+// checksum. It returns ErrBadChecksum when the computed value does not match the
+// supplied value, and nil when no checksum is present or when they match.
+func verifyChecksumIfPresent(
+	data []byte,
+	algo string,
+	crc32Supplied, crc32cSupplied, sha1Supplied, sha256Supplied *string,
+) error {
+	if algo == "" {
+		return nil
+	}
+
+	var supplied *string
+
+	switch strings.ToUpper(algo) {
+	case checksumCRC32:
+		supplied = crc32Supplied
+	case checksumCRC32C:
+		supplied = crc32cSupplied
+	case checksumSHA1:
+		supplied = sha1Supplied
+	case checksumSHA256:
+		supplied = sha256Supplied
+	}
+
+	if supplied == nil || *supplied == "" {
+		return nil
+	}
+
+	computed := CalculateChecksum(data, algo)
+	if computed != *supplied {
+		return ErrBadChecksum
+	}
+
+	return nil
+}

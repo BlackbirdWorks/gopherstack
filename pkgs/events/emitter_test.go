@@ -12,6 +12,7 @@ import (
 )
 
 var errListenerTest = errors.New("listener error")
+var errListenerPanic = errors.New("panic error")
 
 func TestInMemoryEmitter_EventTypes(t *testing.T) {
 	t.Parallel()
@@ -170,4 +171,121 @@ func TestInMemoryEmitter_Clear(t *testing.T) {
 	emitter.Clear()
 
 	assert.Equal(t, 0, emitter.ListenerCount(), "After clear")
+}
+
+func TestInMemoryEmitter_PanicRecovery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		listener   events.EventListener[*events.TableCreatedEvent]
+		wantErrMsg string
+		wantErr    bool
+	}{
+		{
+			name: "listener_panics_with_string",
+			listener: func(_ context.Context, _ *events.TableCreatedEvent) error {
+				panic("something went wrong")
+			},
+			wantErr:    true,
+			wantErrMsg: "listener panicked: something went wrong",
+		},
+		{
+			name: "listener_panics_with_error",
+			listener: func(_ context.Context, _ *events.TableCreatedEvent) error {
+				panic(errListenerPanic)
+			},
+			wantErr:    true,
+			wantErrMsg: "listener panicked:",
+		},
+		{
+			name: "listener_returns_normally",
+			listener: func(_ context.Context, _ *events.TableCreatedEvent) error {
+				return nil
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
+			emitter.Subscribe(tt.listener)
+
+			err := emitter.Emit(t.Context(), &events.TableCreatedEvent{Table: "t"})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErrMsg)
+				assert.ErrorIs(t, err, events.ErrListenerPanicked)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestInMemoryEmitter_UnsubscribePreservesOthers(t *testing.T) {
+	t.Parallel()
+
+	emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
+	ctx := t.Context()
+	event := &events.TableCreatedEvent{Table: "t"}
+
+	var calls []int
+
+	emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
+		calls = append(calls, 1)
+
+		return nil
+	})
+	unsub2 := emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
+		calls = append(calls, 2)
+
+		return nil
+	})
+	emitter.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error {
+		calls = append(calls, 3)
+
+		return nil
+	})
+
+	unsub2()
+
+	require.NoError(t, emitter.Emit(ctx, event))
+	assert.NotContains(t, calls, 2, "unsubscribed listener should not be called")
+	assert.Len(t, calls, 2, "remaining two listeners should be called")
+}
+
+func TestInMemoryEmitter_Close(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(*events.InMemoryEmitter[*events.TableCreatedEvent])
+		name  string
+	}{
+		{name: "close_idle"},
+		{
+			name: "close_after_subscribe_and_emit",
+			setup: func(e *events.InMemoryEmitter[*events.TableCreatedEvent]) {
+				e.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error { return nil })
+				_ = e.Emit(t.Context(), &events.TableCreatedEvent{Table: "t"})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
+			if tt.setup != nil {
+				tt.setup(emitter)
+			}
+
+			emitter.Close() // must not panic
+		})
+	}
 }

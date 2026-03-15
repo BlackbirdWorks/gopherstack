@@ -2,7 +2,6 @@ package dynamodb
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -597,18 +596,213 @@ func (db *InMemoryDB) deleteItemAtIndex(table *Table, matchIndex int) {
 
 // deepCopyItem returns a deep copy of a wire-format item so that mutations
 // to nested map/list structures in the copy do not affect the original.
+// It uses a recursive approach rather than JSON round-trip for better performance.
 func deepCopyItem(item map[string]any) map[string]any {
-	b, err := json.Marshal(item)
-	if err == nil {
-		var out map[string]any
-		if unmarshalErr := json.Unmarshal(b, &out); unmarshalErr == nil {
-			return out
-		}
+	return deepCopyMap(item)
+}
+
+// deepCopyMap recursively copies a map[string]any.
+func deepCopyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
 	}
 
-	// Fallback to shallow copy if marshal/unmarshal fails.
-	out := make(map[string]any, len(item))
-	maps.Copy(out, item)
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = deepCopyAny(v)
+	}
 
 	return out
+}
+
+// deepCopyAny recursively copies any DynamoDB wire-format value.
+// Scalars (string, float64, bool, nil) are immutable value types and are returned as-is.
+// Maps and slices are deep-copied to prevent shared mutation.
+//
+// Wire-format set types:
+//   - SS and NS are stored as map[string]any{"SS": []string{...}} / {"NS": []string{...}}
+//   - BS is stored as map[string]any{"BS": []any{...}} (base64-encoded strings in []any)
+//
+// The []string case must be deep-copied; leaving the original backing array shared would
+// allow in-place modifications in the copy to silently corrupt the original.
+func deepCopyAny(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		return deepCopyMap(t)
+	case []any:
+		out := make([]any, len(t))
+		for i, elem := range t {
+			out[i] = deepCopyAny(elem)
+		}
+
+		return out
+	case []string:
+		// SS / NS sets are stored as []string; copy so the backing array is not shared.
+		out := make([]string, len(t))
+		copy(out, t)
+
+		return out
+	default:
+		// string, float64, bool, nil — immutable or value types; safe to share.
+		return v
+	}
+}
+
+// estimateItemSizeBytes approximates the DynamoDB-encoded size of a wire-format item in bytes.
+// It follows the AWS DynamoDB item size calculation rules:
+//   - Each attribute: len(attributeName) + value size
+//   - S: len(string)
+//   - N: approximated as len(string representation); actual DynamoDB encoding is 1-21 bytes
+//   - B: decoded byte length (base64-encoded string ÷ 4 × 3)
+//   - BOOL / NULL: 1 byte
+//   - SS/NS: sum of element sizes
+//   - BS: sum of decoded element sizes
+//   - L / M: sum of element sizes + 3-byte container overhead
+//
+// The minimum item size is 100 bytes per item (DynamoDB minimum billing unit).
+// This is used for TableSizeBytes and BackupSizeBytes reporting.
+func estimateItemSizeBytes(item map[string]any) int64 {
+	const perItemOverhead = 100 // DynamoDB charges a minimum of 100 bytes per item
+	size := int64(perItemOverhead)
+
+	for attrName, attrVal := range item {
+		size += int64(len(attrName)) + estimateAttrSizeBytes(attrVal)
+	}
+
+	return size
+}
+
+const (
+	// base64Divisor is the divisor used to convert a base64-encoded string length back
+	// to its approximate raw byte length (base64 inflates size by 4/3).
+	base64Divisor = 4
+	// base64Numerator is paired with base64Divisor: rawBytes ≈ len(base64) * 3 / 4.
+	base64Numerator = 3
+	// ddbContainerOverhead is the fixed overhead DynamoDB adds for Map and List containers.
+	ddbContainerOverhead = 3
+)
+
+// estimateAttrSizeBytes estimates the encoded size of a single DynamoDB wire-format attribute value.
+// The function is split into scalar, set, and container helpers to keep cognitive complexity low.
+func estimateAttrSizeBytes(v any) int64 {
+	m, isMap := v.(map[string]any)
+	if !isMap {
+		return 1
+	}
+
+	if size, handled := estimateScalarAttrSize(m); handled {
+		return size
+	}
+
+	if size, handled := estimateSetAttrSize(m); handled {
+		return size
+	}
+
+	return estimateContainerAttrSize(m)
+}
+
+// estimateScalarAttrSize handles S, N, B, BOOL, NULL attribute types.
+func estimateScalarAttrSize(m map[string]any) (int64, bool) {
+	if s, ok := m["S"].(string); ok {
+		return int64(len(s)), true
+	}
+
+	if n, ok := m["N"].(string); ok {
+		// Approximate: use the decimal string representation length.
+		// DynamoDB's actual wire encoding uses 1-21 bytes; this is a close
+		// enough approximation for size reporting purposes.
+		sz := len(n)
+		if sz == 0 {
+			sz = 1
+		}
+
+		return int64(sz), true
+	}
+
+	if b, ok := m["B"].(string); ok {
+		// Base64-encoded binary: actual byte length ≈ len(b) * 3 / 4.
+		return int64(len(b)) * base64Numerator / base64Divisor, true
+	}
+
+	if _, ok := m["BOOL"]; ok {
+		return 1, true
+	}
+
+	if _, ok := m["NULL"]; ok {
+		return 1, true
+	}
+
+	return 0, false
+}
+
+// estimateSetAttrSize handles SS, NS, BS attribute types.
+func estimateSetAttrSize(m map[string]any) (int64, bool) {
+	if ss, ok := m["SS"].([]string); ok {
+		var total int64
+		for _, s := range ss {
+			total += int64(len(s))
+		}
+
+		return total, true
+	}
+
+	if ns, ok := m["NS"].([]string); ok {
+		var total int64
+		for _, n := range ns {
+			sz := len(n)
+			if sz == 0 {
+				sz = 1
+			}
+
+			total += int64(sz)
+		}
+
+		return total, true
+	}
+
+	if bs, ok := m["BS"].([]any); ok {
+		var total int64
+		for _, b := range bs {
+			if s, isStr := b.(string); isStr {
+				total += int64(len(s)) * base64Numerator / base64Divisor
+			}
+		}
+
+		return total, true
+	}
+
+	return 0, false
+}
+
+// estimateContainerAttrSize handles M and L attribute types.
+func estimateContainerAttrSize(m map[string]any) int64 {
+	if nested, ok := m["M"].(map[string]any); ok {
+		total := int64(ddbContainerOverhead)
+		for k, val := range nested {
+			total += int64(len(k)) + estimateAttrSizeBytes(val)
+		}
+
+		return total
+	}
+
+	if list, ok := m["L"].([]any); ok {
+		total := int64(ddbContainerOverhead)
+		for _, elem := range list {
+			total += estimateAttrSizeBytes(elem)
+		}
+
+		return total
+	}
+
+	return 1
+}
+
+// estimateTableSizeBytes computes the total estimated size of all items in the table.
+func estimateTableSizeBytes(items []map[string]any) int64 {
+	var total int64
+	for _, item := range items {
+		total += estimateItemSizeBytes(item)
+	}
+
+	return total
 }

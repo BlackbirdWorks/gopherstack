@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -19,6 +21,7 @@ const (
 	codeconnectionsMatchPriority = service.PriorityHeaderExact
 	ccTargetPrefix               = "CodeConnections_20231201."
 	ccContentType                = "application/x-amz-json-1.0"
+	ccDefaultPageSize            = 100
 )
 
 // Handler is the Echo HTTP handler for AWS CodeConnections operations (JSON 1.0 protocol).
@@ -242,19 +245,27 @@ func (h *Handler) handleGetConnection(_ context.Context, in *getConnectionInput)
 }
 
 type listConnectionsInput struct {
-	ProviderTypeFilter string `json:"ProviderTypeFilter"`
+	NextToken          *string `json:"NextToken"`
+	MaxResults         *int32  `json:"MaxResults"`
+	ProviderTypeFilter string  `json:"ProviderTypeFilter"`
 }
 
 type listConnectionsOutput struct {
+	NextToken   *string          `json:"NextToken,omitempty"`
 	Connections []connectionItem `json:"Connections"`
 }
 
 func (h *Handler) handleListConnections(_ context.Context, in *listConnectionsInput) (*listConnectionsOutput, error) {
 	conns := h.Backend.ListConnections(in.ProviderTypeFilter)
 
-	items := make([]connectionItem, 0, len(conns))
+	// Sort for stable pagination.
+	sort.Slice(conns, func(i, j int) bool {
+		return conns[i].ConnectionName < conns[j].ConnectionName
+	})
+
+	all := make([]connectionItem, 0, len(conns))
 	for _, conn := range conns {
-		items = append(items, connectionItem{
+		all = append(all, connectionItem{
 			ConnectionName:   conn.ConnectionName,
 			ConnectionArn:    conn.ConnectionArn,
 			ProviderType:     conn.ProviderType,
@@ -263,7 +274,24 @@ func (h *Handler) handleListConnections(_ context.Context, in *listConnectionsIn
 		})
 	}
 
-	return &listConnectionsOutput{Connections: items}, nil
+	var limit int
+	if in.MaxResults != nil && *in.MaxResults > 0 {
+		limit = int(*in.MaxResults)
+	}
+
+	token := ""
+	if in.NextToken != nil {
+		token = *in.NextToken
+	}
+
+	p := page.New(all, token, limit, ccDefaultPageSize)
+
+	var nextToken *string
+	if p.Next != "" {
+		nextToken = &p.Next
+	}
+
+	return &listConnectionsOutput{Connections: p.Data, NextToken: nextToken}, nil
 }
 
 type deleteConnectionInput struct {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -840,4 +841,39 @@ func TestEMR_Backend_ListTagsForResourceByARN(t *testing.T) {
 	tags, err := b.ListTagsForResource(cluster.ARN)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{"key": "val"}, tags)
+}
+
+func TestEMR_TerminateJobFlows_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	b := emr.NewInMemoryBackend(testAccountID, testRegion)
+	cluster, err := b.RunJobFlow("idem-cluster", "emr-6.0.0", nil, nil)
+	require.NoError(t, err)
+
+	// First termination succeeds.
+	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
+
+	// Second termination on an already-terminal cluster must be a no-op, not an error.
+	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
+}
+
+func TestEMR_TerminateJobFlows_SetsEndDateTime(t *testing.T) {
+	t.Parallel()
+
+	b := emr.NewInMemoryBackend(testAccountID, testRegion)
+	cluster, err := b.RunJobFlow("timeline-cluster", "emr-6.0.0", nil, nil)
+	require.NoError(t, err)
+
+	before := time.Now().UnixMilli()
+	require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
+
+	c, err := b.DescribeCluster(cluster.ID)
+	require.NoError(t, err)
+
+	endRaw, ok := c.Status.Timeline["EndDateTime"]
+	require.True(t, ok, "EndDateTime must be set in the timeline after termination")
+
+	endMs, ok := endRaw.(int64)
+	require.True(t, ok, "EndDateTime must be an int64 Unix milliseconds value")
+	assert.GreaterOrEqual(t, endMs, before, "EndDateTime should be >= time before termination")
 }

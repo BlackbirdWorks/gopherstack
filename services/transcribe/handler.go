@@ -42,6 +42,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"StartTranscriptionJob",
 		"GetTranscriptionJob",
 		"ListTranscriptionJobs",
+		"DeleteTranscriptionJob",
 	}
 }
 
@@ -107,9 +108,10 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"StartTranscriptionJob": service.WrapOp(h.handleStartTranscriptionJob),
-		"GetTranscriptionJob":   service.WrapOp(h.handleGetTranscriptionJob),
-		"ListTranscriptionJobs": service.WrapOp(h.handleListTranscriptionJobs),
+		"StartTranscriptionJob":  service.WrapOp(h.handleStartTranscriptionJob),
+		"GetTranscriptionJob":    service.WrapOp(h.handleGetTranscriptionJob),
+		"ListTranscriptionJobs":  service.WrapOp(h.handleListTranscriptionJobs),
+		"DeleteTranscriptionJob": service.WrapOp(h.handleDeleteTranscriptionJob),
 	}
 }
 
@@ -227,18 +229,20 @@ type transcriptionJobSummary struct {
 }
 
 type listTranscriptionJobsOutput struct {
+	NextToken                 string                    `json:"NextToken,omitempty"`
 	TranscriptionJobSummaries []transcriptionJobSummary `json:"TranscriptionJobSummaries"`
 }
 
 type handleListTranscriptionJobsInput struct {
-	Status string `json:"Status"`
+	Status    string `json:"Status"`
+	NextToken string `json:"NextToken"`
 }
 
 func (h *Handler) handleListTranscriptionJobs(
 	_ context.Context,
 	in *handleListTranscriptionJobsInput,
 ) (*listTranscriptionJobsOutput, error) {
-	jobs := h.Backend.ListTranscriptionJobs(in.Status)
+	jobs, nextToken := h.Backend.ListTranscriptionJobs(in.Status, in.NextToken)
 
 	summaries := make([]transcriptionJobSummary, 0, len(jobs))
 	for _, j := range jobs {
@@ -251,5 +255,17 @@ func (h *Handler) handleListTranscriptionJobs(
 
 	return &listTranscriptionJobsOutput{
 		TranscriptionJobSummaries: summaries,
+		NextToken:                 nextToken,
 	}, nil
+}
+
+func (h *Handler) handleDeleteTranscriptionJob(
+	_ context.Context,
+	in *transcriptionJobNameInput,
+) (*struct{}, error) {
+	if err := h.Backend.DeleteTranscriptionJob(in.TranscriptionJobName); err != nil {
+		return nil, err
+	}
+
+	return &struct{}{}, nil
 }

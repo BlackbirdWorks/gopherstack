@@ -51,6 +51,38 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				assert.Empty(t, out.Buckets)
 			},
 		},
+		{
+			// A snapshot that contains a pending-delete bucket should restore
+			// without making the bucket accessible via getBucket operations.
+			name: "pending_delete_bucket_not_visible_after_restore",
+			setup: func(b *s3.InMemoryBackend) string {
+				_, err := b.CreateBucket(context.Background(), &sdk_s3.CreateBucketInput{
+					Bucket: aws.String("will-be-deleted"),
+				})
+				if err != nil {
+					return ""
+				}
+				_, _ = b.DeleteBucket(context.Background(), &sdk_s3.DeleteBucketInput{
+					Bucket: aws.String("will-be-deleted"),
+				})
+
+				return "will-be-deleted"
+			},
+			verify: func(t *testing.T, b *s3.InMemoryBackend, _ string) {
+				t.Helper()
+
+				// The pending bucket must be invisible to GetObject / HeadBucket.
+				_, err := b.HeadBucket(context.Background(), &sdk_s3.HeadBucketInput{
+					Bucket: aws.String("will-be-deleted"),
+				})
+				require.ErrorIs(t, err, s3.ErrNoSuchBucket)
+
+				// ListBuckets must also exclude pending-delete buckets.
+				out, listErr := b.ListBuckets(context.Background(), &sdk_s3.ListBucketsInput{})
+				require.NoError(t, listErr)
+				assert.Empty(t, out.Buckets)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -71,10 +103,99 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	}
 }
 
+// TestInMemoryBackend_RestoreActivePrecedesOverPending verifies that
+// buildBucketIndex prefers the active bucket over a pending-delete entry when
+// a snapshot (e.g. from an older version) contains both for the same name.
+// The snapshot is crafted as raw JSON to exercise the path directly.
+func TestInMemoryBackend_RestoreActivePrecedesOverPending(t *testing.T) {
+	t.Parallel()
+
+	// Craft a snapshot JSON that has:
+	//   us-east-1 / "shared": DeletePending = true   (pending-delete)
+	//   us-west-2 / "shared": DeletePending = false  (active)
+	snap := []byte(`{
+		"buckets": {
+			"us-east-1": {
+				"shared": {
+					"name": "shared",
+					"deletePending": true,
+					"versioning": "Suspended",
+					"objects": {}
+				}
+			},
+			"us-west-2": {
+				"shared": {
+					"name": "shared",
+					"deletePending": false,
+					"versioning": "Suspended",
+					"objects": {}
+				}
+			}
+		},
+		"tags": {},
+		"uploads": {},
+		"defaultRegion": "us-east-1"
+	}`)
+
+	b := s3.NewInMemoryBackend(nil)
+	require.NoError(t, b.Restore(snap))
+
+	// getBucket must resolve to the active (us-west-2) entry.
+	_, err := b.HeadBucket(t.Context(), &sdk_s3.HeadBucketInput{Bucket: aws.String("shared")})
+	require.NoError(t, err, "active bucket must be reachable after restore")
+
+	// ListBuckets must show exactly one entry (the active bucket).
+	out, err := b.ListBuckets(t.Context(), &sdk_s3.ListBucketsInput{})
+	require.NoError(t, err)
+	assert.Len(t, out.Buckets, 1)
+	assert.Equal(t, "shared", aws.ToString(out.Buckets[0].Name))
+}
+
 func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 	t.Parallel()
 
 	b := s3.NewInMemoryBackend(nil)
 	err := b.Restore([]byte("not-valid-json"))
 	require.Error(t, err)
+}
+
+// TestInMemoryBackend_RestoreLegacyFlatUploads verifies that a snapshot using the
+// pre-issue-620 flat uploads format (map[uploadID]*StoredMultipartUpload) can be
+// restored into the current nested format (map[bucket]map[uploadID]*…).
+func TestInMemoryBackend_RestoreLegacyFlatUploads(t *testing.T) {
+	t.Parallel()
+
+	// Craft a snapshot with the legacy flat uploads format.
+	snap := []byte(`{
+		"buckets": {
+			"us-east-1": {
+				"my-bucket": {
+					"name": "my-bucket",
+					"deletePending": false,
+					"objects": {}
+				}
+			}
+		},
+		"tags": {},
+		"uploads": {
+			"1234567890": {
+				"uploadID": "1234567890",
+				"bucket":   "my-bucket",
+				"key":      "large-file",
+				"initiated": "2024-01-01T00:00:00Z",
+				"parts": {}
+			}
+		},
+		"defaultRegion": "us-east-1"
+	}`)
+
+	b := s3.NewInMemoryBackend(nil)
+	require.NoError(t, b.Restore(snap))
+
+	out, err := b.ListMultipartUploads(t.Context(), &sdk_s3.ListMultipartUploadsInput{
+		Bucket: aws.String("my-bucket"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Uploads, 1, "legacy upload should be present after restore")
+	assert.Equal(t, "large-file", aws.ToString(out.Uploads[0].Key))
 }

@@ -14,28 +14,25 @@ const NullVersion = "null"
 
 // StoredBucket represents an S3 bucket in memory.
 type StoredBucket struct {
+	CreationDate            time.Time                `json:"creationDate"`
 	Objects                 map[string]*StoredObject `json:"objects,omitempty"`
 	mu                      *lockmetrics.RWMutex
-	Name                    string    `json:"name"`
-	Policy                  string    `json:"policy,omitempty"`
-	CORSConfig              string    `json:"corsConfig,omitempty"`
-	LifecycleConfig         string    `json:"lifecycleConfig,omitempty"`
-	NotificationConfig      string    `json:"notificationConfig,omitempty"`
-	ObjectLockConfig        string    `json:"objectLockConfig,omitempty"`
-	WebsiteConfig           string    `json:"websiteConfig,omitempty"`
-	EncryptionConfig        string    `json:"encryptionConfig,omitempty"`
-	PublicAccessBlockConfig string    `json:"publicAccessBlockConfig,omitempty"`
-	OwnershipControlsConfig string    `json:"ownershipControlsConfig,omitempty"`
-	LoggingConfig           string    `json:"loggingConfig,omitempty"`
-	ReplicationConfig       string    `json:"replicationConfig,omitempty"`
-	CreationDate            time.Time `json:"creationDate"`
-	ACL                     string    `json:"acl,omitempty"`
-	// Versioning and DeletePending are placed last so the non-pointer bool field
-	// sits at the end of the struct with no trailing padding words needing GC scan.
-	Versioning types.BucketVersioningStatus `json:"versioning,omitempty"`
-	// DeletePending is true when the bucket is queued for async deletion by the Janitor.
-	// Operations on a DeletePending bucket behave as if the bucket does not exist.
-	DeletePending bool `json:"deletePending,omitempty"`
+	WebsiteConfig           string                       `json:"websiteConfig,omitempty"`
+	PublicAccessBlockConfig string                       `json:"publicAccessBlockConfig,omitempty"`
+	LifecycleConfig         string                       `json:"lifecycleConfig,omitempty"`
+	NotificationConfig      string                       `json:"notificationConfig,omitempty"`
+	ObjectLockConfig        string                       `json:"objectLockConfig,omitempty"`
+	Policy                  string                       `json:"policy,omitempty"`
+	EncryptionConfig        string                       `json:"encryptionConfig,omitempty"`
+	CORSConfig              string                       `json:"corsConfig,omitempty"`
+	OwnershipControlsConfig string                       `json:"ownershipControlsConfig,omitempty"`
+	LoggingConfig           string                       `json:"loggingConfig,omitempty"`
+	ReplicationConfig       string                       `json:"replicationConfig,omitempty"`
+	Versioning              types.BucketVersioningStatus `json:"versioning,omitempty"`
+	Name                    string                       `json:"name"`
+	ACL                     string                       `json:"acl,omitempty"`
+	Tags                    []types.Tag                  `json:"tags,omitempty"`
+	DeletePending           bool                         `json:"deletePending,omitempty"`
 }
 
 // StoredObject represents an S3 object with its version history.
@@ -75,9 +72,18 @@ type StoredObjectVersion struct {
 type StoredMultipartUpload struct {
 	Initiated time.Time             `json:"initiated"`
 	Parts     map[int32]*StoredPart `json:"parts,omitempty"`
+	mu        *lockmetrics.RWMutex  `json:"-"`
 	UploadID  string                `json:"uploadID"`
 	Bucket    string                `json:"bucket"`
 	Key       string                `json:"key"`
+	// Tagging holds the URL-encoded tag string from the X-Amz-Tagging header
+	// supplied at CreateMultipartUpload time. It is applied to the resulting
+	// object version when CompleteMultipartUpload succeeds.
+	Tagging string `json:"tagging,omitempty"`
+	// closed is set to true by AbortMultipartUpload or CompleteMultipartUpload
+	// before the upload is removed from the index, so that concurrent UploadPart
+	// calls that already hold a pointer to this struct can detect the invalidation.
+	closed bool `json:"-"`
 }
 
 // StoredPart represents a single part of a multipart upload.

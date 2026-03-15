@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -1156,4 +1157,383 @@ func TestHandler_InvalidStateError(t *testing.T) {
 		"StartReplicationTaskType": "start-replication",
 	})
 	assert.Equal(t, http.StatusBadRequest, startAgainRec.Code)
+}
+
+// TestDescribeReplicationInstancesPagination verifies Marker/MaxRecords pagination.
+func TestDescribeReplicationInstancesPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *dms.Handler)
+		name       string
+		maxRecords int
+		wantCount  int
+		wantMarker bool
+	}{
+		{
+			name: "first_page_limited",
+			setup: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				for _, id := range []string{"inst-a", "inst-b", "inst-c"} {
+					doDMS(t, h, "CreateReplicationInstance", map[string]any{
+						"ReplicationInstanceIdentifier": id,
+						"ReplicationInstanceClass":      "dms.t3.medium",
+					})
+				}
+			},
+			maxRecords: 2,
+			wantCount:  2,
+			wantMarker: true,
+		},
+		{
+			name: "all_results_no_marker",
+			setup: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				for _, id := range []string{"inst-x", "inst-y"} {
+					doDMS(t, h, "CreateReplicationInstance", map[string]any{
+						"ReplicationInstanceIdentifier": id,
+						"ReplicationInstanceClass":      "dms.t3.medium",
+					})
+				}
+			},
+			maxRecords: 100,
+			wantCount:  2,
+			wantMarker: false,
+		},
+		{
+			name: "zero_max_records_uses_default",
+			setup: func(t *testing.T, h *dms.Handler) {
+				t.Helper()
+				for _, id := range []string{"inst-p", "inst-q"} {
+					doDMS(t, h, "CreateReplicationInstance", map[string]any{
+						"ReplicationInstanceIdentifier": id,
+						"ReplicationInstanceClass":      "dms.t3.medium",
+					})
+				}
+			},
+			maxRecords: 0,
+			wantCount:  2,
+			wantMarker: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			body := map[string]any{}
+			if tt.maxRecords > 0 {
+				body["MaxRecords"] = tt.maxRecords
+			}
+
+			rec := doDMS(t, h, "DescribeReplicationInstances", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			resp := parseJSON(t, rec)
+			list, ok := resp["ReplicationInstances"].([]any)
+			require.True(t, ok)
+			assert.Len(t, list, tt.wantCount)
+
+			_, hasMarker := resp["Marker"]
+			assert.Equal(t, tt.wantMarker, hasMarker)
+		})
+	}
+}
+
+// TestDescribeReplicationInstancesContinuation verifies a two-page traversal.
+func TestDescribeReplicationInstancesContinuation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	for _, id := range []string{"inst-a", "inst-b", "inst-c"} {
+		doDMS(t, h, "CreateReplicationInstance", map[string]any{
+			"ReplicationInstanceIdentifier": id,
+			"ReplicationInstanceClass":      "dms.t3.medium",
+		})
+	}
+
+	// First page: 2 of 3.
+	rec1 := doDMS(t, h, "DescribeReplicationInstances", map[string]any{"MaxRecords": 2})
+	require.Equal(t, http.StatusOK, rec1.Code)
+	resp1 := parseJSON(t, rec1)
+	page1, ok := resp1["ReplicationInstances"].([]any)
+	require.True(t, ok)
+	assert.Len(t, page1, 2)
+
+	marker, hasMarker := resp1["Marker"].(string)
+	require.True(t, hasMarker, "expected Marker in first page response")
+	require.NotEmpty(t, marker)
+
+	// Second page: remaining 1.
+	rec2 := doDMS(t, h, "DescribeReplicationInstances", map[string]any{
+		"MaxRecords": 2,
+		"Marker":     marker,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	resp2 := parseJSON(t, rec2)
+	page2, ok := resp2["ReplicationInstances"].([]any)
+	require.True(t, ok)
+	assert.Len(t, page2, 1)
+
+	_, stillHasMarker := resp2["Marker"]
+	assert.False(t, stillHasMarker, "last page should have no Marker")
+
+	// All identifiers collectively.
+	ids := make([]string, 0, 3)
+	for _, item := range append(page1, page2...) {
+		ri := item.(map[string]any)
+		ids = append(ids, ri["ReplicationInstanceIdentifier"].(string))
+	}
+	assert.ElementsMatch(t, []string{"inst-a", "inst-b", "inst-c"}, ids)
+}
+
+// TestDescribeEndpointsPagination verifies Marker/MaxRecords pagination.
+func TestDescribeEndpointsPagination(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		count      int
+		maxRecords int
+		wantCount  int
+		wantMarker bool
+	}{
+		{
+			name:       "first_page_limited",
+			count:      3,
+			maxRecords: 2,
+			wantCount:  2,
+			wantMarker: true,
+		},
+		{
+			name:       "all_results_no_marker",
+			count:      2,
+			maxRecords: 10,
+			wantCount:  2,
+			wantMarker: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+
+			for i := range tt.count {
+				doDMS(t, h, "CreateEndpoint", map[string]any{
+					"EndpointIdentifier": "ep-" + strconv.Itoa(i),
+					"EndpointType":       "SOURCE",
+					"EngineName":         "mysql",
+				})
+			}
+
+			rec := doDMS(t, h, "DescribeEndpoints", map[string]any{"MaxRecords": tt.maxRecords})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			resp := parseJSON(t, rec)
+			list, ok := resp["Endpoints"].([]any)
+			require.True(t, ok)
+			assert.Len(t, list, tt.wantCount)
+
+			_, hasMarker := resp["Marker"]
+			assert.Equal(t, tt.wantMarker, hasMarker)
+		})
+	}
+}
+
+// TestDescribeEndpointsContinuation verifies a two-page traversal.
+func TestDescribeEndpointsContinuation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	for i := range 3 {
+		doDMS(t, h, "CreateEndpoint", map[string]any{
+			"EndpointIdentifier": "ep-" + strconv.Itoa(i),
+			"EndpointType":       "SOURCE",
+			"EngineName":         "mysql",
+		})
+	}
+
+	rec1 := doDMS(t, h, "DescribeEndpoints", map[string]any{"MaxRecords": 2})
+	require.Equal(t, http.StatusOK, rec1.Code)
+	resp1 := parseJSON(t, rec1)
+	page1, ok := resp1["Endpoints"].([]any)
+	require.True(t, ok)
+	assert.Len(t, page1, 2)
+
+	marker, hasMarker := resp1["Marker"].(string)
+	require.True(t, hasMarker)
+	require.NotEmpty(t, marker)
+
+	rec2 := doDMS(t, h, "DescribeEndpoints", map[string]any{
+		"MaxRecords": 2,
+		"Marker":     marker,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	resp2 := parseJSON(t, rec2)
+	page2, ok := resp2["Endpoints"].([]any)
+	require.True(t, ok)
+	assert.Len(t, page2, 1)
+
+	_, stillHasMarker := resp2["Marker"]
+	assert.False(t, stillHasMarker)
+}
+
+// TestDescribeReplicationTasksPagination verifies Marker/MaxRecords pagination.
+func TestDescribeReplicationTasksPagination(t *testing.T) {
+	t.Parallel()
+
+	// Helper to create the prerequisite replication instance and endpoints.
+	setupTaskEnv := func(t *testing.T, h *dms.Handler, n int) {
+		t.Helper()
+
+		instRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+			"ReplicationInstanceIdentifier": "pg-inst",
+			"ReplicationInstanceClass":      "dms.t3.medium",
+		})
+		require.Equal(t, http.StatusOK, instRec.Code)
+		instArn := parseJSON(t, instRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+		srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+			"EndpointIdentifier": "pg-src",
+			"EndpointType":       "SOURCE",
+			"EngineName":         "mysql",
+		})
+		require.Equal(t, http.StatusOK, srcRec.Code)
+		srcArn := parseJSON(t, srcRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+		dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+			"EndpointIdentifier": "pg-dst",
+			"EndpointType":       "TARGET",
+			"EngineName":         "s3",
+		})
+		require.Equal(t, http.StatusOK, dstRec.Code)
+		dstArn := parseJSON(t, dstRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+		for i := range n {
+			doDMS(t, h, "CreateReplicationTask", map[string]any{
+				"ReplicationTaskIdentifier": "task-" + strconv.Itoa(i),
+				"SourceEndpointArn":         srcArn,
+				"TargetEndpointArn":         dstArn,
+				"ReplicationInstanceArn":    instArn,
+				"MigrationType":             "full-load",
+			})
+		}
+	}
+
+	tests := []struct {
+		name       string
+		count      int
+		maxRecords int
+		wantCount  int
+		wantMarker bool
+	}{
+		{
+			name:       "first_page_limited",
+			count:      3,
+			maxRecords: 2,
+			wantCount:  2,
+			wantMarker: true,
+		},
+		{
+			name:       "all_results_no_marker",
+			count:      2,
+			maxRecords: 10,
+			wantCount:  2,
+			wantMarker: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestDMSHandler()
+			setupTaskEnv(t, h, tt.count)
+
+			rec := doDMS(t, h, "DescribeReplicationTasks", map[string]any{"MaxRecords": tt.maxRecords})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			resp := parseJSON(t, rec)
+			list, ok := resp["ReplicationTasks"].([]any)
+			require.True(t, ok)
+			assert.Len(t, list, tt.wantCount)
+
+			_, hasMarker := resp["Marker"]
+			assert.Equal(t, tt.wantMarker, hasMarker)
+		})
+	}
+}
+
+// TestDescribeReplicationTasksContinuation verifies a two-page traversal.
+func TestDescribeReplicationTasksContinuation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	instRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+		"ReplicationInstanceIdentifier": "cont-inst",
+		"ReplicationInstanceClass":      "dms.t3.medium",
+	})
+	require.Equal(t, http.StatusOK, instRec.Code)
+	instArn := parseJSON(t, instRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+	srcRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": "cont-src",
+		"EndpointType":       "SOURCE",
+		"EngineName":         "mysql",
+	})
+	require.Equal(t, http.StatusOK, srcRec.Code)
+	srcArn := parseJSON(t, srcRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+	dstRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": "cont-dst",
+		"EndpointType":       "TARGET",
+		"EngineName":         "s3",
+	})
+	require.Equal(t, http.StatusOK, dstRec.Code)
+	dstArn := parseJSON(t, dstRec)["Endpoint"].(map[string]any)["EndpointArn"].(string)
+
+	for i := range 3 {
+		doDMS(t, h, "CreateReplicationTask", map[string]any{
+			"ReplicationTaskIdentifier": "task-" + strconv.Itoa(i),
+			"SourceEndpointArn":         srcArn,
+			"TargetEndpointArn":         dstArn,
+			"ReplicationInstanceArn":    instArn,
+			"MigrationType":             "full-load",
+		})
+	}
+
+	rec1 := doDMS(t, h, "DescribeReplicationTasks", map[string]any{"MaxRecords": 2})
+	require.Equal(t, http.StatusOK, rec1.Code)
+	resp1 := parseJSON(t, rec1)
+	page1, ok := resp1["ReplicationTasks"].([]any)
+	require.True(t, ok)
+	assert.Len(t, page1, 2)
+
+	marker, hasMarker := resp1["Marker"].(string)
+	require.True(t, hasMarker)
+	require.NotEmpty(t, marker)
+
+	rec2 := doDMS(t, h, "DescribeReplicationTasks", map[string]any{
+		"MaxRecords": 2,
+		"Marker":     marker,
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	resp2 := parseJSON(t, rec2)
+	page2, ok := resp2["ReplicationTasks"].([]any)
+	require.True(t, ok)
+	assert.Len(t, page2, 1)
+
+	_, stillHasMarker := resp2["Marker"]
+	assert.False(t, stillHasMarker)
 }

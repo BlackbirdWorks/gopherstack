@@ -6,18 +6,21 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
-	dmsTargetPrefix = "AmazonDMSv20160101."
-	contentType     = "application/x-amz-json-1.1"
+	dmsTargetPrefix    = "AmazonDMSv20160101."
+	contentType        = "application/x-amz-json-1.1"
+	dmsDefaultPageSize = 100
 )
 
 // errUnknownAction is returned when an unsupported DMS action is requested.
@@ -257,15 +260,19 @@ func (h *Handler) handleCreateReplicationInstance(
 }
 
 type describeReplicationInstancesInput struct {
-	Filters []filterEntry `json:"Filters"`
+	Marker     *string       `json:"Marker"`
+	MaxRecords *int32        `json:"MaxRecords"`
+	Filters    []filterEntry `json:"Filters"`
 }
 
 type describeReplicationInstancesOutput struct {
+	Marker               *string                   `json:"Marker,omitempty"`
 	ReplicationInstances []replicationInstanceJSON `json:"ReplicationInstances"`
 }
 
 func (h *Handler) handleDescribeReplicationInstances(
-	_ context.Context, in *describeReplicationInstancesInput,
+	_ context.Context,
+	in *describeReplicationInstancesInput,
 ) (*describeReplicationInstancesOutput, error) {
 	identifier := extractFilterValue(in.Filters, "replication-instance-id")
 	arnFilter := extractFilterValue(in.Filters, "replication-instance-arn")
@@ -282,12 +289,19 @@ func (h *Handler) handleDescribeReplicationInstances(
 		return nil, err
 	}
 
-	out := make([]replicationInstanceJSON, 0, len(list))
+	// Sort for stable pagination.
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ReplicationInstanceIdentifier < list[j].ReplicationInstanceIdentifier
+	})
+
+	all := make([]replicationInstanceJSON, 0, len(list))
 	for _, ri := range list {
-		out = append(out, riToJSON(ri))
+		all = append(all, riToJSON(ri))
 	}
 
-	return &describeReplicationInstancesOutput{ReplicationInstances: out}, nil
+	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
+
+	return &describeReplicationInstancesOutput{ReplicationInstances: data, Marker: nextMarker}, nil
 }
 
 type deleteReplicationInstanceInput struct {
@@ -381,15 +395,19 @@ func (h *Handler) handleCreateEndpoint(
 }
 
 type describeEndpointsInput struct {
-	Filters []filterEntry `json:"Filters"`
+	Marker     *string       `json:"Marker"`
+	MaxRecords *int32        `json:"MaxRecords"`
+	Filters    []filterEntry `json:"Filters"`
 }
 
 type describeEndpointsOutput struct {
+	Marker    *string        `json:"Marker,omitempty"`
 	Endpoints []endpointJSON `json:"Endpoints"`
 }
 
 func (h *Handler) handleDescribeEndpoints(
-	_ context.Context, in *describeEndpointsInput,
+	_ context.Context,
+	in *describeEndpointsInput,
 ) (*describeEndpointsOutput, error) {
 	identifier := extractFilterValue(in.Filters, "endpoint-id")
 	arnFilter := extractFilterValue(in.Filters, "endpoint-arn")
@@ -405,12 +423,19 @@ func (h *Handler) handleDescribeEndpoints(
 		return nil, err
 	}
 
-	out := make([]endpointJSON, 0, len(list))
+	// Sort for stable pagination.
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].EndpointIdentifier < list[j].EndpointIdentifier
+	})
+
+	all := make([]endpointJSON, 0, len(list))
 	for _, ep := range list {
-		out = append(out, epToJSON(ep))
+		all = append(all, epToJSON(ep))
 	}
 
-	return &describeEndpointsOutput{Endpoints: out}, nil
+	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
+
+	return &describeEndpointsOutput{Endpoints: data, Marker: nextMarker}, nil
 }
 
 type deleteEndpointInput struct {
@@ -498,10 +523,13 @@ func (h *Handler) handleCreateReplicationTask(
 }
 
 type describeReplicationTasksInput struct {
-	Filters []filterEntry `json:"Filters"`
+	Marker     *string       `json:"Marker"`
+	MaxRecords *int32        `json:"MaxRecords"`
+	Filters    []filterEntry `json:"Filters"`
 }
 
 type describeReplicationTasksOutput struct {
+	Marker           *string               `json:"Marker,omitempty"`
 	ReplicationTasks []replicationTaskJSON `json:"ReplicationTasks"`
 }
 
@@ -515,12 +543,19 @@ func (h *Handler) handleDescribeReplicationTasks(
 		return nil, err
 	}
 
-	out := make([]replicationTaskJSON, 0, len(list))
+	// Sort for stable pagination.
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ReplicationTaskIdentifier < list[j].ReplicationTaskIdentifier
+	})
+
+	all := make([]replicationTaskJSON, 0, len(list))
 	for _, rt := range list {
-		out = append(out, rtToJSON(rt))
+		all = append(all, rtToJSON(rt))
 	}
 
-	return &describeReplicationTasksOutput{ReplicationTasks: out}, nil
+	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
+
+	return &describeReplicationTasksOutput{ReplicationTasks: data, Marker: nextMarker}, nil
 }
 
 type startReplicationTaskInput struct {
@@ -760,6 +795,24 @@ func ptrInt32(p *int32) int32 {
 	}
 
 	return *p
+}
+
+// dmsPaginate applies cursor-based pagination to a pre-sorted slice, returning
+// the page data and an optional next-marker pointer.
+func dmsPaginate[T any](all []T, marker *string, maxRecords *int32) ([]T, *string) {
+	var limit int
+	if maxRecords != nil && *maxRecords > 0 {
+		limit = int(*maxRecords)
+	}
+
+	p := page.New(all, ptrStr(marker), limit, dmsDefaultPageSize)
+
+	var nextMarker *string
+	if p.Next != "" {
+		nextMarker = &p.Next
+	}
+
+	return p.Data, nextMarker
 }
 
 func ptrBool(p *bool) bool {

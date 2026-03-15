@@ -22,9 +22,13 @@ func (h *S3Handler) createMultipartUpload(
 	bucketName, key string,
 ) {
 	h.setOperation(ctx, "CreateMultipartUpload")
+
+	tagging := r.Header.Get("X-Amz-Tagging")
+
 	out, err := h.Backend.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(key),
+		Bucket:  aws.String(bucketName),
+		Key:     aws.String(key),
+		Tagging: aws.String(tagging),
 	})
 	if err != nil {
 		WriteError(ctx, w, r, err)

@@ -77,14 +77,23 @@ func (s *Scheduler) processTick(ctx context.Context, tick time.Time, lastFired m
 	}
 
 	var scheduled []ruleInfo
+	activeARNs := make(map[string]struct{})
 	for busName, busRules := range s.backend.rules {
 		for _, rule := range busRules {
 			if rule.ScheduleExpression != "" && rule.State == ruleStateEnabled {
 				scheduled = append(scheduled, ruleInfo{rule: *rule, busName: busName})
 			}
+			activeARNs[rule.Arn] = struct{}{}
 		}
 	}
 	s.backend.mu.RUnlock()
+
+	// Remove lastFired entries for rules that no longer exist to prevent memory growth.
+	for arn := range lastFired {
+		if _, ok := activeARNs[arn]; !ok {
+			delete(lastFired, arn)
+		}
+	}
 
 	fired := 0
 

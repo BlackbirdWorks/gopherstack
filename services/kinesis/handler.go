@@ -1238,3 +1238,11 @@ func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 
 	return err
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (h *Handler) Reset() {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Reset()
+	}
+}

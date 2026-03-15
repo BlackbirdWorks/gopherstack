@@ -360,11 +360,13 @@ type guardrailSummaryOutput struct {
 }
 
 type listGuardrailsOutput struct {
+	NextToken  string                   `json:"nextToken,omitempty"`
 	Guardrails []guardrailSummaryOutput `json:"guardrails"`
 }
 
 func (h *Handler) handleListGuardrails(c *echo.Context) error {
-	guardrails := h.Backend.ListGuardrails()
+	nextToken := c.Request().URL.Query().Get("nextToken")
+	guardrails, outToken := h.Backend.ListGuardrails(nextToken)
 	summaries := make([]guardrailSummaryOutput, 0, len(guardrails))
 
 	for _, g := range guardrails {
@@ -380,7 +382,12 @@ func (h *Handler) handleListGuardrails(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, listGuardrailsOutput{Guardrails: summaries})
+	resp := listGuardrailsOutput{Guardrails: summaries}
+	if outToken != "" {
+		resp.NextToken = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 type updateGuardrailInput struct {
@@ -436,11 +443,13 @@ type foundationModelSummaryOutput struct {
 }
 
 type listFoundationModelsOutput struct {
+	NextToken      string                         `json:"nextToken,omitempty"`
 	ModelSummaries []foundationModelSummaryOutput `json:"modelSummaries"`
 }
 
 func (h *Handler) handleListFoundationModels(c *echo.Context) error {
-	models := h.Backend.ListFoundationModels()
+	nextToken := c.Request().URL.Query().Get("nextToken")
+	models, outToken := h.Backend.ListFoundationModels(nextToken)
 	summaries := make([]foundationModelSummaryOutput, 0, len(models))
 
 	for _, m := range models {
@@ -454,7 +463,7 @@ func (h *Handler) handleListFoundationModels(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, listFoundationModelsOutput{ModelSummaries: summaries})
+	return c.JSON(http.StatusOK, listFoundationModelsOutput{ModelSummaries: summaries, NextToken: outToken})
 }
 
 type getFoundationModelOutput struct {
@@ -555,18 +564,23 @@ func (h *Handler) handleGetProvisionedModelThroughput(c *echo.Context, id string
 }
 
 type listProvisionedModelThroughputsOutput struct {
+	NextToken                 string                          `json:"nextToken,omitempty"`
 	ProvisionedModelSummaries []provisionedModelSummaryOutput `json:"provisionedModelSummaries"`
 }
 
 func (h *Handler) handleListProvisionedModelThroughputs(c *echo.Context) error {
-	pmts := h.Backend.ListProvisionedModelThroughputs()
+	nextToken := c.Request().URL.Query().Get("nextToken")
+	pmts, outToken := h.Backend.ListProvisionedModelThroughputs(nextToken)
 	summaries := make([]provisionedModelSummaryOutput, 0, len(pmts))
 
 	for _, pmt := range pmts {
 		summaries = append(summaries, pmtToOutput(pmt))
 	}
 
-	return c.JSON(http.StatusOK, listProvisionedModelThroughputsOutput{ProvisionedModelSummaries: summaries})
+	return c.JSON(
+		http.StatusOK,
+		listProvisionedModelThroughputsOutput{ProvisionedModelSummaries: summaries, NextToken: outToken},
+	)
 }
 
 type updateProvisionedModelThroughputInput struct {

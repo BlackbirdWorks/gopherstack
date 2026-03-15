@@ -6,22 +6,38 @@ import (
 
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
+	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
 	appsyncbackend "github.com/blackbirdworks/gopherstack/services/appsync"
+	autoscalingbackend "github.com/blackbirdworks/gopherstack/services/autoscaling"
+	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
+	cloudtrailbackend "github.com/blackbirdworks/gopherstack/services/cloudtrail"
 	cloudwatchbackend "github.com/blackbirdworks/gopherstack/services/cloudwatch"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codebuildbackend "github.com/blackbirdworks/gopherstack/services/codebuild"
+	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ddbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
 	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
 	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
+	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
 	ebbackend "github.com/blackbirdworks/gopherstack/services/eventbridge"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
+	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
+	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
+	kafkabackend "github.com/blackbirdworks/gopherstack/services/kafka"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
@@ -35,6 +51,7 @@ import (
 	ssmbackend "github.com/blackbirdworks/gopherstack/services/ssm"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 )
 
 // BackendsProvider is a private interface to extract service backends for resource creation.
@@ -70,6 +87,24 @@ type BackendsProvider interface {
 	GetSESHandler() service.Registerable
 	GetACMHandler() service.Registerable
 	GetCognitoIDPHandler() service.Registerable
+	// Phase-3 handlers
+	GetEKSHandler() service.Registerable
+	GetEFSHandler() service.Registerable
+	GetBatchHandler() service.Registerable
+	GetCloudFrontHandler() service.Registerable
+	GetAutoscalingHandler() service.Registerable
+	GetAPIGatewayV2Handler() service.Registerable
+	GetCodeBuildHandler() service.Registerable
+	GetGlueHandler() service.Registerable
+	GetDocDBHandler() service.Registerable
+	GetNeptuneHandler() service.Registerable
+	GetKafkaHandler() service.Registerable
+	GetTransferHandler() service.Registerable
+	GetCloudTrailHandler() service.Registerable
+	GetCodePipelineHandler() service.Registerable
+	GetIoTHandler() service.Registerable
+	GetPipesHandler() service.Registerable
+	GetEMRHandler() service.Registerable
 	GetGlobalConfig() config.GlobalConfig
 }
 
@@ -132,6 +167,24 @@ func extractAllServiceBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.SES, _ = getHandler[*sesbackend.Handler](bp.GetSESHandler())
 	backends.ACM, _ = getHandler[*acmbackend.Handler](bp.GetACMHandler())
 	backends.CognitoIDP, _ = getHandler[*cognitoidpbackend.Handler](bp.GetCognitoIDPHandler())
+	// Phase-3 backends (EKS, EFS, Batch, CloudFront, AutoScaling, etc.)
+	backends.EKS, _ = getHandler[*eksbackend.Handler](bp.GetEKSHandler())
+	backends.EFS, _ = getHandler[*efsbackend.Handler](bp.GetEFSHandler())
+	backends.Batch, _ = getHandler[*batchbackend.Handler](bp.GetBatchHandler())
+	backends.CloudFront, _ = getHandler[*cloudfrontbackend.Handler](bp.GetCloudFrontHandler())
+	backends.Autoscaling, _ = getHandler[*autoscalingbackend.Handler](bp.GetAutoscalingHandler())
+	backends.APIGatewayV2, _ = getHandler[*apigatewayv2backend.Handler](bp.GetAPIGatewayV2Handler())
+	backends.CodeBuild, _ = getHandler[*codebuildbackend.Handler](bp.GetCodeBuildHandler())
+	backends.Glue, _ = getHandler[*gluebackend.Handler](bp.GetGlueHandler())
+	backends.DocDB, _ = getHandler[*docdbbackend.Handler](bp.GetDocDBHandler())
+	backends.Neptune, _ = getHandler[*neptunebackend.Handler](bp.GetNeptuneHandler())
+	backends.Kafka, _ = getHandler[*kafkabackend.Handler](bp.GetKafkaHandler())
+	backends.Transfer, _ = getHandler[*transferbackend.Handler](bp.GetTransferHandler())
+	backends.CloudTrail, _ = getHandler[*cloudtrailbackend.Handler](bp.GetCloudTrailHandler())
+	backends.CodePipeline, _ = getHandler[*codepipelinebackend.Handler](bp.GetCodePipelineHandler())
+	backends.IoT, _ = getHandler[*iotbackend.Handler](bp.GetIoTHandler())
+	backends.Pipes, _ = getHandler[*pipesbackend.Handler](bp.GetPipesHandler())
+	backends.EMR, _ = getHandler[*emrbackend.Handler](bp.GetEMRHandler())
 }
 
 // getHandler asserts h to type T; returns zero value and false if h is nil or the wrong type.

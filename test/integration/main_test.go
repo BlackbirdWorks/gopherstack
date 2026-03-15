@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -20,19 +21,28 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	acmsdk "github.com/aws/aws-sdk-go-v2/service/acm"
 	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
+	autoscalingsdk "github.com/aws/aws-sdk-go-v2/service/autoscaling"
+	batchsdk "github.com/aws/aws-sdk-go-v2/service/batch"
 	bedrocksdk "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cloudfrontsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	cloudtrailsdk "github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cloudwatchsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cloudwatchlogssdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	codepipelinesdk "github.com/aws/aws-sdk-go-v2/service/codepipeline"
 	cognitoidentitysdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	cognitoidpsdk "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
+	docdbsdk "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ecrsdk "github.com/aws/aws-sdk-go-v2/service/ecr"
 	ecssdk "github.com/aws/aws-sdk-go-v2/service/ecs"
+	efssdk "github.com/aws/aws-sdk-go-v2/service/efs"
+	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
 	elasticachesdk "github.com/aws/aws-sdk-go-v2/service/elasticache"
+	emrsdk "github.com/aws/aws-sdk-go-v2/service/emr"
 	eventbridgesdk "github.com/aws/aws-sdk-go-v2/service/eventbridge"
 	iamsdk "github.com/aws/aws-sdk-go-v2/service/iam"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -81,6 +91,9 @@ var sharedContainer testcontainers.Container
 
 // ErrDockerPanic is returned when the Docker availability check panics.
 var ErrDockerPanic = errors.New("docker check panicked")
+
+// ErrResetFailed is returned when the reset endpoint returns an unexpected status.
+var ErrResetFailed = errors.New("reset endpoint returned unexpected status")
 
 func TestMain(m *testing.M) {
 	flag.Parse()
@@ -148,6 +161,15 @@ func TestMain(m *testing.M) {
 
 	endpoint = fmt.Sprintf("http://localhost:%s", mappedPort.Port())
 	logger.Info("Gopherstack running", "endpoint", endpoint)
+
+	// Verify the reset endpoint works and start all tests with clean state.
+	// This runs before any parallel test is executed, so it cannot race with them.
+	if resetErr := resetGopherstackState(endpoint); resetErr != nil {
+		logger.Error("failed to reset gopherstack state", "error", resetErr)
+		os.Exit(1)
+	}
+
+	logger.Info("gopherstack state reset; starting tests")
 
 	mqttPort, err := container.MappedPort(ctx, "1883")
 	if err != nil {
@@ -936,4 +958,188 @@ func createBedrockClient(t *testing.T) *bedrocksdk.Client {
 	return bedrocksdk.NewFromConfig(cfg, func(o *bedrocksdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+// createAutoScalingClient returns an AutoScaling client pointed at the shared test container.
+func createAutoScalingClient(t *testing.T) *autoscalingsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return autoscalingsdk.NewFromConfig(cfg, func(o *autoscalingsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudFrontClient returns a CloudFront client pointed at the shared test container.
+func createCloudFrontClient(t *testing.T) *cloudfrontsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return cloudfrontsdk.NewFromConfig(cfg, func(o *cloudfrontsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCloudTrailClient returns a CloudTrail client pointed at the shared test container.
+func createCloudTrailClient(t *testing.T) *cloudtrailsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return cloudtrailsdk.NewFromConfig(cfg, func(o *cloudtrailsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createEKSClient returns an EKS client pointed at the shared test container.
+func createEKSClient(t *testing.T) *ekssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return ekssdk.NewFromConfig(cfg, func(o *ekssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createEFSClient returns an EFS client pointed at the shared test container.
+func createEFSClient(t *testing.T) *efssdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return efssdk.NewFromConfig(cfg, func(o *efssdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createDocDBClient returns a DocumentDB client pointed at the shared test container.
+func createDocDBClient(t *testing.T) *docdbsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return docdbsdk.NewFromConfig(cfg, func(o *docdbsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createBatchClient returns a Batch client pointed at the shared test container.
+func createBatchClient(t *testing.T) *batchsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return batchsdk.NewFromConfig(cfg, func(o *batchsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createCodePipelineClient returns a CodePipeline client pointed at the shared test container.
+func createCodePipelineClient(t *testing.T) *codepipelinesdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return codepipelinesdk.NewFromConfig(cfg, func(o *codepipelinesdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createEMRClient returns an EMR client pointed at the shared test container.
+func createEMRClient(t *testing.T) *emrsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return emrsdk.NewFromConfig(cfg, func(o *emrsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// resetGopherstackState calls POST /_gopherstack/reset and verifies the response.
+// It is called from TestMain before any test runs to ensure clean state.
+func resetGopherstackState(ep string) error {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, ep+"/_gopherstack/reset", nil)
+	if err != nil {
+		return fmt.Errorf("build reset request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("call reset endpoint: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: %d", ErrResetFailed, resp.StatusCode)
+	}
+
+	return nil
 }

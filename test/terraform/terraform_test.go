@@ -6479,3 +6479,179 @@ func TestTerraform_S3Tables(t *testing.T) {
 		})
 	}
 }
+
+// TestTerraform_ECR provisions an ECR repository via Terraform and verifies it exists.
+func TestTerraform_ECR(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "ecr/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"RepoName": "tf-ecr-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createECRClient(t)
+				out, err := client.DescribeRepositories(ctx, &ecrsvc.DescribeRepositoriesInput{
+					RepositoryNames: []string{vars["RepoName"].(string)},
+				})
+				require.NoError(t, err, "DescribeRepositories should succeed after terraform apply")
+				require.Len(t, out.Repositories, 1)
+				assert.Equal(t, vars["RepoName"].(string), aws.ToString(out.Repositories[0].RepositoryName))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SQS provisions SQS queues via Terraform and verifies they exist.
+func TestTerraform_SQS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "sqs/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"QueueName":     "tf-sqs-" + id,
+					"FIFOQueueName": "tf-sqs-fifo-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createSQSClient(t)
+
+				// Verify standard queue exists.
+				urlOut, err := client.GetQueueUrl(ctx, &sqssvc.GetQueueUrlInput{
+					QueueName: aws.String(vars["QueueName"].(string)),
+				})
+				require.NoError(t, err, "GetQueueUrl should succeed for standard queue")
+				assert.Contains(t, aws.ToString(urlOut.QueueUrl), vars["QueueName"].(string))
+
+				// Verify FIFO queue exists.
+				fifoName := vars["FIFOQueueName"].(string) + ".fifo"
+				fifoOut, err := client.GetQueueUrl(ctx, &sqssvc.GetQueueUrlInput{
+					QueueName: aws.String(fifoName),
+				})
+				require.NoError(t, err, "GetQueueUrl should succeed for FIFO queue")
+				assert.Contains(t, aws.ToString(fifoOut.QueueUrl), fifoName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_SNS provisions an SNS topic via Terraform and verifies it exists.
+func TestTerraform_SNS(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "sns/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()[:8]
+
+				return map[string]any{
+					"TopicName": "tf-sns-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createSNSClient(t)
+				out, err := client.ListTopics(ctx, &snssvc.ListTopicsInput{})
+				require.NoError(t, err, "ListTopics should succeed after terraform apply")
+
+				topicName := vars["TopicName"].(string)
+				found := false
+
+				for _, topic := range out.Topics {
+					if strings.Contains(aws.ToString(topic.TopicArn), topicName) {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "SNS topic %q should be listed", topicName)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}
+
+// TestTerraform_S3 provisions an S3 bucket with versioning via Terraform and verifies it exists.
+func TestTerraform_S3(t *testing.T) {
+	t.Parallel()
+
+	tests := []tfTestCase{
+		{
+			name:    "success",
+			fixture: "s3/success",
+			setup: func(t *testing.T, _ string) map[string]any {
+				t.Helper()
+				id := uuid.NewString()
+
+				return map[string]any{
+					"BucketName": "tf-s3-" + id,
+				}
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createS3Client(t)
+				_, err := client.HeadBucket(ctx, &s3svc.HeadBucketInput{
+					Bucket: aws.String(vars["BucketName"].(string)),
+				})
+				require.NoError(t, err, "HeadBucket should succeed after terraform apply")
+
+				// Verify versioning is enabled.
+				vOut, err := client.GetBucketVersioning(ctx, &s3svc.GetBucketVersioningInput{
+					Bucket: aws.String(vars["BucketName"].(string)),
+				})
+				require.NoError(t, err, "GetBucketVersioning should succeed")
+				assert.Equal(t, s3types.BucketVersioningStatusEnabled, vOut.Status)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			runTFTest(t, tc)
+		})
+	}
+}

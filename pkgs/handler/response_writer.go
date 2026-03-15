@@ -14,7 +14,6 @@ type ResponseWriter struct {
 func NewResponseWriter(w http.ResponseWriter) *ResponseWriter {
 	return &ResponseWriter{
 		ResponseWriter: w,
-		statusCode:     http.StatusOK, // default per HTTP spec
 	}
 }
 
@@ -25,10 +24,12 @@ func (w *ResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-// Write sets status to [http.StatusOK] if not already set, then delegates to wrapped ResponseWriter.
+// Write delegates to the wrapped ResponseWriter.
+// If WriteHeader has not been called, the status code defaults to [http.StatusOK]
+// consistent with the behaviour of the standard library's ResponseWriter.
 func (w *ResponseWriter) Write(b []byte) (int, error) {
 	if w.statusCode == 0 {
-		w.statusCode = http.StatusOK
+		w.WriteHeader(http.StatusOK)
 	}
 
 	return w.ResponseWriter.Write(b)

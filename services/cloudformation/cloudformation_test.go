@@ -2,6 +2,7 @@ package cloudformation_test
 
 import (
 	"encoding/xml"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,8 @@ import (
 )
 
 // ---- helpers ----------------------------------------------------------------
+
+var errSimulatedCreate = errors.New("simulated queue creation failure")
 
 func newBackend() *cloudformation.InMemoryBackend {
 	return cloudformation.NewInMemoryBackendWithConfig(
@@ -389,12 +392,29 @@ func TestBackend_DescribeStack(t *testing.T) {
 func TestBackend_UpdateStack(t *testing.T) {
 	t.Parallel()
 
+	// Templates used by the rollback test case.
+	rollbackOriginal := `{"AWSTemplateFormatVersion":"2010-09-09",` +
+		`"Resources":{"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`
+	rollbackUpdated := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}},` +
+		`"NewQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
+
+	// Templates used by the stale-resource deletion test case.
+	withBucketAndQueue := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}},` +
+		`"OldQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
+	bucketOnly := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`
+
 	tests := []struct {
-		name       string
-		setup      func(t *testing.T, b *cloudformation.InMemoryBackend)
-		stackName  string
-		wantErr    error
-		wantStatus string
+		name            string
+		setup           func(t *testing.T, b *cloudformation.InMemoryBackend)
+		updateTemplate  string
+		stackName       string
+		wantErr         error
+		wantStatus      string
+		wantResources   []string
+		wantNoResources []string
 	}{
 		{
 			name: "success",
@@ -403,13 +423,49 @@ func TestBackend_UpdateStack(t *testing.T) {
 				_, err := b.CreateStack(t.Context(), "upd-stack", simpleTemplate, nil, nil)
 				require.NoError(t, err)
 			},
-			stackName:  "upd-stack",
-			wantStatus: "UPDATE_COMPLETE",
+			stackName:      "upd-stack",
+			updateTemplate: simpleTemplate,
+			wantStatus:     "UPDATE_COMPLETE",
 		},
 		{
-			name:      "not_found",
-			stackName: "no-stack",
-			wantErr:   cloudformation.ErrStackNotFound,
+			name:           "not_found",
+			stackName:      "no-stack",
+			updateTemplate: simpleTemplate,
+			wantErr:        cloudformation.ErrStackNotFound,
+		},
+		{
+			name: "rollback_on_creation_failure",
+			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateStack(t.Context(), "rollback-stack", rollbackOriginal, nil, nil)
+				require.NoError(t, err)
+				// Inject a hook that fails when creating the new SQS queue.
+				b.GetCreator().InjectCreateHook(func(resourceType string) error {
+					if resourceType == "AWS::SQS::Queue" {
+						return errSimulatedCreate
+					}
+
+					return nil
+				})
+			},
+			stackName:       "rollback-stack",
+			updateTemplate:  rollbackUpdated,
+			wantStatus:      "UPDATE_ROLLBACK_COMPLETE",
+			wantResources:   []string{"MyBucket"},
+			wantNoResources: []string{"NewQueue"},
+		},
+		{
+			name: "stale_resources_deleted",
+			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateStack(t.Context(), "stale-stack", withBucketAndQueue, nil, nil)
+				require.NoError(t, err)
+			},
+			stackName:       "stale-stack",
+			updateTemplate:  bucketOnly,
+			wantStatus:      "UPDATE_COMPLETE",
+			wantResources:   []string{"MyBucket"},
+			wantNoResources: []string{"OldQueue"},
 		},
 	}
 
@@ -422,7 +478,7 @@ func TestBackend_UpdateStack(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			updated, err := b.UpdateStack(t.Context(), tt.stackName, simpleTemplate, nil)
+			updated, err := b.UpdateStack(t.Context(), tt.stackName, tt.updateTemplate, nil)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -432,6 +488,24 @@ func TestBackend_UpdateStack(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantStatus, updated.StackStatus)
+
+			if len(tt.wantResources) > 0 || len(tt.wantNoResources) > 0 {
+				resources, listErr := b.ListStackResources(tt.stackName, "")
+				require.NoError(t, listErr)
+
+				logicalIDs := make([]string, 0, len(resources.Data))
+				for _, r := range resources.Data {
+					logicalIDs = append(logicalIDs, r.LogicalResourceID)
+				}
+
+				for _, want := range tt.wantResources {
+					assert.Contains(t, logicalIDs, want)
+				}
+
+				for _, noWant := range tt.wantNoResources {
+					assert.NotContains(t, logicalIDs, noWant)
+				}
+			}
 		})
 	}
 }
@@ -491,7 +565,126 @@ func TestBackend_DeleteStack(t *testing.T) {
 	}
 }
 
-// ---- Backend: ListStacks ----------------------------------------------------
+// ---- Backend: DeleteStack cleans internal maps --------------------------------
+
+func TestBackend_DeleteStack_CleansInternalMaps(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(t *testing.T, b *cloudformation.InMemoryBackend) (stackID string)
+		name  string
+	}{
+		{
+			name: "cleans_resources",
+			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) string {
+				t.Helper()
+				stack, err := b.CreateStack(t.Context(), "clean-stack", simpleTemplate, nil, nil)
+				require.NoError(t, err)
+
+				return stack.StackID
+			},
+		},
+		{
+			name: "cleans_changeset_map",
+			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) string {
+				t.Helper()
+				stack, err := b.CreateStack(t.Context(), "clean-cs-stack", simpleTemplate, nil, nil)
+				require.NoError(t, err)
+				_, err = b.CreateChangeSet(t.Context(), "clean-cs-stack", "cs1", simpleTemplate, "", nil)
+				require.NoError(t, err)
+
+				return stack.StackID
+			},
+		},
+		{
+			name: "cleans_drift_detections",
+			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) string {
+				t.Helper()
+				stack, err := b.CreateStack(t.Context(), "clean-drift-stack", simpleTemplate, nil, nil)
+				require.NoError(t, err)
+				_, err = b.DetectStackDrift("clean-drift-stack")
+				require.NoError(t, err)
+				_, err = b.DetectStackDrift("clean-drift-stack")
+				require.NoError(t, err)
+
+				return stack.StackID
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			stackID := tt.setup(t, b)
+
+			s, err := b.DescribeStack(stackID)
+			require.NoError(t, err)
+			stackName := s.StackName
+
+			err = b.DeleteStack(t.Context(), stackID)
+			require.NoError(t, err)
+
+			assert.False(t, b.ResourcesEntryExists(stackID), "resources map entry should be removed")
+			assert.False(t, b.ChangeSetsEntryExists(stackName), "changeSets map entry should be removed")
+			assert.Equal(t, 0, b.DriftDetectionCount(stackID), "driftDetections should be pruned")
+		})
+	}
+}
+
+// ---- Backend: provisionResources rollback -----------------------------------
+
+const twoResourceTemplate = `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+	`"FirstBucket":{"Type":"AWS::S3::Bucket","Properties":{}},` +
+	`"SecondQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
+
+func TestBackend_CreateStack_RollbackOnProvisioningFailure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		template          string
+		failResourceType  string
+		wantStatus        string
+		wantResourceCount int
+	}{
+		{
+			name:              "only_resource_fails_no_partial_resources",
+			template:          simpleTemplate,
+			failResourceType:  "AWS::S3::Bucket",
+			wantStatus:        "ROLLBACK_COMPLETE",
+			wantResourceCount: 0,
+		},
+		{
+			name:              "second_resource_fails_first_is_rolled_back",
+			template:          twoResourceTemplate,
+			failResourceType:  "AWS::SQS::Queue",
+			wantStatus:        "ROLLBACK_COMPLETE",
+			wantResourceCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			b.GetCreator().InjectCreateHook(func(resourceType string) error {
+				if resourceType == tt.failResourceType {
+					return errSimulatedCreate
+				}
+
+				return nil
+			})
+
+			stack, err := b.CreateStack(t.Context(), "fail-stack", tt.template, nil, nil)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, stack.StackStatus)
+			assert.Equal(t, tt.wantResourceCount, b.ResourceCountForStack(stack.StackID))
+		})
+	}
+}
 
 func TestBackend_ListStacks(t *testing.T) {
 	t.Parallel()

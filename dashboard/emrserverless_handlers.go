@@ -63,7 +63,7 @@ client = boto3.client('emr-serverless', endpoint_url='http://localhost:8000')`,
 		return nil
 	}
 
-	apps := h.EmrServerlessOps.Backend.ListApplications()
+	apps, _ := h.EmrServerlessOps.Backend.ListApplications("", 0)
 	appViews := make([]emrServerlessApplicationView, 0, len(apps))
 
 	for _, app := range apps {

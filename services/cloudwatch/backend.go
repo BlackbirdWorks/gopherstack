@@ -39,6 +39,8 @@ const (
 	cwDefaultAlarmHistoryLimit      = 100
 	cwDefaultDescribeForMetricLimit = 100
 	cwDefaultListDashboardsLimit    = 300
+	cwMaxMetricDataPoints           = 1000 // maximum data points retained per metric
+	cwMaxAlarmHistory               = 100  // maximum alarm history entries per alarm
 
 	alarmStateAlarm            = "ALARM"
 	alarmStateOK               = "OK"
@@ -165,6 +167,10 @@ func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) er
 	for _, d := range data {
 		d.Namespace = namespace
 		b.metrics[namespace][d.MetricName] = append(b.metrics[namespace][d.MetricName], d)
+		// Cap data points to prevent unbounded memory growth.
+		if pts := b.metrics[namespace][d.MetricName]; len(pts) > cwMaxMetricDataPoints {
+			b.metrics[namespace][d.MetricName] = pts[len(pts)-cwMaxMetricDataPoints:]
+		}
 	}
 
 	return nil
@@ -828,6 +834,10 @@ func (b *InMemoryBackend) appendHistory(alarmName, itemType, summary, data strin
 		HistoryData:     data,
 	}
 	b.alarmHistory[alarmName] = append(b.alarmHistory[alarmName], item)
+	// Cap history to avoid unbounded growth.
+	if h := b.alarmHistory[alarmName]; len(h) > cwMaxAlarmHistory {
+		b.alarmHistory[alarmName] = h[len(h)-cwMaxAlarmHistory:]
+	}
 }
 
 // stateChangeHistoryData builds a JSON string for a state-change history item.
@@ -1027,4 +1037,17 @@ func (b *InMemoryBackend) toDashboardEntry(rec *dashboardRecord) DashboardEntry 
 		LastModified:  rec.lastModified,
 		Size:          int64(len(rec.body)),
 	}
+}
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.metrics = make(map[string]map[string][]MetricDatum)
+	b.alarms = make(map[string]*MetricAlarm)
+	b.compositeAlarms = make(map[string]*CompositeAlarm)
+	b.alarmHistory = make(map[string][]AlarmHistoryItem)
+	b.dashboards = make(map[string]*dashboardRecord)
 }

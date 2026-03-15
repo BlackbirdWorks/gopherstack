@@ -664,15 +664,26 @@ func TestHandler_BucketLocationQuery(t *testing.T) {
 	}
 }
 
-func TestHandler_BucketTaggingNotImplemented(t *testing.T) {
+func TestHandler_BucketTaggingMissingBucket(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		method string
+		name       string
+		method     string
+		body       string
+		wantStatus int
 	}{
-		{name: "PUT bucket tagging returns 501", method: http.MethodPut},
-		{name: "GET bucket tagging returns 501", method: http.MethodGet},
+		{
+			name:       "PUT bucket tagging without bucket returns 404",
+			method:     http.MethodPut,
+			body:       `<Tagging><TagSet><Tag><Key>k</Key><Value>v</Value></Tag></TagSet></Tagging>`,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "GET bucket tagging without bucket returns 404",
+			method:     http.MethodGet,
+			wantStatus: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
@@ -681,16 +692,21 @@ func TestHandler_BucketTaggingNotImplemented(t *testing.T) {
 
 			handler, _ := newTestHandler(t)
 
-			req := httptest.NewRequest(tt.method, "/bkt?tagging", nil)
+			var body io.Reader
+			if tt.body != "" {
+				body = strings.NewReader(tt.body)
+			}
+
+			req := httptest.NewRequest(tt.method, "/bkt?tagging", body)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 
-			assert.Equal(t, http.StatusNotImplemented, rec.Code)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
 }
 
-func TestHandler_ObjectACLIgnored(t *testing.T) {
+func TestHandler_ObjectACL(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -700,9 +716,9 @@ func TestHandler_ObjectACLIgnored(t *testing.T) {
 	}{
 		{name: "PUT ACL returns 200", method: http.MethodPut, wantStatus: http.StatusOK},
 		{
-			name:       "GET ACL returns 501",
+			name:       "GET ACL returns 200 with owner grant",
 			method:     http.MethodGet,
-			wantStatus: http.StatusNotImplemented,
+			wantStatus: http.StatusOK,
 		},
 	}
 
@@ -719,6 +735,11 @@ func TestHandler_ObjectACLIgnored(t *testing.T) {
 			serveS3Handler(handler, rec, req)
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.method == http.MethodGet {
+				assert.Contains(t, rec.Body.String(), "FULL_CONTROL")
+				assert.Contains(t, rec.Body.String(), "gopherstack")
+			}
 		})
 	}
 }
@@ -917,9 +938,11 @@ func TestHandler_ChecksumSupport(t *testing.T) {
 			switch tt.name {
 			case "SHA256 checksum header roundtrip":
 				body := "checksum test data"
+				// Correct SHA256 checksum for "checksum test data"
+				correctSHA256 := s3.CalculateChecksum([]byte(body), "SHA256")
 				req := httptest.NewRequest(http.MethodPut, "/bkt/check", strings.NewReader(body))
 				req.Header.Set("X-Amz-Checksum-Algorithm", "SHA256")
-				req.Header.Set("X-Amz-Checksum-Sha256", "fake-sha256-value")
+				req.Header.Set("X-Amz-Checksum-Sha256", correctSHA256)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
 				assert.Equal(t, http.StatusOK, rec.Code)
@@ -927,13 +950,13 @@ func TestHandler_ChecksumSupport(t *testing.T) {
 				expectedHash := md5.Sum([]byte(body))
 				expectedETag := "\"" + hex.EncodeToString(expectedHash[:]) + "\""
 				assert.Equal(t, expectedETag, rec.Header().Get("ETag"))
-				assert.Equal(t, "fake-sha256-value", rec.Header().Get("X-Amz-Checksum-Sha256"))
+				assert.Equal(t, correctSHA256, rec.Header().Get("X-Amz-Checksum-Sha256"))
 
 				req = httptest.NewRequest(http.MethodGet, "/bkt/check", nil)
 				rec = httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
 				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.Equal(t, "fake-sha256-value", rec.Header().Get("X-Amz-Checksum-Sha256"))
+				assert.Equal(t, correctSHA256, rec.Header().Get("X-Amz-Checksum-Sha256"))
 				assert.Equal(t, "SHA256", rec.Header().Get("X-Amz-Checksum-Algorithm"))
 
 			case "existing checksum preserved on get with checksum mode":
@@ -1027,10 +1050,13 @@ func TestHandler_ChecksumAlgorithms_Coverage(t *testing.T) {
 			handler, backend := newTestHandler(t)
 			mustCreateBucket(t, backend, "bkt")
 
+			body := []byte("data")
+			correctChecksum := s3.CalculateChecksum(body, tt.name)
+
 			key := "check-" + tt.name
-			req := httptest.NewRequest(http.MethodPut, "/bkt/"+key, strings.NewReader("data"))
+			req := httptest.NewRequest(http.MethodPut, "/bkt/"+key, bytes.NewReader(body))
 			req.Header.Set("X-Amz-Checksum-Algorithm", tt.name)
-			req.Header.Set(tt.header, "fake-value")
+			req.Header.Set(tt.header, correctChecksum)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -1039,7 +1065,7 @@ func TestHandler_ChecksumAlgorithms_Coverage(t *testing.T) {
 			rec = httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 			assert.Equal(t, http.StatusOK, rec.Code)
-			assert.Equal(t, "fake-value", rec.Header().Get(tt.header))
+			assert.Equal(t, correctChecksum, rec.Header().Get(tt.header))
 			assert.Equal(t, tt.name, rec.Header().Get("X-Amz-Checksum-Algorithm"))
 		})
 	}

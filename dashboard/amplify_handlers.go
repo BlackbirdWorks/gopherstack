@@ -73,7 +73,7 @@ func (h *DashboardHandler) amplifyIndex(c *echo.Context) error {
 		return nil
 	}
 
-	allApps, err := h.AmplifyOps.Backend.ListApps()
+	allApps, _, err := h.AmplifyOps.Backend.ListApps("", 0)
 	if err != nil {
 		pkgslogger.Load(ctx).ErrorContext(ctx, "failed to list Amplify apps", "error", err)
 
@@ -83,7 +83,7 @@ func (h *DashboardHandler) amplifyIndex(c *echo.Context) error {
 	views := make([]amplifyAppView, 0, len(allApps))
 
 	for _, app := range allApps {
-		branches, bErr := h.AmplifyOps.Backend.ListBranches(app.AppID)
+		branches, _, bErr := h.AmplifyOps.Backend.ListBranches(app.AppID, "", 0)
 		if bErr != nil {
 			branches = nil
 		}

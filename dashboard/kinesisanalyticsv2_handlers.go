@@ -69,7 +69,7 @@ client = boto3.client('kinesisanalyticsv2', endpoint_url='http://localhost:8000'
 		return nil
 	}
 
-	apps := h.KinesisAnalyticsV2Ops.Backend.ListApplications()
+	apps, _ := h.KinesisAnalyticsV2Ops.Backend.ListApplications("")
 	appViews := make([]kinesisanalyticsv2AppView, 0, len(apps))
 
 	for _, app := range apps {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"time"
@@ -17,13 +18,14 @@ import (
 )
 
 var (
-	ErrStackNotFound      = errors.New("stack with id does not exist")
-	ErrStackAlreadyExists = errors.New("stack already exists")
-	ErrChangeSetNotFound  = errors.New("change set not found")
-	ErrChangeSetExists    = errors.New("change set already exists")
-	ErrResourceNotFound   = errors.New("resource not found in stack")
-	ErrExportNotFound     = errors.New("export with given name not found")
-	ErrDuplicateExport    = errors.New("export already exists and is owned by another stack")
+	ErrStackNotFound          = errors.New("stack with id does not exist")
+	ErrStackAlreadyExists     = errors.New("stack already exists")
+	ErrChangeSetNotFound      = errors.New("change set not found")
+	ErrChangeSetExists        = errors.New("change set already exists")
+	ErrResourceNotFound       = errors.New("resource not found in stack")
+	ErrExportNotFound         = errors.New("export with given name not found")
+	ErrDuplicateExport        = errors.New("export already exists and is owned by another stack")
+	ErrDriftDetectionNotFound = errors.New("drift detection not found")
 )
 
 // StorageBackend defines the interface for the CloudFormation in-memory backend.
@@ -50,38 +52,58 @@ type StorageBackend interface {
 	ListChangeSets(stackName, nextToken string) (page.Page[ChangeSetSummary], error)
 	GetTemplate(nameOrID string) (string, error)
 	ListAll() []*Stack
+	// Drift detection
+	DetectStackDrift(nameOrID string) (string, error)
+	DetectStackResourceDrift(nameOrID, logicalID string) (string, error)
+	DescribeStackDriftDetectionStatus(detectionID string) (*DriftDetectionStatus, error)
+	DescribeStackResourceDrifts(nameOrID string) ([]StackResourceDrift, error)
+	// Stack policy
+	SetStackPolicy(nameOrID, policy string) error
+	GetStackPolicy(nameOrID string) (string, error)
+	// Template analysis
+	GetTemplateSummary(templateBody, stackName string) (*TemplateSummary, error)
+	EstimateTemplateCost(templateBody string, params []Parameter) (string, error)
+	// Stack management
+	ContinueUpdateRollback(ctx context.Context, nameOrID string) error
+	CancelUpdateStack(ctx context.Context, nameOrID string) error
+	DescribeAccountLimits() []AccountLimit
 }
 
 // InMemoryBackend is a concurrency-safe in-memory CloudFormation backend.
 type InMemoryBackend struct {
-	stacks     map[string]*Stack
-	events     map[string][]StackEvent
-	resources  map[string]map[string]*StackResource
-	changeSets map[string]map[string]*ChangeSet
-	exports    map[string]*Export
-	creator    *ResourceCreator
-	resolver   DynamicRefResolver
-	mu         *lockmetrics.RWMutex
-	accountID  string
-	region     string
+	stacks          map[string]*Stack
+	stackIDIndex    map[string]string // stackID (ARN) → stackName
+	events          map[string][]StackEvent
+	resources       map[string]map[string]*StackResource
+	changeSets      map[string]map[string]*ChangeSet
+	exports         map[string]*Export
+	driftDetections map[string]*DriftDetectionStatus
+	stackPolicies   map[string]string
+	creator         *ResourceCreator
+	resolver        DynamicRefResolver
+	mu              *lockmetrics.RWMutex
+	accountID       string
+	region          string
 }
 
 const (
 	MockAccountID = config.DefaultAccountID
 	MockRegion    = config.DefaultRegion
 
-	cfnStackType             = "AWS::CloudFormation::Stack"
-	statusCreateInProgress   = "CREATE_IN_PROGRESS"
-	statusCreateComplete     = "CREATE_COMPLETE"
-	statusCreateFailed       = "CREATE_FAILED"
-	statusUpdateInProgress   = "UPDATE_IN_PROGRESS"
-	statusUpdateComplete     = "UPDATE_COMPLETE"
-	statusUpdateFailed       = "UPDATE_FAILED"
-	statusDeleteInProgress   = "DELETE_IN_PROGRESS"
-	statusDeleteComplete     = "DELETE_COMPLETE"
-	statusRollbackInProgress = "ROLLBACK_IN_PROGRESS"
-	statusRollbackComplete   = "ROLLBACK_COMPLETE"
-	reasonUserInitiated      = "User Initiated"
+	cfnStackType                   = "AWS::CloudFormation::Stack"
+	statusCreateInProgress         = "CREATE_IN_PROGRESS"
+	statusCreateComplete           = "CREATE_COMPLETE"
+	statusCreateFailed             = "CREATE_FAILED"
+	statusUpdateInProgress         = "UPDATE_IN_PROGRESS"
+	statusUpdateComplete           = "UPDATE_COMPLETE"
+	statusUpdateFailed             = "UPDATE_FAILED"
+	statusUpdateRollbackInProgress = "UPDATE_ROLLBACK_IN_PROGRESS"
+	statusUpdateRollbackComplete   = "UPDATE_ROLLBACK_COMPLETE"
+	statusDeleteInProgress         = "DELETE_IN_PROGRESS"
+	statusDeleteComplete           = "DELETE_COMPLETE"
+	statusRollbackInProgress       = "ROLLBACK_IN_PROGRESS"
+	statusRollbackComplete         = "ROLLBACK_COMPLETE"
+	reasonUserInitiated            = "User Initiated"
 )
 
 // NewInMemoryBackend creates a new empty CloudFormation backend.
@@ -97,16 +119,19 @@ func NewInMemoryBackendWithConfig(accountID, region string, creator *ResourceCre
 	}
 
 	return &InMemoryBackend{
-		stacks:     make(map[string]*Stack),
-		events:     make(map[string][]StackEvent),
-		resources:  make(map[string]map[string]*StackResource),
-		changeSets: make(map[string]map[string]*ChangeSet),
-		exports:    make(map[string]*Export),
-		creator:    creator,
-		resolver:   resolver,
-		accountID:  accountID,
-		region:     region,
-		mu:         lockmetrics.New("cloudformation"),
+		stacks:          make(map[string]*Stack),
+		stackIDIndex:    make(map[string]string),
+		events:          make(map[string][]StackEvent),
+		resources:       make(map[string]map[string]*StackResource),
+		changeSets:      make(map[string]map[string]*ChangeSet),
+		exports:         make(map[string]*Export),
+		driftDetections: make(map[string]*DriftDetectionStatus),
+		stackPolicies:   make(map[string]string),
+		creator:         creator,
+		resolver:        resolver,
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("cloudformation"),
 	}
 }
 
@@ -118,8 +143,9 @@ func (b *InMemoryBackend) resolveStack(nameOrID string) (*Stack, bool) {
 	if s, ok := b.stacks[nameOrID]; ok {
 		return s, true
 	}
-	for _, s := range b.stacks {
-		if s.StackID == nameOrID {
+
+	if name, ok := b.stackIDIndex[nameOrID]; ok {
+		if s, found := b.stacks[name]; found {
 			return s, true
 		}
 	}
@@ -157,6 +183,8 @@ func (b *InMemoryBackend) CreateStack(
 		if existing.StackStatus != statusDeleteComplete {
 			return nil, ErrStackAlreadyExists
 		}
+		// Remove the old stack ID from the index before re-creating.
+		delete(b.stackIDIndex, existing.StackID)
 	}
 
 	stackID := uuid.New().String()
@@ -174,6 +202,7 @@ func (b *InMemoryBackend) CreateStack(
 	}
 
 	b.stacks[name] = stack
+	b.stackIDIndex[arn] = name
 	b.events[arn] = nil
 	b.resources[arn] = make(map[string]*StackResource)
 
@@ -229,7 +258,7 @@ func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *St
 	}
 
 	physicalIDs := b.provisionResources(ctx, stack, tmpl, resolvedParams)
-	if stack.StackStatus == statusCreateFailed {
+	if stack.StackStatus == statusCreateFailed || stack.StackStatus == statusRollbackComplete {
 		return
 	}
 
@@ -251,8 +280,10 @@ func (b *InMemoryBackend) createStackFromTemplate(ctx context.Context, stack *St
 }
 
 // provisionResources creates all resources defined in the template.
-// Returns the physicalIDs map. On failure, stack.StackStatus is set to
-// statusCreateFailed and rollback events are emitted.
+// Returns the physicalIDs map. On resource creation failure, rollback is
+// performed in reverse order; stack.StackStatus is then set to
+// statusRollbackComplete (matching real AWS behaviour). If the creation failure
+// itself needs to be recorded separately, it is preserved in StackStatusReason.
 func (b *InMemoryBackend) provisionResources(
 	ctx context.Context,
 	stack *Stack,
@@ -265,16 +296,19 @@ func (b *InMemoryBackend) provisionResources(
 
 	ordered := topoSortResources(tmpl.Resources)
 
+	var created []string
+
 	for _, logicalID := range ordered {
 		res := tmpl.Resources[logicalID]
 		b.addEvent(arn, name, logicalID, "", res.Type, statusCreateInProgress, "")
 		physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
 		if cerr != nil {
-			stack.StackStatus = statusCreateFailed
 			stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
 			b.addEvent(arn, name, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
 			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, cerr.Error())
+			b.rollbackCreateResources(ctx, stack, created)
 			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
+			stack.StackStatus = statusRollbackComplete
 
 			return physicalIDs
 		}
@@ -290,9 +324,27 @@ func (b *InMemoryBackend) provisionResources(
 			StackName:  name,
 		}
 		b.addEvent(arn, name, logicalID, physicalID, res.Type, statusCreateComplete, "")
+		created = append(created, logicalID)
 	}
 
 	return physicalIDs
+}
+
+// rollbackCreateResources deletes all resources that were created during a
+// failed CreateStack provisioning pass, in reverse order.
+func (b *InMemoryBackend) rollbackCreateResources(ctx context.Context, stack *Stack, created []string) {
+	for i := len(created) - 1; i >= 0; i-- {
+		logicalID := created[i]
+		res, ok := b.resources[stack.StackID][logicalID]
+		if !ok {
+			continue
+		}
+
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
+		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
+		delete(b.resources[stack.StackID], logicalID)
+	}
 }
 
 // topoSortResources returns the logical resource IDs in an order that respects
@@ -495,7 +547,12 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 }
 
 // updateResources reconciles existing resources and creates newly declared ones.
-// Returns true on success; on failure it sets stack.StackStatus and returns false.
+// On creation failure it rolls back: newly-created resources are deleted and
+// previously-existing resources are restored to their pre-update state.
+// Stale resources (present in the stack but absent from the new template) are
+// deleted after all new resources are created successfully.
+// Returns true on success; on failure it sets stack.StackStatus to
+// UPDATE_ROLLBACK_COMPLETE and returns false.
 func (b *InMemoryBackend) updateResources(
 	ctx context.Context,
 	stack *Stack,
@@ -503,6 +560,15 @@ func (b *InMemoryBackend) updateResources(
 	resolvedParams map[string]string,
 	physicalIDs map[string]string,
 ) bool {
+	// Snapshot pre-update state for rollback.
+	prevResources := make(map[string]*StackResource, len(b.resources[stack.StackID]))
+	for k, v := range b.resources[stack.StackID] {
+		cp := *v
+		prevResources[k] = &cp
+	}
+
+	var created []string
+
 	for logicalID, res := range tmpl.Resources {
 		if existing, exists := b.resources[stack.StackID][logicalID]; exists {
 			existing.Status = statusUpdateComplete
@@ -520,7 +586,8 @@ func (b *InMemoryBackend) updateResources(
 			b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateInProgress, "")
 			physicalID, cerr := b.creator.Create(ctx, logicalID, res.Type, res.Properties, resolvedParams, physicalIDs)
 			if cerr != nil {
-				stack.StackStatus = statusUpdateFailed
+				b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
+				b.rollbackUpdateResources(ctx, stack, prevResources, created)
 				stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
 
 				return false
@@ -538,10 +605,69 @@ func (b *InMemoryBackend) updateResources(
 				StackName:  stack.StackName,
 			}
 			b.addEvent(stack.StackID, stack.StackName, logicalID, physicalID, res.Type, statusCreateComplete, "")
+			created = append(created, logicalID)
 		}
 	}
 
+	// Delete stale resources — logical IDs present in the stack before the
+	// update but absent from the new template. This matches real AWS behavior
+	// where UpdateStack removes resources that are no longer in the template.
+	var stale []string
+	for logicalID := range b.resources[stack.StackID] {
+		if _, inTemplate := tmpl.Resources[logicalID]; !inTemplate {
+			stale = append(stale, logicalID)
+		}
+	}
+
+	sort.Strings(stale)
+
+	for _, logicalID := range stale {
+		res := b.resources[stack.StackID][logicalID]
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
+		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
+		delete(b.resources[stack.StackID], logicalID)
+	}
+
 	return true
+}
+
+// rollbackUpdateResources undoes a partially-applied update: it deletes every
+// resource that was newly created in this update pass and restores resources that
+// were modified to their pre-update snapshots, then sets the stack status to
+// UPDATE_ROLLBACK_COMPLETE.
+func (b *InMemoryBackend) rollbackUpdateResources(
+	ctx context.Context,
+	stack *Stack,
+	prevResources map[string]*StackResource,
+	created []string,
+) {
+	stack.StackStatus = statusUpdateRollbackInProgress
+	b.addEvent(
+		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+		cfnStackType, statusUpdateRollbackInProgress, "",
+	)
+
+	for _, logicalID := range created {
+		res, ok := b.resources[stack.StackID][logicalID]
+		if !ok {
+			continue
+		}
+
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
+		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
+		delete(b.resources[stack.StackID], logicalID)
+	}
+
+	// Restore resources that existed before the update.
+	maps.Copy(b.resources[stack.StackID], prevResources)
+
+	stack.StackStatus = statusUpdateRollbackComplete
+	b.addEvent(
+		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
+		cfnStackType, statusUpdateRollbackComplete, "",
+	)
 }
 
 // DeleteStack marks a stack as deleted and deletes its resources.
@@ -570,12 +696,22 @@ func (b *InMemoryBackend) DeleteStack(ctx context.Context, nameOrID string) erro
 	stack.DeletionTime = &now
 	stack.StackStatus = statusDeleteComplete
 	b.removeExports(stack.StackID)
-	b.addEvent(
-		stack.StackID, stack.StackName, stack.StackName, stack.StackID,
-		cfnStackType, statusDeleteComplete, "",
-	)
+	delete(b.stackPolicies, stack.StackID)
+	delete(b.events, stack.StackID)
+	delete(b.resources, stack.StackID)
+	delete(b.changeSets, stack.StackName)
+	b.pruneDriftDetections(stack.StackID)
 
 	return nil
+}
+
+// pruneDriftDetections removes all drift detection entries associated with a stack.
+func (b *InMemoryBackend) pruneDriftDetections(stackID string) {
+	for detectionID, status := range b.driftDetections {
+		if status.StackID == stackID {
+			delete(b.driftDetections, detectionID)
+		}
+	}
 }
 
 // DescribeStack returns details for a single stack.

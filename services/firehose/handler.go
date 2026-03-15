@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -45,8 +46,31 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-// Ensure Handler implements service.BackgroundWorker at compile time.
+// Shutdown implements service.Shutdowner.
+// It flushes any buffered records to their destinations before the process
+// exits so that records received since the last interval flush are not lost.
+// If ctx expires before FlushAll returns, Shutdown returns immediately.
+func (h *Handler) Shutdown(ctx context.Context) {
+	if h.Backend == nil {
+		return
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		h.Backend.FlushAll(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+// Ensure Handler implements service.BackgroundWorker and service.Shutdowner at compile time.
 var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
 
 // GetSupportedOperations returns the list of supported Firehose operations.
 func (h *Handler) GetSupportedOperations() []string {
@@ -162,6 +186,7 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		return c.JSON(http.StatusNotFound,
 			map[string]any{"__type": "ResourceNotFoundException", "message": err.Error()})
 	case errors.Is(err, ErrAlreadyExists), errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
+		errors.Is(err, awserr.ErrInvalidParameter),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	default:

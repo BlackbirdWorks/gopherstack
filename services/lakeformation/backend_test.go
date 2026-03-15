@@ -385,3 +385,504 @@ func TestBatchGrantRevokePermissions(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDataLakeSettings_ReturnsCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "mutating returned settings does not affect backend state"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			b.PutDataLakeSettings(&lakeformation.DataLakeSettings{
+				DataLakeAdmins: []lakeformation.DataLakePrincipal{
+					{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/admin"},
+				},
+			})
+
+			s := b.GetDataLakeSettings()
+			require.NotNil(t, s)
+
+			// Mutate the returned copy.
+			s.DataLakeAdmins = append(s.DataLakeAdmins, lakeformation.DataLakePrincipal{
+				DataLakePrincipalIdentifier: "arn:aws:iam::123:user/evil",
+			})
+
+			// Backend state must be unchanged.
+			s2 := b.GetDataLakeSettings()
+			assert.Len(t, s2.DataLakeAdmins, 1, "mutating returned settings must not affect backend state")
+		})
+	}
+}
+
+func TestRevokePermissions_NoDanglingPointers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "revoke allocates new slice without dangling pointers"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			p1 := &lakeformation.PermissionEntry{
+				Principal: &lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/a"},
+				Resource: &lakeformation.Resource{
+					DataLocation: &lakeformation.DataLocationResource{ResourceArn: "arn:aws:s3:::bucket-a"},
+				},
+				Permissions: []string{"DATA_LOCATION_ACCESS"},
+			}
+			p2 := &lakeformation.PermissionEntry{
+				Principal: &lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/b"},
+				Resource: &lakeformation.Resource{
+					DataLocation: &lakeformation.DataLocationResource{ResourceArn: "arn:aws:s3:::bucket-b"},
+				},
+				Permissions: []string{"DATA_LOCATION_ACCESS"},
+			}
+
+			require.NoError(t, b.GrantPermissions(p1))
+			require.NoError(t, b.GrantPermissions(p2))
+
+			// Revoke first entry.
+			require.NoError(t, b.RevokePermissions(p1))
+
+			entries, _ := b.ListPermissions("", 0, "")
+			assert.Len(t, entries, 1)
+			assert.Equal(t, "arn:aws:iam::123:user/b", entries[0].Principal.DataLakePrincipalIdentifier)
+		})
+	}
+}
+
+func TestPermissionMatches_EdgeCases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		principal   string
+		resourceArn string
+		revokeArn   string
+		perms       []string
+		wantRemain  int
+	}{
+		{
+			name:        "revoke with database resource",
+			principal:   "arn:aws:iam::123:user/db-user",
+			resourceArn: "db-arn",
+			perms:       []string{"CREATE_TABLE"},
+			revokeArn:   "db-arn",
+			wantRemain:  0,
+		},
+		{
+			name:        "revoke with table resource",
+			principal:   "arn:aws:iam::123:user/tbl-user",
+			resourceArn: "tbl-arn",
+			perms:       []string{"SELECT"},
+			revokeArn:   "tbl-arn",
+			wantRemain:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			var entry *lakeformation.PermissionEntry
+
+			if tt.name == "revoke with database resource" {
+				entry = &lakeformation.PermissionEntry{
+					Principal: &lakeformation.DataLakePrincipal{
+						DataLakePrincipalIdentifier: tt.principal,
+					},
+					Resource: &lakeformation.Resource{
+						Database: &lakeformation.DatabaseResource{Name: tt.resourceArn},
+					},
+					Permissions: tt.perms,
+				}
+			} else {
+				entry = &lakeformation.PermissionEntry{
+					Principal: &lakeformation.DataLakePrincipal{
+						DataLakePrincipalIdentifier: tt.principal,
+					},
+					Resource: &lakeformation.Resource{
+						Table: &lakeformation.TableResource{DatabaseName: "mydb", Name: tt.resourceArn},
+					},
+					Permissions: tt.perms,
+				}
+			}
+
+			require.NoError(t, b.GrantPermissions(entry))
+			require.NoError(t, b.RevokePermissions(entry))
+
+			entries, _ := b.ListPermissions("", 0, "")
+			assert.Len(t, entries, tt.wantRemain)
+		})
+	}
+}
+
+func TestListLFTags_AllCatalogs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		wantCount int
+	}{
+		{name: "empty catalog ID returns all tags", wantCount: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			require.NoError(t, b.CreateLFTag("cat1", "env", []string{"prod", "dev"}))
+			require.NoError(t, b.CreateLFTag("cat2", "tier", []string{"gold", "silver"}))
+
+			tags, _ := b.ListLFTags("", 0, "")
+			assert.Len(t, tags, tt.wantCount)
+		})
+	}
+}
+
+func TestDeleteLFTag_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		tagKey  string
+		wantErr bool
+	}{
+		{name: "delete non-existent tag returns error", tagKey: "nonexistent", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+			err := b.DeleteLFTag("cat1", tt.tagKey)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCopyDataLakeSettings_NilFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "nil settings fields are preserved as nil in copy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			// Settings with all nil slices.
+			b.PutDataLakeSettings(&lakeformation.DataLakeSettings{})
+
+			s := b.GetDataLakeSettings()
+			assert.Nil(t, s.DataLakeAdmins)
+			assert.Nil(t, s.TrustedResourceOwners)
+		})
+	}
+}
+
+func TestPaginate_NextToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxResults int
+		wantCount  int
+		wantToken  bool
+	}{
+		{
+			name:       "paginate returns next token when more items exist",
+			maxResults: 1,
+			wantCount:  1,
+			wantToken:  true,
+		},
+		{
+			name:       "paginate returns all items when max is 0",
+			maxResults: 0,
+			wantCount:  2,
+			wantToken:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-a", "arn:aws:iam::123:role/r"))
+			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-b", "arn:aws:iam::123:role/r"))
+
+			resources, token := b.ListResources(tt.maxResults, "")
+			assert.Len(t, resources, tt.wantCount)
+
+			if tt.wantToken {
+				assert.NotEmpty(t, token)
+			} else {
+				assert.Empty(t, token)
+			}
+		})
+	}
+}
+
+func TestPermissionMatches_NilHandling(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		principal string
+		wantCount int
+	}{
+		{
+			name:      "nil resource for permissionMatchesARN returns no match",
+			principal: "arn:aws:iam::123:user/x",
+			wantCount: 1, // entry with nil DataLocation should not be matched by ARN filter
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			// Entry with Catalog resource (no DataLocation) - won't match ARN filter.
+			entry := &lakeformation.PermissionEntry{
+				Principal: &lakeformation.DataLakePrincipal{
+					DataLakePrincipalIdentifier: tt.principal,
+				},
+				Resource:    &lakeformation.Resource{Catalog: &lakeformation.CatalogResource{}},
+				Permissions: []string{"ALL"},
+			}
+
+			require.NoError(t, b.GrantPermissions(entry))
+
+			// Filter by a specific ARN - should not match the catalog resource.
+			filtered, _ := b.ListPermissions("arn:aws:s3:::no-match", 0, "")
+			assert.Empty(t, filtered)
+
+			// Filter by empty ARN - should return the catalog entry.
+			all, _ := b.ListPermissions("", 0, "")
+			assert.Len(t, all, tt.wantCount)
+		})
+	}
+}
+
+func TestGetDataLakeSettings_NilBackingStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "nil settings stored returns empty DataLakeSettings"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			// Put nil settings to test nil case handling in GetDataLakeSettings.
+			b.PutDataLakeSettings(nil)
+
+			s := b.GetDataLakeSettings()
+			assert.NotNil(t, s)
+		})
+	}
+}
+
+func TestCopyDataLakeSettings_WithAllFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		admins     []lakeformation.DataLakePrincipal
+		trusted    []string
+		wantCopied bool
+	}{
+		{
+			name: "deep copy preserves all fields",
+			admins: []lakeformation.DataLakePrincipal{
+				{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/admin"},
+			},
+			trusted:    []string{"123456789012"},
+			wantCopied: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			b.PutDataLakeSettings(&lakeformation.DataLakeSettings{
+				DataLakeAdmins:        tt.admins,
+				TrustedResourceOwners: tt.trusted,
+				CreateDatabaseDefaultPermissions: []lakeformation.PrincipalPermissions{
+					{Principal: &lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:iam::role/r"}},
+				},
+				CreateTableDefaultPermissions: []lakeformation.PrincipalPermissions{
+					{Principal: &lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:iam::role/t"}},
+				},
+			})
+
+			s := b.GetDataLakeSettings()
+			assert.Len(t, s.DataLakeAdmins, len(tt.admins))
+			assert.Len(t, s.TrustedResourceOwners, len(tt.trusted))
+		})
+	}
+}
+
+func TestPaginate_InvalidNextToken(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		nextToken string
+		wantCount int
+	}{
+		{
+			name:      "invalid next token falls back to start",
+			nextToken: "not-a-number",
+			wantCount: 2,
+		},
+		{
+			name:      "negative next token falls back to start",
+			nextToken: "-1",
+			wantCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-x", "arn:role"))
+			require.NoError(t, b.RegisterResource("arn:aws:s3:::bucket-y", "arn:role"))
+
+			resources, _ := b.ListResources(0, tt.nextToken)
+			assert.Len(t, resources, tt.wantCount)
+		})
+	}
+}
+
+func TestPutDataLakeSettings_StoresCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "mutating settings pointer after Put does not affect backend state"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			settings := &lakeformation.DataLakeSettings{
+				DataLakeAdmins: []lakeformation.DataLakePrincipal{
+					{DataLakePrincipalIdentifier: "arn:aws:iam::123:user/admin"},
+				},
+				CreateDatabaseDefaultPermissions: []lakeformation.PrincipalPermissions{
+					{
+						Principal:   &lakeformation.DataLakePrincipal{DataLakePrincipalIdentifier: "arn:role/r"},
+						Permissions: []string{"CREATE_TABLE"},
+					},
+				},
+			}
+
+			b.PutDataLakeSettings(settings)
+
+			// Mutate the original settings pointer after Put.
+			settings.DataLakeAdmins = append(settings.DataLakeAdmins, lakeformation.DataLakePrincipal{
+				DataLakePrincipalIdentifier: "arn:aws:iam::123:user/evil",
+			})
+			settings.CreateDatabaseDefaultPermissions[0].Permissions = append(
+				settings.CreateDatabaseDefaultPermissions[0].Permissions, "DROP",
+			)
+			settings.CreateDatabaseDefaultPermissions[0].Principal.DataLakePrincipalIdentifier = "MUTATED"
+
+			// Backend state must be unchanged.
+			s := b.GetDataLakeSettings()
+			assert.Len(
+				t,
+				s.DataLakeAdmins,
+				1,
+				"mutating settings pointer after PutDataLakeSettings must not affect backend",
+			)
+			assert.Len(t, s.CreateDatabaseDefaultPermissions[0].Permissions, 1,
+				"mutating Permissions slice after PutDataLakeSettings must not affect backend")
+			assert.Equal(t, "arn:role/r",
+				s.CreateDatabaseDefaultPermissions[0].Principal.DataLakePrincipalIdentifier,
+				"mutating Principal after PutDataLakeSettings must not affect backend")
+		})
+	}
+}
+
+func TestGetLFTag_ReturnsCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "mutating returned LFTag does not affect backend state"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+
+			require.NoError(t, b.CreateLFTag("cat1", "env", []string{"prod", "dev"}))
+
+			tag, err := b.GetLFTag("cat1", "env")
+			require.NoError(t, err)
+
+			// Mutate the returned copy.
+			tag.TagValues = append(tag.TagValues, "injected")
+			tag.TagKey = "MUTATED"
+
+			// Backend state must be unchanged.
+			tag2, err := b.GetLFTag("cat1", "env")
+			require.NoError(t, err)
+			assert.Equal(t, "env", tag2.TagKey, "mutating returned LFTag must not affect backend TagKey")
+			assert.Len(t, tag2.TagValues, 2, "mutating returned LFTag TagValues must not affect backend")
+		})
+	}
+}

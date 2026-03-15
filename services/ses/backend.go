@@ -18,7 +18,12 @@ var (
 	ErrIdentityNotFound = errors.New("IdentityNotFound")
 	ErrEmailNotFound    = errors.New("EmailNotFound")
 	ErrInvalidParameter = errors.New("InvalidParameterValue")
+	ErrMessageRejected  = errors.New("MessageRejected")
 )
+
+// maxRetainedEmails is the maximum number of sent emails retained in memory.
+// Oldest emails are evicted when the limit is exceeded.
+const maxRetainedEmails = 10000
 
 // Email captures a sent email for local inspection.
 type Email struct {
@@ -53,24 +58,21 @@ func (b *InMemoryBackend) VerifyEmailIdentity(identity string) error {
 	}
 
 	b.mu.Lock("VerifyEmailIdentity")
+	defer b.mu.Unlock()
+
 	b.identities[identity] = true
-	b.mu.Unlock()
 
 	return nil
 }
 
 // DeleteIdentity removes a verified identity.
-func (b *InMemoryBackend) DeleteIdentity(identity string) error {
+// This is idempotent — deleting a non-existent identity returns success,
+// matching real AWS SES behavior.
+func (b *InMemoryBackend) DeleteIdentity(identity string) {
 	b.mu.Lock("DeleteIdentity")
 	defer b.mu.Unlock()
 
-	if _, ok := b.identities[identity]; !ok {
-		return fmt.Errorf("%w: %s", ErrIdentityNotFound, identity)
-	}
-
 	delete(b.identities, identity)
-
-	return nil
 }
 
 const sesDefaultMaxItems = 100
@@ -110,9 +112,20 @@ func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string)
 }
 
 // SendEmail captures an outbound email and returns a message ID.
+// The source address must be a verified identity (matching real AWS SES behavior).
 func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML, bodyText string) (string, error) {
 	if from == "" {
 		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("SendEmail")
+	defer b.mu.Unlock()
+
+	if !b.identities[from] {
+		return "", fmt.Errorf(
+			"%w: Email address is not verified. The following identities failed the check in region US-EAST-1: %s",
+			ErrMessageRejected, from,
+		)
 	}
 
 	msgID := "ses-" + uuid.New().String()
@@ -127,9 +140,11 @@ func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML,
 		Timestamp: time.Now(),
 	}
 
-	b.mu.Lock("SendEmail")
 	b.emails = append(b.emails, email)
-	b.mu.Unlock()
+
+	if len(b.emails) > maxRetainedEmails {
+		b.emails = b.emails[len(b.emails)-maxRetainedEmails:]
+	}
 
 	return msgID, nil
 }

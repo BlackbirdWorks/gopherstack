@@ -90,6 +90,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeGlobalClusters",
 		"StartExportTask",
 		"DescribeExportTasks",
+		"CancelExportTask",
 	}
 }
 
@@ -334,6 +335,8 @@ func (h *Handler) dispatchExtended4(action string, vals url.Values) (any, error)
 		return h.handleStartExportTask(vals)
 	case "DescribeExportTasks":
 		return h.handleDescribeExportTasks(vals)
+	case "CancelExportTask":
+		return h.handleCancelExportTask(vals)
 	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
 	}
@@ -1519,6 +1522,19 @@ func (h *Handler) handleDescribeExportTasks(vals url.Values) (any, error) {
 	}, nil
 }
 
+func (h *Handler) handleCancelExportTask(vals url.Values) (any, error) {
+	taskID := vals.Get("ExportTaskIdentifier")
+	task, err := h.Backend.CancelExportTask(taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &cancelExportTaskResponse{
+		Xmlns:  rdsXMLNS,
+		Result: cancelExportTaskResult{toXMLExportTask(task)},
+	}, nil
+}
+
 func toXMLClusterEndpointFields(ep *DBClusterEndpoint) xmlDBClusterEndpointFields {
 	return xmlDBClusterEndpointFields{
 		DBClusterEndpointIdentifier: ep.DBClusterEndpointIdentifier,
@@ -2009,4 +2025,15 @@ type describeExportTasksResponse struct {
 	XMLName     xml.Name          `xml:"DescribeExportTasksResponse"`
 	Xmlns       string            `xml:"xmlns,attr"`
 	ExportTasks xmlExportTaskList `xml:"DescribeExportTasksResult>ExportTasks"`
+}
+
+// cancelExportTaskResult inlines export task fields directly inside CancelExportTaskResult.
+type cancelExportTaskResult struct {
+	xmlExportTask
+}
+
+type cancelExportTaskResponse struct {
+	XMLName xml.Name               `xml:"CancelExportTaskResponse"`
+	Xmlns   string                 `xml:"xmlns,attr"`
+	Result  cancelExportTaskResult `xml:"CancelExportTaskResult"`
 }

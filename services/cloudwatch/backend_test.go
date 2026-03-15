@@ -1060,3 +1060,61 @@ func TestCloudWatchBackend_DeleteDashboards(t *testing.T) {
 		})
 	}
 }
+
+func TestCloudWatchBackend_MetricDataCap(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	// Insert more than cwMaxMetricDataPoints data points.
+	const total = 1100
+	for range total {
+		err := b.PutMetricData("AWS/EC2", []cloudwatch.MetricDatum{
+			{
+				MetricName: "CPUUtilization",
+				Value:      42.0,
+				Unit:       "Percent",
+				Timestamp:  time.Now(),
+			},
+		})
+		require.NoError(t, err)
+	}
+
+	// At least one metric entry should still exist after capping.
+	page, err := b.ListMetrics("AWS/EC2", "CPUUtilization", "", 0)
+	require.NoError(t, err)
+	assert.NotEmpty(t, page.Data)
+}
+
+func TestCloudWatchBackend_AlarmHistoryCap(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:          "cap-alarm",
+		ComparisonOperator: "GreaterThanThreshold",
+		EvaluationPeriods:  1,
+		Threshold:          50,
+		Namespace:          "AWS/EC2",
+		MetricName:         "CPUUtilization",
+		Period:             60,
+		Statistic:          "Average",
+		ActionsEnabled:     false,
+	}))
+
+	// Toggle state more than 100 times to exceed the history cap.
+	for i := range 110 {
+		state := "OK"
+		if i%2 == 0 {
+			state = "ALARM"
+		}
+
+		require.NoError(t, b.SetAlarmState("cap-alarm", state, "test reason"))
+	}
+
+	// History should be capped at 100 entries.
+	page, err := b.DescribeAlarmHistory("cap-alarm", "", "", time.Time{}, time.Time{}, 0)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(page.Data), 100)
+}

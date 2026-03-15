@@ -50,19 +50,21 @@ func cloneLedger(l *Ledger) *Ledger {
 
 // InMemoryBackend is an in-memory QLDB backend.
 type InMemoryBackend struct {
-	ledgers   map[string]*Ledger
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	ledgers        map[string]*Ledger
+	ledgerARNIndex map[string]string // ARN → ledger name
+	mu             *lockmetrics.RWMutex
+	accountID      string
+	region         string
 }
 
 // NewInMemoryBackend creates a new in-memory QLDB backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		ledgers:   make(map[string]*Ledger),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("qldb"),
+		ledgers:        make(map[string]*Ledger),
+		ledgerARNIndex: make(map[string]string),
+		accountID:      accountID,
+		region:         region,
+		mu:             lockmetrics.New("qldb"),
 	}
 }
 
@@ -99,6 +101,7 @@ func (b *InMemoryBackend) CreateLedger(
 		Tags:              mergeTags(nil, tags),
 	}
 	b.ledgers[name] = l
+	b.ledgerARNIndex[ledgerARN] = name
 
 	return cloneLedger(l), nil
 }
@@ -159,6 +162,7 @@ func (b *InMemoryBackend) DeleteLedger(name string) error {
 	}
 
 	delete(b.ledgers, name)
+	delete(b.ledgerARNIndex, l.ARN)
 
 	return nil
 }
@@ -168,15 +172,15 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, l := range b.ledgers {
-		if l.ARN == resourceARN {
-			l.Tags = mergeTags(l.Tags, kv)
-
-			return nil
-		}
+	name, ok := b.ledgerARNIndex[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	l := b.ledgers[name]
+	l.Tags = mergeTags(l.Tags, kv)
+
+	return nil
 }
 
 // UntagResource removes specified tag keys from a ledger.
@@ -184,17 +188,18 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, l := range b.ledgers {
-		if l.ARN == resourceARN {
-			for _, k := range keys {
-				delete(l.Tags, k)
-			}
-
-			return nil
-		}
+	name, ok := b.ledgerARNIndex[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	l := b.ledgers[name]
+
+	for _, k := range keys {
+		delete(l.Tags, k)
+	}
+
+	return nil
 }
 
 // ListTagsForResource returns tags for a ledger identified by ARN.
@@ -202,16 +207,16 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, l := range b.ledgers {
-		if l.ARN == resourceARN {
-			result := make(map[string]string, len(l.Tags))
-			maps.Copy(result, l.Tags)
-
-			return result, nil
-		}
+	name, ok := b.ledgerARNIndex[resourceARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	l := b.ledgers[name]
+	result := make(map[string]string, len(l.Tags))
+	maps.Copy(result, l.Tags)
+
+	return result, nil
 }
 
 // mergeTags merges new tags into existing ones, returning a new map.

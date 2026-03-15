@@ -45,6 +45,9 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ticker.C:
 			j.runOnce(ctx)
 			j.sweepTTL(ctx)
+			j.sweepTxnTokens()
+			j.sweepTxnPending()
+			j.Backend.exprCache.Sweep()
 		}
 	}
 }
@@ -132,4 +135,37 @@ func (j *Janitor) sweepTTL(ctx context.Context) {
 		telemetry.RecordWorkerItems("dynamodb", "TTLSweeper", totalEvicted)
 	}
 	telemetry.RecordWorkerTask("dynamodb", "TTLSweeper", "success")
+}
+
+// sweepTxnTokens removes committed idempotency tokens that have exceeded their TTL.
+// AWS DynamoDB expires tokens after 10 minutes; this prevents unbounded map growth.
+func (j *Janitor) sweepTxnTokens() {
+	db := j.Backend
+	now := time.Now()
+
+	db.mu.Lock("sweepTxnTokens")
+	defer db.mu.Unlock()
+
+	for token, expiry := range db.txnTokens {
+		if now.After(expiry) {
+			delete(db.txnTokens, token)
+		}
+	}
+}
+
+// sweepTxnPending removes in-progress idempotency tokens that have exceeded txnPendingTTL.
+// Under normal operation the defer in TransactWriteItems cleans up pending entries.
+// This sweep is a safety net for orphaned entries (e.g. from a crashed goroutine).
+func (j *Janitor) sweepTxnPending() {
+	db := j.Backend
+	now := time.Now()
+
+	db.mu.Lock("sweepTxnPending")
+	defer db.mu.Unlock()
+
+	for token, startTime := range db.txnPending {
+		if now.Sub(startTime) > txnPendingTTL {
+			delete(db.txnPending, token)
+		}
+	}
 }

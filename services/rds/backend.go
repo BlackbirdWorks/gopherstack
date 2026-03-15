@@ -303,6 +303,12 @@ func (b *InMemoryBackend) CreateDBInstance(
 	return &cp, nil
 }
 
+// rdsARN constructs the ARN for an RDS resource.
+// The format is: arn:aws:rds:{region}:{accountID}:{resourceType}:{id}.
+func (b *InMemoryBackend) rdsARN(resourceType, id string) string {
+	return fmt.Sprintf("arn:aws:rds:%s:%s:%s:%s", b.region, b.accountID, resourceType, id)
+}
+
 // DeleteDBInstance removes the DB instance with the given identifier.
 func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	b.mu.Lock("DeleteDBInstance")
@@ -315,6 +321,7 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 
 	cp := *inst
 	delete(b.instances, id)
+	delete(b.tags, b.rdsARN("db", id))
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Deregister(cp.Endpoint)
@@ -436,6 +443,7 @@ func (b *InMemoryBackend) DeleteDBSnapshot(snapshotID string) (*DBSnapshot, erro
 
 	cp := *snap
 	delete(b.snapshots, snapshotID)
+	delete(b.tags, b.rdsARN("snapshot", snapshotID))
 
 	return &cp, nil
 }
@@ -515,6 +523,7 @@ func (b *InMemoryBackend) DeleteDBSubnetGroup(name string) error {
 	}
 
 	delete(b.subnetGroups, name)
+	delete(b.tags, b.rdsARN("subgrp", name))
 
 	return nil
 }
@@ -637,6 +646,7 @@ func (b *InMemoryBackend) DeleteDBParameterGroup(name string) error {
 		return fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
 	delete(b.parameterGroups, name)
+	delete(b.tags, b.rdsARN("pg", name))
 
 	return nil
 }
@@ -762,6 +772,7 @@ func (b *InMemoryBackend) DeleteOptionGroup(name string) error {
 		return fmt.Errorf("%w: option group %s not found", ErrOptionGroupNotFound, name)
 	}
 	delete(b.optionGroups, name)
+	delete(b.tags, b.rdsARN("og", name))
 
 	return nil
 }
@@ -867,6 +878,8 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 	}
 	cp := *cluster
 	delete(b.clusters, id)
+	delete(b.tags, b.rdsARN("cluster", id))
+	delete(b.fisFailoverFaults, id)
 
 	return &cp, nil
 }
@@ -1167,6 +1180,7 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 	}
 	cp := *snap
 	delete(b.clusterSnapshots, snapshotID)
+	delete(b.tags, b.rdsARN("cluster-snapshot", snapshotID))
 
 	return &cp, nil
 }
@@ -1346,6 +1360,7 @@ func (b *InMemoryBackend) DeleteDBClusterEndpoint(endpointID string) (*DBCluster
 	}
 	cp := *ep
 	delete(b.clusterEndpoints, endpointID)
+	delete(b.tags, b.rdsARN("cluster-endpoint", endpointID))
 
 	return &cp, nil
 }
@@ -1405,4 +1420,22 @@ func (b *InMemoryBackend) DescribeExportTasks(taskID string) ([]ExportTask, erro
 	}
 
 	return result, nil
+}
+
+// CancelExportTask cancels and removes the export task with the given identifier.
+func (b *InMemoryBackend) CancelExportTask(taskID string) (*ExportTask, error) {
+	if taskID == "" {
+		return nil, fmt.Errorf("%w: ExportTaskIdentifier must not be empty", ErrInvalidParameter)
+	}
+	b.mu.Lock("CancelExportTask")
+	defer b.mu.Unlock()
+	task, exists := b.exportTasks[taskID]
+	if !exists {
+		return nil, fmt.Errorf("%w: export task %s not found", ErrExportTaskNotFound, taskID)
+	}
+	task.Status = "canceled"
+	cp := *task
+	delete(b.exportTasks, taskID)
+
+	return &cp, nil
 }

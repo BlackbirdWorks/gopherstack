@@ -82,7 +82,7 @@ client = boto3.client('bedrock', endpoint_url='http://localhost:8000')`,
 		return nil
 	}
 
-	guardrails := h.BedrockOps.Backend.ListGuardrails()
+	guardrails, _ := h.BedrockOps.Backend.ListGuardrails("")
 	gViews := make([]bedrockGuardrailView, 0, len(guardrails))
 
 	for _, g := range guardrails {
@@ -95,7 +95,7 @@ client = boto3.client('bedrock', endpoint_url='http://localhost:8000')`,
 		})
 	}
 
-	models := h.BedrockOps.Backend.ListFoundationModels()
+	models, _ := h.BedrockOps.Backend.ListFoundationModels("")
 	mViews := make([]bedrockFoundationModelView, 0, len(models))
 
 	for _, m := range models {
@@ -107,7 +107,7 @@ client = boto3.client('bedrock', endpoint_url='http://localhost:8000')`,
 		})
 	}
 
-	pmts := h.BedrockOps.Backend.ListProvisionedModelThroughputs()
+	pmts, _ := h.BedrockOps.Backend.ListProvisionedModelThroughputs("")
 	pmtViews := make([]bedrockProvisionedThroughputView, 0, len(pmts))
 
 	for _, pmt := range pmts {

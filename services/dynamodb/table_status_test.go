@@ -88,3 +88,32 @@ func TestTableStatus(t *testing.T) {
 		})
 	}
 }
+
+// TestDeleteWhileCreating verifies that deleting a table while it is in CREATING state
+// (i.e. before the activate timer fires) cancels the timer and does not panic or cause
+// state corruption once the original delay elapses.
+func TestDeleteWhileCreating(t *testing.T) {
+	t.Parallel()
+
+	db := ddb.NewInMemoryDB()
+	db.SetCreateDelay(150 * time.Millisecond)
+
+	_, err := db.CreateTable(t.Context(), createInput("timer-cancel-table"))
+	require.NoError(t, err)
+
+	// Delete the table while it is still in CREATING state.
+	_, err = db.DeleteTable(t.Context(), &sdk.DeleteTableInput{
+		TableName: aws.String("timer-cancel-table"),
+	})
+	require.NoError(t, err)
+
+	// Wait for the original delay to elapse — the cancelled timer must not fire.
+	// 200 ms is enough to confirm the 150 ms timer was suppressed (not flaky: if the
+	// timer were still running it would fire within this window and corrupt state).
+	time.Sleep(200 * time.Millisecond)
+
+	// The table should be gone; recreating it must succeed with no conflict.
+	out, err := db.CreateTable(t.Context(), createInput("timer-cancel-table"))
+	require.NoError(t, err)
+	assert.Equal(t, types.TableStatusCreating, out.TableDescription.TableStatus)
+}

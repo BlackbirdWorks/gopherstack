@@ -50,6 +50,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	// Rebuild ARN index from restored state.
+	b.scheduleARNIndex = make(map[string]string, len(b.schedules))
+	for name, s := range b.schedules {
+		b.scheduleARNIndex[s.ARN] = name
+	}
+
 	return nil
 }
 

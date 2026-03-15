@@ -66,11 +66,16 @@ func (db *InMemoryDB) EnableStream(ctx context.Context, tableName, viewType stri
 	}
 
 	table.mu.Lock("EnableStream")
-	defer table.mu.Unlock()
-
 	table.StreamsEnabled = true
 	table.StreamViewType = viewType
 	table.StreamARN = db.buildStreamARN(tableName)
+	newARN := table.StreamARN
+	table.mu.Unlock()
+
+	// Update the reverse index under db.mu (after releasing table lock to preserve lock ordering).
+	db.mu.Lock("EnableStream.streamARNIndex")
+	db.streamARNIndex[newARN] = table
+	db.mu.Unlock()
 
 	return nil
 }
@@ -83,12 +88,21 @@ func (db *InMemoryDB) DisableStream(ctx context.Context, tableName string) error
 	}
 
 	table.mu.Lock("DisableStream")
-	defer table.mu.Unlock()
-
+	oldARN := table.StreamARN
 	table.StreamsEnabled = false
 	table.StreamARN = ""
+	table.StreamViewType = ""
 	table.StreamRecords = nil
 	table.streamSeq = 0
+	table.StreamHead = 0
+	table.mu.Unlock()
+
+	// Remove from reverse index under db.mu (after releasing table lock to preserve lock ordering).
+	if oldARN != "" {
+		db.mu.Lock("DisableStream.streamARNIndex")
+		delete(db.streamARNIndex, oldARN)
+		db.mu.Unlock()
+	}
 
 	return nil
 }
@@ -117,8 +131,7 @@ func (db *InMemoryDB) DescribeStream(
 	seqLast := ""
 
 	if len(found.StreamRecords) > 0 {
-		seqFirst = found.StreamRecords[0].SequenceNumber
-		seqLast = found.StreamRecords[len(found.StreamRecords)-1].SequenceNumber
+		seqFirst, seqLast = found.streamSeqRange()
 	}
 	found.mu.RUnlock()
 
@@ -227,7 +240,8 @@ func (db *InMemoryDB) GetRecords(
 	table.mu.RLock("GetRecords")
 	defer table.mu.RUnlock()
 
-	records, nextSeq := collectStreamRecords(table.StreamRecords, startSeq, limit, table.streamSeq)
+	tail, head := table.streamRecordsInOrder()
+	records, nextSeq := collectStreamRecords(tail, head, startSeq, limit, table.streamSeq)
 
 	telemetry.RecordStreamEvents("dynamodb", len(records))
 
@@ -434,30 +448,45 @@ func toStringSliceFrom(v any) []string {
 	}
 }
 
-// findTableByStreamARN searches all regions for a table with the given stream ARN.
+// findTableByStreamARN looks up a table by stream ARN using the reverse index.
 // Must be called with db.mu held.
 func (db *InMemoryDB) findTableByStreamARN(streamARN string) *Table {
-	for _, regionTables := range db.Tables {
-		for _, t := range regionTables {
-			if t.StreamARN == streamARN {
-				return t
-			}
-		}
+	if t, ok := db.streamARNIndex[streamARN]; ok {
+		return t
 	}
 
 	return nil
 }
 
-// collectStreamRecords collects up to limit records starting at startSeq.
+// collectStreamRecords collects up to limit records starting at startSeq
+// from two slices representing the ordered halves of the ring buffer.
+// tail is iterated first (oldest records), then head (newest records that
+// wrapped around). When the buffer is not yet full, head is nil.
 func collectStreamRecords(
-	streamRecords []StreamRecord,
+	tail, head []StreamRecord,
 	startSeq, limit, initialNextSeq int64,
 ) ([]streamstypes.Record, int64) {
-	var records []streamstypes.Record
-
+	records := make([]streamstypes.Record, 0)
 	nextSeq := initialNextSeq
 
-	for _, r := range streamRecords {
+	records, nextSeq = appendMatchingRecords(records, tail, startSeq, limit, nextSeq)
+	records, nextSeq = appendMatchingRecords(records, head, startSeq, limit, nextSeq)
+
+	return records, nextSeq
+}
+
+// appendMatchingRecords appends records from src that are at or after startSeq,
+// stopping when limit is reached. Returns the updated slice and next sequence.
+func appendMatchingRecords(
+	records []streamstypes.Record,
+	src []StreamRecord,
+	startSeq, limit, nextSeq int64,
+) ([]streamstypes.Record, int64) {
+	for _, r := range src {
+		if int64(len(records)) >= limit {
+			return records, nextSeq
+		}
+
 		seq, parseErr := strconv.ParseInt(strings.TrimLeft(r.SequenceNumber, "0"), 10, 64)
 		if parseErr != nil {
 			seq = 0
@@ -465,10 +494,6 @@ func collectStreamRecords(
 
 		if seq < startSeq {
 			continue
-		}
-
-		if int64(len(records)) >= limit {
-			return records, nextSeq
 		}
 
 		records = append(records, buildSDKRecord(r))

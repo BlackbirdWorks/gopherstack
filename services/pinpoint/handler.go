@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -12,13 +13,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
-	pinpointService       = "mobiletargeting"
-	pinpointMatchPriority = 87
-	appSubPathParts       = 2
+	pinpointService         = "mobiletargeting"
+	pinpointMatchPriority   = 87
+	appSubPathParts         = 2
+	pinpointDefaultPageSize = 500
 )
 
 // Handler is the HTTP handler for the Amazon Pinpoint REST API.
@@ -313,7 +316,27 @@ func (h *Handler) handleGetApps(c *echo.Context) error {
 		items = append(items, toAppResponse(app))
 	}
 
-	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, appsResponse{Item: items})
+	// Support pageSize and token query parameters for cursor-based pagination.
+	// The Pinpoint REST API uses ?pageSize=N&token=<cursor>.
+	q := c.Request().URL.Query()
+	token := q.Get("token")
+
+	var limit int
+
+	if ps := q.Get("pageSize"); ps != "" {
+		if n, parseErr := strconv.Atoi(ps); parseErr == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	p := page.New(items, token, limit, pinpointDefaultPageSize)
+
+	resp := appsResponse{Item: p.Data}
+	if p.Next != "" {
+		resp.NextToken = &p.Next
+	}
+
+	httputils.WriteJSON(c.Request().Context(), c.Response(), http.StatusOK, resp)
 
 	return nil
 }

@@ -3,6 +3,7 @@ package transfer_test
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -427,4 +428,336 @@ func TestHandler_UnknownOperation(t *testing.T) {
 	rec := doTransferRequest(t, h, "UnknownOp", map[string]any{})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestHandler_ListServers_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create 3 servers
+	for range 3 {
+		body := map[string]any{"Domain": "S3", "EndpointType": "PUBLIC", "IdentityProviderType": "SERVICE_MANAGED"}
+		doTransferRequest(t, h, "CreateServer", body)
+	}
+
+	tests := []struct {
+		body          map[string]any
+		name          string
+		wantCode      int
+		wantMinCount  int
+		wantNextToken bool
+	}{
+		{
+			name:         "list all servers",
+			body:         map[string]any{},
+			wantCode:     http.StatusOK,
+			wantMinCount: 3,
+		},
+		{
+			name:          "list with maxResults=1",
+			body:          map[string]any{"MaxResults": 1},
+			wantCode:      http.StatusOK,
+			wantMinCount:  1,
+			wantNextToken: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doTransferRequest(t, h, "ListServers", tt.body)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			servers := resp["Servers"].([]any)
+			assert.GreaterOrEqual(t, len(servers), tt.wantMinCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, resp["NextToken"])
+			}
+		})
+	}
+}
+
+func TestHandler_ListUsers_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doTransferRequest(t, h, "CreateServer", map[string]any{
+		"Domain": "S3", "EndpointType": "PUBLIC", "IdentityProviderType": "SERVICE_MANAGED",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	serverID := createResp["ServerId"].(string)
+
+	for _, username := range []string{"alice", "bob", "charlie"} {
+		doTransferRequest(t, h, "CreateUser", map[string]any{
+			"ServerId": serverID, "UserName": username, "Role": "arn:aws:iam::000000000000:role/test",
+		})
+	}
+
+	tests := []struct {
+		body          map[string]any
+		name          string
+		wantCode      int
+		wantMinCount  int
+		wantNextToken bool
+	}{
+		{
+			name:         "list all users",
+			body:         map[string]any{"ServerId": serverID},
+			wantCode:     http.StatusOK,
+			wantMinCount: 3,
+		},
+		{
+			name:          "list with maxResults=1",
+			body:          map[string]any{"ServerId": serverID, "MaxResults": 1},
+			wantCode:      http.StatusOK,
+			wantMinCount:  1,
+			wantNextToken: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doTransferRequest(t, h, "ListUsers", tt.body)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			users := resp["Users"].([]any)
+			assert.GreaterOrEqual(t, len(users), tt.wantMinCount)
+
+			if tt.wantNextToken {
+				assert.NotEmpty(t, resp["NextToken"])
+			}
+		})
+	}
+}
+
+func TestHandler_ChaosServiceName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Equal(t, "transfer", h.ChaosServiceName())
+}
+
+func TestHandler_ChaosOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ops := h.ChaosOperations()
+	assert.Contains(t, ops, "CreateServer")
+}
+
+func TestHandler_ChaosRegions(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	regions := h.ChaosRegions()
+	assert.NotEmpty(t, regions)
+}
+
+func TestHandler_MatchPriority(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	assert.Positive(t, h.MatchPriority())
+}
+
+func TestHandler_ExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		body   string
+		wantOp string
+	}{
+		{
+			name:   "create server",
+			body:   `{"ServerId": "s-123"}`,
+			wantOp: "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(tt.body)))
+			req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.NotPanics(t, func() { h.ExtractOperation(c) })
+		})
+	}
+}
+
+func TestHandler_ExtractResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"ServerId": "s-123"}`)))
+	c := e.NewContext(req, httptest.NewRecorder())
+	resource := h.ExtractResource(c)
+	assert.NotPanics(t, func() { _ = resource })
+}
+
+func TestHandler_StartStopDeleteServer(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "stop server",
+			action:   "StopServer",
+			body:     map[string]any{"ServerId": "PLACEHOLDER"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "start server",
+			action:   "StartServer",
+			body:     map[string]any{"ServerId": "PLACEHOLDER"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "start server missing id",
+			action:   "StartServer",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "delete server",
+			action:   "DeleteServer",
+			body:     map[string]any{"ServerId": "PLACEHOLDER"},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createRec := doTransferRequest(t, h, "CreateServer", map[string]any{
+				"Domain":               "S3",
+				"EndpointType":         "PUBLIC",
+				"IdentityProviderType": "SERVICE_MANAGED",
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			serverID := createResp["ServerId"].(string)
+
+			body := tt.body
+			if id, ok := body["ServerId"]; ok && id == "PLACEHOLDER" {
+				body = map[string]any{"ServerId": serverID}
+			}
+
+			rec := doTransferRequest(t, h, tt.action, body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestHandler_DescribeDeleteUpdateUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		action   string
+		wantCode int
+	}{
+		{
+			name:     "describe user",
+			action:   "DescribeUser",
+			body:     map[string]any{"UserName": "testuser"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "describe user missing username",
+			action:   "DescribeUser",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "update user",
+			action:   "UpdateUser",
+			body:     map[string]any{"UserName": "testuser"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "update user missing username",
+			action:   "UpdateUser",
+			body:     map[string]any{},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name:     "delete user",
+			action:   "DeleteUser",
+			body:     map[string]any{"UserName": "testuser"},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "delete user missing id",
+			action:   "DeleteUser",
+			body:     map[string]any{"UserName": "testuser"},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createServerRec := doTransferRequest(t, h, "CreateServer", map[string]any{
+				"Domain": "S3", "EndpointType": "PUBLIC", "IdentityProviderType": "SERVICE_MANAGED",
+			})
+			require.Equal(t, http.StatusOK, createServerRec.Code)
+
+			var serverResp map[string]any
+			require.NoError(t, json.Unmarshal(createServerRec.Body.Bytes(), &serverResp))
+			serverID := serverResp["ServerId"].(string)
+
+			doTransferRequest(t, h, "CreateUser", map[string]any{
+				"ServerId": serverID,
+				"UserName": "testuser",
+				"Role":     "arn:aws:iam::000000000000:role/test",
+			})
+
+			body := make(map[string]any, len(tt.body)+1)
+			maps.Copy(body, tt.body)
+
+			if _, hasServerID := body["ServerId"]; !hasServerID && tt.wantCode != http.StatusBadRequest {
+				body["ServerId"] = serverID
+			}
+
+			rec := doTransferRequest(t, h, tt.action, body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+func TestTransfer_Provider(t *testing.T) {
+	t.Parallel()
+
+	p := &transfer.Provider{}
+	assert.Equal(t, "Transfer", p.Name())
 }

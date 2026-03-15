@@ -121,3 +121,118 @@ func (db *InMemoryDB) ScheduleReplicationPauseCleanupForTest(
 ) {
 	db.scheduleReplicationPauseCleanup(ctx, tableARNs, dur)
 }
+
+// DeepCopyItem exposes deepCopyItem for testing.
+func DeepCopyItem(item map[string]any) map[string]any {
+	return deepCopyItem(item)
+}
+
+// TxnTokenCount returns the number of committed idempotency tokens currently stored.
+func (db *InMemoryDB) TxnTokenCount() int {
+	db.mu.RLock("TxnTokenCount")
+	defer db.mu.RUnlock()
+
+	return len(db.txnTokens)
+}
+
+// InjectExpiredTxnTokenForTest inserts an already-expired token into the committed map.
+func (db *InMemoryDB) InjectExpiredTxnTokenForTest(token string) {
+	db.mu.Lock("InjectExpiredTxnTokenForTest")
+	defer db.mu.Unlock()
+
+	db.txnTokens[token] = time.Now().Add(-time.Hour) // already expired
+}
+
+// StreamARNIndexSize returns the number of entries in the stream ARN reverse index.
+func (db *InMemoryDB) StreamARNIndexSize() int {
+	db.mu.RLock("StreamARNIndexSize")
+	defer db.mu.RUnlock()
+
+	return len(db.streamARNIndex)
+}
+
+// LookupStreamARNIndex looks up a table by stream ARN in the reverse index (for tests).
+func (db *InMemoryDB) LookupStreamARNIndex(streamARN string) (*Table, bool) {
+	db.mu.RLock("LookupStreamARNIndex")
+	defer db.mu.RUnlock()
+
+	t, ok := db.streamARNIndex[streamARN]
+
+	return t, ok
+}
+
+// SweepTxnTokens exposes sweepTxnTokens for tests.
+func (j *Janitor) SweepTxnTokens() {
+	j.sweepTxnTokens()
+}
+
+// SweepTxnPending exposes sweepTxnPending for tests.
+func (j *Janitor) SweepTxnPending() {
+	j.sweepTxnPending()
+}
+
+// TxnPendingCount returns the number of in-progress idempotency tokens.
+func (db *InMemoryDB) TxnPendingCount() int {
+	db.mu.RLock("TxnPendingCount")
+	defer db.mu.RUnlock()
+
+	return len(db.txnPending)
+}
+
+// InjectStaleTxnPendingForTest inserts a stale in-progress token into the pending map.
+func (db *InMemoryDB) InjectStaleTxnPendingForTest(token string) {
+	db.mu.Lock("InjectStaleTxnPendingForTest")
+	defer db.mu.Unlock()
+
+	db.txnPending[token] = time.Now().Add(-time.Hour) // already stale
+}
+
+// StreamRecordsInOrder exposes the ordered ring-buffer view for tests as a flat slice.
+func (t *Table) StreamRecordsInOrder() []StreamRecord {
+	tail, head := t.streamRecordsInOrder()
+	if len(head) == 0 {
+		return tail
+	}
+
+	result := make([]StreamRecord, 0, len(tail)+len(head))
+	result = append(result, tail...)
+	result = append(result, head...)
+
+	return result
+}
+
+// SweepExprCache exposes ExpressionCache.Sweep for tests.
+func (db *InMemoryDB) SweepExprCache() {
+	db.exprCache.Sweep()
+}
+
+// ExprCacheGet exposes ExpressionCache.Get for tests.
+func (db *InMemoryDB) ExprCacheGet(key string) (any, bool) {
+	return db.exprCache.Get(key)
+}
+
+// ExprCachePut exposes ExpressionCache.Put for tests.
+func (db *InMemoryDB) ExprCachePut(key string, value any) {
+	db.exprCache.Put(key, value)
+}
+
+// NewExpressionCacheWithTTL exposes newExpressionCacheWithTTL for tests.
+func NewExpressionCacheWithTTL(capacity int, ttl time.Duration) *ExpressionCache {
+	return newExpressionCacheWithTTL(capacity, ttl)
+}
+
+// SweepBefore exposes ExpressionCache.sweepBefore for deterministic tests.
+// It removes entries whose TTL expired before the given cutoff time, allowing
+// tests to verify sweep behaviour without relying on wall-clock timing.
+func (c *ExpressionCache) SweepBefore(cutoff time.Time) { c.sweepBefore(cutoff) }
+
+// HasEntry reports whether key is present in the cache without performing lazy
+// TTL eviction. Used after SweepBefore to inspect raw cache state.
+func (c *ExpressionCache) HasEntry(key string) bool { return c.has(key) }
+
+// PutAt exposes ExpressionCache.putAt for tests that need deterministic expiry.
+// It adds an entry with the given explicit expiresAt timestamp instead of computing
+// one from the cache TTL.
+func (c *ExpressionCache) PutAt(key string, value any, expiresAt time.Time) {
+	c.putAt(key, value, expiresAt)
+}

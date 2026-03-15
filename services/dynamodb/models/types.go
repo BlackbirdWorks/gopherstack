@@ -65,10 +65,13 @@ type DescribeTableOutput struct {
 
 type TableDescription struct {
 	ProvisionedThroughput  *ProvisionedThroughputDescription `json:"ProvisionedThroughput,omitempty"`
+	StreamSpecification    *StreamSpecificationInput         `json:"StreamSpecification,omitempty"`
 	TableName              string                            `json:"TableName"`
 	TableStatus            string                            `json:"TableStatus"`
 	TableArn               string                            `json:"TableArn,omitempty"`
 	TableID                string                            `json:"TableId,omitempty"`
+	LatestStreamArn        string                            `json:"LatestStreamArn,omitempty"`
+	LatestStreamLabel      string                            `json:"LatestStreamLabel,omitempty"`
 	KeySchema              []KeySchemaElement                `json:"KeySchema"`
 	AttributeDefinitions   []AttributeDefinition             `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
@@ -192,11 +195,13 @@ type UpdateTableOutput struct {
 }
 
 type ListTablesInput struct {
-	Limit int `json:"Limit"`
+	ExclusiveStartTableName string `json:"ExclusiveStartTableName,omitempty"`
+	Limit                   int    `json:"Limit"`
 }
 
 type ListTablesOutput struct {
-	TableNames []string `json:"TableNames"`
+	LastEvaluatedTableName string   `json:"LastEvaluatedTableName,omitempty"`
+	TableNames             []string `json:"TableNames"`
 }
 
 // --- Item Operations ---

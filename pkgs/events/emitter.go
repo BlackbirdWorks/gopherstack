@@ -2,9 +2,15 @@ package events
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
+
+// ErrListenerPanicked is returned by Emit when a listener function panics.
+// Callers can use [errors.Is] to detect this condition.
+var ErrListenerPanicked = errors.New("listener panicked")
 
 // listenerEntry wraps a listener with a unique ID for tracking.
 type listenerEntry[T Event] struct {
@@ -22,15 +28,20 @@ type InMemoryEmitter[T Event] struct {
 
 // NewInMemoryEmitter creates a new in-memory event emitter.
 func NewInMemoryEmitter[T Event]() *InMemoryEmitter[T] {
-	return &InMemoryEmitter[T]{
+	e := &InMemoryEmitter[T]{
 		listeners: make([]listenerEntry[T], 0),
 		nextID:    1,
-		mu:        lockmetrics.New("events.emitter"),
 	}
+	// Use the emitter's pointer address as a unique lock name so that Close()
+	// on one emitter cannot remove metric series belonging to another.
+	e.mu = lockmetrics.New(fmt.Sprintf("events.emitter.%p", e))
+
+	return e
 }
 
 // Emit broadcasts an event to all subscribers synchronously.
 // Returns the first non-nil error encountered, if any.
+// If a listener panics, the panic is recovered and returned as an error.
 func (e *InMemoryEmitter[T]) Emit(ctx context.Context, event T) error {
 	e.mu.RLock("Emit")
 	listeners := make([]listenerEntry[T], len(e.listeners))
@@ -38,12 +49,23 @@ func (e *InMemoryEmitter[T]) Emit(ctx context.Context, event T) error {
 	e.mu.RUnlock()
 
 	for _, entry := range listeners {
-		if err := entry.listener(ctx, event); err != nil {
+		if err := safeCall(ctx, event, entry.listener); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// safeCall invokes fn with ctx and event, recovering any panic as an error.
+func safeCall[T Event](ctx context.Context, event T, fn EventListener[T]) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			retErr = fmt.Errorf("%w: %v", ErrListenerPanicked, r)
+		}
+	}()
+
+	return fn(ctx, event)
 }
 
 // Subscribe adds a listener to the emitter and returns an unsubscribe function.
@@ -62,10 +84,17 @@ func (e *InMemoryEmitter[T]) Subscribe(listener EventListener[T]) func() {
 }
 
 // removeByID removes the listener with the given ID from the emitter.
+// It uses a swap-with-last strategy (O(1) removal, order not preserved)
+// to avoid shifting all subsequent elements.
 func (e *InMemoryEmitter[T]) removeByID(id uint64) {
 	for i, entry := range e.listeners {
 		if entry.id == id {
-			e.listeners = append(e.listeners[:i], e.listeners[i+1:]...)
+			last := len(e.listeners) - 1
+			if i != last {
+				e.listeners[i] = e.listeners[last]
+			}
+			e.listeners[last] = listenerEntry[T]{} // clear for GC
+			e.listeners = e.listeners[:last]
 
 			return
 		}
@@ -86,4 +115,11 @@ func (e *InMemoryEmitter[T]) Clear() {
 	e.mu.Lock("Clear")
 	defer e.mu.Unlock()
 	e.listeners = e.listeners[:0]
+}
+
+// Close releases the Prometheus metric series associated with the emitter's
+// internal lock. Call Close when the emitter is no longer needed to prevent
+// metric leaks.
+func (e *InMemoryEmitter[T]) Close() {
+	e.mu.Close()
 }

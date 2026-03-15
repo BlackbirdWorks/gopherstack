@@ -9,4 +9,8 @@ type MQTTPublisher interface {
 type StorageBackend interface {
 	Publish(topic string, payload []byte) error
 	SetBroker(broker MQTTPublisher)
+	GetThingShadow(thingName, shadowName string) ([]byte, error)
+	UpdateThingShadow(thingName, shadowName string, document []byte) error
+	DeleteThingShadow(thingName, shadowName string) error
+	ListNamedShadowsForThing(thingName string) ([]string, error)
 }

@@ -2,6 +2,7 @@ package ses
 
 import (
 	"encoding/json"
+	"maps"
 )
 
 type backendSnapshot struct {
@@ -15,9 +16,15 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	ids := make(map[string]bool, len(b.identities))
+	maps.Copy(ids, b.identities)
+
+	emails := make([]Email, len(b.emails))
+	copy(emails, b.emails)
+
 	snap := backendSnapshot{
-		Identities: b.identities,
-		Emails:     b.emails,
+		Identities: ids,
+		Emails:     emails,
 	}
 
 	data, err := json.Marshal(snap)
@@ -42,6 +49,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	if snap.Identities == nil {
 		snap.Identities = make(map[string]bool)
+	}
+
+	if snap.Emails == nil {
+		snap.Emails = []Email{}
 	}
 
 	b.identities = snap.Identities

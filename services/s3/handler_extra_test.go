@@ -918,27 +918,89 @@ func TestHandler_UploadPart_Errors(t *testing.T) {
 	}
 }
 
-func TestHandler_BucketTagging_NotImplemented(t *testing.T) {
+func TestHandler_BucketTagging(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		method string
+		setup      func(t *testing.T, backend *s3.InMemoryBackend)
+		name       string
+		method     string
+		body       string
+		wantBody   string
+		wantStatus int
 	}{
-		{name: "GET bucket tagging returns 501", method: http.MethodGet},
-		{name: "PUT bucket tagging returns 501", method: http.MethodPut},
+		{
+			name:   "PUT bucket tagging succeeds",
+			method: http.MethodPut,
+			setup: func(t *testing.T, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "bkt")
+			},
+			body:       `<Tagging><TagSet><Tag><Key>env</Key><Value>prod</Value></Tag></TagSet></Tagging>`,
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:   "GET bucket tagging returns tags",
+			method: http.MethodGet,
+			setup: func(t *testing.T, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "bkt")
+
+				// pre-populate a tag
+				req := httptest.NewRequest(http.MethodPut, "/bkt?tagging", strings.NewReader(
+					`<Tagging><TagSet><Tag><Key>env</Key><Value>prod</Value></Tag></TagSet></Tagging>`,
+				))
+				rec := httptest.NewRecorder()
+				handler, _ := newTestHandler(t)
+				handler.Backend = backend
+				serveS3Handler(handler, rec, req)
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "env",
+		},
+		{
+			name:   "GET bucket tagging returns 404 when no tags set",
+			method: http.MethodGet,
+			setup: func(t *testing.T, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "bkt")
+			},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:   "DELETE bucket tagging succeeds",
+			method: http.MethodDelete,
+			setup: func(t *testing.T, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "bkt")
+			},
+			wantStatus: http.StatusNoContent,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			handler, backend := newTestHandler(t)
-			mustCreateBucket(t, backend, "bkt")
 
-			req := httptest.NewRequest(tt.method, "/bkt?tagging", nil)
+			handler, backend := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, backend)
+			}
+
+			var reqBody io.Reader
+			if tt.body != "" {
+				reqBody = strings.NewReader(tt.body)
+			}
+
+			req := httptest.NewRequest(tt.method, "/bkt?tagging", reqBody)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
-			assert.Equal(t, http.StatusNotImplemented, rec.Code)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
 		})
 	}
 }
@@ -2075,6 +2137,115 @@ func TestS3NewOperations_NonExistentBucket(t *testing.T) {
 			serveS3Handler(handler, rec, req)
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 			assert.Contains(t, rec.Body.String(), "NoSuchBucket")
+		})
+	}
+}
+
+// TestHandler_ServeWebsite verifies the ServeWebsite method for website hosting.
+func TestHandler_ServeWebsite(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, backend *s3.InMemoryBackend)
+		name       string
+		bucket     string
+		key        string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name:   "serves index document for root path",
+			bucket: "site-bucket",
+			key:    "",
+			setup: func(t *testing.T, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "site-bucket")
+				mustPutObject(t, backend, "site-bucket", "index.html", []byte("<html>hello</html>"))
+
+				xmlCfg := `<WebsiteConfiguration><IndexDocument><Suffix>index.html</Suffix></IndexDocument></WebsiteConfiguration>`
+				err := backend.PutBucketWebsite(t.Context(), "site-bucket", xmlCfg)
+				require.NoError(t, err)
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "hello",
+		},
+		{
+			name:   "returns 404 for missing object with error document",
+			bucket: "site-err",
+			key:    "notfound.html",
+			setup: func(t *testing.T, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "site-err")
+				mustPutObject(t, backend, "site-err", "error.html", []byte("not found page"))
+
+				xmlCfg := "<WebsiteConfiguration>" +
+					"<IndexDocument><Suffix>index.html</Suffix></IndexDocument>" +
+					"<ErrorDocument><Key>error.html</Key></ErrorDocument>" +
+					"</WebsiteConfiguration>"
+				err := backend.PutBucketWebsite(t.Context(), "site-err", xmlCfg)
+				require.NoError(t, err)
+			},
+			wantStatus: http.StatusNotFound,
+			wantBody:   "not found page",
+		},
+		{
+			name:   "returns 404 JSON when no website config",
+			bucket: "no-cfg-bucket",
+			key:    "page.html",
+			setup: func(t *testing.T, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "no-cfg-bucket")
+			},
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchWebsiteConfiguration",
+		},
+		{
+			name:   "redirect all requests to host",
+			bucket: "redirect-bucket",
+			key:    "page.html",
+			setup: func(t *testing.T, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "redirect-bucket")
+
+				xmlCfg := "<WebsiteConfiguration>" +
+					"<RedirectAllRequestsTo>" +
+					"<HostName>example.com</HostName>" +
+					"<Protocol>https</Protocol>" +
+					"</RedirectAllRequestsTo>" +
+					"</WebsiteConfiguration>"
+				err := backend.PutBucketWebsite(t.Context(), "redirect-bucket", xmlCfg)
+				require.NoError(t, err)
+			},
+			wantStatus: http.StatusMovedPermanently,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, backend)
+			}
+
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/_gopherstack/website/"+tt.bucket+"/"+tt.key, nil)
+			logCtx := logger.Save(req.Context(), slog.Default())
+			req = req.WithContext(logCtx)
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.SetPathValues(echo.PathValues{
+				{Name: "bucket", Value: tt.bucket},
+				{Name: "key", Value: tt.key},
+			})
+
+			require.NoError(t, handler.ServeWebsite(c))
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
 		})
 	}
 }

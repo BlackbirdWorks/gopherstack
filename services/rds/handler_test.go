@@ -979,6 +979,29 @@ func TestRDSHandler_FormActions(t *testing.T) {
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"ExportTaskNotFound"},
 		},
+		// CancelExportTask tests
+		{
+			name: "CancelExportTask",
+			setupBodies: []string{
+				"Action=StartExportTask&Version=2014-10-31" +
+					"&ExportTaskIdentifier=cancel-export&SourceArn=arn:aws:rds:us-east-1:000000000000:snapshot:s3",
+			},
+			body:         "Action=CancelExportTask&Version=2014-10-31&ExportTaskIdentifier=cancel-export",
+			wantCode:     http.StatusOK,
+			wantContains: []string{"CancelExportTaskResponse", "cancel-export", "canceled"},
+		},
+		{
+			name:         "CancelExportTask_EmptyID",
+			body:         "Action=CancelExportTask&Version=2014-10-31&ExportTaskIdentifier=",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"InvalidParameterValue"},
+		},
+		{
+			name:         "CancelExportTask_NotFound",
+			body:         "Action=CancelExportTask&Version=2014-10-31&ExportTaskIdentifier=nonexistent",
+			wantCode:     http.StatusBadRequest,
+			wantContains: []string{"ExportTaskNotFound"},
+		},
 		{
 			name: "CreateDBInstanceReadReplica",
 			setupBodies: []string{
@@ -1231,4 +1254,217 @@ func TestRDSBackend_DNSRegistrar(t *testing.T) {
 			assert.Equal(t, tt.wantRegistered, registrar.registered[inst.Endpoint])
 		})
 	}
+}
+
+func TestRDSBackend_TagsCleanedUpOnDelete(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, h *rds.Handler)
+		del   string
+		check string
+	}{
+		{
+			name: "instance",
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
+				postRDSForm(t, h,
+					"Action=CreateDBInstance&Version=2014-10-31"+
+						"&DBInstanceIdentifier=tag-inst&Engine=postgres")
+				postRDSForm(t, h, "Action=AddTagsToResource&Version=2014-10-31"+
+					"&ResourceName=arn:aws:rds:us-east-1:000000000000:db:tag-inst"+
+					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
+			},
+			del: "Action=DeleteDBInstance&Version=2014-10-31" +
+				"&DBInstanceIdentifier=tag-inst",
+			check: "Action=ListTagsForResource&Version=2014-10-31" +
+				"&ResourceName=arn:aws:rds:us-east-1:000000000000:db:tag-inst",
+		},
+		{
+			name: "snapshot",
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
+				postRDSForm(t, h,
+					"Action=CreateDBInstance&Version=2014-10-31"+
+						"&DBInstanceIdentifier=snap-inst&Engine=postgres")
+				postRDSForm(t, h,
+					"Action=CreateDBSnapshot&Version=2014-10-31"+
+						"&DBSnapshotIdentifier=tag-snap&DBInstanceIdentifier=snap-inst")
+				postRDSForm(t, h, "Action=AddTagsToResource&Version=2014-10-31"+
+					"&ResourceName=arn:aws:rds:us-east-1:000000000000:snapshot:tag-snap"+
+					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
+			},
+			del: "Action=DeleteDBSnapshot&Version=2014-10-31" +
+				"&DBSnapshotIdentifier=tag-snap",
+			check: "Action=ListTagsForResource&Version=2014-10-31" +
+				"&ResourceName=arn:aws:rds:us-east-1:000000000000:snapshot:tag-snap",
+		},
+		{
+			name: "subnet_group",
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
+				postRDSForm(t, h,
+					"Action=CreateDBSubnetGroup&Version=2014-10-31"+
+						"&DBSubnetGroupName=tag-sg&DBSubnetGroupDescription=d&VpcId=vpc-1")
+				postRDSForm(t, h, "Action=AddTagsToResource&Version=2014-10-31"+
+					"&ResourceName=arn:aws:rds:us-east-1:000000000000:subgrp:tag-sg"+
+					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
+			},
+			del: "Action=DeleteDBSubnetGroup&Version=2014-10-31" +
+				"&DBSubnetGroupName=tag-sg",
+			check: "Action=ListTagsForResource&Version=2014-10-31" +
+				"&ResourceName=arn:aws:rds:us-east-1:000000000000:subgrp:tag-sg",
+		},
+		{
+			name: "parameter_group",
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
+				postRDSForm(t, h,
+					"Action=CreateDBParameterGroup&Version=2014-10-31"+
+						"&DBParameterGroupName=tag-pg&DBParameterGroupFamily=postgres14"+
+						"&Description=d")
+				postRDSForm(t, h, "Action=AddTagsToResource&Version=2014-10-31"+
+					"&ResourceName=arn:aws:rds:us-east-1:000000000000:pg:tag-pg"+
+					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
+			},
+			del: "Action=DeleteDBParameterGroup&Version=2014-10-31" +
+				"&DBParameterGroupName=tag-pg",
+			check: "Action=ListTagsForResource&Version=2014-10-31" +
+				"&ResourceName=arn:aws:rds:us-east-1:000000000000:pg:tag-pg",
+		},
+		{
+			name: "option_group",
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
+				postRDSForm(t, h,
+					"Action=CreateOptionGroup&Version=2014-10-31"+
+						"&OptionGroupName=tag-og&EngineName=mysql"+
+						"&MajorEngineVersion=8.0&OptionGroupDescription=d")
+				postRDSForm(t, h, "Action=AddTagsToResource&Version=2014-10-31"+
+					"&ResourceName=arn:aws:rds:us-east-1:000000000000:og:tag-og"+
+					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
+			},
+			del: "Action=DeleteOptionGroup&Version=2014-10-31&OptionGroupName=tag-og",
+			check: "Action=ListTagsForResource&Version=2014-10-31" +
+				"&ResourceName=arn:aws:rds:us-east-1:000000000000:og:tag-og",
+		},
+		{
+			name: "cluster",
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
+				postRDSForm(t, h,
+					"Action=CreateDBCluster&Version=2014-10-31"+
+						"&DBClusterIdentifier=tag-cluster&Engine=aurora-postgresql"+
+						"&MasterUsername=admin&MasterUserPassword=pass")
+				postRDSForm(t, h, "Action=AddTagsToResource&Version=2014-10-31"+
+					"&ResourceName=arn:aws:rds:us-east-1:000000000000:cluster:tag-cluster"+
+					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
+			},
+			del: "Action=DeleteDBCluster&Version=2014-10-31" +
+				"&DBClusterIdentifier=tag-cluster",
+			check: "Action=ListTagsForResource&Version=2014-10-31" +
+				"&ResourceName=arn:aws:rds:us-east-1:000000000000:cluster:tag-cluster",
+		},
+		{
+			name: "cluster_snapshot",
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
+				postRDSForm(t, h,
+					"Action=CreateDBCluster&Version=2014-10-31"+
+						"&DBClusterIdentifier=csnap-cluster&Engine=aurora-postgresql"+
+						"&MasterUsername=admin&MasterUserPassword=pass")
+				postRDSForm(t, h,
+					"Action=CreateDBClusterSnapshot&Version=2014-10-31"+
+						"&DBClusterSnapshotIdentifier=tag-csnap"+
+						"&DBClusterIdentifier=csnap-cluster")
+				postRDSForm(t, h, "Action=AddTagsToResource&Version=2014-10-31"+
+					"&ResourceName=arn:aws:rds:us-east-1:000000000000:cluster-snapshot:tag-csnap"+
+					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
+			},
+			del: "Action=DeleteDBClusterSnapshot&Version=2014-10-31" +
+				"&DBClusterSnapshotIdentifier=tag-csnap",
+			check: "Action=ListTagsForResource&Version=2014-10-31" +
+				"&ResourceName=arn:aws:rds:us-east-1:000000000000:cluster-snapshot:tag-csnap",
+		},
+		{
+			name: "cluster_endpoint",
+			setup: func(t *testing.T, h *rds.Handler) {
+				t.Helper()
+				postRDSForm(t, h,
+					"Action=CreateDBCluster&Version=2014-10-31"+
+						"&DBClusterIdentifier=ep-cluster&Engine=aurora-postgresql"+
+						"&MasterUsername=admin&MasterUserPassword=pass")
+				postRDSForm(t, h,
+					"Action=CreateDBClusterEndpoint&Version=2014-10-31"+
+						"&DBClusterEndpointIdentifier=tag-ep"+
+						"&DBClusterIdentifier=ep-cluster&EndpointType=READER")
+				postRDSForm(t, h, "Action=AddTagsToResource&Version=2014-10-31"+
+					"&ResourceName=arn:aws:rds:us-east-1:000000000000:cluster-endpoint:tag-ep"+
+					"&Tags.Tag.1.Key=k&Tags.Tag.1.Value=v")
+			},
+			del: "Action=DeleteDBClusterEndpoint&Version=2014-10-31" +
+				"&DBClusterEndpointIdentifier=tag-ep",
+			check: "Action=ListTagsForResource&Version=2014-10-31" +
+				"&ResourceName=arn:aws:rds:us-east-1:000000000000:cluster-endpoint:tag-ep",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newRDSHandler()
+			tt.setup(t, h)
+
+			// Confirm tag was stored.
+			rec := postRDSForm(t, h, tt.check)
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), "<Key>k</Key>")
+
+			// Delete the resource.
+			delRec := postRDSForm(t, h, tt.del)
+			assert.Equal(t, http.StatusOK, delRec.Code)
+
+			// Confirm tags are gone.
+			rec2 := postRDSForm(t, h, tt.check)
+			assert.Equal(t, http.StatusOK, rec2.Code)
+			assert.NotContains(t, rec2.Body.String(), "<Key>k</Key>")
+		})
+	}
+}
+
+func TestRDSBackend_CancelExportTask_RemovesFromMap(t *testing.T) {
+	t.Parallel()
+
+	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.StartExportTask("my-task", "arn:aws:rds:us-east-1:000000000000:snapshot:s1", "my-bucket")
+	require.NoError(t, err)
+
+	task, err := b.CancelExportTask("my-task")
+	require.NoError(t, err)
+	assert.Equal(t, "canceled", task.Status)
+
+	// Task should no longer be in the map.
+	_, err = b.DescribeExportTasks("my-task")
+	require.Error(t, err)
+}
+
+func TestRDSBackend_FISFaultCleanedOnClusterDelete(t *testing.T) {
+	t.Parallel()
+
+	b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateDBCluster("fault-cluster", "aurora-postgresql", "admin", "pass", "", 0)
+	require.NoError(t, err)
+
+	// Inject an expired fault (simulates an active fault entry).
+	b.InjectExpiredFaultForTest("fault-cluster")
+
+	// Deleting the cluster should remove the fault entry.
+	_, err = b.DeleteDBCluster("fault-cluster")
+	require.NoError(t, err)
+
+	// After deletion the fault map should not contain the entry.
+	active := b.IsClusterFailoverActive("fault-cluster")
+	assert.False(t, active)
 }

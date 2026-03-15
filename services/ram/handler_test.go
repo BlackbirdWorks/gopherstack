@@ -3,6 +3,7 @@ package ram_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -911,4 +912,173 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			assert.Equal(t, tt.want, matcher(c))
 		})
 	}
+}
+
+func TestRAM_Backend_DeleteResourceShare_RemovesFromMemory(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		principals []string
+	}{
+		{
+			name:       "share with associations is fully removed",
+			principals: []string{"123456789012"},
+		},
+		{
+			name:       "share without associations is fully removed",
+			principals: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+			rs, err := b.CreateResourceShare("del-test", true, nil, tt.principals, nil)
+			require.NoError(t, err)
+
+			err = b.DeleteResourceShare(rs.ARN)
+			require.NoError(t, err)
+
+			// Share should not be retrievable.
+			_, err = b.GetResourceShare(rs.ARN)
+			require.Error(t, err)
+
+			// Associations for the deleted share should be gone.
+			assocs := b.GetResourceShareAssociations("", []string{rs.ARN})
+			assert.Empty(t, assocs, "associations for deleted share should be removed")
+		})
+	}
+}
+
+func TestRAM_Backend_DisassociateResourceShare_RemovesFromSlice(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		initials      []string
+		toDisassoc    []string
+		wantRemaining int
+	}{
+		{
+			name:          "disassociate one of two principals",
+			initials:      []string{"111111111111", "222222222222"},
+			toDisassoc:    []string{"111111111111"},
+			wantRemaining: 1,
+		},
+		{
+			name:          "disassociate all principals",
+			initials:      []string{"111111111111", "222222222222"},
+			toDisassoc:    []string{"111111111111", "222222222222"},
+			wantRemaining: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+			rs, err := b.CreateResourceShare("disassoc-test", true, nil, tt.initials, nil)
+			require.NoError(t, err)
+
+			_, err = b.DisassociateResourceShare(rs.ARN, tt.toDisassoc, nil)
+			require.NoError(t, err)
+
+			assocs := b.GetResourceShareAssociations("PRINCIPAL", []string{rs.ARN})
+			assert.Len(t, assocs, tt.wantRemaining)
+		})
+	}
+}
+
+func TestRAM_Backend_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		createShares   int
+		wantAfterReset int
+	}{
+		{
+			name:           "reset clears all shares",
+			createShares:   3,
+			wantAfterReset: 0,
+		},
+		{
+			name:           "reset on empty backend is a no-op",
+			createShares:   0,
+			wantAfterReset: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+
+			for i := range tt.createShares {
+				_, err := b.CreateResourceShare(
+					fmt.Sprintf("share-%d", i),
+					true, nil, nil, nil,
+				)
+				require.NoError(t, err)
+			}
+
+			b.Reset()
+
+			shares := b.ListResourceShares("SELF")
+			assert.Len(t, shares, tt.wantAfterReset)
+		})
+	}
+}
+
+func TestRAM_Handler_Reset(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRAMRequest(t, h, "/createresourceshare", map[string]any{
+		"name":                    "reset-share",
+		"allowExternalPrincipals": true,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	h.Reset()
+
+	listRec := doRAMRequest(t, h, "/getresourceshares", map[string]any{
+		"resourceOwner": "SELF",
+	})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var out struct {
+		ResourceShares []any `json:"resourceShares"`
+	}
+
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &out))
+	assert.Empty(t, out.ResourceShares)
+}
+
+func TestRAM_Backend_AssociateResourceShare_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	b := ram.NewInMemoryBackend("000000000000", "us-east-1")
+	rs, err := b.CreateResourceShare("idem-share", true, nil, nil, nil)
+	require.NoError(t, err)
+
+	// First association creates one entry.
+	added1, err := b.AssociateResourceShare(rs.ARN, []string{"111111111111"}, nil)
+	require.NoError(t, err)
+	assert.Len(t, added1, 1)
+
+	// Repeated association with the same entity must be a no-op (no new entry).
+	added2, err := b.AssociateResourceShare(rs.ARN, []string{"111111111111"}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, added2, "re-associating the same entity must return no new associations")
+
+	// Exactly one association should exist in total.
+	assocs := b.GetResourceShareAssociations("PRINCIPAL", []string{rs.ARN})
+	assert.Len(t, assocs, 1)
 }

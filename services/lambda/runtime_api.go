@@ -25,6 +25,7 @@ var ErrInvocationTimeout = errors.New("lambda invocation timed out")
 // pendingInvocation represents an in-flight Lambda invocation waiting for a container response.
 type pendingInvocation struct {
 	deadline  time.Time
+	createdAt time.Time // when the event was first received (used for MaximumEventAgeInSeconds)
 	requestID string
 	result    chan invocationResult
 	payload   []byte
