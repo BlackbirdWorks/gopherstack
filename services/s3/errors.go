@@ -35,6 +35,7 @@ var (
 	ErrNoPublicAccessBlock    = errors.New("NoSuchPublicAccessBlockConfiguration")
 	ErrNoOwnershipControls    = errors.New("OwnershipControlsNotFoundError")
 	ErrNoReplicationConfig    = errors.New("ReplicationConfigurationNotFoundError")
+	ErrNoSuchTagSet           = errors.New("NoSuchTagSet")
 )
 
 type s3ErrorInfo struct {
@@ -142,6 +143,11 @@ func errorTable() []s3ErrorEntry {
 		{ErrNoReplicationConfig, s3ErrorInfo{
 			"ReplicationConfigurationNotFoundError",
 			"The replication configuration was not found",
+			http.StatusNotFound,
+		}},
+		{ErrNoSuchTagSet, s3ErrorInfo{
+			"NoSuchTagSet",
+			"The TagSet does not exist",
 			http.StatusNotFound,
 		}},
 	}

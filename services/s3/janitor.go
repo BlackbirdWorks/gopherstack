@@ -17,11 +17,15 @@ type lifecycleConfiguration struct {
 }
 
 type lifecycleRule struct {
-	Filter     lifecycleFilter     `xml:"Filter"`
-	Prefix     string              `xml:"Prefix"`
-	ID         string              `xml:"ID"`
-	Status     string              `xml:"Status"`
-	Expiration lifecycleExpiration `xml:"Expiration"`
+	NoncurrentVersionExpiration    lifecycleNoncurrentVersionExpiration `xml:"NoncurrentVersionExpiration"`
+	AbortIncompleteMultipartUpload lifecycleAbortIncomplete             `xml:"AbortIncompleteMultipartUpload"`
+	Filter                         lifecycleFilter                      `xml:"Filter"`
+	Prefix                         string                               `xml:"Prefix"`
+	ID                             string                               `xml:"ID"`
+	Status                         string                               `xml:"Status"`
+	Expiration                     lifecycleExpiration                  `xml:"Expiration"`
+	Transitions                    []lifecycleTransition                `xml:"Transition"`
+	NoncurrentVersionTransitions   []lifecycleNoncurrentTransition      `xml:"NoncurrentVersionTransition"`
 }
 
 // prefix returns the effective filter prefix, preferring the nested Filter
@@ -39,9 +43,32 @@ type lifecycleFilter struct {
 }
 
 type lifecycleExpiration struct {
-	// Days is the number of days after creation before an object expires.
-	// A value of 0 means objects expire immediately (used in tests).
-	Days int `xml:"Days"`
+	Date string `xml:"Date"`
+	Days int    `xml:"Days"`
+}
+
+// lifecycleNoncurrentVersionExpiration specifies when noncurrent object versions expire.
+type lifecycleNoncurrentVersionExpiration struct {
+	NoncurrentDays *int `xml:"NoncurrentDays"`
+}
+
+// lifecycleAbortIncomplete specifies when to abort incomplete multipart uploads.
+type lifecycleAbortIncomplete struct {
+	DaysAfterInitiation *int `xml:"DaysAfterInitiation"`
+}
+
+// lifecycleTransition specifies when objects transition to a different storage class.
+// In a mock, storage class transitions are recorded but not enforced.
+type lifecycleTransition struct {
+	StorageClass string `xml:"StorageClass"`
+	Date         string `xml:"Date"`
+	Days         int    `xml:"Days"`
+}
+
+// lifecycleNoncurrentTransition specifies when noncurrent versions transition storage class.
+type lifecycleNoncurrentTransition struct {
+	StorageClass   string `xml:"StorageClass"`
+	NoncurrentDays int    `xml:"NoncurrentDays"`
 }
 
 const (
@@ -248,13 +275,46 @@ func (j *Janitor) applyLifecycleRules(
 			continue
 		}
 
-		if rule.Expiration.Days < 0 {
-			continue
+		prefix := rule.prefix()
+
+		// Days-based expiration of current versions.
+		// Days >= 0 triggers expiration (Days=0 means expire immediately).
+		// Days < 0 is invalid and skipped.
+		if rule.Expiration.Days >= 0 && rule.Expiration.Date == "" {
+			expireBefore := now.Add(-time.Duration(rule.Expiration.Days) * 24 * time.Hour)
+			evicted += j.evictExpiredObjects(bucket, prefix, expireBefore)
 		}
 
-		prefix := rule.prefix()
-		expireBefore := now.Add(-time.Duration(rule.Expiration.Days) * 24 * time.Hour)
-		evicted += j.evictExpiredObjects(bucket, prefix, expireBefore)
+		// Date-based expiration of current versions.
+		// Use the parsed expireDate as the cutoff so only objects older than that
+		// date are removed (not all objects indiscriminately).
+		if rule.Expiration.Date != "" {
+			expireDate, parseErr := parseLifecycleDate(rule.Expiration.Date)
+			if parseErr == nil && now.After(expireDate) {
+				evicted += j.evictExpiredObjects(bucket, prefix, expireDate)
+			}
+		}
+
+		// Noncurrent version expiration: delete versions that are not the latest
+		// and are older than NoncurrentDays. A nil pointer means the rule is absent.
+		if rule.NoncurrentVersionExpiration.NoncurrentDays != nil {
+			noncurrentBefore := now.Add(
+				-time.Duration(*rule.NoncurrentVersionExpiration.NoncurrentDays) * 24 * time.Hour,
+			)
+			evicted += j.evictNoncurrentVersions(bucket, prefix, noncurrentBefore)
+		}
+
+		// Abort incomplete multipart uploads older than DaysAfterInitiation.
+		// A nil pointer means the rule is absent; 0 means abort immediately.
+		if rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
+			abortBefore := now.Add(
+				-time.Duration(*rule.AbortIncompleteMultipartUpload.DaysAfterInitiation) * 24 * time.Hour,
+			)
+			j.abortStaleMultipartUploads(bucketName, abortBefore)
+		}
+
+		// Transitions: in a mock, storage class transitions are not enforced but
+		// the rule is parsed and accepted without error.
 	}
 
 	if evicted > 0 {
@@ -369,4 +429,79 @@ func deleteBatch(objects map[string]*StoredObject, maxCount int) int {
 	}
 
 	return count
+}
+
+// evictNoncurrentVersions deletes non-latest object versions (noncurrent versions)
+// from the bucket that match the prefix and were superseded before noncurrentBefore.
+// Returns the number of noncurrent versions deleted.
+func (j *Janitor) evictNoncurrentVersions(bucket *StoredBucket, prefix string, noncurrentBefore time.Time) int {
+	bucket.mu.Lock("S3Janitor.evictNoncurrentVersions")
+	defer bucket.mu.Unlock()
+
+	evicted := 0
+
+	for key, obj := range bucket.Objects {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+
+		obj.mu.Lock("S3Janitor.evictNoncurrentVersions.obj")
+
+		for vid, ver := range obj.Versions {
+			if ver.IsLatest {
+				continue
+			}
+
+			if ver.LastModified.Before(noncurrentBefore) {
+				delete(obj.Versions, vid)
+				evicted++
+			}
+		}
+
+		// Remove the object entry entirely if it has no versions left.
+		if len(obj.Versions) == 0 {
+			obj.mu.Unlock()
+			delete(bucket.Objects, key)
+			obj.mu.Close()
+		} else {
+			obj.mu.Unlock()
+		}
+	}
+
+	return evicted
+}
+
+// abortStaleMultipartUploads removes multipart uploads for the given bucket that
+// were initiated before abortBefore.
+func (j *Janitor) abortStaleMultipartUploads(bucketName string, abortBefore time.Time) {
+	b := j.Backend
+
+	b.mu.Lock("S3Janitor.abortStaleMultipartUploads")
+	defer b.mu.Unlock()
+
+	bucketUploads, ok := b.uploads[bucketName]
+	if !ok {
+		return
+	}
+
+	for uploadID, upload := range bucketUploads {
+		if upload.Initiated.Before(abortBefore) {
+			delete(bucketUploads, uploadID)
+		}
+	}
+}
+
+// parseLifecycleDate parses a lifecycle date string. It tries RFC3339Nano
+// (which also matches RFC3339 and timestamps with fractional seconds), then
+// a bare date-time format, then a date-only format.
+func parseLifecycleDate(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t, nil
+	}
+
+	if t, err := time.Parse("2006-01-02T15:04:05Z", s); err == nil {
+		return t, nil
+	}
+
+	return time.Parse("2006-01-02", s)
 }

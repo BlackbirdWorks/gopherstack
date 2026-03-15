@@ -664,15 +664,26 @@ func TestHandler_BucketLocationQuery(t *testing.T) {
 	}
 }
 
-func TestHandler_BucketTaggingNotImplemented(t *testing.T) {
+func TestHandler_BucketTaggingMissingBucket(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		method string
+		name       string
+		method     string
+		body       string
+		wantStatus int
 	}{
-		{name: "PUT bucket tagging returns 501", method: http.MethodPut},
-		{name: "GET bucket tagging returns 501", method: http.MethodGet},
+		{
+			name:       "PUT bucket tagging without bucket returns 404",
+			method:     http.MethodPut,
+			body:       `<Tagging><TagSet><Tag><Key>k</Key><Value>v</Value></Tag></TagSet></Tagging>`,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "GET bucket tagging without bucket returns 404",
+			method:     http.MethodGet,
+			wantStatus: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
@@ -681,11 +692,16 @@ func TestHandler_BucketTaggingNotImplemented(t *testing.T) {
 
 			handler, _ := newTestHandler(t)
 
-			req := httptest.NewRequest(tt.method, "/bkt?tagging", nil)
+			var body io.Reader
+			if tt.body != "" {
+				body = strings.NewReader(tt.body)
+			}
+
+			req := httptest.NewRequest(tt.method, "/bkt?tagging", body)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 
-			assert.Equal(t, http.StatusNotImplemented, rec.Code)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
 }

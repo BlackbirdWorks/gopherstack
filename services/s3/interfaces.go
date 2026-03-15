@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 type Compressor interface {
@@ -59,6 +60,11 @@ type StorageBackend interface {
 		ctx context.Context,
 		input *s3.DeleteObjectTaggingInput,
 	) (*s3.DeleteObjectTaggingOutput, error)
+
+	// Bucket Tagging
+	PutBucketTagging(ctx context.Context, bucket string, tags []types.Tag) error
+	GetBucketTagging(ctx context.Context, bucket string) ([]types.Tag, error)
+	DeleteBucketTagging(ctx context.Context, bucket string) error
 
 	// ACL
 	PutBucketACL(ctx context.Context, bucket, acl string) error

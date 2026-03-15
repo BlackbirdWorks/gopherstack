@@ -1038,3 +1038,16 @@ func (b *InMemoryBackend) toDashboardEntry(rec *dashboardRecord) DashboardEntry 
 		Size:          int64(len(rec.body)),
 	}
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.metrics = make(map[string]map[string][]MetricDatum)
+	b.alarms = make(map[string]*MetricAlarm)
+	b.compositeAlarms = make(map[string]*CompositeAlarm)
+	b.alarmHistory = make(map[string][]AlarmHistoryItem)
+	b.dashboards = make(map[string]*dashboardRecord)
+}

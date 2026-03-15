@@ -1120,3 +1120,16 @@ func (b *InMemoryBackend) sortedEndpoints() []PlatformEndpoint {
 
 	return eps
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.topics = make(map[string]*Topic)
+	b.subscriptions = make(map[string]*Subscription)
+	b.topicTags = make(map[string]*svcTags.Tags)
+	b.platformApplications = make(map[string]*PlatformApplication)
+	b.platformEndpoints = make(map[string]*PlatformEndpoint)
+}
