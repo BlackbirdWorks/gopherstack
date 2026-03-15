@@ -362,6 +362,21 @@ func TestTerraformImport_Lambda(t *testing.T) {
 
 				roleARN := aws.ToString(roleOut.Role.Arn)
 
+				// Register cleanup for the IAM role.  tofu destroy only manages the
+				// Lambda function, so the role must be deleted explicitly.  This cleanup
+				// is registered BEFORE the tofu-destroy cleanup in runImportTest, so it
+				// runs AFTER tofu destroy (LIFO order) — the Lambda is gone by then.
+				// The role has no attached managed or inline policies (only a trust
+				// policy), so DeleteRole succeeds without any prior detach step.
+				t.Cleanup(func() {
+					_, delErr := iamClient.DeleteRole(context.Background(), &iamsvc.DeleteRoleInput{
+						RoleName: aws.String(roleName),
+					})
+					if delErr != nil {
+						t.Logf("cleanup: failed to delete IAM role %q: %v", roleName, delErr)
+					}
+				})
+
 				// Build a minimal Python handler zip.
 				var buf bytes.Buffer
 				zw := zip.NewWriter(&buf)
