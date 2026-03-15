@@ -20,15 +20,7 @@ func (b *InMemoryBackend) UploadsForBucket(bucket string) int {
 	b.mu.RLock("UploadsForBucket")
 	defer b.mu.RUnlock()
 
-	count := 0
-
-	for _, u := range b.uploads {
-		if u.Bucket == bucket {
-			count++
-		}
-	}
-
-	return count
+	return len(b.uploads[bucket])
 }
 
 // TagsForBucket returns the number of tag entries for the given bucket.
