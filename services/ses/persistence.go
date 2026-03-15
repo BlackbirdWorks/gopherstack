@@ -2,6 +2,7 @@ package ses
 
 import (
 	"encoding/json"
+	"maps"
 )
 
 type backendSnapshot struct {
@@ -16,9 +17,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	ids := make(map[string]bool, len(b.identities))
-	for k, v := range b.identities {
-		ids[k] = v
-	}
+	maps.Copy(ids, b.identities)
 
 	emails := make([]Email, len(b.emails))
 	copy(emails, b.emails)

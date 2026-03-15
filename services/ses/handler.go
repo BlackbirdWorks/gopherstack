@@ -171,7 +171,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		case "VerifyEmailIdentity":
 			resp, opErr = h.handleVerifyEmailIdentity(vals, reqID)
 		case "DeleteIdentity":
-			resp, opErr = h.handleDeleteIdentity(vals, reqID)
+			resp = h.handleDeleteIdentity(vals, reqID)
 		case "ListIdentities":
 			resp = h.handleListIdentities(vals, reqID)
 		case "GetIdentityVerificationAttributes":
@@ -218,7 +218,7 @@ func (h *Handler) handleVerifyEmailIdentity(vals url.Values, reqID string) (any,
 	}, nil
 }
 
-func (h *Handler) handleDeleteIdentity(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleDeleteIdentity(vals url.Values, reqID string) any {
 	identity := vals.Get("Identity")
 
 	h.Backend.DeleteIdentity(identity)
@@ -226,7 +226,7 @@ func (h *Handler) handleDeleteIdentity(vals url.Values, reqID string) (any, erro
 	return &deleteIdentityResponse{
 		Xmlns:     sesXMLNS,
 		RequestID: reqID,
-	}, nil
+	}
 }
 
 func (h *Handler) handleListIdentities(vals url.Values, reqID string) any {

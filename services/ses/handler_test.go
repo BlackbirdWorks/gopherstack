@@ -99,8 +99,10 @@ func TestSESHandler(t *testing.T) {
 			wantContains: "InvalidParameterValue",
 		},
 		{
-			name:         "SendEmailUnverifiedSource",
-			body:         "Action=SendEmail&Version=2010-12-01&Source=unverified@example.com&Destination.ToAddresses.member.1=to@example.com&Message.Subject.Data=Test&Message.Body.Text.Data=Body",
+			name: "SendEmailUnverifiedSource",
+			body: "Action=SendEmail&Version=2010-12-01&Source=unverified@example.com" +
+				"&Destination.ToAddresses.member.1=to@example.com" +
+				"&Message.Subject.Data=Test&Message.Body.Text.Data=Body",
 			wantCode:     http.StatusBadRequest,
 			wantContains: "MessageRejected",
 		},
@@ -502,13 +504,9 @@ func TestSESBackend_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent verify.
 	for i := range 50 {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			_ = b.VerifyEmailIdentity(fmt.Sprintf("user%d@test.com", i))
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -517,20 +515,14 @@ func TestSESBackend_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent send + list.
 	for i := range 50 {
-		wg.Add(2)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			_, _ = b.SendEmail(fmt.Sprintf("user%d@test.com", i), []string{"to@test.com"},
 				fmt.Sprintf("Subject %d", i), "", "body")
-		}()
+		})
 
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			_ = b.ListEmails()
-		}()
+		})
 	}
 
 	wg.Wait()
