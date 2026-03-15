@@ -314,6 +314,15 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 			PreviousState: prev,
 			CurrentState:  inst.State,
 		})
+
+		// Mirror AWS behaviour: when the backing instance of a spot request is
+		// terminated, the request transitions to "closed" (not "cancelled").
+		for _, req := range b.spotRequests {
+			if req.InstanceID == id && req.State == "active" {
+				req.State = "closed"
+				req.CancelledAt = time.Now()
+			}
+		}
 	}
 
 	return result, nil

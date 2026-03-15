@@ -145,13 +145,14 @@ type SpotLaunchSpecification struct {
 
 // SpotInstanceRequest represents an EC2 spot instance request.
 type SpotInstanceRequest struct {
-	CreateTime time.Time               `json:"createTime"`
-	LaunchSpec SpotLaunchSpecification `json:"launchSpec"`
-	ID         string                  `json:"id"`
-	InstanceID string                  `json:"instanceID,omitempty"`
-	State      string                  `json:"state"`
-	SpotPrice  string                  `json:"spotPrice"`
-	Type       string                  `json:"type"`
+	CreateTime  time.Time               `json:"createTime"`
+	CancelledAt time.Time               `json:"cancelledAt"`
+	LaunchSpec  SpotLaunchSpecification `json:"launchSpec"`
+	ID          string                  `json:"id"`
+	InstanceID  string                  `json:"instanceID,omitempty"`
+	State       string                  `json:"state"`
+	SpotPrice   string                  `json:"spotPrice"`
+	Type        string                  `json:"type"`
 }
 
 // PlacementGroup represents an EC2 placement group.
@@ -476,6 +477,7 @@ func (b *InMemoryBackend) DeleteKeyPair(name string) error {
 	}
 
 	delete(b.keyPairs, name)
+	delete(b.tags, name)
 
 	return nil
 }
@@ -1355,6 +1357,7 @@ func (b *InMemoryBackend) CancelSpotInstanceRequests(ids []string) error {
 		}
 
 		req.State = "cancelled"
+		req.CancelledAt = time.Now()
 	}
 
 	return nil
@@ -1423,6 +1426,7 @@ func (b *InMemoryBackend) DeletePlacementGroup(name string) error {
 	}
 
 	delete(b.placementGroups, name)
+	delete(b.tags, name)
 
 	return nil
 }

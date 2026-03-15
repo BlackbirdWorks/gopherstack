@@ -41,7 +41,7 @@ func NewHandler(backend Backend) *Handler {
 // If the backend is not an *InMemoryBackend, this is a no-op.
 func (h *Handler) WithJanitor(interval, terminatedTTL time.Duration) *Handler {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
-		h.janitor = NewJanitor(mem, interval, terminatedTTL)
+		h.janitor = NewJanitor(mem, interval, terminatedTTL, 0)
 	}
 
 	return h
