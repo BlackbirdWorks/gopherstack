@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -15,6 +16,11 @@ var (
 	ErrNotFound = awserr.New("ClientException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("ClientException", awserr.ErrAlreadyExists)
+)
+
+const (
+	jobDefStatusActive   = "ACTIVE"
+	jobDefStatusInactive = "INACTIVE"
 )
 
 // ComputeEnvironment represents a Batch compute environment.
@@ -46,6 +52,7 @@ type JobQueue struct {
 
 // JobDefinition represents a Batch job definition.
 type JobDefinition struct {
+	DeregisteredAt    *time.Time        `json:"deregisteredAt,omitempty"`
 	Tags              map[string]string `json:"tags,omitempty"`
 	JobDefinitionName string            `json:"jobDefinitionName"`
 	JobDefinitionArn  string            `json:"jobDefinitionArn"`
@@ -328,7 +335,7 @@ func (b *InMemoryBackend) RegisterJobDefinition(
 		JobDefinitionName: name,
 		JobDefinitionArn:  jdARN,
 		Type:              defType,
-		Status:            "ACTIVE",
+		Status:            jobDefStatusActive,
 		Revision:          revision,
 		Tags:              tagsCopy,
 	}
@@ -382,24 +389,29 @@ func (b *InMemoryBackend) DescribeJobDefinitions(names []string) []*JobDefinitio
 	return list
 }
 
-// DeregisterJobDefinition removes a job definition by ARN or name:revision.
-// The revision counter is retained so subsequent registrations receive a higher revision.
+// DeregisterJobDefinition marks a job definition as INACTIVE by ARN or name:revision.
+// INACTIVE definitions remain visible in DescribeJobDefinitions (matching AWS behavior)
+// and are swept by the janitor after the configured TTL.
 func (b *InMemoryBackend) DeregisterJobDefinition(arnOrNameRev string) error {
 	b.mu.Lock("DeregisterJobDefinition")
 	defer b.mu.Unlock()
 
+	now := time.Now()
+
 	// Try direct ARN lookup first.
-	if _, ok := b.jobDefinitions[arnOrNameRev]; ok {
-		delete(b.jobDefinitions, arnOrNameRev)
+	if jd, ok := b.jobDefinitions[arnOrNameRev]; ok {
+		jd.Status = jobDefStatusInactive
+		jd.DeregisteredAt = &now
 
 		return nil
 	}
 
 	// Fall back to name:revision lookup (e.g. "my-job:3").
-	for arnKey, jd := range b.jobDefinitions {
+	for _, jd := range b.jobDefinitions {
 		nameRev := fmt.Sprintf("%s:%d", jd.JobDefinitionName, jd.Revision)
 		if nameRev == arnOrNameRev {
-			delete(b.jobDefinitions, arnKey)
+			jd.Status = jobDefStatusInactive
+			jd.DeregisteredAt = &now
 
 			return nil
 		}

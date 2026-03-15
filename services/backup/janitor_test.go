@@ -132,6 +132,6 @@ func TestBackupJanitor_RunContext(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("janitor did not stop after context cancellation")
+		require.FailNow(t, "janitor did not stop after context cancellation")
 	}
 }

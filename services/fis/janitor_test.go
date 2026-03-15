@@ -11,82 +11,67 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/fis"
 )
 
-// createExperimentForJanitorTest starts an experiment via the backend and returns its ID.
-// It also immediately cancels the async goroutine by stopping the experiment.
-func createExperimentForJanitorTest(t *testing.T, backend *fis.ExportedInMemoryBackend, templateID string) string {
-	t.Helper()
+// newFakeExperiment creates a minimal Experiment for injection in janitor tests.
+// No background goroutine is launched, avoiding lifecycle races.
+func newFakeExperiment(id, status string, endTime *time.Time) *fis.Experiment {
+	exp := &fis.Experiment{
+		ID:        id,
+		Arn:       "arn:aws:fis:us-east-1:000000000000:experiment/" + id,
+		Status:    fis.ExperimentStatus{Status: status},
+		StartTime: time.Now().Add(-time.Hour),
+		EndTime:   endTime,
+	}
 
-	exp, err := backend.StartExperiment(t.Context(),
-		&fis.ExportedStartExperimentRequest{ExperimentTemplateID: templateID},
-		"000000000000", "us-east-1")
-	require.NoError(t, err)
-
-	return exp.ID
+	return exp
 }
 
-// createMinimalTemplate creates a template with no actions/targets for janitor tests.
-func createMinimalTemplate(t *testing.T, backend *fis.ExportedInMemoryBackend) string {
-	t.Helper()
-
-	tpl, err := backend.CreateExperimentTemplate(
-		&fis.ExportedCreateTemplateRequest{
-			Description:    "test",
-			RoleArn:        "arn:aws:iam::000000000000:role/test",
-			Tags:           map[string]string{},
-			StopConditions: []fis.ExportedStopConditionDTO{{Source: "none"}},
-		},
-		"000000000000",
-		"us-east-1",
-	)
-	require.NoError(t, err)
-
-	return tpl.ID
-}
-
-// TestJanitor_SweepCompletedExperiments verifies that experiments in terminal states
+// TestFISJanitor_SweepCompletedExperiments verifies that experiments in terminal states
 // whose EndTime is past the configured TTL are removed.
 func TestFISJanitor_SweepCompletedExperiments(t *testing.T) {
 	t.Parallel()
 
+	past := time.Now().Add(-25 * time.Hour)
+	recent := time.Now().Add(-1 * time.Hour)
+
 	tests := []struct {
 		name        string
+		endTime     *time.Time
 		status      string
-		endOffset   time.Duration
 		ttl         time.Duration
 		wantEvicted bool
 	}{
 		{
 			name:        "evict_completed_past_ttl",
 			status:      "completed",
-			endOffset:   -25 * time.Hour,
+			endTime:     &past,
 			ttl:         24 * time.Hour,
 			wantEvicted: true,
 		},
 		{
 			name:        "evict_stopped_past_ttl",
 			status:      "stopped",
-			endOffset:   -25 * time.Hour,
+			endTime:     &past,
 			ttl:         24 * time.Hour,
 			wantEvicted: true,
 		},
 		{
 			name:        "evict_failed_past_ttl",
 			status:      "failed",
-			endOffset:   -25 * time.Hour,
+			endTime:     &past,
 			ttl:         24 * time.Hour,
 			wantEvicted: true,
 		},
 		{
 			name:        "keep_completed_within_ttl",
 			status:      "completed",
-			endOffset:   -1 * time.Hour,
+			endTime:     &recent,
 			ttl:         24 * time.Hour,
 			wantEvicted: false,
 		},
 		{
 			name:        "keep_running_no_endtime",
 			status:      "running",
-			endOffset:   0,
+			endTime:     nil,
 			ttl:         24 * time.Hour,
 			wantEvicted: false,
 		},
@@ -97,16 +82,9 @@ func TestFISJanitor_SweepCompletedExperiments(t *testing.T) {
 			t.Parallel()
 
 			backend := fis.NewTestBackend()
-			templateID := createMinimalTemplate(t, backend)
+			expID := "EXP" + tt.name
 
-			expID := createExperimentForJanitorTest(t, backend, templateID)
-
-			if tt.endOffset != 0 {
-				endTime := time.Now().Add(tt.endOffset)
-				backend.SetExperimentTerminal(expID, tt.status, endTime)
-			}
-			// keep_running_no_endtime: leave the experiment in its natural state;
-			// EndTime is nil or very recent, so the janitor will not evict it.
+			backend.InjectExperiment(newFakeExperiment(expID, tt.status, tt.endTime))
 
 			janitor := fis.NewJanitor(backend, time.Hour, tt.ttl)
 			janitor.SweepOnce(t.Context())
@@ -143,6 +121,6 @@ func TestFISJanitor_RunContext(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("janitor did not stop after context cancellation")
+		require.FailNow(t, "janitor did not stop after context cancellation")
 	}
 }

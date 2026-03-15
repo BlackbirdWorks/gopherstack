@@ -12,6 +12,7 @@ func (b *InMemoryBackend) BuildCount() int {
 }
 
 // SetBuildEndTime overrides the EndTime and BuildStatus of a build.
+// If endTime is zero, EndTime is set to 0 (meaning "not yet completed").
 // Used only in tests to simulate a completed build at a specific time.
 func (b *InMemoryBackend) SetBuildEndTime(id string, status string, endTime time.Time) {
 	b.mu.Lock("SetBuildEndTime")
@@ -19,7 +20,12 @@ func (b *InMemoryBackend) SetBuildEndTime(id string, status string, endTime time
 
 	if build, ok := b.builds[id]; ok {
 		build.BuildStatus = status
-		build.EndTime = float64(endTime.Unix())
 		build.CurrentPhase = "COMPLETED"
+
+		if endTime.IsZero() {
+			build.EndTime = 0
+		} else {
+			build.EndTime = float64(endTime.Unix())
+		}
 	}
 }
