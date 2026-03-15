@@ -16,13 +16,18 @@ import (
 // AWS DynamoDB expires tokens after 10 minutes.
 const txnTokenTTL = 10 * time.Minute
 
+// txnPendingTTL is the maximum time an in-progress idempotency token is retained.
+// Entries older than this are considered orphaned (e.g. due to a crash) and are
+// removed by the janitor so the token can be reused.
+const txnPendingTTL = 5 * time.Minute
+
 // InMemoryDB stores tables and items organized by region.
 type InMemoryDB struct {
 	Tables               map[string]map[string]*Table
 	deletingTables       map[string]map[string]*Table
 	Backups              map[string]*Backup   // backupARN → Backup
 	txnTokens            map[string]time.Time // committed idempotency tokens → expiry time
-	txnPending           map[string]struct{}  // in-progress idempotency tokens
+	txnPending           map[string]time.Time // in-progress idempotency tokens → start time
 	streamARNIndex       map[string]*Table    // streamARN → Table (reverse index)
 	fisReplicationPaused map[string]time.Time // keyed by table ARN; value is expiry (zero = no expiry)
 	exprCache            *ExpressionCache
@@ -103,8 +108,13 @@ type Table struct {
 	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
 	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamSeq              int64
-	PITREnabled            bool `json:"PITREnabled,omitempty"`
-	StreamsEnabled         bool `json:"StreamsEnabled"`
+	// StreamHead is the index of the oldest record in the ring buffer.
+	// Exported for JSON persistence so that snapshot/restore preserves ring-buffer state.
+	// When the ring buffer is not yet full (len(StreamRecords) < maxStreamRecords),
+	// StreamHead is 0 and StreamRecords is in insertion order.
+	StreamHead     int  `json:"StreamHead,omitempty"`
+	PITREnabled    bool `json:"PITREnabled,omitempty"`
+	StreamsEnabled bool `json:"StreamsEnabled"`
 }
 
 func NewInMemoryDB() *InMemoryDB {
@@ -115,7 +125,7 @@ func NewInMemoryDB() *InMemoryDB {
 		deletingTables:       make(map[string]map[string]*Table),
 		Backups:              make(map[string]*Backup),
 		txnTokens:            make(map[string]time.Time),
-		txnPending:           make(map[string]struct{}),
+		txnPending:           make(map[string]time.Time),
 		streamARNIndex:       make(map[string]*Table),
 		fisReplicationPaused: make(map[string]time.Time),
 		exprCache:            NewExpressionCache(exprCacheSize),
@@ -164,11 +174,61 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 		record.NewImage = newImage
 	}
 
-	// Cap at maxStreamRecords (ring buffer — evict oldest)
-	t.StreamRecords = append(t.StreamRecords, record)
-	if len(t.StreamRecords) > maxStreamRecords {
-		t.StreamRecords = t.StreamRecords[len(t.StreamRecords)-maxStreamRecords:]
+	// O(1) ring buffer: pre-allocate once, then overwrite in-place.
+	// When the buffer is not yet full, append normally. Once full, overwrite
+	// the oldest slot (at StreamHead) and advance the head pointer.
+	if len(t.StreamRecords) < maxStreamRecords {
+		t.StreamRecords = append(t.StreamRecords, record)
+	} else {
+		t.StreamRecords[t.StreamHead] = record
+		t.StreamHead = (t.StreamHead + 1) % maxStreamRecords
 	}
+}
+
+// streamSeqRange returns the first and last sequence numbers in the ring buffer
+// without allocating a new slice. Intended for DescribeStream which only needs
+// the range boundaries.
+// Must be called with table.mu held (at least read lock).
+func (t *Table) streamSeqRange() (string, string) {
+	n := len(t.StreamRecords)
+	if n == 0 {
+		return "", ""
+	}
+
+	if n < maxStreamRecords {
+		// Buffer not yet full: records are in insertion order.
+		return t.StreamRecords[0].SequenceNumber, t.StreamRecords[n-1].SequenceNumber
+	}
+
+	// Ring is full: oldest record is at StreamHead, newest is at (StreamHead-1+n) % n.
+	firstIdx := t.StreamHead
+	lastIdx := (t.StreamHead - 1 + maxStreamRecords) % maxStreamRecords
+
+	return t.StreamRecords[firstIdx].SequenceNumber, t.StreamRecords[lastIdx].SequenceNumber
+}
+
+// streamRecordsInOrder returns the two halves of the ring buffer in insertion
+// order as a pair of slices: (tail, head). Callers should iterate tail first,
+// then head. This avoids allocating a new slice on every call.
+//
+// When the buffer is not yet full, tail is the full slice and head is nil.
+// When full, tail is StreamRecords[StreamHead:] (oldest records) and head is
+// StreamRecords[:StreamHead] (newest records that wrapped around).
+//
+// Must be called with table.mu held (at least read lock).
+func (t *Table) streamRecordsInOrder() ([]StreamRecord, []StreamRecord) {
+	n := len(t.StreamRecords)
+	if n == 0 {
+		return nil, nil
+	}
+
+	if n < maxStreamRecords {
+		// Buffer not yet full: already in insertion order.
+		return t.StreamRecords, nil
+	}
+
+	// Ring is full: split at StreamHead.
+	return t.StreamRecords[t.StreamHead:], t.StreamRecords[:t.StreamHead]
 }
 
 func BuildKeyString(item map[string]any, attrName string) string {
@@ -371,7 +431,7 @@ func (db *InMemoryDB) Reset() {
 	db.streamARNIndex = make(map[string]*Table)
 	db.Backups = make(map[string]*Backup)
 	db.txnTokens = make(map[string]time.Time)
-	db.txnPending = make(map[string]struct{})
+	db.txnPending = make(map[string]time.Time)
 	db.fisReplicationPaused = make(map[string]time.Time)
 	db.exprCache = NewExpressionCache(exprCacheSize)
 }
