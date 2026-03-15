@@ -110,10 +110,8 @@ func (b *InMemoryBackend) lookupByNameOrARN(nameOrARN string) (*Project, bool) {
 		return p, true
 	}
 
-	for _, p := range b.projects {
-		if p.Arn == nameOrARN {
-			return p, true
-		}
+	if name, ok := b.projectARNIndex[nameOrARN]; ok {
+		return b.projects[name], true
 	}
 
 	return nil, false

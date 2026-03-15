@@ -154,6 +154,44 @@ func TestDeleteProject_CleanupBuilds(t *testing.T) {
 	assert.Equal(t, 0, backend.BuildCount(), "all builds should be removed after project deletion")
 }
 
+// TestJanitor_SweepCleansARNIndex verifies that sweeping builds also removes
+// their entries from the buildARNIndex so tag operations on evicted builds
+// return ErrNotFound instead of looking up a deleted resource.
+func TestJanitor_SweepCleansARNIndex(t *testing.T) {
+	t.Parallel()
+
+	backend := newTestBackend(t)
+
+	_, err := backend.CreateProject(
+		"proj",
+		"",
+		codebuild.ProjectSource{Type: "NO_SOURCE"},
+		codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"},
+		codebuild.ProjectEnvironment{Type: "LINUX_CONTAINER", Image: "img", ComputeType: "BUILD_GENERAL1_SMALL"},
+		"",
+		nil,
+	)
+	require.NoError(t, err)
+
+	build, err := backend.StartBuild("proj")
+	require.NoError(t, err)
+
+	// Mark build as terminal and past the TTL.
+	backend.SetBuildEndTime(build.ID, "SUCCEEDED", time.Now().Add(-25*time.Hour))
+
+	assert.Equal(t, 1, backend.BuildARNIndexSize(), "ARN index should have 1 entry before sweep")
+
+	janitor := codebuild.NewJanitor(backend, time.Hour, 24*time.Hour)
+	janitor.SweepOnce(t.Context())
+
+	assert.Equal(t, 0, backend.BuildCount(), "build should be evicted")
+	assert.Equal(t, 0, backend.BuildARNIndexSize(), "ARN index should be empty after sweep")
+
+	// Tag op on the evicted build's ARN must return ErrNotFound.
+	err = backend.TagResource(build.Arn, map[string]string{"key": "val"})
+	require.ErrorIs(t, err, codebuild.ErrNotFound)
+}
+
 // TestJanitor_RunContext verifies that the janitor stops when context is cancelled.
 func TestCodeBuildJanitor_RunContext(t *testing.T) {
 	t.Parallel()
