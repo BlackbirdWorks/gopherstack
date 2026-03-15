@@ -29,7 +29,7 @@ func (w *ResponseWriter) WriteHeader(code int) {
 // consistent with the behaviour of the standard library's ResponseWriter.
 func (w *ResponseWriter) Write(b []byte) (int, error) {
 	if w.statusCode == 0 {
-		w.statusCode = http.StatusOK
+		w.WriteHeader(http.StatusOK)
 	}
 
 	return w.ResponseWriter.Write(b)

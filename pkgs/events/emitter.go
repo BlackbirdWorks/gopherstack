@@ -28,11 +28,15 @@ type InMemoryEmitter[T Event] struct {
 
 // NewInMemoryEmitter creates a new in-memory event emitter.
 func NewInMemoryEmitter[T Event]() *InMemoryEmitter[T] {
-	return &InMemoryEmitter[T]{
+	e := &InMemoryEmitter[T]{
 		listeners: make([]listenerEntry[T], 0),
 		nextID:    1,
-		mu:        lockmetrics.New("events.emitter"),
 	}
+	// Use the emitter's pointer address as a unique lock name so that Close()
+	// on one emitter cannot remove metric series belonging to another.
+	e.mu = lockmetrics.New(fmt.Sprintf("events.emitter.%p", e))
+
+	return e
 }
 
 // Emit broadcasts an event to all subscribers synchronously.
@@ -111,4 +115,11 @@ func (e *InMemoryEmitter[T]) Clear() {
 	e.mu.Lock("Clear")
 	defer e.mu.Unlock()
 	e.listeners = e.listeners[:0]
+}
+
+// Close releases the Prometheus metric series associated with the emitter's
+// internal lock. Call Close when the emitter is no longer needed to prevent
+// metric leaks.
+func (e *InMemoryEmitter[T]) Close() {
+	e.mu.Close()
 }

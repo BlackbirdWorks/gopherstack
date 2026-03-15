@@ -258,3 +258,34 @@ func TestInMemoryEmitter_UnsubscribePreservesOthers(t *testing.T) {
 	assert.NotContains(t, calls, 2, "unsubscribed listener should not be called")
 	assert.Len(t, calls, 2, "remaining two listeners should be called")
 }
+
+func TestInMemoryEmitter_Close(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(*events.InMemoryEmitter[*events.TableCreatedEvent])
+		name  string
+	}{
+		{name: "close_idle"},
+		{
+			name: "close_after_subscribe_and_emit",
+			setup: func(e *events.InMemoryEmitter[*events.TableCreatedEvent]) {
+				e.Subscribe(func(_ context.Context, _ *events.TableCreatedEvent) error { return nil })
+				_ = e.Emit(t.Context(), &events.TableCreatedEvent{Table: "t"})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			emitter := events.NewInMemoryEmitter[*events.TableCreatedEvent]()
+			if tt.setup != nil {
+				tt.setup(emitter)
+			}
+
+			emitter.Close() // must not panic
+		})
+	}
+}

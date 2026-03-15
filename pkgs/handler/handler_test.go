@@ -89,6 +89,7 @@ func TestResponseWriter(t *testing.T) {
 		name           string
 		expectedBody   string
 		expectedStatus int
+		wantNosniff    bool
 	}{
 		{
 			name:           "No action yields zero status",
@@ -101,6 +102,7 @@ func TestResponseWriter(t *testing.T) {
 				rw.WriteHeader(http.StatusCreated)
 			},
 			expectedStatus: http.StatusCreated,
+			wantNosniff:    true,
 		},
 		{
 			name: "Write sets OK if not set",
@@ -109,6 +111,7 @@ func TestResponseWriter(t *testing.T) {
 			},
 			expectedStatus: http.StatusOK,
 			expectedBody:   "hello",
+			wantNosniff:    true,
 		},
 		{
 			name: "WriteHeader before Write preserves status",
@@ -118,6 +121,7 @@ func TestResponseWriter(t *testing.T) {
 			},
 			expectedStatus: http.StatusCreated,
 			expectedBody:   "created",
+			wantNosniff:    true,
 		},
 	}
 
@@ -130,6 +134,10 @@ func TestResponseWriter(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, rw.StatusCode())
 			if tt.expectedBody != "" {
 				assert.Equal(t, tt.expectedBody, rec.Body.String())
+			}
+			if tt.wantNosniff {
+				assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"),
+					"X-Content-Type-Options: nosniff must be set on all responses")
 			}
 		})
 	}
