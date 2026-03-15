@@ -245,25 +245,37 @@ func (b *InMemoryBackend) ImportCertificate(certBody, privateKey, certChain stri
 // extending its validity by one year. Returns ErrNotEligible for IMPORTED certificates,
 // as AWS ACM does not support renewing imported certificates.
 func (b *InMemoryBackend) RenewCertificate(certARN string) error {
-	b.mu.Lock("RenewCertificate")
-	defer b.mu.Unlock()
-
+	b.mu.RLock("RenewCertificate")
 	cert, ok := b.certs[certARN]
+	var certType, domainName string
+	var sans []string
+	if ok {
+		certType = cert.Type
+		domainName = cert.DomainName
+		sans = cert.SubjectAlternativeNames
+	}
+	b.mu.RUnlock()
+
 	if !ok {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
 
-	if cert.Type == "IMPORTED" {
+	if certType == "IMPORTED" {
 		return fmt.Errorf("%w: only AMAZON_ISSUED certificates can be renewed", ErrNotEligible)
 	}
 
-	certBody, privateKey, err := generateSelfSignedCert(cert.DomainName, cert.SubjectAlternativeNames)
+	certBody, privateKey, err := generateSelfSignedCert(domainName, sans)
 	if err != nil {
 		return fmt.Errorf("failed to regenerate certificate: %w", err)
 	}
 
-	cert.CertificateBody = certBody
-	cert.PrivateKey = privateKey
+	b.mu.Lock("RenewCertificate")
+	defer b.mu.Unlock()
+
+	if c, exists := b.certs[certARN]; exists {
+		c.CertificateBody = certBody
+		c.PrivateKey = privateKey
+	}
 
 	return nil
 }

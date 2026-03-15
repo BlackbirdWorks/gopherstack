@@ -19,6 +19,8 @@ import (
 
 // ---- helpers ----------------------------------------------------------------
 
+var errSimulatedCreate = errors.New("simulated queue creation failure")
+
 func newBackend() *cloudformation.InMemoryBackend {
 	return cloudformation.NewInMemoryBackendWithConfig(
 		"000000000000",
@@ -459,7 +461,7 @@ func TestBackend_UpdateStack_RollbackOnCreationFailure(t *testing.T) {
 	// Inject a hook that fails when creating the new SQS queue.
 	b.GetCreator().InjectCreateHook(func(resourceType string) error {
 		if resourceType == "AWS::SQS::Queue" {
-			return errors.New("simulated queue creation failure") //nolint:err113 // test-only sentinel
+			return errSimulatedCreate
 		}
 
 		return nil
