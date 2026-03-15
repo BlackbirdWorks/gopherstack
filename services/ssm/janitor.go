@@ -49,7 +49,7 @@ func (j *Janitor) Run(ctx context.Context) {
 // together with their associated invocations.
 func (j *Janitor) sweepExpiredCommands(ctx context.Context) {
 	b := j.Backend
-	now := float64(time.Now().Unix())
+	now := UnixTimeFloat(time.Now())
 
 	b.mu.Lock("SSMJanitor")
 

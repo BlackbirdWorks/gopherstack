@@ -73,7 +73,16 @@ func TestInMemoryBackend_DeleteCleansHistory(t *testing.T) {
 			})
 			require.NoError(t, err)
 
+			// Add a tag so we can verify it gets cleaned up on delete.
+			err = b.AddTagsToResource(&ssm.AddTagsToResourceInput{
+				ResourceType: "Parameter",
+				ResourceID:   paramName,
+				Tags:         []ssm.Tag{{Key: "env", Value: "test"}},
+			})
+			require.NoError(t, err)
+
 			assert.Equal(t, 2, b.HistoryLen(paramName))
+			assert.True(t, b.HasTagEntry(paramName), "tag entry should exist before delete")
 
 			if tt.name == "single_delete" {
 				_, err = b.DeleteParameter(&ssm.DeleteParameterInput{Name: paramName})
@@ -83,6 +92,22 @@ func TestInMemoryBackend_DeleteCleansHistory(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, 0, b.HistoryLen(paramName))
+			assert.False(t, b.HasTagEntry(paramName), "tag entry should be removed after delete")
+
+			// Re-create the parameter and confirm no stale tags bleed through.
+			_, err = b.PutParameter(&ssm.PutParameterInput{
+				Name:  paramName,
+				Type:  "String",
+				Value: "fresh",
+			})
+			require.NoError(t, err)
+
+			tagsOut, err := b.ListTagsForResource(&ssm.ListTagsForResourceInput{
+				ResourceType: "Parameter",
+				ResourceID:   paramName,
+			})
+			require.NoError(t, err)
+			assert.Empty(t, tagsOut.TagList, "no stale tags should appear on recreated parameter")
 		})
 	}
 }

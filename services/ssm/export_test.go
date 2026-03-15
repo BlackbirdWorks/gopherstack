@@ -40,3 +40,12 @@ func (b *InMemoryBackend) SetCommandExpiresAfter(cmdID string, expiresAfter floa
 		b.commands[cmdID] = cmd
 	}
 }
+
+// HasTagEntry reports whether the tags map contains an entry for the given parameter name.
+// Returns false when the parameter's tag entry has been cleaned up (nil or absent).
+func (b *InMemoryBackend) HasTagEntry(name string) bool {
+	b.mu.RLock("HasTagEntry")
+	defer b.mu.RUnlock()
+
+	return b.tags[name] != nil
+}
