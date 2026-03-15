@@ -54,6 +54,7 @@ var (
 // Instance represents an EC2 instance (metadata only, no actual compute).
 type Instance struct {
 	LaunchTime     time.Time     `json:"launchTime"`
+	TerminatedAt   time.Time     `json:"terminatedAt"`
 	State          InstanceState `json:"state"`
 	ID             string        `json:"id"`
 	InstanceType   string        `json:"instanceType"`
@@ -289,6 +290,8 @@ func (b *InMemoryBackend) DescribeInstances(ids []string, state string) []*Insta
 
 // TerminateInstances transitions instances to shutting-down then terminated.
 // Returns the previous and current state for each instance.
+// Terminated instances remain visible (matching AWS ~1 hour grace period)
+// until the janitor sweeps them.
 func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChange, error) {
 	b.mu.Lock("TerminateInstances")
 	defer b.mu.Unlock()
@@ -305,6 +308,7 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 		// AWS state machine: any state → shutting-down → terminated.
 		// The mock completes this transition immediately.
 		inst.State = StateTerminated
+		inst.TerminatedAt = time.Now()
 		result = append(result, &InstanceStateChange{
 			InstanceID:    id,
 			PreviousState: prev,
@@ -382,6 +386,7 @@ func (b *InMemoryBackend) DeleteSecurityGroup(id string) error {
 	}
 
 	delete(b.securityGroups, id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -439,6 +444,7 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 	}
 
 	delete(b.vpcs, id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -510,6 +516,7 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	}
 
 	delete(b.subnets, id)
+	delete(b.tags, id)
 
 	return nil
 }

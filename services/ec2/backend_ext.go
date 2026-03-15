@@ -550,6 +550,7 @@ func (b *InMemoryBackend) DeleteVolume(id string) error {
 	}
 
 	delete(b.volumes, id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -670,6 +671,7 @@ func (b *InMemoryBackend) ReleaseAddress(allocationID string) error {
 	}
 
 	delete(b.addresses, allocationID)
+	delete(b.tags, allocationID)
 
 	return nil
 }
@@ -723,6 +725,7 @@ func (b *InMemoryBackend) DeleteInternetGateway(id string) error {
 	}
 
 	delete(b.internetGateways, id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -822,6 +825,7 @@ func (b *InMemoryBackend) DeleteRouteTable(id string) error {
 	}
 
 	delete(b.routeTables, id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -972,6 +976,7 @@ func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	}
 
 	delete(b.natGateways, id)
+	delete(b.tags, id)
 
 	return nil
 }
@@ -1131,6 +1136,7 @@ func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
 	}
 
 	delete(b.networkInterfaces, id)
+	delete(b.tags, id)
 
 	return nil
 }
