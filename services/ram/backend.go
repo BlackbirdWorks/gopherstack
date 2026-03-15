@@ -238,13 +238,28 @@ func (b *InMemoryBackend) DeleteResourceShare(shareARN string) error {
 		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
 
-	rs.Status = statusDeleted
-	rs.LastUpdatedTime = time.Now()
+	delete(b.resourceShares, shareARN)
+
+	// Remove all associations that belonged to this share. Nil the truncated
+	// tail slots so the GC can collect the removed association objects.
+	kept := b.associations[:0]
+	for _, a := range b.associations {
+		if a.ResourceShareARN != shareARN {
+			kept = append(kept, a)
+		}
+	}
+
+	for i := len(kept); i < len(b.associations); i++ {
+		b.associations[i] = nil
+	}
+
+	b.associations = kept
 
 	return nil
 }
 
 // AssociateResourceShare associates principals or resource ARNs with a resource share.
+// Entities that are already associated are silently skipped (idempotent), matching AWS behavior.
 // Returns deep copies of the new associations so callers cannot mutate backend state.
 func (b *InMemoryBackend) AssociateResourceShare(
 	shareARN string,
@@ -258,10 +273,24 @@ func (b *InMemoryBackend) AssociateResourceShare(
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
 
+	// Build a set of already-associated entities for O(1) deduplication.
+	// We don't know how many belong to this share without scanning first,
+	// so we start with no hint and let the map grow naturally.
+	existing := make(map[string]struct{})
+	for _, a := range b.associations {
+		if a.ResourceShareARN == shareARN {
+			existing[a.AssociatedEntity] = struct{}{}
+		}
+	}
+
 	now := time.Now()
 	added := make([]*ResourceShareAssociation, 0, len(principals)+len(resourceARNs))
 
 	for _, p := range principals {
+		if _, dup := existing[p]; dup {
+			continue
+		}
+
 		assoc := &ResourceShareAssociation{
 			ResourceShareARN:  shareARN,
 			ResourceShareName: rs.Name,
@@ -276,6 +305,10 @@ func (b *InMemoryBackend) AssociateResourceShare(
 	}
 
 	for _, r := range resourceARNs {
+		if _, dup := existing[r]; dup {
+			continue
+		}
+
 		assoc := &ResourceShareAssociation{
 			ResourceShareARN:  shareARN,
 			ResourceShareName: rs.Name,
@@ -315,17 +348,31 @@ func (b *InMemoryBackend) DisassociateResourceShare(
 		toRemove[r] = struct{}{}
 	}
 
-	updated := make([]*ResourceShareAssociation, 0, len(toRemove))
+	var updated []*ResourceShareAssociation
+
+	kept := b.associations[:0]
 
 	for _, a := range b.associations {
 		if a.ResourceShareARN == shareARN {
 			if _, found := toRemove[a.AssociatedEntity]; found {
-				a.Status = associationStatusDisassociated
-				a.LastUpdatedTime = time.Now()
-				updated = append(updated, cloneAssociation(a))
+				cp := cloneAssociation(a)
+				cp.Status = associationStatusDisassociated
+				cp.LastUpdatedTime = time.Now()
+				updated = append(updated, cp)
+
+				continue
 			}
 		}
+
+		kept = append(kept, a)
 	}
+
+	// Nil the truncated tail slots so the GC can collect the removed associations.
+	for i := len(kept); i < len(b.associations); i++ {
+		b.associations[i] = nil
+	}
+
+	b.associations = kept
 
 	_ = rs // share lookup above ensures we return NotFound for deleted shares
 
@@ -349,10 +396,6 @@ func (b *InMemoryBackend) GetResourceShareAssociations(
 	result := make([]*ResourceShareAssociation, 0)
 
 	for _, a := range b.associations {
-		if a.Status == associationStatusDisassociated {
-			continue
-		}
-
 		if associationType != "" && a.AssociationType != associationType {
 			continue
 		}
@@ -424,4 +467,14 @@ func mergeTags(existing, incoming map[string]string) map[string]string {
 	maps.Copy(result, incoming)
 
 	return result
+}
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.resourceShares = make(map[string]*ResourceShare)
+	b.associations = make([]*ResourceShareAssociation, 0)
 }

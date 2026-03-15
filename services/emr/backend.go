@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sync/atomic"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -24,6 +25,10 @@ const (
 	StateTerminated = "TERMINATED"
 	// StateTerminatedWithErrors is the final cluster state for a failed termination.
 	StateTerminatedWithErrors = "TERMINATED_WITH_ERRORS"
+
+	// Timeline keys used in ClusterStatus.Timeline.
+	timelineKeyCreation = "CreationDateTime"
+	timelineKeyEnd      = "EndDateTime"
 )
 
 // ClusterStatus holds the status fields for a Cluster.
@@ -73,6 +78,7 @@ type EC2InstanceAttributes struct{}
 
 // Cluster represents an EMR cluster.
 type Cluster struct {
+	TerminatedAt          time.Time              `json:"TerminatedAt,omitzero"`
 	Status                ClusterStatus          `json:"Status"`
 	ID                    string                 `json:"Id"`
 	Name                  string                 `json:"Name"`
@@ -164,7 +170,7 @@ func (b *InMemoryBackend) RunJobFlow(
 		Status: ClusterStatus{
 			State:             StateWaiting,
 			StateChangeReason: map[string]any{"Code": "USER_REQUEST", "Message": ""},
-			Timeline:          map[string]any{"CreationDateTime": 0},
+			Timeline:          map[string]any{timelineKeyCreation: 0},
 		},
 		Tags:           tagsCopy,
 		instanceGroups: groups,
@@ -235,6 +241,7 @@ func (b *InMemoryBackend) ListClusters() []ClusterSummary {
 }
 
 // TerminateJobFlows marks the specified clusters as TERMINATED and removes them from active listing.
+// Clusters that are already in a terminal state are silently skipped, matching AWS behavior.
 func (b *InMemoryBackend) TerminateJobFlows(ids []string) error {
 	b.mu.Lock("TerminateJobFlows")
 	defer b.mu.Unlock()
@@ -245,7 +252,15 @@ func (b *InMemoryBackend) TerminateJobFlows(ids []string) error {
 			return fmt.Errorf("%w: cluster %s not found", ErrNotFound, id)
 		}
 
+		// AWS is idempotent: terminating an already-terminal cluster is a no-op.
+		if cluster.Status.State == StateTerminated || cluster.Status.State == StateTerminatedWithErrors {
+			continue
+		}
+
+		now := time.Now()
 		cluster.Status.State = StateTerminated
+		cluster.Status.Timeline[timelineKeyEnd] = now.UnixMilli()
+		cluster.TerminatedAt = now
 	}
 
 	return nil
@@ -356,4 +371,14 @@ func mapToTags(m map[string]string) []Tag {
 	}
 
 	return tags
+}
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.clusters = make(map[string]*Cluster)
+	b.counter.Store(0)
 }
