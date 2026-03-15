@@ -335,3 +335,43 @@ func (db *InMemoryDB) TaggedTables() []TaggedTableInfo {
 
 	return result
 }
+
+// Reset clears all in-memory state from the database. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (db *InMemoryDB) Reset() {
+	const exprCacheSize = 1000
+
+	db.mu.Lock("Reset")
+	defer db.mu.Unlock()
+
+	// Stop activation timers and close mutex metrics for existing tables
+	// (both active and deleting) to avoid goroutine leaks and metric registry leaks.
+	for _, regionTables := range db.Tables {
+		for _, table := range regionTables {
+			if table.activateTimer != nil {
+				table.activateTimer.Stop()
+			}
+
+			table.mu.Close()
+		}
+	}
+
+	for _, regionTables := range db.deletingTables {
+		for _, table := range regionTables {
+			if table.activateTimer != nil {
+				table.activateTimer.Stop()
+			}
+
+			table.mu.Close()
+		}
+	}
+
+	db.Tables = make(map[string]map[string]*Table)
+	db.deletingTables = make(map[string]map[string]*Table)
+	db.streamARNIndex = make(map[string]*Table)
+	db.Backups = make(map[string]*Backup)
+	db.txnTokens = make(map[string]time.Time)
+	db.txnPending = make(map[string]struct{})
+	db.fisReplicationPaused = make(map[string]time.Time)
+	db.exprCache = NewExpressionCache(exprCacheSize)
+}

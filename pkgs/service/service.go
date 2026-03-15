@@ -114,6 +114,14 @@ type BackgroundWorker interface {
 	StartWorker(ctx context.Context) error
 }
 
+// Resettable is an optional interface that services can implement to support
+// clearing all in-memory state without restarting the process. Used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+// Services that do not implement this interface are silently skipped during reset.
+type Resettable interface {
+	Reset()
+}
+
 // FISParamDef describes a single parameter accepted by a FIS action.
 type FISParamDef struct {
 	Name        string
