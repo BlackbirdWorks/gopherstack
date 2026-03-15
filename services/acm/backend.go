@@ -35,6 +35,8 @@ const (
 	validationTokenLen      = 8
 	autoValidateDelayMS     = 100
 	randByteDivisor         = 2
+	certTypeImported        = "IMPORTED"
+	certValidityDuration    = 365 * 24 * time.Hour
 )
 
 // ResourceRecord holds the CNAME record used for DNS certificate validation.
@@ -56,10 +58,13 @@ type DomainValidationOption struct {
 // Certificate represents an ACM certificate.
 type Certificate struct {
 	CreatedAt               time.Time                `json:"createdAt"`
+	NotBefore               time.Time                `json:"notBefore"`
+	NotAfter                time.Time                `json:"notAfter"`
 	ARN                     string                   `json:"arn"`
 	DomainName              string                   `json:"domainName"`
 	Status                  string                   `json:"status"`
 	Type                    string                   `json:"type"`
+	RenewalEligibility      string                   `json:"renewalEligibility,omitempty"`
 	ValidationMethod        string                   `json:"validationMethod,omitempty"`
 	CertificateBody         string                   `json:"certificateBody,omitempty"`
 	CertificateChain        string                   `json:"certificateChain,omitempty"`
@@ -67,6 +72,11 @@ type Certificate struct {
 	SubjectAlternativeNames []string                 `json:"subjectAlternativeNames,omitempty"`
 	DomainValidationOptions []DomainValidationOption `json:"domainValidationOptions,omitempty"`
 }
+
+const (
+	renewalEligibilityEligible   = "ELIGIBLE"
+	renewalEligibilityIneligible = "INELIGIBLE"
+)
 
 // InMemoryBackend is the in-memory store for ACM certificates.
 type InMemoryBackend struct {
@@ -100,7 +110,7 @@ func (b *InMemoryBackend) RequestCertificate(
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
-	certBody, privateKey, err := generateSelfSignedCert(domainName, sans)
+	certBody, privateKey, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate certificate: %w", err)
 	}
@@ -113,6 +123,11 @@ func (b *InMemoryBackend) RequestCertificate(
 
 	if certType == "" {
 		certType = "AMAZON_ISSUED"
+	}
+
+	renewalEligibility := renewalEligibilityEligible
+	if certType == certTypeImported {
+		renewalEligibility = renewalEligibilityIneligible
 	}
 
 	status := statusIssued
@@ -144,12 +159,15 @@ func (b *InMemoryBackend) RequestCertificate(
 		DomainName:              domainName,
 		Status:                  status,
 		Type:                    certType,
+		RenewalEligibility:      renewalEligibility,
 		ValidationMethod:        validationMethod,
 		SubjectAlternativeNames: sans,
 		DomainValidationOptions: dvoList,
 		CertificateBody:         certBody,
 		PrivateKey:              privateKey,
 		CreatedAt:               time.Now().UTC(),
+		NotBefore:               notBefore,
+		NotAfter:                notAfter,
 	}
 	b.certs[certARN] = cert
 
@@ -213,7 +231,7 @@ func (b *InMemoryBackend) ImportCertificate(certBody, privateKey, certChain stri
 		return nil, fmt.Errorf("%w: PrivateKey is required", ErrInvalidParameter)
 	}
 
-	domainName, err := extractCNFromPEM(certBody)
+	domainName, notBefore, notAfter, err := extractCertMetadata(certBody)
 	if err != nil {
 		domainName = "imported"
 	}
@@ -225,14 +243,17 @@ func (b *InMemoryBackend) ImportCertificate(certBody, privateKey, certChain stri
 	certARN := arn.Build("acm", b.region, b.accountID, "certificate/"+id)
 
 	cert := &Certificate{
-		ARN:              certARN,
-		DomainName:       domainName,
-		Status:           "ISSUED",
-		Type:             "IMPORTED",
-		CertificateBody:  certBody,
-		CertificateChain: certChain,
-		PrivateKey:       privateKey,
-		CreatedAt:        time.Now().UTC(),
+		ARN:                certARN,
+		DomainName:         domainName,
+		Status:             "ISSUED",
+		Type:               certTypeImported,
+		RenewalEligibility: renewalEligibilityIneligible,
+		CertificateBody:    certBody,
+		CertificateChain:   certChain,
+		PrivateKey:         privateKey,
+		CreatedAt:          time.Now().UTC(),
+		NotBefore:          notBefore,
+		NotAfter:           notAfter,
 	}
 	b.certs[certARN] = cert
 
@@ -262,11 +283,11 @@ func (b *InMemoryBackend) RenewCertificate(certARN string) error {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
 
-	if certType == "IMPORTED" {
+	if certType == certTypeImported {
 		return fmt.Errorf("%w: only AMAZON_ISSUED certificates can be renewed", ErrNotEligible)
 	}
 
-	certBody, privateKey, err := generateSelfSignedCert(domainName, sans)
+	certBody, privateKey, notBefore, notAfter, err := generateSelfSignedCert(domainName, sans)
 	if err != nil {
 		return fmt.Errorf("failed to regenerate certificate: %w", err)
 	}
@@ -281,6 +302,8 @@ func (b *InMemoryBackend) RenewCertificate(certARN string) error {
 
 	c.CertificateBody = certBody
 	c.PrivateKey = privateKey
+	c.NotBefore = notBefore
+	c.NotAfter = notAfter
 
 	return nil
 }
@@ -296,7 +319,7 @@ func (b *InMemoryBackend) ExportCertificate(certARN string) (*Certificate, error
 		return nil, fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, certARN)
 	}
 
-	if cert.Type != "IMPORTED" && cert.Type != "PRIVATE" {
+	if cert.Type != certTypeImported && cert.Type != "PRIVATE" {
 		return nil, fmt.Errorf("%w: only IMPORTED or PRIVATE certificates can be exported", ErrNotEligible)
 	}
 
@@ -417,64 +440,73 @@ func randHex(n int) (string, error) {
 }
 
 // generateSelfSignedCert generates a self-signed ECDSA P-256 certificate for
-// the given domain (and optional SANs) and returns PEM-encoded certificate and private key.
-func generateSelfSignedCert(domainName string, sans []string) (string, string, error) {
+// the given domain (and optional SANs) and returns PEM-encoded certificate,
+// private key, and the certificate's NotBefore/NotAfter validity times.
+func generateSelfSignedCert(
+	domainName string,
+	sans []string,
+) (string, string, time.Time, time.Time, error) {
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
 	if err != nil {
-		return "", "", fmt.Errorf("generate key: %w", err)
+		return "", "", time.Time{}, time.Time{}, fmt.Errorf("generate key: %w", err)
 	}
 
 	serialBytes := make([]byte, 16) //nolint:mnd // 128-bit random serial
 	if _, err = cryptorand.Read(serialBytes); err != nil {
-		return "", "", fmt.Errorf("generate serial: %w", err)
+		return "", "", time.Time{}, time.Time{}, fmt.Errorf("generate serial: %w", err)
 	}
 
 	serial := new(big.Int).SetBytes(serialBytes)
 
 	dnsNames := append([]string{domainName}, sans...)
 
+	notBefore := time.Now().UTC().Truncate(time.Second)
+	notAfter := notBefore.Add(certValidityDuration)
+
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: domainName},
 		DNSNames:     dnsNames,
-		NotBefore:    time.Now(),
-		NotAfter:     time.Now().Add(365 * 24 * time.Hour),
+		NotBefore:    notBefore,
+		NotAfter:     notAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 
 	certDER, err := x509.CreateCertificate(cryptorand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
 	if err != nil {
-		return "", "", fmt.Errorf("create certificate: %w", err)
+		return "", "", time.Time{}, time.Time{}, fmt.Errorf("create certificate: %w", err)
 	}
 
 	certPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER}))
 
 	keyDER, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
-		return "", "", fmt.Errorf("marshal key: %w", err)
+		return "", "", time.Time{}, time.Time{}, fmt.Errorf("marshal key: %w", err)
 	}
 
 	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
 
-	return certPEM, keyPEM, nil
+	return certPEM, keyPEM, notBefore, notAfter, nil
 }
 
-// extractCNFromPEM parses a PEM-encoded certificate and returns the CommonName.
-func extractCNFromPEM(certPEM string) (string, error) {
+// extractCertMetadata parses a PEM-encoded certificate and returns the primary
+// domain name (first SAN or CN), NotBefore, and NotAfter.
+func extractCertMetadata(certPEM string) (string, time.Time, time.Time, error) {
 	block, _ := pem.Decode([]byte(certPEM))
 	if block == nil {
-		return "", errInvalidPEM
+		return "", time.Time{}, time.Time{}, errInvalidPEM
 	}
 
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return "", fmt.Errorf("parse certificate: %w", err)
+		return "", time.Time{}, time.Time{}, fmt.Errorf("parse certificate: %w", err)
 	}
 
+	domainName := cert.Subject.CommonName
 	if len(cert.DNSNames) > 0 {
-		return cert.DNSNames[0], nil
+		domainName = cert.DNSNames[0]
 	}
 
-	return cert.Subject.CommonName, nil
+	return domainName, cert.NotBefore.UTC(), cert.NotAfter.UTC(), nil
 }

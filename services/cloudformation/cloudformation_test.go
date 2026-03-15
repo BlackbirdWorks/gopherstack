@@ -399,6 +399,13 @@ func TestBackend_UpdateStack(t *testing.T) {
 		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}},` +
 		`"NewQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
 
+	// Templates used by the stale-resource deletion test case.
+	withBucketAndQueue := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}},` +
+		`"OldQueue":{"Type":"AWS::SQS::Queue","Properties":{}}}}`
+	bucketOnly := `{"AWSTemplateFormatVersion":"2010-09-09","Resources":{` +
+		`"MyBucket":{"Type":"AWS::S3::Bucket","Properties":{}}}}`
+
 	tests := []struct {
 		name            string
 		setup           func(t *testing.T, b *cloudformation.InMemoryBackend)
@@ -446,6 +453,19 @@ func TestBackend_UpdateStack(t *testing.T) {
 			wantStatus:      "UPDATE_ROLLBACK_COMPLETE",
 			wantResources:   []string{"MyBucket"},
 			wantNoResources: []string{"NewQueue"},
+		},
+		{
+			name: "stale_resources_deleted",
+			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateStack(t.Context(), "stale-stack", withBucketAndQueue, nil, nil)
+				require.NoError(t, err)
+			},
+			stackName:       "stale-stack",
+			updateTemplate:  bucketOnly,
+			wantStatus:      "UPDATE_COMPLETE",
+			wantResources:   []string{"MyBucket"},
+			wantNoResources: []string{"OldQueue"},
 		},
 	}
 

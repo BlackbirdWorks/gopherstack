@@ -526,6 +526,8 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 // updateResources reconciles existing resources and creates newly declared ones.
 // On creation failure it rolls back: newly-created resources are deleted and
 // previously-existing resources are restored to their pre-update state.
+// Stale resources (present in the stack but absent from the new template) are
+// deleted after all new resources are created successfully.
 // Returns true on success; on failure it sets stack.StackStatus to
 // UPDATE_ROLLBACK_COMPLETE and returns false.
 func (b *InMemoryBackend) updateResources(
@@ -582,6 +584,26 @@ func (b *InMemoryBackend) updateResources(
 			b.addEvent(stack.StackID, stack.StackName, logicalID, physicalID, res.Type, statusCreateComplete, "")
 			created = append(created, logicalID)
 		}
+	}
+
+	// Delete stale resources — logical IDs present in the stack before the
+	// update but absent from the new template. This matches real AWS behavior
+	// where UpdateStack removes resources that are no longer in the template.
+	var stale []string
+	for logicalID := range b.resources[stack.StackID] {
+		if _, inTemplate := tmpl.Resources[logicalID]; !inTemplate {
+			stale = append(stale, logicalID)
+		}
+	}
+
+	sort.Strings(stale)
+
+	for _, logicalID := range stale {
+		res := b.resources[stack.StackID][logicalID]
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteInProgress, "")
+		_ = b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties)
+		b.addEvent(stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type, statusDeleteComplete, "")
+		delete(b.resources[stack.StackID], logicalID)
 	}
 
 	return true
