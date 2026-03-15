@@ -380,6 +380,14 @@ func (b *InMemoryBackend) PutObject(
 		IsLatest:           true,
 	}
 
+	// Acquire obj.mu while bucket.mu is still held so there is no window in
+	// which a concurrent DeleteObject can close obj.mu before we lock it (the
+	// original TOCTOU fix). Holding obj.mu also serializes version-map mutations
+	// with readers (GetObject/HeadObject/ListObjects) that acquire obj.mu.RLock
+	// after releasing bucket.mu.
+	obj.mu.Lock("PutObject")
+	bucket.mu.Unlock()
+
 	for _, v := range obj.Versions {
 		v.IsLatest = false
 	}
@@ -387,7 +395,7 @@ func (b *InMemoryBackend) PutObject(
 	obj.Versions[newVersionID] = newVersion
 	obj.LatestVersionID = newVersionID
 
-	bucket.mu.Unlock()
+	obj.mu.Unlock()
 
 	// Store tags outside bucket.mu to respect the lock ordering
 	// (b.mu must not be acquired while bucket.mu is held).
@@ -760,32 +768,44 @@ func checkObjectLockForOverwrite(obj *StoredObject) error {
 }
 
 // deleteSpecificVersion removes the specified version from the object.
+// Must be called with bucket.mu held by the caller.
 func deleteSpecificVersion(
 	bucket *StoredBucket,
 	obj *StoredObject,
 	key string,
 	versionID *string,
 ) *s3.DeleteObjectOutput {
-	if _, ok := obj.Versions[*versionID]; ok {
-		delete(obj.Versions, *versionID)
-		if len(obj.Versions) == 0 {
-			delete(bucket.Objects, key)
-			obj.mu.Close()
-		}
-
-		return &s3.DeleteObjectOutput{VersionId: versionID}
+	if _, ok := obj.Versions[*versionID]; !ok {
+		return &s3.DeleteObjectOutput{}
 	}
 
-	return &s3.DeleteObjectOutput{}
+	// Acquire obj.mu to serialize the map deletion with concurrent readers
+	// (GetObject/HeadObject use obj.mu.RLock after releasing bucket.mu).
+	obj.mu.Lock("deleteSpecificVersion")
+	delete(obj.Versions, *versionID)
+	empty := len(obj.Versions) == 0
+	obj.mu.Unlock()
+
+	if empty {
+		// Remove the now-empty object from the bucket map (still under bucket.mu).
+		delete(bucket.Objects, key)
+		obj.mu.Close()
+	}
+
+	return &s3.DeleteObjectOutput{VersionId: versionID}
 }
 
 // deleteLatestVersion deletes the latest version of an object (or marks it deleted if versioning is enabled).
+// Must be called with bucket.mu held by the caller.
 func deleteLatestVersion(bucket *StoredBucket, obj *StoredObject, key string) *s3.DeleteObjectOutput {
 	// Delete latest (Versioning enabled -> add delete marker, Suspended -> delete null version)
 	if bucket.Versioning == types.BucketVersioningStatusEnabled {
 		newVersionID := newObjectVersionID()
 
-		// Create delete marker; mark others as not latest
+		// Acquire obj.mu to serialize the version-map mutation with concurrent
+		// readers that use obj.mu.RLock after releasing bucket.mu.
+		obj.mu.Lock("deleteLatestVersion")
+
 		for _, v := range obj.Versions {
 			v.IsLatest = false
 		}
@@ -799,13 +819,16 @@ func deleteLatestVersion(bucket *StoredBucket, obj *StoredObject, key string) *s
 		obj.Versions[newVersionID] = deleteMarker
 		obj.LatestVersionID = newVersionID // Update cache
 
+		obj.mu.Unlock()
+
 		return &s3.DeleteObjectOutput{
 			DeleteMarker: aws.Bool(true),
 			VersionId:    aws.String(newVersionID),
 		}
 	}
 
-	// Suspended or null: Delete object (or null version)
+	// Suspended or null: Delete object entirely (no version-map mutation needed,
+	// just remove the reference from the bucket map under bucket.mu).
 	delete(bucket.Objects, key)
 	obj.mu.Close()
 
@@ -1630,13 +1653,18 @@ func (b *InMemoryBackend) commitMultipartObject(
 		IsLatest:     true,
 	}
 
+	// Acquire obj.mu while bucket.mu is still held to prevent TOCTOU and to
+	// serialize version-map mutations with concurrent readers (obj.mu.RLock).
+	obj.mu.Lock("CompleteMultipartUpload")
+	bucket.mu.Unlock()
+
 	for _, v := range obj.Versions {
 		v.IsLatest = false
 	}
 	obj.Versions[versionID] = newVersion
 	obj.LatestVersionID = versionID
 
-	bucket.mu.Unlock()
+	obj.mu.Unlock()
 
 	// Store tags outside bucket.mu to respect lock ordering.
 	if tagging != "" {

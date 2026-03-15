@@ -198,7 +198,8 @@ func TestMultipartUpload_TaggingPropagated(t *testing.T) {
 			require.NoError(t, err)
 
 			uploadID := createOut.UploadId
-			partData := bytes.Repeat([]byte("x"), 5*1024*1024) // 5 MiB
+			// The in-memory backend has no minimum part size; use a small payload.
+			partData := bytes.Repeat([]byte("x"), 1024) // 1 KiB
 
 			p1, err := backend.UploadPart(t.Context(), &sdk_s3.UploadPartInput{
 				Bucket:     aws.String("bkt"),

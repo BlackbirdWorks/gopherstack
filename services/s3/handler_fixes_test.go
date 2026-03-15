@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -175,8 +174,8 @@ func TestHandler_MultipartUploadTagging(t *testing.T) {
 			uploadID := initResp.UploadID
 			require.NotEmpty(t, uploadID)
 
-			// Upload one part (>= 5 MiB for a real upload; use a small body for the mock).
-			partBody := strings.Repeat("x", 5*1024*1024)
+			// Upload one part (the in-memory backend has no minimum part size).
+			partBody := strings.Repeat("x", 1024) // 1 KiB is enough for the mock
 			reqPart := httptest.NewRequest(
 				http.MethodPut, "/bkt/obj?partNumber=1&uploadId="+uploadID,
 				strings.NewReader(partBody),
@@ -214,8 +213,6 @@ func TestHandler_MultipartUploadTagging(t *testing.T) {
 			recGet := httptest.NewRecorder()
 			serveS3Handler(handler, recGet, reqGet)
 			assert.Equal(t, http.StatusOK, recGet.Code)
-
-			_, _ = backend, aws.String("") // avoid unused import
 		})
 	}
 }

@@ -445,6 +445,7 @@ func (j *Janitor) collectExpiredKeys(
 
 // isExpiredAndMatches returns true when the object's latest version has expired
 // before expireBefore and satisfies the tag filters (if any).
+// obj.mu is acquired internally so callers need not hold it.
 func isExpiredAndMatches(
 	obj *StoredObject,
 	key, bucketName string,
@@ -452,7 +453,13 @@ func isExpiredAndMatches(
 	tagsByKey map[string][]types.Tag,
 	expireBefore time.Time,
 ) bool {
-	latestMod := latestVersion(obj)
+	// Acquire obj.mu once to read both the modification time and the version ID
+	// atomically; reading LatestVersionID without obj.mu would race with writers
+	// (PutObject/DeleteObject) that update it under obj.mu.Lock.
+	obj.mu.RLock("isExpiredAndMatches")
+	latestMod, latestVID := latestVersionModAndID(obj)
+	obj.mu.RUnlock()
+
 	if latestMod.IsZero() || latestMod.After(expireBefore) {
 		return false
 	}
@@ -461,7 +468,6 @@ func isExpiredAndMatches(
 		return true
 	}
 
-	latestVID := obj.LatestVersionID
 	if latestVID == "" {
 		return false
 	}
@@ -469,6 +475,18 @@ func isExpiredAndMatches(
 	objTags := tagsByKey[bucketName+"/"+key+"/"+latestVID]
 
 	return objectMatchesTags(objTags, tagFilters)
+}
+
+// latestVersionModAndID returns the LastModified time and VersionID of the latest
+// non-deleted version. Must be called with obj.mu held.
+func latestVersionModAndID(obj *StoredObject) (time.Time, string) {
+	for _, ver := range obj.Versions {
+		if ver.IsLatest && !ver.Deleted {
+			return ver.LastModified, ver.VersionID
+		}
+	}
+
+	return time.Time{}, ""
 }
 
 // cleanupEvictedTags removes tag entries for evicted keys from b.tags.
@@ -520,21 +538,6 @@ func objectMatchesTags(objTags []types.Tag, filters []lifecycleTag) bool {
 func tagMatchesFilter(t types.Tag, f lifecycleTag) bool {
 	return t.Key != nil && *t.Key == f.Key &&
 		t.Value != nil && *t.Value == f.Value
-}
-
-// latestVersion returns the LastModified timestamp of the latest non-deleted
-// object version, or the zero time if none exists.
-func latestVersion(obj *StoredObject) time.Time {
-	obj.mu.RLock("latestVersion")
-	defer obj.mu.RUnlock()
-
-	for _, ver := range obj.Versions {
-		if ver.IsLatest && !ver.Deleted {
-			return ver.LastModified
-		}
-	}
-
-	return time.Time{}
 }
 
 // findBucketAcrossRegions returns the bucket and its region for the given bucket name,
