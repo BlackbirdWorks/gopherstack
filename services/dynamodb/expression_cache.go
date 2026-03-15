@@ -102,14 +102,25 @@ func (c *ExpressionCache) Get(key string) (any, bool) {
 
 // Put adds a value to the cache with the configured TTL.
 func (c *ExpressionCache) Put(key string, value any) {
-	shard := c.getShard(key)
-	shard.mu.Lock("Put")
-	defer shard.mu.Unlock()
+	c.putAt(key, value, c.expiresAt())
+}
 
-	var expiresAt time.Time
+// expiresAt returns the expiry time for a new entry based on the cache TTL.
+func (c *ExpressionCache) expiresAt() time.Time {
 	if c.ttl > 0 {
-		expiresAt = time.Now().Add(c.ttl)
+		return time.Now().Add(c.ttl)
 	}
+
+	return time.Time{}
+}
+
+// putAt inserts an entry with an explicit expiresAt timestamp.
+// It is used in tests to create entries with deterministic expiry without
+// relying on wall-clock timing.
+func (c *ExpressionCache) putAt(key string, value any, expiresAt time.Time) {
+	shard := c.getShard(key)
+	shard.mu.Lock("putAt")
+	defer shard.mu.Unlock()
 
 	if elem, elemOk := shard.cache[key]; elemOk {
 		shard.lru.MoveToFront(elem)
@@ -138,6 +149,27 @@ func (c *ExpressionCache) Sweep() {
 	for _, shard := range c.shards {
 		shard.sweepExpired(now)
 	}
+}
+
+// sweepBefore removes entries whose TTL expired before cutoff.
+// Unlike Sweep, it accepts a caller-supplied cutoff so tests can exercise
+// deterministic eviction without relying on wall-clock timing.
+func (c *ExpressionCache) sweepBefore(cutoff time.Time) {
+	for _, shard := range c.shards {
+		shard.sweepExpired(cutoff)
+	}
+}
+
+// has reports whether key is present in the cache without performing lazy TTL
+// eviction. Used in tests to inspect raw cache state after sweepBefore.
+func (c *ExpressionCache) has(key string) bool {
+	shard := c.getShard(key)
+	shard.mu.RLock("has")
+	defer shard.mu.RUnlock()
+
+	_, ok := shard.cache[key]
+
+	return ok
 }
 
 // sweepExpired removes expired entries from a shard.

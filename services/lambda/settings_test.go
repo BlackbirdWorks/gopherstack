@@ -17,6 +17,7 @@ func TestDefaultSettings_EnvVarOverrides(t *testing.T) {
 		wantDockerHost   string
 		wantRuntime      string
 		wantPoolSize     int
+		wantMaxRuntimes  int // 0 means "don't check, use default"
 		checkIdleTimeout bool
 	}{
 		{
@@ -55,6 +56,30 @@ func TestDefaultSettings_EnvVarOverrides(t *testing.T) {
 			wantRuntime:    "podman",
 			wantDockerHost: "",
 		},
+		{
+			name:            "LAMBDA_MAX_RUNTIMES valid integer",
+			env:             map[string]string{"LAMBDA_MAX_RUNTIMES": "100"},
+			wantPoolSize:    3,
+			wantRuntime:     "docker",
+			wantDockerHost:  "",
+			wantMaxRuntimes: 100,
+		},
+		{
+			name:            "LAMBDA_MAX_RUNTIMES invalid is ignored",
+			env:             map[string]string{"LAMBDA_MAX_RUNTIMES": "not-a-number"},
+			wantPoolSize:    3,
+			wantRuntime:     "docker",
+			wantDockerHost:  "",
+			wantMaxRuntimes: lambda.DefaultMaxRuntimes,
+		},
+		{
+			name:            "LAMBDA_MAX_RUNTIMES zero is ignored",
+			env:             map[string]string{"LAMBDA_MAX_RUNTIMES": "0"},
+			wantPoolSize:    3,
+			wantRuntime:     "docker",
+			wantDockerHost:  "",
+			wantMaxRuntimes: lambda.DefaultMaxRuntimes,
+		},
 	}
 
 	for _, tt := range tests {
@@ -66,6 +91,7 @@ func TestDefaultSettings_EnvVarOverrides(t *testing.T) {
 			t.Setenv("LAMBDA_POOL_SIZE", "")
 			t.Setenv("LAMBDA_IDLE_TIMEOUT", "")
 			t.Setenv("CONTAINER_RUNTIME", "")
+			t.Setenv("LAMBDA_MAX_RUNTIMES", "")
 
 			// Apply per-test overrides.
 			for k, v := range tt.env {
@@ -83,6 +109,10 @@ func TestDefaultSettings_EnvVarOverrides(t *testing.T) {
 
 			if tt.checkIdleTimeout {
 				assert.Equal(t, "5m0s", s.IdleTimeout.String())
+			}
+
+			if tt.wantMaxRuntimes != 0 {
+				assert.Equal(t, tt.wantMaxRuntimes, s.MaxRuntimes)
 			}
 		})
 	}
