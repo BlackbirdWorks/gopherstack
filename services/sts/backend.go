@@ -239,9 +239,16 @@ func (b *InMemoryBackend) GetCallerIdentity(accessKeyID string) (*GetCallerIdent
 	if accessKeyID != "" {
 		b.mu.Lock()
 		session, ok := b.sessions[accessKeyID]
+
+		if ok && !session.Expiration.IsZero() && !time.Now().UTC().Before(session.Expiration) {
+			// Opportunistically evict the expired session.
+			delete(b.sessions, accessKeyID)
+			ok = false
+		}
+
 		b.mu.Unlock()
 
-		if ok && (session.Expiration.IsZero() || time.Now().UTC().Before(session.Expiration)) {
+		if ok {
 			return &GetCallerIdentityResponse{
 				Xmlns: STSNamespace,
 				GetCallerIdentityResult: GetCallerIdentityResult{

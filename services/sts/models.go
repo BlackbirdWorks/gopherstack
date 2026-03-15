@@ -172,6 +172,8 @@ type DecodeAuthorizationMessageResponse struct {
 
 // SessionInfo stores metadata about an issued assumed-role session for GetCallerIdentity lookups.
 type SessionInfo struct {
+	// Expiration is the time at which this session expires and should be evicted.
+	Expiration     time.Time
 	AssumedRoleArn string
 	AccountID      string
 	SessionName    string
@@ -182,6 +184,4 @@ type SessionInfo struct {
 	SourceIdentity    string
 	Tags              []Tag
 	TransitiveTagKeys []string
-	// Expiration is the time at which this session expires and should be evicted.
-	Expiration time.Time
 }
