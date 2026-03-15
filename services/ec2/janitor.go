@@ -77,12 +77,14 @@ func (j *Janitor) sweepTerminatedInstances(ctx context.Context) {
 	j.Backend.mu.Unlock()
 
 	count := len(swept)
+
+	telemetry.RecordWorkerTask(janitorWorkerServiceName, janitorWorkerComponent, "success")
+
 	if count == 0 {
 		return
 	}
 
 	telemetry.RecordWorkerItems(janitorWorkerServiceName, janitorWorkerComponent, count)
-	telemetry.RecordWorkerTask(janitorWorkerServiceName, janitorWorkerComponent, "success")
 
 	for _, id := range swept {
 		logger.Load(ctx).InfoContext(ctx, "EC2 janitor: terminated instance swept", "instanceID", id)

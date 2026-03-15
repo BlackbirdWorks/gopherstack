@@ -18,13 +18,15 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setupFn  func(b *ec2.InMemoryBackend) (resourceID string)
+		setupFn  func(t *testing.T, b *ec2.InMemoryBackend) (resourceID string)
 		deleteFn func(b *ec2.InMemoryBackend, id string) error
 		name     string
 	}{
 		{
 			name: "DeleteSecurityGroup",
-			setupFn: func(b *ec2.InMemoryBackend) string {
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
 				sg, err := b.CreateSecurityGroup("test-sg", "test sg", "vpc-default")
 				require.NoError(t, err)
 
@@ -36,7 +38,9 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "DeleteVpc",
-			setupFn: func(b *ec2.InMemoryBackend) string {
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
 				vpc, err := b.CreateVpc("10.0.0.0/16")
 				require.NoError(t, err)
 
@@ -48,7 +52,9 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "DeleteSubnet",
-			setupFn: func(b *ec2.InMemoryBackend) string {
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
 				subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
 				require.NoError(t, err)
 
@@ -60,7 +66,9 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "DeleteVolume",
-			setupFn: func(b *ec2.InMemoryBackend) string {
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
 				vol, err := b.CreateVolume("us-east-1a", "gp2", 10)
 				require.NoError(t, err)
 
@@ -72,7 +80,9 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "ReleaseAddress",
-			setupFn: func(b *ec2.InMemoryBackend) string {
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
 				addr, err := b.AllocateAddress()
 				require.NoError(t, err)
 
@@ -84,7 +94,9 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "DeleteInternetGateway",
-			setupFn: func(b *ec2.InMemoryBackend) string {
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
 				igw, err := b.CreateInternetGateway()
 				require.NoError(t, err)
 
@@ -96,7 +108,9 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "DeleteRouteTable",
-			setupFn: func(b *ec2.InMemoryBackend) string {
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
 				rt, err := b.CreateRouteTable("vpc-default")
 				require.NoError(t, err)
 
@@ -108,7 +122,9 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "DeleteNatGateway",
-			setupFn: func(b *ec2.InMemoryBackend) string {
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
 				addr, err := b.AllocateAddress()
 				require.NoError(t, err)
 
@@ -123,7 +139,9 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 		},
 		{
 			name: "DeleteNetworkInterface",
-			setupFn: func(b *ec2.InMemoryBackend) string {
+			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
 				eni, err := b.CreateNetworkInterface("subnet-default", "test ENI")
 				require.NoError(t, err)
 
@@ -140,7 +158,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 			t.Parallel()
 
 			b := newTestBackend()
-			id := tt.setupFn(b)
+			id := tt.setupFn(t, b)
 
 			// Tag the resource.
 			err := b.CreateTags([]string{id}, map[string]string{"key": "value"})
