@@ -9,6 +9,7 @@ package dynamodb_test
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -477,6 +478,238 @@ func TestBatchWriteItem_SingleTable_Works(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Equal(t, int32(tt.wantItems), out.Count)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix 6: UpdateTable with GSI create/delete preserves the primary key index
+// ---------------------------------------------------------------------------
+
+// TestUpdateTable_GSICreate_PreservesPrimaryIndex verifies that adding a GSI via
+// UpdateTable does not clear the primary key index of existing items.
+// Before the fix, applyGSICreate called initializeIndexes() which wiped the index,
+// causing subsequent primary-key Query calls to degrade to O(n) full scans.
+func TestUpdateTable_GSICreate_PreservesPrimaryIndex(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		itemCount int
+	}{
+		{name: "small_table", itemCount: 5},
+		{name: "large_table", itemCount: 50},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			ctx := t.Context()
+
+			// Create table with a composite key.
+			_, err := db.CreateTable(ctx, &sdk.CreateTableInput{
+				TableName: aws.String("PKTable"),
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+					{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
+					{AttributeName: aws.String("gsiPK"), AttributeType: types.ScalarAttributeTypeS},
+				},
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+					{AttributeName: aws.String("sk"), KeyType: types.KeyTypeRange},
+				},
+				BillingMode: types.BillingModePayPerRequest,
+			})
+			require.NoError(t, err)
+
+			// Insert items.
+			for i := range tt.itemCount {
+				_, putErr := db.PutItem(ctx, &sdk.PutItemInput{
+					TableName: aws.String("PKTable"),
+					Item: map[string]types.AttributeValue{
+						"pk":    &types.AttributeValueMemberS{Value: fmt.Sprintf("pk-%d", i)},
+						"sk":    &types.AttributeValueMemberS{Value: fmt.Sprintf("sk-%d", i)},
+						"gsiPK": &types.AttributeValueMemberS{Value: fmt.Sprintf("gsi-%d", i%5)},
+					},
+				})
+				require.NoError(t, putErr)
+			}
+
+			// Add a GSI via UpdateTable.
+			_, err = db.UpdateTable(ctx, &sdk.UpdateTableInput{
+				TableName: aws.String("PKTable"),
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("gsiPK"), AttributeType: types.ScalarAttributeTypeS},
+				},
+				GlobalSecondaryIndexUpdates: []types.GlobalSecondaryIndexUpdate{
+					{
+						Create: &types.CreateGlobalSecondaryIndexAction{
+							IndexName: aws.String("GSI1"),
+							KeySchema: []types.KeySchemaElement{
+								{AttributeName: aws.String("gsiPK"), KeyType: types.KeyTypeHash},
+							},
+							Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll},
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+
+			// Query by primary key — must still find the correct item via the index,
+			// not a degraded full scan (we can't directly observe which path was taken,
+			// but correctness is a prerequisite for index usage).
+			for i := range tt.itemCount {
+				out, queryErr := db.Query(ctx, &sdk.QueryInput{
+					TableName:              aws.String("PKTable"),
+					KeyConditionExpression: aws.String("pk = :pk"),
+					ExpressionAttributeValues: map[string]types.AttributeValue{
+						":pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("pk-%d", i)},
+					},
+				})
+				require.NoError(t, queryErr)
+				assert.Equal(t, int32(1), out.Count, "item %d should be found after GSI create", i)
+			}
+		})
+	}
+}
+
+// TestUpdateTable_GSIDelete_PreservesPrimaryIndex verifies that deleting a GSI via
+// UpdateTable does not clear the primary key index of existing items.
+func TestUpdateTable_GSIDelete_PreservesPrimaryIndex(t *testing.T) {
+	t.Parallel()
+
+	db := dynamodb.NewInMemoryDB()
+	ctx := t.Context()
+
+	// Create table with a GSI.
+	_, err := db.CreateTable(ctx, &sdk.CreateTableInput{
+		TableName: aws.String("GSIDeleteTable"),
+		AttributeDefinitions: []types.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+			{AttributeName: aws.String("gsiPK"), AttributeType: types.ScalarAttributeTypeS},
+		},
+		KeySchema: []types.KeySchemaElement{
+			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+		},
+		GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
+			{
+				IndexName: aws.String("ToDelete"),
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("gsiPK"), KeyType: types.KeyTypeHash},
+				},
+				Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll},
+			},
+		},
+		BillingMode: types.BillingModePayPerRequest,
+	})
+	require.NoError(t, err)
+
+	// Insert items.
+	for i := range 10 {
+		_, putErr := db.PutItem(ctx, &sdk.PutItemInput{
+			TableName: aws.String("GSIDeleteTable"),
+			Item: map[string]types.AttributeValue{
+				"pk":    &types.AttributeValueMemberS{Value: fmt.Sprintf("k%d", i)},
+				"gsiPK": &types.AttributeValueMemberS{Value: fmt.Sprintf("g%d", i)},
+			},
+		})
+		require.NoError(t, putErr)
+	}
+
+	// Delete the GSI.
+	_, err = db.UpdateTable(ctx, &sdk.UpdateTableInput{
+		TableName: aws.String("GSIDeleteTable"),
+		GlobalSecondaryIndexUpdates: []types.GlobalSecondaryIndexUpdate{
+			{Delete: &types.DeleteGlobalSecondaryIndexAction{IndexName: aws.String("ToDelete")}},
+		},
+	})
+	require.NoError(t, err)
+
+	// All items must still be reachable by primary key.
+	for i := range 10 {
+		out, getErr := db.GetItem(ctx, &sdk.GetItemInput{
+			TableName: aws.String("GSIDeleteTable"),
+			Key: map[string]types.AttributeValue{
+				"pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("k%d", i)},
+			},
+		})
+		require.NoError(t, getErr)
+		require.NotNil(t, out.Item, "item %d should be retrievable after GSI delete", i)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix 7: Item size estimation — TableSizeBytes reflects actual data, not a flat 400-byte average
+// ---------------------------------------------------------------------------
+
+// TestItemSizeEstimation_TableSizeScalesWithItemSize verifies that TableSizeBytes
+// reported by DescribeTable scales proportionally with actual item content.
+// Before the fix, all items were assumed to be 400 bytes regardless of content.
+func TestItemSizeEstimation_TableSizeScalesWithItemSize(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		smallAttr string
+		largeAttr string
+	}{
+		{
+			name:      "string_attribute",
+			smallAttr: "a",
+			largeAttr: strings.Repeat("x", 2048),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			ctx := t.Context()
+
+			createTableHelper(t, db, "SizeSmall", "pk")
+			createTableHelper(t, db, "SizeLarge", "pk")
+
+			_, err := db.PutItem(ctx, &sdk.PutItemInput{
+				TableName: aws.String("SizeSmall"),
+				Item: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: "k1"},
+					"v":  &types.AttributeValueMemberS{Value: tt.smallAttr},
+				},
+			})
+			require.NoError(t, err)
+
+			_, err = db.PutItem(ctx, &sdk.PutItemInput{
+				TableName: aws.String("SizeLarge"),
+				Item: map[string]types.AttributeValue{
+					"pk": &types.AttributeValueMemberS{Value: "k1"},
+					"v":  &types.AttributeValueMemberS{Value: tt.largeAttr},
+				},
+			})
+			require.NoError(t, err)
+
+			smallDesc, err := db.DescribeTable(ctx, &sdk.DescribeTableInput{
+				TableName: aws.String("SizeSmall"),
+			})
+			require.NoError(t, err)
+
+			largeDesc, err := db.DescribeTable(ctx, &sdk.DescribeTableInput{
+				TableName: aws.String("SizeLarge"),
+			})
+			require.NoError(t, err)
+
+			smallBytes := aws.ToInt64(smallDesc.Table.TableSizeBytes)
+			largeBytes := aws.ToInt64(largeDesc.Table.TableSizeBytes)
+
+			assert.Less(t, smallBytes, largeBytes,
+				"larger item content should produce a larger TableSizeBytes; small=%d large=%d",
+				smallBytes, largeBytes)
+
+			// Sanity: both must be positive.
+			assert.Positive(t, smallBytes)
+			assert.Positive(t, largeBytes)
 		})
 	}
 }
