@@ -212,10 +212,22 @@ const (
 	// stubFingerprintUUIDLen is the number of UUID hex characters used to build
 	// a stub fingerprint for ImportKeyPair (no actual public key is parsed).
 	stubFingerprintUUIDLen = 11
+	// maxFreePrivateIPs caps the recycled private-IP free list to avoid
+	// unbounded memory growth in long-running tests.
+	maxFreePrivateIPs = 1000
 )
 
 // allocPrivateIP returns the next 172.31.x.y private IP. Must be called with mu held.
+// Recycled IPs from UnassignPrivateIPAddresses are reused before allocating fresh ones.
 func (b *InMemoryBackend) allocPrivateIP() string {
+	if len(b.freePrivateIPs) > 0 {
+		last := len(b.freePrivateIPs) - 1
+		ip := b.freePrivateIPs[last]
+		b.freePrivateIPs = b.freePrivateIPs[:last]
+
+		return ip
+	}
+
 	idx := b.nextPrivateIPIndex
 	b.nextPrivateIPIndex++
 	third := idx / privateIPOctetRange
@@ -1214,6 +1226,8 @@ func (b *InMemoryBackend) AssignPrivateIPAddresses(eniID string, count int, ips 
 }
 
 // UnassignPrivateIPAddresses removes secondary private IP addresses from an ENI.
+// Auto-allocated IPs (172.31.x.y) are returned to the free list so they can be
+// reused by subsequent allocations.
 func (b *InMemoryBackend) UnassignPrivateIPAddresses(eniID string, ips []string) error {
 	b.mu.Lock("UnassignPrivateIPAddresses")
 	defer b.mu.Unlock()
@@ -1233,6 +1247,9 @@ func (b *InMemoryBackend) UnassignPrivateIPAddresses(eniID string, ips []string)
 	for _, ip := range eni.SecondaryPrivateIPs {
 		if !remove[ip] {
 			kept = append(kept, ip)
+		} else if strings.HasPrefix(ip, "172.31.") && len(b.freePrivateIPs) < maxFreePrivateIPs {
+			// Return auto-allocated IPs to the free list for reuse, up to the cap.
+			b.freePrivateIPs = append(b.freePrivateIPs, ip)
 		}
 	}
 

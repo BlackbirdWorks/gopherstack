@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -339,4 +340,265 @@ func TestTerminateInstances_ClosesAssociatedSpotRequest(t *testing.T) {
 	reqs := b.DescribeSpotInstanceRequests([]string{req.ID})
 	require.Len(t, reqs, 1)
 	assert.Equal(t, "closed", reqs[0].State, "spot request must be closed when backing instance is terminated")
+}
+
+// TestTerminateInstances_DeletesAttachedENIs verifies that terminating an
+// instance removes all ENIs attached to it, preventing ENI accumulation.
+func TestTerminateInstances_DeletesAttachedENIs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		eniCount int
+	}{
+		{name: "single_eni", eniCount: 1},
+		{name: "multiple_enis", eniCount: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			insts, err := b.RunInstances("ami-test", "t2.micro", "", 1)
+			require.NoError(t, err)
+
+			instanceID := insts[0].ID
+
+			eniIDs := make([]string, tt.eniCount)
+			for i := range tt.eniCount {
+				eni, cerr := b.CreateNetworkInterface("subnet-default", "test-eni")
+				require.NoError(t, cerr)
+
+				_, aerr := b.AttachNetworkInterface(eni.ID, instanceID, i+1)
+				require.NoError(t, aerr)
+
+				eniIDs[i] = eni.ID
+			}
+
+			// Tag one ENI to verify the tag is also removed.
+			err = b.CreateTags([]string{eniIDs[0]}, map[string]string{"Purpose": "test"})
+			require.NoError(t, err)
+
+			_, err = b.TerminateInstances([]string{instanceID})
+			require.NoError(t, err)
+
+			// All attached ENIs must be gone.
+			for _, eniID := range eniIDs {
+				enis := b.DescribeNetworkInterfaces([]string{eniID})
+				assert.Empty(t, enis, "ENI %s should be deleted after instance termination", eniID)
+			}
+
+			// Tags for the first ENI must also be removed.
+			entries := b.DescribeTags([]string{eniIDs[0]})
+			assert.Empty(t, entries, "ENI tags should be removed when instance is terminated")
+		})
+	}
+}
+
+// TestTerminateInstances_OnlyDeletesAttachedENIs verifies that ENIs belonging to
+// other instances are not affected when a specific instance is terminated.
+func TestTerminateInstances_OnlyDeletesAttachedENIs(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	insts, err := b.RunInstances("ami-test", "t2.micro", "", 2)
+	require.NoError(t, err)
+
+	instanceA := insts[0].ID
+	instanceB := insts[1].ID
+
+	eniA, err := b.CreateNetworkInterface("subnet-default", "eni-for-A")
+	require.NoError(t, err)
+
+	eniB, err := b.CreateNetworkInterface("subnet-default", "eni-for-B")
+	require.NoError(t, err)
+
+	_, err = b.AttachNetworkInterface(eniA.ID, instanceA, 1)
+	require.NoError(t, err)
+
+	_, err = b.AttachNetworkInterface(eniB.ID, instanceB, 1)
+	require.NoError(t, err)
+
+	// Terminate only instance A.
+	_, err = b.TerminateInstances([]string{instanceA})
+	require.NoError(t, err)
+
+	// ENI for A must be gone.
+	assert.Empty(t, b.DescribeNetworkInterfaces([]string{eniA.ID}))
+
+	// ENI for B must remain.
+	enisB := b.DescribeNetworkInterfaces([]string{eniB.ID})
+	require.Len(t, enisB, 1)
+	assert.Equal(t, "in-use", enisB[0].Status)
+}
+
+// TestDeleteSubnet_CascadeDeletesENIs verifies that deleting a subnet removes
+// all network interfaces associated with it.
+func TestDeleteSubnet_CascadeDeletesENIs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		eniCount int
+	}{
+		{name: "no_enis", eniCount: 0},
+		{name: "one_eni", eniCount: 1},
+		{name: "multiple_enis", eniCount: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
+			require.NoError(t, err)
+
+			eniIDs := make([]string, tt.eniCount)
+			for i := range tt.eniCount {
+				eni, cerr := b.CreateNetworkInterface(subnet.ID, "test-eni")
+				require.NoError(t, cerr)
+
+				// Tag the ENI so we can verify tag cleanup.
+				err = b.CreateTags([]string{eni.ID}, map[string]string{"k": "v"})
+				require.NoError(t, err)
+
+				eniIDs[i] = eni.ID
+			}
+
+			err = b.DeleteSubnet(subnet.ID)
+			require.NoError(t, err)
+
+			// All ENIs in the subnet must be removed.
+			for _, eniID := range eniIDs {
+				assert.Empty(t, b.DescribeNetworkInterfaces([]string{eniID}))
+				assert.Empty(t, b.DescribeTags([]string{eniID}), "ENI tags must be removed with subnet")
+			}
+
+			// Subnet itself must be gone.
+			subnets := b.DescribeSubnets([]string{subnet.ID})
+			assert.Empty(t, subnets)
+		})
+	}
+}
+
+// TestDeleteVpc_CascadeDeletesDependents verifies that deleting a VPC removes
+// all dependent resources: subnets, security groups, route tables, and ENIs.
+func TestDeleteVpc_CascadeDeletesDependents(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	vpc, err := b.CreateVpc("10.99.0.0/16")
+	require.NoError(t, err)
+
+	subnet, err := b.CreateSubnet(vpc.ID, "10.99.1.0/24", "us-east-1a")
+	require.NoError(t, err)
+
+	sg, err := b.CreateSecurityGroup("test-sg", "test", vpc.ID)
+	require.NoError(t, err)
+
+	rt, err := b.CreateRouteTable(vpc.ID)
+	require.NoError(t, err)
+
+	eni, err := b.CreateNetworkInterface(subnet.ID, "test-eni")
+	require.NoError(t, err)
+
+	// Tag each resource so we verify tag cleanup.
+	err = b.CreateTags([]string{subnet.ID, sg.ID, rt.ID, eni.ID}, map[string]string{"VPC": vpc.ID})
+	require.NoError(t, err)
+
+	err = b.DeleteVpc(vpc.ID)
+	require.NoError(t, err)
+
+	// VPC itself must be gone.
+	assert.Empty(t, b.DescribeVpcs([]string{vpc.ID}))
+
+	// All dependent resources must be removed.
+	assert.Empty(t, b.DescribeSubnets([]string{subnet.ID}), "subnet must be removed")
+	assert.Empty(t, b.DescribeSecurityGroups([]string{sg.ID}), "security group must be removed")
+	assert.Empty(t, b.DescribeRouteTables([]string{rt.ID}), "route table must be removed")
+	assert.Empty(t, b.DescribeNetworkInterfaces([]string{eni.ID}), "ENI must be removed")
+
+	// Tags for all dependents must be removed.
+	for _, resID := range []string{subnet.ID, sg.ID, rt.ID, eni.ID} {
+		assert.Empty(t, b.DescribeTags([]string{resID}), "tags for %s must be removed", resID)
+	}
+}
+
+// TestUnassignPrivateIPAddresses_RecyclesIPs verifies that auto-allocated
+// secondary IPs returned by UnassignPrivateIPAddresses are reused by the
+// next allocPrivateIP call, preventing unbounded index growth.
+func TestUnassignPrivateIPAddresses_RecyclesIPs(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	eni, err := b.CreateNetworkInterface("subnet-default", "test-eni")
+	require.NoError(t, err)
+
+	// Assign two secondary IPs by count (auto-allocated).
+	err = b.AssignPrivateIPAddresses(eni.ID, 2, nil)
+	require.NoError(t, err)
+
+	enis := b.DescribeNetworkInterfaces([]string{eni.ID})
+	require.Len(t, enis, 1)
+	require.Len(t, enis[0].SecondaryPrivateIPs, 2, "expected 2 secondary IPs after assign")
+
+	allocatedIPs := make([]string, len(enis[0].SecondaryPrivateIPs))
+	copy(allocatedIPs, enis[0].SecondaryPrivateIPs)
+
+	// Unassign one IP; it should be added to the free list.
+	err = b.UnassignPrivateIPAddresses(eni.ID, []string{allocatedIPs[0]})
+	require.NoError(t, err)
+
+	// Assign a new IP by count – it must reuse the freed IP.
+	err = b.AssignPrivateIPAddresses(eni.ID, 1, nil)
+	require.NoError(t, err)
+
+	enis = b.DescribeNetworkInterfaces([]string{eni.ID})
+	require.Len(t, enis, 1)
+	require.Len(t, enis[0].SecondaryPrivateIPs, 2, "expected 2 secondary IPs after reassign")
+
+	// The freed IP must have been reused.
+	assert.True(t,
+		slices.Contains(enis[0].SecondaryPrivateIPs, allocatedIPs[0]),
+		"freed IP %s should be reused by subsequent allocation", allocatedIPs[0],
+	)
+}
+
+// TestCreateTags_NonExistentResourceReturnsError verifies that tagging a
+// resource ID that does not exist returns an error.
+func TestCreateTags_NonExistentResourceReturnsError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		resourceID string
+	}{
+		{name: "fake_instance", resourceID: "i-doesnotexist"},
+		{name: "fake_vpc", resourceID: "vpc-doesnotexist"},
+		{name: "fake_subnet", resourceID: "subnet-doesnotexist"},
+		{name: "fake_sg", resourceID: "sg-doesnotexist"},
+		{name: "fake_eni", resourceID: "eni-doesnotexist"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			err := b.CreateTags([]string{tt.resourceID}, map[string]string{"Key": "Value"})
+			require.Error(t, err, "CreateTags on non-existent resource must return an error")
+
+			// No orphaned tag entries must be created.
+			entries := b.DescribeTags([]string{tt.resourceID})
+			assert.Empty(t, entries, "no tags should be stored for a non-existent resource")
+		})
+	}
 }
