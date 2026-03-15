@@ -106,7 +106,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			URL:                 qs.URL,
 			MaxReceiveCount:     qs.MaxReceiveCount,
 			IsFIFO:              qs.IsFIFO,
-			notify:              make(chan struct{}, 1),
+			notify:              make(chan struct{}),
 		}
 	}
 
