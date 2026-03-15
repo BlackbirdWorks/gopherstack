@@ -13,7 +13,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -3120,7 +3119,7 @@ func TestInMemoryBackend_PlatformEndpointLifecycle(t *testing.T) {
 
 // TestSNSHTTPDelivery_Robustness is a table-driven test that validates delivery
 // behaviour under various adverse conditions (large server response, all
-// concurrency slots occupied).
+// concurrency slots occupied by slow handlers).
 func TestSNSHTTPDelivery_Robustness(t *testing.T) {
 	t.Parallel()
 
@@ -3152,17 +3151,15 @@ func TestSNSHTTPDelivery_Robustness(t *testing.T) {
 			name:    "non_blocking_under_load",
 			numSubs: 12, // more than snsMaxConcurrentDeliveries (8)
 			serverFn: func() (http.Handler, <-chan string) {
-				// Block all handlers until the test is done.
-				var release sync.WaitGroup
-
-				release.Add(1)
+				// Sleep briefly so that goroutines are still in-flight when we
+				// assert on elapsed time, but ensure the server completes well
+				// before any test timeout. This avoids the deadlock that occurs
+				// when httptest.Server.Close() (called via defer) waits for
+				// handlers that are blocked indefinitely.
 				h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-					release.Wait()
+					time.Sleep(200 * time.Millisecond)
 					w.WriteHeader(http.StatusOK)
 				})
-				// Return a nil received channel; we don't check body here.
-				// Unblock handlers via t.Cleanup (release.Done called below).
-				t.Cleanup(release.Done)
 
 				return h, nil
 			},
