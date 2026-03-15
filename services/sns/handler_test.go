@@ -14,7 +14,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -3119,172 +3118,206 @@ func TestInMemoryBackend_PlatformEndpointLifecycle(t *testing.T) {
 	}
 }
 
-// TestSNSHTTPDelivery_LargeResponse verifies that responses larger than
-// maxDeliveryResponseBytes do not cause the delivery goroutine to hang or OOM.
-func TestSNSHTTPDelivery_LargeResponse(t *testing.T) {
+// TestSNSHTTPDelivery_Robustness is a table-driven test that validates delivery
+// behaviour under various adverse conditions (large server response, all
+// concurrency slots occupied).
+func TestSNSHTTPDelivery_Robustness(t *testing.T) {
 	t.Parallel()
 
-	// Serve a 2 MiB response body — well above the 64 KiB cap.
-	largeBody := bytes.Repeat([]byte("x"), 2*1024*1024)
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(largeBody)
-	}))
-	defer ts.Close()
+	tests := []struct {
+		serverFn    func() (http.Handler, <-chan string)
+		name        string
+		wantBody    string
+		numSubs     int
+		wantFastPub bool
+	}{
+		{
+			name:    "large_response_bounded",
+			numSubs: 1,
+			serverFn: func() (http.Handler, <-chan string) {
+				received := make(chan string, 1)
+				large := bytes.Repeat([]byte("x"), 2*1024*1024)
+				h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					body, _ := io.ReadAll(r.Body)
+					received <- string(body)
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write(large)
+				})
 
-	b := sns.NewInMemoryBackend()
-	tp, err := b.CreateTopic("large-resp-topic", nil)
-	require.NoError(t, err)
-	_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
-	require.NoError(t, err)
+				return h, received
+			},
+			wantBody: "ping",
+		},
+		{
+			name:    "non_blocking_under_load",
+			numSubs: 12, // more than snsMaxConcurrentDeliveries (8)
+			serverFn: func() (http.Handler, <-chan string) {
+				// Block all handlers until the test is done.
+				var release sync.WaitGroup
 
-	_, err = b.Publish(tp.TopicArn, "ping", "", "", nil)
-	require.NoError(t, err)
+				release.Add(1)
+				h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					release.Wait()
+					w.WriteHeader(http.StatusOK)
+				})
+				// Return a nil received channel; we don't check body here.
+				// Unblock handlers via t.Cleanup (release.Done called below).
+				t.Cleanup(release.Done)
 
-	// WaitDeliveries ensures the goroutine finishes without hanging.
-	doneCh := make(chan struct{})
-	go func() {
-		b.WaitDeliveries()
-		close(doneCh)
-	}()
+				return h, nil
+			},
+			wantFastPub: true,
+		},
+	}
 
-	select {
-	case <-doneCh:
-		// success: goroutine completed
-	case <-time.After(3 * time.Second):
-		require.FailNow(t, "WaitDeliveries blocked longer than expected for large response")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, received := tt.serverFn()
+			ts := httptest.NewServer(h)
+			defer ts.Close()
+
+			b := sns.NewInMemoryBackend()
+			b.SetHTTPDeliveryClient(&http.Client{Timeout: 5 * time.Second})
+			tp, err := b.CreateTopic("robustness-"+tt.name, nil)
+			require.NoError(t, err)
+
+			for range tt.numSubs {
+				_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
+				require.NoError(t, err)
+			}
+
+			// Ensure goroutines are drained before the test exits to avoid leaks.
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				done := make(chan struct{})
+				go func() { b.WaitDeliveries(); close(done) }()
+				select {
+				case <-done:
+				case <-ctx.Done():
+					t.Errorf("WaitDeliveries timed out; goroutines may have leaked")
+				}
+			})
+
+			start := time.Now()
+			_, err = b.Publish(tp.TopicArn, "ping", "", "", nil)
+			require.NoError(t, err)
+			elapsed := time.Since(start)
+
+			if tt.wantFastPub {
+				assert.Less(t, elapsed, 500*time.Millisecond,
+					"Publish must not block waiting for slow HTTP endpoints")
+			}
+
+			if tt.wantBody != "" {
+				select {
+				case got := <-received:
+					assert.Equal(t, tt.wantBody, got)
+				case <-time.After(3 * time.Second):
+					require.FailNow(t, "timed out waiting for HTTP delivery")
+				}
+			}
+		})
 	}
 }
 
-// TestSNSHTTPDelivery_NonBlockingUnderLoad verifies that Publish returns quickly
-// even when all delivery slots are occupied by slow endpoints.
-func TestSNSHTTPDelivery_NonBlockingUnderLoad(t *testing.T) {
-	t.Parallel()
-
-	// slow holds each request open until the test releases it.
-	var releaseAll sync.WaitGroup
-
-	releaseAll.Add(1) // will be done once we want to unblock
-
-	// Track how many requests arrived.
-	var arrived atomic.Int64
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		arrived.Add(1)
-		releaseAll.Wait() // block until test releases
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer func() {
-		releaseAll.Done() // unblock all pending handlers
-		ts.Close()
-	}()
-
-	b := sns.NewInMemoryBackend()
-	// Use a fast-timeout client so deliveries don't linger beyond the test.
-	b.SetHTTPDeliveryClient(&http.Client{Timeout: 2 * time.Second})
-
-	tp, err := b.CreateTopic("load-topic", nil)
-	require.NoError(t, err)
-
-	// Subscribe more than snsMaxConcurrentDeliveries (8) endpoints.
-	for range 12 {
-		_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
-		require.NoError(t, err)
-	}
-
-	start := time.Now()
-	_, err = b.Publish(tp.TopicArn, "msg", "", "", nil)
-	require.NoError(t, err)
-
-	// Publish must return almost immediately — it must not block waiting for the
-	// slow handlers.  Allow a generous 500 ms for scheduling overhead.
-	assert.Less(t, time.Since(start), 500*time.Millisecond,
-		"Publish should not block on slow HTTP endpoints")
-}
-
-// TestSNSHandler_Shutdown verifies that Handler.Shutdown drains in-flight
-// delivery goroutines before returning.
+// TestSNSHandler_Shutdown validates Handler.Shutdown behaviour: it must drain
+// in-flight delivery goroutines when the context permits, and return promptly
+// when the context is already cancelled.
 func TestSNSHandler_Shutdown(t *testing.T) {
 	t.Parallel()
 
-	delivered := make(chan struct{}, 1)
+	tests := []struct {
+		name           string
+		blockServer    bool // server blocks until unblocked by cleanup
+		cancelCtxFirst bool // cancel the context before calling Shutdown
+		wantFast       bool // Shutdown should return in <500 ms
+		wantDelivered  bool // delivery must complete before Shutdown returns
+	}{
+		{
+			name:          "drains_in_flight_delivery",
+			blockServer:   false,
+			wantDelivered: true,
+		},
+		{
+			name:           "returns_promptly_on_cancelled_context",
+			blockServer:    true,
+			cancelCtxFirst: true,
+			wantFast:       true,
+		},
+	}
 
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		delivered <- struct{}{}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	b := sns.NewInMemoryBackend()
-	h := sns.NewHandler(b)
+			delivered := make(chan struct{}, 1)
+			unblock := make(chan struct{})
 
-	tp, err := b.CreateTopic("shutdown-topic", nil)
-	require.NoError(t, err)
-	_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
-	require.NoError(t, err)
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if tt.blockServer {
+					<-unblock
+				}
+				delivered <- struct{}{}
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer func() {
+				select {
+				case <-unblock: // already closed
+				default:
+					close(unblock)
+				}
+				ts.Close()
+			}()
 
-	_, err = b.Publish(tp.TopicArn, "hello", "", "", nil)
-	require.NoError(t, err)
+			b := sns.NewInMemoryBackend()
+			b.SetHTTPDeliveryClient(&http.Client{Timeout: 10 * time.Second})
+			h := sns.NewHandler(b)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-	defer cancel()
+			tp, err := b.CreateTopic("shutdown-"+tt.name, nil)
+			require.NoError(t, err)
+			_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
+			require.NoError(t, err)
 
-	h.Shutdown(ctx)
+			_, err = b.Publish(tp.TopicArn, "msg", "", "", nil)
+			require.NoError(t, err)
 
-	// After Shutdown the delivery goroutine must have completed.
-	select {
-	case <-delivered:
-		// success
-	default:
-		require.FailNow(t, "delivery goroutine had not completed when Shutdown returned")
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+			defer cancel()
+
+			if tt.cancelCtxFirst {
+				cancel()
+			}
+
+			start := time.Now()
+			h.Shutdown(ctx)
+			elapsed := time.Since(start)
+
+			if tt.wantFast {
+				assert.Less(t, elapsed, 500*time.Millisecond,
+					"Shutdown with cancelled context must return immediately")
+			}
+
+			if tt.wantDelivered {
+				select {
+				case <-delivered:
+					// delivery completed before Shutdown returned
+				default:
+					require.FailNow(t, "delivery goroutine had not completed when Shutdown returned")
+				}
+			}
+		})
 	}
 }
 
-// TestSNSHandler_Shutdown_ContextCancelled verifies that Shutdown returns promptly
-// when the context is cancelled before all goroutines finish.
-func TestSNSHandler_Shutdown_ContextCancelled(t *testing.T) {
-	t.Parallel()
-
-	// Block the endpoint indefinitely.
-	block := make(chan struct{})
-	ts := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
-		<-block
-	}))
-	defer func() {
-		close(block)
-		ts.Close()
-	}()
-
-	b := sns.NewInMemoryBackend()
-	b.SetHTTPDeliveryClient(&http.Client{Timeout: 10 * time.Second}) // large timeout
-	h := sns.NewHandler(b)
-
-	tp, err := b.CreateTopic("cancel-topic", nil)
-	require.NoError(t, err)
-	_, err = b.Subscribe(tp.TopicArn, "http", ts.URL, "")
-	require.NoError(t, err)
-
-	_, err = b.Publish(tp.TopicArn, "msg", "", "", nil)
-	require.NoError(t, err)
-
-	// Shutdown with an already-cancelled context must return immediately.
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-
-	start := time.Now()
-	h.Shutdown(ctx)
-
-	assert.Less(t, time.Since(start), 500*time.Millisecond,
-		"Shutdown with cancelled context should return immediately")
-}
-
-// TestMatchesFilterPolicy_OversizedPolicy verifies that a FilterPolicy larger
-// than the size cap is treated as "no filter" (allow-all) rather than panicking
-// or consuming excessive CPU.
+// TestMatchesFilterPolicy_OversizedPolicy verifies that a FilterPolicy exceeding
+// the size limit is treated as allow-all rather than consuming excessive CPU.
 func TestMatchesFilterPolicy_OversizedPolicy(t *testing.T) {
 	t.Parallel()
 
-	// Build a FilterPolicy string that exceeds maxFilterPolicySizeBytes (256 KiB).
+	// Build a FilterPolicy that exceeds maxFilterPolicySizeBytes (256 KiB).
 	bigPolicy := `{"key": ["` + strings.Repeat("a", 300*1024) + `"]}`
 
 	received := make(chan string, 1)
@@ -3299,7 +3332,6 @@ func TestMatchesFilterPolicy_OversizedPolicy(t *testing.T) {
 	tp, err := b.CreateTopic("big-policy-topic", nil)
 	require.NoError(t, err)
 
-	// Subscribe with the oversized policy.
 	sub, err := b.Subscribe(tp.TopicArn, "http", ts.URL, "")
 	require.NoError(t, err)
 	err = b.SetSubscriptionAttributes(sub.SubscriptionArn, "FilterPolicy", bigPolicy)
@@ -3308,7 +3340,7 @@ func TestMatchesFilterPolicy_OversizedPolicy(t *testing.T) {
 	_, err = b.Publish(tp.TopicArn, "delivered", "", "", nil)
 	require.NoError(t, err)
 
-	// The message should be delivered because oversized policies are allow-all.
+	// Oversized policy must be treated as allow-all.
 	select {
 	case msg := <-received:
 		assert.Equal(t, "delivered", msg)
