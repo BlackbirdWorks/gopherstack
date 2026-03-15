@@ -114,19 +114,23 @@ func (db *InMemoryDB) batchGetResponses(
 	var wg sync.WaitGroup
 
 	for tableName, keysAndAttrs := range requestItems {
-		table, ok := tableRefs[tableName]
+		tbl, ok := tableRefs[tableName]
 		if !ok {
 			continue
 		}
 
+		// Explicitly capture loop variables to avoid any ambiguity.
+		// In Go 1.22+ range variables are per-iteration, but explicit
+		// captures make the intent clear.
+		tblName, attrs, tblRef := tableName, keysAndAttrs, tbl
 		wg.Go(func() {
-			table.mu.RLock("BatchGetItem")
-			results := db.processBatchGetTableNoLock(ctx, table, keysAndAttrs)
-			table.mu.RUnlock()
+			tblRef.mu.RLock("BatchGetItem")
+			results := db.processBatchGetTableNoLock(ctx, tblRef, attrs)
+			tblRef.mu.RUnlock()
 
 			if len(results) > 0 {
 				mu.Lock("BatchGetItem")
-				responses[tableName] = results
+				responses[tblName] = results
 				mu.Unlock()
 			}
 		})

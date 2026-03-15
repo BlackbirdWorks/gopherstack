@@ -140,25 +140,19 @@ func TestExpressionCacheTTL_SweepRemovesExpiredEntries(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		expiredTTL time.Duration
-		freshTTL   time.Duration
-		nExpired   int
-		nFresh     int
+		name     string
+		nExpired int
+		nFresh   int
 	}{
 		{
-			name:       "sweep_removes_all_expired",
-			expiredTTL: 1 * time.Millisecond,
-			freshTTL:   1 * time.Hour,
-			nExpired:   5,
-			nFresh:     0,
+			name:     "sweep_removes_all_expired",
+			nExpired: 5,
+			nFresh:   0,
 		},
 		{
-			name:       "sweep_keeps_fresh_entries",
-			expiredTTL: 1 * time.Millisecond,
-			freshTTL:   1 * time.Hour,
-			nExpired:   3,
-			nFresh:     2,
+			name:     "sweep_keeps_fresh_entries",
+			nExpired: 3,
+			nFresh:   2,
 		},
 	}
 
@@ -166,19 +160,23 @@ func TestExpressionCacheTTL_SweepRemovesExpiredEntries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Create a cache with a short TTL (entries expire quickly).
-			cache := dynamodb.NewExpressionCacheWithTTL(200, tt.expiredTTL)
+			// Use a cache with a very short TTL so entries expire quickly.
+			cache := dynamodb.NewExpressionCacheWithTTL(200, 1*time.Millisecond)
 
-			// Add entries that will expire.
+			// Add entries with the short TTL — they will expire.
 			for i := range tt.nExpired {
 				cache.Put(fmt.Sprintf("expired-%d", i), i)
 			}
 
-			// Wait for them to expire.
+			// Wait for the short-TTL entries to expire.
 			time.Sleep(5 * time.Millisecond)
 
-			// Add fresh entries using a new cache (to get long TTL).
-			freshCache := dynamodb.NewExpressionCacheWithTTL(200, tt.freshTTL)
+			// Add fresh entries into a SEPARATE long-TTL cache. Using a separate
+			// instance avoids TTL races with the short-TTL cache above and lets us
+			// assert independently. For mixed-cache behaviour (expired + fresh in the
+			// same cache instance), see TestExpressionCacheTTL_SweepMixedInSameCache.
+			freshCache := dynamodb.NewExpressionCacheWithTTL(200, 1*time.Hour)
+
 			for i := range tt.nFresh {
 				freshCache.Put(fmt.Sprintf("fresh-%d", i), i)
 			}
@@ -191,12 +189,57 @@ func TestExpressionCacheTTL_SweepRemovesExpiredEntries(t *testing.T) {
 				assert.False(t, found, "expired entry %d should be gone after Sweep", i)
 			}
 
-			// The fresh cache entries should remain.
+			// The long-TTL cache entries should survive their own sweep.
+			freshCache.Sweep()
+
 			for i := range tt.nFresh {
 				_, found := freshCache.Get(fmt.Sprintf("fresh-%d", i))
-				assert.True(t, found, "fresh entry %d should still be present", i)
+				assert.True(t, found, "fresh entry %d should survive Sweep", i)
 			}
 		})
+	}
+}
+
+// TestExpressionCacheTTL_SweepMixedInSameCache verifies that Sweep removes only
+// expired entries when both expired and fresh entries coexist in the same cache.
+func TestExpressionCacheTTL_SweepMixedInSameCache(t *testing.T) {
+	t.Parallel()
+
+	// Use a relatively long TTL. We'll add "expired" entries first, wait for them
+	// to expire using a cache with a very short TTL, then add fresh entries.
+	//
+	// Strategy: use a short-TTL cache, add entries, wait for expiry, add more
+	// entries which get a NEW expiresAt (now + shortTTL, which is in the future
+	// relative to the wait already elapsed). Since Put refreshes expiresAt on
+	// existing keys but here we use distinct keys, the new keys get fresh expiry.
+	const shortTTL = 5 * time.Millisecond
+
+	cache := dynamodb.NewExpressionCacheWithTTL(200, shortTTL)
+
+	// Put entries that will expire.
+	for i := range 3 {
+		cache.Put(fmt.Sprintf("expired-%d", i), i)
+	}
+
+	// Wait for them to expire.
+	time.Sleep(10 * time.Millisecond)
+
+	// Put fresh entries into the SAME cache; they get expiresAt = now + shortTTL.
+	for i := range 2 {
+		cache.Put(fmt.Sprintf("fresh-%d", i), i)
+	}
+
+	// Sweep: expired entries should be removed, fresh ones should remain.
+	cache.Sweep()
+
+	for i := range 3 {
+		_, found := cache.Get(fmt.Sprintf("expired-%d", i))
+		assert.False(t, found, "expired entry %d should be gone after Sweep", i)
+	}
+
+	for i := range 2 {
+		_, found := cache.Get(fmt.Sprintf("fresh-%d", i))
+		assert.True(t, found, "fresh entry %d should survive Sweep", i)
 	}
 }
 
@@ -318,7 +361,10 @@ func TestBatchGetItem_ConcurrentWritesNoDeadlock(t *testing.T) {
 	}
 
 	// Concurrently read via BatchGetItem and write via PutItem.
+	// Errors are collected in buffered channels so they can be asserted below.
 	// If there is a deadlock this test will hang and be caught by the timeout.
+	writeErrs := make(chan error, 50)
+	readErrs := make(chan error, 50)
 	done := make(chan struct{})
 	var wg sync.WaitGroup
 
@@ -331,7 +377,7 @@ func TestBatchGetItem_ConcurrentWritesNoDeadlock(t *testing.T) {
 				},
 			})
 			if err != nil {
-				return
+				writeErrs <- err
 			}
 		}
 	})
@@ -349,21 +395,31 @@ func TestBatchGetItem_ConcurrentWritesNoDeadlock(t *testing.T) {
 				},
 			})
 			if err != nil {
-				return
+				readErrs <- err
 			}
 		}
 	})
 
 	go func() {
 		wg.Wait()
+		close(writeErrs)
+		close(readErrs)
 		close(done)
 	}()
 
 	select {
 	case <-done:
-		// success
+		// success — check for any errors
 	case <-time.After(10 * time.Second):
-		t.Fatal("deadlock detected: BatchGetItem + concurrent PutItem timed out")
+		require.Fail(t, "deadlock detected: BatchGetItem + concurrent PutItem timed out")
+	}
+
+	for err := range writeErrs {
+		require.NoError(t, err, "unexpected PutItem error")
+	}
+
+	for err := range readErrs {
+		require.NoError(t, err, "unexpected BatchGetItem error")
 	}
 }
 

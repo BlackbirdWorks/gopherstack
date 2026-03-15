@@ -187,9 +187,18 @@ func (db *InMemoryDB) InjectStaleTxnPendingForTest(token string) {
 	db.txnPending[token] = time.Now().Add(-time.Hour) // already stale
 }
 
-// StreamRecordsInOrder exposes the ordered ring-buffer view for tests.
+// StreamRecordsInOrder exposes the ordered ring-buffer view for tests as a flat slice.
 func (t *Table) StreamRecordsInOrder() []StreamRecord {
-	return t.streamRecordsInOrder()
+	tail, head := t.streamRecordsInOrder()
+	if len(head) == 0 {
+		return tail
+	}
+
+	result := make([]StreamRecord, 0, len(tail)+len(head))
+	result = append(result, tail...)
+	result = append(result, head...)
+
+	return result
 }
 
 // SweepExprCache exposes ExpressionCache.Sweep for tests.

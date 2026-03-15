@@ -108,10 +108,11 @@ type Table struct {
 	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
 	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamSeq              int64
-	// streamHead is the index of the oldest record in the ring buffer.
+	// StreamHead is the index of the oldest record in the ring buffer.
+	// Exported for JSON persistence so that snapshot/restore preserves ring-buffer state.
 	// When the ring buffer is not yet full (len(StreamRecords) < maxStreamRecords),
-	// streamHead is 0 and StreamRecords is in insertion order.
-	streamHead     int
+	// StreamHead is 0 and StreamRecords is in insertion order.
+	StreamHead     int  `json:"StreamHead,omitempty"`
 	PITREnabled    bool `json:"PITREnabled,omitempty"`
 	StreamsEnabled bool `json:"StreamsEnabled"`
 }
@@ -175,36 +176,59 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 
 	// O(1) ring buffer: pre-allocate once, then overwrite in-place.
 	// When the buffer is not yet full, append normally. Once full, overwrite
-	// the oldest slot (at streamHead) and advance the head pointer.
+	// the oldest slot (at StreamHead) and advance the head pointer.
 	if len(t.StreamRecords) < maxStreamRecords {
 		t.StreamRecords = append(t.StreamRecords, record)
 	} else {
-		t.StreamRecords[t.streamHead] = record
-		t.streamHead = (t.streamHead + 1) % maxStreamRecords
+		t.StreamRecords[t.StreamHead] = record
+		t.StreamHead = (t.StreamHead + 1) % maxStreamRecords
 	}
 }
 
-// streamRecordsInOrder returns a copy of StreamRecords in insertion order.
-// When the ring buffer is not yet full, the slice is already in order.
-// When full, the oldest entry is at streamHead and we need to wrap around.
+// streamSeqRange returns the first and last sequence numbers in the ring buffer
+// without allocating a new slice. Intended for DescribeStream which only needs
+// the range boundaries.
 // Must be called with table.mu held (at least read lock).
-func (t *Table) streamRecordsInOrder() []StreamRecord {
+func (t *Table) streamSeqRange() (string, string) {
 	n := len(t.StreamRecords)
 	if n == 0 {
-		return nil
+		return "", ""
 	}
 
-	// Buffer not yet full: StreamRecords is already in insertion order.
 	if n < maxStreamRecords {
-		return t.StreamRecords
+		// Buffer not yet full: records are in insertion order.
+		return t.StreamRecords[0].SequenceNumber, t.StreamRecords[n-1].SequenceNumber
 	}
 
-	// Ring buffer is full: oldest entry is at streamHead.
-	result := make([]StreamRecord, maxStreamRecords)
-	copied := copy(result, t.StreamRecords[t.streamHead:])
-	copy(result[copied:], t.StreamRecords[:t.streamHead])
+	// Ring is full: oldest record is at StreamHead, newest is at (StreamHead-1+n) % n.
+	firstIdx := t.StreamHead
+	lastIdx := (t.StreamHead - 1 + maxStreamRecords) % maxStreamRecords
 
-	return result
+	return t.StreamRecords[firstIdx].SequenceNumber, t.StreamRecords[lastIdx].SequenceNumber
+}
+
+// streamRecordsInOrder returns the two halves of the ring buffer in insertion
+// order as a pair of slices: (tail, head). Callers should iterate tail first,
+// then head. This avoids allocating a new slice on every call.
+//
+// When the buffer is not yet full, tail is the full slice and head is nil.
+// When full, tail is StreamRecords[StreamHead:] (oldest records) and head is
+// StreamRecords[:StreamHead] (newest records that wrapped around).
+//
+// Must be called with table.mu held (at least read lock).
+func (t *Table) streamRecordsInOrder() ([]StreamRecord, []StreamRecord) {
+	n := len(t.StreamRecords)
+	if n == 0 {
+		return nil, nil
+	}
+
+	if n < maxStreamRecords {
+		// Buffer not yet full: already in insertion order.
+		return t.StreamRecords, nil
+	}
+
+	// Ring is full: split at StreamHead.
+	return t.StreamRecords[t.StreamHead:], t.StreamRecords[:t.StreamHead]
 }
 
 func BuildKeyString(item map[string]any, attrName string) string {
