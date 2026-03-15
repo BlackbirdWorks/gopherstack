@@ -311,6 +311,14 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
 	}
 
+	// Stop all Docker containers for running tasks in this cluster before
+	// removing the task map, preventing container leaks on cluster deletion.
+	if b.runner != nil {
+		for _, task := range b.tasks[key] {
+			_ = b.runner.StopTask(task)
+		}
+	}
+
 	// Delete task sets for all services in this cluster before removing the services map,
 	// preventing stale task set entries on cluster recreation.
 	if svcs, exists := b.services[key]; exists {

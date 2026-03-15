@@ -10,9 +10,30 @@ import (
 
 	dockertypes "github.com/docker/docker/api/types/container"
 	dockerimage "github.com/docker/docker/api/types/image"
+	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
+
+// dockerClient is the subset of the Docker API used by realDockerRunner.
+// It is defined as an interface to allow injection of fakes in tests.
+type dockerClient interface {
+	ImagePull(ctx context.Context, refStr string, options dockerimage.PullOptions) (io.ReadCloser, error)
+	ContainerCreate(
+		ctx context.Context,
+		config *dockertypes.Config,
+		hostConfig *dockertypes.HostConfig,
+		networkingConfig *dockernetwork.NetworkingConfig,
+		platform *ocispec.Platform,
+		containerName string,
+	) (dockertypes.CreateResponse, error)
+	ContainerStart(ctx context.Context, containerID string, options dockertypes.StartOptions) error
+	ContainerStop(ctx context.Context, containerID string, options dockertypes.StopOptions) error
+	ContainerRemove(ctx context.Context, containerID string, options dockertypes.RemoveOptions) error
+}
 
 // NewDockerRunner creates a TaskRunner backed by the local Docker daemon.
 // It uses the standard DOCKER_HOST / DOCKER_TLS_VERIFY environment variables
@@ -23,13 +44,19 @@ func NewDockerRunner() (TaskRunner, error) {
 		return nil, fmt.Errorf("create docker client: %w", err)
 	}
 
-	return &realDockerRunner{cli: cli, containers: make(map[string]string)}, nil
+	return newDockerRunnerWithClient(cli), nil
+}
+
+// newDockerRunnerWithClient creates a realDockerRunner using the provided dockerClient.
+// This constructor is used by tests to inject a fake Docker client.
+func newDockerRunnerWithClient(cli dockerClient) *realDockerRunner {
+	return &realDockerRunner{cli: cli, containers: make(map[string][]string)}
 }
 
 // realDockerRunner is a TaskRunner that launches Docker containers.
 type realDockerRunner struct {
-	containers map[string]string
-	cli        *client.Client
+	containers map[string][]string
+	cli        dockerClient
 	mu         sync.Mutex
 }
 
@@ -47,11 +74,19 @@ func (r *realDockerRunner) RunTask(task *Task, td *TaskDefinition) error {
 		}
 
 		if startErr := r.cli.ContainerStart(ctx, containerID, dockertypes.StartOptions{}); startErr != nil {
+			// Clean up the created container to avoid a leak.
+			if rmErr := r.cli.ContainerRemove(ctx, containerID, dockertypes.RemoveOptions{Force: true}); rmErr != nil {
+				logger.Load(ctx).Warn("failed to remove container after start failure",
+					"containerID", containerID,
+					"error", rmErr,
+				)
+			}
+
 			return fmt.Errorf("start container %s: %w", containerID, startErr)
 		}
 
 		r.mu.Lock()
-		r.containers[task.TaskArn] = containerID
+		r.containers[task.TaskArn] = append(r.containers[task.TaskArn], containerID)
 		r.mu.Unlock()
 	}
 
@@ -144,23 +179,18 @@ func buildEnv(kvs []KeyValuePair) []string {
 
 func (r *realDockerRunner) StopTask(task *Task) error {
 	r.mu.Lock()
-	containerID, ok := r.containers[task.TaskArn]
+	containerIDs := r.containers[task.TaskArn]
+	delete(r.containers, task.TaskArn)
 	r.mu.Unlock()
-
-	if !ok {
-		return nil
-	}
 
 	ctx := context.Background()
 	timeout := 10
 
-	if err := r.cli.ContainerStop(ctx, containerID, dockertypes.StopOptions{Timeout: &timeout}); err != nil {
-		return fmt.Errorf("stop container %s: %w", containerID, err)
+	for _, containerID := range containerIDs {
+		if err := r.cli.ContainerStop(ctx, containerID, dockertypes.StopOptions{Timeout: &timeout}); err != nil {
+			return fmt.Errorf("stop container %s: %w", containerID, err)
+		}
 	}
-
-	r.mu.Lock()
-	delete(r.containers, task.TaskArn)
-	r.mu.Unlock()
 
 	return nil
 }
