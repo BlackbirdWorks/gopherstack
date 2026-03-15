@@ -160,8 +160,13 @@ func (b *InMemoryBackend) DeleteDeliveryStream(name string) error {
 	b.mu.Lock("DeleteDeliveryStream")
 	defer b.mu.Unlock()
 
-	if _, ok := b.streams[name]; !ok {
+	s, ok := b.streams[name]
+	if !ok {
 		return fmt.Errorf("%w: stream %s not found", ErrNotFound, name)
+	}
+
+	if s.Tags != nil {
+		s.Tags.Close()
 	}
 
 	delete(b.streams, name)
@@ -483,6 +488,11 @@ func (b *InMemoryBackend) deliverToS3(
 	}
 
 	body := buf.Bytes()
+
+	// Skip S3 delivery if all records were empty after filtering.
+	if len(body) == 0 {
+		return nil
+	}
 
 	compression := strings.ToUpper(dest.CompressionFormat)
 	if compression == "" {

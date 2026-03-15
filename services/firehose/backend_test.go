@@ -591,6 +591,55 @@ func TestDeliverToS3_EmptyRecord(t *testing.T) {
 	assert.Contains(t, string(s3mock.calls[0].body), "data")
 }
 
+// TestDeliverToS3_AllEmptyRecords verifies that if every record in a flush is empty,
+// no S3 PutObject call is made (avoids writing empty objects).
+func TestDeliverToS3_AllEmptyRecords(t *testing.T) {
+	t.Parallel()
+
+	s3mock := &mockS3Storer{}
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	b.SetS3Backend(s3mock)
+
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+		Name: "all-empty-stream",
+		S3Destination: &firehose.S3DestinationDescription{
+			BucketARN: "arn:aws:s3:::empty-bucket",
+		},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.PutRecord("all-empty-stream", []byte{}))
+	require.NoError(t, b.PutRecord("all-empty-stream", []byte{}))
+	b.FlushAll(t.Context())
+
+	// All records empty → no S3 delivery.
+	assert.Empty(t, s3mock.calls)
+}
+
+// TestDeleteDeliveryStream_ClosesTags verifies that Tags resources are released when a
+// stream is deleted, preventing Prometheus registry leaks.
+func TestDeleteDeliveryStream_ClosesTags(t *testing.T) {
+	t.Parallel()
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+		Name: "tag-leak-stream",
+	})
+	require.NoError(t, err)
+
+	// Tag the stream so the Tags collection is active.
+	require.NoError(t, b.TagDeliveryStream("tag-leak-stream", map[string]string{"env": "test"}))
+
+	// Delete must succeed without panicking; tags are closed internally.
+	require.NoError(t, b.DeleteDeliveryStream("tag-leak-stream"))
+
+	// Subsequent lookup must return not-found.
+	_, descErr := b.DescribeDeliveryStream("tag-leak-stream")
+	require.Error(t, descErr)
+	assert.ErrorIs(t, descErr, firehose.ErrNotFound)
+}
+
 // TestLambdaTransformation_ErrorDropsRecords verifies that a Lambda invocation error
 // causes the records to be dropped (not silently delivered as originals).
 func TestLambdaTransformation_ErrorDropsRecords(t *testing.T) {
