@@ -501,7 +501,7 @@ func objectMatchesTags(objTags []types.Tag, filters []lifecycleTag) bool {
 		found := false
 
 		for _, t := range objTags {
-			if t.Key != nil && *t.Key == f.Key && t.Value != nil && *t.Value == f.Value {
+			if tagMatchesFilter(t, f) {
 				found = true
 
 				break
@@ -514,6 +514,12 @@ func objectMatchesTags(objTags []types.Tag, filters []lifecycleTag) bool {
 	}
 
 	return true
+}
+
+// tagMatchesFilter returns true when the S3 Tag matches the lifecycle filter key/value.
+func tagMatchesFilter(t types.Tag, f lifecycleTag) bool {
+	return t.Key != nil && *t.Key == f.Key &&
+		t.Value != nil && *t.Value == f.Value
 }
 
 // latestVersion returns the LastModified timestamp of the latest non-deleted
