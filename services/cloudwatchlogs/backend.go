@@ -71,9 +71,16 @@ type StorageBackend interface {
 	DeleteLogGroup(name string) error
 	DescribeLogGroups(prefix, nextToken string, limit int) ([]LogGroup, string, error)
 	CreateLogStream(groupName, streamName string) (*LogStream, error)
+	DeleteLogStream(groupName, streamName string) error
 	DescribeLogStreams(groupName, prefix, nextToken string, limit int) ([]LogStream, string, error)
 	PutLogEvents(groupName, streamName string, events []InputLogEvent) (string, error)
-	GetLogEvents(groupName, streamName string, startTime, endTime *int64, limit int, nextToken string) (
+	GetLogEvents(
+		groupName, streamName string,
+		startTime, endTime *int64,
+		limit int,
+		nextToken string,
+		startFromHead bool,
+	) (
 		[]OutputLogEvent, string, string, error)
 	FilterLogEvents(groupName string, streamNames []string, filterPattern string,
 		startTime, endTime *int64, limit int, nextToken string) ([]OutputLogEvent, string, error)
@@ -303,6 +310,25 @@ func (b *InMemoryBackend) CreateLogStream(groupName, streamName string) (*LogStr
 	return s, nil
 }
 
+// DeleteLogStream deletes a log stream and all its events from a log group.
+func (b *InMemoryBackend) DeleteLogStream(groupName, streamName string) error {
+	b.mu.Lock("DeleteLogStream")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return fmt.Errorf("%w: Log group %s not found", ErrLogGroupNotFound, groupName)
+	}
+
+	if _, exists := b.streams[groupName][streamName]; !exists {
+		return fmt.Errorf("%w: Log stream %s not found", ErrLogStreamNotFound, streamName)
+	}
+
+	delete(b.streams[groupName], streamName)
+	delete(b.events[groupName], streamName)
+
+	return nil
+}
+
 // DescribeLogStreams returns log streams for a group, optionally filtered by prefix, with pagination.
 func (b *InMemoryBackend) DescribeLogStreams(groupName, prefix, nextToken string, limit int) (
 	[]LogStream, string, error,
@@ -419,8 +445,14 @@ func (b *InMemoryBackend) appendEvents(
 }
 
 // GetLogEvents returns events for a stream with optional time bounds, limit, and pagination.
+// startFromHead controls the iteration direction:
+//   - true  (start from oldest): begin at the oldest matching event.
+//   - false (AWS default when no nextToken is provided): begin at the newest events.
+//
+// In practice the AWS SDK always passes a nextToken once pagination begins, at which point the
+// token encodes the offset directly and startFromHead is ignored.
 func (b *InMemoryBackend) GetLogEvents(groupName, streamName string, startTime, endTime *int64,
-	limit int, nextToken string,
+	limit int, nextToken string, startFromHead bool,
 ) ([]OutputLogEvent, string, string, error) {
 	b.mu.RLock("GetLogEvents")
 	defer b.mu.RUnlock()
@@ -436,10 +468,21 @@ func (b *InMemoryBackend) GetLogEvents(groupName, streamName string, startTime, 
 	all := b.events[groupName][streamName]
 	filtered := filterByTime(all, startTime, endTime)
 
-	startIdx := parseNextToken(nextToken)
 	if limit <= 0 {
 		limit = defaultEventLimit
 	}
+
+	var startIdx int
+	if nextToken != "" {
+		// An explicit token always takes precedence over startFromHead.
+		startIdx = parseNextToken(nextToken)
+	} else if !startFromHead {
+		// No token + startFromHead=false (the AWS default): begin at the last page.
+		if len(filtered) > limit {
+			startIdx = len(filtered) - limit
+		}
+	}
+	// nextToken=="" && startFromHead=true: startIdx stays 0 (oldest first).
 
 	end := min(startIdx+limit, len(filtered))
 

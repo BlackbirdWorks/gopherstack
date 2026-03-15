@@ -491,7 +491,15 @@ func TestCloudWatchLogsBackend_GetLogEvents(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			evts, fwd, bwd, err := b.GetLogEvents(tt.group, tt.stream, tt.startTime, tt.endTime, tt.limit, tt.nextToken)
+			evts, fwd, bwd, err := b.GetLogEvents(
+				tt.group,
+				tt.stream,
+				tt.startTime,
+				tt.endTime,
+				tt.limit,
+				tt.nextToken,
+				true,
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -527,11 +535,11 @@ func TestCloudWatchLogsBackend_GetLogEvents_Pagination(t *testing.T) {
 		{Message: "c", Timestamp: 3},
 	})
 
-	evts, fwd, _, err := b.GetLogEvents("grp", "stream", nil, nil, 2, "")
+	evts, fwd, _, err := b.GetLogEvents("grp", "stream", nil, nil, 2, "", true)
 	require.NoError(t, err)
 	assert.Len(t, evts, 2)
 
-	evts2, _, _, err := b.GetLogEvents("grp", "stream", nil, nil, 2, fwd)
+	evts2, _, _, err := b.GetLogEvents("grp", "stream", nil, nil, 2, fwd, true)
 	require.NoError(t, err)
 	assert.Len(t, evts2, 1)
 }
@@ -1602,7 +1610,7 @@ func TestCloudWatchLogsBackend_PutLogEvents_EventCap(t *testing.T) {
 	}
 
 	// Exactly MaxEventsPerStream events should remain (the newest ones).
-	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, cloudwatchlogs.MaxEventsPerStream+1000, "")
+	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, cloudwatchlogs.MaxEventsPerStream+1000, "", true)
 	require.NoError(t, err)
 	assert.Len(t, got, cloudwatchlogs.MaxEventsPerStream)
 
@@ -1768,7 +1776,7 @@ func TestJanitor_SweepRetention(t *testing.T) {
 	j.SweepOnce(t.Context())
 
 	// Only recent events should remain.
-	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, 100, "")
+	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, 100, "", true)
 	require.NoError(t, err)
 	assert.Len(t, got, 1)
 	assert.Equal(t, "recent-1", got[0].Message)
@@ -1793,7 +1801,7 @@ func TestJanitor_SweepNoRetention(t *testing.T) {
 	j := cloudwatchlogs.NewJanitor(b, 0)
 	j.SweepOnce(t.Context())
 
-	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, 100, "")
+	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, 100, "", true)
 	require.NoError(t, err)
 	assert.Len(t, got, 1)
 }
@@ -1861,4 +1869,108 @@ func TestJanitor_SweepEmptyStreamClearsMetadata(t *testing.T) {
 	require.Len(t, streams, 1)
 	assert.Nil(t, streams[0].FirstEventTimestamp)
 	assert.Nil(t, streams[0].LastEventTimestamp)
+}
+
+func TestCloudWatchLogsBackend_DeleteLogStream(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(b *cloudwatchlogs.InMemoryBackend)
+		name    string
+		group   string
+		stream  string
+	}{
+		{
+			name:    "group_not_found",
+			group:   "nonexistent",
+			stream:  "s",
+			wantErr: cloudwatchlogs.ErrLogGroupNotFound,
+		},
+		{
+			name: "stream_not_found",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.CreateLogGroup("g")
+			},
+			group:   "g",
+			stream:  "nonexistent",
+			wantErr: cloudwatchlogs.ErrLogStreamNotFound,
+		},
+		{
+			name: "success",
+			setup: func(b *cloudwatchlogs.InMemoryBackend) {
+				_, _ = b.CreateLogGroup("g")
+				_, _ = b.CreateLogStream("g", "s")
+			},
+			group:  "g",
+			stream: "s",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := b.DeleteLogStream(tt.group, tt.stream)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Verify stream and events are gone.
+			streams, _, sErr := b.DescribeLogStreams(tt.group, "", "", 100)
+			require.NoError(t, sErr)
+			assert.Empty(t, streams)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_GetLogEvents_StartFromHead(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatchlogs.NewInMemoryBackend()
+	_, err := b.CreateLogGroup("g")
+	require.NoError(t, err)
+	_, err = b.CreateLogStream("g", "s")
+	require.NoError(t, err)
+
+	// Put 5 events.
+	events := []cloudwatchlogs.InputLogEvent{
+		{Message: "e1", Timestamp: 1},
+		{Message: "e2", Timestamp: 2},
+		{Message: "e3", Timestamp: 3},
+		{Message: "e4", Timestamp: 4},
+		{Message: "e5", Timestamp: 5},
+	}
+	_, err = b.PutLogEvents("g", "s", events)
+	require.NoError(t, err)
+
+	// startFromHead=true, limit=2: should return oldest 2 events.
+	got, _, _, err := b.GetLogEvents("g", "s", nil, nil, 2, "", true)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "e1", got[0].Message)
+	assert.Equal(t, "e2", got[1].Message)
+
+	// startFromHead=false (AWS default), limit=2: should return newest 2 events.
+	got, _, _, err = b.GetLogEvents("g", "s", nil, nil, 2, "", false)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "e4", got[0].Message)
+	assert.Equal(t, "e5", got[1].Message)
+
+	// nextToken takes precedence over startFromHead.
+	got, _, _, err = b.GetLogEvents("g", "s", nil, nil, 2, "0", false)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "e1", got[0].Message)
 }

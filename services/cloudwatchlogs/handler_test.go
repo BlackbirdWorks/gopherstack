@@ -926,3 +926,92 @@ func TestHandler_DescribeQueries_Pagination(t *testing.T) {
 	require.True(t, ok, "page2 queries should be an array")
 	assert.Len(t, page2Queries, 1)
 }
+
+func TestHandler_DeleteLogStream(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+
+	doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"g"}`)
+	doLogsRequest(t, h, e, "CreateLogStream", `{"logGroupName":"g","logStreamName":"s"}`)
+
+	// Verify stream exists.
+	rec := doLogsRequest(t, h, e, "DescribeLogStreams", `{"logGroupName":"g"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var desc1 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc1))
+	assert.Len(t, desc1["logStreams"], 1)
+
+	// Delete it.
+	rec = doLogsRequest(t, h, e, "DeleteLogStream", `{"logGroupName":"g","logStreamName":"s"}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify stream gone.
+	rec = doLogsRequest(t, h, e, "DescribeLogStreams", `{"logGroupName":"g"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var desc2 map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &desc2))
+	assert.Empty(t, desc2["logStreams"])
+
+	// Delete non-existent stream → 404.
+	rec = doLogsRequest(t, h, e, "DeleteLogStream", `{"logGroupName":"g","logStreamName":"nonexistent"}`)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func TestHandler_TagResource_UntagResource(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+
+	arn := "arn:aws:logs:us-east-1:123456789012:log-group:/my-group"
+
+	// TagResource — set two tags.
+	rec := doLogsRequest(t, h, e, "TagResource",
+		`{"resourceArn":"`+arn+`","tags":{"env":"prod","team":"platform"}}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// ListTagsForResource — verify tags present.
+	rec = doLogsRequest(t, h, e, "ListTagsForResource", `{"resourceArn":"`+arn+`"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var listOut map[string]map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	assert.Equal(t, "prod", listOut["tags"]["env"])
+	assert.Equal(t, "platform", listOut["tags"]["team"])
+
+	// UntagResource — remove one tag.
+	rec = doLogsRequest(t, h, e, "UntagResource",
+		`{"resourceArn":"`+arn+`","tagKeys":["env"]}`)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Verify env tag removed, team tag remains.
+	rec = doLogsRequest(t, h, e, "ListTagsForResource", `{"resourceArn":"`+arn+`"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	assert.Empty(t, listOut["tags"]["env"])
+	assert.Equal(t, "platform", listOut["tags"]["team"])
+}
+
+func TestHandler_Reset_ClearsTags(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+
+	// Set a tag.
+	rec := doLogsRequest(t, h, e, "TagResource",
+		`{"resourceArn":"arn:aws:logs:us-east-1:123:log-group:/g","tags":{"k":"v"}}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Reset.
+	h.Reset()
+
+	// Tags should be gone after reset.
+	rec = doLogsRequest(t, h, e, "ListTagsForResource",
+		`{"resourceArn":"arn:aws:logs:us-east-1:123:log-group:/g"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var listOut map[string]map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listOut))
+	assert.Empty(t, listOut["tags"])
+}

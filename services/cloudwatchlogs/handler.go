@@ -49,6 +49,11 @@ type describeLogStreamsInput struct {
 	Limit               int    `json:"limit"`
 }
 
+type deleteLogStreamInput struct {
+	LogGroupName  string `json:"logGroupName"`
+	LogStreamName string `json:"logStreamName"`
+}
+
 type putLogEventsInput struct {
 	LogGroupName  string          `json:"logGroupName"`
 	LogStreamName string          `json:"logStreamName"`
@@ -62,6 +67,7 @@ type getLogEventsInput struct {
 	LogStreamName string `json:"logStreamName"`
 	NextToken     string `json:"nextToken"`
 	Limit         int    `json:"limit"`
+	StartFromHead bool   `json:"startFromHead"`
 }
 
 type filterLogEventsInput struct {
@@ -90,6 +96,16 @@ type tagLogGroupInput struct {
 type untagLogGroupInput struct {
 	LogGroupName string   `json:"logGroupName"`
 	Tags         []string `json:"tags"`
+}
+
+type tagResourceInput struct {
+	Tags        map[string]string `json:"tags"`
+	ResourceArn string            `json:"resourceArn"`
+}
+
+type untagResourceInput struct {
+	ResourceArn string   `json:"resourceArn"`
+	TagKeys     []string `json:"tagKeys"`
 }
 
 type putRetentionPolicyInput struct {
@@ -239,6 +255,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteLogGroup",
 		"DescribeLogGroups",
 		"CreateLogStream",
+		"DeleteLogStream",
 		"DescribeLogStreams",
 		"PutLogEvents",
 		"GetLogEvents",
@@ -247,6 +264,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagLogGroup",
 		"UntagLogGroup",
+		"TagResource",
+		"UntagResource",
 		"PutRetentionPolicy",
 		"DeleteRetentionPolicy",
 		"PutSubscriptionFilter",
@@ -341,6 +360,8 @@ type describeLogGroupsOutput struct {
 
 type createLogStreamOutput struct{}
 
+type deleteLogStreamOutput struct{}
+
 type describeLogStreamsOutput struct {
 	NextToken  string      `json:"nextToken,omitempty"`
 	LogStreams []LogStream `json:"logStreams"`
@@ -372,6 +393,10 @@ type listTagsForResourceOutput struct {
 type tagLogGroupOutput struct{}
 
 type untagLogGroupOutput struct{}
+
+type tagResourceOutput struct{}
+
+type untagResourceOutput struct{}
 
 type putRetentionPolicyOutput struct{}
 
@@ -438,6 +463,17 @@ func (h *Handler) logStreamActions() map[string]actionFn {
 
 			return &createLogStreamOutput{}, nil
 		},
+		"DeleteLogStream": func(b []byte) (any, error) {
+			var input deleteLogStreamInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			if err := h.Backend.DeleteLogStream(input.LogGroupName, input.LogStreamName); err != nil {
+				return nil, err
+			}
+
+			return &deleteLogStreamOutput{}, nil
+		},
 		"DescribeLogStreams": func(b []byte) (any, error) {
 			var input describeLogStreamsInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -475,7 +511,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			}
 			evts, fwd, bwd, err := h.Backend.GetLogEvents(
 				input.LogGroupName, input.LogStreamName, input.StartTime, input.EndTime,
-				input.Limit, input.NextToken)
+				input.Limit, input.NextToken, input.StartFromHead)
 			if err != nil {
 				return nil, err
 			}
@@ -543,6 +579,29 @@ func (h *Handler) logTagActions() map[string]actionFn {
 
 			return &untagLogGroupOutput{}, nil
 		},
+		"TagResource": func(b []byte) (any, error) {
+			var input tagResourceInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.setTags(input.ResourceArn, input.Tags)
+
+			return &tagResourceOutput{}, nil
+		},
+		"UntagResource": func(b []byte) (any, error) {
+			var input untagResourceInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			h.removeTags(input.ResourceArn, input.TagKeys)
+
+			return &untagResourceOutput{}, nil
+		},
+	}
+}
+
+func (h *Handler) retentionActions() map[string]actionFn {
+	return map[string]actionFn{
 		"PutRetentionPolicy": func(b []byte) (any, error) {
 			var input putRetentionPolicyInput
 			if err := json.Unmarshal(b, &input); err != nil {
@@ -707,6 +766,7 @@ func (h *Handler) dispatchTable() map[string]actionFn {
 	maps.Copy(table, h.logStreamActions())
 	maps.Copy(table, h.logEventActions())
 	maps.Copy(table, h.logTagActions())
+	maps.Copy(table, h.retentionActions())
 	maps.Copy(table, h.subscriptionFilterActions())
 	maps.Copy(table, h.insightsActions())
 
@@ -771,10 +831,21 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 	return c.JSONBlob(statusCode, payload)
 }
 
-// Reset clears all in-memory state from the backend. It is used by the
-// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+// Reset clears all in-memory state from the backend and the handler-level tag
+// store. It is used by the POST /_gopherstack/reset endpoint for CI pipelines
+// and rapid local development.
 func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	// Clear handler-level tag state so that tags don't bleed across test runs.
+	h.tagsMu.Lock("Reset")
+	defer h.tagsMu.Unlock()
+
+	for _, t := range h.tags {
+		t.Close()
+	}
+
+	h.tags = make(map[string]*tags.Tags)
 }
