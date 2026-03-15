@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -26,11 +27,35 @@ var errUnknownAction = errors.New("UnknownOperationException")
 // Handler is the Echo HTTP handler for AWS EMR operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	janitor *Janitor
 }
 
 // NewHandler creates a new EMR handler backed by backend.
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+// If interval or terminatedTTL are zero, defaults are used.
+func (h *Handler) WithJanitor(interval, terminatedTTL time.Duration) *Handler {
+	h.janitor = NewJanitor(h.Backend, interval, terminatedTTL)
+
+	return h
+}
+
+// StartWorker starts the background janitor if configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
+}
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }
 
 // Name returns the service name.
