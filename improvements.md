@@ -49,7 +49,7 @@ Covers: resource leaks, memory leaks, race conditions, performance optimizations
 ### Persistence Layer — No fsync Before Rename
 - **Location:** `pkgs/persistence/file.go`
 - **Issue:** `FileStore.Save()` writes data to a temp file, closes it, and renames — but never calls `tmp.Sync()`. On power loss between Close and Rename, data may be lost or corrupted.
-- **Fix:** Add `tmp.Sync()` before `tmp.Close()`.
+- **Fix:** Add `tmp.Sync()` before `tmp.Close()`, and consider syncing the parent directory after rename to ensure the directory entry is persisted.
 
 ### Lockmetrics — Prometheus Metric Leak
 - **Location:** `pkgs/lockmetrics/lockmetrics.go`
@@ -529,7 +529,7 @@ Covers: resource leaks, memory leaks, race conditions, performance optimizations
 ## SES
 
 ### Bugs (Critical)
-- **Race condition in `VerifyEmailIdentity`:** `b.mu.Lock()` and `b.mu.Unlock()` without `defer`. If an error occurs before Unlock, the mutex is permanently held — **deadlocks the entire SES service**.
+- **Mutex leak in `VerifyEmailIdentity`:** `b.mu.Lock()` and `b.mu.Unlock()` without `defer`. If an error occurs before Unlock, the mutex remains held indefinitely — **causes the entire SES service to hang**.
 
 ### Memory Leaks
 - **Unbounded email storage:** `b.emails` slice grows indefinitely with every `SendEmail` — no size limit, no cleanup, no TTL. Persistence snapshot grows unbounded.
@@ -695,7 +695,7 @@ Covers: resource leaks, memory leaks, race conditions, performance optimizations
 ### Priority Fix Order
 
 **P0 — Immediate (production-breaking):**
-1. SES `VerifyEmailIdentity` deadlock (missing defer on mutex unlock)
+1. SES `VerifyEmailIdentity` mutex hang (missing defer on mutex unlock)
 2. Lambda container process leaks on timeout
 3. ECS multi-container tracking bug (only last container tracked/stopped)
 4. CloudFormation `DeleteStack` resources map memory leak
