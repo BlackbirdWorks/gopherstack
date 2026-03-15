@@ -486,6 +486,30 @@ func TestDeleteSubnet_CascadeDeletesENIs(t *testing.T) {
 	}
 }
 
+// TestDeleteSubnet_CascadeTerminatesInstances verifies that deleting a subnet
+// marks all instances in that subnet as terminated.
+func TestDeleteSubnet_CascadeTerminatesInstances(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	subnet, err := b.CreateSubnet("vpc-default", "10.1.0.0/24", "us-east-1a")
+	require.NoError(t, err)
+
+	insts, err := b.RunInstances("ami-test", "t2.micro", subnet.ID, 2)
+	require.NoError(t, err)
+
+	err = b.DeleteSubnet(subnet.ID)
+	require.NoError(t, err)
+
+	for _, inst := range insts {
+		remaining := b.DescribeInstances([]string{inst.ID}, "")
+		require.Len(t, remaining, 1, "terminated instances should still be visible in grace period")
+		assert.Equal(t, "terminated", remaining[0].State.Name,
+			"instance %s should be terminated after subnet deletion", inst.ID)
+	}
+}
+
 // TestDeleteVpc_CascadeDeletesDependents verifies that deleting a VPC removes
 // all dependent resources: subnets, security groups, route tables, and ENIs.
 func TestDeleteVpc_CascadeDeletesDependents(t *testing.T) {
@@ -527,6 +551,33 @@ func TestDeleteVpc_CascadeDeletesDependents(t *testing.T) {
 	// Tags for all dependents must be removed.
 	for _, resID := range []string{subnet.ID, sg.ID, rt.ID, eni.ID} {
 		assert.Empty(t, b.DescribeTags([]string{resID}), "tags for %s must be removed", resID)
+	}
+}
+
+// TestDeleteVpc_CascadeTerminatesInstances verifies that deleting a VPC marks
+// all instances in that VPC as terminated.
+func TestDeleteVpc_CascadeTerminatesInstances(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	vpc, err := b.CreateVpc("10.77.0.0/16")
+	require.NoError(t, err)
+
+	subnet, err := b.CreateSubnet(vpc.ID, "10.77.1.0/24", "us-east-1a")
+	require.NoError(t, err)
+
+	insts, err := b.RunInstances("ami-test", "t2.micro", subnet.ID, 2)
+	require.NoError(t, err)
+
+	err = b.DeleteVpc(vpc.ID)
+	require.NoError(t, err)
+
+	for _, inst := range insts {
+		remaining := b.DescribeInstances([]string{inst.ID}, "")
+		require.Len(t, remaining, 1, "terminated instances should still be visible in grace period")
+		assert.Equal(t, "terminated", remaining[0].State.Name,
+			"instance %s should be terminated after VPC deletion", inst.ID)
 	}
 }
 
@@ -601,4 +652,66 @@ func TestCreateTags_NonExistentResourceReturnsError(t *testing.T) {
 			assert.Empty(t, entries, "no tags should be stored for a non-existent resource")
 		})
 	}
+}
+
+// TestCreateTags_AtomicOnMixedResourceIDs verifies that CreateTags is atomic:
+// if any resource ID in the list does not exist, no resources are tagged.
+func TestCreateTags_AtomicOnMixedResourceIDs(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	// "vpc-default" exists; "vpc-does-not-exist" does not.
+	err := b.CreateTags(
+		[]string{"vpc-default", "vpc-does-not-exist"},
+		map[string]string{"Env": "test"},
+	)
+	require.Error(t, err, "CreateTags must fail when any resource ID is invalid")
+
+	// The valid resource must NOT have been tagged (atomicity).
+	entries := b.DescribeTags([]string{"vpc-default"})
+	assert.Empty(t, entries, "vpc-default must not be tagged when CreateTags fails atomically")
+}
+
+// TestJanitor_DefensiveENISweep verifies that the janitor removes orphaned ENIs
+// that are still referencing a terminated instance (e.g. state restored from a
+// snapshot that predates the ENI cleanup fix).
+func TestJanitor_DefensiveENISweep(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+
+	// Launch and terminate an instance normally.
+	insts, err := b.RunInstances("ami-test", "t2.micro", "", 1)
+	require.NoError(t, err)
+
+	instanceID := insts[0].ID
+
+	_, err = b.TerminateInstances([]string{instanceID})
+	require.NoError(t, err)
+
+	// Inject an orphaned ENI (simulating a snapshot restore before the fix).
+	orphan := &ec2.NetworkInterface{
+		ID:         "eni-orphan-test",
+		InstanceID: instanceID,
+		SubnetID:   "subnet-default",
+		VPCID:      "vpc-default",
+		PrivateIP:  "172.31.100.1",
+		Status:     "in-use",
+	}
+	b.InjectOrphanedENIForTest(orphan)
+
+	// Confirm the orphaned ENI is present.
+	enis := b.DescribeNetworkInterfaces([]string{orphan.ID})
+	require.Len(t, enis, 1, "orphaned ENI should be present before janitor sweep")
+
+	// Back-date TerminatedAt to exceed the TTL.
+	b.SetInstanceTerminatedAtForTest(instanceID, time.Now().Add(-2*time.Hour))
+
+	j := ec2.NewJanitor(b, time.Minute, time.Hour, 0)
+	j.SweepTerminatedInstancesForTest(t.Context())
+
+	// The orphaned ENI must be removed by the janitor.
+	enis = b.DescribeNetworkInterfaces([]string{orphan.ID})
+	assert.Empty(t, enis, "orphaned ENI should be removed by janitor defensive sweep")
 }

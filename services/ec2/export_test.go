@@ -35,3 +35,14 @@ func (b *InMemoryBackend) SetSpotRequestCancelledAtForTest(id string, t time.Tim
 		req.CancelledAt = t
 	}
 }
+
+// InjectOrphanedENIForTest injects a NetworkInterface directly into the backend
+// map without going through TerminateInstances, simulating state restored from
+// a snapshot that predates the ENI-cleanup fix. Used to test the janitor's
+// defensive ENI sweep.
+func (b *InMemoryBackend) InjectOrphanedENIForTest(eni *NetworkInterface) {
+	b.mu.Lock("InjectOrphanedENIForTest")
+	defer b.mu.Unlock()
+
+	b.networkInterfaces[eni.ID] = eni
+}

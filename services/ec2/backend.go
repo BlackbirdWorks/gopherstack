@@ -325,10 +325,13 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 			}
 		}
 
-		// Delete all ENIs attached to the terminated instance, mirroring the
-		// AWS default deleteOnTermination=true behaviour for primary ENIs.
+		// Delete all ENIs attached to the terminated instance and recycle their
+		// private IPs. This mirrors the AWS behaviour where all network interfaces
+		// are deleted when an instance is terminated (deleteOnTermination=true is
+		// the default for all network interfaces attached at launch).
 		for eniID, eni := range b.networkInterfaces {
 			if eni.InstanceID == id {
+				b.recycleENIIPsLocked(eni)
 				delete(b.networkInterfaces, eniID)
 				delete(b.tags, eniID)
 			}
@@ -454,14 +457,23 @@ func (b *InMemoryBackend) CreateVpc(cidr string) (*VPC, error) {
 }
 
 // DeleteVpc removes a VPC by ID, cascade-deleting all dependent resources
-// (route tables, security groups, network interfaces, and subnets) along with
-// their tags.
+// (instances, route tables, security groups, network interfaces, and subnets)
+// along with their tags.
 func (b *InMemoryBackend) DeleteVpc(id string) error {
 	b.mu.Lock("DeleteVpc")
 	defer b.mu.Unlock()
 
 	if _, ok := b.vpcs[id]; !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, id)
+	}
+
+	// Cascade: terminate instances belonging to this VPC.
+	for instID, inst := range b.instances {
+		if inst.VPCID == id {
+			inst.State = StateTerminated
+			inst.TerminatedAt = time.Now()
+			delete(b.tags, instID)
+		}
 	}
 
 	// Cascade: remove route tables belonging to this VPC.
@@ -483,6 +495,7 @@ func (b *InMemoryBackend) DeleteVpc(id string) error {
 	// Cascade: remove network interfaces belonging to this VPC.
 	for eniID, eni := range b.networkInterfaces {
 		if eni.VPCID == id {
+			b.recycleENIIPsLocked(eni)
 			delete(b.networkInterfaces, eniID)
 			delete(b.tags, eniID)
 		}
@@ -559,8 +572,8 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 	return s, nil
 }
 
-// DeleteSubnet removes a subnet by ID, cascade-deleting any network interfaces
-// attached to that subnet and their tags.
+// DeleteSubnet removes a subnet by ID, cascade-deleting any instances and
+// network interfaces in that subnet along with their tags.
 func (b *InMemoryBackend) DeleteSubnet(id string) error {
 	b.mu.Lock("DeleteSubnet")
 	defer b.mu.Unlock()
@@ -569,9 +582,19 @@ func (b *InMemoryBackend) DeleteSubnet(id string) error {
 		return fmt.Errorf("%w: %s", ErrSubnetNotFound, id)
 	}
 
+	// Cascade: terminate instances in this subnet.
+	for instID, inst := range b.instances {
+		if inst.SubnetID == id {
+			inst.State = StateTerminated
+			inst.TerminatedAt = time.Now()
+			delete(b.tags, instID)
+		}
+	}
+
 	// Cascade: remove network interfaces in this subnet.
 	for eniID, eni := range b.networkInterfaces {
 		if eni.SubnetID == id {
+			b.recycleENIIPsLocked(eni)
 			delete(b.networkInterfaces, eniID)
 			delete(b.tags, eniID)
 		}
@@ -615,6 +638,26 @@ func resourceTypeByID(id string) string {
 	}
 
 	return "resource"
+}
+
+// recycleIPLocked adds ip to the free list if it is an auto-allocated
+// 172.31.x.y address and the free list has capacity remaining.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) recycleIPLocked(ip string) {
+	if strings.HasPrefix(ip, "172.31.") && len(b.freePrivateIPs) < maxFreePrivateIPs {
+		b.freePrivateIPs = append(b.freePrivateIPs, ip)
+	}
+}
+
+// recycleENIIPsLocked returns the primary and secondary auto-allocated private
+// IPs from an ENI back to the free list so they can be reused.
+// Must be called with b.mu held.
+func (b *InMemoryBackend) recycleENIIPsLocked(eni *NetworkInterface) {
+	b.recycleIPLocked(eni.PrivateIP)
+
+	for _, ip := range eni.SecondaryPrivateIPs {
+		b.recycleIPLocked(ip)
+	}
 }
 
 // resourceExistsLocked reports whether id refers to any known EC2 resource.
@@ -677,15 +720,20 @@ func (b *InMemoryBackend) resourceExistsLocked(id string) bool {
 
 // CreateTags adds or updates tags on one or more resources.
 // Returns ErrInvalidParameter if any resource ID does not exist.
+// All IDs are validated before any tags are written, making the operation atomic
+// with respect to failures: either all resources are tagged or none are.
 func (b *InMemoryBackend) CreateTags(resourceIDs []string, tags map[string]string) error {
 	b.mu.Lock("CreateTags")
 	defer b.mu.Unlock()
 
+	// Pre-validate: all resource IDs must exist before any tags are written.
 	for _, id := range resourceIDs {
 		if !b.resourceExistsLocked(id) {
 			return fmt.Errorf("%w: resource %s does not exist", ErrInvalidParameter, id)
 		}
+	}
 
+	for _, id := range resourceIDs {
 		if b.tags[id] == nil {
 			b.tags[id] = make(map[string]string)
 		}

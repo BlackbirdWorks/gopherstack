@@ -746,7 +746,7 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup        func(t *testing.T, bk *ec2.InMemoryBackend) []string
+		setup        func(t *testing.T, bk *ec2.InMemoryBackend)
 		name         string
 		resourceIDs  []string
 		wantContains []ec2.TagEntry
@@ -754,13 +754,11 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 	}{
 		{
 			name: "create_and_describe",
-			setup: func(t *testing.T, bk *ec2.InMemoryBackend) []string {
+			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
 				t.Helper()
 
 				err := bk.CreateTags([]string{"vpc-default"}, map[string]string{"Name": "test-vpc"})
 				require.NoError(t, err)
-
-				return nil
 			},
 			resourceIDs: nil,
 			wantCount:   1,
@@ -770,20 +768,18 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 		},
 		{
 			name: "create_multiple_resources",
-			setup: func(t *testing.T, bk *ec2.InMemoryBackend) []string {
+			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
 				t.Helper()
 
 				err := bk.CreateTags([]string{"vpc-default", "subnet-default"}, map[string]string{"Env": "prod"})
 				require.NoError(t, err)
-
-				return nil
 			},
 			resourceIDs: nil,
 			wantCount:   2,
 		},
 		{
 			name: "delete_clears_key",
-			setup: func(t *testing.T, bk *ec2.InMemoryBackend) []string {
+			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
 				t.Helper()
 
 				err := bk.CreateTags([]string{"vpc-default"}, map[string]string{"Name": "old", "Env": "dev"})
@@ -791,8 +787,6 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 
 				err = bk.DeleteTags([]string{"vpc-default"}, []string{"Name"})
 				require.NoError(t, err)
-
-				return nil
 			},
 			resourceIDs: nil,
 			wantCount:   1,
@@ -802,7 +796,7 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 		},
 		{
 			name: "filter_by_resource_id",
-			setup: func(t *testing.T, bk *ec2.InMemoryBackend) []string {
+			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
 				t.Helper()
 
 				// Create a second VPC so we have two distinct tagable VPCs.
@@ -811,8 +805,6 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 
 				err = bk.CreateTags([]string{"vpc-default", vpc2.ID}, map[string]string{"Key": "val"})
 				require.NoError(t, err)
-
-				return []string{vpc2.ID}
 			},
 			resourceIDs: []string{"vpc-default"},
 			wantCount:   1,
@@ -822,7 +814,7 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 		},
 		{
 			name: "delete_empty_keys_is_noop",
-			setup: func(t *testing.T, bk *ec2.InMemoryBackend) []string {
+			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
 				t.Helper()
 
 				err := bk.CreateTags([]string{"vpc-default"}, map[string]string{"Name": "keep-me"})
@@ -831,8 +823,6 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 				// Empty keys: should be a no-op, tag must remain.
 				err = bk.DeleteTags([]string{"vpc-default"}, []string{})
 				require.NoError(t, err)
-
-				return nil
 			},
 			resourceIDs: nil,
 			wantCount:   1,
@@ -842,7 +832,7 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 		},
 		{
 			name: "delete_all_keys_removes_resource_entry",
-			setup: func(t *testing.T, bk *ec2.InMemoryBackend) []string {
+			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
 				t.Helper()
 
 				err := bk.CreateTags([]string{"vpc-default"}, map[string]string{"Name": "gone"})
@@ -850,23 +840,34 @@ func TestInMemoryBackend_CreateDeleteDescribeTags(t *testing.T) {
 
 				err = bk.DeleteTags([]string{"vpc-default"}, []string{"Name"})
 				require.NoError(t, err)
-
-				return nil
 			},
 			resourceIDs: nil,
 			wantCount:   0,
 		},
 		{
 			name: "create_tags_nonexistent_resource_returns_error",
-			setup: func(t *testing.T, bk *ec2.InMemoryBackend) []string {
+			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
 				t.Helper()
 
 				err := bk.CreateTags([]string{"vpc-does-not-exist"}, map[string]string{"Key": "val"})
 				require.Error(t, err)
-
-				return nil
 			},
 			resourceIDs: nil,
+			wantCount:   0,
+		},
+		{
+			name: "create_tags_atomic_on_mixed_resources",
+			setup: func(t *testing.T, bk *ec2.InMemoryBackend) {
+				t.Helper()
+
+				// First ID exists, second does not — neither should be tagged.
+				err := bk.CreateTags(
+					[]string{"vpc-default", "vpc-does-not-exist"},
+					map[string]string{"Key": "val"},
+				)
+				require.Error(t, err)
+			},
+			resourceIDs: []string{"vpc-default"},
 			wantCount:   0,
 		},
 	}

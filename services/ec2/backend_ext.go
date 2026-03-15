@@ -1247,9 +1247,9 @@ func (b *InMemoryBackend) UnassignPrivateIPAddresses(eniID string, ips []string)
 	for _, ip := range eni.SecondaryPrivateIPs {
 		if !remove[ip] {
 			kept = append(kept, ip)
-		} else if strings.HasPrefix(ip, "172.31.") && len(b.freePrivateIPs) < maxFreePrivateIPs {
+		} else {
 			// Return auto-allocated IPs to the free list for reuse, up to the cap.
-			b.freePrivateIPs = append(b.freePrivateIPs, ip)
+			b.recycleIPLocked(ip)
 		}
 	}
 
