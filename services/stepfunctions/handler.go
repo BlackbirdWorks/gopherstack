@@ -568,9 +568,27 @@ func (h *Handler) Reset() {
 
 // Shutdown implements service.Shutdowner.
 // It cancels all running execution goroutines and releases associated resources.
-func (h *Handler) Shutdown(_ context.Context) {
-	if b, ok := h.Backend.(*InMemoryBackend); ok {
+// Destroy() calls each cancel func synchronously and returns immediately; the
+// ASL goroutines exit asynchronously. If ctx expires before Destroy returns,
+// Shutdown returns early so the process shutdown is not blocked.
+func (h *Handler) Shutdown(ctx context.Context) {
+	type destroyer interface{ Destroy() }
+
+	b, ok := h.Backend.(destroyer)
+	if !ok {
+		return
+	}
+
+	done := make(chan struct{})
+
+	go func() {
 		b.Destroy()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
 	}
 }
 

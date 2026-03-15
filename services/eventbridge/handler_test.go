@@ -702,12 +702,47 @@ func TestHandler_TagOperations(t *testing.T) {
 func TestHandler_Shutdown_ImplementsShutdowner(t *testing.T) {
 	t.Parallel()
 
-	backend := eventbridge.NewInMemoryBackend()
-	handler := eventbridge.NewHandler(backend)
+	tests := []struct {
+		name      string
+		putEvents bool
+	}{
+		{
+			name:      "shutdown on idle backend completes promptly",
+			putEvents: false,
+		},
+		{
+			name:      "shutdown after PutEvents drains in-flight deliveries",
+			putEvents: true,
+		},
+	}
 
-	// Verify the handler satisfies the Shutdowner interface.
-	var _ service.Shutdowner = handler
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// Calling Shutdown should complete without blocking or panicking.
-	handler.Shutdown(t.Context())
+			backend := eventbridge.NewInMemoryBackend()
+			handler := eventbridge.NewHandler(backend)
+
+			// Verify the handler satisfies the Shutdowner interface.
+			var _ service.Shutdowner = handler
+
+			if tt.putEvents {
+				// Put an event so an async delivery goroutine may be in-flight.
+				backend.PutEvents([]eventbridge.EventEntry{
+					{Source: "test", DetailType: "test", Detail: `{}`},
+				})
+			}
+
+			// Shutdown should complete without blocking or panicking.
+			handler.Shutdown(t.Context())
+
+			// After Shutdown, Close has been called and the backend's context is
+			// cancelled — any subsequent PutEvents must not panic or deadlock.
+			assert.NotPanics(t, func() {
+				_ = backend.PutEvents([]eventbridge.EventEntry{
+					{Source: "after-shutdown", DetailType: "test", Detail: `{}`},
+				})
+			})
+		})
+	}
 }

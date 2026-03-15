@@ -168,10 +168,26 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 
 // Shutdown implements service.Shutdowner.
 // It cancels the backend's internal lifecycle context and waits for all
-// in-flight delivery goroutines to finish.
-func (h *Handler) Shutdown(_ context.Context) {
-	if b, ok := h.Backend.(*InMemoryBackend); ok {
+// in-flight delivery goroutines to finish. If ctx expires before Close
+// returns, Shutdown returns immediately so the process shutdown is not blocked.
+func (h *Handler) Shutdown(ctx context.Context) {
+	type closer interface{ Close() }
+
+	b, ok := h.Backend.(closer)
+	if !ok {
+		return
+	}
+
+	done := make(chan struct{})
+
+	go func() {
 		b.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
 	}
 }
 

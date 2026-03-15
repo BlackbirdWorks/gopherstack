@@ -950,8 +950,34 @@ func TestHandler_Shutdown_CancelsRunningExecutions(t *testing.T) {
 			execRec := sfnPost(ctx, t, h, e, "StartExecution", string(execBody))
 			require.Equal(t, http.StatusOK, execRec.Code)
 
+			var execResp struct {
+				ExecutionArn string `json:"executionArn"`
+			}
+			require.NoError(t, json.Unmarshal(execRec.Body.Bytes(), &execResp))
+
 			// Shutdown should cancel the long-running Wait execution and return promptly.
 			h.Shutdown(t.Context())
+
+			// After Shutdown, the cancelled execution goroutine should eventually
+			// transition the execution out of RUNNING (to FAILED due to cancellation).
+			require.Eventuallyf(t, func() bool {
+				descBody, marshalErr := json.Marshal(map[string]string{"executionArn": execResp.ExecutionArn})
+				if marshalErr != nil {
+					return false
+				}
+
+				descRec := sfnPost(ctx, t, h, e, "DescribeExecution", string(descBody))
+				if descRec.Code != http.StatusOK {
+					return false
+				}
+
+				var descResp struct {
+					Status string `json:"status"`
+				}
+
+				return json.Unmarshal(descRec.Body.Bytes(), &descResp) == nil && descResp.Status != "RUNNING"
+			}, 5*time.Second, 50*time.Millisecond,
+				"[%s] execution should leave RUNNING state after Shutdown", tt.name)
 		})
 	}
 }
