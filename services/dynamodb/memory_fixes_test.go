@@ -203,44 +203,40 @@ func TestExpressionCacheTTL_SweepRemovesExpiredEntries(t *testing.T) {
 
 // TestExpressionCacheTTL_SweepMixedInSameCache verifies that Sweep removes only
 // expired entries when both expired and fresh entries coexist in the same cache.
+//
+// The test uses PutAt to inject explicit expiry timestamps and SweepBefore with a
+// deterministic cutoff, removing all reliance on wall-clock timing.
 func TestExpressionCacheTTL_SweepMixedInSameCache(t *testing.T) {
 	t.Parallel()
 
-	// Use a relatively long TTL. We'll add "expired" entries first, wait for them
-	// to expire using a cache with a very short TTL, then add fresh entries.
-	//
-	// Strategy: use a short-TTL cache, add entries, wait for expiry, add more
-	// entries which get a NEW expiresAt (now + shortTTL, which is in the future
-	// relative to the wait already elapsed). Since Put refreshes expiresAt on
-	// existing keys but here we use distinct keys, the new keys get fresh expiry.
-	const shortTTL = 5 * time.Millisecond
+	cache := dynamodb.NewExpressionCacheWithTTL(200, time.Hour) // TTL irrelevant; overridden by PutAt
 
-	cache := dynamodb.NewExpressionCacheWithTTL(200, shortTTL)
+	past := time.Now().Add(-time.Minute) // clearly expired
+	future := time.Now().Add(time.Hour)  // clearly fresh
+	cutoff := time.Now()                 // sweep removes entries whose expiresAt < cutoff
 
-	// Put entries that will expire.
+	// "Expired" entries: expiresAt is one minute in the past.
 	for i := range 3 {
-		cache.Put(fmt.Sprintf("expired-%d", i), i)
+		cache.PutAt(fmt.Sprintf("expired-%d", i), i, past)
 	}
 
-	// Wait for them to expire.
-	time.Sleep(10 * time.Millisecond)
-
-	// Put fresh entries into the SAME cache; they get expiresAt = now + shortTTL.
+	// "Fresh" entries: expiresAt is one hour in the future.
 	for i := range 2 {
-		cache.Put(fmt.Sprintf("fresh-%d", i), i)
+		cache.PutAt(fmt.Sprintf("fresh-%d", i), i, future)
 	}
 
-	// Sweep: expired entries should be removed, fresh ones should remain.
-	cache.Sweep()
+	// Sweep with the deterministic cutoff: expired entries should be removed,
+	// fresh ones should remain.
+	cache.SweepBefore(cutoff)
 
 	for i := range 3 {
-		_, found := cache.Get(fmt.Sprintf("expired-%d", i))
-		assert.False(t, found, "expired entry %d should be gone after Sweep", i)
+		assert.False(t, cache.HasEntry(fmt.Sprintf("expired-%d", i)),
+			"expired entry %d should be gone after SweepBefore", i)
 	}
 
 	for i := range 2 {
-		_, found := cache.Get(fmt.Sprintf("fresh-%d", i))
-		assert.True(t, found, "fresh entry %d should survive Sweep", i)
+		assert.True(t, cache.HasEntry(fmt.Sprintf("fresh-%d", i)),
+			"fresh entry %d should survive SweepBefore", i)
 	}
 }
 
