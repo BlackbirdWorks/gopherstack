@@ -430,7 +430,7 @@ func TestTerraformImport_Lambda(t *testing.T) {
 	}
 }
 
-// TestTerraformImport_IAM verifies that an IAM role created directly via the
+// TestTerraformImport_IAM verifies that IAM resources created directly via the
 // SDK can be imported into Terraform state without any drift.
 func TestTerraformImport_IAM(t *testing.T) {
 	t.Parallel()
@@ -468,6 +468,74 @@ func TestTerraformImport_IAM(t *testing.T) {
 				require.NoError(t, err, "GetRole should succeed after import")
 				require.NotNil(t, out.Role)
 				assert.Equal(t, vars["RoleName"].(string), aws.ToString(out.Role.RoleName))
+			},
+		},
+		{
+			name:            "policy",
+			fixture:         "iam/policy_import",
+			resourceAddress: "aws_iam_policy.this",
+			createResource: func(t *testing.T, ctx context.Context, _ string) (map[string]any, string) {
+				t.Helper()
+
+				policyName := "tf-import-policy-" + uuid.NewString()[:8]
+				policyDoc := `{"Version":"2012-10-17","Statement":[` +
+					`{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"*"}]}`
+
+				client := createIAMClient(t)
+				out, err := client.CreatePolicy(ctx, &iamsvc.CreatePolicyInput{
+					PolicyName:     aws.String(policyName),
+					PolicyDocument: aws.String(policyDoc),
+				})
+				require.NoError(t, err, "CreatePolicy should succeed")
+
+				policyARN := aws.ToString(out.Policy.Arn)
+
+				// The Terraform import ID for aws_iam_policy is the policy ARN.
+				return map[string]any{
+					"PolicyName": policyName,
+					"PolicyARN":  policyARN,
+				}, policyARN
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createIAMClient(t)
+				out, err := client.GetPolicy(ctx, &iamsvc.GetPolicyInput{
+					PolicyArn: aws.String(vars["PolicyARN"].(string)),
+				})
+				require.NoError(t, err, "GetPolicy should succeed after import")
+				require.NotNil(t, out.Policy)
+				assert.Equal(t, vars["PolicyName"].(string), aws.ToString(out.Policy.PolicyName))
+			},
+		},
+		{
+			name:            "user",
+			fixture:         "iam/user_import",
+			resourceAddress: "aws_iam_user.this",
+			createResource: func(t *testing.T, ctx context.Context, _ string) (map[string]any, string) {
+				t.Helper()
+
+				userName := "tf-import-user-" + uuid.NewString()[:8]
+
+				client := createIAMClient(t)
+				_, err := client.CreateUser(ctx, &iamsvc.CreateUserInput{
+					UserName: aws.String(userName),
+				})
+				require.NoError(t, err, "CreateUser should succeed")
+
+				// The Terraform import ID for aws_iam_user is the username.
+				return map[string]any{"UserName": userName}, userName
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createIAMClient(t)
+				out, err := client.GetUser(ctx, &iamsvc.GetUserInput{
+					UserName: aws.String(vars["UserName"].(string)),
+				})
+				require.NoError(t, err, "GetUser should succeed after import")
+				require.NotNil(t, out.User)
+				assert.Equal(t, vars["UserName"].(string), aws.ToString(out.User.UserName))
 			},
 		},
 	}
@@ -535,8 +603,8 @@ func TestTerraformImport_RDS(t *testing.T) {
 	}
 }
 
-// TestTerraformImport_Route53 verifies that a Route 53 hosted zone created
-// directly via the SDK can be imported into Terraform state without any drift.
+// TestTerraformImport_Route53 verifies that Route 53 resources created directly
+// via the SDK can be imported into Terraform state without any drift.
 func TestTerraformImport_Route53(t *testing.T) {
 	t.Parallel()
 
@@ -585,6 +653,92 @@ func TestTerraformImport_Route53(t *testing.T) {
 				}
 
 				assert.True(t, found, "hosted zone %q should exist after import", zoneName)
+			},
+		},
+		{
+			name:            "a_record",
+			fixture:         "route53/record_import",
+			resourceAddress: "aws_route53_record.this",
+			createResource: func(t *testing.T, ctx context.Context, _ string) (map[string]any, string) {
+				t.Helper()
+
+				zoneName := "tf-import-" + uuid.NewString()[:8] + ".example.com"
+				client := createRoute53Client(t)
+
+				// Create the hosted zone.
+				zoneOut, err := client.CreateHostedZone(ctx, &route53svc.CreateHostedZoneInput{
+					Name:            aws.String(zoneName),
+					CallerReference: aws.String(uuid.NewString()),
+				})
+				require.NoError(t, err, "CreateHostedZone should succeed")
+
+				rawZoneID := aws.ToString(zoneOut.HostedZone.Id)
+				zoneID := strings.TrimPrefix(rawZoneID, "/hostedzone/")
+
+				// Register cleanup for the zone.  tofu destroy only manages the record;
+				// the zone must be deleted explicitly after the record is gone.
+				// This cleanup is registered BEFORE the tofu-destroy cleanup in
+				// runImportTest, so it runs AFTER tofu destroy (LIFO order).
+				t.Cleanup(func() {
+					_, delErr := client.DeleteHostedZone(context.Background(), &route53svc.DeleteHostedZoneInput{
+						Id: aws.String(rawZoneID),
+					})
+					if delErr != nil {
+						t.Logf("cleanup: failed to delete hosted zone %q: %v", zoneID, delErr)
+					}
+				})
+
+				// Create an A record in the zone.
+				recordName := "www." + zoneName
+				_, err = client.ChangeResourceRecordSets(ctx, &route53svc.ChangeResourceRecordSetsInput{
+					HostedZoneId: aws.String(zoneID),
+					ChangeBatch: &r53types.ChangeBatch{
+						Changes: []r53types.Change{
+							{
+								Action: r53types.ChangeActionCreate,
+								ResourceRecordSet: &r53types.ResourceRecordSet{
+									Name: aws.String(recordName),
+									Type: r53types.RRTypeA,
+									TTL:  aws.Int64(300),
+									ResourceRecords: []r53types.ResourceRecord{
+										{Value: aws.String("1.2.3.4")},
+									},
+								},
+							},
+						},
+					},
+				})
+				require.NoError(t, err, "ChangeResourceRecordSets should succeed")
+
+				// Terraform import ID for aws_route53_record is ZONEID_NAME_TYPE.
+				importID := zoneID + "_" + recordName + "_A"
+
+				return map[string]any{
+					"ZoneID":     zoneID,
+					"RecordName": recordName,
+				}, importID
+			},
+			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
+				t.Helper()
+
+				client := createRoute53Client(t)
+				out, err := client.ListResourceRecordSets(ctx, &route53svc.ListResourceRecordSetsInput{
+					HostedZoneId: aws.String(vars["ZoneID"].(string)),
+				})
+				require.NoError(t, err, "ListResourceRecordSets should succeed after import")
+
+				recordName := strings.TrimSuffix(vars["RecordName"].(string), ".")
+				found := false
+
+				for _, rrs := range out.ResourceRecordSets {
+					if strings.TrimSuffix(aws.ToString(rrs.Name), ".") == recordName && rrs.Type == r53types.RRTypeA {
+						found = true
+
+						break
+					}
+				}
+
+				assert.True(t, found, "A record %q should exist after import", vars["RecordName"])
 			},
 		},
 	}
