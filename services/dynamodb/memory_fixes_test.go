@@ -514,7 +514,6 @@ func TestUpdateTable_GSICreate_PreservesPrimaryIndex(t *testing.T) {
 				AttributeDefinitions: []types.AttributeDefinition{
 					{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
 					{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
-					{AttributeName: aws.String("gsiPK"), AttributeType: types.ScalarAttributeTypeS},
 				},
 				KeySchema: []types.KeySchemaElement{
 					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},

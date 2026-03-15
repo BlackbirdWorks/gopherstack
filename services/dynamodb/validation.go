@@ -16,11 +16,10 @@ const (
 	wcuBytes = 1024 // 1 WCU per KB
 	rcuBytes = 4096 // 1 RCU per 4 KB
 
-	// base64Divisor is the divisor used to convert a base64-encoded string length back
-	// to its approximate raw byte length (base64 inflates size by 4/3).
-	base64Divisor = 4
-	// base64Numerator is paired with base64Divisor: rawBytes ≈ len(base64) * 3 / 4.
-	base64Numerator = 3
+	// base64GroupBits is the number of raw bytes encoded in each 4-character base64 group.
+	base64GroupBits = 3
+	// base64GroupChars is the number of base64 characters per encoded group.
+	base64GroupChars = 4
 	// ddbContainerOverhead is the fixed overhead DynamoDB adds for Map and List containers.
 	ddbContainerOverhead = 3
 	// perItemOverhead is the fixed overhead DynamoDB adds for each item.
@@ -73,74 +72,159 @@ func CalculateAttrSize(v any) int64 {
 	if s, ok := m["S"].(string); ok {
 		return int64(len(s))
 	}
-
 	if n, ok := m["N"].(string); ok {
-		sz := len(n)
-		if sz == 0 {
-			sz = 1
-		}
-		return int64(sz)
+		return calcNumericSize(n)
 	}
-
 	if b, ok := m["B"].(string); ok {
-		return int64(len(b)) * base64Numerator / base64Divisor
+		return base64DecodedLen(b)
 	}
-
 	if _, ok := m["BOOL"]; ok {
 		return 1
 	}
-
 	if _, ok := m["NULL"]; ok {
 		return 1
 	}
+	if total, ok := calcSSSize(m["SS"]); ok {
+		return total
+	}
+	if total, ok := calcNSSize(m["NS"]); ok {
+		return total
+	}
+	if total, ok := calcBSSize(m["BS"]); ok {
+		return total
+	}
+	if nested, ok := m["M"].(map[string]any); ok {
+		return calcMapSize(nested)
+	}
+	if list, ok := m["L"].([]any); ok {
+		return calcListSize(list)
+	}
 
-	if ss, ok := m["SS"].([]string); ok {
+	return 1
+}
+
+// calcNumericSize returns the byte size used by a DynamoDB numeric attribute value.
+// An empty string is treated as size 1 because DynamoDB requires at least one digit
+// and stores a minimum of 1 byte for any number attribute.
+func calcNumericSize(n string) int64 {
+	sz := len(n)
+	if sz == 0 {
+		sz = 1
+	}
+
+	return int64(sz)
+}
+
+// base64DecodedLen returns the exact decoded byte length of a standard base64-encoded
+// string, accounting for '=' padding characters. This avoids the overcounting that
+// occurs with the naive len(s)*3/4 formula when padding is present.
+// For example, "Zg==" encodes 1 byte but len*3/4 = 3; this function returns 1.
+func base64DecodedLen(s string) int64 {
+	n := len(s)
+	if n == 0 {
+		return 0
+	}
+
+	// base64 produces ceil(rawLen/3)*4 chars; each group of 4 chars → 3 bytes.
+	decoded := int64(n) * base64GroupBits / base64GroupChars
+
+	// Subtract the bytes represented by padding characters.
+	// Valid base64 with double-padding has s[n-2]='=' and s[n-1]='='.
+	// Valid base64 with single-padding has only s[n-1]='='.
+	if n >= 2 && s[n-2] == '=' && s[n-1] == '=' {
+		decoded -= 2
+	} else if n >= 1 && s[n-1] == '=' {
+		decoded--
+	}
+
+	return decoded
+}
+
+func calcSSSize(v any) (int64, bool) {
+	switch ss := v.(type) {
+	case []string:
 		var total int64
 		for _, s := range ss {
 			total += int64(len(s))
 		}
-		return total
+
+		return total, true
+	case []any:
+		var total int64
+		for _, s := range ss {
+			if str, ok := s.(string); ok {
+				total += int64(len(str))
+			}
+		}
+
+		return total, true
 	}
 
-	if ns, ok := m["NS"].([]string); ok {
+	return 0, false
+}
+
+func calcNSSize(v any) (int64, bool) {
+	switch ns := v.(type) {
+	case []string:
 		var total int64
 		for _, n := range ns {
-			sz := len(n)
-			if sz == 0 {
-				sz = 1
-			}
-			total += int64(sz)
+			total += calcNumericSize(n)
 		}
-		return total
+
+		return total, true
+	case []any:
+		var total int64
+		for _, n := range ns {
+			if str, ok := n.(string); ok {
+				total += calcNumericSize(str)
+			}
+		}
+
+		return total, true
 	}
 
-	if bs, ok := m["BS"].([]any); ok {
+	return 0, false
+}
+
+func calcBSSize(v any) (int64, bool) {
+	switch bs := v.(type) {
+	case []string:
+		var total int64
+		for _, b := range bs {
+			total += base64DecodedLen(b)
+		}
+
+		return total, true
+	case []any:
 		var total int64
 		for _, b := range bs {
 			if s, isStr := b.(string); isStr {
-				total += int64(len(s)) * base64Numerator / base64Divisor
+				total += base64DecodedLen(s)
 			}
 		}
-		return total
+
+		return total, true
 	}
 
-	if nested, ok := m["M"].(map[string]any); ok {
-		total := int64(ddbContainerOverhead)
-		for k, val := range nested {
-			total += int64(len(k)) + CalculateAttrSize(val)
-		}
-		return total
+	return 0, false
+}
+
+func calcMapSize(nested map[string]any) int64 {
+	total := int64(ddbContainerOverhead)
+	for k, val := range nested {
+		total += int64(len(k)) + CalculateAttrSize(val)
 	}
 
-	if list, ok := m["L"].([]any); ok {
-		total := int64(ddbContainerOverhead)
-		for _, elem := range list {
-			total += CalculateAttrSize(elem)
-		}
-		return total
+	return total
+}
+
+func calcListSize(list []any) int64 {
+	total := int64(ddbContainerOverhead)
+	for _, elem := range list {
+		total += CalculateAttrSize(elem)
 	}
 
-	return 1
+	return total
 }
 
 func ValidateItemSize(item map[string]any) error {
@@ -164,42 +248,46 @@ func validateKeySchema(item map[string]any, schema []models.KeySchemaElement) er
 			return NewValidationException(fmt.Sprintf("Missing key element: %s", k.AttributeName))
 		}
 
-		// Check for empty string value on a key attribute
-		if valMap, isMap := val.(map[string]any); isMap {
-			if sVal, hasS := valMap["S"]; hasS {
-				if str, isStr := sVal.(string); isStr && str == "" {
-					return NewValidationException(fmt.Sprintf(
-						"One or more parameter values not valid. "+
-							"The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
-						k.AttributeName,
-					))
-				}
-			}
-
-			size, _ := CalculateItemSize(valMap)
-			// We remove the 100-byte item overhead for individual attribute check if necessary,
-			// but AWS Key element size limit is also strict.
-			// AWS says Key size is Sum(len(attrName) + len(attrValue)).
-			// CalculateItemSize(valMap) gives us 100 + len(val).
-			// So we adjust.
-			actualSize := size - perItemOverhead
-
-			limit := MaxPartitionKeySize
-			if k.KeyType == "RANGE" {
-				limit = MaxSortKeySize
-			}
-
-			if actualSize > limit {
-				return NewValidationException(
-					fmt.Sprintf(
-						"Key element %s size %d exceeds limit %d",
-						k.AttributeName,
-						actualSize,
-						limit,
-					),
-				)
-			}
+		if err := validateKeyAttribute(k, val); err != nil {
+			return err
 		}
+	}
+
+	return nil
+}
+
+// validateKeyAttribute checks a single key attribute value for type constraints and size limits.
+func validateKeyAttribute(k models.KeySchemaElement, val any) error {
+	valMap, isMap := val.(map[string]any)
+	if !isMap {
+		return nil
+	}
+
+	if sVal, hasS := valMap["S"]; hasS {
+		if str, isStr := sVal.(string); isStr && str == "" {
+			return NewValidationException(fmt.Sprintf(
+				"One or more parameter values not valid. "+
+					"The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
+				k.AttributeName,
+			))
+		}
+	}
+
+	// AWS key size limit is based on the attribute value size alone (name + value bytes).
+	attrSize := int(int64(len(k.AttributeName)) + CalculateAttrSize(val))
+
+	limit := MaxPartitionKeySize
+	if k.KeyType == "RANGE" {
+		limit = MaxSortKeySize
+	}
+
+	if attrSize > limit {
+		return NewValidationException(fmt.Sprintf(
+			"Key element %s size %d exceeds limit %d",
+			k.AttributeName,
+			attrSize,
+			limit,
+		))
 	}
 
 	return nil

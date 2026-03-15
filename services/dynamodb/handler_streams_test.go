@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	streamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 	"github.com/labstack/echo/v5"
@@ -110,8 +112,9 @@ func TestHandler_StreamsDispatch(t *testing.T) {
 		t.Parallel()
 
 		handler, _ := newStreamEnabledHandler(t)
-		// We need a 3-part iterator now: tableName:startSeq:timestamp
-		w := doStreamsRequest(t, handler, "GetRecords", `{"ShardIterator":"StreamHandlerTable:0:2000000000"}`)
+		// Use current timestamp so the 3-part iterator (tableName:startSeq:timestamp) is valid.
+		iter := fmt.Sprintf("StreamHandlerTable:0:%d", time.Now().Unix())
+		w := doStreamsRequest(t, handler, "GetRecords", `{"ShardIterator":"`+iter+`"}`)
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "Records")

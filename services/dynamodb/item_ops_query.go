@@ -382,7 +382,15 @@ func (db *InMemoryDB) processQueryResults(
 
 	startIndex := findExclusiveStartIndex(candidates, exclusiveStartKey, keySchema)
 
-	items, lastEvaluatedKey, scannedCount := db.collectQueryPage(ctx, candidates, input, keySchema, ttlAttr, startIndex, eav)
+	items, lastEvaluatedKey, scannedCount := db.collectQueryPage(
+		ctx,
+		candidates,
+		input,
+		keySchema,
+		ttlAttr,
+		startIndex,
+		eav,
+	)
 
 	outItems := make([]map[string]types.AttributeValue, len(items))
 	for i, it := range items {
@@ -392,8 +400,8 @@ func (db *InMemoryDB) processQueryResults(
 
 	out := &dynamodb.QueryOutput{
 		Items:        outItems,
-		Count:        int32(len(items)),        // #nosec G115
-		ScannedCount: int32(scannedCount),       // #nosec G115
+		Count:        int32(len(items)),   // #nosec G115
+		ScannedCount: int32(scannedCount), // #nosec G115
 		ConsumedCapacity: consumedCapacityForQuery(
 			aws.ToString(input.TableName), input.ReturnConsumedCapacity, scannedCount,
 		),
@@ -420,7 +428,7 @@ func (db *InMemoryDB) collectQueryPage(
 ) ([]map[string]any, map[string]any, int) {
 	limit := int(aws.ToInt32(input.Limit))
 	proj := aws.ToString(input.ProjectionExpression)
-	
+
 	projector, _ := ParseProjector(proj, input.ExpressionAttributeNames)
 
 	const maxResponseSize = 1024 * 1024 // 1MB
@@ -436,6 +444,7 @@ func (db *InMemoryDB) collectQueryPage(
 		if totalScannedSize+itemSize > maxResponseSize && len(items) > 0 {
 			// Stop if next item exceeds 1MB (unless it's the first matching item)
 			prevItem := candidates[i-1]
+
 			return items, extractKey(prevItem, keySchema), scannedCount - 1
 		}
 		totalScannedSize += itemSize

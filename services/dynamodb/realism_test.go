@@ -20,32 +20,31 @@ import (
 func TestHandler_Realism(t *testing.T) {
 	t.Parallel()
 
-	memoryDB := dynamodb.NewInMemoryDB()
-	handler := dynamodb.NewHandler(memoryDB)
-	echoHandler := handler.Handler()
-
-	tableName := "RealismTable"
-	createTableHelper(t, memoryDB, tableName, "pk", "sk")
-
-	// Create large items (approx 100KB each)
-	// DynamoDB item size overhead is not perfectly simulated but 100KB strings will definitely trigger 1MB.
-	largeString := strings.Repeat("a", 100*1024)
-
-	for i := 0; i < 20; i++ {
-		putInput := models.PutItemInput{
-			TableName: tableName,
-			Item: map[string]any{
-				"pk":   map[string]any{"S": "pk1"},
-				"sk":   map[string]any{"S": fmt.Sprintf("sk%03d", i)},
-				"data": map[string]any{"S": largeString},
-			},
-		}
-		sdkPut, _ := models.ToSDKPutItemInput(&putInput)
-		_, err := memoryDB.PutItem(context.Background(), sdkPut)
-		require.NoError(t, err)
-	}
-
 	t.Run("Scan hits 1MB limit", func(t *testing.T) {
+		t.Parallel()
+
+		memoryDB := dynamodb.NewInMemoryDB()
+		handler := dynamodb.NewHandler(memoryDB)
+		echoHandler := handler.Handler()
+
+		tableName := "RealismTable"
+		createTableHelper(t, memoryDB, tableName, "pk", "sk")
+
+		largeString := strings.Repeat("a", 100*1024)
+		for i := range 20 {
+			putInput := models.PutItemInput{
+				TableName: tableName,
+				Item: map[string]any{
+					"pk":   map[string]any{"S": "pk1"},
+					"sk":   map[string]any{"S": fmt.Sprintf("sk%03d", i)},
+					"data": map[string]any{"S": largeString},
+				},
+			}
+			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
+			_, err := memoryDB.PutItem(context.Background(), sdkPut)
+			require.NoError(t, err)
+		}
+
 		reqBody := `{"TableName": "RealismTable"}`
 		req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(reqBody))
 		req.Header.Set("X-Amz-Target", "DynamoDB_20120810.Scan")
@@ -55,20 +54,43 @@ func TestHandler_Realism(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 
 		var output struct {
-			Items            []map[string]any `json:"Items"`
 			LastEvaluatedKey map[string]any   `json:"LastEvaluatedKey"`
+			Items            []map[string]any `json:"Items"`
 			ScannedCount     int              `json:"ScannedCount"`
 		}
 		err := json.Unmarshal(w.Body.Bytes(), &output)
 		require.NoError(t, err)
 
-		// 20 items * 100KB = 2MB. Should truncate at approx 10 items.
 		assert.Less(t, len(output.Items), 20, "Scan should have truncated results")
 		assert.NotEmpty(t, output.LastEvaluatedKey, "Scan should return LastEvaluatedKey when truncated by size")
 		assert.Equal(t, len(output.Items), output.ScannedCount, "ScannedCount should match Items len when no filter")
 	})
 
 	t.Run("Query hits 1MB limit", func(t *testing.T) {
+		t.Parallel()
+
+		memoryDB := dynamodb.NewInMemoryDB()
+		handler := dynamodb.NewHandler(memoryDB)
+		echoHandler := handler.Handler()
+
+		tableName := "RealismTable"
+		createTableHelper(t, memoryDB, tableName, "pk", "sk")
+
+		largeString := strings.Repeat("a", 100*1024)
+		for i := range 20 {
+			putInput := models.PutItemInput{
+				TableName: tableName,
+				Item: map[string]any{
+					"pk":   map[string]any{"S": "pk1"},
+					"sk":   map[string]any{"S": fmt.Sprintf("sk%03d", i)},
+					"data": map[string]any{"S": largeString},
+				},
+			}
+			sdkPut, _ := models.ToSDKPutItemInput(&putInput)
+			_, err := memoryDB.PutItem(context.Background(), sdkPut)
+			require.NoError(t, err)
+		}
+
 		reqBody := `{
 			"TableName": "RealismTable",
 			"KeyConditionExpression": "pk = :pk",
@@ -84,8 +106,8 @@ func TestHandler_Realism(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 
 		var output struct {
-			Items            []map[string]any `json:"Items"`
 			LastEvaluatedKey map[string]any   `json:"LastEvaluatedKey"`
+			Items            []map[string]any `json:"Items"`
 		}
 		err := json.Unmarshal(w.Body.Bytes(), &output)
 		require.NoError(t, err)
@@ -95,9 +117,17 @@ func TestHandler_Realism(t *testing.T) {
 	})
 
 	t.Run("BatchGetItem hits 16MB limit", func(t *testing.T) {
-		// 100 items of 200KB = 20MB.
+		t.Parallel()
+
+		memoryDB := dynamodb.NewInMemoryDB()
+		handler := dynamodb.NewHandler(memoryDB)
+		echoHandler := handler.Handler()
+
+		tableName := "RealismTable"
+		createTableHelper(t, memoryDB, tableName, "pk", "sk")
+
 		largeString200 := strings.Repeat("b", 200*1024)
-		for i := 0; i < 90; i++ {
+		for i := range 90 {
 			putInput := models.PutItemInput{
 				TableName: tableName,
 				Item: map[string]any{
@@ -111,9 +141,8 @@ func TestHandler_Realism(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		// Request all 90 items
-		var keys []map[string]any
-		for i := 0; i < 90; i++ {
+		keys := make([]map[string]any, 0, 90)
+		for i := range 90 {
 			keys = append(keys, map[string]any{
 				"pk": map[string]any{"S": "batchpk"},
 				"sk": map[string]any{"S": fmt.Sprintf("sk%03d", i)},
@@ -142,12 +171,11 @@ func TestHandler_Realism(t *testing.T) {
 
 		var output struct {
 			Responses       map[string][]map[string]any `json:"Responses"`
-			UnprocessedKeys map[string]any               `json:"UnprocessedKeys"`
+			UnprocessedKeys map[string]any              `json:"UnprocessedKeys"`
 		}
 		err := json.Unmarshal(w.Body.Bytes(), &output)
 		require.NoError(t, err)
 
-		// 90 * 200KB = 18MB. 16MB limit should trigger.
 		totalReturned := len(output.Responses[tableName])
 		assert.Less(t, totalReturned, 90, "BatchGetItem should have truncated results")
 		assert.NotEmpty(t, output.UnprocessedKeys, "BatchGetItem should return UnprocessedKeys when size limit hit")

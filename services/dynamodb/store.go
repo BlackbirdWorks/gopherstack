@@ -79,36 +79,32 @@ const (
 )
 
 type Table struct {
-	CreationDateTime       time.Time `json:"CreationDateTime"`
-	pkIndex                map[string]int
-	pkskIndex              map[string]map[string]int
-	mu                     *lockmetrics.RWMutex
-	activateTimer          *time.Timer
-	Tags                   *tags.Tags                              `json:"Tags,omitempty"`
-	TableID                string                                  `json:"TableID"`
-	TTLAttribute           string                                  `json:"TTLAttribute,omitempty"`
-	StreamViewType         string                                  `json:"StreamViewType,omitempty"`
-	StreamARN              string                                  `json:"StreamARN,omitempty"`
-	TableArn               string                                  `json:"TableArn"`
-	Status                 string                                  `json:"Status"`
-	Name                   string                                  `json:"Name"`
-	LocalSecondaryIndexes  []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
-	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
-	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
-	Replicas               []models.ReplicaDescription             `json:"Replicas,omitempty"`
-	Items                  []map[string]any                        `json:"Items"`
-	StreamRecords          []models.StreamRecord                   `json:"StreamRecords,omitempty"`
-	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
-	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
-	streamSeq              int64
-	// StreamHead is the index of the oldest record in the ring buffer.
-	// Exported for JSON persistence so that snapshot/restore preserves ring-buffer state.
-	// When the ring buffer is not yet full (len(StreamRecords) < maxStreamRecords),
-	// StreamHead is 0 and StreamRecords is in insertion order.
-	StreamHead     int  `json:"StreamHead,omitempty"`
+	CreationDateTime          time.Time `json:"CreationDateTime"`
+	pkIndex                   map[string]int
+	pkskIndex                 map[string]map[string]int
+	mu                        *lockmetrics.RWMutex
+	activateTimer             *time.Timer
+	Tags                      *tags.Tags                              `json:"Tags,omitempty"`
+	Name                      string                                  `json:"Name"`
+	TTLAttribute              string                                  `json:"TTLAttribute,omitempty"`
+	StreamViewType            string                                  `json:"StreamViewType,omitempty"`
+	StreamARN                 string                                  `json:"StreamARN,omitempty"`
+	TableArn                  string                                  `json:"TableArn"`
+	Status                    string                                  `json:"Status"`
+	TableID                   string                                  `json:"TableID"`
+	TableClass                string                                  `json:"TableClass,omitempty"`
+	Items                     []map[string]any                        `json:"Items"`
+	AttributeDefinitions      []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	Replicas                  []models.ReplicaDescription             `json:"Replicas,omitempty"`
+	GlobalSecondaryIndexes    []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	StreamRecords             []models.StreamRecord                   `json:"StreamRecords,omitempty"`
+	KeySchema                 []models.KeySchemaElement               `json:"KeySchema"`
+	LocalSecondaryIndexes     []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	ProvisionedThroughput     models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	streamSeq                 int64
+	StreamHead                int  `json:"StreamHead,omitempty"`
 	PITREnabled               bool `json:"PITREnabled,omitempty"`
 	StreamsEnabled            bool `json:"StreamsEnabled"`
-	TableClass                string `json:"TableClass,omitempty"`
 	DeletionProtectionEnabled bool `json:"DeletionProtectionEnabled"`
 }
 
@@ -135,6 +131,12 @@ func NewInMemoryDB() *InMemoryDB {
 func (db *InMemoryDB) Close() {
 	db.mu.Lock("Close")
 	defer db.mu.Unlock()
+
+	for _, regionTables := range db.Tables {
+		for _, table := range regionTables {
+			stopTableTimers(table)
+		}
+	}
 
 	if db.exprCache != nil {
 		db.exprCache.Close()
@@ -402,6 +404,23 @@ func (db *InMemoryDB) TaggedTables() []TaggedTableInfo {
 	return result
 }
 
+// stopTableTimers stops all in-flight timers held by the table — the activation
+// timer for newly-created tables and the index-status timers for any GSI that is
+// mid-CREATING or mid-DELETING transition. Must be called before the table is
+// discarded so that the AfterFunc goroutines are not left running.
+// Idempotent: safe to call even when timers are nil or already stopped.
+func stopTableTimers(table *Table) {
+	if table.activateTimer != nil {
+		table.activateTimer.Stop()
+	}
+
+	for i := range table.GlobalSecondaryIndexes {
+		if table.GlobalSecondaryIndexes[i].IndexStatusTimer != nil {
+			table.GlobalSecondaryIndexes[i].IndexStatusTimer.Stop()
+		}
+	}
+}
+
 // Reset clears all in-memory state from the database. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (db *InMemoryDB) Reset() {
@@ -414,8 +433,9 @@ func (db *InMemoryDB) Reset() {
 	// (both active and deleting) to avoid goroutine leaks and metric registry leaks.
 	for _, regionTables := range db.Tables {
 		for _, table := range regionTables {
-			if table.activateTimer != nil {
-				table.activateTimer.Stop()
+			stopTableTimers(table)
+			if table.Tags != nil {
+				table.Tags.Close()
 			}
 
 			table.mu.Close()
@@ -424,8 +444,9 @@ func (db *InMemoryDB) Reset() {
 
 	for _, regionTables := range db.deletingTables {
 		for _, table := range regionTables {
-			if table.activateTimer != nil {
-				table.activateTimer.Stop()
+			stopTableTimers(table)
+			if table.Tags != nil {
+				table.Tags.Close()
 			}
 
 			table.mu.Close()

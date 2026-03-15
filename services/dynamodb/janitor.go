@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	defaultDDBJanitorInterval = 500 * time.Millisecond
+	defaultDDBJanitorInterval  = 500 * time.Millisecond
 	defaultDDBTTLSweepInterval = 5 * time.Second
 )
 
@@ -75,6 +75,10 @@ func (j *Janitor) runTableCleaner(ctx context.Context) {
 			depth++
 			names = append(names, name)
 			delete(db.deletingTables[region], name)
+			stopTableTimers(table)
+			if table.Tags != nil {
+				table.Tags.Close()
+			}
 			table.mu.Close()
 		}
 	}
