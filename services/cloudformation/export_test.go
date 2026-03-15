@@ -33,3 +33,47 @@ func (rc *ResourceCreator) InjectCreateHook(fn func(resourceType string) error) 
 func (b *InMemoryBackend) GetCreator() *ResourceCreator {
 	return b.creator
 }
+
+// ResourcesEntryExists reports whether b.resources has an entry for stackID.
+func (b *InMemoryBackend) ResourcesEntryExists(stackID string) bool {
+	b.mu.RLock("ResourcesEntryExists")
+	defer b.mu.RUnlock()
+
+	_, ok := b.resources[stackID]
+
+	return ok
+}
+
+// ChangeSetsEntryExists reports whether b.changeSets has an entry for stackName.
+func (b *InMemoryBackend) ChangeSetsEntryExists(stackName string) bool {
+	b.mu.RLock("ChangeSetsEntryExists")
+	defer b.mu.RUnlock()
+
+	_, ok := b.changeSets[stackName]
+
+	return ok
+}
+
+// DriftDetectionCount returns the number of drift detection entries for stackID.
+func (b *InMemoryBackend) DriftDetectionCount(stackID string) int {
+	b.mu.RLock("DriftDetectionCount")
+	defer b.mu.RUnlock()
+
+	count := 0
+
+	for _, status := range b.driftDetections {
+		if status.StackID == stackID {
+			count++
+		}
+	}
+
+	return count
+}
+
+// ResourceCountForStack returns the number of resources tracked for stackID.
+func (b *InMemoryBackend) ResourceCountForStack(stackID string) int {
+	b.mu.RLock("ResourceCountForStack")
+	defer b.mu.RUnlock()
+
+	return len(b.resources[stackID])
+}
