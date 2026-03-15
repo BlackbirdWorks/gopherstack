@@ -72,9 +72,9 @@ func TestEvaluator_CalculateSize(t *testing.T) {
 			t.Parallel()
 			got, err := eval.CalculateSize(tt.input)
 			if tt.expected == 0 && tt.name == "Unsupported" {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.InDelta(t, tt.expected, got, 0)
 			}
 		})

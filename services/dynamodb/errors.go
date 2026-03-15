@@ -22,9 +22,9 @@ type Error struct {
 }
 
 type CancellationReason struct {
+	Item    any    `json:"Item,omitempty"`
 	Code    string `json:"Code"`
 	Message string `json:"Message,omitempty"`
-	Item    any    `json:"Item,omitempty"`
 }
 
 func NewResourceNotFoundException(msg string) *Error {

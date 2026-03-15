@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strconv"
@@ -26,13 +27,14 @@ var (
 	ErrTypeMismatchBOOL      = errors.New("expected bool for BOOL")
 	ErrTypeMismatchM         = errors.New("expected map for M")
 	ErrTypeMismatchL         = errors.New("expected slice for L")
-	ErrTypeMismatchB         = errors.New("expected []byte for B")
+	ErrTypeMismatchB         = errors.New("expected []byte or base64 string for B")
 	ErrUnknownAttributeType  = errors.New("unknown attribute type")
 )
 
 const (
-	streamShardID = "shardId-00000000000000000001-00000001"
-	maxRecords    = 1000
+	streamShardID     = "shardId-00000000000000000001-00000001"
+	maxRecords        = 1000
+	iteratorPartCount = 3 // tableName:sequenceNumber:timestamp
 )
 
 // StreamsBackend defines the interface for DynamoDB Streams operations.
@@ -219,7 +221,7 @@ func (db *InMemoryDB) GetRecords(
 ) (*dynamodbstreams.GetRecordsOutput, error) {
 	iterator := aws.ToString(input.ShardIterator)
 	parts := strings.Split(iterator, ":")
-	if len(parts) != 3 {
+	if len(parts) != iteratorPartCount {
 		return nil, NewValidationException("Invalid shard iterator")
 	}
 
@@ -235,7 +237,10 @@ func (db *InMemoryDB) GetRecords(
 	}
 
 	// AWS: Shard iterators expire after 15 minutes.
-	if time.Since(time.Unix(ts, 0)) > 15*time.Minute {
+	// Reject future timestamps to prevent forged iterators from bypassing expiration.
+	iterTime := time.Unix(ts, 0)
+	now := time.Now()
+	if iterTime.After(now) || now.Sub(iterTime) > 15*time.Minute {
 		return nil, NewExpiredIteratorException("Shard iterator has expired")
 	}
 
@@ -257,7 +262,7 @@ func (db *InMemoryDB) GetRecords(
 
 	telemetry.RecordStreamEvents("dynamodb", len(records))
 
-	nextIterator := fmt.Sprintf("%s:%d", tableName, nextSeq)
+	nextIterator := fmt.Sprintf("%s:%d:%d", tableName, nextSeq, time.Now().Unix())
 
 	return &dynamodbstreams.GetRecordsOutput{
 		Records:           records,
@@ -404,17 +409,40 @@ func dispatchStreamType(typKey string, val any) (streamstypes.AttributeValue, er
 	case "NS":
 		return &streamstypes.AttributeValueMemberNS{Value: toStringSliceFrom(val)}, nil
 	case "B":
-		b, ok := val.([]byte)
-		if !ok {
-			return nil, ErrTypeMismatchB
-		}
-
-		return &streamstypes.AttributeValueMemberB{Value: b}, nil
+		return dispatchStreamTypeBinary(val)
 	case "BS":
-		return &streamstypes.AttributeValueMemberBS{Value: toByteSliceSliceFrom(val)}, nil
+		return dispatchStreamTypeBinarySet(val)
 	default:
 		return nil, ErrUnknownAttributeType
 	}
+}
+
+// dispatchStreamTypeBinary converts a wire "B" value ([]byte or base64 string) to a streams AttributeValue.
+func dispatchStreamTypeBinary(val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+	switch b := val.(type) {
+	case []byte:
+		return &streamstypes.AttributeValueMemberB{Value: b}, nil
+	case string:
+		decoded, err := base64.StdEncoding.DecodeString(b)
+		if err != nil {
+			return nil, ErrTypeMismatchB
+		}
+
+		return &streamstypes.AttributeValueMemberB{Value: decoded}, nil
+	default:
+		return nil, ErrTypeMismatchB
+	}
+}
+
+// dispatchStreamTypeBinarySet converts a wire "BS" value to a streams AttributeValue.
+// Accepts [][]byte, []string (base64), or []any containing the above.
+func dispatchStreamTypeBinarySet(val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
+	bs, err := toByteSliceSliceFrom(val)
+	if err != nil {
+		return nil, err
+	}
+
+	return &streamstypes.AttributeValueMemberBS{Value: bs}, nil
 }
 
 func handleMapAttribute(val any) (streamstypes.AttributeValue, error) { //nolint:ireturn // SDK interface
@@ -470,21 +498,44 @@ func toStringSliceFrom(v any) []string {
 }
 
 // toByteSliceSliceFrom coerces an any to [][]byte.
-func toByteSliceSliceFrom(v any) [][]byte {
+// Accepts [][]byte directly, or []any / []string containing base64-encoded strings.
+func toByteSliceSliceFrom(v any) ([][]byte, error) {
 	switch s := v.(type) {
 	case [][]byte:
-		return s
+		return s, nil
+	case []string:
+		out := make([][]byte, 0, len(s))
+		for _, elem := range s {
+			decoded, err := base64.StdEncoding.DecodeString(elem)
+			if err != nil {
+				return nil, ErrTypeMismatchB
+			}
+
+			out = append(out, decoded)
+		}
+
+		return out, nil
 	case []any:
 		out := make([][]byte, 0, len(s))
 		for _, elem := range s {
-			if b, ok := elem.([]byte); ok {
+			switch b := elem.(type) {
+			case []byte:
 				out = append(out, b)
+			case string:
+				decoded, err := base64.StdEncoding.DecodeString(b)
+				if err != nil {
+					return nil, ErrTypeMismatchB
+				}
+
+				out = append(out, decoded)
+			default:
+				return nil, ErrTypeMismatchB
 			}
 		}
 
-		return out
+		return out, nil
 	default:
-		return nil
+		return nil, ErrTypeMismatchB
 	}
 }
 

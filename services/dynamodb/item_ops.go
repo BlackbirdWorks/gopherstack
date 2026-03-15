@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"maps"
 	"strconv"
@@ -266,53 +267,19 @@ func compareAny(v1, v2 any, typ string) int {
 
 	switch typ {
 	case "N":
-		f1, _ := dynamoattr.ParseNumeric(v1)
-		f2, _ := dynamoattr.ParseNumeric(v2)
-		if f1 < f2 {
-			return -1
-		}
-		if f1 > f2 {
-			return 1
-		}
-		return 0
-
+		return compareNumbers(v1, v2)
 	case "S":
-		s1, ok1 := v1.(string)
-		s2, ok2 := v2.(string)
-		if !ok1 || !ok2 {
-			goto Fallback
-		}
-		if s1 < s2 {
-			return -1
-		}
-		if s1 > s2 {
-			return 1
-		}
-		return 0
-
-	case "BOOL":
-		b1, ok1 := v1.(bool)
-		b2, ok2 := v2.(bool)
-		if !ok1 || !ok2 {
-			goto Fallback
-		}
-		if b1 == b2 {
-			return 0
-		}
-		if !b1 { // false < true
-			return -1
-		}
-		return 1
-
+		return compareStrings(v1, v2)
+	case typeBOOL:
+		return compareBools(v1, v2)
 	case "B":
-		// Handle []byte (raw) or string (base64)
 		b1 := toBytes(v1)
 		b2 := toBytes(v2)
+
 		return bytes.Compare(b1, b2)
 	}
 
-Fallback:
-	// Fallback: convert to string only for unknown or complex types (rare path)
+	// Fallback: convert to string for unknown or complex types (rare path)
 	s1 := fmt.Sprintf("%v", v1)
 	s2 := fmt.Sprintf("%v", v2)
 	if s1 < s2 {
@@ -321,7 +288,53 @@ Fallback:
 	if s1 > s2 {
 		return 1
 	}
+
 	return 0
+}
+
+func compareNumbers(v1, v2 any) int {
+	f1, _ := dynamoattr.ParseNumeric(v1)
+	f2, _ := dynamoattr.ParseNumeric(v2)
+	if f1 < f2 {
+		return -1
+	}
+	if f1 > f2 {
+		return 1
+	}
+
+	return 0
+}
+
+func compareStrings(v1, v2 any) int {
+	s1, ok1 := v1.(string)
+	s2, ok2 := v2.(string)
+	if !ok1 || !ok2 {
+		return 0
+	}
+	if s1 < s2 {
+		return -1
+	}
+	if s1 > s2 {
+		return 1
+	}
+
+	return 0
+}
+
+func compareBools(v1, v2 any) int {
+	b1, ok1 := v1.(bool)
+	b2, ok2 := v2.(bool)
+	if !ok1 || !ok2 {
+		return 0
+	}
+	if b1 == b2 {
+		return 0
+	}
+	if !b1 { // false < true
+		return -1
+	}
+
+	return 1
 }
 
 func toBytes(v any) []byte {
@@ -329,7 +342,13 @@ func toBytes(v any) []byte {
 	case []byte:
 		return b
 	case string:
-		return []byte(b)
+		// Wire format stores binary attributes as base64-encoded strings.
+		decoded, err := base64.StdEncoding.DecodeString(b)
+		if err != nil {
+			return []byte(b) // Fall back to raw bytes if not valid base64
+		}
+
+		return decoded
 	default:
 		return nil
 	}

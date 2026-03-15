@@ -516,20 +516,7 @@ func (e *Evaluator) compareValues(lhs any, op TokenType, rhs any) bool {
 	rNum, rIsNum := e.parseNumeric(rhs)
 
 	if lIsNum && rIsNum {
-		switch op {
-		case TokenEqual:
-			return lNum == rNum
-		case TokenNotEqual:
-			return lNum != rNum
-		case TokenLess:
-			return lNum < rNum
-		case TokenLessEqual:
-			return lNum <= rNum
-		case TokenGreater:
-			return lNum > rNum
-		case TokenGreaterEqual:
-			return lNum >= rNum
-		}
+		return compareNumbers(lNum, rNum, op)
 	}
 
 	// If one is a number and the other isn't, they are not equal, and other
@@ -544,40 +531,84 @@ func (e *Evaluator) compareValues(lhs any, op TokenType, rhs any) bool {
 		return op == TokenNotEqual
 	}
 
+	return compareTyped(lhs, rhs, op)
+}
+
+// compareNumbers compares two float64 values with the given operator.
+func compareNumbers(lNum, rNum float64, op TokenType) bool {
+	switch op {
+	case TokenEqual:
+		return lNum == rNum
+	case TokenNotEqual:
+		return lNum != rNum
+	case TokenLess:
+		return lNum < rNum
+	case TokenLessEqual:
+		return lNum <= rNum
+	case TokenGreater:
+		return lNum > rNum
+	case TokenGreaterEqual:
+		return lNum >= rNum
+	default:
+		return false
+	}
+}
+
+// compareTyped compares two values of the same concrete type with the given operator.
+func compareTyped(lhs, rhs any, op TokenType) bool {
 	switch s1 := lhs.(type) {
 	case string:
-		s2 := rhs.(string)
-		switch op {
-		case TokenEqual:
-			return s1 == s2
-		case TokenNotEqual:
-			return s1 != s2
-		case TokenLess:
-			return s1 < s2
-		case TokenLessEqual:
-			return s1 <= s2
-		case TokenGreater:
-			return s1 > s2
-		case TokenGreaterEqual:
-			return s1 >= s2
+		s2, ok := rhs.(string)
+		if !ok {
+			return false
 		}
+
+		return compareStrings(s1, s2, op)
 	case bool:
+		b2, ok := rhs.(bool)
+		if !ok {
+			return false
+		}
 		if op == TokenEqual {
-			return s1 == rhs.(bool)
+			return s1 == b2
 		}
 		if op == TokenNotEqual {
-			return s1 != rhs.(bool)
+			return s1 != b2
 		}
 	case []byte:
+		b2, ok := rhs.([]byte)
+		if !ok {
+			return false
+		}
 		if op == TokenEqual {
-			return bytes.Equal(s1, rhs.([]byte))
+			return bytes.Equal(s1, b2)
 		}
 		if op == TokenNotEqual {
-			return !bytes.Equal(s1, rhs.([]byte))
+			return !bytes.Equal(s1, b2)
 		}
 	}
 
 	return false
+}
+
+// compareStrings compares two strings with the given operator.
+func compareStrings(s1, s2 string, op TokenType) bool {
+	switch op {
+	case TokenEqual:
+		return s1 == s2
+	case TokenNotEqual:
+		return s1 != s2
+	case TokenLess:
+		return s1 < s2
+	case TokenLessEqual:
+		return s1 <= s2
+	case TokenGreater:
+		return s1 > s2
+	case TokenGreaterEqual:
+		return s1 >= s2
+	default:
+		return false
+	}
 }
 
 func (e *Evaluator) parseNumeric(v any) (float64, bool) {
@@ -596,20 +627,6 @@ func (e *Evaluator) parseNumeric(v any) (float64, bool) {
 	}
 
 	return 0, false
-}
-
-func (e *Evaluator) compareOrdered(
-	lNum, rNum float64,
-	lIsNum, rIsNum bool,
-	lStr, rStr string,
-	numCmp func(float64, float64) bool,
-	strCmp func(string, string) bool,
-) bool {
-	if lIsNum && rIsNum {
-		return numCmp(lNum, rNum)
-	}
-
-	return strCmp(lStr, rStr)
 }
 
 // formatDynamoNumber formats a float64 as a plain decimal string without

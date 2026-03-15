@@ -161,7 +161,12 @@ func validateAttributeDefinitions(input *dynamodb.CreateTableInput) error {
 		name := aws.ToString(k.AttributeName)
 		referenced[name] = struct{}{}
 		if _, ok := defs[name]; !ok {
-			return NewValidationException(fmt.Sprintf("Parameter AttributeDefinitions does not contain definition for attribute %s which is used in KeySchema", name))
+			return NewValidationException(
+				fmt.Sprintf(
+					"Parameter AttributeDefinitions does not contain definition for attribute %s which is used in KeySchema",
+					name,
+				),
+			)
 		}
 	}
 
@@ -171,7 +176,11 @@ func validateAttributeDefinitions(input *dynamodb.CreateTableInput) error {
 			name := aws.ToString(k.AttributeName)
 			referenced[name] = struct{}{}
 			if _, ok := defs[name]; !ok {
-				return NewValidationException(fmt.Sprintf("Parameter AttributeDefinitions does not contain definition for attribute %s which is used in GlobalSecondaryIndexes", name))
+				return NewValidationException(fmt.Sprintf(
+					"Parameter AttributeDefinitions does not contain definition for attribute"+
+						" %s which is used in GlobalSecondaryIndexes",
+					name,
+				))
 			}
 		}
 	}
@@ -182,7 +191,11 @@ func validateAttributeDefinitions(input *dynamodb.CreateTableInput) error {
 			name := aws.ToString(k.AttributeName)
 			referenced[name] = struct{}{}
 			if _, ok := defs[name]; !ok {
-				return NewValidationException(fmt.Sprintf("Parameter AttributeDefinitions does not contain definition for attribute %s which is used in LocalSecondaryIndexes", name))
+				return NewValidationException(fmt.Sprintf(
+					"Parameter AttributeDefinitions does not contain definition for attribute"+
+						" %s which is used in LocalSecondaryIndexes",
+					name,
+				))
 			}
 		}
 	}
@@ -190,7 +203,9 @@ func validateAttributeDefinitions(input *dynamodb.CreateTableInput) error {
 	// All defs must be referenced
 	for name := range defs {
 		if _, ok := referenced[name]; !ok {
-			return NewValidationException(fmt.Sprintf("Parameter AttributeDefinitions contains unused attribute: %s", name))
+			return NewValidationException(
+				fmt.Sprintf("Parameter AttributeDefinitions contains unused attribute: %s", name),
+			)
 		}
 	}
 
@@ -414,23 +429,23 @@ func (db *InMemoryDB) DescribeTable(
 
 // tableSnapshot is a lock-free snapshot of table metadata for building SDK responses.
 type tableSnapshot struct {
-	creationDT     time.Time
-	tableStatus    types.TableStatus
-	tableArn       string
-	tableID        string
-	streamARN      string
-	streamViewType string
-	gsiList        []models.GlobalSecondaryIndex
-	lsiList        []models.LocalSecondaryIndex
-	replicaList    []models.ReplicaDescription
-	keySchema      []models.KeySchemaElement
-	attrDefs       []models.AttributeDefinition
-	pt             models.ProvisionedThroughputDescription
-	itemCount      int64
+	creationDT                time.Time
+	tableStatus               types.TableStatus
+	tableArn                  string
+	tableID                   string
+	streamARN                 string
+	streamViewType            string
+	tableClass                string
+	replicaList               []models.ReplicaDescription
+	lsiList                   []models.LocalSecondaryIndex
+	keySchema                 []models.KeySchemaElement
+	attrDefs                  []models.AttributeDefinition
+	gsiList                   []models.GlobalSecondaryIndex
+	pt                        models.ProvisionedThroughputDescription
+	itemCount                 int64
 	itemSizeBytes             int64
 	streamsEnabled            bool
 	deletionProtectionEnabled bool
-	tableClass                string
 }
 
 func snapshotTable(table *Table) tableSnapshot {
@@ -438,17 +453,17 @@ func snapshotTable(table *Table) tableSnapshot {
 	defer table.mu.RUnlock()
 
 	s := tableSnapshot{
-		keySchema:      make([]models.KeySchemaElement, len(table.KeySchema)),
-		attrDefs:       make([]models.AttributeDefinition, len(table.AttributeDefinitions)),
-		gsiList:        make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes)),
-		lsiList:        make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes)),
-		replicaList:    make([]models.ReplicaDescription, len(table.Replicas)),
-		itemCount:      int64(len(table.Items)),
-		itemSizeBytes:  estimateTableSizeBytes(table.Items),
-		pt:             table.ProvisionedThroughput,
-		tableStatus:    types.TableStatus(table.Status),
-		tableArn:       table.TableArn,
-		tableID:        table.TableID,
+		keySchema:                 make([]models.KeySchemaElement, len(table.KeySchema)),
+		attrDefs:                  make([]models.AttributeDefinition, len(table.AttributeDefinitions)),
+		gsiList:                   make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes)),
+		lsiList:                   make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes)),
+		replicaList:               make([]models.ReplicaDescription, len(table.Replicas)),
+		itemCount:                 int64(len(table.Items)),
+		itemSizeBytes:             estimateTableSizeBytes(table.Items),
+		pt:                        table.ProvisionedThroughput,
+		tableStatus:               types.TableStatus(table.Status),
+		tableArn:                  table.TableArn,
+		tableID:                   table.TableID,
 		creationDT:                table.CreationDateTime,
 		streamARN:                 table.StreamARN,
 		streamsEnabled:            table.StreamsEnabled,
@@ -496,10 +511,13 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 			ReadCapacityUnits:  &rcu,
 			WriteCapacityUnits: &wcu,
 		},
-		TableClassSummary: &types.TableClassSummary{
-			TableClass: types.TableClass(s.tableClass),
-		},
 		DeletionProtectionEnabled: &s.deletionProtectionEnabled,
+	}
+
+	if s.tableClass != "" {
+		td.TableClassSummary = &types.TableClassSummary{
+			TableClass: types.TableClass(s.tableClass),
+		}
 	}
 
 	if s.tableArn != "" {
@@ -768,7 +786,6 @@ func (db *InMemoryDB) applyGSICreate(table *Table, c *types.CreateGlobalSecondar
 	// forcing O(n) scans for all subsequent primary-key queries.
 	table.rebuildIndexes()
 }
-
 
 func (db *InMemoryDB) applyGSIUpdate(table *Table, u *types.UpdateGlobalSecondaryIndexAction) { // Changed to method
 	idxName := aws.ToString(u.IndexName)

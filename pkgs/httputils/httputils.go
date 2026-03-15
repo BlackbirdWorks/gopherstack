@@ -17,11 +17,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-// bodyReadCloser wraps a bytes.Reader to provide a seekable io.ReadCloser
+// bodyReadCloser wraps a [bytes.Reader] to provide a seekable [io.ReadCloser]
 // that also exposes the underlying bytes for direct access. This allows
 // httputils.ReadBody to cache the body transparently in the Request.Body field.
 type bodyReadCloser struct {
 	*bytes.Reader
+
 	body []byte
 }
 
@@ -40,6 +41,9 @@ func ReadBody(r *http.Request) ([]byte, error) {
 
 	// Check if we've already cached the body in a custom readCloser
 	if brc, ok := r.Body.(*bodyReadCloser); ok {
+		// Rewind so that subsequent io.ReadAll(r.Body) calls also work.
+		_, _ = brc.Reader.Seek(0, io.SeekStart)
+
 		return brc.body, nil
 	}
 

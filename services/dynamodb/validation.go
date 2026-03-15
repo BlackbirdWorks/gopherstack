@@ -73,74 +73,134 @@ func CalculateAttrSize(v any) int64 {
 	if s, ok := m["S"].(string); ok {
 		return int64(len(s))
 	}
-
 	if n, ok := m["N"].(string); ok {
-		sz := len(n)
-		if sz == 0 {
-			sz = 1
-		}
-		return int64(sz)
+		return calcNumericSize(n)
 	}
-
 	if b, ok := m["B"].(string); ok {
 		return int64(len(b)) * base64Numerator / base64Divisor
 	}
-
 	if _, ok := m["BOOL"]; ok {
 		return 1
 	}
-
 	if _, ok := m["NULL"]; ok {
 		return 1
 	}
+	if total, ok := calcSSSize(m["SS"]); ok {
+		return total
+	}
+	if total, ok := calcNSSize(m["NS"]); ok {
+		return total
+	}
+	if total, ok := calcBSSize(m["BS"]); ok {
+		return total
+	}
+	if nested, ok := m["M"].(map[string]any); ok {
+		return calcMapSize(nested)
+	}
+	if list, ok := m["L"].([]any); ok {
+		return calcListSize(list)
+	}
 
-	if ss, ok := m["SS"].([]string); ok {
+	return 1
+}
+
+// calcNumericSize returns the byte size used by a DynamoDB numeric attribute value.
+// An empty string is treated as size 1 because DynamoDB requires at least one digit
+// and stores a minimum of 1 byte for any number attribute.
+func calcNumericSize(n string) int64 {
+	sz := len(n)
+	if sz == 0 {
+		sz = 1
+	}
+
+	return int64(sz)
+}
+
+func calcSSSize(v any) (int64, bool) {
+	switch ss := v.(type) {
+	case []string:
 		var total int64
 		for _, s := range ss {
 			total += int64(len(s))
 		}
-		return total
+
+		return total, true
+	case []any:
+		var total int64
+		for _, s := range ss {
+			if str, ok := s.(string); ok {
+				total += int64(len(str))
+			}
+		}
+
+		return total, true
 	}
 
-	if ns, ok := m["NS"].([]string); ok {
+	return 0, false
+}
+
+func calcNSSize(v any) (int64, bool) {
+	switch ns := v.(type) {
+	case []string:
 		var total int64
 		for _, n := range ns {
-			sz := len(n)
-			if sz == 0 {
-				sz = 1
-			}
-			total += int64(sz)
+			total += calcNumericSize(n)
 		}
-		return total
+
+		return total, true
+	case []any:
+		var total int64
+		for _, n := range ns {
+			if str, ok := n.(string); ok {
+				total += calcNumericSize(str)
+			}
+		}
+
+		return total, true
 	}
 
-	if bs, ok := m["BS"].([]any); ok {
+	return 0, false
+}
+
+func calcBSSize(v any) (int64, bool) {
+	switch bs := v.(type) {
+	case []string:
+		var total int64
+		for _, b := range bs {
+			total += int64(len(b)) * base64Numerator / base64Divisor
+		}
+
+		return total, true
+	case []any:
 		var total int64
 		for _, b := range bs {
 			if s, isStr := b.(string); isStr {
 				total += int64(len(s)) * base64Numerator / base64Divisor
 			}
 		}
-		return total
+
+		return total, true
 	}
 
-	if nested, ok := m["M"].(map[string]any); ok {
-		total := int64(ddbContainerOverhead)
-		for k, val := range nested {
-			total += int64(len(k)) + CalculateAttrSize(val)
-		}
-		return total
+	return 0, false
+}
+
+func calcMapSize(nested map[string]any) int64 {
+	total := int64(ddbContainerOverhead)
+	for k, val := range nested {
+		total += int64(len(k)) + CalculateAttrSize(val)
 	}
 
-	if list, ok := m["L"].([]any); ok {
-		total := int64(ddbContainerOverhead)
-		for _, elem := range list {
-			total += CalculateAttrSize(elem)
-		}
-		return total
+	return total
+}
+
+func calcListSize(list []any) int64 {
+	total := int64(ddbContainerOverhead)
+	for _, elem := range list {
+		total += CalculateAttrSize(elem)
 	}
 
-	return 1
+	return total
 }
 
 func ValidateItemSize(item map[string]any) error {
@@ -164,42 +224,46 @@ func validateKeySchema(item map[string]any, schema []models.KeySchemaElement) er
 			return NewValidationException(fmt.Sprintf("Missing key element: %s", k.AttributeName))
 		}
 
-		// Check for empty string value on a key attribute
-		if valMap, isMap := val.(map[string]any); isMap {
-			if sVal, hasS := valMap["S"]; hasS {
-				if str, isStr := sVal.(string); isStr && str == "" {
-					return NewValidationException(fmt.Sprintf(
-						"One or more parameter values not valid. "+
-							"The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
-						k.AttributeName,
-					))
-				}
-			}
-
-			size, _ := CalculateItemSize(valMap)
-			// We remove the 100-byte item overhead for individual attribute check if necessary,
-			// but AWS Key element size limit is also strict.
-			// AWS says Key size is Sum(len(attrName) + len(attrValue)).
-			// CalculateItemSize(valMap) gives us 100 + len(val).
-			// So we adjust.
-			actualSize := size - perItemOverhead
-
-			limit := MaxPartitionKeySize
-			if k.KeyType == "RANGE" {
-				limit = MaxSortKeySize
-			}
-
-			if actualSize > limit {
-				return NewValidationException(
-					fmt.Sprintf(
-						"Key element %s size %d exceeds limit %d",
-						k.AttributeName,
-						actualSize,
-						limit,
-					),
-				)
-			}
+		if err := validateKeyAttribute(k, val); err != nil {
+			return err
 		}
+	}
+
+	return nil
+}
+
+// validateKeyAttribute checks a single key attribute value for type constraints and size limits.
+func validateKeyAttribute(k models.KeySchemaElement, val any) error {
+	valMap, isMap := val.(map[string]any)
+	if !isMap {
+		return nil
+	}
+
+	if sVal, hasS := valMap["S"]; hasS {
+		if str, isStr := sVal.(string); isStr && str == "" {
+			return NewValidationException(fmt.Sprintf(
+				"One or more parameter values not valid. "+
+					"The AttributeValue for a key attribute cannot contain an empty string value. Key: %s",
+				k.AttributeName,
+			))
+		}
+	}
+
+	// AWS key size limit is based on the attribute value size alone (name + value bytes).
+	attrSize := int(int64(len(k.AttributeName)) + CalculateAttrSize(val))
+
+	limit := MaxPartitionKeySize
+	if k.KeyType == "RANGE" {
+		limit = MaxSortKeySize
+	}
+
+	if attrSize > limit {
+		return NewValidationException(fmt.Sprintf(
+			"Key element %s size %d exceeds limit %d",
+			k.AttributeName,
+			attrSize,
+			limit,
+		))
 	}
 
 	return nil

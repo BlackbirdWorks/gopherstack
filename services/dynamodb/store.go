@@ -79,36 +79,32 @@ const (
 )
 
 type Table struct {
-	CreationDateTime       time.Time `json:"CreationDateTime"`
-	pkIndex                map[string]int
-	pkskIndex              map[string]map[string]int
-	mu                     *lockmetrics.RWMutex
-	activateTimer          *time.Timer
-	Tags                   *tags.Tags                              `json:"Tags,omitempty"`
-	TableID                string                                  `json:"TableID"`
-	TTLAttribute           string                                  `json:"TTLAttribute,omitempty"`
-	StreamViewType         string                                  `json:"StreamViewType,omitempty"`
-	StreamARN              string                                  `json:"StreamARN,omitempty"`
-	TableArn               string                                  `json:"TableArn"`
-	Status                 string                                  `json:"Status"`
-	Name                   string                                  `json:"Name"`
-	LocalSecondaryIndexes  []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
-	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
-	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
-	Replicas               []models.ReplicaDescription             `json:"Replicas,omitempty"`
-	Items                  []map[string]any                        `json:"Items"`
-	StreamRecords          []models.StreamRecord                   `json:"StreamRecords,omitempty"`
-	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
-	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
-	streamSeq              int64
-	// StreamHead is the index of the oldest record in the ring buffer.
-	// Exported for JSON persistence so that snapshot/restore preserves ring-buffer state.
-	// When the ring buffer is not yet full (len(StreamRecords) < maxStreamRecords),
-	// StreamHead is 0 and StreamRecords is in insertion order.
-	StreamHead     int  `json:"StreamHead,omitempty"`
+	CreationDateTime          time.Time `json:"CreationDateTime"`
+	pkIndex                   map[string]int
+	pkskIndex                 map[string]map[string]int
+	mu                        *lockmetrics.RWMutex
+	activateTimer             *time.Timer
+	Tags                      *tags.Tags                              `json:"Tags,omitempty"`
+	Name                      string                                  `json:"Name"`
+	TTLAttribute              string                                  `json:"TTLAttribute,omitempty"`
+	StreamViewType            string                                  `json:"StreamViewType,omitempty"`
+	StreamARN                 string                                  `json:"StreamARN,omitempty"`
+	TableArn                  string                                  `json:"TableArn"`
+	Status                    string                                  `json:"Status"`
+	TableID                   string                                  `json:"TableID"`
+	TableClass                string                                  `json:"TableClass,omitempty"`
+	Items                     []map[string]any                        `json:"Items"`
+	AttributeDefinitions      []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	Replicas                  []models.ReplicaDescription             `json:"Replicas,omitempty"`
+	GlobalSecondaryIndexes    []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	StreamRecords             []models.StreamRecord                   `json:"StreamRecords,omitempty"`
+	KeySchema                 []models.KeySchemaElement               `json:"KeySchema"`
+	LocalSecondaryIndexes     []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	ProvisionedThroughput     models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	streamSeq                 int64
+	StreamHead                int  `json:"StreamHead,omitempty"`
 	PITREnabled               bool `json:"PITREnabled,omitempty"`
 	StreamsEnabled            bool `json:"StreamsEnabled"`
-	TableClass                string `json:"TableClass,omitempty"`
 	DeletionProtectionEnabled bool `json:"DeletionProtectionEnabled"`
 }
 

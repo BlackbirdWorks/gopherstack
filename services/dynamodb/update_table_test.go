@@ -114,7 +114,6 @@ func TestUpdateTable(t *testing.T) {
 					},
 					AttributeDefinitions: []types.AttributeDefinition{
 						{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
-						{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
 					},
 					ProvisionedThroughput: &types.ProvisionedThroughput{
 						ReadCapacityUnits:  aws.Int64(5),
@@ -127,6 +126,9 @@ func TestUpdateTable(t *testing.T) {
 			},
 			input: &dynamodb.UpdateTableInput{
 				TableName: aws.String("gsi-table"),
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
+				},
 				GlobalSecondaryIndexUpdates: []types.GlobalSecondaryIndexUpdate{
 					{
 						Create: &types.CreateGlobalSecondaryIndexAction{

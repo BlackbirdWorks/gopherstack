@@ -40,68 +40,50 @@ func (db *InMemoryDB) BatchGetItem(
 		return nil, tableErr
 	}
 
-	// Enforce 16MB response limit and collect results.
-	const responseSizeLimit = 16 * 1024 * 1024
-	currentSize := 0
-	responses := make(map[string][]map[string]types.AttributeValue)
-	unprocessedKeys := make(map[string]types.KeysAndAttributes)
-
 	// Sort table names for deterministic processing (AWS also tends toward this).
-	var tableNames []string
+	tableNames := make([]string, 0, len(input.RequestItems))
 	for name := range input.RequestItems {
 		tableNames = append(tableNames, name)
 	}
 	sort.Strings(tableNames)
 
+	return db.batchGetResponses(input, tableNames, tableRefs)
+}
+
+// batchGetResponses collects items across tables enforcing the 16MB response limit.
+// Size is computed on the projected item so projection reduces the counted bytes.
+func (db *InMemoryDB) batchGetResponses(
+	input *dynamodb.BatchGetItemInput,
+	tableNames []string,
+	tableRefs map[string]*Table,
+) (*dynamodb.BatchGetItemOutput, error) {
+	const responseSizeLimit = 16 * 1024 * 1024
+	currentSize := 0
+	responses := make(map[string][]map[string]types.AttributeValue)
+	unprocessedKeys := make(map[string]types.KeysAndAttributes)
+
 	for _, tableName := range tableNames {
 		keysAndAttrs := input.RequestItems[tableName]
 		table := tableRefs[tableName]
 
-		var tableResults []map[string]types.AttributeValue
-		pkDef, skDef := getPKAndSK(table.KeySchema)
-		proj := aws.ToString(keysAndAttrs.ProjectionExpression)
-		projector, _ := ParseProjector(proj, keysAndAttrs.ExpressionAttributeNames)
-
-		table.mu.RLock("BatchGetItem")
-		for i, sdkKey := range keysAndAttrs.Keys {
-			wireKey := models.FromSDKItem(sdkKey)
-			item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
-
-			if item != nil {
-				itemSize, _ := CalculateItemSize(item)
-				if currentSize+itemSize > responseSizeLimit && len(tableResults) > 0 {
-					// Stop if we hit 16MB. Return remaining keys of THIS table as unprocessed.
-					unprocessedKeys[tableName] = types.KeysAndAttributes{
-						Keys:                     keysAndAttrs.Keys[i:],
-						AttributesToGet:          keysAndAttrs.AttributesToGet,
-						ConsistentRead:           keysAndAttrs.ConsistentRead,
-						ExpressionAttributeNames: keysAndAttrs.ExpressionAttributeNames,
-						ProjectionExpression:     keysAndAttrs.ProjectionExpression,
-					}
-					break
-				}
-				currentSize += itemSize
-
-				result := item
-				if proj != "" {
-					result = projector.Project(item)
-				}
-				sdkResult, _ := models.ToSDKItem(result)
-				tableResults = append(tableResults, sdkResult)
-			}
-		}
-		table.mu.RUnlock()
-
+		truncated, tableResults := db.batchGetTable(
+			table,
+			keysAndAttrs,
+			tableName,
+			&currentSize,
+			responseSizeLimit,
+			unprocessedKeys,
+		)
 		if len(tableResults) > 0 {
 			responses[tableName] = tableResults
 		}
 
-		// If we truncated this table's keys, any SUBSEQUENT tables are also unprocessed.
-		if _, ok := unprocessedKeys[tableName]; ok {
+		if truncated {
 			for j := sort.SearchStrings(tableNames, tableName) + 1; j < len(tableNames); j++ {
 				nextTable := tableNames[j]
 				unprocessedKeys[nextTable] = input.RequestItems[nextTable]
 			}
+
 			break
 		}
 	}
@@ -111,6 +93,60 @@ func (db *InMemoryDB) BatchGetItem(
 		UnprocessedKeys:  unprocessedKeys,
 		ConsumedCapacity: batchGetConsumedCapacity(input.ReturnConsumedCapacity, input.RequestItems),
 	}, nil
+}
+
+// batchGetTable reads items for a single table, enforcing the cumulative size limit.
+// Per AWS semantics, the ProjectionExpression is applied before measuring item size —
+// this means only the projected bytes count toward the 16MB response limit, not the
+// full raw item. Returns (truncated, results) where truncated means the 16MB limit was reached.
+func (db *InMemoryDB) batchGetTable(
+	table *Table,
+	keysAndAttrs types.KeysAndAttributes,
+	tableName string,
+	currentSize *int,
+	responseSizeLimit int,
+	unprocessedKeys map[string]types.KeysAndAttributes,
+) (bool, []map[string]types.AttributeValue) {
+	pkDef, skDef := getPKAndSK(table.KeySchema)
+	proj := aws.ToString(keysAndAttrs.ProjectionExpression)
+	projector, _ := ParseProjector(proj, keysAndAttrs.ExpressionAttributeNames)
+
+	var tableResults []map[string]types.AttributeValue
+
+	table.mu.RLock("BatchGetItem")
+	defer table.mu.RUnlock()
+
+	for i, sdkKey := range keysAndAttrs.Keys {
+		wireKey := models.FromSDKItem(sdkKey)
+		item := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+
+		if item == nil {
+			continue
+		}
+
+		// Project first, then measure size of the projected result (per AWS semantics).
+		result := projector.Project(item)
+		itemSize, _ := CalculateItemSize(result)
+
+		if *currentSize+itemSize > responseSizeLimit && len(tableResults) > 0 {
+			unprocessedKeys[tableName] = types.KeysAndAttributes{
+				Keys:                     keysAndAttrs.Keys[i:],
+				AttributesToGet:          keysAndAttrs.AttributesToGet,
+				ConsistentRead:           keysAndAttrs.ConsistentRead,
+				ExpressionAttributeNames: keysAndAttrs.ExpressionAttributeNames,
+				ProjectionExpression:     keysAndAttrs.ProjectionExpression,
+			}
+
+			return true, tableResults
+		}
+
+		*currentSize += itemSize
+
+		sdkResult, _ := models.ToSDKItem(result)
+		tableResults = append(tableResults, sdkResult)
+	}
+
+	return false, tableResults
 }
 
 // batchGetTableRefs collects table references under db.mu.RLock.
@@ -130,8 +166,8 @@ func (db *InMemoryDB) batchGetTableRefs(
 	tableRefs := make(map[string]*Table, len(requestItems))
 
 	for tableName := range requestItems {
-		t, ok := regionTables[tableName]
-		if !ok {
+		t, exists := regionTables[tableName]
+		if !exists {
 			return nil, NewResourceNotFoundException(fmt.Sprintf("Table not found: %s", tableName))
 		}
 

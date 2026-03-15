@@ -19,6 +19,10 @@ import (
 // ErrInvalidStatement is returned when a PartiQL statement cannot be parsed.
 var ErrInvalidStatement = errors.New("invalid PartiQL statement")
 
+// errScanFallback is an internal sentinel returned by tryQueryOptimization to
+// signal that the caller should fall back to a full Scan instead of Query.
+var errScanFallback = errors.New("scan fallback required")
+
 // fromClauseRegex extracts the table name from a SELECT/DELETE ... FROM "tableName" statement.
 // Supports DynamoDB table names: alphanumeric, hyphen, dot, and underscore.
 var fromClauseRegex = regexp.MustCompile(`(?i)FROM\s+"([\w.\-]+)"`)
@@ -183,55 +187,99 @@ func (h *DynamoDBHandler) executePartiQLSelect(
 
 	whereClause := partiqlExtractWhere(substituted)
 	filterExpr, eav := partiqlSubstituteLiterals(whereClause, eav)
-
 	limit := partiqlExtractLimit(substituted)
 	colList := partiqlExtractColumns(substituted)
 
-	// Try to optimize for Query if PK is present
+	// Try to use Query if the partition key is present in the WHERE clause.
+	out, queryErr := h.tryQueryOptimization(ctx, tableName, whereClause, filterExpr, eav, colList, limit)
+	if queryErr != nil && !errors.Is(queryErr, errScanFallback) {
+		return nil, queryErr
+	}
+	if out != nil {
+		return out, nil
+	}
+
+	return h.executeScanSelect(ctx, tableName, filterExpr, eav, colList, limit)
+}
+
+// tryQueryOptimization attempts to convert the PartiQL SELECT into a Query operation
+// when the partition key is present. Returns (nil, nil) when scan should be used instead,
+// or (result, nil) on success, or (nil, err) when a definitive error occurred.
+func (h *DynamoDBHandler) tryQueryOptimization(
+	ctx context.Context,
+	tableName, whereClause, filterExpr string,
+	eav map[string]any,
+	colList string,
+	limit int,
+) (*executeStatementResponse, error) {
 	descOut, err := h.Backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
 		TableName: aws.String(tableName),
 	})
-	if err == nil {
-		keyAttrs := make(map[string]bool, len(descOut.Table.KeySchema))
-		for _, k := range descOut.Table.KeySchema {
-			keyAttrs[aws.ToString(k.AttributeName)] = true
-		}
-
-		wireKey, _ := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
-		pkName, _ := getPKAndSK(models.FromSDKKeySchema(descOut.Table.KeySchema))
-
-		if wireKey != nil && wireKey[pkName.AttributeName] != nil {
-			// Partition key found, use Query
-			queryInput := &dynamodb.QueryInput{
-				TableName: aws.String(tableName),
-			}
-
-			sdkEAV, _ := partiqlBuildSDKEAV(eav)
-			queryInput.ExpressionAttributeValues = sdkEAV
-			
-			// Build KeyConditionExpression
-			keyCond := fmt.Sprintf("%s = %s", pkName.AttributeName, findPlaceholderForKey(whereClause, pkName.AttributeName))
-			queryInput.KeyConditionExpression = aws.String(keyCond)
-
-			if filterExpr != "" {
-				queryInput.FilterExpression = aws.String(filterExpr)
-			}
-
-			if limit > 0 {
-				queryInput.Limit = aws.Int32(int32(limit))
-			}
-
-			if colList != "" && colList != "*" {
-				queryInput.ProjectionExpression = aws.String(colList)
-			}
-
-			out, queryErr := h.Backend.Query(ctx, queryInput)
-			if queryErr == nil {
-				return &executeStatementResponse{Items: itemsToWire(out.Items)}, nil
-			}
-		}
+	if err != nil {
+		return nil, errScanFallback // Table lookup failed; fall back to scan
 	}
 
+	keyAttrs := make(map[string]bool, len(descOut.Table.KeySchema))
+	for _, k := range descOut.Table.KeySchema {
+		keyAttrs[aws.ToString(k.AttributeName)] = true
+	}
+
+	wireKey, _ := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
+	pkName, _ := getPKAndSK(models.FromSDKKeySchema(descOut.Table.KeySchema))
+
+	if wireKey == nil || wireKey[pkName.AttributeName] == nil {
+		return nil, errScanFallback // No PK in WHERE; fall back to scan
+	}
+
+	queryInput := h.buildQueryInput(tableName, whereClause, filterExpr, eav, pkName.AttributeName, colList, limit)
+
+	out, queryErr := h.Backend.Query(ctx, queryInput)
+	if queryErr != nil {
+		return nil, queryErr
+	}
+
+	return &executeStatementResponse{Items: itemsToWire(out.Items)}, nil
+}
+
+// buildQueryInput constructs a QueryInput from the parsed PartiQL components.
+func (h *DynamoDBHandler) buildQueryInput(
+	tableName, whereClause, filterExpr string,
+	eav map[string]any,
+	pkAttr, colList string,
+	limit int,
+) *dynamodb.QueryInput {
+	queryInput := &dynamodb.QueryInput{
+		TableName: aws.String(tableName),
+	}
+
+	sdkEAV, _ := partiqlBuildSDKEAV(eav)
+	queryInput.ExpressionAttributeValues = sdkEAV
+
+	keyCond := fmt.Sprintf("%s = %s", pkAttr, findPlaceholderForKey(whereClause, pkAttr))
+	queryInput.KeyConditionExpression = aws.String(keyCond)
+
+	if filterExpr != "" {
+		queryInput.FilterExpression = aws.String(filterExpr)
+	}
+	if limit > 0 {
+		// #nosec G115 -- limit is parsed from a non-negative decimal digit sequence; fits in int32
+		queryInput.Limit = aws.Int32(int32(limit))
+	}
+	if colList != "" && colList != "*" {
+		queryInput.ProjectionExpression = aws.String(colList)
+	}
+
+	return queryInput
+}
+
+// executeScanSelect runs a full Scan for a PartiQL SELECT that couldn't be optimized.
+func (h *DynamoDBHandler) executeScanSelect(
+	ctx context.Context,
+	tableName, filterExpr string,
+	eav map[string]any,
+	colList string,
+	limit int,
+) (*executeStatementResponse, error) {
 	scanInput := &dynamodb.ScanInput{
 		TableName: aws.String(tableName),
 	}
@@ -269,6 +317,7 @@ func itemsToWire(items []map[string]types.AttributeValue) []map[string]any {
 	for _, item := range items {
 		wireItems = append(wireItems, models.FromSDKItem(item))
 	}
+
 	return wireItems
 }
 
@@ -280,6 +329,7 @@ func findPlaceholderForKey(whereExpr, keyName string) string {
 			return strings.TrimSpace(placeholder)
 		}
 	}
+
 	return ""
 }
 

@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	defaultDDBJanitorInterval = 500 * time.Millisecond
+	defaultDDBJanitorInterval  = 500 * time.Millisecond
 	defaultDDBTTLSweepInterval = 5 * time.Second
 )
 
