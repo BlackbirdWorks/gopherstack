@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -23,6 +24,9 @@ var (
 	ErrNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a delivery stream already exists.
 	ErrAlreadyExists = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
+	// ErrTransformPayload is a sentinel error indicating the Lambda transform
+	// payload could not be built. Use [errors.Is] to check for this condition.
+	ErrTransformPayload = errors.New("failed to build Lambda transform payload")
 )
 
 // S3Storer is the subset of S3 operations that Firehose needs to deliver objects.
@@ -206,11 +210,11 @@ func (b *InMemoryBackend) PutRecord(streamName string, data []byte) error {
 
 	s.Records = append(s.Records, data)
 	s.bufferSizeBytes += len(data)
-	shouldFlush := b.shouldFlushLocked(s)
+	snap := b.extractForFlushLocked(s)
 	b.mu.Unlock()
 
-	if shouldFlush {
-		b.flushStream(context.Background(), streamName)
+	if snap != nil {
+		b.deliverSnapshot(context.Background(), snap, streamName)
 	}
 
 	return nil
@@ -232,11 +236,11 @@ func (b *InMemoryBackend) PutRecordBatch(streamName string, records [][]byte) (i
 		s.bufferSizeBytes += len(rec)
 	}
 
-	shouldFlush := b.shouldFlushLocked(s)
+	snap := b.extractForFlushLocked(s)
 	b.mu.Unlock()
 
-	if shouldFlush {
-		b.flushStream(context.Background(), streamName)
+	if snap != nil {
+		b.deliverSnapshot(context.Background(), snap, streamName)
 	}
 
 	return 0, nil
@@ -338,50 +342,97 @@ func (b *InMemoryBackend) shouldFlushByIntervalLocked(s *DeliveryStream) bool {
 	return time.Since(s.lastFlush) >= time.Duration(interval)*time.Second
 }
 
-// flushStream delivers all buffered records for a stream to S3.
-func (b *InMemoryBackend) flushStream(ctx context.Context, streamName string) {
-	b.mu.Lock("flushStream")
+// flushSnapshot holds a point-in-time snapshot of records extracted from a stream.
+type flushSnapshot struct {
+	dest      S3DestinationDescription
+	streamARN string
+	region    string
+	records   [][]byte
+}
 
-	s, ok := b.streams[streamName]
-	if !ok || len(s.Records) == 0 || s.S3Destination == nil || b.s3 == nil {
-		b.mu.Unlock()
-
-		return
+// extractForFlushLocked snapshots and resets the stream buffer when shouldFlushLocked
+// returns true. Returns nil when no flush is needed. Must be called with the write lock held.
+func (b *InMemoryBackend) extractForFlushLocked(s *DeliveryStream) *flushSnapshot {
+	if !b.shouldFlushLocked(s) {
+		return nil
 	}
 
-	records := s.Records
+	return b.extractAllRecordsLocked(s)
+}
+
+// extractAllRecordsLocked unconditionally snapshots and resets the stream buffer.
+// Returns nil when there are no records to flush. Must be called with the write lock held.
+func (b *InMemoryBackend) extractAllRecordsLocked(s *DeliveryStream) *flushSnapshot {
+	if len(s.Records) == 0 || s.S3Destination == nil || b.s3 == nil {
+		return nil
+	}
+
+	snap := &flushSnapshot{
+		records:   s.Records,
+		dest:      *s.S3Destination,
+		streamARN: s.ARN,
+		region:    s.Region,
+	}
 	s.Records = [][]byte{}
 	s.bufferSizeBytes = 0
 	s.lastFlush = time.Now()
-	dest := *s.S3Destination
-	streamARN := s.ARN
-	region := s.Region
 
-	b.mu.Unlock()
+	return snap
+}
 
-	// Apply Lambda transformation if configured.
-	if dest.ProcessingConfiguration != nil && dest.ProcessingConfiguration.Enabled {
-		records = b.transformRecords(ctx, records, &dest, streamARN, region)
+// deliverSnapshot applies optional Lambda transformation and delivers records to S3.
+// Called after the write lock has been released.
+func (b *InMemoryBackend) deliverSnapshot(ctx context.Context, snap *flushSnapshot, streamName string) {
+	records := snap.records
+
+	if snap.dest.ProcessingConfiguration != nil && snap.dest.ProcessingConfiguration.Enabled {
+		var err error
+
+		records, err = b.transformRecords(ctx, records, &snap.dest, snap.streamARN, snap.region)
+		if err != nil {
+			return
+		}
 	}
 
 	if len(records) == 0 {
 		return
 	}
 
-	// Concatenate records and deliver to S3.
-	_ = b.deliverToS3(ctx, records, &dest, streamName)
+	_ = b.deliverToS3(ctx, records, &snap.dest, streamName)
+}
+
+// flushStream delivers all buffered records for a stream to S3.
+func (b *InMemoryBackend) flushStream(ctx context.Context, streamName string) {
+	b.mu.Lock("flushStream")
+
+	s, ok := b.streams[streamName]
+	if !ok {
+		b.mu.Unlock()
+
+		return
+	}
+
+	snap := b.extractAllRecordsLocked(s)
+	b.mu.Unlock()
+
+	if snap != nil {
+		b.deliverSnapshot(ctx, snap, streamName)
+	}
 }
 
 // transformRecords invokes the configured Lambda function to transform records.
 // It returns only the records marked as "Ok" in the Lambda response.
+// An error is returned if payload marshaling or Lambda invocation fails, allowing
+// the caller to handle the failure (e.g., drop records) rather than silently
+// delivering originals.
 func (b *InMemoryBackend) transformRecords(
 	ctx context.Context,
 	records [][]byte,
 	dest *S3DestinationDescription,
 	streamARN, region string,
-) [][]byte {
+) ([][]byte, error) {
 	if b.lambda == nil || dest.ProcessingConfiguration == nil {
-		return records
+		return records, nil
 	}
 
 	functionName := ""
@@ -396,22 +447,20 @@ func (b *InMemoryBackend) transformRecords(
 	}
 
 	if functionName == "" {
-		return records
+		return records, nil
 	}
 
 	payload := buildLambdaTransformPayload(records, streamARN, region)
 	if payload == nil {
-		// Payload marshaling failed; skip transformation and deliver original records.
-		return records
+		return nil, ErrTransformPayload
 	}
 
 	result, _, err := b.lambda.InvokeFunction(ctx, functionName, "RequestResponse", payload)
 	if err != nil {
-		// On Lambda failure, return original records.
-		return records
+		return nil, fmt.Errorf("lambda transform invocation failed: %w", err)
 	}
 
-	return parseLambdaTransformResponse(result)
+	return parseLambdaTransformResponse(result), nil
 }
 
 // deliverToS3 concatenates records and writes a single S3 object.
@@ -423,6 +472,9 @@ func (b *InMemoryBackend) deliverToS3(
 ) error {
 	var buf bytes.Buffer
 	for _, rec := range records {
+		if len(rec) == 0 {
+			continue
+		}
 		buf.Write(rec)
 		// Add newline separator if the record doesn't already end with one.
 		if rec[len(rec)-1] != '\n' {

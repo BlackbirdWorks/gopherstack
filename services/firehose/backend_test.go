@@ -2,6 +2,7 @@ package firehose_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 
@@ -12,6 +13,8 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/firehose"
 )
+
+var errLambdaUnavailable = errors.New("lambda unavailable")
 
 func TestCreateDeliveryStream(t *testing.T) {
 	t.Parallel()
@@ -559,6 +562,105 @@ func TestLambdaTransformation_AllDropped(t *testing.T) {
 
 	// All records dropped → no S3 delivery.
 	assert.Empty(t, s3mock.calls)
+}
+
+// TestDeliverToS3_EmptyRecord verifies that empty records do not cause a panic
+// and are silently skipped during S3 delivery (bug fix: rec[len(rec)-1] panic).
+func TestDeliverToS3_EmptyRecord(t *testing.T) {
+	t.Parallel()
+
+	s3mock := &mockS3Storer{}
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	b.SetS3Backend(s3mock)
+
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+		Name: "empty-rec-stream",
+		S3Destination: &firehose.S3DestinationDescription{
+			BucketARN: "arn:aws:s3:::empty-bucket",
+		},
+	})
+	require.NoError(t, err)
+
+	// Put an empty record followed by a non-empty one — must not panic.
+	require.NoError(t, b.PutRecord("empty-rec-stream", []byte{}))
+	require.NoError(t, b.PutRecord("empty-rec-stream", []byte("data")))
+	b.FlushAll(t.Context())
+
+	// The non-empty record is delivered; empty records are skipped.
+	require.Len(t, s3mock.calls, 1)
+	assert.Contains(t, string(s3mock.calls[0].body), "data")
+}
+
+// TestLambdaTransformation_ErrorDropsRecords verifies that a Lambda invocation error
+// causes the records to be dropped (not silently delivered as originals).
+func TestLambdaTransformation_ErrorDropsRecords(t *testing.T) {
+	t.Parallel()
+
+	s3mock := &mockS3Storer{}
+	lambdaMock := &mockLambdaInvoker{err: errLambdaUnavailable}
+
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	b.SetS3Backend(s3mock)
+	b.SetLambdaBackend(lambdaMock)
+
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+		Name: "err-lambda-stream",
+		S3Destination: &firehose.S3DestinationDescription{
+			BucketARN: "arn:aws:s3:::err-bucket",
+			ProcessingConfiguration: &firehose.ProcessingConfiguration{
+				Enabled: true,
+				Processors: []firehose.Processor{
+					{
+						Type: "Lambda",
+						Parameters: []firehose.ProcessorParameter{
+							{ParameterName: "LambdaArn", ParameterValue: "my-fn"},
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, b.PutRecord("err-lambda-stream", []byte("input")))
+	b.FlushAll(t.Context())
+
+	// Lambda error → records must not be delivered to S3.
+	assert.Empty(t, s3mock.calls)
+}
+
+// TestPutRecord_FlushSnapshotUnderLock verifies that after a size-based flush the
+// buffer is reset atomically: a subsequent PutRecord starts with a zeroed counter and
+// the old records are not double-delivered.
+func TestPutRecord_FlushSnapshotUnderLock(t *testing.T) {
+	t.Parallel()
+
+	s3mock := &mockS3Storer{}
+	b := firehose.NewInMemoryBackend("000000000000", "us-east-1")
+	b.SetS3Backend(s3mock)
+
+	_, err := b.CreateDeliveryStream(firehose.CreateDeliveryStreamInput{
+		Name: "atomic-flush-stream",
+		S3Destination: &firehose.S3DestinationDescription{
+			BucketARN: "arn:aws:s3:::atomic-bucket",
+			BufferingHints: &firehose.BufferingHints{
+				SizeInMBs:         1,
+				IntervalInSeconds: 300,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	// Write exactly enough to trigger one flush.
+	overLimit := make([]byte, 2*1024*1024)
+	require.NoError(t, b.PutRecord("atomic-flush-stream", overLimit))
+
+	// After the flush, the buffer is zeroed; a small subsequent record should not
+	// trigger another flush automatically.
+	require.NoError(t, b.PutRecord("atomic-flush-stream", []byte("small")))
+
+	// Only one S3 delivery should have occurred (from the over-limit put).
+	assert.Len(t, s3mock.calls, 1)
 }
 
 func TestUpdateDestination(t *testing.T) {
