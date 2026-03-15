@@ -34,7 +34,12 @@ type DeliveryTargets struct {
 
 // deliverEvents fan-outs events to matching rule targets.
 // It runs asynchronously and does not block PutEvents.
-func (b *InMemoryBackend) deliverEvents(ctx context.Context, entries []EventEntry, targets DeliveryTargets) {
+func (b *InMemoryBackend) deliverEvents(
+	ctx context.Context,
+	entries []EventEntry,
+	targets DeliveryTargets,
+	timeout time.Duration,
+) {
 	b.mu.RLock("deliverEvents")
 	// Deep copy rules and targets within the lock so concurrent mutations to the
 	// inner maps (PutRule/DeleteRule/PutTargets/RemoveTargets) cannot race with
@@ -71,13 +76,36 @@ func (b *InMemoryBackend) deliverEvents(ctx context.Context, entries []EventEntr
 			// for this rule share the same event id, matching AWS behaviour.
 			deliveryEnvelope := buildDeliveryEnvelope(entry, accountID, region)
 
-			// Deliver to all targets for this rule.
+			// Deliver to all targets for this rule. Each target gets its own
+			// bounded context so a hung downstream service cannot block the
+			// goroutine beyond the configured timeout.
 			key := b.targetKey(busName, rule.Name)
 			for _, t := range busTargets[key] {
-				deliverToTarget(ctx, t, deliveryEnvelope, targets)
+				deliverToTargetBounded(ctx, t, deliveryEnvelope, targets, timeout)
 			}
 		}
 	}
+}
+
+// deliverToTargetBounded delivers a single event to a single target, applying a per-call
+// timeout when timeout > 0. Extracting this logic reduces the cognitive complexity of
+// the outer deliverEvents loop.
+func deliverToTargetBounded(
+	ctx context.Context,
+	target *Target,
+	envelope map[string]any,
+	dt DeliveryTargets,
+	timeout time.Duration,
+) {
+	if timeout <= 0 {
+		deliverToTarget(ctx, target, envelope, dt)
+
+		return
+	}
+
+	tCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	deliverToTarget(tCtx, target, envelope, dt)
 }
 
 // deepCopyBusRules returns a deep copy of the bus-to-rules map so that the

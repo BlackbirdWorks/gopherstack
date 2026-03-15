@@ -659,4 +659,14 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	// Clear handler-level tag state so that tags don't bleed across test runs.
+	h.tagsMu.Lock("Reset")
+	defer h.tagsMu.Unlock()
+
+	for _, t := range h.tags {
+		t.Close()
+	}
+
+	h.tags = make(map[string]*svcTags.Tags)
 }
