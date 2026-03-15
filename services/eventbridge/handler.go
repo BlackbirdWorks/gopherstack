@@ -166,8 +166,34 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
-// Ensure Handler implements service.BackgroundWorker at compile time.
+// Shutdown implements service.Shutdowner.
+// It cancels the backend's internal lifecycle context and waits for all
+// in-flight delivery goroutines to finish. If ctx expires before Close
+// returns, Shutdown returns immediately so the process shutdown is not blocked.
+func (h *Handler) Shutdown(ctx context.Context) {
+	type closer interface{ Close() }
+
+	b, ok := h.Backend.(closer)
+	if !ok {
+		return
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		b.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+// Ensure Handler implements service.BackgroundWorker and service.Shutdowner at compile time.
 var _ service.BackgroundWorker = (*Handler)(nil)
+var _ service.Shutdowner = (*Handler)(nil)
 
 // Name returns the service name.
 func (h *Handler) Name() string { return "EventBridge" }
