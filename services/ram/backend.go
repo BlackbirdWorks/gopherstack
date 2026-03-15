@@ -238,8 +238,16 @@ func (b *InMemoryBackend) DeleteResourceShare(shareARN string) error {
 		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
 
-	rs.Status = statusDeleted
-	rs.LastUpdatedTime = time.Now()
+	delete(b.resourceShares, shareARN)
+
+	// Remove all associations that belonged to this share.
+	kept := b.associations[:0]
+	for _, a := range b.associations {
+		if a.ResourceShareARN != shareARN {
+			kept = append(kept, a)
+		}
+	}
+	b.associations = kept
 
 	return nil
 }
@@ -315,17 +323,26 @@ func (b *InMemoryBackend) DisassociateResourceShare(
 		toRemove[r] = struct{}{}
 	}
 
-	updated := make([]*ResourceShareAssociation, 0, len(toRemove))
+	var updated []*ResourceShareAssociation
+
+	kept := b.associations[:0]
 
 	for _, a := range b.associations {
 		if a.ResourceShareARN == shareARN {
 			if _, found := toRemove[a.AssociatedEntity]; found {
-				a.Status = associationStatusDisassociated
-				a.LastUpdatedTime = time.Now()
-				updated = append(updated, cloneAssociation(a))
+				cp := cloneAssociation(a)
+				cp.Status = associationStatusDisassociated
+				cp.LastUpdatedTime = time.Now()
+				updated = append(updated, cp)
+
+				continue
 			}
 		}
+
+		kept = append(kept, a)
 	}
+
+	b.associations = kept
 
 	_ = rs // share lookup above ensures we return NotFound for deleted shares
 
@@ -424,4 +441,14 @@ func mergeTags(existing, incoming map[string]string) map[string]string {
 	maps.Copy(result, incoming)
 
 	return result
+}
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.resourceShares = make(map[string]*ResourceShare)
+	b.associations = make([]*ResourceShareAssociation, 0)
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sync/atomic"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -73,6 +74,7 @@ type EC2InstanceAttributes struct{}
 
 // Cluster represents an EMR cluster.
 type Cluster struct {
+	TerminatedAt          time.Time              `json:"TerminatedAt,omitzero"`
 	Status                ClusterStatus          `json:"Status"`
 	ID                    string                 `json:"Id"`
 	Name                  string                 `json:"Name"`
@@ -246,6 +248,7 @@ func (b *InMemoryBackend) TerminateJobFlows(ids []string) error {
 		}
 
 		cluster.Status.State = StateTerminated
+		cluster.TerminatedAt = time.Now()
 	}
 
 	return nil
@@ -356,4 +359,14 @@ func mapToTags(m map[string]string) []Tag {
 	}
 
 	return tags
+}
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.clusters = make(map[string]*Cluster)
+	b.counter.Store(0)
 }
