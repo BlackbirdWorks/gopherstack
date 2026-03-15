@@ -174,15 +174,17 @@ func (b *InMemoryBackend) CreateSecret(input *CreateSecretInput) (*CreateSecretO
 
 	if input.SecretString != "" || len(input.SecretBinary) > 0 {
 		versionID = uuid.New().String()
+		now := UnixTimeFloat(time.Now())
 		version := &SecretVersion{
 			VersionID:     versionID,
 			SecretString:  input.SecretString,
 			SecretBinary:  input.SecretBinary,
 			StagingLabels: []string{StagingLabelCurrent},
-			CreatedDate:   UnixTimeFloat(time.Now()),
+			CreatedDate:   now,
 		}
 		secret.Versions[versionID] = version
 		secret.CurrentVersionID = versionID
+		secret.LastChangedDate = &now
 	}
 
 	b.secrets[input.Name] = secret
@@ -274,16 +276,28 @@ func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecret
 
 	b.rotateStagingLabels(secret)
 
+	// Determine staging labels: AWSCURRENT is always applied; any additional
+	// labels provided in VersionStages are merged in (e.g. AWSPENDING).
+	stagingLabels := []string{StagingLabelCurrent}
+
+	for _, label := range input.VersionStages {
+		if label != StagingLabelCurrent {
+			stagingLabels = append(stagingLabels, label)
+		}
+	}
+
+	now := UnixTimeFloat(time.Now())
 	version := &SecretVersion{
 		VersionID:     versionID,
 		SecretString:  input.SecretString,
 		SecretBinary:  input.SecretBinary,
-		StagingLabels: []string{StagingLabelCurrent},
-		CreatedDate:   UnixTimeFloat(time.Now()),
+		StagingLabels: stagingLabels,
+		CreatedDate:   now,
 	}
 
 	secret.Versions[versionID] = version
 	secret.CurrentVersionID = versionID
+	secret.LastChangedDate = &now
 
 	pruneVersions(secret)
 
@@ -291,7 +305,7 @@ func (b *InMemoryBackend) PutSecretValue(input *PutSecretValueInput) (*PutSecret
 		ARN:           secret.ARN,
 		Name:          secret.Name,
 		VersionID:     versionID,
-		VersionStages: []string{StagingLabelCurrent},
+		VersionStages: stagingLabels,
 	}, nil
 }
 
@@ -375,7 +389,7 @@ func validateSecretSize(secretString string, secretBinary []byte) error {
 	return nil
 }
 
-// DeleteSecret marks a secret as deleted.
+// DeleteSecret marks a secret as deleted, or permanently removes it when ForceDeleteWithoutRecovery is set.
 func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretOutput, error) {
 	b.mu.Lock("DeleteSecret")
 	defer b.mu.Unlock()
@@ -388,6 +402,21 @@ func (b *InMemoryBackend) DeleteSecret(input *DeleteSecretInput) (*DeleteSecretO
 	}
 
 	now := UnixTimeFloat(time.Now())
+
+	if input.ForceDeleteWithoutRecovery {
+		if secret.Tags != nil {
+			secret.Tags.Close()
+		}
+
+		delete(b.secrets, name)
+
+		return &DeleteSecretOutput{
+			ARN:          secret.ARN,
+			Name:         secret.Name,
+			DeletionDate: now,
+		}, nil
+	}
+
 	secret.DeletedDate = &now
 
 	return &DeleteSecretOutput{
@@ -534,7 +563,9 @@ func (b *InMemoryBackend) DescribeSecret(input *DescribeSecretInput) (*DescribeS
 		Description:        secret.Description,
 		Tags:               secret.Tags,
 		DeletedDate:        secret.DeletedDate,
+		LastChangedDate:    secret.LastChangedDate,
 		VersionIDsToStages: versionIDsToStages,
+		RotationEnabled:    secret.RotationEnabled,
 	}, nil
 }
 
@@ -569,16 +600,18 @@ func (b *InMemoryBackend) UpdateSecret(input *UpdateSecretInput) (*UpdateSecretO
 
 		b.rotateStagingLabels(secret)
 
+		now := UnixTimeFloat(time.Now())
 		version := &SecretVersion{
 			VersionID:     versionID,
 			SecretString:  input.SecretString,
 			SecretBinary:  input.SecretBinary,
 			StagingLabels: []string{StagingLabelCurrent},
-			CreatedDate:   UnixTimeFloat(time.Now()),
+			CreatedDate:   now,
 		}
 
 		secret.Versions[versionID] = version
 		secret.CurrentVersionID = versionID
+		secret.LastChangedDate = &now
 
 		pruneVersions(secret)
 	}
@@ -747,6 +780,9 @@ func (b *InMemoryBackend) RotateSecret(input *RotateSecretInput) (*RotateSecretO
 	b.rotateStagingLabels(secret)
 	newVer.StagingLabels = []string{StagingLabelCurrent}
 	secret.CurrentVersionID = versionID
+	secret.RotationEnabled = true
+	now := UnixTimeFloat(time.Now())
+	secret.LastChangedDate = &now
 
 	pruneVersions(secret)
 
@@ -1026,6 +1062,12 @@ func (b *InMemoryBackend) UntagSecretByARN(secretARN string, tagKeys []string) e
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	for _, secret := range b.secrets {
+		if secret.Tags != nil {
+			secret.Tags.Close()
+		}
+	}
 
 	b.secrets = make(map[string]*Secret)
 }

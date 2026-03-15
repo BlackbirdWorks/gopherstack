@@ -1875,3 +1875,214 @@ func TestSecretsManagerHandlerReset(t *testing.T) {
 	h.Reset()
 	assert.Empty(t, backend.ListAll())
 }
+
+// TestSecretsManagerDeleteSecret_ForceDelete verifies ForceDeleteWithoutRecovery permanently removes the secret.
+func TestSecretsManagerDeleteSecret_ForceDelete(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                       string
+		forceDeleteWithoutRecovery bool
+		wantRestoreErr             bool
+	}{
+		{
+			name:                       "soft_delete_allows_restore",
+			forceDeleteWithoutRecovery: false,
+			wantRestoreErr:             false,
+		},
+		{
+			name:                       "force_delete_prevents_restore",
+			forceDeleteWithoutRecovery: true,
+			wantRestoreErr:             true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := secretsmanager.NewInMemoryBackend()
+
+			_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+				Name:         "force-del-test",
+				SecretString: "val",
+			})
+			require.NoError(t, err)
+
+			_, err = b.DeleteSecret(&secretsmanager.DeleteSecretInput{
+				SecretID:                   "force-del-test",
+				ForceDeleteWithoutRecovery: tt.forceDeleteWithoutRecovery,
+			})
+			require.NoError(t, err)
+
+			_, err = b.RestoreSecret(&secretsmanager.RestoreSecretInput{SecretID: "force-del-test"})
+
+			if tt.wantRestoreErr {
+				require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestSecretsManagerRotationEnabled verifies RotationEnabled is set after RotateSecret.
+func TestSecretsManagerRotationEnabled(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+
+	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+		Name:         "rot-flag-test",
+		SecretString: "initial",
+	})
+	require.NoError(t, err)
+
+	// Before rotation: RotationEnabled should be false.
+	desc, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "rot-flag-test"})
+	require.NoError(t, err)
+	assert.False(t, desc.RotationEnabled)
+
+	_, err = b.RotateSecret(&secretsmanager.RotateSecretInput{SecretID: "rot-flag-test"})
+	require.NoError(t, err)
+
+	// After rotation: RotationEnabled should be true and LastChangedDate set.
+	desc, err = b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "rot-flag-test"})
+	require.NoError(t, err)
+	assert.True(t, desc.RotationEnabled)
+	assert.NotNil(t, desc.LastChangedDate)
+}
+
+// TestSecretsManagerLastChangedDate verifies LastChangedDate is set by CreateSecret, PutSecretValue, and UpdateSecret.
+func TestSecretsManagerLastChangedDate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		after func(t *testing.T, b *secretsmanager.InMemoryBackend)
+		name  string
+	}{
+		{
+			name:  "set_by_create_secret",
+			after: func(_ *testing.T, _ *secretsmanager.InMemoryBackend) {},
+		},
+		{
+			name: "updated_by_put_secret_value",
+			after: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutSecretValue(&secretsmanager.PutSecretValueInput{
+					SecretID:     "lcd-test",
+					SecretString: "v2",
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "updated_by_update_secret",
+			after: func(t *testing.T, b *secretsmanager.InMemoryBackend) {
+				t.Helper()
+				_, err := b.UpdateSecret(&secretsmanager.UpdateSecretInput{
+					SecretID:     "lcd-test",
+					SecretString: "v2-updated",
+				})
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := secretsmanager.NewInMemoryBackend()
+
+			_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+				Name:         "lcd-test",
+				SecretString: "initial",
+			})
+			require.NoError(t, err)
+
+			tt.after(t, b)
+
+			desc, err := b.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "lcd-test"})
+			require.NoError(t, err)
+			assert.NotNil(t, desc.LastChangedDate)
+			assert.Greater(t, *desc.LastChangedDate, float64(0))
+		})
+	}
+}
+
+// TestSecretsManagerPutSecretValue_VersionStages verifies custom VersionStages are attached to new versions.
+func TestSecretsManagerPutSecretValue_VersionStages(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantStages    []string
+		name          string
+		versionStages []string
+	}{
+		{
+			name:          "default_awscurrent",
+			versionStages: nil,
+			wantStages:    []string{"AWSCURRENT"},
+		},
+		{
+			name:          "awspending_added",
+			versionStages: []string{"AWSPENDING"},
+			wantStages:    []string{"AWSCURRENT", "AWSPENDING"},
+		},
+		{
+			name:          "duplicate_awscurrent_deduped",
+			versionStages: []string{"AWSCURRENT", "AWSPENDING"},
+			wantStages:    []string{"AWSCURRENT", "AWSPENDING"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := secretsmanager.NewInMemoryBackend()
+
+			_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+				Name:         "vs-test",
+				SecretString: "v1",
+			})
+			require.NoError(t, err)
+
+			out, err := b.PutSecretValue(&secretsmanager.PutSecretValueInput{
+				SecretID:      "vs-test",
+				SecretString:  "v2",
+				VersionStages: tt.versionStages,
+			})
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.wantStages, out.VersionStages)
+		})
+	}
+}
+
+// TestSecretsManagerPersistence_RotationEnabled verifies RotationEnabled and LastChangedDate survive snapshot/restore.
+func TestSecretsManagerPersistence_RotationEnabled(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+
+	_, err := b.CreateSecret(&secretsmanager.CreateSecretInput{
+		Name:         "persist-rot",
+		SecretString: "v1",
+	})
+	require.NoError(t, err)
+
+	_, err = b.RotateSecret(&secretsmanager.RotateSecretInput{SecretID: "persist-rot"})
+	require.NoError(t, err)
+
+	snap := b.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := secretsmanager.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(snap))
+
+	desc, err := b2.DescribeSecret(&secretsmanager.DescribeSecretInput{SecretID: "persist-rot"})
+	require.NoError(t, err)
+	assert.True(t, desc.RotationEnabled)
+	assert.NotNil(t, desc.LastChangedDate)
+}

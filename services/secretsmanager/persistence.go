@@ -10,11 +10,13 @@ import (
 type secretSnapshot struct {
 	Tags             *tags.Tags                `json:"tags,omitempty"`
 	DeletedDate      *float64                  `json:"deletedDate,omitempty"`
+	LastChangedDate  *float64                  `json:"lastChangedDate,omitempty"`
 	Versions         map[string]*SecretVersion `json:"versions"`
 	ARN              string                    `json:"arn"`
 	Name             string                    `json:"name"`
 	Description      string                    `json:"description,omitempty"`
 	CurrentVersionID string                    `json:"currentVersionID"`
+	RotationEnabled  bool                      `json:"rotationEnabled,omitempty"`
 }
 
 type backendSnapshot struct {
@@ -37,8 +39,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			Description:      s.Description,
 			Tags:             s.Tags,
 			DeletedDate:      s.DeletedDate,
+			LastChangedDate:  s.LastChangedDate,
 			Versions:         s.Versions,
 			CurrentVersionID: s.CurrentVersionID,
+			RotationEnabled:  s.RotationEnabled,
 		}
 	}
 
@@ -68,6 +72,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
+	// Close Tags on any secrets that are being replaced to prevent
+	// Prometheus registry leaks.
+	for _, secret := range b.secrets {
+		if secret.Tags != nil {
+			secret.Tags.Close()
+		}
+	}
+
 	if snap.Secrets == nil {
 		snap.Secrets = make(map[string]*secretSnapshot)
 	}
@@ -85,8 +97,10 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			Description:      ss.Description,
 			Tags:             ss.Tags,
 			DeletedDate:      ss.DeletedDate,
+			LastChangedDate:  ss.LastChangedDate,
 			Versions:         ss.Versions,
 			CurrentVersionID: ss.CurrentVersionID,
+			RotationEnabled:  ss.RotationEnabled,
 		}
 	}
 
