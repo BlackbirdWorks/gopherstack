@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -1297,7 +1298,54 @@ func buildEchoServer(
 	e.Use(httputils.RequestIDMiddleware())
 	e.Use(logger.APIConsoleMiddleware())
 	e.Pre(logger.EchoMiddleware(log))
-	e.GET("/_gopherstack/health", healthHandler)
+
+	// Health endpoint: build service name list dynamically from registered services.
+	e.GET("/_gopherstack/health", func(c *echo.Context) error {
+		names := make([]string, 0, len(services))
+		for _, svc := range services {
+			names = append(names, svc.Name())
+		}
+
+		sort.Strings(names)
+
+		return c.JSON(http.StatusOK, healthResponse{
+			Status:   "ok",
+			Services: names,
+		})
+	})
+
+	// Reset endpoint: clear all in-memory state for every service that supports it.
+	e.POST("/_gopherstack/reset", func(c *echo.Context) error {
+		reset := 0
+
+		for _, svc := range services {
+			if r, ok := svc.(service.Resettable); ok {
+				r.Reset()
+				reset++
+			}
+		}
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"status":  "ok",
+			"reset":   reset,
+			"message": fmt.Sprintf("reset %d service(s)", reset),
+		})
+	})
+
+	// Website serving endpoint: serve static files from S3 buckets configured
+	// for website hosting. Pattern: GET /_gopherstack/website/{bucket}/*
+	for _, svc := range services {
+		if s3H, ok := svc.(*s3backend.S3Handler); ok {
+			e.GET("/_gopherstack/website/:bucket/*", s3H.ServeWebsite)
+			e.GET("/_gopherstack/website/:bucket", func(c *echo.Context) error {
+				bucket := c.Param("bucket")
+
+				return c.Redirect(http.StatusMovedPermanently, "/_gopherstack/website/"+bucket+"/")
+			})
+
+			break
+		}
+	}
 
 	if cli.Persist {
 		e.Use(persistenceMiddleware(persistManager, services))
@@ -2965,18 +3013,6 @@ type healthResponse struct {
 	Status string `json:"status"`
 	// Services lists all registered mock AWS services.
 	Services []string `json:"services"`
-}
-
-// healthHandler returns a JSON status response for all mock services.
-func healthHandler(c *echo.Context) error {
-	return c.JSON(http.StatusOK, healthResponse{
-		Status: "ok",
-		Services: []string{
-			"DynamoDB", "S3", "SSM", "IAM", "STS", "SNS", "SQS", "KMS", "SecretsManager", "Lambda",
-			"EventBridge", "APIGateway", "CloudWatchLogs", "StepFunctions", "CloudWatch", "CloudFormation",
-			"Kinesis", "Route53", "SES", "ECR",
-		},
-	})
 }
 
 func setupRegistry(

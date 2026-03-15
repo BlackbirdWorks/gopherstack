@@ -948,3 +948,11 @@ func (h *DynamoDBHandler) describeTableReplicaAutoScaling(ctx context.Context, b
 		},
 	}, nil
 }
+
+// Reset clears all in-memory state from the backend. It is used by the
+// POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+func (h *DynamoDBHandler) Reset() {
+	if db, ok := h.Backend.(*InMemoryDB); ok {
+		db.Reset()
+	}
+}

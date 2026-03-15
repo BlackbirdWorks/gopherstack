@@ -1,9 +1,10 @@
 package telemetry
 
 import (
+	"sync"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	io_prometheus_client "github.com/prometheus/client_model/go"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -108,6 +109,11 @@ var (
 
 	// mu protects access to metrics data structures.
 	mu = lockmetrics.New("telemetry")
+
+	// emaValues tracks the current exponential moving average per operation name.
+	// This avoids reading back from the Prometheus gauge (which allocates a proto
+	// per call and adds GC pressure under high throughput).
+	emaValues sync.Map // map[string]float64
 )
 
 // RecordOperation records an operation latency and status.
@@ -119,20 +125,24 @@ func RecordOperation(operation, _ string, durationSeconds float64, status string
 	operationLatency.WithLabelValues(operation).Observe(durationSeconds)
 	operationCounter.WithLabelValues(operation, status).Inc()
 
-	// Update running average (approximate EMA with alpha=0.1)
+	// Update running average (approximate EMA with alpha=0.1).
+	// EMA values are tracked in a sync.Map to avoid the proto allocation that
+	// GetMetricWithLabelValues+Write incurs on every request.
 	const alpha = 0.1
-	m, err := operationAvgLatency.GetMetricWithLabelValues(operation)
-	if err == nil {
-		// Get current value from the metric if possible
-		var dto io_prometheus_client.Metric
-		_ = m.Write(&dto)
-		curr := dto.GetGauge().GetValue()
-		if curr == 0 {
-			m.Set(durationSeconds)
+
+	var next float64
+	if prev, loaded := emaValues.Load(operation); loaded {
+		if curr, ok := prev.(float64); ok {
+			next = curr*(1-alpha) + durationSeconds*alpha
 		} else {
-			m.Set(curr*(1-alpha) + durationSeconds*alpha)
+			next = durationSeconds
 		}
+	} else {
+		next = durationSeconds
 	}
+
+	emaValues.Store(operation, next)
+	operationAvgLatency.WithLabelValues(operation).Set(next)
 }
 
 // RecordLockDuration records lock hold time.

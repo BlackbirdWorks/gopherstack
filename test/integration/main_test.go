@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -91,6 +92,9 @@ var sharedContainer testcontainers.Container
 // ErrDockerPanic is returned when the Docker availability check panics.
 var ErrDockerPanic = errors.New("docker check panicked")
 
+// ErrResetFailed is returned when the reset endpoint returns an unexpected status.
+var ErrResetFailed = errors.New("reset endpoint returned unexpected status")
+
 func TestMain(m *testing.M) {
 	flag.Parse()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -157,6 +161,15 @@ func TestMain(m *testing.M) {
 
 	endpoint = fmt.Sprintf("http://localhost:%s", mappedPort.Port())
 	logger.Info("Gopherstack running", "endpoint", endpoint)
+
+	// Verify the reset endpoint works and start all tests with clean state.
+	// This runs before any parallel test is executed, so it cannot race with them.
+	if resetErr := resetGopherstackState(endpoint); resetErr != nil {
+		logger.Error("failed to reset gopherstack state", "error", resetErr)
+		os.Exit(1)
+	}
+
+	logger.Info("gopherstack state reset; starting tests")
 
 	mqttPort, err := container.MappedPort(ctx, "1883")
 	if err != nil {
@@ -1107,4 +1120,26 @@ func createEMRClient(t *testing.T) *emrsdk.Client {
 	return emrsdk.NewFromConfig(cfg, func(o *emrsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+// resetGopherstackState calls POST /_gopherstack/reset and verifies the response.
+// It is called from TestMain before any test runs to ensure clean state.
+func resetGopherstackState(ep string) error {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, ep+"/_gopherstack/reset", nil)
+	if err != nil {
+		return fmt.Errorf("build reset request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("call reset endpoint: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%w: %d", ErrResetFailed, resp.StatusCode)
+	}
+
+	return nil
 }
