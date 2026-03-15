@@ -2513,5 +2513,5 @@ func (b *InMemoryBackend) Reset() {
 	b.buckets = make(map[string]map[string]*StoredBucket)
 	b.bucketIndex = make(map[string]string)
 	b.tags = make(map[string][]types.Tag)
-	b.uploads = make(map[string]*StoredMultipartUpload)
+	b.uploads = make(map[string]map[string]*StoredMultipartUpload)
 }

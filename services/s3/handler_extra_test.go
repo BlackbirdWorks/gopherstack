@@ -2240,10 +2240,7 @@ func TestHandler_ServeWebsite(t *testing.T) {
 				{Name: "key", Value: tt.key},
 			})
 
-			serveErr := handler.ServeWebsite(c)
-			if serveErr != nil {
-				_ = c.JSON(rec.Code, map[string]string{"error": serveErr.Error()})
-			}
+			require.NoError(t, handler.ServeWebsite(c))
 
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			if tt.wantBody != "" {

@@ -18,6 +18,7 @@ type lifecycleConfiguration struct {
 
 type lifecycleRule struct {
 	NoncurrentVersionExpiration    lifecycleNoncurrentVersionExpiration `xml:"NoncurrentVersionExpiration"`
+	AbortIncompleteMultipartUpload lifecycleAbortIncomplete             `xml:"AbortIncompleteMultipartUpload"`
 	Filter                         lifecycleFilter                      `xml:"Filter"`
 	Prefix                         string                               `xml:"Prefix"`
 	ID                             string                               `xml:"ID"`
@@ -25,7 +26,6 @@ type lifecycleRule struct {
 	Expiration                     lifecycleExpiration                  `xml:"Expiration"`
 	Transitions                    []lifecycleTransition                `xml:"Transition"`
 	NoncurrentVersionTransitions   []lifecycleNoncurrentTransition      `xml:"NoncurrentVersionTransition"`
-	AbortIncompleteMultipartUpload lifecycleAbortIncomplete             `xml:"AbortIncompleteMultipartUpload"`
 }
 
 // prefix returns the effective filter prefix, preferring the nested Filter
@@ -54,7 +54,7 @@ type lifecycleNoncurrentVersionExpiration struct {
 
 // lifecycleAbortIncomplete specifies when to abort incomplete multipart uploads.
 type lifecycleAbortIncomplete struct {
-	DaysAfterInitiation int `xml:"DaysAfterInitiation"`
+	DaysAfterInitiation *int `xml:"DaysAfterInitiation"`
 }
 
 // lifecycleTransition specifies when objects transition to a different storage class.
@@ -286,10 +286,12 @@ func (j *Janitor) applyLifecycleRules(
 		}
 
 		// Date-based expiration of current versions.
+		// Use the parsed expireDate as the cutoff so only objects older than that
+		// date are removed (not all objects indiscriminately).
 		if rule.Expiration.Date != "" {
 			expireDate, parseErr := parseLifecycleDate(rule.Expiration.Date)
 			if parseErr == nil && now.After(expireDate) {
-				evicted += j.evictExpiredObjects(bucket, prefix, now)
+				evicted += j.evictExpiredObjects(bucket, prefix, expireDate)
 			}
 		}
 
@@ -303,9 +305,10 @@ func (j *Janitor) applyLifecycleRules(
 		}
 
 		// Abort incomplete multipart uploads older than DaysAfterInitiation.
-		if rule.AbortIncompleteMultipartUpload.DaysAfterInitiation > 0 {
+		// A nil pointer means the rule is absent; 0 means abort immediately.
+		if rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
 			abortBefore := now.Add(
-				-time.Duration(rule.AbortIncompleteMultipartUpload.DaysAfterInitiation) * 24 * time.Hour,
+				-time.Duration(*rule.AbortIncompleteMultipartUpload.DaysAfterInitiation) * 24 * time.Hour,
 			)
 			j.abortStaleMultipartUploads(bucketName, abortBefore)
 		}
@@ -476,20 +479,23 @@ func (j *Janitor) abortStaleMultipartUploads(bucketName string, abortBefore time
 	b.mu.Lock("S3Janitor.abortStaleMultipartUploads")
 	defer b.mu.Unlock()
 
-	if b.uploads == nil {
+	bucketUploads, ok := b.uploads[bucketName]
+	if !ok {
 		return
 	}
 
-	for uploadID, upload := range b.uploads {
-		if upload.Bucket == bucketName && upload.Initiated.Before(abortBefore) {
-			delete(b.uploads, uploadID)
+	for uploadID, upload := range bucketUploads {
+		if upload.Initiated.Before(abortBefore) {
+			delete(bucketUploads, uploadID)
 		}
 	}
 }
 
-// parseLifecycleDate parses a lifecycle date string in RFC3339 or date-only format.
+// parseLifecycleDate parses a lifecycle date string. It tries RFC3339Nano
+// (which also matches RFC3339 and timestamps with fractional seconds), then
+// a bare date-time format, then a date-only format.
 func parseLifecycleDate(s string) (time.Time, error) {
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 		return t, nil
 	}
 

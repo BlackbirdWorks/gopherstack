@@ -2366,11 +2366,21 @@ func (b *InMemoryBackend) ListProvisionedConcurrencyConfigs(name string) ([]*Pro
 
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
-// Note: active function URL servers are left running; only the in-memory
-// mapping state is cleared.
+// All active function URL server listeners are shut down before state is cleared
+// so ports are released and stale handlers are removed.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
-	defer b.mu.Unlock()
+
+	// Snapshot URL servers and runtimes for shutdown outside the lock.
+	urlServers := make([]*functionURLServer, 0, len(b.functionURLServers))
+	for _, srv := range b.functionURLServers {
+		urlServers = append(urlServers, srv)
+	}
+
+	rts := make([]*functionRuntime, 0, len(b.runtimes))
+	for _, rt := range b.runtimes {
+		rts = append(rts, rt)
+	}
 
 	b.functions = make(map[string]*FunctionConfiguration)
 	b.aliases = make(map[string]map[string]*FunctionAlias)
@@ -2388,4 +2398,28 @@ func (b *InMemoryBackend) Reset() {
 	b.runtimes = make(map[string]*functionRuntime)
 	b.functionURLServers = make(map[string]*functionURLServer)
 	b.functionURLConfigs = make(map[string]*FunctionURLConfig)
+
+	b.mu.Unlock()
+
+	// Shut down URL servers and release ports outside the lock.
+	ctx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	for _, srv := range urlServers {
+		wg.Go(func() {
+			_ = srv.server.Shutdown(ctx)
+
+			if b.portAlloc != nil {
+				_ = b.portAlloc.Release(srv.port)
+			}
+		})
+	}
+
+	for _, rt := range rts {
+		wg.Go(func() { rt.mu.Close() })
+	}
+
+	wg.Wait()
 }

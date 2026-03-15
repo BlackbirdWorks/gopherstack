@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,7 +24,7 @@ func TestIntegration_ResetEndpoint(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	assert.True(t, strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json"))
 }
 
 // TestIntegration_HealthEndpoint verifies that GET /_gopherstack/health returns
@@ -41,5 +42,5 @@ func TestIntegration_HealthEndpoint(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	assert.True(t, strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json"))
 }

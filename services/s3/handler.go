@@ -3,6 +3,7 @@ package s3
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -477,6 +478,13 @@ func (h *S3Handler) ServeWebsite(c *echo.Context) error {
 
 	websiteXML, err := h.Backend.GetBucketWebsite(ctx, bucket)
 	if err != nil {
+		if errors.Is(err, ErrNoSuchBucket) {
+			return c.JSON(http.StatusNotFound, map[string]string{
+				"Code":    "NoSuchBucket",
+				"Message": "The specified bucket does not exist",
+			})
+		}
+
 		return c.JSON(http.StatusNotFound, map[string]string{
 			"Code":    "NoSuchWebsiteConfiguration",
 			"Message": "The specified bucket does not have a website configuration",

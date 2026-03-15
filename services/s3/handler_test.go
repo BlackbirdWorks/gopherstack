@@ -664,7 +664,7 @@ func TestHandler_BucketLocationQuery(t *testing.T) {
 	}
 }
 
-func TestHandler_BucketTaggingNotImplemented(t *testing.T) {
+func TestHandler_BucketTaggingMissingBucket(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

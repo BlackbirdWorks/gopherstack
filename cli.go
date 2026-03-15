@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -1304,6 +1305,8 @@ func buildEchoServer(
 		for _, svc := range services {
 			names = append(names, svc.Name())
 		}
+
+		sort.Strings(names)
 
 		return c.JSON(http.StatusOK, healthResponse{
 			Status:   "ok",

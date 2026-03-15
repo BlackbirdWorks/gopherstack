@@ -696,13 +696,20 @@ func (b *InMemoryBackend) Reset() {
 		cancel()
 	}
 
+	// Tombstone all current execution ARNs so any in-flight goroutines that
+	// exit after the reset see the tombstone and discard their state writes.
+	newDeleted := make(map[string]bool, len(b.executions))
+	for arn := range b.executions {
+		newDeleted[arn] = true
+	}
+
 	b.stateMachines = make(map[string]*StateMachine)
 	b.executions = make(map[string]*Execution)
 	b.history = make(map[string][]*HistoryEvent)
 	b.nameIndex = make(map[string]string)
 	b.smExecutions = make(map[string][]string)
 	b.cancelFns = make(map[string]context.CancelFunc)
-	b.deletedExecs = make(map[string]bool)
+	b.deletedExecs = newDeleted
 
 	b.mu.Unlock()
 }
