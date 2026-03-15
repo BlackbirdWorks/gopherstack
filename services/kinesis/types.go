@@ -66,10 +66,10 @@ type Stream struct {
 
 // Shard represents a single Kinesis shard within a stream.
 type Shard struct {
-	ID                string    `json:"id"`
-	HashKeyRangeStart string    `json:"hashKeyRangeStart"`
-	HashKeyRangeEnd   string    `json:"hashKeyRangeEnd"`
-	Records           []*Record `json:"records"`
+	ID                string       `json:"id"`
+	HashKeyRangeStart string       `json:"hashKeyRangeStart"`
+	HashKeyRangeEnd   string       `json:"hashKeyRangeEnd"`
+	Records           shardRecords `json:"records"`
 	nextSeq           uint64
 }
 

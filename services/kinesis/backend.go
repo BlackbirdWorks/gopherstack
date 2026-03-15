@@ -142,7 +142,6 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 			ID:                fmt.Sprintf("shardId-%012d", i),
 			HashKeyRangeStart: start.String(),
 			HashKeyRangeEnd:   end.String(),
-			Records:           make([]*Record, 0),
 		}
 	}
 
@@ -182,6 +181,7 @@ func (b *InMemoryBackend) DeleteStream(input *DeleteStreamInput) error {
 	}
 
 	delete(b.streams, input.StreamName)
+	delete(b.fisThroughputFaults, input.StreamName)
 
 	return nil
 }
@@ -199,13 +199,13 @@ func (b *InMemoryBackend) DescribeStream(input *DescribeStreamInput) (*DescribeS
 	shards := make([]ShardDescription, len(stream.Shards))
 	for i, s := range stream.Shards {
 		var seqEnd string
-		if len(s.Records) > 0 {
-			seqEnd = s.Records[len(s.Records)-1].SequenceNumber
+		if s.Records.len() > 0 {
+			seqEnd = s.Records.last().SequenceNumber
 		}
 
 		seqStart := "0"
-		if len(s.Records) > 0 {
-			seqStart = s.Records[0].SequenceNumber
+		if s.Records.len() > 0 {
+			seqStart = s.Records.at(0).SequenceNumber
 		}
 
 		shards[i] = ShardDescription{
@@ -280,12 +280,7 @@ func (b *InMemoryBackend) PutRecord(input *PutRecordInput) (*PutRecordOutput, er
 		ApproximateArrivalTimestamp: time.Now(),
 	}
 
-	// Trim if over limit
-	if len(shard.Records) >= maxRecordsPerShard {
-		shard.Records = shard.Records[1:]
-	}
-
-	shard.Records = append(shard.Records, record)
+	shard.Records.push(record)
 
 	return &PutRecordOutput{
 		ShardID:        shard.ID,
@@ -372,13 +367,13 @@ func (b *InMemoryBackend) GetShardIterator(input *GetShardIteratorInput) (*GetSh
 	case iteratorTypeTrimHorizon:
 		position = 0
 	case iteratorTypeLatest:
-		position = len(shard.Records)
+		position = shard.Records.len()
 	case iteratorTypeAtSequenceNumber:
-		position = findSequencePosition(shard.Records, input.StartingSequenceNumber, false)
+		position = findSequencePosition(&shard.Records, input.StartingSequenceNumber, false)
 	case iteratorTypeAfterSequenceNumber:
-		position = findSequencePosition(shard.Records, input.StartingSequenceNumber, true)
+		position = findSequencePosition(&shard.Records, input.StartingSequenceNumber, true)
 	case iteratorTypeAtTimestamp:
-		position = findTimestampPosition(shard.Records, input.Timestamp)
+		position = findTimestampPosition(&shard.Records, input.Timestamp)
 	default:
 		return nil, ErrInvalidArgument
 	}
@@ -396,27 +391,6 @@ func (b *InMemoryBackend) GetShardIterator(input *GetShardIteratorInput) (*GetSh
 	}
 
 	return &GetShardIteratorOutput{ShardIterator: token}, nil
-}
-
-// findSequencePosition returns the record index for the given sequence number.
-// If after is true, returns the index after the matching record.
-func findSequencePosition(records []*Record, seqNum string, after bool) int {
-	for i, r := range records {
-		if r.SequenceNumber == seqNum {
-			if after {
-				return i + 1
-			}
-
-			return i
-		}
-
-		// Sequence numbers are zero-padded integers; compare lexicographically when exact match fails
-		if strings.Compare(r.SequenceNumber, seqNum) > 0 {
-			return i
-		}
-	}
-
-	return len(records)
 }
 
 // findShard returns the shard with the given ID from a slice, or nil if not found.
@@ -465,12 +439,12 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 		limit = maxGetRecordsLimit
 	}
 
-	start := min(it.Position, len(shard.Records))
+	start := min(it.Position, shard.Records.len())
 
-	end := min(start+limit, len(shard.Records))
+	end := min(start+limit, shard.Records.len())
 
 	results := make([]GetRecordResult, 0, end-start)
-	for _, r := range shard.Records[start:end] {
+	for _, r := range shard.Records.slice(start, end) {
 		results = append(results, GetRecordResult{
 			Data:                        r.Data,
 			PartitionKey:                r.PartitionKey,
@@ -492,8 +466,8 @@ func (b *InMemoryBackend) GetRecords(input *GetRecordsInput) (*GetRecordsOutput,
 	}
 
 	millisBehind := int64(0)
-	if end < len(shard.Records) {
-		millisBehind = time.Since(shard.Records[len(shard.Records)-1].ApproximateArrivalTimestamp).Milliseconds()
+	if end < shard.Records.len() {
+		millisBehind = time.Since(shard.Records.last().ApproximateArrivalTimestamp).Milliseconds()
 	}
 
 	return &GetRecordsOutput{
@@ -516,13 +490,13 @@ func (b *InMemoryBackend) ListShards(input *ListShardsInput) (*ListShardsOutput,
 	shards := make([]ShardDescription, len(stream.Shards))
 	for i, s := range stream.Shards {
 		var seqEnd string
-		if len(s.Records) > 0 {
-			seqEnd = s.Records[len(s.Records)-1].SequenceNumber
+		if s.Records.len() > 0 {
+			seqEnd = s.Records.last().SequenceNumber
 		}
 
 		seqStart := "0"
-		if len(s.Records) > 0 {
-			seqStart = s.Records[0].SequenceNumber
+		if s.Records.len() > 0 {
+			seqStart = s.Records.at(0).SequenceNumber
 		}
 
 		shards[i] = ShardDescription{
@@ -583,18 +557,6 @@ func (b *InMemoryBackend) isThroughputFaultActiveLocked(streamName string) bool 
 
 	//nolint:gosec // weak random is intentional for fault injection
 	return rand.Float64() < fault.probability
-}
-
-// findTimestampPosition returns the index of the first record whose arrival
-// timestamp is not before ts. Returns len(records) if all records are before ts.
-func findTimestampPosition(records []*Record, ts time.Time) int {
-	for i, r := range records {
-		if !r.ApproximateArrivalTimestamp.Before(ts) {
-			return i
-		}
-	}
-
-	return len(records)
 }
 
 // streamNameFromARN extracts the stream name from a Kinesis stream ARN.
@@ -829,24 +791,26 @@ func (b *InMemoryBackend) SubscribeToShard(input *SubscribeToShardInput) (*Subsc
 	case iteratorTypeTrimHorizon:
 		startPos = 0
 	case iteratorTypeLatest:
-		startPos = len(shard.Records)
+		startPos = shard.Records.len()
 	case iteratorTypeAtSequenceNumber:
-		startPos = findSequencePosition(shard.Records, input.StartingPosition.SequenceNumber, false)
+		startPos = findSequencePosition(&shard.Records, input.StartingPosition.SequenceNumber, false)
 	case iteratorTypeAfterSequenceNumber:
-		startPos = findSequencePosition(shard.Records, input.StartingPosition.SequenceNumber, true)
+		startPos = findSequencePosition(&shard.Records, input.StartingPosition.SequenceNumber, true)
 	case iteratorTypeAtTimestamp:
 		ts := time.Time{}
 		if input.StartingPosition.Timestamp != nil {
 			ts = *input.StartingPosition.Timestamp
 		}
 
-		startPos = findTimestampPosition(shard.Records, ts)
+		startPos = findTimestampPosition(&shard.Records, ts)
 	default:
 		return nil, ErrInvalidArgument
 	}
 
-	records := make([]GetRecordResult, 0, len(shard.Records)-startPos)
-	for _, r := range shard.Records[startPos:] {
+	n := shard.Records.len()
+	records := make([]GetRecordResult, 0, n-startPos)
+
+	for _, r := range shard.Records.slice(startPos, n) {
 		records = append(records, GetRecordResult{
 			Data:                        r.Data,
 			PartitionKey:                r.PartitionKey,
@@ -861,8 +825,8 @@ func (b *InMemoryBackend) SubscribeToShard(input *SubscribeToShardInput) (*Subsc
 	}
 
 	millisBehind := int64(0)
-	if len(shard.Records) > 0 && startPos < len(shard.Records) {
-		millisBehind = time.Since(shard.Records[len(shard.Records)-1].ApproximateArrivalTimestamp).Milliseconds()
+	if n > 0 && startPos < n {
+		millisBehind = time.Since(shard.Records.last().ApproximateArrivalTimestamp).Milliseconds()
 	}
 
 	return &SubscribeToShardOutput{
@@ -923,7 +887,6 @@ func (b *InMemoryBackend) UpdateShardCount(input *UpdateShardCountInput) (*Updat
 			ID:                fmt.Sprintf("shardId-%012d", i),
 			HashKeyRangeStart: start.String(),
 			HashKeyRangeEnd:   end.String(),
-			Records:           make([]*Record, 0),
 		}
 	}
 
