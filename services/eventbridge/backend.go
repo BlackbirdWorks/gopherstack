@@ -31,6 +31,11 @@ const (
 	ruleStateEnabled       = "ENABLED"
 	ruleStateDisabled      = "DISABLED"
 	defaultDeliveryWorkers = 10
+	// defaultShutdownTimeout is the maximum time Close waits for in-flight delivery
+	// goroutines to finish after cancelling the lifecycle context.
+	defaultShutdownTimeout = 5 * time.Second
+	// defaultDeliveryTimeout is the default maximum time allowed for a single target delivery call.
+	defaultDeliveryTimeout = 30 * time.Second
 )
 
 // StorageBackend is the interface for an EventBridge in-memory store.
@@ -66,6 +71,8 @@ type InMemoryBackend struct {
 	region          string
 	eventLog        []EventLogEntry
 	wg              sync.WaitGroup
+	shutdownTimeout time.Duration
+	deliveryTimeout time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -87,6 +94,8 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		ctx:             ctx,
 		cancel:          cancel,
 		workerSem:       make(chan struct{}, defaultDeliveryWorkers),
+		shutdownTimeout: defaultShutdownTimeout,
+		deliveryTimeout: defaultDeliveryTimeout,
 	}
 	// Create the default event bus.
 	b.buses[defaultEventBusName] = &EventBus{
@@ -98,10 +107,41 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return b
 }
 
-// Close cancels the lifecycle context and waits for all in-flight delivery goroutines to finish.
+// Close cancels the lifecycle context and waits for all in-flight delivery
+// goroutines to finish. It returns after at most shutdownTimeout to prevent
+// a hung target service from blocking service shutdown indefinitely. The
+// internal wg.Wait goroutine is tiny and will complete on its own once all
+// delivery goroutines exit (which happens when their per-delivery contexts
+// time out after Close cancels the lifecycle context).
 func (b *InMemoryBackend) Close() {
 	b.cancel()
-	b.wg.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		b.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(b.shutdownTimeout):
+	}
+}
+
+// SetShutdownTimeout overrides the maximum time Close waits for in-flight goroutines.
+// Primarily intended for tests.
+func (b *InMemoryBackend) SetShutdownTimeout(d time.Duration) {
+	b.mu.Lock("SetShutdownTimeout")
+	defer b.mu.Unlock()
+	b.shutdownTimeout = d
+}
+
+// SetDeliveryTimeout overrides the per-target delivery timeout.
+// Primarily intended for tests.
+func (b *InMemoryBackend) SetDeliveryTimeout(d time.Duration) {
+	b.mu.Lock("SetDeliveryTimeout")
+	defer b.mu.Unlock()
+	b.deliveryTimeout = d
 }
 
 // SetDeliveryTargets configures the service references used for fan-out delivery.
@@ -524,6 +564,7 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 	dt := b.deliveryTargets
 	workerSem := b.workerSem
 	ctx := b.ctx
+	delivTimeout := b.deliveryTimeout
 	b.mu.Unlock()
 
 	// Trigger async fan-out delivery after releasing the lock.
@@ -539,7 +580,7 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 			case <-ctx.Done():
 				return
 			}
-			b.deliverEvents(ctx, entriesCopy, dtCopy)
+			b.deliverEvents(ctx, entriesCopy, dtCopy, delivTimeout)
 		})
 	}
 

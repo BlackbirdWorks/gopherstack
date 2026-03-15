@@ -1,6 +1,7 @@
 package eventbridge_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -391,4 +392,147 @@ func TestBackend_ResetRestoresDefaultEventBus(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, buses, 1, "only the default bus should exist after Reset")
 	assert.Equal(t, "default", buses[0].Name)
+}
+
+// hungLambdaInvoker blocks every invocation until the supplied channel is closed.
+type hungLambdaInvoker struct {
+	unblock <-chan struct{}
+}
+
+func (h *hungLambdaInvoker) InvokeFunction(ctx context.Context, _ string, _ string, _ []byte) ([]byte, int, error) {
+	select {
+	case <-ctx.Done():
+		return nil, 0, ctx.Err()
+	case <-h.unblock:
+		return []byte(`{}`), 200, nil
+	}
+}
+
+func TestBackend_Close_ReturnsAfterShutdownTimeout_WhenDeliveryIsHung(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		shutdownTimeout time.Duration
+		wantMaxDuration time.Duration
+	}{
+		{
+			name:            "close_returns_within_100ms_shutdown_timeout",
+			shutdownTimeout: 100 * time.Millisecond,
+			wantMaxDuration: 500 * time.Millisecond,
+		},
+		{
+			name:            "close_returns_within_200ms_shutdown_timeout",
+			shutdownTimeout: 200 * time.Millisecond,
+			wantMaxDuration: 800 * time.Millisecond,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// never closed — delivery goroutine will block until ctx is cancelled
+			unblock := make(chan struct{})
+
+			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			b.SetShutdownTimeout(tt.shutdownTimeout)
+			// Use a very short delivery timeout so the hung invoker times out quickly.
+			b.SetDeliveryTimeout(50 * time.Millisecond)
+			b.SetDeliveryTargets(&eventbridge.DeliveryTargets{
+				Lambda: &hungLambdaInvoker{unblock: unblock},
+			})
+
+			_, err := b.PutRule(eventbridge.PutRuleInput{
+				Name:         "hung-rule",
+				EventPattern: `{"source":["test"]}`,
+				State:        "ENABLED",
+			})
+			require.NoError(t, err)
+
+			_, err = b.PutTargets("hung-rule", "default", []eventbridge.Target{
+				{
+					ID:  "t1",
+					Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn",
+				},
+			})
+			require.NoError(t, err)
+
+			b.PutEvents([]eventbridge.EventEntry{
+				{Source: "test", DetailType: "T", Detail: `{}`, EventBusName: "default"},
+			})
+
+			start := time.Now()
+			b.Close()
+			elapsed := time.Since(start)
+
+			assert.Less(t, elapsed, tt.wantMaxDuration,
+				"Close should return within %s when delivery is hung, took %s", tt.wantMaxDuration, elapsed)
+		})
+	}
+}
+
+func TestBackend_DeliveryTimeout_ContextPassedToTarget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		deliveryTimeout time.Duration
+		wantMaxClose    time.Duration
+	}{
+		{
+			name:            "50ms_delivery_timeout_unblocks_goroutine",
+			deliveryTimeout: 50 * time.Millisecond,
+			wantMaxClose:    500 * time.Millisecond,
+		},
+		{
+			name:            "100ms_delivery_timeout_unblocks_goroutine",
+			deliveryTimeout: 100 * time.Millisecond,
+			wantMaxClose:    800 * time.Millisecond,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			unblock := make(chan struct{})
+
+			b := eventbridge.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			b.SetDeliveryTimeout(tt.deliveryTimeout)
+			b.SetShutdownTimeout(2 * time.Second)
+			b.SetDeliveryTargets(&eventbridge.DeliveryTargets{
+				Lambda: &hungLambdaInvoker{unblock: unblock},
+			})
+
+			_, err := b.PutRule(eventbridge.PutRuleInput{
+				Name:         "timeout-rule",
+				EventPattern: `{"source":["timeout-test"]}`,
+				State:        "ENABLED",
+			})
+			require.NoError(t, err)
+
+			_, err = b.PutTargets("timeout-rule", "default", []eventbridge.Target{
+				{
+					ID:  "t1",
+					Arn: "arn:aws:lambda:us-east-1:123456789012:function:my-fn",
+				},
+			})
+			require.NoError(t, err)
+
+			b.PutEvents([]eventbridge.EventEntry{
+				{Source: "timeout-test", DetailType: "T", Detail: `{}`, EventBusName: "default"},
+			})
+
+			// Close should complete: delivery goroutine times out per deliveryTimeout,
+			// then finishes, and the WaitGroup is satisfied before shutdownTimeout.
+			start := time.Now()
+			b.Close()
+			elapsed := time.Since(start)
+
+			// Should return well before the shutdown timeout since delivery timed out quickly.
+			assert.Less(t, elapsed, tt.wantMaxClose,
+				"Close should return promptly when delivery context times out, took %s", elapsed)
+		})
+	}
 }
