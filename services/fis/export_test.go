@@ -128,3 +128,15 @@ func (b *InMemoryBackend) ExperimentCount() int {
 
 	return len(b.experiments)
 }
+
+// InjectCancel injects a cancel function for an experiment, simulating the one
+// stored when StartExperiment creates a background goroutine.
+// Used only in tests.
+func (b *InMemoryBackend) InjectCancel(id string, cancel context.CancelFunc) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if exp, ok := b.experiments[id]; ok {
+		exp.cancel = cancel
+	}
+}

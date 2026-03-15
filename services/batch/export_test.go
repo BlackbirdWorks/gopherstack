@@ -15,12 +15,24 @@ func (b *InMemoryBackend) JobDefinitionCount() int {
 }
 
 // RevisionFor returns the current revision counter for the given job definition name.
+// Returns 0 if the name has no counter (deleted or never registered).
 // Used only in tests.
 func (b *InMemoryBackend) RevisionFor(name string) int32 {
 	b.mu.RLock("RevisionFor")
 	defer b.mu.RUnlock()
 
 	return b.jobDefRevisions[name]
+}
+
+// HasRevisionCounter reports whether a revision counter exists for name.
+// Used only in tests to verify cleanup.
+func (b *InMemoryBackend) HasRevisionCounter(name string) bool {
+	b.mu.RLock("HasRevisionCounter")
+	defer b.mu.RUnlock()
+
+	_, ok := b.jobDefRevisions[name]
+
+	return ok
 }
 
 // SetJobDefinitionDeregisteredAt overrides the DeregisteredAt timestamp for a job definition.

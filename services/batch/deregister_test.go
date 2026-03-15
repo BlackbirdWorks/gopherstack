@@ -93,28 +93,32 @@ func TestBatchJanitor_SweepInactiveJobDefinitions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		deregisteredDelay time.Duration // negative = in the past
-		ttl               time.Duration
-		wantEvicted       bool
+		name                string
+		deregisteredDelay   time.Duration // negative = in the past
+		ttl                 time.Duration
+		wantEvicted         bool
+		wantRevisionCleaned bool // true when all definitions of the name are gone
 	}{
 		{
-			name:              "evict_past_ttl",
-			deregisteredDelay: -25 * time.Hour,
-			ttl:               24 * time.Hour,
-			wantEvicted:       true,
+			name:                "evict_past_ttl",
+			deregisteredDelay:   -25 * time.Hour,
+			ttl:                 24 * time.Hour,
+			wantEvicted:         true,
+			wantRevisionCleaned: true,
 		},
 		{
-			name:              "keep_within_ttl",
-			deregisteredDelay: -1 * time.Hour,
-			ttl:               24 * time.Hour,
-			wantEvicted:       false,
+			name:                "keep_within_ttl",
+			deregisteredDelay:   -1 * time.Hour,
+			ttl:                 24 * time.Hour,
+			wantEvicted:         false,
+			wantRevisionCleaned: false,
 		},
 		{
-			name:              "keep_active_definition",
-			deregisteredDelay: 0,
-			ttl:               24 * time.Hour,
-			wantEvicted:       false,
+			name:                "keep_active_definition",
+			deregisteredDelay:   0,
+			ttl:                 24 * time.Hour,
+			wantEvicted:         false,
+			wantRevisionCleaned: false,
 		},
 	}
 
@@ -146,6 +150,14 @@ func TestBatchJanitor_SweepInactiveJobDefinitions(t *testing.T) {
 				assert.Empty(t, defs, "definition should be evicted after TTL")
 			} else {
 				assert.NotEmpty(t, defs, "definition should be preserved")
+			}
+
+			if tt.wantRevisionCleaned {
+				assert.False(t, backend.HasRevisionCounter("sweep-job"),
+					"revision counter should be deleted when all definitions are swept")
+			} else {
+				assert.True(t, backend.HasRevisionCounter("sweep-job"),
+					"revision counter should be preserved while definitions exist")
 			}
 		})
 	}

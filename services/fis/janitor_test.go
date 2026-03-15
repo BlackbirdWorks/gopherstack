@@ -100,6 +100,40 @@ func TestFISJanitor_SweepCompletedExperiments(t *testing.T) {
 	}
 }
 
+// TestFISHandler_Shutdown_CancelsRunningExperiments verifies that Shutdown cancels
+// all running experiment goroutines, preventing resource leaks on server shutdown.
+func TestFISHandler_Shutdown_CancelsRunningExperiments(t *testing.T) {
+	t.Parallel()
+
+	backend := fis.NewTestBackend()
+	handler := fis.NewHandler(backend)
+
+	// Inject an experiment with a real cancel func so we can observe cancellation.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelled := make(chan struct{})
+
+	go func() {
+		<-ctx.Done()
+		close(cancelled)
+	}()
+
+	exp := &fis.Experiment{
+		ID:     "EXP-shutdown-test",
+		Arn:    "arn:aws:fis:us-east-1:000000000000:experiment/EXP-shutdown-test",
+		Status: fis.ExperimentStatus{Status: "running"},
+	}
+	backend.InjectExperiment(exp)
+	backend.InjectCancel("EXP-shutdown-test", cancel)
+
+	handler.Shutdown(context.Background())
+
+	select {
+	case <-cancelled:
+	case <-time.After(2 * time.Second):
+		require.FailNow(t, "experiment goroutine was not cancelled after Shutdown")
+	}
+}
+
 // TestFISJanitor_RunContext verifies that the janitor stops when context is cancelled.
 func TestFISJanitor_RunContext(t *testing.T) {
 	t.Parallel()

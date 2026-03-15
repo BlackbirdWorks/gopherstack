@@ -64,7 +64,8 @@ func (j *Janitor) SweepOnce(ctx context.Context) {
 }
 
 // sweepInactiveJobDefinitions removes job definitions that have been in INACTIVE
-// status for longer than InactiveJobDefTTL.
+// status for longer than InactiveJobDefTTL. Orphaned revision counters (names
+// with no remaining definitions) are also removed to prevent unbounded growth.
 func (j *Janitor) sweepInactiveJobDefinitions(ctx context.Context) {
 	cutoff := time.Now().Add(-j.InactiveJobDefTTL)
 
@@ -76,6 +77,22 @@ func (j *Janitor) sweepInactiveJobDefinitions(ctx context.Context) {
 		if jd.Status == jobDefStatusInactive && jd.DeregisteredAt != nil && jd.DeregisteredAt.Before(cutoff) {
 			swept = append(swept, arnKey)
 			delete(j.Backend.jobDefinitions, arnKey)
+		}
+	}
+
+	// Remove revision counters for names that no longer have any definition
+	// (ACTIVE or INACTIVE). This prevents the jobDefRevisions map from growing
+	// without bound as job definition names cycle through their lifetimes.
+	// Build a set of names with surviving definitions first for O(n+m) complexity.
+	surviving := make(map[string]struct{}, len(j.Backend.jobDefinitions))
+
+	for _, jd := range j.Backend.jobDefinitions {
+		surviving[jd.JobDefinitionName] = struct{}{}
+	}
+
+	for name := range j.Backend.jobDefRevisions {
+		if _, ok := surviving[name]; !ok {
+			delete(j.Backend.jobDefRevisions, name)
 		}
 	}
 

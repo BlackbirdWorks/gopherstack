@@ -73,6 +73,16 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 	return nil
 }
 
+// Shutdown cancels all running experiment goroutines to prevent resource leaks.
+// It satisfies service.Shutdowner.
+func (h *Handler) Shutdown(_ context.Context) {
+	type stopper interface{ StopAllExperiments() }
+
+	if s, ok := h.Backend.(stopper); ok {
+		s.StopAllExperiments()
+	}
+}
+
 // SetFaultStore injects the chaos FaultStore into the backend for inject-api-* actions.
 func (h *Handler) SetFaultStore(store *chaos.FaultStore) {
 	h.Backend.SetFaultStore(store)
