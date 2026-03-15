@@ -92,19 +92,21 @@ type Tag struct {
 
 // InMemoryBackend is a thread-safe in-memory store for CodePipeline resources.
 type InMemoryBackend struct {
-	pipelines map[string]*Pipeline
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	pipelines        map[string]*Pipeline
+	pipelineARNIndex map[string]string // ARN → pipeline name
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		pipelines: make(map[string]*Pipeline),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("codepipeline"),
+		pipelines:        make(map[string]*Pipeline),
+		pipelineARNIndex: make(map[string]string),
+		accountID:        accountID,
+		region:           region,
+		mu:               lockmetrics.New("codepipeline"),
 	}
 }
 
@@ -142,6 +144,7 @@ func (b *InMemoryBackend) CreatePipeline(decl PipelineDeclaration, tags map[stri
 		Tags: tagsCopy,
 	}
 	b.pipelines[decl.Name] = p
+	b.pipelineARNIndex[p.Metadata.PipelineArn] = decl.Name
 
 	return copyPipeline(p), nil
 }
@@ -182,10 +185,12 @@ func (b *InMemoryBackend) DeletePipeline(name string) error {
 	b.mu.Lock("DeletePipeline")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pipelines[name]; !ok {
+	p, ok := b.pipelines[name]
+	if !ok {
 		return fmt.Errorf("%w: pipeline %q", ErrNotFound, name)
 	}
 
+	delete(b.pipelineARNIndex, p.Metadata.PipelineArn)
 	delete(b.pipelines, name)
 
 	return nil
@@ -214,18 +219,19 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error)
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, p := range b.pipelines {
-		if p.Metadata.PipelineArn == resourceARN {
-			tags := make([]Tag, 0, len(p.Tags))
-			for k, v := range p.Tags {
-				tags = append(tags, Tag{Key: k, Value: v})
-			}
-
-			return tags, nil
-		}
+	name, ok := b.pipelineARNIndex[resourceARN]
+	if !ok {
+		return nil, ErrNotFound
 	}
 
-	return nil, ErrNotFound
+	p := b.pipelines[name]
+	tags := make([]Tag, 0, len(p.Tags))
+
+	for k, v := range p.Tags {
+		tags = append(tags, Tag{Key: k, Value: v})
+	}
+
+	return tags, nil
 }
 
 // TagResource adds or updates tags on a pipeline by ARN.
@@ -233,21 +239,21 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, p := range b.pipelines {
-		if p.Metadata.PipelineArn == resourceARN {
-			if p.Tags == nil {
-				p.Tags = make(map[string]string)
-			}
-
-			for _, t := range tags {
-				p.Tags[t.Key] = t.Value
-			}
-
-			return nil
-		}
+	name, ok := b.pipelineARNIndex[resourceARN]
+	if !ok {
+		return ErrNotFound
 	}
 
-	return ErrNotFound
+	p := b.pipelines[name]
+	if p.Tags == nil {
+		p.Tags = make(map[string]string)
+	}
+
+	for _, t := range tags {
+		p.Tags[t.Key] = t.Value
+	}
+
+	return nil
 }
 
 // UntagResource removes tags from a pipeline by ARN.
@@ -255,17 +261,18 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, p := range b.pipelines {
-		if p.Metadata.PipelineArn == resourceARN {
-			for _, k := range tagKeys {
-				delete(p.Tags, k)
-			}
-
-			return nil
-		}
+	name, ok := b.pipelineARNIndex[resourceARN]
+	if !ok {
+		return ErrNotFound
 	}
 
-	return ErrNotFound
+	p := b.pipelines[name]
+
+	for _, k := range tagKeys {
+		delete(p.Tags, k)
+	}
+
+	return nil
 }
 
 func copyPipeline(p *Pipeline) *Pipeline {

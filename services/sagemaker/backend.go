@@ -99,21 +99,25 @@ func cloneEndpointConfig(ec *EndpointConfig) *EndpointConfig {
 
 // InMemoryBackend is an in-memory store for SageMaker resources.
 type InMemoryBackend struct {
-	models          map[string]*Model
-	endpointConfigs map[string]*EndpointConfig
-	mu              *lockmetrics.RWMutex
-	accountID       string
-	region          string
+	models                 map[string]*Model
+	endpointConfigs        map[string]*EndpointConfig
+	modelARNIndex          map[string]string // ARN → model name
+	endpointConfigARNIndex map[string]string // ARN → endpoint config name
+	mu                     *lockmetrics.RWMutex
+	accountID              string
+	region                 string
 }
 
 // NewInMemoryBackend creates a new in-memory SageMaker backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		models:          make(map[string]*Model),
-		endpointConfigs: make(map[string]*EndpointConfig),
-		accountID:       accountID,
-		region:          region,
-		mu:              lockmetrics.New("sagemaker"),
+		models:                 make(map[string]*Model),
+		endpointConfigs:        make(map[string]*EndpointConfig),
+		modelARNIndex:          make(map[string]string),
+		endpointConfigARNIndex: make(map[string]string),
+		accountID:              accountID,
+		region:                 region,
+		mu:                     lockmetrics.New("sagemaker"),
 	}
 }
 
@@ -160,6 +164,7 @@ func (b *InMemoryBackend) CreateModel(
 		Tags:             mergeTags(nil, tags),
 	}
 	b.models[name] = m
+	b.modelARNIndex[modelARN] = name
 
 	return cloneModel(m), nil
 }
@@ -212,10 +217,12 @@ func (b *InMemoryBackend) DeleteModel(name string) error {
 	b.mu.Lock("DeleteModel")
 	defer b.mu.Unlock()
 
-	if _, ok := b.models[name]; !ok {
+	m, ok := b.models[name]
+	if !ok {
 		return fmt.Errorf("%w: could not find model %q", ErrModelNotFound, name)
 	}
 
+	delete(b.modelARNIndex, m.ModelARN)
 	delete(b.models, name)
 
 	return nil
@@ -247,6 +254,7 @@ func (b *InMemoryBackend) CreateEndpointConfig(
 		Tags:               mergeTags(nil, tags),
 	}
 	b.endpointConfigs[name] = ec
+	b.endpointConfigARNIndex[configARN] = name
 
 	return cloneEndpointConfig(ec), nil
 }
@@ -299,10 +307,12 @@ func (b *InMemoryBackend) DeleteEndpointConfig(name string) error {
 	b.mu.Lock("DeleteEndpointConfig")
 	defer b.mu.Unlock()
 
-	if _, ok := b.endpointConfigs[name]; !ok {
+	ec, ok := b.endpointConfigs[name]
+	if !ok {
 		return fmt.Errorf("%w: could not find endpoint configuration %q", ErrEndpointConfigNotFound, name)
 	}
 
+	delete(b.endpointConfigARNIndex, ec.EndpointConfigARN)
 	delete(b.endpointConfigs, name)
 
 	return nil
@@ -313,20 +323,18 @@ func (b *InMemoryBackend) AddTags(resourceARN string, tags map[string]string) er
 	b.mu.Lock("AddTags")
 	defer b.mu.Unlock()
 
-	for _, m := range b.models {
-		if m.ModelARN == resourceARN {
-			m.Tags = mergeTags(m.Tags, tags)
+	if name, ok := b.modelARNIndex[resourceARN]; ok {
+		m := b.models[name]
+		m.Tags = mergeTags(m.Tags, tags)
 
-			return nil
-		}
+		return nil
 	}
 
-	for _, ec := range b.endpointConfigs {
-		if ec.EndpointConfigARN == resourceARN {
-			ec.Tags = mergeTags(ec.Tags, tags)
+	if name, ok := b.endpointConfigARNIndex[resourceARN]; ok {
+		ec := b.endpointConfigs[name]
+		ec.Tags = mergeTags(ec.Tags, tags)
 
-			return nil
-		}
+		return nil
 	}
 
 	return fmt.Errorf("%w: resource %s not found", ErrModelNotFound, resourceARN)
@@ -337,22 +345,20 @@ func (b *InMemoryBackend) ListTags(resourceARN string) (map[string]string, error
 	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()
 
-	for _, m := range b.models {
-		if m.ModelARN == resourceARN {
-			result := make(map[string]string, len(m.Tags))
-			maps.Copy(result, m.Tags)
+	if name, ok := b.modelARNIndex[resourceARN]; ok {
+		m := b.models[name]
+		result := make(map[string]string, len(m.Tags))
+		maps.Copy(result, m.Tags)
 
-			return result, nil
-		}
+		return result, nil
 	}
 
-	for _, ec := range b.endpointConfigs {
-		if ec.EndpointConfigARN == resourceARN {
-			result := make(map[string]string, len(ec.Tags))
-			maps.Copy(result, ec.Tags)
+	if name, ok := b.endpointConfigARNIndex[resourceARN]; ok {
+		ec := b.endpointConfigs[name]
+		result := make(map[string]string, len(ec.Tags))
+		maps.Copy(result, ec.Tags)
 
-			return result, nil
-		}
+		return result, nil
 	}
 
 	return nil, fmt.Errorf("%w: resource %s not found", ErrModelNotFound, resourceARN)
@@ -363,30 +369,24 @@ func (b *InMemoryBackend) DeleteTags(resourceARN string, tagKeys []string) error
 	b.mu.Lock("DeleteTags")
 	defer b.mu.Unlock()
 
-	keySet := make(map[string]struct{}, len(tagKeys))
+	if name, ok := b.modelARNIndex[resourceARN]; ok {
+		m := b.models[name]
 
-	for _, k := range tagKeys {
-		keySet[k] = struct{}{}
+		for _, k := range tagKeys {
+			delete(m.Tags, k)
+		}
+
+		return nil
 	}
 
-	for _, m := range b.models {
-		if m.ModelARN == resourceARN {
-			for k := range keySet {
-				delete(m.Tags, k)
-			}
+	if name, ok := b.endpointConfigARNIndex[resourceARN]; ok {
+		ec := b.endpointConfigs[name]
 
-			return nil
+		for _, k := range tagKeys {
+			delete(ec.Tags, k)
 		}
-	}
 
-	for _, ec := range b.endpointConfigs {
-		if ec.EndpointConfigARN == resourceARN {
-			for k := range keySet {
-				delete(ec.Tags, k)
-			}
-
-			return nil
-		}
+		return nil
 	}
 
 	return fmt.Errorf("%w: resource %s not found", ErrModelNotFound, resourceARN)
