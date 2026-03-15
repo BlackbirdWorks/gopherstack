@@ -2,7 +2,9 @@ package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -13,6 +15,16 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
+
+// errConditionalCheckFailed is a sentinel used internally to signal that a
+// ConditionExpression did not match during a TransactWriteItems condition check.
+var errConditionalCheckFailed = errors.New("conditional check failed")
+
+type tableStateSnapshot struct {
+	pkIndex   map[string]int
+	pkskIndex map[string]map[string]int
+	items     []map[string]any
+}
 
 const txCancelPrefix = "Transaction cancelled, please refer cancellation reasons for specific reasons"
 
@@ -25,38 +37,12 @@ func (db *InMemoryDB) TransactWriteItems(
 		return nil, NewValidationException("TransactItems must not be empty")
 	}
 
-	// Idempotency: enforce ClientRequestToken semantics.
-	// - committed token  → return success immediately (no re-apply)
-	// - in-progress token → return TransactionInProgressException
-	// - new token        → mark pending; clear on failure, commit on success
 	token := aws.ToString(input.ClientRequestToken)
-	if token != "" {
-		var committed, inProgress bool
-		db.mu.Lock("TransactWriteItems.tokenCheck")
-		expiry, exists := db.txnTokens[token]
-		committed = exists && time.Now().Before(expiry)
-		_, inProgress = db.txnPending[token]
-		if !committed && !inProgress {
-			db.txnPending[token] = time.Now()
-		}
-		db.mu.Unlock()
-
-		switch {
-		case committed:
-			return &dynamodb.TransactWriteItemsOutput{}, nil
-		case inProgress:
-			return nil, NewTransactionInProgressException(
-				"A transaction with the given request token is currently in progress",
-			)
-		}
-
-		// Ensure the pending entry is cleaned up on any exit path.
-		defer func() {
-			db.mu.Lock("TransactWriteItems.tokenCleanup")
-			delete(db.txnPending, token)
-			db.mu.Unlock()
-		}()
+	done, out, cleanupToken, err := db.checkTransactToken(token)
+	if done {
+		return out, err
 	}
+	defer cleanupToken()
 
 	tableNames := db.transactTableNames(input.TransactItems)
 	tables, lockErr := db.lockTablesWrite(ctx, tableNames)
@@ -70,17 +56,25 @@ func (db *InMemoryDB) TransactWriteItems(
 	}()
 
 	// Phase 1: Check conditions
+	reasons := make([]CancellationReason, len(input.TransactItems))
+	for i := range reasons {
+		reasons[i] = CancellationReason{Code: "None"}
+	}
+
+	canceled := false
 	for i, ti := range input.TransactItems {
-		if err := db.checkTransactWriteCondition(ctx, tables, ti, i); err != nil {
-			return nil, err
+		if condErr := db.checkTransactWriteCondition(ctx, tables, ti, i, reasons); condErr != nil {
+			canceled = true
 		}
 	}
 
-	// Phase 2: Apply writes
-	for _, ti := range input.TransactItems {
-		if err := db.applyTransactWrite(ctx, tables, ti); err != nil {
-			return nil, err
-		}
+	if canceled {
+		return nil, NewTransactionCanceledException(txCancelPrefix, reasons)
+	}
+
+	// Phase 2: Apply writes with rollback on failure.
+	if applyErr := db.applyTransactItems(ctx, tables, input.TransactItems); applyErr != nil {
+		return nil, applyErr
 	}
 
 	// Record token as committed only after all writes have been applied.
@@ -90,11 +84,73 @@ func (db *InMemoryDB) TransactWriteItems(
 		db.mu.Unlock()
 	}
 
-	out := &dynamodb.TransactWriteItemsOutput{
+	out = &dynamodb.TransactWriteItemsOutput{
 		ConsumedCapacity: transactWriteConsumedCapacity(input.ReturnConsumedCapacity, input.TransactItems),
 	}
 
 	return out, nil
+}
+
+// checkTransactToken checks idempotency token state.
+// Returns (true, output, cleanup, err) if the caller should return immediately,
+// or (false, nil, cleanup, nil) if the transaction should proceed.
+// When proceeding, the cleanup func removes the token from the pending map and
+// must be called via defer in the caller.
+func (db *InMemoryDB) checkTransactToken(
+	token string,
+) (bool, *dynamodb.TransactWriteItemsOutput, func(), error) {
+	noop := func() {}
+	if token == "" {
+		return false, nil, noop, nil
+	}
+
+	var committed, inProgress bool
+	db.mu.Lock("TransactWriteItems.tokenCheck")
+	expiry, exists := db.txnTokens[token]
+	committed = exists && time.Now().Before(expiry)
+	_, inProgress = db.txnPending[token]
+	if !committed && !inProgress {
+		db.txnPending[token] = time.Now()
+	}
+	db.mu.Unlock()
+
+	switch {
+	case committed:
+		return true, &dynamodb.TransactWriteItemsOutput{}, noop, nil
+	case inProgress:
+		return true, nil, noop, NewTransactionInProgressException(
+			"A transaction with the given request token is currently in progress",
+		)
+	}
+
+	cleanup := func() {
+		db.mu.Lock("TransactWriteItems.tokenCleanup")
+		delete(db.txnPending, token)
+		db.mu.Unlock()
+	}
+
+	return false, nil, cleanup, nil
+}
+
+// applyTransactItems applies write items atomically, rolling back on any failure.
+func (db *InMemoryDB) applyTransactItems(
+	ctx context.Context,
+	tables map[string]*Table,
+	items []types.TransactWriteItem,
+) error {
+	snapshots := db.snapshotTables(tables)
+	for i, ti := range items {
+		if err := db.applyTransactWrite(ctx, tables, ti); err != nil {
+			logger.Load(ctx).ErrorContext(ctx, "Transaction failed during apply phase, rolling back",
+				"error", err,
+				"itemIndex", i)
+			db.rollbackTables(tables, snapshots)
+
+			return err
+		}
+	}
+
+	return nil
 }
 
 func transactWriteConsumedCapacity(
@@ -338,10 +394,11 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 	tables map[string]*Table,
 	ti types.TransactWriteItem,
 	idx int,
+	reasons []CancellationReason,
 ) error {
 	switch {
 	case ti.Put != nil:
-		return db.checkTransactPut(ctx, tables, ti.Put, idx)
+		return db.checkTransactPut(ctx, tables, ti.Put, idx, reasons)
 	case ti.Delete != nil:
 		return db.checkTransactCondExpr(
 			ctx,
@@ -351,6 +408,8 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 			models.FromSDKItem(ti.Delete.ExpressionAttributeValues),
 			ti.Delete.ExpressionAttributeNames,
 			idx,
+			ti.Delete.ReturnValuesOnConditionCheckFailure,
+			reasons,
 		)
 	case ti.Update != nil:
 		return db.checkTransactCondExpr(
@@ -361,6 +420,8 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 			models.FromSDKItem(ti.Update.ExpressionAttributeValues),
 			ti.Update.ExpressionAttributeNames,
 			idx,
+			ti.Update.ReturnValuesOnConditionCheckFailure,
+			reasons,
 		)
 	case ti.ConditionCheck != nil:
 		return db.checkTransactCondExpr(
@@ -371,6 +432,8 @@ func (db *InMemoryDB) checkTransactWriteCondition(
 			models.FromSDKItem(ti.ConditionCheck.ExpressionAttributeValues),
 			ti.ConditionCheck.ExpressionAttributeNames,
 			idx,
+			ti.ConditionCheck.ReturnValuesOnConditionCheckFailure,
+			reasons,
 		)
 	}
 
@@ -382,15 +445,11 @@ func (db *InMemoryDB) checkTransactPut(
 	tables map[string]*Table,
 	input *types.Put,
 	idx int,
+	reasons []CancellationReason,
 ) error {
 	table := tables[aws.ToString(input.TableName)]
 	wireItem := models.FromSDKItem(input.Item)
 	oldItem, _ := db.findMatchForPut(table, wireItem)
-
-	// Since checkPutCondition expects *dynamodb.PutItemInput, we construct a dummy one
-	// or create a internal checks that takes ConditionExpr string etc.
-	// Reusing checkPutCondition is hard because type mismatch (types.Put vs dynamodb.PutItemInput).
-	// I'll reuse checkTransactCondExpr logic for Put condition.
 
 	cond := aws.ToString(input.ConditionExpression)
 	if cond == "" {
@@ -399,7 +458,16 @@ func (db *InMemoryDB) checkTransactPut(
 
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
-	if err := db.checkTransactCondExprRaw(ctx, oldItem, cond, eav, input.ExpressionAttributeNames, idx); err != nil {
+	if err := db.checkTransactCondExprRaw(
+		ctx,
+		oldItem,
+		cond,
+		eav,
+		input.ExpressionAttributeNames,
+		idx,
+		input.ReturnValuesOnConditionCheckFailure,
+		reasons,
+	); err != nil {
 		return err
 	}
 
@@ -414,6 +482,8 @@ func (db *InMemoryDB) checkTransactCondExpr(
 	eavs map[string]any,
 	eans map[string]string,
 	idx int,
+	rv types.ReturnValuesOnConditionCheckFailure,
+	reasons []CancellationReason,
 ) error {
 	if condExpr == "" {
 		return nil
@@ -421,7 +491,7 @@ func (db *InMemoryDB) checkTransactCondExpr(
 
 	oldItem, _ := db.findMatchForPut(table, key)
 
-	return db.checkTransactCondExprRaw(ctx, oldItem, condExpr, eavs, eans, idx)
+	return db.checkTransactCondExprRaw(ctx, oldItem, condExpr, eavs, eans, idx, rv, reasons)
 }
 
 func (db *InMemoryDB) checkTransactCondExprRaw(
@@ -431,6 +501,8 @@ func (db *InMemoryDB) checkTransactCondExprRaw(
 	eavs map[string]any,
 	eans map[string]string,
 	idx int,
+	rv types.ReturnValuesOnConditionCheckFailure,
+	reasons []CancellationReason,
 ) error {
 	log := logger.Load(ctx)
 	log.DebugContext(ctx, "Evaluating Transaction condition",
@@ -441,12 +513,26 @@ func (db *InMemoryDB) checkTransactCondExprRaw(
 
 	match, err := evaluateExpression(condExpr, item, eavs, eans)
 	if err != nil {
-		return NewTransactionCanceledException(fmt.Sprintf("%s [%d]: %s", txCancelPrefix, idx, err))
+		reasons[idx] = CancellationReason{
+			Code:    "ValidationError",
+			Message: err.Error(),
+		}
+
+		return err
 	}
 	if !match {
-		return NewTransactionCanceledException(
-			fmt.Sprintf("%s [%d]: ConditionalCheckFailed", txCancelPrefix, idx),
-		)
+		reason := CancellationReason{
+			Code:    "ConditionalCheckFailed",
+			Message: "The conditional request failed",
+		}
+
+		if rv == types.ReturnValuesOnConditionCheckFailureAllOld && item != nil {
+			sdkItem, _ := models.ToSDKItem(item)
+			reason.Item = sdkItem
+		}
+		reasons[idx] = reason
+
+		return errConditionalCheckFailed
 	}
 
 	return nil
@@ -501,4 +587,44 @@ func (db *InMemoryDB) applyTransactWrite(
 	}
 
 	return nil
+}
+
+func (db *InMemoryDB) snapshotTables(tables map[string]*Table) map[string]tableStateSnapshot {
+	snapshots := make(map[string]tableStateSnapshot, len(tables))
+	for name, t := range tables {
+		// Shallow copy of Items slice (holds references to maps).
+		// Since we always replace maps in the slice (never mutate in-place),
+		// this is sufficient for restoring the table's item references.
+		itemsCopy := make([]map[string]any, len(t.Items))
+		copy(itemsCopy, t.Items)
+
+		// Deep copy of indexes to ensure rollback restores correct mapping.
+		pkIdxCopy := make(map[string]int, len(t.pkIndex))
+		maps.Copy(pkIdxCopy, t.pkIndex)
+
+		pkskIdxCopy := make(map[string]map[string]int, len(t.pkskIndex))
+		for pk, skMap := range t.pkskIndex {
+			skMapCopy := make(map[string]int, len(skMap))
+			maps.Copy(skMapCopy, skMap)
+			pkskIdxCopy[pk] = skMapCopy
+		}
+
+		snapshots[name] = tableStateSnapshot{
+			items:     itemsCopy,
+			pkIndex:   pkIdxCopy,
+			pkskIndex: pkskIdxCopy,
+		}
+	}
+
+	return snapshots
+}
+
+func (db *InMemoryDB) rollbackTables(tables map[string]*Table, snapshots map[string]tableStateSnapshot) {
+	for name, t := range tables {
+		if s, ok := snapshots[name]; ok {
+			t.Items = s.items
+			t.pkIndex = s.pkIndex
+			t.pkskIndex = s.pkskIndex
+		}
+	}
 }

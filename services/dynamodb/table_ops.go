@@ -72,6 +72,10 @@ func (db *InMemoryDB) CreateTable(
 		return nil, NewResourceInUseException(fmt.Sprintf("table already exists: %s", tableName))
 	}
 
+	if err := validateAttributeDefinitions(input); err != nil {
+		return nil, err
+	}
+
 	newTable := newTableFromCreateInput(tableName, input)
 	newTable.TableID = uuid.New().String()
 	newTable.CreationDateTime = time.Now()
@@ -135,9 +139,77 @@ func newTableFromCreateInput(tableName string, input *dynamodb.CreateTableInput)
 		}
 	}
 
+	if input.TableClass != "" {
+		t.TableClass = string(input.TableClass)
+	}
+	t.DeletionProtectionEnabled = aws.ToBool(input.DeletionProtectionEnabled)
+
 	t.initializeIndexes()
 
 	return t
+}
+
+func validateAttributeDefinitions(input *dynamodb.CreateTableInput) error {
+	defs := make(map[string]struct{})
+	for _, ad := range input.AttributeDefinitions {
+		defs[aws.ToString(ad.AttributeName)] = struct{}{}
+	}
+
+	referenced := make(map[string]struct{})
+	// Check Table KeySchema
+	for _, k := range input.KeySchema {
+		name := aws.ToString(k.AttributeName)
+		referenced[name] = struct{}{}
+		if _, ok := defs[name]; !ok {
+			return NewValidationException(
+				fmt.Sprintf(
+					"Parameter AttributeDefinitions does not contain definition for attribute %s which is used in KeySchema",
+					name,
+				),
+			)
+		}
+	}
+
+	// Check GSI KeySchema
+	for _, gsi := range input.GlobalSecondaryIndexes {
+		for _, k := range gsi.KeySchema {
+			name := aws.ToString(k.AttributeName)
+			referenced[name] = struct{}{}
+			if _, ok := defs[name]; !ok {
+				return NewValidationException(fmt.Sprintf(
+					"Parameter AttributeDefinitions does not contain definition for attribute"+
+						" %s which is used in GlobalSecondaryIndexes",
+					name,
+				))
+			}
+		}
+	}
+
+	// Check LSI KeySchema
+	for _, lsi := range input.LocalSecondaryIndexes {
+		for _, k := range lsi.KeySchema {
+			name := aws.ToString(k.AttributeName)
+			referenced[name] = struct{}{}
+			if _, ok := defs[name]; !ok {
+				return NewValidationException(fmt.Sprintf(
+					"Parameter AttributeDefinitions does not contain definition for attribute"+
+						" %s which is used in LocalSecondaryIndexes",
+					name,
+				))
+			}
+		}
+	}
+
+	// All defs must be referenced
+	for name := range defs {
+		if _, ok := referenced[name]; !ok {
+			return NewValidationException(
+				fmt.Sprintf("Parameter AttributeDefinitions contains unused attribute: %s", name),
+			)
+		}
+	}
+
+	return nil
 }
 
 // buildCreateTableOutput constructs the wire response for CreateTable.
@@ -214,15 +286,13 @@ func (db *InMemoryDB) DeleteTable(
 		return nil, NewResourceNotFoundException(fmt.Sprintf("table not found: %s", tableName))
 	}
 
-	// Move to the deleting map — the Janitor will do the final removal.
-	// Cancel any pending activation timer. Stop() is called while db.mu is held, which
-	// prevents a concurrent CreateTable from racing with us. If the timer has already fired
-	// and the callback is in progress, Stop() returns false but the callback only writes
-	// table.Status (guarded by table.mu) on an object that is about to move to
-	// deletingTables — this is benign; the janitor will clean it up regardless.
-	if table.activateTimer != nil {
-		table.activateTimer.Stop()
-	}
+	// Cancel any pending activation timer and any in-flight GSI lifecycle timers.
+	// Stop() is called while db.mu is held, which prevents a concurrent CreateTable from
+	// racing with us. If a timer has already fired and the callback is in progress, Stop()
+	// returns false but the callback only writes table.Status or GSI.IndexStatus (both
+	// guarded by table.mu) on an object that is about to move to deletingTables —
+	// this is benign; the janitor will clean it up regardless.
+	stopTableTimers(table)
 
 	delete(db.Tables[region], tableName)
 	if _, deletingExists := db.deletingTables[region]; !deletingExists {
@@ -291,6 +361,12 @@ func buildGSIDescriptions(
 		if gsi.ProvisionedThroughput.WriteCapacityUnits != nil {
 			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
 		}
+
+		status := gsi.IndexStatus
+		if status == "" {
+			status = models.TableStatusActive
+		}
+
 		gsiDescs[i] = models.GlobalSecondaryIndexDescription{
 			IndexName:  gsi.IndexName,
 			KeySchema:  gsi.KeySchema,
@@ -299,7 +375,7 @@ func buildGSIDescriptions(
 				ReadCapacityUnits:  int(rc),
 				WriteCapacityUnits: int(wc),
 			},
-			IndexStatus: models.TableStatusActive,
+			IndexStatus: status,
 			ItemCount:   int(itemCount),
 		}
 	}
@@ -351,21 +427,23 @@ func (db *InMemoryDB) DescribeTable(
 
 // tableSnapshot is a lock-free snapshot of table metadata for building SDK responses.
 type tableSnapshot struct {
-	creationDT     time.Time
-	tableStatus    types.TableStatus
-	tableArn       string
-	tableID        string
-	streamARN      string
-	streamViewType string
-	gsiList        []models.GlobalSecondaryIndex
-	lsiList        []models.LocalSecondaryIndex
-	replicaList    []models.ReplicaDescription
-	keySchema      []models.KeySchemaElement
-	attrDefs       []models.AttributeDefinition
-	pt             models.ProvisionedThroughputDescription
-	itemCount      int64
-	itemSizeBytes  int64
-	streamsEnabled bool
+	creationDT                time.Time
+	tableStatus               types.TableStatus
+	tableArn                  string
+	tableID                   string
+	streamARN                 string
+	streamViewType            string
+	tableClass                string
+	replicaList               []models.ReplicaDescription
+	lsiList                   []models.LocalSecondaryIndex
+	keySchema                 []models.KeySchemaElement
+	attrDefs                  []models.AttributeDefinition
+	gsiList                   []models.GlobalSecondaryIndex
+	pt                        models.ProvisionedThroughputDescription
+	itemCount                 int64
+	itemSizeBytes             int64
+	streamsEnabled            bool
+	deletionProtectionEnabled bool
 }
 
 func snapshotTable(table *Table) tableSnapshot {
@@ -373,21 +451,23 @@ func snapshotTable(table *Table) tableSnapshot {
 	defer table.mu.RUnlock()
 
 	s := tableSnapshot{
-		keySchema:      make([]models.KeySchemaElement, len(table.KeySchema)),
-		attrDefs:       make([]models.AttributeDefinition, len(table.AttributeDefinitions)),
-		gsiList:        make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes)),
-		lsiList:        make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes)),
-		replicaList:    make([]models.ReplicaDescription, len(table.Replicas)),
-		itemCount:      int64(len(table.Items)),
-		itemSizeBytes:  estimateTableSizeBytes(table.Items),
-		pt:             table.ProvisionedThroughput,
-		tableStatus:    types.TableStatus(table.Status),
-		tableArn:       table.TableArn,
-		tableID:        table.TableID,
-		creationDT:     table.CreationDateTime,
-		streamARN:      table.StreamARN,
-		streamsEnabled: table.StreamsEnabled,
-		streamViewType: table.StreamViewType,
+		keySchema:                 make([]models.KeySchemaElement, len(table.KeySchema)),
+		attrDefs:                  make([]models.AttributeDefinition, len(table.AttributeDefinitions)),
+		gsiList:                   make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes)),
+		lsiList:                   make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes)),
+		replicaList:               make([]models.ReplicaDescription, len(table.Replicas)),
+		itemCount:                 int64(len(table.Items)),
+		itemSizeBytes:             estimateTableSizeBytes(table.Items),
+		pt:                        table.ProvisionedThroughput,
+		tableStatus:               types.TableStatus(table.Status),
+		tableArn:                  table.TableArn,
+		tableID:                   table.TableID,
+		creationDT:                table.CreationDateTime,
+		streamARN:                 table.StreamARN,
+		streamsEnabled:            table.StreamsEnabled,
+		streamViewType:            table.StreamViewType,
+		deletionProtectionEnabled: table.DeletionProtectionEnabled,
+		tableClass:                table.TableClass,
 	}
 	copy(s.keySchema, table.KeySchema)
 	copy(s.attrDefs, table.AttributeDefinitions)
@@ -429,6 +509,13 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 			ReadCapacityUnits:  &rcu,
 			WriteCapacityUnits: &wcu,
 		},
+		DeletionProtectionEnabled: &s.deletionProtectionEnabled,
+	}
+
+	if s.tableClass != "" {
+		td.TableClassSummary = &types.TableClassSummary{
+			TableClass: types.TableClass(s.tableClass),
+		}
 	}
 
 	if s.tableArn != "" {
@@ -500,11 +587,17 @@ func (db *InMemoryDB) UpdateTable(
 
 		applyUpdateTableThroughput(table, input.ProvisionedThroughput)
 		applyUpdateTableAttrDefs(table, input.AttributeDefinitions)
-		applyGSIUpdates(table, input.GlobalSecondaryIndexUpdates)
+		if len(input.GlobalSecondaryIndexUpdates) > 0 {
+			db.applyGSIUpdates(table, input.GlobalSecondaryIndexUpdates)
+		}
 		oldStreamARN, newStreamARN = db.applyStreamSpec(table, tableName, input.StreamSpecification)
 
 		if replicaErr := applyReplicaUpdates(table, input.ReplicaUpdates); replicaErr != nil {
 			return NewValidationException(replicaErr.Error())
+		}
+
+		if input.DeletionProtectionEnabled != nil {
+			table.DeletionProtectionEnabled = *input.DeletionProtectionEnabled
 		}
 
 		rcu = int64(table.ProvisionedThroughput.ReadCapacityUnits)
@@ -630,20 +723,20 @@ func applyUpdateTableAttrDefs(table *Table, sdkADs []types.AttributeDefinition) 
 }
 
 // applyGSIUpdates applies Create / Update / Delete GSI actions.
-func applyGSIUpdates(table *Table, updates []types.GlobalSecondaryIndexUpdate) {
+func (db *InMemoryDB) applyGSIUpdates(table *Table, updates []types.GlobalSecondaryIndexUpdate) {
 	for _, u := range updates {
 		switch {
 		case u.Create != nil:
-			applyGSICreate(table, u.Create)
+			db.applyGSICreate(table, u.Create)
 		case u.Update != nil:
-			applyGSIUpdate(table, u.Update)
+			db.applyGSIUpdate(table, u.Update)
 		case u.Delete != nil:
-			applyGSIDelete(table, u.Delete)
+			db.applyGSIDelete(table, u.Delete)
 		}
 	}
 }
 
-func applyGSICreate(table *Table, c *types.CreateGlobalSecondaryIndexAction) {
+func (db *InMemoryDB) applyGSICreate(table *Table, c *types.CreateGlobalSecondaryIndexAction) {
 	newGSI := models.GlobalSecondaryIndex{
 		IndexName:  aws.ToString(c.IndexName),
 		KeySchema:  models.FromSDKKeySchema(c.KeySchema),
@@ -657,14 +750,42 @@ func applyGSICreate(table *Table, c *types.CreateGlobalSecondaryIndexAction) {
 		}
 	}
 
+	// Simulated GSI lifecycle: CREATING -> ACTIVE
+	// If createDelay is set, use a timer; otherwise transition immediately.
+	// Since table.GlobalSecondaryIndexes is a slice and we need to update the status in-place later,
+	// we use the slice index. note: this assumes indexes are not deleted while a timer is pending.
+	idx := len(table.GlobalSecondaryIndexes)
+	newGSI.IndexStatus = string(types.IndexStatusCreating)
+
 	table.GlobalSecondaryIndexes = append(table.GlobalSecondaryIndexes, newGSI)
+
+	// Re-get pointer to the added entry to setup timer
+	gsiPtr := &table.GlobalSecondaryIndexes[idx]
+
+	if delay := db.createDelay; delay > 0 {
+		gsiPtr.IndexStatusTimer = time.AfterFunc(delay, func() {
+			table.mu.Lock("GSIActivate")
+			defer table.mu.Unlock()
+			// Find the GSI again by name as slice might have moved or item deleted
+			for i := range table.GlobalSecondaryIndexes {
+				if table.GlobalSecondaryIndexes[i].IndexName == gsiPtr.IndexName {
+					table.GlobalSecondaryIndexes[i].IndexStatus = string(types.IndexStatusActive)
+
+					break
+				}
+			}
+		})
+	} else {
+		gsiPtr.IndexStatus = string(types.IndexStatusActive)
+	}
+
 	// Rebuild (not just initialise) so existing items remain indexed after the GSI
 	// definition is added. initializeIndexes() would clear the primary key index,
 	// forcing O(n) scans for all subsequent primary-key queries.
 	table.rebuildIndexes()
 }
 
-func applyGSIUpdate(table *Table, u *types.UpdateGlobalSecondaryIndexAction) {
+func (db *InMemoryDB) applyGSIUpdate(table *Table, u *types.UpdateGlobalSecondaryIndexAction) { // Changed to method
 	idxName := aws.ToString(u.IndexName)
 
 	for i, gsi := range table.GlobalSecondaryIndexes {
@@ -679,20 +800,54 @@ func applyGSIUpdate(table *Table, u *types.UpdateGlobalSecondaryIndexAction) {
 	}
 }
 
-func applyGSIDelete(table *Table, d *types.DeleteGlobalSecondaryIndexAction) {
+func (db *InMemoryDB) applyGSIDelete(table *Table, d *types.DeleteGlobalSecondaryIndexAction) {
 	idxName := aws.ToString(d.IndexName)
-	updated := make([]models.GlobalSecondaryIndex, 0, len(table.GlobalSecondaryIndexes))
 
-	for _, gsi := range table.GlobalSecondaryIndexes {
-		if gsi.IndexName != idxName {
-			updated = append(updated, gsi)
+	var foundIdx = -1
+	for i, gsi := range table.GlobalSecondaryIndexes {
+		if gsi.IndexName == idxName {
+			foundIdx = i
+
+			break
 		}
 	}
 
-	table.GlobalSecondaryIndexes = updated
-	// Rebuild (not just initialise) so existing items remain indexed after the GSI
-	// definition is removed. initializeIndexes() would clear the primary key index,
-	// forcing O(n) scans for all subsequent primary-key queries.
+	if foundIdx == -1 {
+		return
+	}
+
+	// Simulated GSI lifecycle: DELETING -> removed
+	if delay := db.createDelay; delay > 0 {
+		gsiPtr := &table.GlobalSecondaryIndexes[foundIdx]
+		gsiPtr.IndexStatus = string(types.IndexStatusDeleting)
+		if gsiPtr.IndexStatusTimer != nil {
+			gsiPtr.IndexStatusTimer.Stop()
+		}
+		gsiPtr.IndexStatusTimer = time.AfterFunc(delay, func() {
+			table.mu.Lock("GSIRemove")
+			defer table.mu.Unlock()
+			// Find the GSI again by name as slice might have moved
+			for i := range table.GlobalSecondaryIndexes {
+				if table.GlobalSecondaryIndexes[i].IndexName == idxName {
+					// Remove from slice
+					table.GlobalSecondaryIndexes = append(
+						table.GlobalSecondaryIndexes[:i],
+						table.GlobalSecondaryIndexes[i+1:]...,
+					)
+
+					break
+				}
+			}
+		})
+	} else {
+		// Immediate removal
+		table.GlobalSecondaryIndexes = append(
+			table.GlobalSecondaryIndexes[:foundIdx],
+			table.GlobalSecondaryIndexes[foundIdx+1:]...,
+		)
+	}
+
+	// Rebuild to clear the index from memory immediately
 	table.rebuildIndexes()
 }
 
@@ -747,11 +902,16 @@ func buildUpdateTableOutput(input *dynamodb.UpdateTableInput, table *Table) *dyn
 			wc = *gsi.ProvisionedThroughput.WriteCapacityUnits
 		}
 
+		status := gsi.IndexStatus
+		if status == "" {
+			status = string(types.IndexStatusActive)
+		}
+
 		gsiDescs = append(gsiDescs, types.GlobalSecondaryIndexDescription{
 			IndexName:   &gsi.IndexName,
 			KeySchema:   models.ToSDKKeySchema(gsi.KeySchema),
 			Projection:  models.ToSDKProjection(gsi.Projection),
-			IndexStatus: types.IndexStatusActive,
+			IndexStatus: types.IndexStatus(status),
 			ProvisionedThroughput: &types.ProvisionedThroughputDescription{
 				ReadCapacityUnits:  &rc,
 				WriteCapacityUnits: &wc,

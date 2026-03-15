@@ -44,6 +44,8 @@ var (
 	ErrCurrentBSValueMustBeSlice   = errors.New("current BS value must be [][]byte")
 	ErrSetTypeMismatch             = errors.New("ADD: existing set type does not match the type being added")
 	ErrSetSizeOverflow             = errors.New("set size overflow")
+	ErrInvalidSizeArg              = errors.New("size() only supports String, Binary, Map, List, and Set types")
+	ErrUnsupportedAddType          = errors.New("ADD action is only supported for Number and Set types")
 )
 
 // twoArgs is the expected argument count for two-argument functions.
@@ -238,7 +240,12 @@ func (e *Evaluator) evalSizeFunc(n *FunctionExpr) (any, error) {
 		return nil, err
 	}
 
-	return e.calculateSize(val), nil
+	sz, err := e.calculateSize(val)
+	if err != nil {
+		return nil, err
+	}
+
+	return sz, nil
 }
 
 func (e *Evaluator) evalAttributeExistsFunc(n *FunctionExpr) (any, error) {
@@ -389,28 +396,28 @@ func (e *Evaluator) evalListAppendFunc(n *FunctionExpr) (any, error) {
 	return map[string]any{"L": list1}, nil
 }
 
-func (e *Evaluator) calculateSize(v any) float64 {
+func (e *Evaluator) calculateSize(v any) (float64, error) {
 	unwrapped := e.unwrapAttributeValue(v)
 	switch val := unwrapped.(type) {
 	case string:
-		return float64(len(val))
+		return float64(len(val)), nil
 	case []byte:
-		return float64(len(val))
+		return float64(len(val)), nil
 	case []any:
-		return float64(len(val))
+		return float64(len(val)), nil
 	case map[string]any:
-		return float64(len(val))
-	case []string: // SS
-		return float64(len(val))
+		return float64(len(val)), nil
+	case []string: // SS or NS
+		return float64(len(val)), nil
 	case [][]byte: // BS
-		return float64(len(val))
-		// Numbers don't have size in the same way; for strings/lists/maps/sets it's number of elements/chars.
+		return float64(len(val)), nil
 	}
 
-	return 0
+	return 0, fmt.Errorf("%w: type not supported", ErrInvalidSizeArg)
 }
 
 // Reused utilities adapted for expr package.
+// unwrapAttributeValue returns the internal value from a single-key wire-format map.
 func (e *Evaluator) unwrapAttributeValue(v any) any {
 	m, ok := v.(map[string]any)
 	if !ok {
@@ -431,10 +438,10 @@ func (e *Evaluator) unwrapAttributeValue(v any) any {
 	if _, exists := m["NULL"]; exists {
 		return nil
 	}
-	if val, exists := m["M"]; exists {
+	if val, exists := m["L"]; exists {
 		return val
 	}
-	if val, exists := m["L"]; exists {
+	if val, exists := m["M"]; exists {
 		return val
 	}
 	if val, exists := m["SS"]; exists {
@@ -499,63 +506,109 @@ func (e *Evaluator) compareValues(lhs any, op TokenType, rhs any) bool {
 	lhs = e.unwrapAttributeValue(lhs)
 	rhs = e.unwrapAttributeValue(rhs)
 
-	lhsStr := e.toString(lhs)
-	rhsStr := e.toString(rhs)
+	if lhs == nil || rhs == nil {
+		return op == TokenEqual && lhs == rhs
+	}
+
+	// DynamoDB cross-type comparisons return false unless they are both numbers.
+	// We handle numbers first, then check if types match exactly for other types.
 	lNum, lIsNum := e.parseNumeric(lhs)
 	rNum, rIsNum := e.parseNumeric(rhs)
 
-	switch op { //nolint:exhaustive // Only comparison operators expected
+	if lIsNum && rIsNum {
+		return compareNumbers(lNum, rNum, op)
+	}
+
+	// If one is a number and the other isn't, they are not equal, and other
+	// comparisons are false in DynamoDB.
+	if lIsNum != rIsNum {
+		return op == TokenNotEqual
+	}
+
+	// For non-numeric types, they must be of the same type to be comparable.
+	// We use unwrapAttributeValue above, so we can compare types directly.
+	if fmt.Sprintf("%T", lhs) != fmt.Sprintf("%T", rhs) {
+		return op == TokenNotEqual
+	}
+
+	return compareTyped(lhs, rhs, op)
+}
+
+// compareNumbers compares two float64 values with the given operator.
+func compareNumbers(lNum, rNum float64, op TokenType) bool {
+	switch op {
 	case TokenEqual:
-		return lhsStr == rhsStr
+		return lNum == rNum
 	case TokenNotEqual:
-		return lhsStr != rhsStr
+		return lNum != rNum
 	case TokenLess:
-		return e.compareOrdered(
-			lNum,
-			rNum,
-			lIsNum,
-			rIsNum,
-			lhsStr,
-			rhsStr,
-			func(a, b float64) bool { return a < b },
-			func(a, b string) bool { return a < b },
-		)
-	case TokenGreater:
-		return e.compareOrdered(
-			lNum,
-			rNum,
-			lIsNum,
-			rIsNum,
-			lhsStr,
-			rhsStr,
-			func(a, b float64) bool { return a > b },
-			func(a, b string) bool { return a > b },
-		)
+		return lNum < rNum
 	case TokenLessEqual:
-		return e.compareOrdered(
-			lNum,
-			rNum,
-			lIsNum,
-			rIsNum,
-			lhsStr,
-			rhsStr,
-			func(a, b float64) bool { return a <= b },
-			func(a, b string) bool { return a <= b },
-		)
+		return lNum <= rNum
+	case TokenGreater:
+		return lNum > rNum
 	case TokenGreaterEqual:
-		return e.compareOrdered(
-			lNum,
-			rNum,
-			lIsNum,
-			rIsNum,
-			lhsStr,
-			rhsStr,
-			func(a, b float64) bool { return a >= b },
-			func(a, b string) bool { return a >= b },
-		)
+		return lNum >= rNum
+	default:
+		return false
+	}
+}
+
+// compareTyped compares two values of the same concrete type with the given operator.
+func compareTyped(lhs, rhs any, op TokenType) bool {
+	switch s1 := lhs.(type) {
+	case string:
+		s2, ok := rhs.(string)
+		if !ok {
+			return false
+		}
+
+		return compareStrings(s1, s2, op)
+	case bool:
+		b2, ok := rhs.(bool)
+		if !ok {
+			return false
+		}
+		if op == TokenEqual {
+			return s1 == b2
+		}
+		if op == TokenNotEqual {
+			return s1 != b2
+		}
+	case []byte:
+		b2, ok := rhs.([]byte)
+		if !ok {
+			return false
+		}
+		if op == TokenEqual {
+			return bytes.Equal(s1, b2)
+		}
+		if op == TokenNotEqual {
+			return !bytes.Equal(s1, b2)
+		}
 	}
 
 	return false
+}
+
+// compareStrings compares two strings with the given operator.
+func compareStrings(s1, s2 string, op TokenType) bool {
+	switch op {
+	case TokenEqual:
+		return s1 == s2
+	case TokenNotEqual:
+		return s1 != s2
+	case TokenLess:
+		return s1 < s2
+	case TokenLessEqual:
+		return s1 <= s2
+	case TokenGreater:
+		return s1 > s2
+	case TokenGreaterEqual:
+		return s1 >= s2
+	default:
+		return false
+	}
 }
 
 func (e *Evaluator) parseNumeric(v any) (float64, bool) {
@@ -574,20 +627,6 @@ func (e *Evaluator) parseNumeric(v any) (float64, bool) {
 	}
 
 	return 0, false
-}
-
-func (e *Evaluator) compareOrdered(
-	lNum, rNum float64,
-	lIsNum, rIsNum bool,
-	lStr, rStr string,
-	numCmp func(float64, float64) bool,
-	strCmp func(string, string) bool,
-) bool {
-	if lIsNum && rIsNum {
-		return numCmp(lNum, rNum)
-	}
-
-	return strCmp(lStr, rStr)
 }
 
 // formatDynamoNumber formats a float64 as a plain decimal string without

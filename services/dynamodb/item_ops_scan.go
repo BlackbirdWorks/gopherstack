@@ -7,7 +7,6 @@ import (
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/dynamoattr"
-	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -159,18 +158,19 @@ func (db *InMemoryDB) doScan(
 	input *dynamodb.ScanInput,
 	pkDef, skDef models.KeySchemaElement,
 ) ([]map[string]any, map[string]any, int32) {
+	_ = ctx // ctx reserved for future use (e.g., metrics, cancellation)
+
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	limit := int(aws.ToInt32(input.Limit))
 	proj := aws.ToString(input.ProjectionExpression)
+	filter := aws.ToString(input.FilterExpression)
 
-	// Collect all non-expired items that are in the target index (ignore FilterExpression here).
+	// Collect all non-expired items that are in the target index.
 	candidate := make([]map[string]any, 0, minScanAllocationSize)
-
 	for _, item := range items {
 		if isItemExpired(item, ttlAttr) {
 			continue
 		}
-
 		if isItemInIndex(item, input, pkDef, skDef) {
 			candidate = append(candidate, item)
 		}
@@ -185,22 +185,84 @@ func (db *InMemoryDB) doScan(
 	// Apply ExclusiveStartKey: skip items up to and including the start-key item.
 	candidate = applyExclusiveStartKey(candidate, input.ExclusiveStartKey, pkDef, skDef)
 
-	// Apply limit before FilterExpression (matches real DynamoDB semantics).
-	// ScannedCount = items examined in this page; Count = items passing FilterExpression.
-	candidate, lastKey := applyScanLimit(candidate, limit, pkDef, skDef)
-	scannedCount := int32(len(candidate)) // #nosec G115
+	projector, _ := ParseProjector(proj, input.ExpressionAttributeNames)
 
-	// Apply FilterExpression to the scanned set.
-	candidate = applyScanFilter(ctx, candidate, input, eav)
+	return scanPage(candidate, filter, eav, input.ExpressionAttributeNames, projector, pkDef, skDef, limit)
+}
 
-	// Apply projection after filtering so we still have key attrs for LastEvaluatedKey.
-	if proj != "" {
-		for i, item := range candidate {
-			candidate[i] = projectItem(item, proj, input.ExpressionAttributeNames)
+// scanPage iterates candidate items up to 1MB or limit, applying filter and projection.
+func scanPage(
+	candidate []map[string]any,
+	filter string,
+	eav map[string]any,
+	eans map[string]string,
+	projector *Projector,
+	pkDef, skDef models.KeySchemaElement,
+	limit int,
+) ([]map[string]any, map[string]any, int32) {
+	const maxResponseSize = 1024 * 1024 // 1MB
+	results := make([]map[string]any, 0)
+	var lastKey map[string]any
+	scannedCount := int32(0)
+	totalScannedSize := 0
+
+	for i, item := range candidate {
+		scannedCount++
+		itemSize, _ := CalculateItemSize(item)
+
+		// AWS scans up to 1MB of data before applying FilterExpression and returning.
+		if totalScannedSize+itemSize > maxResponseSize && i > 0 {
+			scannedCount--
+			lastKey = buildLastKey(candidate[i-1], pkDef, skDef)
+
+			break
+		}
+		totalScannedSize += itemSize
+
+		if passesFilter(filter, item, eav, eans) {
+			results = append(results, projector.Project(item))
+		}
+
+		if limit > 0 && int(scannedCount) >= limit {
+			if i < len(candidate)-1 {
+				lastKey = buildLastKey(item, pkDef, skDef)
+			}
+
+			break
+		}
+
+		if totalScannedSize >= maxResponseSize && i < len(candidate)-1 {
+			lastKey = buildLastKey(item, pkDef, skDef)
+
+			break
 		}
 	}
 
-	return candidate, lastKey, scannedCount
+	return results, lastKey, scannedCount
+}
+
+// passesFilter evaluates a filter expression against an item, returning true if it matches.
+func passesFilter(filter string, item, eav map[string]any, eans map[string]string) bool {
+	if filter == "" {
+		return true
+	}
+
+	match, err := evaluateExpression(filter, item, eav, eans)
+	if err != nil {
+		return false
+	}
+
+	return match
+}
+
+// buildLastKey creates a LastEvaluatedKey map for the given item.
+func buildLastKey(item map[string]any, pkDef, skDef models.KeySchemaElement) map[string]any {
+	key := map[string]any{pkDef.AttributeName: item[pkDef.AttributeName]}
+	if skDef.AttributeName != "" {
+		key[skDef.AttributeName] = item[skDef.AttributeName]
+	}
+
+	return key
 }
 
 // applySegmentFilter partitions items by parallel scan segment using FNV hash on PK.
@@ -227,55 +289,6 @@ func applySegmentFilter(
 	}
 
 	return filtered
-}
-
-// applyScanLimit truncates the candidate set to limit items and returns the
-// last-evaluated key if more items exist beyond the page boundary.
-func applyScanLimit(
-	candidate []map[string]any,
-	limit int,
-	pkDef, skDef models.KeySchemaElement,
-) ([]map[string]any, map[string]any) {
-	if limit <= 0 || len(candidate) <= limit {
-		return candidate, nil
-	}
-
-	lastItem := candidate[limit-1]
-	lastKey := map[string]any{pkDef.AttributeName: lastItem[pkDef.AttributeName]}
-	if skDef.AttributeName != "" {
-		lastKey[skDef.AttributeName] = lastItem[skDef.AttributeName]
-	}
-
-	return candidate[:limit], lastKey
-}
-
-// applyScanFilter applies the FilterExpression to the candidate set and returns only matching items.
-func applyScanFilter(
-	ctx context.Context,
-	candidate []map[string]any,
-	input *dynamodb.ScanInput,
-	eav map[string]any,
-) []map[string]any {
-	filter := aws.ToString(input.FilterExpression)
-	if filter == "" {
-		return candidate
-	}
-
-	log := logger.Load(ctx)
-	log.DebugContext(ctx, "Evaluating Scan FilterExpression",
-		"expression", filter,
-		"attributeNames", input.ExpressionAttributeNames,
-		"attributeValues", input.ExpressionAttributeValues)
-
-	retained := candidate[:0]
-	for _, item := range candidate {
-		match, err := evaluateExpression(filter, item, eav, input.ExpressionAttributeNames)
-		if err == nil && match {
-			retained = append(retained, item)
-		}
-	}
-
-	return retained
 }
 
 func sortScanResults(
