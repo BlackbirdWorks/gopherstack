@@ -57,14 +57,7 @@ type Backup struct {
 }
 
 // StreamRecord captures a single item-level change event for DynamoDB Streams.
-type StreamRecord struct {
-	OldImage                    map[string]any `json:"oldImage,omitempty"`
-	NewImage                    map[string]any `json:"newImage,omitempty"`
-	EventID                     string         `json:"eventID"`
-	EventName                   string         `json:"eventName"`
-	SequenceNumber              string         `json:"sequenceNumber"`
-	ApproximateCreationDateTime int64          `json:"approximateCreationDateTime"`
-}
+// Uses models.StreamRecord for storage and wire format.
 
 const (
 	// streamEventInsert is emitted when a new item is created.
@@ -86,35 +79,33 @@ const (
 )
 
 type Table struct {
-	CreationDateTime       time.Time `json:"CreationDateTime"`
-	pkIndex                map[string]int
-	pkskIndex              map[string]map[string]int
-	mu                     *lockmetrics.RWMutex
-	activateTimer          *time.Timer
-	Tags                   *tags.Tags                              `json:"Tags,omitempty"`
-	TableID                string                                  `json:"TableID"`
-	TTLAttribute           string                                  `json:"TTLAttribute,omitempty"`
-	StreamViewType         string                                  `json:"StreamViewType,omitempty"`
-	StreamARN              string                                  `json:"StreamARN,omitempty"`
-	TableArn               string                                  `json:"TableArn"`
-	Status                 string                                  `json:"Status"`
-	Name                   string                                  `json:"Name"`
-	LocalSecondaryIndexes  []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
-	GlobalSecondaryIndexes []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
-	AttributeDefinitions   []models.AttributeDefinition            `json:"AttributeDefinitions"`
-	Replicas               []models.ReplicaDescription             `json:"Replicas,omitempty"`
-	Items                  []map[string]any                        `json:"Items"`
-	StreamRecords          []StreamRecord                          `json:"StreamRecords,omitempty"`
-	KeySchema              []models.KeySchemaElement               `json:"KeySchema"`
-	ProvisionedThroughput  models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
-	streamSeq              int64
-	// StreamHead is the index of the oldest record in the ring buffer.
-	// Exported for JSON persistence so that snapshot/restore preserves ring-buffer state.
-	// When the ring buffer is not yet full (len(StreamRecords) < maxStreamRecords),
-	// StreamHead is 0 and StreamRecords is in insertion order.
-	StreamHead     int  `json:"StreamHead,omitempty"`
-	PITREnabled    bool `json:"PITREnabled,omitempty"`
-	StreamsEnabled bool `json:"StreamsEnabled"`
+	CreationDateTime          time.Time `json:"CreationDateTime"`
+	pkIndex                   map[string]int
+	pkskIndex                 map[string]map[string]int
+	mu                        *lockmetrics.RWMutex
+	activateTimer             *time.Timer
+	Tags                      *tags.Tags                              `json:"Tags,omitempty"`
+	Name                      string                                  `json:"Name"`
+	TTLAttribute              string                                  `json:"TTLAttribute,omitempty"`
+	StreamViewType            string                                  `json:"StreamViewType,omitempty"`
+	StreamARN                 string                                  `json:"StreamARN,omitempty"`
+	TableArn                  string                                  `json:"TableArn"`
+	Status                    string                                  `json:"Status"`
+	TableID                   string                                  `json:"TableID"`
+	TableClass                string                                  `json:"TableClass,omitempty"`
+	Items                     []map[string]any                        `json:"Items"`
+	AttributeDefinitions      []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	Replicas                  []models.ReplicaDescription             `json:"Replicas,omitempty"`
+	GlobalSecondaryIndexes    []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
+	StreamRecords             []models.StreamRecord                   `json:"StreamRecords,omitempty"`
+	KeySchema                 []models.KeySchemaElement               `json:"KeySchema"`
+	LocalSecondaryIndexes     []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	ProvisionedThroughput     models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	streamSeq                 int64
+	StreamHead                int  `json:"StreamHead,omitempty"`
+	PITREnabled               bool `json:"PITREnabled,omitempty"`
+	StreamsEnabled            bool `json:"StreamsEnabled"`
+	DeletionProtectionEnabled bool `json:"DeletionProtectionEnabled"`
 }
 
 func NewInMemoryDB() *InMemoryDB {
@@ -136,6 +127,23 @@ func NewInMemoryDB() *InMemoryDB {
 	}
 }
 
+// Close releases all backend resources.
+func (db *InMemoryDB) Close() {
+	db.mu.Lock("Close")
+	defer db.mu.Unlock()
+
+	for _, regionTables := range db.Tables {
+		for _, table := range regionTables {
+			stopTableTimers(table)
+		}
+	}
+
+	if db.exprCache != nil {
+		db.exprCache.Close()
+	}
+	db.mu.Close()
+}
+
 // SetEnforceThroughput enables or disables provisioned throughput throttling.
 // Call before CreateTable calls; intended for CLI configuration.
 func (db *InMemoryDB) SetEnforceThroughput(enabled bool) {
@@ -152,7 +160,7 @@ func (t *Table) appendStreamRecord(eventName string, oldItem, newImage map[strin
 	t.streamSeq++
 	seq := fmt.Sprintf("%020d", t.streamSeq)
 
-	record := StreamRecord{
+	record := models.StreamRecord{
 		EventID:                     fmt.Sprintf("%s-%s", t.Name, seq),
 		EventName:                   eventName,
 		SequenceNumber:              seq,
@@ -216,7 +224,7 @@ func (t *Table) streamSeqRange() (string, string) {
 // StreamRecords[:StreamHead] (newest records that wrapped around).
 //
 // Must be called with table.mu held (at least read lock).
-func (t *Table) streamRecordsInOrder() ([]StreamRecord, []StreamRecord) {
+func (t *Table) streamRecordsInOrder() ([]models.StreamRecord, []models.StreamRecord) {
 	n := len(t.StreamRecords)
 	if n == 0 {
 		return nil, nil
@@ -396,6 +404,23 @@ func (db *InMemoryDB) TaggedTables() []TaggedTableInfo {
 	return result
 }
 
+// stopTableTimers stops all in-flight timers held by the table — the activation
+// timer for newly-created tables and the index-status timers for any GSI that is
+// mid-CREATING or mid-DELETING transition. Must be called before the table is
+// discarded so that the AfterFunc goroutines are not left running.
+// Idempotent: safe to call even when timers are nil or already stopped.
+func stopTableTimers(table *Table) {
+	if table.activateTimer != nil {
+		table.activateTimer.Stop()
+	}
+
+	for i := range table.GlobalSecondaryIndexes {
+		if table.GlobalSecondaryIndexes[i].IndexStatusTimer != nil {
+			table.GlobalSecondaryIndexes[i].IndexStatusTimer.Stop()
+		}
+	}
+}
+
 // Reset clears all in-memory state from the database. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (db *InMemoryDB) Reset() {
@@ -408,8 +433,9 @@ func (db *InMemoryDB) Reset() {
 	// (both active and deleting) to avoid goroutine leaks and metric registry leaks.
 	for _, regionTables := range db.Tables {
 		for _, table := range regionTables {
-			if table.activateTimer != nil {
-				table.activateTimer.Stop()
+			stopTableTimers(table)
+			if table.Tags != nil {
+				table.Tags.Close()
 			}
 
 			table.mu.Close()
@@ -418,8 +444,9 @@ func (db *InMemoryDB) Reset() {
 
 	for _, regionTables := range db.deletingTables {
 		for _, table := range regionTables {
-			if table.activateTimer != nil {
-				table.activateTimer.Stop()
+			stopTableTimers(table)
+			if table.Tags != nil {
+				table.Tags.Close()
 			}
 
 			table.mu.Close()
@@ -433,5 +460,8 @@ func (db *InMemoryDB) Reset() {
 	db.txnTokens = make(map[string]time.Time)
 	db.txnPending = make(map[string]time.Time)
 	db.fisReplicationPaused = make(map[string]time.Time)
+	if db.exprCache != nil {
+		db.exprCache.Close()
+	}
 	db.exprCache = NewExpressionCache(exprCacheSize)
 }
