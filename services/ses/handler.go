@@ -71,10 +71,12 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"SendEmail",
 		"SendRawEmail",
+		"SendTemplatedEmail",
 		"VerifyEmailIdentity",
 		"ListIdentities",
 		"GetIdentityVerificationAttributes",
 		"DeleteIdentity",
+		"GetAccountSendingEnabled",
 		"CreateTemplate",
 		"UpdateTemplate",
 		"GetTemplate",
@@ -233,10 +235,14 @@ func (h *Handler) dispatch(vals url.Values, reqID, action string) (any, error) {
 		return h.handleListIdentities(vals, reqID), nil
 	case "GetIdentityVerificationAttributes":
 		return h.handleGetIdentityVerificationAttributes(vals, reqID), nil
+	case "GetAccountSendingEnabled":
+		return h.handleGetAccountSendingEnabled(reqID), nil
 	case "SendEmail":
 		return h.handleSendEmail(vals, reqID)
 	case "SendRawEmail":
 		return h.handleSendRawEmail(vals, reqID)
+	case "SendTemplatedEmail":
+		return h.handleSendTemplatedEmail(vals, reqID)
 	default:
 		return h.dispatchExtended(vals, reqID, action)
 	}
@@ -386,6 +392,33 @@ func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error)
 		},
 		RequestID: reqID,
 	}, nil
+}
+
+func (h *Handler) handleSendTemplatedEmail(vals url.Values, reqID string) (any, error) {
+	source := vals.Get("Source")
+	templateName := vals.Get("Template")
+	toAddrs := parseSESMemberList(vals, "Destination.ToAddresses")
+
+	msgID, err := h.Backend.SendTemplatedEmail(source, toAddrs, templateName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &sendTemplatedEmailResponse{
+		Xmlns: sesXMLNS,
+		Result: sendEmailResult{
+			MessageID: msgID,
+		},
+		RequestID: reqID,
+	}, nil
+}
+
+func (h *Handler) handleGetAccountSendingEnabled(reqID string) any {
+	return &getAccountSendingEnabledResponse{
+		Xmlns:     sesXMLNS,
+		Result:    getAccountSendingEnabledResult{Enabled: true},
+		RequestID: reqID,
+	}
 }
 
 // ---- template action handlers ----
@@ -726,6 +759,24 @@ type sendRawEmailResponse struct {
 	Xmlns     string          `xml:"xmlns,attr"`
 	Result    sendEmailResult `xml:"SendRawEmailResult"`
 	RequestID string          `xml:"ResponseMetadata>RequestId"`
+}
+
+type sendTemplatedEmailResponse struct {
+	XMLName   xml.Name        `xml:"SendTemplatedEmailResponse"`
+	Xmlns     string          `xml:"xmlns,attr"`
+	Result    sendEmailResult `xml:"SendTemplatedEmailResult"`
+	RequestID string          `xml:"ResponseMetadata>RequestId"`
+}
+
+type getAccountSendingEnabledResult struct {
+	Enabled bool `xml:"Enabled"`
+}
+
+type getAccountSendingEnabledResponse struct {
+	XMLName   xml.Name                       `xml:"GetAccountSendingEnabledResponse"`
+	Xmlns     string                         `xml:"xmlns,attr"`
+	RequestID string                         `xml:"ResponseMetadata>RequestId"`
+	Result    getAccountSendingEnabledResult `xml:"GetAccountSendingEnabledResult"`
 }
 
 // parseSESMemberList parses form values like "Prefix.member.1", "Prefix.member.2".

@@ -868,3 +868,241 @@ func TestSESPersistence_RestoreCapsToBound(t *testing.T) {
 	assert.Equal(t, ses.MaxRetainedEmails, fresh.EmailCount())
 	assert.Equal(t, fresh.EmailCount(), fresh.EmailsByIDCount())
 }
+
+// ---- domain-level identity verification ----
+
+func TestSESBackend_DomainLevelVerification(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErrIs error
+		name      string
+		identity  string
+		from      string
+		wantErr   bool
+	}{
+		{
+			name:     "exact_email_verified",
+			identity: "user@example.com",
+			from:     "user@example.com",
+		},
+		{
+			name:     "domain_verified_allows_subaddress",
+			identity: "example.com",
+			from:     "user@example.com",
+		},
+		{
+			name:     "domain_verified_allows_any_address",
+			identity: "example.com",
+			from:     "other@example.com",
+		},
+		{
+			name:      "unverified_email_rejected",
+			identity:  "other@example.com",
+			from:      "user@example.com",
+			wantErr:   true,
+			wantErrIs: ses.ErrMessageRejected,
+		},
+		{
+			name:      "unrelated_domain_rejected",
+			identity:  "example.org",
+			from:      "user@example.com",
+			wantErr:   true,
+			wantErrIs: ses.ErrMessageRejected,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ses.NewInMemoryBackend()
+			require.NoError(t, b.VerifyEmailIdentity(tt.identity))
+
+			_, err := b.SendEmail(tt.from, []string{"to@example.com"}, "s", "", "b")
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErrIs)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// ---- SendTemplatedEmail ----
+
+func TestSESBackend_SendTemplatedEmail(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErrIs error
+		setup     func(b *ses.InMemoryBackend)
+		name      string
+		from      string
+		template  string
+		wantErr   bool
+	}{
+		{
+			name: "success",
+			setup: func(b *ses.InMemoryBackend) {
+				require.NoError(t, b.VerifyEmailIdentity("s@test.com"))
+				require.NoError(t, b.CreateTemplate(ses.EmailTemplate{
+					TemplateName: "welcome",
+					SubjectPart:  "Welcome!",
+					HTMLPart:     "<h1>Hi</h1>",
+					TextPart:     "Hi",
+				}))
+			},
+			from:     "s@test.com",
+			template: "welcome",
+		},
+		{
+			name: "domain_verified",
+			setup: func(b *ses.InMemoryBackend) {
+				require.NoError(t, b.VerifyEmailIdentity("test.com"))
+				require.NoError(t, b.CreateTemplate(ses.EmailTemplate{TemplateName: "t1"}))
+			},
+			from:     "user@test.com",
+			template: "t1",
+		},
+		{
+			name: "unverified_source",
+			setup: func(b *ses.InMemoryBackend) {
+				require.NoError(t, b.CreateTemplate(ses.EmailTemplate{TemplateName: "t2"}))
+			},
+			from:      "x@test.com",
+			template:  "t2",
+			wantErr:   true,
+			wantErrIs: ses.ErrMessageRejected,
+		},
+		{
+			name: "template_not_found",
+			setup: func(b *ses.InMemoryBackend) {
+				require.NoError(t, b.VerifyEmailIdentity("s@test.com"))
+			},
+			from:      "s@test.com",
+			template:  "nonexistent",
+			wantErr:   true,
+			wantErrIs: ses.ErrTemplateNotFound,
+		},
+		{
+			name:      "empty_source",
+			setup:     func(_ *ses.InMemoryBackend) {},
+			from:      "",
+			template:  "t",
+			wantErr:   true,
+			wantErrIs: ses.ErrInvalidParameter,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ses.NewInMemoryBackend()
+			tt.setup(b)
+
+			msgID, err := b.SendTemplatedEmail(tt.from, []string{"to@test.com"}, tt.template)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.wantErrIs)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, msgID)
+			// Verify the email was stored.
+			assert.Equal(t, 1, b.EmailCount())
+			assert.Equal(t, b.EmailCount(), b.EmailsByIDCount())
+		})
+	}
+}
+
+// ---- handler: SendTemplatedEmail ----
+
+func TestSESHandler_SendTemplatedEmail(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	require.NoError(t, h.Backend.VerifyEmailIdentity("sender@example.com"))
+	require.NoError(t, h.Backend.CreateTemplate(ses.EmailTemplate{
+		TemplateName: "mytemplate",
+		SubjectPart:  "Hello",
+		HTMLPart:     "<b>Hello</b>",
+	}))
+
+	tests := []struct {
+		body         url.Values
+		name         string
+		wantContains string
+		wantCode     int
+	}{
+		{
+			name: "success",
+			body: url.Values{
+				"Action":                           {"SendTemplatedEmail"},
+				"Version":                          {"2010-12-01"},
+				"Source":                           {"sender@example.com"},
+				"Template":                         {"mytemplate"},
+				"Destination.ToAddresses.member.1": {"to@example.com"},
+			},
+			wantCode:     200,
+			wantContains: "SendTemplatedEmailResponse",
+		},
+		{
+			name: "template_not_found",
+			body: url.Values{
+				"Action":                           {"SendTemplatedEmail"},
+				"Version":                          {"2010-12-01"},
+				"Source":                           {"sender@example.com"},
+				"Template":                         {"no-such-template"},
+				"Destination.ToAddresses.member.1": {"to@example.com"},
+			},
+			wantCode:     400,
+			wantContains: "TemplateDoesNotExist",
+		},
+		{
+			name: "unverified_source",
+			body: url.Values{
+				"Action":                           {"SendTemplatedEmail"},
+				"Version":                          {"2010-12-01"},
+				"Source":                           {"unknown@example.com"},
+				"Template":                         {"mytemplate"},
+				"Destination.ToAddresses.member.1": {"to@example.com"},
+			},
+			wantCode:     400,
+			wantContains: "MessageRejected",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postForm(t, h, tt.body.Encode())
+			assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+// ---- handler: GetAccountSendingEnabled ----
+
+func TestSESHandler_GetAccountSendingEnabled(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	rec := postForm(t, h, url.Values{
+		"Action":  {"GetAccountSendingEnabled"},
+		"Version": {"2010-12-01"},
+	}.Encode())
+
+	assert.Equal(t, 200, rec.Code)
+	assert.Contains(t, rec.Body.String(), "GetAccountSendingEnabledResponse")
+	assert.Contains(t, rec.Body.String(), "<Enabled>true</Enabled>")
+}

@@ -162,37 +162,32 @@ func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string)
 	return result
 }
 
-// SendEmail captures an outbound email and returns a message ID.
-// The source address must be a verified identity (matching real AWS SES behavior).
-func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML, bodyText string) (string, error) {
-	if from == "" {
-		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
+// isVerifiedLocked reports whether the sender address is authorised to send.
+// It performs an exact-identity match first, then falls back to domain-level
+// verification: if example.com is a verified identity, any address @example.com
+// is also considered verified — matching real AWS SES behavior.
+//
+// The caller MUST hold b.mu for reading or writing.
+func (b *InMemoryBackend) isVerifiedLocked(from string) bool {
+	if b.identities[from] {
+		return true
 	}
 
-	b.mu.Lock("SendEmail")
-	defer b.mu.Unlock()
-
-	if !b.identities[from] {
-		return "", fmt.Errorf(
-			"%w: Email address is not verified. The following identities failed the check in region US-EAST-1: %s",
-			ErrMessageRejected, from,
-		)
+	// Domain-level check: strip the local-part and check the domain.
+	if at := strings.LastIndex(from, "@"); at >= 0 {
+		return b.identities[from[at+1:]]
 	}
 
-	msgID := "ses-" + uuid.New().String()
+	return false
+}
 
-	email := Email{
-		MessageID: msgID,
-		From:      from,
-		To:        to,
-		Subject:   subject,
-		BodyHTML:  bodyHTML,
-		BodyText:  bodyText,
-		Timestamp: time.Now(),
-	}
-
-	b.emails = append(b.emails, email)
-	b.emailsByID[msgID] = email
+// appendEmailLocked appends e to the slice and O(1) map, evicting the oldest
+// entries when the cap is exceeded.
+//
+// The caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) appendEmailLocked(e Email) {
+	b.emails = append(b.emails, e)
+	b.emailsByID[e.MessageID] = e
 
 	if len(b.emails) > maxRetainedEmails {
 		evicted := b.emails[:len(b.emails)-maxRetainedEmails]
@@ -202,6 +197,75 @@ func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML,
 
 		b.emails = b.emails[len(b.emails)-maxRetainedEmails:]
 	}
+}
+
+// SendEmail captures an outbound email and returns a message ID.
+// The source address must be a verified identity or from a verified domain
+// (matching real AWS SES behavior).
+func (b *InMemoryBackend) SendEmail(from string, to []string, subject, bodyHTML, bodyText string) (string, error) {
+	if from == "" {
+		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("SendEmail")
+	defer b.mu.Unlock()
+
+	if !b.isVerifiedLocked(from) {
+		return "", fmt.Errorf(
+			"%w: Email address is not verified. The following identities failed the check in region US-EAST-1: %s",
+			ErrMessageRejected, from,
+		)
+	}
+
+	msgID := "ses-" + uuid.New().String()
+
+	b.appendEmailLocked(Email{
+		MessageID: msgID,
+		From:      from,
+		To:        to,
+		Subject:   subject,
+		BodyHTML:  bodyHTML,
+		BodyText:  bodyText,
+		Timestamp: time.Now(),
+	})
+
+	return msgID, nil
+}
+
+// SendTemplatedEmail sends an email using a stored template and returns the message ID.
+// The source address must be a verified identity or from a verified domain.
+// The template must already exist; ErrTemplateNotFound is returned otherwise.
+func (b *InMemoryBackend) SendTemplatedEmail(from string, to []string, templateName string) (string, error) {
+	if from == "" {
+		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("SendTemplatedEmail")
+	defer b.mu.Unlock()
+
+	if !b.isVerifiedLocked(from) {
+		return "", fmt.Errorf(
+			"%w: Email address is not verified. The following identities failed the check in region US-EAST-1: %s",
+			ErrMessageRejected, from,
+		)
+	}
+
+	tmpl, ok := b.templates[templateName]
+	if !ok {
+		return "", fmt.Errorf("%w: %s", ErrTemplateNotFound, templateName)
+	}
+
+	msgID := "ses-" + uuid.New().String()
+
+	b.appendEmailLocked(Email{
+		MessageID: msgID,
+		From:      from,
+		To:        to,
+		Subject:   tmpl.SubjectPart,
+		BodyHTML:  tmpl.HTMLPart,
+		BodyText:  tmpl.TextPart,
+		Timestamp: time.Now(),
+	})
 
 	return msgID, nil
 }
