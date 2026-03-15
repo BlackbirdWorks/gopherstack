@@ -5,10 +5,10 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // StorageBackend is the interface for Lake Formation backend operations.
@@ -46,8 +46,8 @@ type InMemoryBackend struct {
 	dataLakeSettings *DataLakeSettings
 	resources        map[string]*ResourceInfo
 	lfTags           map[lfTagKey]*LFTag
+	mu               *lockmetrics.RWMutex
 	permissions      []*PermissionEntry
-	mu               sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory Lake Formation backend.
@@ -57,24 +57,25 @@ func NewInMemoryBackend() *InMemoryBackend {
 		resources:        make(map[string]*ResourceInfo),
 		permissions:      make([]*PermissionEntry, 0),
 		lfTags:           make(map[lfTagKey]*LFTag),
+		mu:               lockmetrics.New("lakeformation"),
 	}
 }
 
 // GetDataLakeSettings returns the current data lake settings.
 func (b *InMemoryBackend) GetDataLakeSettings() *DataLakeSettings {
-	b.mu.RLock()
+	b.mu.RLock("GetDataLakeSettings")
 	defer b.mu.RUnlock()
 
 	if b.dataLakeSettings == nil {
 		return &DataLakeSettings{}
 	}
 
-	return b.dataLakeSettings
+	return copyDataLakeSettings(b.dataLakeSettings)
 }
 
 // PutDataLakeSettings replaces the data lake settings.
 func (b *InMemoryBackend) PutDataLakeSettings(settings *DataLakeSettings) {
-	b.mu.Lock()
+	b.mu.Lock("PutDataLakeSettings")
 	defer b.mu.Unlock()
 
 	b.dataLakeSettings = settings
@@ -82,7 +83,7 @@ func (b *InMemoryBackend) PutDataLakeSettings(settings *DataLakeSettings) {
 
 // RegisterResource registers an S3 location as a data lake resource.
 func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("RegisterResource")
 	defer b.mu.Unlock()
 
 	if _, ok := b.resources[resourceArn]; ok {
@@ -104,7 +105,7 @@ func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string) error {
 
 // DeregisterResource removes a registered data lake resource.
 func (b *InMemoryBackend) DeregisterResource(resourceArn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeregisterResource")
 	defer b.mu.Unlock()
 
 	if _, ok := b.resources[resourceArn]; !ok {
@@ -121,7 +122,7 @@ func (b *InMemoryBackend) DeregisterResource(resourceArn string) error {
 
 // DescribeResource returns information about a registered resource.
 func (b *InMemoryBackend) DescribeResource(resourceArn string) (*ResourceInfo, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeResource")
 	defer b.mu.RUnlock()
 
 	info, ok := b.resources[resourceArn]
@@ -139,7 +140,7 @@ const defaultMaxResults = 100
 
 // ListResources returns a paginated list of registered resources.
 func (b *InMemoryBackend) ListResources(maxResults int, nextToken string) ([]*ResourceInfo, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListResources")
 	defer b.mu.RUnlock()
 
 	all := make([]*ResourceInfo, 0, len(b.resources))
@@ -156,7 +157,7 @@ func (b *InMemoryBackend) ListResources(maxResults int, nextToken string) ([]*Re
 
 // GrantPermissions adds a permission entry.
 func (b *InMemoryBackend) GrantPermissions(entry *PermissionEntry) error {
-	b.mu.Lock()
+	b.mu.Lock("GrantPermissions")
 	defer b.mu.Unlock()
 
 	b.permissions = append(b.permissions, entry)
@@ -166,10 +167,10 @@ func (b *InMemoryBackend) GrantPermissions(entry *PermissionEntry) error {
 
 // RevokePermissions removes a matching permission entry.
 func (b *InMemoryBackend) RevokePermissions(entry *PermissionEntry) error {
-	b.mu.Lock()
+	b.mu.Lock("RevokePermissions")
 	defer b.mu.Unlock()
 
-	updated := b.permissions[:0]
+	updated := make([]*PermissionEntry, 0, len(b.permissions))
 
 	for _, p := range b.permissions {
 		if !permissionMatches(p, entry) {
@@ -188,7 +189,7 @@ func (b *InMemoryBackend) ListPermissions(
 	maxResults int,
 	nextToken string,
 ) ([]*PermissionEntry, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListPermissions")
 	defer b.mu.RUnlock()
 
 	var filtered []*PermissionEntry
@@ -204,7 +205,7 @@ func (b *InMemoryBackend) ListPermissions(
 
 // CreateLFTag creates a new LF tag with the given values.
 func (b *InMemoryBackend) CreateLFTag(catalogID, tagKey string, tagValues []string) error {
-	b.mu.Lock()
+	b.mu.Lock("CreateLFTag")
 	defer b.mu.Unlock()
 
 	k := lfTagKey{CatalogID: catalogID, TagKey: tagKey}
@@ -230,7 +231,7 @@ func (b *InMemoryBackend) CreateLFTag(catalogID, tagKey string, tagValues []stri
 
 // DeleteLFTag removes a LF tag.
 func (b *InMemoryBackend) DeleteLFTag(catalogID, tagKey string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteLFTag")
 	defer b.mu.Unlock()
 
 	k := lfTagKey{CatalogID: catalogID, TagKey: tagKey}
@@ -249,7 +250,7 @@ func (b *InMemoryBackend) DeleteLFTag(catalogID, tagKey string) error {
 
 // GetLFTag returns the LF tag for the given catalog and key.
 func (b *InMemoryBackend) GetLFTag(catalogID, tagKey string) (*LFTag, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetLFTag")
 	defer b.mu.RUnlock()
 
 	k := lfTagKey{CatalogID: catalogID, TagKey: tagKey}
@@ -267,7 +268,7 @@ func (b *InMemoryBackend) GetLFTag(catalogID, tagKey string) (*LFTag, error) {
 
 // UpdateLFTag adds and removes values from an existing LF tag.
 func (b *InMemoryBackend) UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, tagValuesToDelete []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateLFTag")
 	defer b.mu.Unlock()
 
 	k := lfTagKey{CatalogID: catalogID, TagKey: tagKey}
@@ -299,7 +300,7 @@ func (b *InMemoryBackend) UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, 
 
 // ListLFTags returns a paginated list of LF tags for the given catalog.
 func (b *InMemoryBackend) ListLFTags(catalogID string, maxResults int, nextToken string) ([]*LFTag, string) {
-	b.mu.RLock()
+	b.mu.RLock("ListLFTags")
 	defer b.mu.RUnlock()
 
 	var all []*LFTag
@@ -462,4 +463,35 @@ func paginate[T any](items []T, maxResults int, nextToken string, defaultMax int
 	}
 
 	return page, outToken
+}
+
+// copyDataLakeSettings returns a deep copy of the DataLakeSettings.
+func copyDataLakeSettings(s *DataLakeSettings) *DataLakeSettings {
+	if s == nil {
+		return nil
+	}
+
+	cp := &DataLakeSettings{}
+
+	if s.DataLakeAdmins != nil {
+		cp.DataLakeAdmins = make([]DataLakePrincipal, len(s.DataLakeAdmins))
+		copy(cp.DataLakeAdmins, s.DataLakeAdmins)
+	}
+
+	if s.CreateDatabaseDefaultPermissions != nil {
+		cp.CreateDatabaseDefaultPermissions = make([]PrincipalPermissions, len(s.CreateDatabaseDefaultPermissions))
+		copy(cp.CreateDatabaseDefaultPermissions, s.CreateDatabaseDefaultPermissions)
+	}
+
+	if s.CreateTableDefaultPermissions != nil {
+		cp.CreateTableDefaultPermissions = make([]PrincipalPermissions, len(s.CreateTableDefaultPermissions))
+		copy(cp.CreateTableDefaultPermissions, s.CreateTableDefaultPermissions)
+	}
+
+	if s.TrustedResourceOwners != nil {
+		cp.TrustedResourceOwners = make([]string, len(s.TrustedResourceOwners))
+		copy(cp.TrustedResourceOwners, s.TrustedResourceOwners)
+	}
+
+	return cp
 }

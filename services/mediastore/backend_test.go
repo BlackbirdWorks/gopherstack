@@ -377,3 +377,148 @@ func TestInMemoryBackend_AccessLogging(t *testing.T) {
 		})
 	}
 }
+
+func TestInMemoryBackend_DescribeContainer_ReturnsCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "mutating returned container does not affect backend state"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+
+			_, err := b.CreateContainer(testRegion, testAccountID, "copy-test", map[string]string{"k": "v"})
+			require.NoError(t, err)
+
+			c, err := b.DescribeContainer("copy-test")
+			require.NoError(t, err)
+
+			// Mutate the returned copy.
+			c.Tags["injected"] = "evil"
+			c.Status = "MUTATED"
+
+			// Backend state must be unchanged.
+			c2, err := b.DescribeContainer("copy-test")
+			require.NoError(t, err)
+			assert.Equal(t, "ACTIVE", c2.Status)
+			_, hasInjected := c2.Tags["injected"]
+			assert.False(t, hasInjected, "mutating returned container must not affect backend state")
+		})
+	}
+}
+
+func TestInMemoryBackend_ListContainers_ReturnsCopies(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "mutating listed containers does not affect backend state"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+
+			_, err := b.CreateContainer(testRegion, testAccountID, "list-copy-a", map[string]string{"key": "val"})
+			require.NoError(t, err)
+
+			all, err := b.ListContainers()
+			require.NoError(t, err)
+			require.Len(t, all, 1)
+
+			// Mutate returned copy.
+			all[0].Tags["injected"] = "evil"
+
+			// Backend state must be unchanged.
+			all2, err := b.ListContainers()
+			require.NoError(t, err)
+			require.Len(t, all2, 1)
+			_, hasInjected := all2[0].Tags["injected"]
+			assert.False(t, hasInjected, "mutating listed container must not affect backend state")
+		})
+	}
+}
+
+func TestInMemoryBackend_MetricPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errSentinel error
+		setup       func(b *mediastore.InMemoryBackend)
+		name        string
+		container   string
+		policy      mediastore.MetricPolicy
+		wantErr     bool
+	}{
+		{
+			name:      "put and get metric policy",
+			container: "metric-container",
+			policy: mediastore.MetricPolicy{
+				ContainerLevelMetrics: "ENABLED",
+			},
+		},
+		{
+			name:        "get metric policy on missing container",
+			container:   "missing",
+			wantErr:     true,
+			errSentinel: awserr.ErrNotFound,
+		},
+		{
+			name:      "get metric policy when none set",
+			container: "no-metric",
+			setup: func(b *mediastore.InMemoryBackend) {
+				_, err := b.CreateContainer(testRegion, testAccountID, "no-metric", nil)
+				if err != nil {
+					panic(err)
+				}
+			},
+			wantErr:     true,
+			errSentinel: awserr.ErrNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			if tt.wantErr {
+				_, err := b.GetMetricPolicy(tt.container)
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errSentinel)
+
+				return
+			}
+
+			_, err := b.CreateContainer(testRegion, testAccountID, tt.container, nil)
+			require.NoError(t, err)
+
+			err = b.PutMetricPolicy(tt.container, tt.policy)
+			require.NoError(t, err)
+
+			got, err := b.GetMetricPolicy(tt.container)
+			require.NoError(t, err)
+			assert.Equal(t, tt.policy.ContainerLevelMetrics, got.ContainerLevelMetrics)
+
+			err = b.DeleteMetricPolicy(tt.container)
+			require.NoError(t, err)
+
+			_, err = b.GetMetricPolicy(tt.container)
+			require.Error(t, err)
+		})
+	}
+}
