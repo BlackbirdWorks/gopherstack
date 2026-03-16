@@ -31,10 +31,10 @@ type backendSnapshot struct {
 	ParameterGroups   map[string]*CacheParameterGroup `json:"parameterGroups"`
 	SubnetGroups      map[string]*CacheSubnetGroup    `json:"subnetGroups"`
 	Snapshots         map[string]*CacheSnapshot       `json:"snapshots"`
-	Events            []CacheEvent                    `json:"events,omitempty"`
 	EngineMode        string                          `json:"engineMode"`
 	AccountID         string                          `json:"accountID"`
 	Region            string                          `json:"region"`
+	Events            []CacheEvent                    `json:"events,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.

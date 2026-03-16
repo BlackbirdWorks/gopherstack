@@ -122,9 +122,9 @@ func TestCreateClusterWithOptions_AtomicNoLeak(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr        error
 		name           string
 		paramGroupName string
-		wantErr        error
 	}{
 		{
 			name:           "param_group_not_found_no_leak",
@@ -139,7 +139,15 @@ func TestCreateClusterWithOptions_AtomicNoLeak(t *testing.T) {
 
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineEmbedded, "123456789012", "us-east-1")
 
-			_, err := backend.CreateClusterWithOptions("my-cache", "redis", "cache.t3.micro", tt.paramGroupName, "", "", 0)
+			_, err := backend.CreateClusterWithOptions(
+				"my-cache",
+				"redis",
+				"cache.t3.micro",
+				tt.paramGroupName,
+				"",
+				"",
+				0,
+			)
 			require.ErrorIs(t, err, tt.wantErr)
 
 			_, descErr := backend.DescribeClusters("my-cache", "", 0)
@@ -152,10 +160,10 @@ func TestCreateClusterWithOptions_FamilyValidation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr        error
 		name           string
 		engine         string
 		paramGroupName string
-		wantErr        error
 	}{
 		{
 			name:           "redis_cluster_with_memcached_param_group",
@@ -189,7 +197,15 @@ func TestCreateClusterWithOptions_FamilyValidation(t *testing.T) {
 
 			backend := elasticache.NewInMemoryBackend(elasticache.EngineStub, "123456789012", "us-east-1")
 
-			_, err := backend.CreateClusterWithOptions("my-cache", tt.engine, "cache.t3.micro", tt.paramGroupName, "", "", 0)
+			_, err := backend.CreateClusterWithOptions(
+				"my-cache",
+				tt.engine,
+				"cache.t3.micro",
+				tt.paramGroupName,
+				"",
+				"",
+				0,
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -283,9 +299,9 @@ func TestFailoverReplicationGroup(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr error
 		name    string
 		rgID    string
-		wantErr error
 	}{
 		{
 			name:    "failover_existing_group",
@@ -339,11 +355,11 @@ func TestAddRemoveTagsForResource(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		addTags  map[string]string
-		removeTags []string
+		addTags         map[string]string
 		wantAfterAdd    map[string]string
 		wantAfterRemove map[string]string
+		name            string
+		removeTags      []string
 	}{
 		{
 			name:            "add_and_remove_tags",
@@ -385,10 +401,10 @@ func TestModifyCluster_ScalesAndEngineVersion(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		numCacheNodes int
 		engineVersion string
-		wantNodes     int
 		wantVersion   string
+		numCacheNodes int
+		wantNodes     int
 	}{
 		{
 			name:          "scale_and_engine_version",

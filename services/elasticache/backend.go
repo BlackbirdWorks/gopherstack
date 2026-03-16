@@ -61,21 +61,21 @@ type CacheEvent struct {
 
 // Cluster represents an ElastiCache cluster.
 type Cluster struct {
-	CreatedAt                time.Time
-	Tags                     *tags.Tags
-	mini                     *miniredis.Miniredis
-	ClusterID                string
-	Engine                   string
-	EngineVersion            string
-	Status                   string
-	Endpoint                 string
-	NodeType                 string
-	ARN                      string
-	CacheParameterGroupName  string
+	CreatedAt                  time.Time
+	Tags                       *tags.Tags
+	mini                       *miniredis.Miniredis
+	ClusterID                  string
+	Engine                     string
+	EngineVersion              string
+	Status                     string
+	Endpoint                   string
+	NodeType                   string
+	ARN                        string
+	CacheParameterGroupName    string
 	PreferredMaintenanceWindow string
-	SnapshotWindow           string
-	Port                     int
-	NumCacheNodes            int
+	SnapshotWindow             string
+	Port                       int
+	NumCacheNodes              int
 }
 
 // ReplicationGroup represents an ElastiCache replication group.
@@ -133,18 +133,28 @@ type CacheSnapshot struct {
 // StorageBackend defines the interface for the ElastiCache in-memory store.
 type StorageBackend interface {
 	CreateCluster(id, engine, nodeType string, port int) (*Cluster, error)
-	CreateClusterWithOptions(id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow string, port int) (*Cluster, error)
+	CreateClusterWithOptions(
+		id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow string,
+		port int,
+	) (*Cluster, error)
 	DeleteCluster(id string) error
 	DescribeClusters(id, marker string, maxRecords int) (page.Page[Cluster], error)
-	ModifyCluster(id, nodeType, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string, numCacheNodes int) (*Cluster, error)
+	ModifyCluster(
+		id, nodeType, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string,
+		numCacheNodes int,
+	) (*Cluster, error)
 	ListTagsForResource(arn string) (map[string]string, error)
 	AddTagsToResource(arn string, newTags map[string]string) error
 	RemoveTagsFromResource(arn string, tagKeys []string) error
 	CreateReplicationGroup(id, description string) (*ReplicationGroup, error)
-	CreateReplicationGroupWithOptions(id, description, paramGroupName, maintenanceWindow, snapshotWindow string) (*ReplicationGroup, error)
+	CreateReplicationGroupWithOptions(
+		id, description, paramGroupName, maintenanceWindow, snapshotWindow string,
+	) (*ReplicationGroup, error)
 	DeleteReplicationGroup(id string) error
 	DescribeReplicationGroups(id, marker string, maxRecords int) (page.Page[ReplicationGroup], error)
-	ModifyReplicationGroup(id, description, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string) (*ReplicationGroup, error)
+	ModifyReplicationGroup(
+		id, description, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string,
+	) (*ReplicationGroup, error)
 	FailoverReplicationGroup(id, nodeGroupID string) (*ReplicationGroup, error)
 	CreateParameterGroup(name, family, description string) (*CacheParameterGroup, error)
 	DeleteParameterGroup(name string) error
@@ -198,17 +208,17 @@ func builtinParameterGroupFamilies() []struct{ family, name string } {
 
 // InMemoryBackend is an in-memory ElastiCache backend.
 type InMemoryBackend struct {
+	dnsRegistrar      DNSRegistrar
 	clusters          map[string]*Cluster
 	replicationGroups map[string]*ReplicationGroup
 	parameterGroups   map[string]*CacheParameterGroup
 	subnetGroups      map[string]*CacheSubnetGroup
 	snapshots         map[string]*CacheSnapshot
-	events            []CacheEvent
 	mu                *lockmetrics.RWMutex
-	dnsRegistrar      DNSRegistrar
 	engineMode        string
 	accountID         string
 	region            string
+	events            []CacheEvent
 }
 
 // NewInMemoryBackend creates a new backend with the given engine mode.
@@ -295,11 +305,19 @@ func validateParamGroupFamily(engine, family string) error {
 	switch engine {
 	case "memcached":
 		if !strings.HasPrefix(family, "memcached") {
-			return fmt.Errorf("parameter group family %q does not match engine memcached: %w", family, ErrInvalidParameterGroupFamily)
+			return fmt.Errorf(
+				"parameter group family %q does not match engine memcached: %w",
+				family,
+				ErrInvalidParameterGroupFamily,
+			)
 		}
 	default:
 		if !strings.HasPrefix(family, "redis") {
-			return fmt.Errorf("parameter group family %q does not match engine redis: %w", family, ErrInvalidParameterGroupFamily)
+			return fmt.Errorf(
+				"parameter group family %q does not match engine redis: %w",
+				family,
+				ErrInvalidParameterGroupFamily,
+			)
 		}
 	}
 
@@ -447,58 +465,58 @@ func (b *InMemoryBackend) DescribeClusters(id, marker string, maxRecords int) (p
 	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
 }
 
+// tagEntry holds the tags pointer and the metric name used to initialise tags when nil.
+type tagEntry struct {
+	ptr      **tags.Tags
+	initName string
+}
+
+// findTagsByARNLocked returns the tagEntry for the resource with the given ARN, or nil if not found.
+func (b *InMemoryBackend) findTagsByARNLocked(arn string) *tagEntry {
+	for _, c := range b.clusters {
+		if c.ARN == arn {
+			return &tagEntry{&c.Tags, "elasticache.cluster." + c.ClusterID + ".tags"}
+		}
+	}
+	for _, rg := range b.replicationGroups {
+		if rg.ARN == arn {
+			return &tagEntry{&rg.Tags, "elasticache.rg." + rg.ReplicationGroupID + ".tags"}
+		}
+	}
+	for _, pg := range b.parameterGroups {
+		if pg.ARN == arn {
+			return &tagEntry{&pg.Tags, "elasticache.pg." + pg.Name + ".tags"}
+		}
+	}
+	for _, sg := range b.subnetGroups {
+		if sg.ARN == arn {
+			return &tagEntry{&sg.Tags, "elasticache.sg." + sg.Name + ".tags"}
+		}
+	}
+	for _, snap := range b.snapshots {
+		if snap.ARN == arn {
+			return &tagEntry{&snap.Tags, "elasticache.snapshot." + snap.SnapshotName + ".tags"}
+		}
+	}
+
+	return nil
+}
+
 // ListTagsForResource returns tags for the given ARN.
 func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, c := range b.clusters {
-		if c.ARN == arn {
-			if c.Tags == nil {
-				return map[string]string{}, nil
-			}
-
-			return c.Tags.Clone(), nil
-		}
-	}
-	for _, rg := range b.replicationGroups {
-		if rg.ARN == arn {
-			if rg.Tags == nil {
-				return map[string]string{}, nil
-			}
-
-			return rg.Tags.Clone(), nil
-		}
-	}
-	for _, pg := range b.parameterGroups {
-		if pg.ARN == arn {
-			if pg.Tags == nil {
-				return map[string]string{}, nil
-			}
-
-			return pg.Tags.Clone(), nil
-		}
-	}
-	for _, sg := range b.subnetGroups {
-		if sg.ARN == arn {
-			if sg.Tags == nil {
-				return map[string]string{}, nil
-			}
-
-			return sg.Tags.Clone(), nil
-		}
-	}
-	for _, snap := range b.snapshots {
-		if snap.ARN == arn {
-			if snap.Tags == nil {
-				return map[string]string{}, nil
-			}
-
-			return snap.Tags.Clone(), nil
-		}
+	entry := b.findTagsByARNLocked(arn)
+	if entry == nil {
+		return nil, fmt.Errorf("resource with ARN %s: %w", arn, ErrResourceNotFound)
 	}
 
-	return nil, fmt.Errorf("resource with ARN %s: %w", arn, ErrResourceNotFound)
+	if *entry.ptr == nil {
+		return map[string]string{}, nil
+	}
+
+	return (*entry.ptr).Clone(), nil
 }
 
 // AddTagsToResource adds or updates tags on the resource identified by resourceARN.
@@ -506,63 +524,18 @@ func (b *InMemoryBackend) AddTagsToResource(resourceARN string, newTags map[stri
 	b.mu.Lock("AddTagsToResource")
 	defer b.mu.Unlock()
 
-	for _, c := range b.clusters {
-		if c.ARN == resourceARN {
-			if c.Tags == nil {
-				c.Tags = tags.FromMap("elasticache.cluster."+c.ClusterID+".tags", newTags)
-			} else {
-				c.Tags.Merge(newTags)
-			}
-
-			return nil
-		}
-	}
-	for _, rg := range b.replicationGroups {
-		if rg.ARN == resourceARN {
-			if rg.Tags == nil {
-				rg.Tags = tags.FromMap("elasticache.rg."+rg.ReplicationGroupID+".tags", newTags)
-			} else {
-				rg.Tags.Merge(newTags)
-			}
-
-			return nil
-		}
-	}
-	for _, pg := range b.parameterGroups {
-		if pg.ARN == resourceARN {
-			if pg.Tags == nil {
-				pg.Tags = tags.FromMap("elasticache.pg."+pg.Name+".tags", newTags)
-			} else {
-				pg.Tags.Merge(newTags)
-			}
-
-			return nil
-		}
-	}
-	for _, sg := range b.subnetGroups {
-		if sg.ARN == resourceARN {
-			if sg.Tags == nil {
-				sg.Tags = tags.FromMap("elasticache.sg."+sg.Name+".tags", newTags)
-			} else {
-				sg.Tags.Merge(newTags)
-			}
-
-			return nil
-		}
-	}
-	for _, snap := range b.snapshots {
-		if snap.ARN == resourceARN {
-			if snap.Tags == nil {
-				snap.Tags = tags.FromMap("elasticache.snapshot."+snap.SnapshotName+".tags", newTags)
-			} else {
-				snap.Tags.Merge(newTags)
-			}
-
-			return nil
-		}
+	entry := b.findTagsByARNLocked(resourceARN)
+	if entry == nil {
+		return fmt.Errorf("resource with ARN %s: %w", resourceARN, ErrResourceNotFound)
 	}
 
-	return fmt.Errorf("resource with ARN %s: %w", resourceARN, ErrResourceNotFound)
+	if *entry.ptr == nil {
+		*entry.ptr = tags.FromMap(entry.initName, newTags)
+	} else {
+		(*entry.ptr).Merge(newTags)
+	}
+
+	return nil
 }
 
 // RemoveTagsFromResource removes the specified tag keys from the resource identified by resourceARN.
@@ -570,59 +543,22 @@ func (b *InMemoryBackend) RemoveTagsFromResource(resourceARN string, tagKeys []s
 	b.mu.Lock("RemoveTagsFromResource")
 	defer b.mu.Unlock()
 
-	for _, c := range b.clusters {
-		if c.ARN == resourceARN {
-			if c.Tags != nil {
-				c.Tags.DeleteKeys(tagKeys)
-			}
-
-			return nil
-		}
-	}
-	for _, rg := range b.replicationGroups {
-		if rg.ARN == resourceARN {
-			if rg.Tags != nil {
-				rg.Tags.DeleteKeys(tagKeys)
-			}
-
-			return nil
-		}
-	}
-	for _, pg := range b.parameterGroups {
-		if pg.ARN == resourceARN {
-			if pg.Tags != nil {
-				pg.Tags.DeleteKeys(tagKeys)
-			}
-
-			return nil
-		}
-	}
-	for _, sg := range b.subnetGroups {
-		if sg.ARN == resourceARN {
-			if sg.Tags != nil {
-				sg.Tags.DeleteKeys(tagKeys)
-			}
-
-			return nil
-		}
-	}
-	for _, snap := range b.snapshots {
-		if snap.ARN == resourceARN {
-			if snap.Tags != nil {
-				snap.Tags.DeleteKeys(tagKeys)
-			}
-
-			return nil
-		}
+	entry := b.findTagsByARNLocked(resourceARN)
+	if entry == nil {
+		return fmt.Errorf("resource with ARN %s: %w", resourceARN, ErrResourceNotFound)
 	}
 
-	return fmt.Errorf("resource with ARN %s: %w", resourceARN, ErrResourceNotFound)
+	if *entry.ptr != nil {
+		(*entry.ptr).DeleteKeys(tagKeys)
+	}
+
+	return nil
 }
 
 // createReplicationGroupLocked creates a replication group assuming b.mu is already held.
 func (b *InMemoryBackend) createReplicationGroupLocked(
 	id, description, paramGroupName, maintenanceWindow, snapshotWindow string,
-) (*ReplicationGroup, error) {
+) *ReplicationGroup {
 	rg := &ReplicationGroup{
 		ReplicationGroupID:         id,
 		Description:                description,
@@ -637,7 +573,7 @@ func (b *InMemoryBackend) createReplicationGroupLocked(
 	b.replicationGroups[id] = rg
 	b.appendEventLocked(id, "replication-group", "replication group created")
 
-	return rg, nil
+	return rg
 }
 
 // CreateReplicationGroup creates a replication group.
@@ -649,7 +585,7 @@ func (b *InMemoryBackend) CreateReplicationGroup(id, description string) (*Repli
 		return nil, ErrReplicationGroupAlreadyExists
 	}
 
-	return b.createReplicationGroupLocked(id, description, "", "", "")
+	return b.createReplicationGroupLocked(id, description, "", "", ""), nil
 }
 
 // CreateReplicationGroupWithOptions creates a replication group with optional parameter group and scheduling windows.
@@ -669,7 +605,7 @@ func (b *InMemoryBackend) CreateReplicationGroupWithOptions(
 		}
 	}
 
-	return b.createReplicationGroupLocked(id, description, paramGroupName, maintenanceWindow, snapshotWindow)
+	return b.createReplicationGroupLocked(id, description, paramGroupName, maintenanceWindow, snapshotWindow), nil
 }
 
 // DeleteReplicationGroup removes a replication group.
@@ -824,7 +760,7 @@ func (b *InMemoryBackend) ModifyReplicationGroup(
 }
 
 // FailoverReplicationGroup simulates a failover for the given replication group.
-func (b *InMemoryBackend) FailoverReplicationGroup(id, nodeGroupID string) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) FailoverReplicationGroup(id, _ string) (*ReplicationGroup, error) {
 	b.mu.Lock("FailoverReplicationGroup")
 	defer b.mu.Unlock()
 

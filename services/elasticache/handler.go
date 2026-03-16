@@ -189,33 +189,33 @@ type elasticacheActionFn func(c *echo.Context, form url.Values) error
 
 func (h *Handler) dispatchTable() map[string]elasticacheActionFn {
 	return map[string]elasticacheActionFn{
-		"CreateCacheCluster":            h.createCacheCluster,
-		"DeleteCacheCluster":            h.deleteCacheCluster,
-		"DescribeCacheClusters":         h.describeCacheClusters,
-		"ModifyCacheCluster":            h.modifyCacheCluster,
-		"ListTagsForResource":           h.listTagsForResource,
-		"AddTagsToResource":             h.addTagsToResource,
-		"RemoveTagsFromResource":        h.removeTagsFromResource,
-		"CreateReplicationGroup":        h.createReplicationGroup,
-		"DeleteReplicationGroup":        h.deleteReplicationGroup,
-		"DescribeReplicationGroups":     h.describeReplicationGroups,
-		"ModifyReplicationGroup":        h.modifyReplicationGroup,
-		"TestFailover":                  h.testFailoverReplicationGroup,
-		"CreateCacheParameterGroup":     h.createCacheParameterGroup,
-		"DeleteCacheParameterGroup":     h.deleteCacheParameterGroup,
-		"DescribeCacheParameterGroups":  h.describeCacheParameterGroups,
-		"ModifyCacheParameterGroup":     h.modifyCacheParameterGroup,
-		"ResetCacheParameterGroup":      h.resetCacheParameterGroup,
-		"DescribeCacheParameters":       h.describeCacheParameters,
-		"CreateCacheSubnetGroup":        h.createCacheSubnetGroup,
-		"DeleteCacheSubnetGroup":        h.deleteCacheSubnetGroup,
-		"DescribeCacheSubnetGroups":     h.describeCacheSubnetGroups,
-		"ModifyCacheSubnetGroup":        h.modifyCacheSubnetGroup,
-		"CreateSnapshot":                h.createSnapshot,
-		"DeleteSnapshot":                h.deleteSnapshot,
-		"DescribeSnapshots":             h.describeSnapshots,
-		"CopySnapshot":                  h.copySnapshot,
-		"DescribeEvents":                h.describeEvents,
+		"CreateCacheCluster":           h.createCacheCluster,
+		"DeleteCacheCluster":           h.deleteCacheCluster,
+		"DescribeCacheClusters":        h.describeCacheClusters,
+		"ModifyCacheCluster":           h.modifyCacheCluster,
+		"ListTagsForResource":          h.listTagsForResource,
+		"AddTagsToResource":            h.addTagsToResource,
+		"RemoveTagsFromResource":       h.removeTagsFromResource,
+		"CreateReplicationGroup":       h.createReplicationGroup,
+		"DeleteReplicationGroup":       h.deleteReplicationGroup,
+		"DescribeReplicationGroups":    h.describeReplicationGroups,
+		"ModifyReplicationGroup":       h.modifyReplicationGroup,
+		"TestFailover":                 h.testFailoverReplicationGroup,
+		"CreateCacheParameterGroup":    h.createCacheParameterGroup,
+		"DeleteCacheParameterGroup":    h.deleteCacheParameterGroup,
+		"DescribeCacheParameterGroups": h.describeCacheParameterGroups,
+		"ModifyCacheParameterGroup":    h.modifyCacheParameterGroup,
+		"ResetCacheParameterGroup":     h.resetCacheParameterGroup,
+		"DescribeCacheParameters":      h.describeCacheParameters,
+		"CreateCacheSubnetGroup":       h.createCacheSubnetGroup,
+		"DeleteCacheSubnetGroup":       h.deleteCacheSubnetGroup,
+		"DescribeCacheSubnetGroups":    h.describeCacheSubnetGroups,
+		"ModifyCacheSubnetGroup":       h.modifyCacheSubnetGroup,
+		"CreateSnapshot":               h.createSnapshot,
+		"DeleteSnapshot":               h.deleteSnapshot,
+		"DescribeSnapshots":            h.describeSnapshots,
+		"CopySnapshot":                 h.copySnapshot,
+		"DescribeEvents":               h.describeEvents,
 	}
 }
 
@@ -276,7 +276,15 @@ func (h *Handler) createCacheCluster(c *echo.Context, form url.Values) error {
 	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
 	snapshotWindow := form.Get("SnapshotWindow")
 
-	cluster, err := h.Backend.CreateClusterWithOptions(id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow, 0)
+	cluster, err := h.Backend.CreateClusterWithOptions(
+		id,
+		engine,
+		nodeType,
+		paramGroupName,
+		maintenanceWindow,
+		snapshotWindow,
+		0,
+	)
 	if err != nil {
 		if errors.Is(err, ErrClusterAlreadyExists) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterAlreadyExists", "Cache cluster already exists")
@@ -577,7 +585,15 @@ func (h *Handler) modifyCacheCluster(c *echo.Context, form url.Values) error {
 		}
 	}
 
-	cluster, err := h.Backend.ModifyCluster(id, nodeType, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow, numCacheNodes)
+	cluster, err := h.Backend.ModifyCluster(
+		id,
+		nodeType,
+		paramGroupName,
+		engineVersion,
+		maintenanceWindow,
+		snapshotWindow,
+		numCacheNodes,
+	)
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -609,7 +625,14 @@ func (h *Handler) modifyReplicationGroup(c *echo.Context, form url.Values) error
 	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
 	snapshotWindow := form.Get("SnapshotWindow")
 
-	rg, err := h.Backend.ModifyReplicationGroup(id, desc, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow)
+	rg, err := h.Backend.ModifyReplicationGroup(
+		id,
+		desc,
+		paramGroupName,
+		engineVersion,
+		maintenanceWindow,
+		snapshotWindow,
+	)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
