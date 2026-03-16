@@ -2975,3 +2975,466 @@ func TestKMSHandlerListResourceTagsPagination(t *testing.T) {
 		})
 	}
 }
+
+// TestKMSScheduleKeyDeletion_Validation verifies that ScheduleKeyDeletion enforces the
+// pending window range [7, 30] days and rejects keys already in PendingDeletion.
+func TestKMSScheduleKeyDeletion_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr     error
+		setup       func(b *kms.InMemoryBackend, keyID string)
+		name        string
+		pendingDays int
+	}{
+		{
+			name:        "valid_7_days",
+			pendingDays: 7,
+		},
+		{
+			name:        "valid_30_days",
+			pendingDays: 30,
+		},
+		{
+			name:        "too_few_days_6",
+			pendingDays: 6,
+			wantErr:     kms.ErrInvalidKeyUsage,
+		},
+		{
+			name:        "too_many_days_31",
+			pendingDays: 31,
+			wantErr:     kms.ErrInvalidKeyUsage,
+		},
+		{
+			name:        "default_when_zero",
+			pendingDays: 0,
+		},
+		{
+			name:        "already_pending_deletion",
+			pendingDays: 7,
+			setup: func(b *kms.InMemoryBackend, keyID string) {
+				_, err := b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+					KeyID:               keyID,
+					PendingWindowInDays: 7,
+				})
+				require.NoError(t, err)
+			},
+			wantErr: kms.ErrKeyInvalidState,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			out, err := b.CreateKey(&kms.CreateKeyInput{})
+			require.NoError(t, err)
+			keyID := out.KeyMetadata.KeyID
+
+			if tt.setup != nil {
+				tt.setup(b, keyID)
+			}
+
+			_, schedErr := b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+				KeyID:               keyID,
+				PendingWindowInDays: tt.pendingDays,
+			})
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, schedErr, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, schedErr)
+		})
+	}
+}
+
+// TestKMSCancelKeyDeletion_RequiresPendingDeletion verifies that CancelKeyDeletion only
+// succeeds for keys in PendingDeletion state.
+func TestKMSCancelKeyDeletion_RequiresPendingDeletion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(b *kms.InMemoryBackend, keyID string)
+		name    string
+	}{
+		{
+			name: "key_in_pending_deletion_succeeds",
+			setup: func(b *kms.InMemoryBackend, keyID string) {
+				_, err := b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+					KeyID:               keyID,
+					PendingWindowInDays: 7,
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name:    "enabled_key_fails",
+			wantErr: kms.ErrKeyInvalidState,
+		},
+		{
+			name: "disabled_key_fails",
+			setup: func(b *kms.InMemoryBackend, keyID string) {
+				require.NoError(t, b.DisableKey(&kms.DisableKeyInput{KeyID: keyID}))
+			},
+			wantErr: kms.ErrKeyDisabled,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			out, err := b.CreateKey(&kms.CreateKeyInput{})
+			require.NoError(t, err)
+			keyID := out.KeyMetadata.KeyID
+
+			if tt.setup != nil {
+				tt.setup(b, keyID)
+			}
+
+			cancelErr := b.CancelKeyDeletion(&kms.CancelKeyDeletionInput{KeyID: keyID})
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, cancelErr, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, cancelErr)
+		})
+	}
+}
+
+// TestKMSEnableDisableKey_StateValidation verifies that EnableKey and DisableKey
+// reject keys in PendingDeletion and PendingImport states.
+func TestKMSEnableDisableKey_StateValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setup   func(b *kms.InMemoryBackend) string
+		name    string
+		op      string
+	}{
+		{
+			name: "disable_pending_deletion_fails",
+			op:   "disable",
+			setup: func(b *kms.InMemoryBackend) string {
+				out, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+				keyID := out.KeyMetadata.KeyID
+				_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+					KeyID:               keyID,
+					PendingWindowInDays: 7,
+				})
+				require.NoError(t, err)
+
+				return keyID
+			},
+			wantErr: kms.ErrKeyInvalidState,
+		},
+		{
+			name: "enable_pending_deletion_fails",
+			op:   "enable",
+			setup: func(b *kms.InMemoryBackend) string {
+				out, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+				keyID := out.KeyMetadata.KeyID
+				_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+					KeyID:               keyID,
+					PendingWindowInDays: 7,
+				})
+				require.NoError(t, err)
+
+				return keyID
+			},
+			wantErr: kms.ErrKeyInvalidState,
+		},
+		{
+			name: "disable_pending_import_fails",
+			op:   "disable",
+			setup: func(b *kms.InMemoryBackend) string {
+				out, err := b.CreateKey(&kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+				require.NoError(t, err)
+
+				return out.KeyMetadata.KeyID
+			},
+			wantErr: kms.ErrKeyInvalidState,
+		},
+		{
+			name: "enable_pending_import_fails",
+			op:   "enable",
+			setup: func(b *kms.InMemoryBackend) string {
+				out, err := b.CreateKey(&kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+				require.NoError(t, err)
+
+				return out.KeyMetadata.KeyID
+			},
+			wantErr: kms.ErrKeyInvalidState,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			targetKeyID := tt.setup(b)
+
+			var opErr error
+
+			switch tt.op {
+			case "disable":
+				opErr = b.DisableKey(&kms.DisableKeyInput{KeyID: targetKeyID})
+			case "enable":
+				opErr = b.EnableKey(&kms.EnableKeyInput{KeyID: targetKeyID})
+			}
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, opErr, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, opErr)
+		})
+	}
+}
+
+// TestKMSKeyRotation_AsymmetricUnsupported verifies that EnableKeyRotation and
+// DisableKeyRotation return errors for asymmetric and EXTERNAL-origin keys.
+func TestKMSKeyRotation_AsymmetricUnsupported(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		keySpec string
+		origin  string
+		op      string
+	}{
+		{name: "enable_rsa_2048", keySpec: "RSA_2048", op: "enable"},
+		{name: "disable_rsa_2048", keySpec: "RSA_2048", op: "disable"},
+		{name: "enable_ecc_p256", keySpec: "ECC_NIST_P256", op: "enable"},
+		{name: "disable_ecc_p256", keySpec: "ECC_NIST_P256", op: "disable"},
+		{name: "enable_external_origin", origin: kms.KeyOriginExternal, op: "enable"},
+		{name: "disable_external_origin_after_import", origin: kms.KeyOriginExternal, op: "disable"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			inp := &kms.CreateKeyInput{KeySpec: tt.keySpec, Origin: tt.origin}
+
+			out, err := b.CreateKey(inp)
+			require.NoError(t, err)
+			keyID := out.KeyMetadata.KeyID
+
+			// For EXTERNAL keys in PendingImport, enable them first by importing material.
+			if tt.origin == kms.KeyOriginExternal {
+				mat := make([]byte, 32)
+				require.NoError(t, b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+					KeyID:       keyID,
+					KeyMaterial: mat,
+				}))
+			}
+
+			switch tt.op {
+			case "enable":
+				rotErr := b.EnableKeyRotation(&kms.EnableKeyRotationInput{KeyID: keyID})
+				require.ErrorIs(t, rotErr, kms.ErrUnsupportedOrigin)
+			case "disable":
+				rotErr := b.DisableKeyRotation(&kms.DisableKeyRotationInput{KeyID: keyID})
+				require.ErrorIs(t, rotErr, kms.ErrUnsupportedOrigin)
+			}
+		})
+	}
+}
+
+// TestKMSGenerateDataKey_MaxBytes verifies that GenerateDataKey enforces the AWS 1024-byte
+// maximum for NumberOfBytes.
+func TestKMSGenerateDataKey_MaxBytes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		numberOfBytes int32
+		wantErr       bool
+	}{
+		{name: "max_allowed_1024", numberOfBytes: 1024},
+		{name: "exceeds_max_1025", numberOfBytes: 1025, wantErr: true},
+		{name: "zero_uses_default", numberOfBytes: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			key, err := b.CreateKey(&kms.CreateKeyInput{})
+			require.NoError(t, err)
+
+			inp := &kms.GenerateDataKeyInput{KeyID: key.KeyMetadata.KeyID}
+			if tt.numberOfBytes != 0 {
+				inp.NumberOfBytes = &tt.numberOfBytes
+			}
+
+			out, genErr := b.GenerateDataKey(inp)
+
+			if tt.wantErr {
+				require.ErrorIs(t, genErr, kms.ErrInvalidDataKeySize)
+
+				return
+			}
+
+			require.NoError(t, genErr)
+			assert.NotEmpty(t, out.Plaintext)
+		})
+	}
+}
+
+// TestKMSUpdateAlias verifies that UpdateAlias redirects an alias to a new key.
+func TestKMSUpdateAlias(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		setupFn func(b *kms.InMemoryBackend) (aliasName, firstKeyID, targetKeyID string)
+		name    string
+	}{
+		{
+			name: "redirect_alias_to_new_key",
+			setupFn: func(b *kms.InMemoryBackend) (string, string, string) {
+				k1, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+				k2, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+				require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{
+					AliasName:   "alias/redirect-test",
+					TargetKeyID: k1.KeyMetadata.KeyID,
+				}))
+
+				return "alias/redirect-test", k1.KeyMetadata.KeyID, k2.KeyMetadata.KeyID
+			},
+		},
+		{
+			name: "update_nonexistent_alias_fails",
+			setupFn: func(b *kms.InMemoryBackend) (string, string, string) {
+				k, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+
+				return "alias/does-not-exist", "", k.KeyMetadata.KeyID
+			},
+			wantErr: kms.ErrAliasNotFound,
+		},
+		{
+			name: "update_to_nonexistent_key_fails",
+			setupFn: func(b *kms.InMemoryBackend) (string, string, string) {
+				k, err := b.CreateKey(&kms.CreateKeyInput{})
+				require.NoError(t, err)
+				require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{
+					AliasName:   "alias/update-bad-target",
+					TargetKeyID: k.KeyMetadata.KeyID,
+				}))
+
+				return "alias/update-bad-target", k.KeyMetadata.KeyID, "nonexistent-key-id"
+			},
+			wantErr: kms.ErrKeyNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := kms.NewInMemoryBackend()
+			aliasName, _, targetKeyID := tt.setupFn(b)
+
+			err := b.UpdateAlias(&kms.UpdateAliasInput{
+				AliasName:   aliasName,
+				TargetKeyID: targetKeyID,
+			})
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			// Verify the alias now points to the new target.
+			aliases, listErr := b.ListAliases(&kms.ListAliasesInput{KeyID: targetKeyID})
+			require.NoError(t, listErr)
+			require.Len(t, aliases.Aliases, 1)
+			assert.Equal(t, aliasName, aliases.Aliases[0].AliasName)
+		})
+	}
+}
+
+// TestKMSUpdateAlias_Handler verifies UpdateAlias via the HTTP handler.
+func TestKMSUpdateAlias_Handler(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	h := kms.NewHandler(b)
+
+	k1, err := b.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+	k2, err := b.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+
+	require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{
+		AliasName:   "alias/handler-update-test",
+		TargetKeyID: k1.KeyMetadata.KeyID,
+	}))
+
+	body, err := json.Marshal(kms.UpdateAliasInput{
+		AliasName:   "alias/handler-update-test",
+		TargetKeyID: k2.KeyMetadata.KeyID,
+	})
+	require.NoError(t, err)
+
+	rec := doKMSHTTPRequest(t, h, "UpdateAlias", string(body))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Confirm the alias now points to k2.
+	aliases, listErr := b.ListAliases(&kms.ListAliasesInput{KeyID: k2.KeyMetadata.KeyID})
+	require.NoError(t, listErr)
+	require.Len(t, aliases.Aliases, 1)
+	assert.Equal(t, "alias/handler-update-test", aliases.Aliases[0].AliasName)
+}
+
+// TestKMSDescribeKey_DeletionDateInResponse verifies that DescribeKey returns the
+// DeletionDate field for keys in PendingDeletion state.
+func TestKMSDescribeKey_DeletionDateInResponse(t *testing.T) {
+	t.Parallel()
+
+	b := kms.NewInMemoryBackend()
+	out, err := b.CreateKey(&kms.CreateKeyInput{})
+	require.NoError(t, err)
+	keyID := out.KeyMetadata.KeyID
+
+	// No DeletionDate before scheduling.
+	desc, err := b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	require.NoError(t, err)
+	assert.Zero(t, desc.KeyMetadata.DeletionDate)
+
+	_, err = b.ScheduleKeyDeletion(&kms.ScheduleKeyDeletionInput{
+		KeyID:               keyID,
+		PendingWindowInDays: 7,
+	})
+	require.NoError(t, err)
+
+	desc, err = b.DescribeKey(&kms.DescribeKeyInput{KeyID: keyID})
+	require.NoError(t, err)
+	assert.NotZero(t, desc.KeyMetadata.DeletionDate)
+	assert.Equal(t, kms.KeyStatePendingDeletion, desc.KeyMetadata.KeyState)
+}
