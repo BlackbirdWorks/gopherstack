@@ -1892,11 +1892,11 @@ func (h *DashboardHandler) handleS3File(w http.ResponseWriter, r *http.Request, 
 type SettingsPageData struct {
 	PageData
 
-	AccountID     string
-	Region        string
-	LatencyMs     int
-	EnforceIAM    bool
-	BuildVersion  string
+	AccountID    string
+	Region       string
+	LatencyMs    int
+	EnforceIAM   bool
+	BuildVersion string
 }
 
 // settingsIndex renders the read-only settings/config page.

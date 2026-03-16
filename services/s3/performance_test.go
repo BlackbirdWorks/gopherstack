@@ -312,7 +312,7 @@ func TestListObjectsChecksumInResponse(t *testing.T) {
 		Bucket:            aws.String("bkt"),
 		Key:               aws.String("k"),
 		Body:              bytes.NewReader([]byte("data")),
-		ChecksumCRC32:     aws.String("abc123"),
+		ChecksumCRC32:     aws.String("rfPzYw=="),
 		ChecksumAlgorithm: types.ChecksumAlgorithmCrc32,
 	})
 	require.NoError(t, err)

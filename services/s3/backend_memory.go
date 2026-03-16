@@ -51,7 +51,6 @@ func newObjectVersionID() string {
 	return hex.EncodeToString(b)
 }
 
-const maxInt32 = 2147483647
 const defaultRegionName = config.DefaultRegion
 
 // objectChecksums holds the optional checksum values supplied with a PutObject request.
@@ -379,9 +378,6 @@ func (b *InMemoryBackend) PutObject(
 	bucket.mu.Lock("PutObject")
 	// Double-check if bucket still exists or if versioning status changed
 	// (though highly unlikely in a mock).
-	if bucket.Versioning != (types.BucketVersioningStatusEnabled) && isVersioningEnabled {
-		// Versioning was disabled since our last check - this is safe to continue.
-	}
 
 	var newVersionID string
 
@@ -456,7 +452,7 @@ func (b *InMemoryBackend) PutObject(
 		"versionId", newVersionID)
 
 	return &s3.PutObjectOutput{
-				ETag:           aws.String(finalQuotedETag),
+		ETag:           aws.String(finalQuotedETag),
 		VersionId:      aws.String(newVersionID),
 		ChecksumCRC32:  checksums.crc32,
 		ChecksumCRC32C: checksums.crc32c,
@@ -1163,6 +1159,24 @@ func (b *InMemoryBackend) ListObjects(
 		return *contents[i].Key < *contents[j].Key
 	})
 
+	// Apply Marker
+	marker := aws.ToString(input.Marker)
+	if marker != "" {
+		startIndex := -1
+		for i, obj := range contents {
+			if *obj.Key > marker {
+				startIndex = i
+
+				break
+			}
+		}
+		if startIndex == -1 {
+			contents = nil
+		} else {
+			contents = contents[startIndex:]
+		}
+	}
+
 	delimiter := aws.ToString(input.Delimiter)
 	var cpList []types.CommonPrefix
 
@@ -1170,13 +1184,48 @@ func (b *InMemoryBackend) ListObjects(
 		contents, cpList = applyDelimiter(prefix, delimiter, contents)
 	}
 
+	maxKeys := int32(1000)
+	if input.MaxKeys != nil {
+		maxKeys = *input.MaxKeys
+	}
+
+	isTruncated := false
+	var nextMarker string
+	if int32(len(contents)+len(cpList)) > maxKeys {
+		isTruncated = true
+		total := len(contents) + len(cpList)
+		_ = total // keep track if needed
+
+		// This is a simplified truncation. Proper S3 pagination with delimiters is complex.
+		// For now, we limit the combined results.
+		allResultsCount := int32(len(contents) + len(cpList))
+		if allResultsCount > maxKeys {
+			// Basic truncation
+			if int32(len(contents)) > maxKeys {
+				nextMarker = *contents[maxKeys-1].Key
+				contents = contents[:maxKeys]
+				cpList = nil
+			} else {
+				// Some contents, some common prefixes
+				remaining := maxKeys - int32(len(contents))
+				if remaining > 0 && int32(len(cpList)) > remaining {
+					nextMarker = *cpList[remaining-1].Prefix
+					cpList = cpList[:remaining]
+				}
+			}
+		}
+	}
+
 	return &s3.ListObjectsOutput{
 		Name:           input.Bucket,
 		Prefix:         input.Prefix,
 		Delimiter:      input.Delimiter,
-		MaxKeys:        input.MaxKeys,
+		MaxKeys:        aws.Int32(maxKeys),
+		Marker:         input.Marker,
 		Contents:       contents,
 		CommonPrefixes: cpList,
+		IsTruncated:    aws.Bool(isTruncated),
+		NextMarker:     aws.String(nextMarker),
 	}, nil
 }
 
@@ -1184,28 +1233,44 @@ func (b *InMemoryBackend) ListObjectsV2(
 	_ context.Context,
 	input *s3.ListObjectsV2Input,
 ) (*s3.ListObjectsV2Output, error) {
-	// Re-use ListObjects logic for now as simplified implementation
+	// Re-use ListObjects logic but handle V2 specific params
+	marker := ""
+	if input.ContinuationToken != nil && *input.ContinuationToken != "" {
+		marker = *input.ContinuationToken
+	} else if input.StartAfter != nil && *input.StartAfter != "" {
+		marker = *input.StartAfter
+	}
+
 	listOut, err := b.ListObjects(context.TODO(), &s3.ListObjectsInput{
-		Bucket:  input.Bucket,
-		Prefix:  input.Prefix,
-		MaxKeys: input.MaxKeys,
+		Bucket:    input.Bucket,
+		Prefix:    input.Prefix,
+		MaxKeys:   input.MaxKeys,
+		Delimiter: input.Delimiter,
+		Marker:    aws.String(marker),
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	count := int32(len(listOut.Contents)) // #nosec G115
-	if len(listOut.Contents) > maxInt32 {
-		count = maxInt32
+	count := int32(len(listOut.Contents) + len(listOut.CommonPrefixes))
+
+	nextCont := ""
+	if aws.ToBool(listOut.IsTruncated) {
+		nextCont = aws.ToString(listOut.NextMarker)
 	}
 
 	return &s3.ListObjectsV2Output{
-		Name:        input.Bucket,
-		Prefix:      input.Prefix,
-		MaxKeys:     input.MaxKeys,
-		Contents:    listOut.Contents,
-		KeyCount:    aws.Int32(count),
-		IsTruncated: listOut.IsTruncated,
+		Name:                  input.Bucket,
+		Prefix:                input.Prefix,
+		MaxKeys:               input.MaxKeys,
+		Contents:              listOut.Contents,
+		CommonPrefixes:        listOut.CommonPrefixes,
+		KeyCount:              aws.Int32(count),
+		IsTruncated:           listOut.IsTruncated,
+		NextContinuationToken: aws.String(nextCont),
+		ContinuationToken:     input.ContinuationToken,
+		StartAfter:            input.StartAfter,
+		Delimiter:             input.Delimiter,
 	}, nil
 }
 
@@ -2829,8 +2894,7 @@ func (b *InMemoryBackend) Reset() {
 	b.uploads = make(map[string]map[string]*StoredMultipartUpload)
 }
 
-
-func (b *InMemoryBackend) GetBucketMetadata(ctx context.Context, bucketName string) (string, string, []types.Tag, error) {
+func (b *InMemoryBackend) GetBucketMetadata(_ context.Context, bucketName string) (string, string, []types.Tag, error) {
 	b.mu.RLock("GetBucketMetadata")
 	region, ok := b.bucketIndex[bucketName]
 	if !ok {

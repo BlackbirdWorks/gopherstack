@@ -1459,7 +1459,7 @@ func (h *S3Handler) putBucketLifecycleConfiguration(
 
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *S3Handler) getBucketLifecycleConfiguration(

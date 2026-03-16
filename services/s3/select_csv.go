@@ -38,11 +38,7 @@ func evaluateCSVQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequ
 	var returnedRowsCount int
 	rowCount := 0
 
-	for {
-		if query.limit > 0 && returnedRowsCount >= query.limit {
-			break
-		}
-
+	for query.limit <= 0 || returnedRowsCount < query.limit {
 		rec, err := r.Read()
 		if errors.Is(err, io.EOF) {
 			break
@@ -105,44 +101,6 @@ func prepareCSVHeaders(fileHeaderInfo string, firstRecord []string) []string {
 	}
 
 	return headers
-}
-
-func buildCSVRows(fileHeaderInfo string, allRecords [][]string) []map[string]string {
-	var headers []string
-	var dataRows [][]string
-
-	switch fileHeaderInfo {
-	case "USE":
-		headers = allRecords[0]
-		dataRows = allRecords[1:]
-	case "IGNORE":
-		for i := range allRecords[0] {
-			headers = append(headers, fmt.Sprintf("_%d", i+1))
-		}
-
-		dataRows = allRecords[1:]
-	default: // NONE
-		for i := range allRecords[0] {
-			headers = append(headers, fmt.Sprintf("_%d", i+1))
-		}
-
-		dataRows = allRecords
-	}
-
-	rows := make([]map[string]string, 0, len(dataRows))
-
-	for _, rec := range dataRows {
-		row := make(map[string]string, len(headers))
-		for i, h := range headers {
-			if i < len(rec) {
-				row[h] = rec[i]
-			}
-		}
-
-		rows = append(rows, row)
-	}
-
-	return rows
 }
 
 func serializeCSVQueryResults(resultRows []map[string]string, out selectOutputSerialization) ([]byte, error) {

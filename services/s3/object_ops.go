@@ -3,8 +3,6 @@ package s3
 import (
 	"bytes"
 	"context"
-	"crypto/md5" //nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
-	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -229,37 +227,6 @@ func (h *S3Handler) headObject(
 	}
 
 	w.WriteHeader(http.StatusOK)
-}
-
-// validateContentMD5 checks the Content-MD5 header against the data. Returns false and writes error if invalid.
-func validateContentMD5(ctx context.Context, w http.ResponseWriter, r *http.Request, data []byte) bool {
-	contentMD5Header := r.Header.Get("Content-MD5")
-	if contentMD5Header == "" {
-		return true
-	}
-
-	decoded, decErr := base64.StdEncoding.DecodeString(contentMD5Header)
-	if decErr != nil || len(decoded) != md5.Size {
-		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "BadDigest",
-			Message: "The Content-MD5 you specified did not match what we received.",
-		}, http.StatusBadRequest)
-
-		return false
-	}
-
-	//nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
-	computed := md5.Sum(data)
-	if !bytes.Equal(computed[:], decoded) {
-		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "BadDigest",
-			Message: "The Content-MD5 you specified did not match what we received.",
-		}, http.StatusBadRequest)
-
-		return false
-	}
-
-	return true
 }
 
 // setPutObjectResponseHeaders sets ETag, version, and checksum headers on the response.
