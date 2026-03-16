@@ -927,7 +927,7 @@ func (h *Handler) handleSetAlarmState(form url.Values, c *echo.Context) error {
 	stateValue := form.Get("StateValue")
 	stateReason := form.Get("StateReason")
 
-	if err := h.Backend.SetAlarmState(alarmName, stateValue, stateReason); err != nil {
+	if err := h.Backend.SetAlarmState(c.Request().Context(), alarmName, stateValue, stateReason); err != nil {
 		return h.xmlError(c, http.StatusBadRequest, "ResourceNotFoundException", err.Error())
 	}
 

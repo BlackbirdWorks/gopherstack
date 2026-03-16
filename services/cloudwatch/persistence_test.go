@@ -85,18 +85,22 @@ func TestInMemoryBackend_SnapshotRestore_CompositeAndHistory(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup  func(b *cloudwatch.InMemoryBackend)
+		setup  func(t *testing.T, b *cloudwatch.InMemoryBackend)
 		verify func(t *testing.T, b *cloudwatch.InMemoryBackend)
 		name   string
 	}{
 		{
 			name: "composite_alarm_round_trip",
-			setup: func(b *cloudwatch.InMemoryBackend) {
-				_ = b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "child-persist", StateValue: "OK"})
-				_ = b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(
+					t,
+					b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "child-persist", StateValue: "OK"}),
+				)
+				require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
 					AlarmName: "parent-persist",
 					AlarmRule: `ALARM("child-persist")`,
-				})
+				}))
 			},
 			verify: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
@@ -110,9 +114,13 @@ func TestInMemoryBackend_SnapshotRestore_CompositeAndHistory(t *testing.T) {
 		},
 		{
 			name: "alarm_history_round_trip",
-			setup: func(b *cloudwatch.InMemoryBackend) {
-				_ = b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "hist-persist", StateValue: "OK"})
-				_ = b.SetAlarmState("hist-persist", "ALARM", "test reason")
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				require.NoError(
+					t,
+					b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "hist-persist", StateValue: "OK"}),
+				)
+				require.NoError(t, b.SetAlarmState(t.Context(), "hist-persist", "ALARM", "test reason"))
 			},
 			verify: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
@@ -130,7 +138,7 @@ func TestInMemoryBackend_SnapshotRestore_CompositeAndHistory(t *testing.T) {
 			t.Parallel()
 
 			original := cloudwatch.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
-			tt.setup(original)
+			tt.setup(t, original)
 
 			snap := original.Snapshot()
 			require.NotNil(t, snap)
