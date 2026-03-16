@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
@@ -38,6 +39,7 @@ var (
 	ErrParameterGroupNotFound             = errors.New("CacheParameterGroupNotFound")
 	ErrParameterGroupAlreadyExists        = errors.New("CacheParameterGroupAlreadyExists")
 	ErrParameterGroupDefaultNotModifiable = errors.New("default parameter group cannot be deleted or modified")
+	ErrInvalidParameterGroupFamily        = errors.New("InvalidParameterGroupFamily")
 	ErrSubnetGroupNotFound                = errors.New("CacheSubnetGroupNotFound")
 	ErrSubnetGroupAlreadyExists           = errors.New("CacheSubnetGroupAlreadyExists")
 	ErrSnapshotNotFound                   = errors.New("SnapshotNotFound")
@@ -47,32 +49,49 @@ var (
 	)
 )
 
+const maxEvents = 1000
+
+// CacheEvent represents a recorded ElastiCache operation event.
+type CacheEvent struct {
+	Date             time.Time `json:"date"`
+	SourceIdentifier string    `json:"sourceIdentifier"`
+	SourceType       string    `json:"sourceType"`
+	Message          string    `json:"message"`
+}
+
 // Cluster represents an ElastiCache cluster.
 type Cluster struct {
-	CreatedAt               time.Time
-	Tags                    *tags.Tags
-	mini                    *miniredis.Miniredis
-	ClusterID               string
-	Engine                  string
-	EngineVersion           string
-	Status                  string
-	Endpoint                string
-	NodeType                string
-	ARN                     string
-	CacheParameterGroupName string
-	Port                    int
-	NumCacheNodes           int
+	CreatedAt                time.Time
+	Tags                     *tags.Tags
+	mini                     *miniredis.Miniredis
+	ClusterID                string
+	Engine                   string
+	EngineVersion            string
+	Status                   string
+	Endpoint                 string
+	NodeType                 string
+	ARN                      string
+	CacheParameterGroupName  string
+	PreferredMaintenanceWindow string
+	SnapshotWindow           string
+	Port                     int
+	NumCacheNodes            int
 }
 
 // ReplicationGroup represents an ElastiCache replication group.
 type ReplicationGroup struct {
-	CreatedAt               time.Time  `json:"createdAt"`
-	Tags                    *tags.Tags `json:"tags,omitempty"`
-	ReplicationGroupID      string     `json:"replicationGroupID"`
-	Description             string     `json:"description"`
-	Status                  string     `json:"status"`
-	ARN                     string     `json:"arn"`
-	CacheParameterGroupName string     `json:"cacheParameterGroupName,omitempty"`
+	CreatedAt                  time.Time  `json:"createdAt"`
+	Tags                       *tags.Tags `json:"tags,omitempty"`
+	ReplicationGroupID         string     `json:"replicationGroupID"`
+	Description                string     `json:"description"`
+	Status                     string     `json:"status"`
+	ARN                        string     `json:"arn"`
+	CacheParameterGroupName    string     `json:"cacheParameterGroupName,omitempty"`
+	AutomaticFailover          string     `json:"automaticFailover,omitempty"`
+	EngineVersion              string     `json:"engineVersion,omitempty"`
+	PreferredMaintenanceWindow string     `json:"preferredMaintenanceWindow,omitempty"`
+	SnapshotWindow             string     `json:"snapshotWindow,omitempty"`
+	MultiAZEnabled             bool       `json:"multiAZEnabled,omitempty"`
 }
 
 // CacheParameterGroup represents an ElastiCache parameter group.
@@ -114,16 +133,19 @@ type CacheSnapshot struct {
 // StorageBackend defines the interface for the ElastiCache in-memory store.
 type StorageBackend interface {
 	CreateCluster(id, engine, nodeType string, port int) (*Cluster, error)
-	CreateClusterWithOptions(id, engine, nodeType, paramGroupName string, port int) (*Cluster, error)
+	CreateClusterWithOptions(id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow string, port int) (*Cluster, error)
 	DeleteCluster(id string) error
 	DescribeClusters(id, marker string, maxRecords int) (page.Page[Cluster], error)
-	ModifyCluster(id, nodeType, paramGroupName string) (*Cluster, error)
+	ModifyCluster(id, nodeType, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string, numCacheNodes int) (*Cluster, error)
 	ListTagsForResource(arn string) (map[string]string, error)
+	AddTagsToResource(arn string, newTags map[string]string) error
+	RemoveTagsFromResource(arn string, tagKeys []string) error
 	CreateReplicationGroup(id, description string) (*ReplicationGroup, error)
-	CreateReplicationGroupWithOptions(id, description, paramGroupName string) (*ReplicationGroup, error)
+	CreateReplicationGroupWithOptions(id, description, paramGroupName, maintenanceWindow, snapshotWindow string) (*ReplicationGroup, error)
 	DeleteReplicationGroup(id string) error
 	DescribeReplicationGroups(id, marker string, maxRecords int) (page.Page[ReplicationGroup], error)
-	ModifyReplicationGroup(id, description, paramGroupName string) (*ReplicationGroup, error)
+	ModifyReplicationGroup(id, description, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string) (*ReplicationGroup, error)
+	FailoverReplicationGroup(id, nodeGroupID string) (*ReplicationGroup, error)
 	CreateParameterGroup(name, family, description string) (*CacheParameterGroup, error)
 	DeleteParameterGroup(name string) error
 	DescribeParameterGroups(name, marker string, maxRecords int) (page.Page[CacheParameterGroup], error)
@@ -141,6 +163,7 @@ type StorageBackend interface {
 		maxRecords int,
 	) (page.Page[CacheSnapshot], error)
 	CopySnapshot(sourceSnapshotName, targetSnapshotName string) (*CacheSnapshot, error)
+	DescribeEvents(sourceIdentifier, sourceType, marker string, maxRecords int) (page.Page[CacheEvent], error)
 }
 
 // CacheParameter represents a single cache parameter (for DescribeParameters response).
@@ -180,6 +203,7 @@ type InMemoryBackend struct {
 	parameterGroups   map[string]*CacheParameterGroup
 	subnetGroups      map[string]*CacheSubnetGroup
 	snapshots         map[string]*CacheSnapshot
+	events            []CacheEvent
 	mu                *lockmetrics.RWMutex
 	dnsRegistrar      DNSRegistrar
 	engineMode        string
@@ -199,6 +223,7 @@ func NewInMemoryBackend(engineMode, accountID, region string) *InMemoryBackend {
 		parameterGroups:   make(map[string]*CacheParameterGroup),
 		subnetGroups:      make(map[string]*CacheSubnetGroup),
 		snapshots:         make(map[string]*CacheSnapshot),
+		events:            make([]CacheEvent, 0),
 		engineMode:        engineMode,
 		accountID:         accountID,
 		region:            region,
@@ -254,15 +279,38 @@ func (b *InMemoryBackend) snapshotARN(name string) string {
 	return arn.Build("elasticache", b.region, b.accountID, "snapshot:"+name)
 }
 
-// CreateCluster creates a new cache cluster.
-func (b *InMemoryBackend) CreateCluster(id, engine, nodeType string, port int) (*Cluster, error) {
-	b.mu.Lock("CreateCluster")
-	defer b.mu.Unlock()
+func (b *InMemoryBackend) appendEventLocked(sourceIdentifier, sourceType, message string) {
+	b.events = append(b.events, CacheEvent{
+		Date:             time.Now(),
+		SourceIdentifier: sourceIdentifier,
+		SourceType:       sourceType,
+		Message:          message,
+	})
+	if len(b.events) > maxEvents {
+		b.events = b.events[len(b.events)-maxEvents:]
+	}
+}
 
-	if _, exists := b.clusters[id]; exists {
-		return nil, ErrClusterAlreadyExists
+func validateParamGroupFamily(engine, family string) error {
+	switch engine {
+	case "memcached":
+		if !strings.HasPrefix(family, "memcached") {
+			return fmt.Errorf("parameter group family %q does not match engine memcached: %w", family, ErrInvalidParameterGroupFamily)
+		}
+	default:
+		if !strings.HasPrefix(family, "redis") {
+			return fmt.Errorf("parameter group family %q does not match engine redis: %w", family, ErrInvalidParameterGroupFamily)
+		}
 	}
 
+	return nil
+}
+
+// createClusterLocked creates a cluster assuming b.mu is already held.
+func (b *InMemoryBackend) createClusterLocked(
+	id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow string,
+	port int,
+) (*Cluster, error) {
 	if engine == "" {
 		engine = "redis"
 	}
@@ -271,15 +319,18 @@ func (b *InMemoryBackend) CreateCluster(id, engine, nodeType string, port int) (
 	}
 
 	c := &Cluster{
-		ClusterID:     id,
-		Engine:        engine,
-		EngineVersion: "7.1.0",
-		Status:        "available",
-		NodeType:      nodeType,
-		NumCacheNodes: 1,
-		ARN:           b.clusterARN(id),
-		Tags:          tags.New("elasticache.cluster." + id + ".tags"),
-		CreatedAt:     time.Now(),
+		ClusterID:                  id,
+		Engine:                     engine,
+		EngineVersion:              "7.1.0",
+		Status:                     "available",
+		NodeType:                   nodeType,
+		NumCacheNodes:              1,
+		ARN:                        b.clusterARN(id),
+		Tags:                       tags.New("elasticache.cluster." + id + ".tags"),
+		CreatedAt:                  time.Now(),
+		CacheParameterGroupName:    paramGroupName,
+		PreferredMaintenanceWindow: maintenanceWindow,
+		SnapshotWindow:             snapshotWindow,
 	}
 
 	switch b.engineMode {
@@ -298,44 +349,53 @@ func (b *InMemoryBackend) CreateCluster(id, engine, nodeType string, port int) (
 		}
 	}
 
-	// Generate an AWS-style hostname and register it with DNS if available.
 	c.Endpoint = gopherDNS.SyntheticHostname(id, randomSuffix(), b.region, "cache")
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(c.Endpoint)
 	}
 
 	b.clusters[id] = c
+	b.appendEventLocked(id, "cache-cluster", "cluster created")
 
 	return c, nil
 }
 
-// CreateClusterWithOptions creates a new cache cluster with optional parameter group.
+// CreateCluster creates a new cache cluster.
+func (b *InMemoryBackend) CreateCluster(id, engine, nodeType string, port int) (*Cluster, error) {
+	b.mu.Lock("CreateCluster")
+	defer b.mu.Unlock()
+
+	if _, exists := b.clusters[id]; exists {
+		return nil, ErrClusterAlreadyExists
+	}
+
+	return b.createClusterLocked(id, engine, nodeType, "", "", "", port)
+}
+
+// CreateClusterWithOptions creates a new cache cluster with optional parameter group and scheduling windows.
 func (b *InMemoryBackend) CreateClusterWithOptions(
-	id, engine, nodeType, paramGroupName string,
+	id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow string,
 	port int,
 ) (*Cluster, error) {
-	c, err := b.CreateCluster(id, engine, nodeType, port)
-	if err != nil {
-		return nil, err
+	b.mu.Lock("CreateClusterWithOptions")
+	defer b.mu.Unlock()
+
+	if _, exists := b.clusters[id]; exists {
+		return nil, ErrClusterAlreadyExists
 	}
 
 	if paramGroupName != "" {
-		b.mu.Lock("CreateClusterWithOptions")
-		if _, ok := b.parameterGroups[paramGroupName]; !ok {
-			b.mu.Unlock()
-
-			if cleanupErr := b.DeleteCluster(id); cleanupErr != nil {
-				return nil, errors.Join(ErrParameterGroupNotFound, cleanupErr)
-			}
-
+		pg, ok := b.parameterGroups[paramGroupName]
+		if !ok {
 			return nil, ErrParameterGroupNotFound
 		}
-		b.clusters[id].CacheParameterGroupName = paramGroupName
-		c.CacheParameterGroupName = paramGroupName
-		b.mu.Unlock()
+
+		if err := validateParamGroupFamily(engine, pg.Family); err != nil {
+			return nil, err
+		}
 	}
 
-	return c, nil
+	return b.createClusterLocked(id, engine, nodeType, paramGroupName, maintenanceWindow, snapshotWindow, port)
 }
 
 // DeleteCluster stops and removes a cluster.
@@ -356,6 +416,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) error {
 		c.mini.Close()
 	}
 	delete(b.clusters, id)
+	b.appendEventLocked(id, "cache-cluster", "cluster deleted")
 
 	return nil
 }
@@ -393,31 +454,190 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 
 	for _, c := range b.clusters {
 		if c.ARN == arn {
+			if c.Tags == nil {
+				return map[string]string{}, nil
+			}
+
 			return c.Tags.Clone(), nil
 		}
 	}
 	for _, rg := range b.replicationGroups {
 		if rg.ARN == arn {
+			if rg.Tags == nil {
+				return map[string]string{}, nil
+			}
+
 			return rg.Tags.Clone(), nil
 		}
 	}
 	for _, pg := range b.parameterGroups {
 		if pg.ARN == arn {
+			if pg.Tags == nil {
+				return map[string]string{}, nil
+			}
+
 			return pg.Tags.Clone(), nil
 		}
 	}
 	for _, sg := range b.subnetGroups {
 		if sg.ARN == arn {
+			if sg.Tags == nil {
+				return map[string]string{}, nil
+			}
+
 			return sg.Tags.Clone(), nil
 		}
 	}
 	for _, snap := range b.snapshots {
 		if snap.ARN == arn {
+			if snap.Tags == nil {
+				return map[string]string{}, nil
+			}
+
 			return snap.Tags.Clone(), nil
 		}
 	}
 
 	return nil, fmt.Errorf("resource with ARN %s: %w", arn, ErrResourceNotFound)
+}
+
+// AddTagsToResource adds or updates tags on the resource identified by resourceARN.
+func (b *InMemoryBackend) AddTagsToResource(resourceARN string, newTags map[string]string) error {
+	b.mu.Lock("AddTagsToResource")
+	defer b.mu.Unlock()
+
+	for _, c := range b.clusters {
+		if c.ARN == resourceARN {
+			if c.Tags == nil {
+				c.Tags = tags.FromMap("elasticache.cluster."+c.ClusterID+".tags", newTags)
+			} else {
+				c.Tags.Merge(newTags)
+			}
+
+			return nil
+		}
+	}
+	for _, rg := range b.replicationGroups {
+		if rg.ARN == resourceARN {
+			if rg.Tags == nil {
+				rg.Tags = tags.FromMap("elasticache.rg."+rg.ReplicationGroupID+".tags", newTags)
+			} else {
+				rg.Tags.Merge(newTags)
+			}
+
+			return nil
+		}
+	}
+	for _, pg := range b.parameterGroups {
+		if pg.ARN == resourceARN {
+			if pg.Tags == nil {
+				pg.Tags = tags.FromMap("elasticache.pg."+pg.Name+".tags", newTags)
+			} else {
+				pg.Tags.Merge(newTags)
+			}
+
+			return nil
+		}
+	}
+	for _, sg := range b.subnetGroups {
+		if sg.ARN == resourceARN {
+			if sg.Tags == nil {
+				sg.Tags = tags.FromMap("elasticache.sg."+sg.Name+".tags", newTags)
+			} else {
+				sg.Tags.Merge(newTags)
+			}
+
+			return nil
+		}
+	}
+	for _, snap := range b.snapshots {
+		if snap.ARN == resourceARN {
+			if snap.Tags == nil {
+				snap.Tags = tags.FromMap("elasticache.snapshot."+snap.SnapshotName+".tags", newTags)
+			} else {
+				snap.Tags.Merge(newTags)
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("resource with ARN %s: %w", resourceARN, ErrResourceNotFound)
+}
+
+// RemoveTagsFromResource removes the specified tag keys from the resource identified by resourceARN.
+func (b *InMemoryBackend) RemoveTagsFromResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("RemoveTagsFromResource")
+	defer b.mu.Unlock()
+
+	for _, c := range b.clusters {
+		if c.ARN == resourceARN {
+			if c.Tags != nil {
+				c.Tags.DeleteKeys(tagKeys)
+			}
+
+			return nil
+		}
+	}
+	for _, rg := range b.replicationGroups {
+		if rg.ARN == resourceARN {
+			if rg.Tags != nil {
+				rg.Tags.DeleteKeys(tagKeys)
+			}
+
+			return nil
+		}
+	}
+	for _, pg := range b.parameterGroups {
+		if pg.ARN == resourceARN {
+			if pg.Tags != nil {
+				pg.Tags.DeleteKeys(tagKeys)
+			}
+
+			return nil
+		}
+	}
+	for _, sg := range b.subnetGroups {
+		if sg.ARN == resourceARN {
+			if sg.Tags != nil {
+				sg.Tags.DeleteKeys(tagKeys)
+			}
+
+			return nil
+		}
+	}
+	for _, snap := range b.snapshots {
+		if snap.ARN == resourceARN {
+			if snap.Tags != nil {
+				snap.Tags.DeleteKeys(tagKeys)
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("resource with ARN %s: %w", resourceARN, ErrResourceNotFound)
+}
+
+// createReplicationGroupLocked creates a replication group assuming b.mu is already held.
+func (b *InMemoryBackend) createReplicationGroupLocked(
+	id, description, paramGroupName, maintenanceWindow, snapshotWindow string,
+) (*ReplicationGroup, error) {
+	rg := &ReplicationGroup{
+		ReplicationGroupID:         id,
+		Description:                description,
+		Status:                     "available",
+		ARN:                        b.replicationGroupARN(id),
+		Tags:                       tags.New("elasticache.rg." + id + ".tags"),
+		CreatedAt:                  time.Now(),
+		CacheParameterGroupName:    paramGroupName,
+		PreferredMaintenanceWindow: maintenanceWindow,
+		SnapshotWindow:             snapshotWindow,
+	}
+	b.replicationGroups[id] = rg
+	b.appendEventLocked(id, "replication-group", "replication group created")
+
+	return rg, nil
 }
 
 // CreateReplicationGroup creates a replication group.
@@ -429,45 +649,27 @@ func (b *InMemoryBackend) CreateReplicationGroup(id, description string) (*Repli
 		return nil, ErrReplicationGroupAlreadyExists
 	}
 
-	rg := &ReplicationGroup{
-		ReplicationGroupID: id,
-		Description:        description,
-		Status:             "available",
-		ARN:                b.replicationGroupARN(id),
-		Tags:               tags.New("elasticache.rg." + id + ".tags"),
-		CreatedAt:          time.Now(),
-	}
-	b.replicationGroups[id] = rg
-
-	return rg, nil
+	return b.createReplicationGroupLocked(id, description, "", "", "")
 }
 
-// CreateReplicationGroupWithOptions creates a replication group with optional parameter group.
+// CreateReplicationGroupWithOptions creates a replication group with optional parameter group and scheduling windows.
 func (b *InMemoryBackend) CreateReplicationGroupWithOptions(
-	id, description, paramGroupName string,
+	id, description, paramGroupName, maintenanceWindow, snapshotWindow string,
 ) (*ReplicationGroup, error) {
-	rg, err := b.CreateReplicationGroup(id, description)
-	if err != nil {
-		return nil, err
+	b.mu.Lock("CreateReplicationGroupWithOptions")
+	defer b.mu.Unlock()
+
+	if _, exists := b.replicationGroups[id]; exists {
+		return nil, ErrReplicationGroupAlreadyExists
 	}
 
 	if paramGroupName != "" {
-		b.mu.Lock("CreateReplicationGroupWithOptions")
 		if _, ok := b.parameterGroups[paramGroupName]; !ok {
-			b.mu.Unlock()
-
-			if cleanupErr := b.DeleteReplicationGroup(id); cleanupErr != nil {
-				return nil, errors.Join(ErrParameterGroupNotFound, cleanupErr)
-			}
-
 			return nil, ErrParameterGroupNotFound
 		}
-		b.replicationGroups[id].CacheParameterGroupName = paramGroupName
-		rg.CacheParameterGroupName = paramGroupName
-		b.mu.Unlock()
 	}
 
-	return rg, nil
+	return b.createReplicationGroupLocked(id, description, paramGroupName, maintenanceWindow, snapshotWindow)
 }
 
 // DeleteReplicationGroup removes a replication group.
@@ -479,6 +681,7 @@ func (b *InMemoryBackend) DeleteReplicationGroup(id string) error {
 		return ErrReplicationGroupNotFound
 	}
 	delete(b.replicationGroups, id)
+	b.appendEventLocked(id, "replication-group", "replication group deleted")
 
 	return nil
 }
@@ -532,7 +735,10 @@ func (b *InMemoryBackend) ListAll() []Cluster {
 }
 
 // ModifyCluster modifies an existing cache cluster.
-func (b *InMemoryBackend) ModifyCluster(id, nodeType, paramGroupName string) (*Cluster, error) {
+func (b *InMemoryBackend) ModifyCluster(
+	id, nodeType, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string,
+	numCacheNodes int,
+) (*Cluster, error) {
 	b.mu.Lock("ModifyCluster")
 	defer b.mu.Unlock()
 
@@ -552,13 +758,33 @@ func (b *InMemoryBackend) ModifyCluster(id, nodeType, paramGroupName string) (*C
 		c.CacheParameterGroupName = paramGroupName
 	}
 
+	if engineVersion != "" {
+		c.EngineVersion = engineVersion
+	}
+
+	if numCacheNodes > 0 {
+		c.NumCacheNodes = numCacheNodes
+	}
+
+	if maintenanceWindow != "" {
+		c.PreferredMaintenanceWindow = maintenanceWindow
+	}
+
+	if snapshotWindow != "" {
+		c.SnapshotWindow = snapshotWindow
+	}
+
+	b.appendEventLocked(id, "cache-cluster", "cluster modified")
+
 	cp := *c
 
 	return &cp, nil
 }
 
 // ModifyReplicationGroup modifies an existing replication group.
-func (b *InMemoryBackend) ModifyReplicationGroup(id, description, paramGroupName string) (*ReplicationGroup, error) {
+func (b *InMemoryBackend) ModifyReplicationGroup(
+	id, description, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string,
+) (*ReplicationGroup, error) {
 	b.mu.Lock("ModifyReplicationGroup")
 	defer b.mu.Unlock()
 
@@ -577,6 +803,38 @@ func (b *InMemoryBackend) ModifyReplicationGroup(id, description, paramGroupName
 		}
 		rg.CacheParameterGroupName = paramGroupName
 	}
+
+	if engineVersion != "" {
+		rg.EngineVersion = engineVersion
+	}
+
+	if maintenanceWindow != "" {
+		rg.PreferredMaintenanceWindow = maintenanceWindow
+	}
+
+	if snapshotWindow != "" {
+		rg.SnapshotWindow = snapshotWindow
+	}
+
+	b.appendEventLocked(id, "replication-group", "replication group modified")
+
+	cp := *rg
+
+	return &cp, nil
+}
+
+// FailoverReplicationGroup simulates a failover for the given replication group.
+func (b *InMemoryBackend) FailoverReplicationGroup(id, nodeGroupID string) (*ReplicationGroup, error) {
+	b.mu.Lock("FailoverReplicationGroup")
+	defer b.mu.Unlock()
+
+	rg, exists := b.replicationGroups[id]
+	if !exists {
+		return nil, ErrReplicationGroupNotFound
+	}
+
+	rg.Status = "available"
+	b.appendEventLocked(id, "replication-group", "failover completed")
 
 	cp := *rg
 
@@ -937,4 +1195,46 @@ func (b *InMemoryBackend) CopySnapshot(sourceSnapshotName, targetSnapshotName st
 	result := cp
 
 	return &result, nil
+}
+
+// DescribeEvents returns a paginated list of recorded events, optionally filtered by source.
+func (b *InMemoryBackend) DescribeEvents(
+	sourceIdentifier, sourceType, marker string,
+	maxRecords int,
+) (page.Page[CacheEvent], error) {
+	b.mu.RLock("DescribeEvents")
+	defer b.mu.RUnlock()
+
+	out := make([]CacheEvent, 0, len(b.events))
+	for _, e := range b.events {
+		if sourceIdentifier != "" && e.SourceIdentifier != sourceIdentifier {
+			continue
+		}
+		if sourceType != "" && e.SourceType != sourceType {
+			continue
+		}
+		out = append(out, e)
+	}
+
+	return page.New(out, marker, maxRecords, elasticacheDefaultMaxRecords), nil
+}
+
+// Reset closes all miniredis instances, clears all state, and re-initialises default parameter groups.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, c := range b.clusters {
+		if c.mini != nil {
+			c.mini.Close()
+		}
+	}
+
+	b.clusters = make(map[string]*Cluster)
+	b.replicationGroups = make(map[string]*ReplicationGroup)
+	b.parameterGroups = make(map[string]*CacheParameterGroup)
+	b.subnetGroups = make(map[string]*CacheSubnetGroup)
+	b.snapshots = make(map[string]*CacheSnapshot)
+	b.events = make([]CacheEvent, 0)
+	b.initDefaultParameterGroups()
 }

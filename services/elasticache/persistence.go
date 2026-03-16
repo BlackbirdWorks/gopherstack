@@ -9,18 +9,20 @@ import (
 
 // clusterSnapshot captures the serialisable fields of a Cluster (omits the miniredis instance).
 type clusterSnapshot struct {
-	CreatedAt               time.Time  `json:"createdAt"`
-	Tags                    *tags.Tags `json:"tags,omitempty"`
-	ClusterID               string     `json:"clusterID"`
-	Engine                  string     `json:"engine"`
-	EngineVersion           string     `json:"engineVersion"`
-	Status                  string     `json:"status"`
-	Endpoint                string     `json:"endpoint"`
-	NodeType                string     `json:"nodeType"`
-	ARN                     string     `json:"arn"`
-	CacheParameterGroupName string     `json:"cacheParameterGroupName,omitempty"`
-	Port                    int        `json:"port"`
-	NumCacheNodes           int        `json:"numCacheNodes"`
+	CreatedAt                  time.Time  `json:"createdAt"`
+	Tags                       *tags.Tags `json:"tags,omitempty"`
+	ClusterID                  string     `json:"clusterID"`
+	Engine                     string     `json:"engine"`
+	EngineVersion              string     `json:"engineVersion"`
+	Status                     string     `json:"status"`
+	Endpoint                   string     `json:"endpoint"`
+	NodeType                   string     `json:"nodeType"`
+	ARN                        string     `json:"arn"`
+	CacheParameterGroupName    string     `json:"cacheParameterGroupName,omitempty"`
+	PreferredMaintenanceWindow string     `json:"preferredMaintenanceWindow,omitempty"`
+	SnapshotWindow             string     `json:"snapshotWindow,omitempty"`
+	Port                       int        `json:"port"`
+	NumCacheNodes              int        `json:"numCacheNodes"`
 }
 
 type backendSnapshot struct {
@@ -29,6 +31,7 @@ type backendSnapshot struct {
 	ParameterGroups   map[string]*CacheParameterGroup `json:"parameterGroups"`
 	SubnetGroups      map[string]*CacheSubnetGroup    `json:"subnetGroups"`
 	Snapshots         map[string]*CacheSnapshot       `json:"snapshots"`
+	Events            []CacheEvent                    `json:"events,omitempty"`
 	EngineMode        string                          `json:"engineMode"`
 	AccountID         string                          `json:"accountID"`
 	Region            string                          `json:"region"`
@@ -43,18 +46,20 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	clusters := make(map[string]*clusterSnapshot, len(b.clusters))
 	for k, c := range b.clusters {
 		clusters[k] = &clusterSnapshot{
-			CreatedAt:               c.CreatedAt,
-			Tags:                    c.Tags,
-			ClusterID:               c.ClusterID,
-			Engine:                  c.Engine,
-			EngineVersion:           c.EngineVersion,
-			Status:                  c.Status,
-			Endpoint:                c.Endpoint,
-			NodeType:                c.NodeType,
-			ARN:                     c.ARN,
-			CacheParameterGroupName: c.CacheParameterGroupName,
-			Port:                    c.Port,
-			NumCacheNodes:           c.NumCacheNodes,
+			CreatedAt:                  c.CreatedAt,
+			Tags:                       c.Tags,
+			ClusterID:                  c.ClusterID,
+			Engine:                     c.Engine,
+			EngineVersion:              c.EngineVersion,
+			Status:                     c.Status,
+			Endpoint:                   c.Endpoint,
+			NodeType:                   c.NodeType,
+			ARN:                        c.ARN,
+			CacheParameterGroupName:    c.CacheParameterGroupName,
+			PreferredMaintenanceWindow: c.PreferredMaintenanceWindow,
+			SnapshotWindow:             c.SnapshotWindow,
+			Port:                       c.Port,
+			NumCacheNodes:              c.NumCacheNodes,
 		}
 	}
 
@@ -64,6 +69,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		ParameterGroups:   b.parameterGroups,
 		SubnetGroups:      b.subnetGroups,
 		Snapshots:         b.snapshots,
+		Events:            b.events,
 		EngineMode:        b.engineMode,
 		AccountID:         b.accountID,
 		Region:            b.region,
@@ -112,18 +118,20 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	clusters := make(map[string]*Cluster, len(snap.Clusters))
 	for k, cs := range snap.Clusters {
 		clusters[k] = &Cluster{
-			CreatedAt:               cs.CreatedAt,
-			Tags:                    cs.Tags,
-			ClusterID:               cs.ClusterID,
-			Engine:                  cs.Engine,
-			EngineVersion:           cs.EngineVersion,
-			Status:                  cs.Status,
-			Endpoint:                cs.Endpoint,
-			NodeType:                cs.NodeType,
-			ARN:                     cs.ARN,
-			CacheParameterGroupName: cs.CacheParameterGroupName,
-			Port:                    cs.Port,
-			NumCacheNodes:           cs.NumCacheNodes,
+			CreatedAt:                  cs.CreatedAt,
+			Tags:                       cs.Tags,
+			ClusterID:                  cs.ClusterID,
+			Engine:                     cs.Engine,
+			EngineVersion:              cs.EngineVersion,
+			Status:                     cs.Status,
+			Endpoint:                   cs.Endpoint,
+			NodeType:                   cs.NodeType,
+			ARN:                        cs.ARN,
+			CacheParameterGroupName:    cs.CacheParameterGroupName,
+			PreferredMaintenanceWindow: cs.PreferredMaintenanceWindow,
+			SnapshotWindow:             cs.SnapshotWindow,
+			Port:                       cs.Port,
+			NumCacheNodes:              cs.NumCacheNodes,
 		}
 	}
 
@@ -132,6 +140,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.parameterGroups = snap.ParameterGroups
 	b.subnetGroups = snap.SubnetGroups
 	b.snapshots = snap.Snapshots
+
+	if snap.Events != nil {
+		b.events = snap.Events
+	} else {
+		b.events = make([]CacheEvent, 0)
+	}
+
 	b.engineMode = snap.EngineMode
 	b.accountID = snap.AccountID
 	b.region = snap.Region
