@@ -607,7 +607,7 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 			Description:    a.Description,
 			Architecture:   a.Architecture,
 			Platform:       a.Platform,
-			State:          "available",
+			State:          stateAvailable,
 			RootDeviceName: a.RootDeviceName,
 		})
 	}
@@ -651,7 +651,7 @@ func (h *Handler) handleDescribeAvailabilityZones(vals url.Values, reqID string)
 		items = append(items, azItem{
 			ZoneName:   az,
 			RegionName: effectiveRegion,
-			State:      "available",
+			State:      stateAvailable,
 		})
 	}
 
