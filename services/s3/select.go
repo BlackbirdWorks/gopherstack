@@ -120,8 +120,10 @@ func (h *S3Handler) selectObjectContent(
 
 	bytesReturned, evalErr := h.evaluateQuery(ctx, w, query, objectData, req)
 	if evalErr != nil {
-		// Too late for error response header, but we can stop streaming.
 		logger.Load(ctx).ErrorContext(ctx, "error evaluating query during streaming", "error", evalErr)
+		// Emit an exception event so the SDK receives a well-formed error
+		// rather than a truncated stream, which it would otherwise treat as success.
+		writeSelectErrorEvent(w, "InternalError", evalErr.Error())
 
 		return
 	}
@@ -253,6 +255,85 @@ func (h *S3Handler) evaluateQuery(
 		// Default to CSV if nothing specified.
 		return evaluateCSVQuery(w, query, data, req)
 	}
+}
+
+// writeSelectErrorEvent writes an exception event into the event stream so the
+// SDK receives a structured error rather than a silently truncated stream.
+func writeSelectErrorEvent(w io.Writer, code, message string) {
+	headers := encodeSelectExceptionHeaders(code)
+	payload := []byte(fmt.Sprintf(`<Error><Code>%s</Code><Message>%s</Message></Error>`, code, message))
+
+	msg, err := buildEventStreamMessageRaw(headers, payload)
+	if err != nil {
+		return
+	}
+
+	_, _ = w.Write(msg)
+}
+
+// encodeSelectExceptionHeaders encodes exception event-stream headers.
+func encodeSelectExceptionHeaders(exceptionType string) []byte {
+	var buf bytes.Buffer
+
+	writeEventStringHeader(&buf, ":message-type", "exception")
+	writeEventStringHeader(&buf, ":exception-type", exceptionType)
+	writeEventStringHeader(&buf, ":content-type", "application/xml")
+
+	return buf.Bytes()
+}
+
+// buildEventStreamMessageRaw builds an event-stream frame from pre-encoded headers and payload.
+func buildEventStreamMessageRaw(headers, payload []byte) ([]byte, error) {
+	headersLen := uint32(len(headers)) //nolint:gosec // headers are small; no overflow possible
+	payloadLen := uint32(len(payload)) //nolint:gosec // payload bounded
+	totalLen := eventStreamMinMsgLen + headersLen + payloadLen
+
+	crcHash := crc32.New(crc32.IEEETable)
+
+	var buf bytes.Buffer
+
+	writeChunk := func(data []byte) error {
+		if _, err := buf.Write(data); err != nil {
+			return err
+		}
+
+		_, err := crcHash.Write(data)
+
+		return err
+	}
+
+	prelude := make([]byte, eventStreamPreludeLen)
+	binary.BigEndian.PutUint32(prelude[0:], totalLen)
+	binary.BigEndian.PutUint32(prelude[4:], headersLen)
+
+	if err := writeChunk(prelude); err != nil {
+		return nil, err
+	}
+
+	preludeCRC := make([]byte, eventStreamPreludeCRCLen)
+	binary.BigEndian.PutUint32(preludeCRC, crcHash.Sum32())
+
+	if err := writeChunk(preludeCRC); err != nil {
+		return nil, err
+	}
+
+	if len(headers) > 0 {
+		if err := writeChunk(headers); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(payload) > 0 {
+		if err := writeChunk(payload); err != nil {
+			return nil, err
+		}
+	}
+
+	msgCRC := make([]byte, eventStreamMsgCRCLen)
+	binary.BigEndian.PutUint32(msgCRC, crcHash.Sum32())
+	buf.Write(msgCRC)
+
+	return buf.Bytes(), nil
 }
 
 // ---- Event stream encoding ----
