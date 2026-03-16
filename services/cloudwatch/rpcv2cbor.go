@@ -799,6 +799,7 @@ func (h *Handler) cborSetAlarmState(input cbor.Map, c *echo.Context) error {
 	}
 
 	if err := h.Backend.SetAlarmState(
+		c.Request().Context(),
 		alarmName,
 		cborStr(input, "StateValue"),
 		cborStr(input, "StateReason"),
