@@ -481,16 +481,18 @@ func (b *InMemoryBackend) prepareObjectData(
 	etag := hex.EncodeToString(md5Hasher.Sum(nil)[:])
 
 	logger.Load(ctx).DebugContext(ctx, "prepareObjectData trace",
-		"n", n, "dataLen", len(data), "dataHex", hex.EncodeToString(data), "etag", etag)
+		"n", n, "dataLen", len(data), "etag", etag)
 
 	// 2. Validate Content-MD5 from context if present.
 	if md5Header, ok := ctx.Value(md5Key).(string); ok && md5Header != "" {
 		decoded, dErr := base64.StdEncoding.DecodeString(md5Header)
-		if dErr == nil {
-			computed := md5Hasher.Sum(nil)
-			if !bytes.Equal(computed[:], decoded) {
-				return 0, nil, false, "", ErrBadChecksum
-			}
+		if dErr != nil || len(decoded) != md5.Size {
+			return 0, nil, false, "", ErrBadChecksum
+		}
+
+		computed := md5Hasher.Sum(nil)
+		if !bytes.Equal(computed[:], decoded) {
+			return 0, nil, false, "", ErrBadChecksum
 		}
 	}
 
@@ -704,7 +706,17 @@ func (b *InMemoryBackend) HeadObject(
 		ver = findLatestVersion(obj.Versions)
 	}
 
-	if ver == nil || ver.Deleted {
+	if ver == nil {
+		return nil, ErrNoSuchKey
+	}
+
+	// If a specific version was requested and it's a delete marker, return 405 (MethodNotAllowed).
+	if versionID != nil && *versionID != "" && ver.Deleted {
+		return nil, ErrDeleteMarker
+	}
+
+	// If no version specified and latest is a delete marker, return 404.
+	if ver.Deleted {
 		return nil, ErrNoSuchKey
 	}
 
@@ -1569,11 +1581,13 @@ func (b *InMemoryBackend) UploadPart(
 	// 2. Validate Content-MD5 from context if present.
 	if md5Header, ok := ctx.Value(md5Key).(string); ok && md5Header != "" {
 		decoded, dErr := base64.StdEncoding.DecodeString(md5Header)
-		if dErr == nil {
-			computed := md5Hasher.Sum(nil)
-			if !bytes.Equal(computed[:], decoded) {
-				return nil, ErrBadChecksum
-			}
+		if dErr != nil || len(decoded) != md5.Size {
+			return nil, ErrBadChecksum
+		}
+
+		computed := md5Hasher.Sum(nil)
+		if !bytes.Equal(computed[:], decoded) {
+			return nil, ErrBadChecksum
 		}
 	}
 

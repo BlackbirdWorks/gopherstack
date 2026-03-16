@@ -22,6 +22,9 @@ func evaluateJSONQuery(w io.Writer, query *sqlQuery, data []byte, req *selectReq
 
 	if jsonType == "LINES" {
 		scanner := bufio.NewScanner(bytes.NewReader(data))
+		// Increase the buffer to handle large JSON lines (up to 10MB).
+		const maxScanTokenSize = 10 * 1024 * 1024
+		scanner.Buffer(make([]byte, bufio.MaxScanTokenSize), maxScanTokenSize)
 		for scanner.Scan() {
 			if query.limit > 0 && returnedRowsCount >= query.limit {
 				break
@@ -56,6 +59,10 @@ func evaluateJSONQuery(w io.Writer, query *sqlQuery, data []byte, req *selectReq
 					returnedRowsCount += len(resultRows)
 				}
 			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			return totalBytesReturned, fmt.Errorf("scanning JSON lines: %w", err)
 		}
 	} else {
 		var doc any

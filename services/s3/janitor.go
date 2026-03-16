@@ -181,12 +181,10 @@ func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 		// Check if bucket has lifecycle; if it does, j.sweepLifecycle handles it.
 		// We only apply the 24h default to buckets WITHOUT lifecycle.
 		hasLifecycle := false
-		if regionBuckets, ok := findBucketRegionMap(b.buckets, bucketName); ok {
-			if bucket, exists := regionBuckets[bucketName]; exists {
-				bucket.mu.RLock("S3Janitor.checkLC")
-				hasLifecycle = bucket.LifecycleConfig != ""
-				bucket.mu.RUnlock()
-			}
+		if bucket, _ := findBucketAcrossRegions(b.buckets, bucketName); bucket != nil {
+			bucket.mu.RLock("S3Janitor.checkLC")
+			hasLifecycle = bucket.LifecycleConfig != ""
+			bucket.mu.RUnlock()
 		}
 
 		if hasLifecycle {
@@ -199,16 +197,6 @@ func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 			}
 		}
 	}
-}
-
-func findBucketRegionMap(buckets map[string]map[string]*StoredBucket, name string) (map[string]*StoredBucket, bool) {
-	for _, regionBuckets := range buckets {
-		if _, exists := regionBuckets[name]; exists {
-			return regionBuckets, true
-		}
-	}
-
-	return nil, false
 }
 
 // runOnce performs one pass: records queue depth, then processes pending buckets.
