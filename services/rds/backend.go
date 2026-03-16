@@ -26,6 +26,8 @@ var (
 	ErrInvalidParameter = errors.New("InvalidParameterValue")
 	// ErrUnknownAction is returned for unrecognized RDS actions.
 	ErrUnknownAction = errors.New("InvalidAction")
+	// ErrInvalidDBInstanceState is returned when an instance operation is invalid given its current state.
+	ErrInvalidDBInstanceState = errors.New("InvalidDBInstanceState")
 
 	ErrParameterGroupNotFound       = errors.New("DBParameterGroupNotFound")
 	ErrParameterGroupAlreadyExists  = errors.New("DBParameterGroupAlreadyExists")
@@ -39,6 +41,8 @@ var (
 	ErrClusterEndpointAlreadyExists = errors.New("DBClusterEndpointAlreadyExists")
 	ErrExportTaskNotFound           = errors.New("ExportTaskNotFound")
 	ErrExportTaskAlreadyExists      = errors.New("ExportTaskAlreadyExists")
+	ErrGlobalClusterNotFound        = errors.New("GlobalClusterNotFound")
+	ErrGlobalClusterAlreadyExists   = errors.New("GlobalClusterAlreadyExists")
 )
 
 const (
@@ -54,6 +58,7 @@ type DBInstance struct {
 	DbiResourceID                     string `json:"dbiResourceID"`
 	DBInstanceClass                   string `json:"dbInstanceClass"`
 	Engine                            string `json:"engine"`
+	EngineVersion                     string `json:"engineVersion"`
 	DBInstanceStatus                  string `json:"dbInstanceStatus"`
 	MasterUsername                    string `json:"masterUsername"`
 	DBName                            string `json:"dbName"`
@@ -62,8 +67,15 @@ type DBInstance struct {
 	DBSubnetGroupName                 string `json:"dbSubnetGroupName"`
 	DBParameterGroupName              string `json:"dbParameterGroupName"`
 	ReplicaSourceDBInstanceIdentifier string `json:"replicaSourceDBInstanceIdentifier"`
+	AvailabilityZone                  string `json:"availabilityZone"`
+	StorageType                       string `json:"storageType"`
 	Port                              int    `json:"port"`
 	AllocatedStorage                  int    `json:"allocatedStorage"`
+	BackupRetentionPeriod             int    `json:"backupRetentionPeriod"`
+	MultiAZ                           bool   `json:"multiAZ"`
+	StorageEncrypted                  bool   `json:"storageEncrypted"`
+	IAMDatabaseAuthenticationEnabled  bool   `json:"iamDatabaseAuthenticationEnabled"`
+	DeletionProtection                bool   `json:"deletionProtection"`
 }
 
 // DBSnapshot represents an RDS database snapshot.
@@ -71,7 +83,12 @@ type DBSnapshot struct {
 	DBSnapshotIdentifier string `json:"dbSnapshotIdentifier"`
 	DBInstanceIdentifier string `json:"dbInstanceIdentifier"`
 	Engine               string `json:"engine"`
+	EngineVersion        string `json:"engineVersion"`
 	Status               string `json:"status"`
+	AllocatedStorage     int    `json:"allocatedStorage"`
+	Port                 int    `json:"port"`
+	StorageType          string `json:"storageType"`
+	StorageEncrypted     bool   `json:"storageEncrypted"`
 }
 
 // DBSubnetGroup represents an RDS DB subnet group.
@@ -159,6 +176,16 @@ type ExportTask struct {
 	S3Bucket             string `json:"s3Bucket"`
 }
 
+// GlobalCluster represents an RDS global cluster.
+type GlobalCluster struct {
+	GlobalClusterIdentifier string `json:"globalClusterIdentifier"`
+	Engine                  string `json:"engine"`
+	EngineVersion           string `json:"engineVersion"`
+	Status                  string `json:"status"`
+	StorageEncrypted        bool   `json:"storageEncrypted"`
+	DeletionProtection      bool   `json:"deletionProtection"`
+}
+
 // DBEngineVersion represents an available RDS engine version.
 type DBEngineVersion struct {
 	Engine              string `json:"engine"`
@@ -186,6 +213,18 @@ type DNSRegistrar interface {
 	Deregister(hostname string)
 }
 
+// DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
+type DBInstanceOptions struct {
+	EngineVersion                    string
+	StorageType                      string
+	AvailabilityZone                 string
+	BackupRetentionPeriod            int
+	MultiAZ                          bool
+	StorageEncrypted                 bool
+	IAMDatabaseAuthenticationEnabled bool
+	DeletionProtection               bool
+}
+
 // InMemoryBackend is the in-memory store for RDS resources.
 type InMemoryBackend struct {
 	dnsRegistrar           DNSRegistrar
@@ -200,6 +239,7 @@ type InMemoryBackend struct {
 	clusterSnapshots       map[string]*DBClusterSnapshot
 	clusterEndpoints       map[string]*DBClusterEndpoint
 	exportTasks            map[string]*ExportTask
+	globalClusters         map[string]*GlobalCluster
 	fisFailoverFaults      map[string]time.Time // keyed by cluster identifier; value is expiry (zero = permanent)
 	mu                     *lockmetrics.RWMutex
 	accountID              string
@@ -220,6 +260,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		clusterSnapshots:       make(map[string]*DBClusterSnapshot),
 		clusterEndpoints:       make(map[string]*DBClusterEndpoint),
 		exportTasks:            make(map[string]*ExportTask),
+		globalClusters:         make(map[string]*GlobalCluster),
 		fisFailoverFaults:      make(map[string]time.Time),
 		accountID:              accountID,
 		region:                 region,
@@ -251,15 +292,17 @@ func enginePort(engine string) int {
 func (b *InMemoryBackend) CreateDBInstance(
 	id, engine, instanceClass, dbName, masterUser, paramGroupName string,
 	allocatedStorage int,
+	opts DBInstanceOptions,
 ) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("CreateDBInstance")
-	defer b.mu.Unlock()
 
 	if _, exists := b.instances[id]; exists {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf("%w: instance %s already exists", ErrInstanceAlreadyExists, id)
 	}
 
@@ -275,30 +318,45 @@ func (b *InMemoryBackend) CreateDBInstance(
 	if masterUser == "" {
 		masterUser = "admin"
 	}
+	if opts.StorageType == "" {
+		opts.StorageType = "gp2"
+	}
+	if opts.AvailabilityZone == "" {
+		opts.AvailabilityZone = b.region + "a"
+	}
 
 	port := enginePort(engine)
 	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 
 	inst := &DBInstance{
-		DBInstanceIdentifier: id,
-		DbiResourceID:        id,
-		DBInstanceClass:      instanceClass,
-		Engine:               engine,
-		DBInstanceStatus:     "available",
-		MasterUsername:       masterUser,
-		DBName:               dbName,
-		Endpoint:             endpoint,
-		Port:                 port,
-		AllocatedStorage:     allocatedStorage,
-		DBParameterGroupName: paramGroupName,
+		DBInstanceIdentifier:             id,
+		DbiResourceID:                    id,
+		DBInstanceClass:                  instanceClass,
+		Engine:                           engine,
+		EngineVersion:                    opts.EngineVersion,
+		DBInstanceStatus:                 "available",
+		MasterUsername:                   masterUser,
+		DBName:                           dbName,
+		Endpoint:                         endpoint,
+		Port:                             port,
+		AllocatedStorage:                 allocatedStorage,
+		DBParameterGroupName:             paramGroupName,
+		MultiAZ:                          opts.MultiAZ,
+		StorageType:                      opts.StorageType,
+		StorageEncrypted:                 opts.StorageEncrypted,
+		AvailabilityZone:                 opts.AvailabilityZone,
+		BackupRetentionPeriod:            opts.BackupRetentionPeriod,
+		IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
+		DeletionProtection:               opts.DeletionProtection,
 	}
 	b.instances[id] = inst
+	cp := *inst
+
+	b.mu.Unlock()
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
 	}
-
-	cp := *inst
 
 	return &cp, nil
 }
@@ -312,16 +370,19 @@ func (b *InMemoryBackend) rdsARN(resourceType, id string) string {
 // DeleteDBInstance removes the DB instance with the given identifier.
 func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	b.mu.Lock("DeleteDBInstance")
-	defer b.mu.Unlock()
 
 	inst, exists := b.instances[id]
 	if !exists {
+		b.mu.Unlock()
+
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
 
 	cp := *inst
 	delete(b.instances, id)
 	delete(b.tags, b.rdsARN("db", id))
+
+	b.mu.Unlock()
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Deregister(cp.Endpoint)
@@ -353,7 +414,7 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 }
 
 // ModifyDBInstance modifies properties of an existing DB instance.
-func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string, allocatedStorage int) (*DBInstance, error) {
+func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string, allocatedStorage int, opts DBInstanceOptions) (*DBInstance, error) {
 	b.mu.Lock("ModifyDBInstance")
 	defer b.mu.Unlock()
 
@@ -367,6 +428,21 @@ func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string, allocatedSt
 	}
 	if allocatedStorage > 0 {
 		inst.AllocatedStorage = allocatedStorage
+	}
+	if opts.StorageType != "" {
+		inst.StorageType = opts.StorageType
+	}
+	if opts.BackupRetentionPeriod >= 0 {
+		inst.BackupRetentionPeriod = opts.BackupRetentionPeriod
+	}
+	if opts.MultiAZ {
+		inst.MultiAZ = opts.MultiAZ
+	}
+	if opts.IAMDatabaseAuthenticationEnabled {
+		inst.IAMDatabaseAuthenticationEnabled = opts.IAMDatabaseAuthenticationEnabled
+	}
+	if opts.DeletionProtection {
+		inst.DeletionProtection = opts.DeletionProtection
 	}
 
 	cp := *inst
@@ -400,7 +476,12 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 		DBSnapshotIdentifier: snapshotID,
 		DBInstanceIdentifier: instanceID,
 		Engine:               inst.Engine,
+		EngineVersion:        inst.EngineVersion,
 		Status:               "available",
+		AllocatedStorage:     inst.AllocatedStorage,
+		Port:                 inst.Port,
+		StorageType:          inst.StorageType,
+		StorageEncrypted:     inst.StorageEncrypted,
 	}
 	b.snapshots[snapshotID] = snap
 
