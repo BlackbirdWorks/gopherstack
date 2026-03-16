@@ -1125,7 +1125,12 @@ type mockCancelledLambdaInvoker struct {
 	called chan struct{}
 }
 
-func (m *mockCancelledLambdaInvoker) InvokeFunction(ctx context.Context, _ string, _ string, _ []byte) ([]byte, int, error) {
+func (m *mockCancelledLambdaInvoker) InvokeFunction(
+	ctx context.Context,
+	_ string,
+	_ string,
+	_ []byte,
+) ([]byte, int, error) {
 	close(m.called)
 	<-ctx.Done()
 
@@ -1290,7 +1295,8 @@ func TestCloudWatchBackend_SweepExpiredMetrics(t *testing.T) {
 
 	b := cloudwatch.NewInMemoryBackend()
 
-	oldTimestamp := time.Now().UTC().AddDate(0, 0, -20) // 20 days ago, outside 15-day retention
+	// Use a timestamp outside the retention window by a safe margin.
+	oldTimestamp := time.Now().UTC().AddDate(0, 0, -(cloudwatch.CwMetricRetentionDays + 5))
 	recentTimestamp := time.Now().UTC()
 
 	oldDatum := cloudwatch.MetricDatum{

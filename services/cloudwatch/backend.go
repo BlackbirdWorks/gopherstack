@@ -39,11 +39,11 @@ const (
 	cwDefaultAlarmHistoryLimit      = 100
 	cwDefaultDescribeForMetricLimit = 100
 	cwDefaultListDashboardsLimit    = 300
-	cwMaxMetricDataPoints           = 1000  // maximum data points retained per metric
-	cwMaxMetricNamesPerNamespace    = 500   // maximum unique metric names per namespace
-	cwMaxAlarmHistory               = 100   // maximum alarm history entries per alarm
-	cwMetricRetentionDays           = 15    // data points older than this are evicted
-	cwMaxCompositeEvalDepth         = 10    // maximum recursion depth for composite alarm evaluation
+	cwMaxMetricDataPoints           = 1000 // maximum data points retained per metric
+	cwMaxMetricNamesPerNamespace    = 500  // maximum unique metric names per namespace
+	cwMaxAlarmHistory               = 100  // maximum alarm history entries per alarm
+	cwMetricRetentionDays           = 15   // data points older than this are evicted
+	cwMaxCompositeEvalDepth         = 10   // maximum recursion depth for composite alarm evaluation
 
 	alarmStateAlarm            = "ALARM"
 	alarmStateOK               = "OK"
@@ -178,14 +178,12 @@ func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) er
 			}
 		}
 
-		pts := append(b.metrics[namespace][d.MetricName], d)
+		b.metrics[namespace][d.MetricName] = append(b.metrics[namespace][d.MetricName], d)
 
 		// Cap data points to prevent unbounded memory growth.
-		if len(pts) > cwMaxMetricDataPoints {
-			pts = pts[len(pts)-cwMaxMetricDataPoints:]
+		if pts := b.metrics[namespace][d.MetricName]; len(pts) > cwMaxMetricDataPoints {
+			b.metrics[namespace][d.MetricName] = pts[len(pts)-cwMaxMetricDataPoints:]
 		}
-
-		b.metrics[namespace][d.MetricName] = pts
 	}
 
 	return nil
@@ -533,6 +531,8 @@ func (b *InMemoryBackend) evalCompositeRule(rule string) string {
 // evalCompositeRuleDepth is the recursive implementation of evalCompositeRule.
 // visited tracks composite alarm names currently on the call stack to detect cycles.
 // depth enforces an absolute recursion cap as a secondary safety measure.
+// This function is always called while b.mu is held, so visited is accessed
+// single-threadedly and does not require additional synchronisation.
 // Caller must hold b.mu (at least read lock).
 func (b *InMemoryBackend) evalCompositeRuleDepth(rule string, visited map[string]bool, depth int) string {
 	if depth > cwMaxCompositeEvalDepth {
@@ -952,14 +952,14 @@ func (b *InMemoryBackend) executeActions(
 		case strings.HasPrefix(action, "arn:aws:sns:"):
 			if snsPub != nil {
 				if err := snsPub.PublishToTopic(action, string(payload)); err != nil {
-					slog.Default().Warn("cloudwatch: alarm SNS action delivery failed",
+					slog.Default().WarnContext(ctx, "cloudwatch: alarm SNS action delivery failed",
 						"topic_arn", action, "error", err)
 				}
 			}
 		case strings.HasPrefix(action, "arn:aws:lambda:"):
 			if lambdaInv != nil {
 				if _, _, err := lambdaInv.InvokeFunction(ctx, action, "Event", payload); err != nil {
-					slog.Default().Warn("cloudwatch: alarm Lambda action delivery failed",
+					slog.Default().WarnContext(ctx, "cloudwatch: alarm Lambda action delivery failed",
 						"function_arn", action, "error", err)
 				}
 			}
