@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -120,17 +122,20 @@ type lifecycleNoncurrentTransition struct {
 const (
 	defaultJanitorInterval = 500 * time.Millisecond
 
-	// janitorBatchSize is the maximum number of objects deleted from a pending
-	// bucket per janitor tick. This keeps each tick short while the queue is
-	// visibly draining on the live metrics dashboard.
-	janitorBatchSize = 100
+	// drainChunkSize is the maximum number of objects deleted per lock acquisition
+	// while draining a DeletePending bucket. Between chunks the bucket lock is
+	// released so that concurrent operations (PutObject, GetObject) are not
+	// starved. 10 000 is fast enough (sub-millisecond in practice) while keeping
+	// the critical section short.
+	drainChunkSize = 10_000
 )
 
 // Janitor is the S3 background worker that drains buckets queued for async
 // deletion and records queue-depth metrics for the live dashboard.
 type Janitor struct {
-	Backend  *InMemoryBackend
-	Interval time.Duration
+	Backend      *InMemoryBackend
+	activeDrains sync.Map
+	Interval     time.Duration
 }
 
 // NewJanitor creates a new S3 Janitor for the given backend.
@@ -149,6 +154,8 @@ func NewJanitor(backend *InMemoryBackend, settings Settings) *Janitor {
 }
 
 // Run runs the janitor loop until ctx is cancelled.
+// Each tick, sweepAndDrain spawns one goroutine per pending bucket so that
+// thousands of large buckets are drained in parallel rather than serially.
 func (j *Janitor) Run(ctx context.Context) {
 	ticker := time.NewTicker(j.Interval)
 	defer ticker.Stop()
@@ -158,9 +165,40 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			j.runOnce(ctx)
+			j.sweepAndDrain(ctx)
 			j.sweepLifecycle(ctx)
 			j.cleanupDefaultMultipart(ctx)
+		}
+	}
+}
+
+// sweepAndDrain records queue depth and spawns a dedicated goroutine per
+// pending bucket. A [sync.Map] (activeDrains) prevents duplicate goroutines for
+// buckets that are still being drained from a previous tick.
+func (j *Janitor) sweepAndDrain(ctx context.Context) {
+	b := j.Backend
+
+	b.mu.RLock("S3Janitor")
+	pending := make([]string, 0)
+
+	for _, regionBuckets := range b.buckets {
+		for name, bucket := range regionBuckets {
+			if bucket.DeletePending {
+				pending = append(pending, name)
+			}
+		}
+	}
+	b.mu.RUnlock()
+
+	telemetry.RecordWorkerQueueDepth("s3", "BucketCleaner", len(pending))
+	telemetry.RecordWorkerTask("s3", "BucketCleaner", "success")
+
+	for _, name := range pending {
+		if _, loaded := j.activeDrains.LoadOrStore(name, struct{}{}); !loaded {
+			go func(n string) {
+				defer j.activeDrains.Delete(n)
+				j.processBucket(ctx, n)
+			}(name)
 		}
 	}
 }
@@ -199,37 +237,18 @@ func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 	}
 }
 
-// runOnce performs one pass: records queue depth, then processes pending buckets.
-func (j *Janitor) runOnce(ctx context.Context) {
-	b := j.Backend
-
-	// Snapshot pending bucket names under a short read-lock across all regions.
-	b.mu.RLock("S3Janitor")
-	pending := make([]string, 0)
-
-	for _, regionBuckets := range b.buckets {
-		for name, bucket := range regionBuckets {
-			if bucket.DeletePending {
-				pending = append(pending, name)
-			}
-		}
-	}
-	b.mu.RUnlock()
-
-	telemetry.RecordWorkerQueueDepth("s3", "BucketCleaner", len(pending))
-	telemetry.RecordWorkerTask("s3", "BucketCleaner", "success")
-
-	for _, name := range pending {
-		j.processBucket(ctx, name)
-	}
-}
-
-// processBucket deletes up to janitorBatchSize objects from a pending bucket, then
-// removes the bucket itself once it is empty.
+// processBucket fully drains a pending bucket by deleting all objects in repeated
+// chunks of drainChunkSize, releasing the bucket lock between chunks so that
+// concurrent operations are not starved. Once the bucket is empty it removes all
+// associated metadata (region index, uploads, tags) and closes the bucket mutex.
+//
+// Safe to call synchronously (directly for tests) or from a goroutine (production
+// via sweepAndDrain). When called from a goroutine the activeDrains sentinel in
+// sweepAndDrain prevents duplicate goroutines for the same bucket.
 func (j *Janitor) processBucket(ctx context.Context, name string) {
 	b := j.Backend
 
-	// Search for the bucket across all regions
+	// Locate the bucket once; it cannot move between regions.
 	b.mu.RLock("S3Janitor.processBucket")
 	bucket, foundRegion := findBucketAcrossRegions(b.buckets, name)
 	b.mu.RUnlock()
@@ -238,55 +257,62 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 		return
 	}
 
-	// Delete a batch of objects under the bucket lock.
-	bucket.mu.Lock("S3Janitor.processBucket")
-	count := deleteBatch(bucket.Objects, janitorBatchSize)
+	// Drain all objects in chunks, yielding between each to avoid starving
+	// concurrent operations that are waiting on bucket.mu.
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 
-	telemetry.RecordWorkerItems("s3", "BucketCleaner", count)
+		bucket.mu.Lock("S3Janitor.processBucket")
+		count := deleteBatch(bucket.Objects, drainChunkSize)
+		remaining := len(bucket.Objects)
+		bucket.mu.Unlock()
 
-	remaining := len(bucket.Objects)
-	bucket.mu.Unlock()
+		telemetry.RecordWorkerItems("s3", "BucketCleaner", count)
 
-	if remaining > 0 {
-		// More objects remain; they will be picked up on the next tick.
+		if remaining > 0 {
+			runtime.Gosched()
+
+			continue
+		}
+
+		// Bucket is empty — remove it from the region map and clean up the
+		// region entry if it has become empty to prevent unbounded map growth.
+		// Guard the index removal: only delete if it still points at foundRegion
+		// so a future bucket with the same name keeps its index entry.
+		// Also purge orphaned uploads and tags to prevent resource leaks.
+		b.mu.Lock("S3Janitor.removeBucket")
+		if regionBuckets, exists := b.buckets[foundRegion]; exists {
+			delete(regionBuckets, name)
+
+			if len(regionBuckets) == 0 {
+				delete(b.buckets, foundRegion)
+			}
+		}
+
+		if b.bucketIndex[name] == foundRegion {
+			delete(b.bucketIndex, name)
+		}
+
+		delete(b.uploads, name)
+
+		prefix := name + "/"
+		for tagKey := range b.tags {
+			if strings.HasPrefix(tagKey, prefix) {
+				delete(b.tags, tagKey)
+			}
+		}
+
+		b.mu.Unlock()
+		bucket.mu.Close()
+
+		logger.Load(ctx).InfoContext(ctx, "S3 janitor: bucket deleted", "bucket", name)
+
 		return
 	}
-
-	// Bucket is empty — remove it from the region map and clean up the region
-	// entry if it has become empty to prevent unbounded map accumulation.
-	// Guard the index removal: only delete the entry if it still points at
-	// foundRegion, so a future replacement of the bucket name does not
-	// accidentally lose its index entry.
-	// Also purge any orphaned uploads and tags that reference this bucket to
-	// prevent unbounded memory growth (resource leaks).
-	b.mu.Lock("S3Janitor.removeBucket")
-	if regionBuckets, exists := b.buckets[foundRegion]; exists {
-		delete(regionBuckets, name)
-
-		if len(regionBuckets) == 0 {
-			delete(b.buckets, foundRegion)
-		}
-	}
-
-	if b.bucketIndex[name] == foundRegion {
-		delete(b.bucketIndex, name)
-	}
-
-	// Purge in-progress multipart uploads that belong to this bucket.
-	delete(b.uploads, name)
-
-	// Purge per-object tags whose key is prefixed with "<bucketName>/".
-	prefix := name + "/"
-	for tagKey := range b.tags {
-		if strings.HasPrefix(tagKey, prefix) {
-			delete(b.tags, tagKey)
-		}
-	}
-
-	b.mu.Unlock()
-	bucket.mu.Close()
-
-	logger.Load(ctx).InfoContext(ctx, "S3 janitor: bucket deleted", "bucket", name)
 }
 
 // sweepLifecycle iterates over all active buckets, evaluates lifecycle rules,
