@@ -2,6 +2,7 @@ package cloudwatch_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -475,7 +476,7 @@ func TestCloudWatchBackend_SetAlarmState(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			err := b.SetAlarmState(tt.alarmName, tt.stateValue, tt.stateReason)
+			err := b.SetAlarmState(t.Context(), tt.alarmName, tt.stateValue, tt.stateReason)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -528,7 +529,7 @@ func TestCloudWatchBackend_DescribeAlarmHistory(t *testing.T) {
 
 	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "hist-alarm", ActionsEnabled: true}))
-	require.NoError(t, b.SetAlarmState("hist-alarm", "ALARM", "test trigger"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "hist-alarm", "ALARM", "test trigger"))
 
 	p, err := b.DescribeAlarmHistory("hist-alarm", "", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
@@ -566,7 +567,7 @@ func TestCloudWatchBackend_CompositeAlarmReevalOnChildChange(t *testing.T) {
 	assert.Equal(t, "OK", compositeAlarms.Data[0].StateValue)
 
 	// Change child to ALARM; composite should re-evaluate
-	require.NoError(t, b.SetAlarmState("child", "ALARM", "test"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "child", "ALARM", "test"))
 	_, compositeAlarms2, err2 := b.DescribeAlarms([]string{"parent"}, nil, "", "", 0)
 	require.NoError(t, err2)
 	assert.Equal(t, "ALARM", compositeAlarms2.Data[0].StateValue)
@@ -604,7 +605,7 @@ func TestCloudWatchBackend_CompositeAlarmActionsFireOnChildChange(t *testing.T) 
 	assert.Empty(t, pub.messages)
 
 	// Transition child to ALARM; composite should re-evaluate and fire its AlarmActions.
-	require.NoError(t, b.SetAlarmState("child2", "ALARM", "test trigger"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "child2", "ALARM", "test trigger"))
 
 	assert.Len(t, pub.messages, 1, "composite alarm action should have been fired")
 	assert.Contains(t, pub.messages[0], "parent2")
@@ -637,7 +638,7 @@ func TestCloudWatchBackend_LambdaActionFires(t *testing.T) {
 		AlarmActions:   []string{lambdaARN},
 	}))
 
-	require.NoError(t, b.SetAlarmState("lambda-alarm", "ALARM", "test"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "lambda-alarm", "ALARM", "test"))
 
 	assert.Len(t, inv.invocations, 1)
 	assert.Equal(t, lambdaARN, inv.invocations[0])
@@ -661,7 +662,7 @@ func TestCloudWatchBackend_ExecuteActions_NoInvoker(t *testing.T) {
 	}))
 
 	// Should not panic even with nil publisher/invoker.
-	require.NoError(t, b.SetAlarmState("no-invoker-alarm", "ALARM", "test"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "no-invoker-alarm", "ALARM", "test"))
 }
 
 func TestCloudWatchBackend_EvalCompositeRule_NestedComposite(t *testing.T) {
@@ -712,7 +713,7 @@ func TestCloudWatchBackend_DescribeAlarmHistory_TypeFilter(t *testing.T) {
 
 	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "type-filter", StateValue: "OK"}))
-	require.NoError(t, b.SetAlarmState("type-filter", "ALARM", "transition"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "type-filter", "ALARM", "transition"))
 
 	// Filter by StateUpdate type — should find the state transition.
 	p, err := b.DescribeAlarmHistory("type-filter", "StateUpdate", "", time.Time{}, time.Time{}, 0)
@@ -786,7 +787,7 @@ func TestCloudWatchBackend_SetAlarmState_ChildTriggersCompositeReevaluation(t *t
 	assert.Equal(t, "ALARM", composites0.Data[0].StateValue)
 
 	// SetAlarmState on child to OK; composite should re-evaluate to OK.
-	require.NoError(t, b.SetAlarmState("child-direct", "OK", "recovered"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "child-direct", "OK", "recovered"))
 
 	_, composites, err := b.DescribeAlarms([]string{"direct-composite"}, nil, "", "", 0)
 	require.NoError(t, err)
@@ -812,11 +813,11 @@ func TestCloudWatchBackend_SetAlarmState_OKAndInsufficientData(t *testing.T) {
 	}))
 
 	// Transition to OK — should fire OKActions.
-	require.NoError(t, b.SetAlarmState("state-cycle", "OK", "recovered"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "state-cycle", "OK", "recovered"))
 	assert.Len(t, pub.messages, 1)
 
 	// Transition to INSUFFICIENT_DATA — should fire InsufficientDataActions.
-	require.NoError(t, b.SetAlarmState("state-cycle", "INSUFFICIENT_DATA", "no data"))
+	require.NoError(t, b.SetAlarmState(t.Context(), "state-cycle", "INSUFFICIENT_DATA", "no data"))
 	assert.Len(t, pub.messages, 2)
 }
 
@@ -1110,11 +1111,212 @@ func TestCloudWatchBackend_AlarmHistoryCap(t *testing.T) {
 			state = "ALARM"
 		}
 
-		require.NoError(t, b.SetAlarmState("cap-alarm", state, "test reason"))
+		require.NoError(t, b.SetAlarmState(t.Context(), "cap-alarm", state, "test reason"))
 	}
 
 	// History should be capped at 100 entries.
 	page, err := b.DescribeAlarmHistory("cap-alarm", "", "", time.Time{}, time.Time{}, 0)
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(page.Data), 100)
+}
+
+// mockCancelledLambdaInvoker blocks until the context is cancelled, then returns an error.
+type mockCancelledLambdaInvoker struct {
+	called chan struct{}
+}
+
+func (m *mockCancelledLambdaInvoker) InvokeFunction(ctx context.Context, _ string, _ string, _ []byte) ([]byte, int, error) {
+	close(m.called)
+	<-ctx.Done()
+
+	return nil, 0, ctx.Err()
+}
+
+func TestCloudWatchBackend_ExecuteActions_ContextPropagated(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+	inv := &mockCancelledLambdaInvoker{called: make(chan struct{})}
+	b.SetLambdaInvoker(inv)
+
+	lambdaARN := "arn:aws:lambda:us-east-1:123456789012:function:ctx-fn"
+
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:      "ctx-alarm",
+		StateValue:     "OK",
+		ActionsEnabled: true,
+		AlarmActions:   []string{lambdaARN},
+	}))
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan error, 1)
+	go func() {
+		done <- b.SetAlarmState(ctx, "ctx-alarm", "ALARM", "test")
+	}()
+
+	// Wait for the invoker to be called, then cancel the context.
+	<-inv.called
+	cancel()
+
+	err := <-done
+	require.NoError(t, err, "SetAlarmState itself should not propagate Lambda delivery errors")
+}
+
+func TestCloudWatchBackend_CompositeAlarm_CircularDependency(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(b *cloudwatch.InMemoryBackend)
+		alarmName string
+		wantState string
+	}{
+		{
+			name: "self_reference",
+			setup: func(b *cloudwatch.InMemoryBackend) {
+				// Composite alarm referencing itself: A -> ALARM("A")
+				_ = b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+					AlarmName: "self-ref",
+					AlarmRule: `ALARM("self-ref")`,
+				})
+			},
+			alarmName: "self-ref",
+			// Self-reference: the alarm doesn't exist when first evaluated, so rule
+			// evaluates to OK. The cycle guard prevents infinite recursion on reevaluation.
+			wantState: "OK",
+		},
+		{
+			name: "mutual_dependency",
+			setup: func(b *cloudwatch.InMemoryBackend) {
+				// A -> ALARM("B"), B -> ALARM("A")
+				_ = b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+					AlarmName: "cycle-a",
+					AlarmRule: `ALARM("cycle-b")`,
+				})
+				_ = b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+					AlarmName: "cycle-b",
+					AlarmRule: `ALARM("cycle-a")`,
+				})
+			},
+			alarmName: "cycle-a",
+			// Mutual dependency: cycle-b doesn't exist when cycle-a is first evaluated,
+			// so the rule evaluates to OK. The cycle guard prevents infinite recursion.
+			wantState: "OK",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+			tt.setup(b)
+
+			_, composites, err := b.DescribeAlarms([]string{tt.alarmName}, nil, "", "", 0)
+			require.NoError(t, err)
+			require.Len(t, composites.Data, 1)
+			assert.Equal(t, tt.wantState, composites.Data[0].StateValue)
+		})
+	}
+}
+
+func TestCloudWatchBackend_CompositeAlarm_CircularDependency_ReevaluationNoPanic(t *testing.T) {
+	t.Parallel()
+
+	// Verify that reevaluateCompositeAlarms triggered by SetAlarmState does not
+	// panic or deadlock when composite alarms contain circular references.
+	b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
+
+	require.NoError(t, b.PutMetricAlarm(&cloudwatch.MetricAlarm{
+		AlarmName:  "trigger",
+		StateValue: "OK",
+	}))
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName: "cycle-x",
+		AlarmRule: `ALARM("cycle-y")`,
+	}))
+	require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+		AlarmName: "cycle-y",
+		AlarmRule: `ALARM("cycle-x")`,
+	}))
+
+	// SetAlarmState triggers reevaluateCompositeAlarms; must not hang.
+	require.NoError(t, b.SetAlarmState(t.Context(), "trigger", "ALARM", "test"))
+}
+
+func TestCloudWatchBackend_PutMetricData_NamespaceCapEnforced(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+
+	// Fill the namespace to the cap by putting one data point per unique metric name.
+	for i := range cloudwatch.CwMaxMetricNamesPerNamespace {
+		name := fmt.Sprintf("Metric%d", i)
+		datum := cloudwatch.MetricDatum{
+			MetricName: name,
+			Value:      1,
+			Count:      1,
+			Sum:        1,
+			Min:        1,
+			Max:        1,
+			Timestamp:  time.Now(),
+		}
+		require.NoError(t, b.PutMetricData("NS/Cap", []cloudwatch.MetricDatum{datum}))
+	}
+
+	// Attempt to add one more unique metric; it should be silently dropped.
+	extra := cloudwatch.MetricDatum{
+		MetricName: "ExtraMetric",
+		Value:      1,
+		Count:      1,
+		Sum:        1,
+		Min:        1,
+		Max:        1,
+		Timestamp:  time.Now(),
+	}
+	require.NoError(t, b.PutMetricData("NS/Cap", []cloudwatch.MetricDatum{extra}))
+
+	metrics, err := b.ListMetrics("NS/Cap", "", "", 0)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(metrics.Data), cloudwatch.CwMaxMetricNamesPerNamespace,
+		"namespace metric count should not exceed the cap")
+	assert.Len(t, metrics.Data, cloudwatch.CwMaxMetricNamesPerNamespace,
+		"exactly cap metrics should be present")
+}
+
+func TestCloudWatchBackend_SweepExpiredMetrics(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+
+	oldTimestamp := time.Now().UTC().AddDate(0, 0, -20) // 20 days ago, outside 15-day retention
+	recentTimestamp := time.Now().UTC()
+
+	oldDatum := cloudwatch.MetricDatum{
+		MetricName: "OldMetric",
+		Value:      1, Count: 1, Sum: 1, Min: 1, Max: 1,
+		Timestamp: oldTimestamp,
+	}
+	recentDatum := cloudwatch.MetricDatum{
+		MetricName: "RecentMetric",
+		Value:      2, Count: 1, Sum: 2, Min: 2, Max: 2,
+		Timestamp: recentTimestamp,
+	}
+
+	require.NoError(t, b.PutMetricData("NS/Sweep", []cloudwatch.MetricDatum{oldDatum, recentDatum}))
+
+	b.SweepExpiredMetrics()
+
+	// OldMetric should be evicted; RecentMetric should remain.
+	all, err := b.ListMetrics("NS/Sweep", "", "", 0)
+	require.NoError(t, err)
+
+	names := make(map[string]bool, len(all.Data))
+	for _, m := range all.Data {
+		names[m.MetricName] = true
+	}
+
+	assert.False(t, names["OldMetric"], "expired metric should have been swept")
+	assert.True(t, names["RecentMetric"], "recent metric should remain after sweep")
 }

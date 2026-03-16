@@ -10,3 +10,6 @@ func EvaluateAlarmRuleForTest(rule string, states map[string]string) string {
 		return alarmStateInsufficientData
 	})
 }
+
+// CwMaxMetricNamesPerNamespace exposes the constant for tests.
+const CwMaxMetricNamesPerNamespace = cwMaxMetricNamesPerNamespace

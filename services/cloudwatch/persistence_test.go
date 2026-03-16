@@ -1,6 +1,7 @@
 package cloudwatch_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -112,7 +113,7 @@ func TestInMemoryBackend_SnapshotRestore_CompositeAndHistory(t *testing.T) {
 			name: "alarm_history_round_trip",
 			setup: func(b *cloudwatch.InMemoryBackend) {
 				_ = b.PutMetricAlarm(&cloudwatch.MetricAlarm{AlarmName: "hist-persist", StateValue: "OK"})
-				_ = b.SetAlarmState("hist-persist", "ALARM", "test reason")
+				_ = b.SetAlarmState(context.Background(), "hist-persist", "ALARM", "test reason")
 			},
 			verify: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
 				t.Helper()

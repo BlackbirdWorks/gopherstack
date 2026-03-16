@@ -39,8 +39,11 @@ const (
 	cwDefaultAlarmHistoryLimit      = 100
 	cwDefaultDescribeForMetricLimit = 100
 	cwDefaultListDashboardsLimit    = 300
-	cwMaxMetricDataPoints           = 1000 // maximum data points retained per metric
-	cwMaxAlarmHistory               = 100  // maximum alarm history entries per alarm
+	cwMaxMetricDataPoints           = 1000  // maximum data points retained per metric
+	cwMaxMetricNamesPerNamespace    = 500   // maximum unique metric names per namespace
+	cwMaxAlarmHistory               = 100   // maximum alarm history entries per alarm
+	cwMetricRetentionDays           = 15    // data points older than this are evicted
+	cwMaxCompositeEvalDepth         = 10    // maximum recursion depth for composite alarm evaluation
 
 	alarmStateAlarm            = "ALARM"
 	alarmStateOK               = "OK"
@@ -92,7 +95,7 @@ type StorageBackend interface {
 		maxRecords int,
 	) (page.Page[AlarmHistoryItem], error)
 	DeleteAlarms(alarmNames []string) error
-	SetAlarmState(alarmName, stateValue, stateReason string) error
+	SetAlarmState(ctx context.Context, alarmName, stateValue, stateReason string) error
 	EnableAlarmActions(alarmNames []string) error
 	DisableAlarmActions(alarmNames []string) error
 	PutDashboard(name, body string) error
@@ -164,16 +167,54 @@ func (b *InMemoryBackend) PutMetricData(namespace string, data []MetricDatum) er
 	if b.metrics[namespace] == nil {
 		b.metrics[namespace] = make(map[string][]MetricDatum)
 	}
+
 	for _, d := range data {
 		d.Namespace = namespace
-		b.metrics[namespace][d.MetricName] = append(b.metrics[namespace][d.MetricName], d)
-		// Cap data points to prevent unbounded memory growth.
-		if pts := b.metrics[namespace][d.MetricName]; len(pts) > cwMaxMetricDataPoints {
-			b.metrics[namespace][d.MetricName] = pts[len(pts)-cwMaxMetricDataPoints:]
+
+		// Enforce namespace-level unique metric name limit.
+		if _, exists := b.metrics[namespace][d.MetricName]; !exists {
+			if len(b.metrics[namespace]) >= cwMaxMetricNamesPerNamespace {
+				continue
+			}
 		}
+
+		pts := append(b.metrics[namespace][d.MetricName], d)
+
+		// Cap data points to prevent unbounded memory growth.
+		if len(pts) > cwMaxMetricDataPoints {
+			pts = pts[len(pts)-cwMaxMetricDataPoints:]
+		}
+
+		b.metrics[namespace][d.MetricName] = pts
 	}
 
 	return nil
+}
+
+// SweepExpiredMetrics removes metric data points older than cwMetricRetentionDays.
+// It is intended to be called periodically (e.g., by a janitor goroutine).
+func (b *InMemoryBackend) SweepExpiredMetrics() {
+	b.mu.Lock("SweepExpiredMetrics")
+	defer b.mu.Unlock()
+
+	cutoff := time.Now().UTC().AddDate(0, 0, -cwMetricRetentionDays)
+
+	for ns, nsMap := range b.metrics {
+		for metricName, pts := range nsMap {
+			start := sort.Search(len(pts), func(i int) bool {
+				return !pts[i].Timestamp.Before(cutoff)
+			})
+			if start == len(pts) {
+				// All points expired: remove the metric entirely.
+				delete(nsMap, metricName)
+			} else if start > 0 {
+				nsMap[metricName] = pts[start:]
+			}
+		}
+		if len(nsMap) == 0 {
+			delete(b.metrics, ns)
+		}
+	}
 }
 
 // metricBucket holds aggregated data for a single time bucket.
@@ -483,14 +524,35 @@ func (b *InMemoryBackend) PutCompositeAlarm(alarm *CompositeAlarm) error {
 }
 
 // evalCompositeRule evaluates the composite alarm rule using current alarm states.
+// It guards against circular composite alarm references by tracking visited names.
 // Caller must hold b.mu (at least read lock).
 func (b *InMemoryBackend) evalCompositeRule(rule string) string {
+	return b.evalCompositeRuleDepth(rule, make(map[string]bool), 0)
+}
+
+// evalCompositeRuleDepth is the recursive implementation of evalCompositeRule.
+// visited tracks composite alarm names currently on the call stack to detect cycles.
+// depth enforces an absolute recursion cap as a secondary safety measure.
+// Caller must hold b.mu (at least read lock).
+func (b *InMemoryBackend) evalCompositeRuleDepth(rule string, visited map[string]bool, depth int) string {
+	if depth > cwMaxCompositeEvalDepth {
+		return alarmStateInsufficientData
+	}
+
 	resolve := func(name string) string {
 		if a, ok := b.alarms[name]; ok {
 			return a.StateValue
 		}
 		if ca, ok := b.compositeAlarms[name]; ok {
-			return ca.StateValue
+			if visited[name] {
+				// Circular dependency detected: treat as INSUFFICIENT_DATA.
+				return alarmStateInsufficientData
+			}
+			visited[name] = true
+			state := b.evalCompositeRuleDepth(ca.AlarmRule, visited, depth+1)
+			delete(visited, name)
+
+			return state
 		}
 
 		return alarmStateInsufficientData
@@ -710,7 +772,7 @@ func (b *InMemoryBackend) DeleteAlarms(alarmNames []string) error {
 }
 
 // SetAlarmState manually sets the state of an alarm and fires the corresponding actions.
-func (b *InMemoryBackend) SetAlarmState(alarmName, stateValue, stateReason string) error {
+func (b *InMemoryBackend) SetAlarmState(ctx context.Context, alarmName, stateValue, stateReason string) error {
 	b.mu.Lock("SetAlarmState")
 
 	metricAlarm, hasMetric := b.alarms[alarmName]
@@ -775,7 +837,7 @@ func (b *InMemoryBackend) SetAlarmState(alarmName, stateValue, stateReason strin
 		}
 
 		payload := b.buildAlarmActionPayload(alarmName, alarmDesc, alarmArn, oldState, stateValue, stateReason)
-		b.executeActions(actions, alarmName, payload, snsPub, lambdaInv)
+		b.executeActions(ctx, actions, alarmName, payload, snsPub, lambdaInv)
 	}
 
 	// fire actions for any composite alarms that changed state
@@ -784,7 +846,7 @@ func (b *InMemoryBackend) SetAlarmState(alarmName, stateValue, stateReason strin
 			tr.alarmName, tr.alarmDesc, tr.alarmArn,
 			tr.oldState, tr.newState, tr.reason,
 		)
-		b.executeActions(tr.actions, tr.alarmName, payload, snsPub, lambdaInv)
+		b.executeActions(ctx, tr.actions, tr.alarmName, payload, snsPub, lambdaInv)
 	}
 
 	return nil
@@ -878,6 +940,7 @@ func (b *InMemoryBackend) buildAlarmActionPayload(
 // executeActions delivers the alarm action notifications to SNS topics and Lambda functions.
 // Delivery errors are logged as warnings but do not prevent other actions from running.
 func (b *InMemoryBackend) executeActions(
+	ctx context.Context,
 	actions []string,
 	_ string,
 	payload []byte,
@@ -895,7 +958,7 @@ func (b *InMemoryBackend) executeActions(
 			}
 		case strings.HasPrefix(action, "arn:aws:lambda:"):
 			if lambdaInv != nil {
-				if _, _, err := lambdaInv.InvokeFunction(context.Background(), action, "Event", payload); err != nil {
+				if _, _, err := lambdaInv.InvokeFunction(ctx, action, "Event", payload); err != nil {
 					slog.Default().Warn("cloudwatch: alarm Lambda action delivery failed",
 						"function_arn", action, "error", err)
 				}
