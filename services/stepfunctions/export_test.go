@@ -40,3 +40,13 @@ func (b *InMemoryBackend) RecordStateEnteredForTest(execARN, stateName, stateTyp
 	rec := &historyRecorder{backend: b}
 	rec.RecordStateEntered(execARN, stateName, stateType, nil)
 }
+
+// SetTagsForTest exposes setTags for external test packages.
+func (h *Handler) SetTagsForTest(resourceID string, kv map[string]string) {
+	h.setTags(resourceID, kv)
+}
+
+// GetTagsForTest exposes getTags for external test packages.
+func (h *Handler) GetTagsForTest(resourceID string) map[string]string {
+	return h.getTags(resourceID)
+}
