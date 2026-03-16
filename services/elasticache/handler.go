@@ -79,10 +79,13 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeCacheClusters",
 		"ModifyCacheCluster",
 		"ListTagsForResource",
+		"AddTagsToResource",
+		"RemoveTagsFromResource",
 		"CreateReplicationGroup",
 		"DeleteReplicationGroup",
 		"DescribeReplicationGroups",
 		"ModifyReplicationGroup",
+		"TestFailover",
 		"CreateCacheParameterGroup",
 		"DeleteCacheParameterGroup",
 		"DescribeCacheParameterGroups",
@@ -97,6 +100,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteSnapshot",
 		"DescribeSnapshots",
 		"CopySnapshot",
+		"DescribeEvents",
 	}
 }
 
@@ -190,10 +194,13 @@ func (h *Handler) dispatchTable() map[string]elasticacheActionFn {
 		"DescribeCacheClusters":        h.describeCacheClusters,
 		"ModifyCacheCluster":           h.modifyCacheCluster,
 		"ListTagsForResource":          h.listTagsForResource,
+		"AddTagsToResource":            h.addTagsToResource,
+		"RemoveTagsFromResource":       h.removeTagsFromResource,
 		"CreateReplicationGroup":       h.createReplicationGroup,
 		"DeleteReplicationGroup":       h.deleteReplicationGroup,
 		"DescribeReplicationGroups":    h.describeReplicationGroups,
 		"ModifyReplicationGroup":       h.modifyReplicationGroup,
+		"TestFailover":                 h.testFailoverReplicationGroup,
 		"CreateCacheParameterGroup":    h.createCacheParameterGroup,
 		"DeleteCacheParameterGroup":    h.deleteCacheParameterGroup,
 		"DescribeCacheParameterGroups": h.describeCacheParameterGroups,
@@ -208,6 +215,7 @@ func (h *Handler) dispatchTable() map[string]elasticacheActionFn {
 		"DeleteSnapshot":               h.deleteSnapshot,
 		"DescribeSnapshots":            h.describeSnapshots,
 		"CopySnapshot":                 h.copySnapshot,
+		"DescribeEvents":               h.describeEvents,
 	}
 }
 
@@ -265,22 +273,27 @@ func (h *Handler) createCacheCluster(c *echo.Context, form url.Values) error {
 	engine := form.Get("Engine")
 	nodeType := form.Get("CacheNodeType")
 	paramGroupName := form.Get("CacheParameterGroupName")
+	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
+	snapshotWindow := form.Get("SnapshotWindow")
 
-	var cluster *Cluster
-	var err error
-
-	if paramGroupName != "" {
-		cluster, err = h.Backend.CreateClusterWithOptions(id, engine, nodeType, paramGroupName, 0)
-	} else {
-		cluster, err = h.Backend.CreateCluster(id, engine, nodeType, 0)
-	}
-
+	cluster, err := h.Backend.CreateClusterWithOptions(
+		id,
+		engine,
+		nodeType,
+		paramGroupName,
+		maintenanceWindow,
+		snapshotWindow,
+		0,
+	)
 	if err != nil {
 		if errors.Is(err, ErrClusterAlreadyExists) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterAlreadyExists", "Cache cluster already exists")
 		}
 		if errors.Is(err, ErrParameterGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheParameterGroupNotFound", "Cache parameter group not found")
+		}
+		if errors.Is(err, ErrInvalidParameterGroupFamily) {
+			return xmlError(c, http.StatusBadRequest, "InvalidParameterGroupFamily", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -399,16 +412,10 @@ func (h *Handler) createReplicationGroup(c *echo.Context, form url.Values) error
 	id := form.Get("ReplicationGroupId")
 	desc := form.Get("ReplicationGroupDescription")
 	paramGroupName := form.Get("CacheParameterGroupName")
+	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
+	snapshotWindow := form.Get("SnapshotWindow")
 
-	var rg *ReplicationGroup
-	var err error
-
-	if paramGroupName != "" {
-		rg, err = h.Backend.CreateReplicationGroupWithOptions(id, desc, paramGroupName)
-	} else {
-		rg, err = h.Backend.CreateReplicationGroup(id, desc)
-	}
-
+	rg, err := h.Backend.CreateReplicationGroupWithOptions(id, desc, paramGroupName, maintenanceWindow, snapshotWindow)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupAlreadyExists) {
 			return xmlError(
@@ -567,8 +574,26 @@ func (h *Handler) modifyCacheCluster(c *echo.Context, form url.Values) error {
 	id := form.Get("CacheClusterId")
 	nodeType := form.Get("CacheNodeType")
 	paramGroupName := form.Get("CacheParameterGroupName")
+	engineVersion := form.Get("EngineVersion")
+	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
+	snapshotWindow := form.Get("SnapshotWindow")
+	numCacheNodes := 0
 
-	cluster, err := h.Backend.ModifyCluster(id, nodeType, paramGroupName)
+	if s := form.Get("NumCacheNodes"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil {
+			numCacheNodes = n
+		}
+	}
+
+	cluster, err := h.Backend.ModifyCluster(
+		id,
+		nodeType,
+		paramGroupName,
+		engineVersion,
+		maintenanceWindow,
+		snapshotWindow,
+		numCacheNodes,
+	)
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheClusterNotFound", "Cache cluster not found")
@@ -596,8 +621,18 @@ func (h *Handler) modifyReplicationGroup(c *echo.Context, form url.Values) error
 	id := form.Get("ReplicationGroupId")
 	desc := form.Get("ReplicationGroupDescription")
 	paramGroupName := form.Get("CacheParameterGroupName")
+	engineVersion := form.Get("EngineVersion")
+	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
+	snapshotWindow := form.Get("SnapshotWindow")
 
-	rg, err := h.Backend.ModifyReplicationGroup(id, desc, paramGroupName)
+	rg, err := h.Backend.ModifyReplicationGroup(
+		id,
+		desc,
+		paramGroupName,
+		engineVersion,
+		maintenanceWindow,
+		snapshotWindow,
+	)
 	if err != nil {
 		if errors.Is(err, ErrReplicationGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
@@ -1181,6 +1216,156 @@ func (h *Handler) copySnapshot(c *echo.Context, form url.Values) error {
 		Xmlns:    elasticacheNS,
 		Snapshot: snapshotToXML(snap),
 	})
+}
+
+func (h *Handler) addTagsToResource(c *echo.Context, form url.Values) error {
+	resourceARN := form.Get("ResourceName")
+
+	newTags := make(map[string]string)
+	for i := 1; ; i++ {
+		key := form.Get(fmt.Sprintf("Tags.Tag.%d.Key", i))
+		if key == "" {
+			break
+		}
+		val := form.Get(fmt.Sprintf("Tags.Tag.%d.Value", i))
+		newTags[key] = val
+	}
+
+	if err := h.Backend.AddTagsToResource(resourceARN, newTags); err != nil {
+		if errors.Is(err, ErrResourceNotFound) {
+			return xmlError(c, http.StatusBadRequest, "InvalidARN", err.Error())
+		}
+
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type tag struct {
+		Key   string `xml:"Key"`
+		Value string `xml:"Value"`
+	}
+	type tagList struct {
+		Tag []tag `xml:"Tag"`
+	}
+	type result struct {
+		XMLName xml.Name `xml:"AddTagsToResourceResponse"`
+		Xmlns   string   `xml:"xmlns,attr"`
+		TagList tagList  `xml:"AddTagsToResourceResult>TagList"`
+	}
+
+	items := make([]tag, 0, len(newTags))
+	for k, v := range newTags {
+		items = append(items, tag{Key: k, Value: v})
+	}
+
+	return xmlResp(c, http.StatusOK, result{
+		Xmlns:   elasticacheNS,
+		TagList: tagList{Tag: items},
+	})
+}
+
+func (h *Handler) removeTagsFromResource(c *echo.Context, form url.Values) error {
+	resourceARN := form.Get("ResourceName")
+
+	var tagKeys []string
+	for i := 1; ; i++ {
+		key := form.Get(fmt.Sprintf("TagKeys.member.%d", i))
+		if key == "" {
+			break
+		}
+		tagKeys = append(tagKeys, key)
+	}
+
+	if err := h.Backend.RemoveTagsFromResource(resourceARN, tagKeys); err != nil {
+		if errors.Is(err, ErrResourceNotFound) {
+			return xmlError(c, http.StatusBadRequest, "InvalidARN", err.Error())
+		}
+
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type result struct {
+		XMLName   xml.Name `xml:"RemoveTagsFromResourceResponse"`
+		Xmlns     string   `xml:"xmlns,attr"`
+		RequestID string   `xml:"ResponseMetadata>RequestId"`
+	}
+
+	return xmlResp(c, http.StatusOK, result{Xmlns: elasticacheNS, RequestID: "elasticache-stub"})
+}
+
+func (h *Handler) testFailoverReplicationGroup(c *echo.Context, form url.Values) error {
+	id := form.Get("ReplicationGroupId")
+	nodeGroupID := form.Get("NodeGroupId")
+
+	rg, err := h.Backend.FailoverReplicationGroup(id, nodeGroupID)
+	if err != nil {
+		if errors.Is(err, ErrReplicationGroupNotFound) {
+			return xmlError(c, http.StatusBadRequest, "ReplicationGroupNotFound", "Replication group not found")
+		}
+
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type result struct {
+		XMLName          xml.Name            `xml:"TestFailoverResponse"`
+		Xmlns            string              `xml:"xmlns,attr"`
+		ReplicationGroup replicationGroupXML `xml:"TestFailoverResult>ReplicationGroup"`
+	}
+
+	return xmlResp(c, http.StatusOK, result{
+		Xmlns:            elasticacheNS,
+		ReplicationGroup: rgToXML(*rg),
+	})
+}
+
+func (h *Handler) describeEvents(c *echo.Context, form url.Values) error {
+	sourceIdentifier := form.Get("SourceIdentifier")
+	sourceType := form.Get("SourceType")
+	marker, maxRecords := parsePagination(form)
+
+	p, err := h.Backend.DescribeEvents(sourceIdentifier, sourceType, marker, maxRecords)
+	if err != nil {
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
+	type eventXML struct {
+		Date             string `xml:"Date"`
+		SourceIdentifier string `xml:"SourceIdentifier"`
+		SourceType       string `xml:"SourceType"`
+		Message          string `xml:"Message"`
+	}
+	type eventsList struct {
+		Event []eventXML `xml:"Event"`
+	}
+	type result struct {
+		XMLName xml.Name   `xml:"DescribeEventsResponse"`
+		Xmlns   string     `xml:"xmlns,attr"`
+		Marker  string     `xml:"DescribeEventsResult>Marker,omitempty"`
+		Events  eventsList `xml:"DescribeEventsResult>Events"`
+	}
+
+	items := make([]eventXML, 0, len(p.Data))
+	for _, e := range p.Data {
+		items = append(items, eventXML{
+			Date:             e.Date.UTC().Format(time.RFC3339),
+			SourceIdentifier: e.SourceIdentifier,
+			SourceType:       e.SourceType,
+			Message:          e.Message,
+		})
+	}
+
+	return xmlResp(c, http.StatusOK, result{
+		Xmlns:  elasticacheNS,
+		Marker: p.Next,
+		Events: eventsList{Event: items},
+	})
+}
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	type resetter interface{ Reset() }
+	if r, ok := h.Backend.(resetter); ok {
+		r.Reset()
+	}
 }
 
 func xmlResp(c *echo.Context, status int, v any) error {
