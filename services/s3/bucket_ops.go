@@ -592,19 +592,21 @@ func (h *S3Handler) headBucket(
 	bucketName string,
 ) {
 	h.setOperation(ctx, "HeadBucket")
-	_, err := h.Backend.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(bucketName)})
+	region, _, _, err := h.Backend.GetBucketMetadata(ctx, bucketName)
 	if errors.Is(err, ErrNoSuchBucket) {
 		w.WriteHeader(http.StatusNotFound)
 
 		return
 	}
-
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 
 		return
 	}
 
+	if region != "" {
+		w.Header().Set("X-Amz-Bucket-Region", region)
+	}
 	w.WriteHeader(http.StatusOK)
 }
 

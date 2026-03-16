@@ -1,55 +1,75 @@
 package s3
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 )
 
-// evaluateJSONQuery reads JSON rows from data, applies the SQL query, and serializes results.
-func evaluateJSONQuery(query *sqlQuery, data []byte, req *selectRequest) ([]byte, int64, error) {
+// evaluateJSONQuery reads JSON from data, applies the SQL query, and streams results.
+func evaluateJSONQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequest) (int64, error) {
 	jsonIn := req.InputSerialization.JSON
-
-	jsonType := "LINES"
+	jsonType := "DOCUMENT"
 	if jsonIn != nil && jsonIn.Type != "" {
 		jsonType = strings.ToUpper(jsonIn.Type)
 	}
 
-	rows, parseErr := parseJSONRows(data, jsonType)
-	if parseErr != nil {
-		return nil, 0, parseErr
+	var totalBytesReturned int64
+	var returnedRowsCount int
+
+	if jsonType == "LINES" {
+		return evaluateJSONLinesQuery(w, query, data, req, returnedRowsCount, totalBytesReturned)
 	}
 
-	resultRows, evalErr := evalQueryJSON(query, rows)
-	if evalErr != nil {
-		return nil, 0, evalErr
-	}
-
-	if len(resultRows) == 0 {
-		return nil, 0, nil
-	}
-
-	resultBytes, serialErr := serializeJSONQueryResults(resultRows, req.OutputSerialization)
-	if serialErr != nil {
-		return nil, 0, serialErr
-	}
-
-	return resultBytes, int64(len(resultBytes)), nil
+	return evaluateJSONDocumentQuery(w, query, data, req)
 }
 
-func parseJSONRows(data []byte, jsonType string) ([]map[string]any, error) {
-	if jsonType == "DOCUMENT" {
-		return parseJSONDocument(data)
+func evaluateJSONLinesQuery(
+	w io.Writer,
+	query *sqlQuery,
+	data []byte,
+	req *selectRequest,
+	returnedRowsCount int,
+	totalBytesReturned int64,
+) (int64, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	// Increase the buffer to handle large JSON lines (up to 10MB).
+	const maxScanTokenSize = 10 * 1024 * 1024
+	scanner.Buffer(make([]byte, bufio.MaxScanTokenSize), maxScanTokenSize)
+
+	for scanner.Scan() {
+		if query.limit > 0 && returnedRowsCount >= query.limit {
+			break
+		}
+
+		line := scanner.Bytes()
+		rowBytes, returnedRows, err := processJSONLine(w, query, line, req)
+		if err != nil {
+			return totalBytesReturned, err
+		}
+		totalBytesReturned += rowBytes
+		returnedRowsCount += returnedRows
 	}
 
-	return parseJSONLines(data)
+	if err := scanner.Err(); err != nil {
+		return totalBytesReturned, fmt.Errorf("scanning JSON lines: %w", err)
+	}
+
+	return totalBytesReturned, nil
 }
 
-func parseJSONDocument(data []byte) ([]map[string]any, error) {
+func evaluateJSONDocumentQuery(
+	w io.Writer,
+	query *sqlQuery,
+	data []byte,
+	req *selectRequest,
+) (int64, error) {
 	var doc any
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("parsing JSON document: %w", err)
+		return 0, fmt.Errorf("parsing JSON document: %w", err)
 	}
 
 	var rows []map[string]any
@@ -65,27 +85,62 @@ func parseJSONDocument(data []byte) ([]map[string]any, error) {
 		rows = append(rows, v)
 	}
 
-	return rows, nil
-}
-
-func parseJSONLines(data []byte) ([]map[string]any, error) {
-	var rows []map[string]any
-
-	for line := range strings.SplitSeq(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(line), &obj); err != nil {
-			return nil, fmt.Errorf("parsing JSON line %q: %w", line, err)
-		}
-
-		rows = append(rows, obj)
+	resultRows, evalErr := evalQueryJSON(query, rows)
+	if evalErr != nil {
+		return 0, evalErr
 	}
 
-	return rows, nil
+	if len(resultRows) > 0 {
+		resultBytes, serialErr := serializeJSONQueryResults(resultRows, req.OutputSerialization)
+		if serialErr != nil {
+			return 0, serialErr
+		}
+
+		if len(resultBytes) > 0 {
+			if err := writeSelectEvent(w, "Records", "application/octet-stream", resultBytes); err != nil {
+				return 0, err
+			}
+
+			return int64(len(resultBytes)), nil
+		}
+	}
+
+	return 0, nil
+}
+
+func processJSONLine(w io.Writer, query *sqlQuery, line []byte, req *selectRequest) (int64, int, error) {
+	if len(bytes.TrimSpace(line)) == 0 {
+		return 0, 0, nil
+	}
+
+	var row map[string]any
+	if err := json.Unmarshal(line, &row); err != nil {
+		return 0, 0, fmt.Errorf("parsing JSON line: %w", err)
+	}
+
+	resultRows, evalErr := evalQueryJSON(query, []map[string]any{row})
+	if evalErr != nil {
+		return 0, 0, evalErr
+	}
+
+	if len(resultRows) == 0 {
+		return 0, 0, nil
+	}
+
+	resultBytes, serialErr := serializeJSONQueryResults(resultRows, req.OutputSerialization)
+	if serialErr != nil {
+		return 0, 0, serialErr
+	}
+
+	if len(resultBytes) == 0 {
+		return 0, 0, nil
+	}
+
+	if err := writeSelectEvent(w, "Records", "application/octet-stream", resultBytes); err != nil {
+		return 0, 0, err
+	}
+
+	return int64(len(resultBytes)), len(resultRows), nil
 }
 
 func serializeJSONQueryResults(resultRows []map[string]any, out selectOutputSerialization) ([]byte, error) {
@@ -122,7 +177,7 @@ func serializeJSONRows(rows []map[string]any, jsonOut *selectJSONOutput) ([]byte
 	var buf bytes.Buffer
 
 	for _, row := range rows {
-		jsonBytes, err := marshalJSONRow(row)
+		jsonBytes, err := json.Marshal(row)
 		if err != nil {
 			return nil, err
 		}
@@ -132,9 +187,4 @@ func serializeJSONRows(rows []map[string]any, jsonOut *selectJSONOutput) ([]byte
 	}
 
 	return buf.Bytes(), nil
-}
-
-// marshalJSONRow serializes a single row to compact JSON.
-func marshalJSONRow(row map[string]any) ([]byte, error) {
-	return json.Marshal(row)
 }

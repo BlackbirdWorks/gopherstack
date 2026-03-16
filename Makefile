@@ -1,9 +1,11 @@
 .PHONY: build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e-test total-coverage clean demo all
 
 BINARY_NAME=gopherstack
+VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
+BUILD_VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 build:
-	go build -o bin/$(BINARY_NAME) .
+	go build -ldflags "-X $(VERSION_PKG).Build=$(BUILD_VERSION)" -o bin/$(BINARY_NAME) .
 
 install-deps:
 	@echo "Checking for golangci-lint..."

@@ -37,52 +37,76 @@ func NewJanitor(backend *InMemoryDB, settings Settings) *Janitor {
 }
 
 // Run runs the janitor loop until ctx is cancelled.
+// Two tickers are used:
+//   - mainTicker (Interval, default 500ms): housekeeping tasks (table cleanup,
+//     txn-token sweeps, expression-cache evictions).
+//   - ttlTicker (defaultDDBTTLSweepInterval, 5s): per-table TTL and stream-record
+//     sweeps, which are O(tables × items) and too expensive to run every 500ms.
 func (j *Janitor) Run(ctx context.Context) {
 	mainTicker := time.NewTicker(j.Interval)
 	defer mainTicker.Stop()
+
+	ttlTicker := time.NewTicker(defaultDDBTTLSweepInterval)
+	defer ttlTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-ttlTicker.C:
+			j.sweepTTL(ctx)
+			j.sweepStreamRecords()
 		case <-mainTicker.C:
-			j.runOnce(ctx)
+			j.sweepTxnTokens()
+			j.sweepTxnPending()
+			j.Backend.exprCache.Sweep()
+			j.runTableCleaner(ctx)
 		}
 	}
 }
 
-// runOnce orchestrates the various janitor tasks.
+// runOnce orchestrates all janitor tasks in a single synchronous pass.
+// Called by tests; production code uses the two-ticker Run loop above.
 func (j *Janitor) runOnce(ctx context.Context) {
 	j.sweepTTL(ctx)
 	j.sweepTxnTokens()
 	j.sweepTxnPending()
 	j.sweepStreamRecords()
 	j.Backend.exprCache.Sweep()
-	j.runTableCleaner(ctx) // The original runOnce logic
+	j.runTableCleaner(ctx)
 }
 
 // runTableCleaner records the current queue depth and finalises all pending deletions.
 func (j *Janitor) runTableCleaner(ctx context.Context) {
 	db := j.Backend
 
-	// Snapshot pending tables under the lock across all regions, record depth before processing.
+	// Snapshot the tables to clean up and remove them from deletingTables under the
+	// global lock. The slow work (timer cancellation, mutex close) is done outside the
+	// lock so that concurrent DescribeTable / PutItem / Query calls are not stalled
+	// while thousands of per-table resources are being released.
 	db.mu.Lock("DDBJanitor")
 	depth := 0
 	names := make([]string, 0)
+	tablesToClose := make([]*Table, 0)
 
 	for region, regionTables := range db.deletingTables {
 		for name, table := range regionTables {
 			depth++
 			names = append(names, name)
+			tablesToClose = append(tablesToClose, table)
 			delete(db.deletingTables[region], name)
-			stopTableTimers(table)
-			if table.Tags != nil {
-				table.Tags.Close()
-			}
-			table.mu.Close()
 		}
 	}
 	db.mu.Unlock()
+
+	// Release per-table resources outside the global lock.
+	for _, table := range tablesToClose {
+		stopTableTimers(table)
+		if table.Tags != nil {
+			table.Tags.Close()
+		}
+		table.mu.Close()
+	}
 
 	telemetry.RecordWorkerQueueDepth("dynamodb", "TableCleaner", depth)
 	telemetry.RecordWorkerTask("dynamodb", "TableCleaner", "success")
