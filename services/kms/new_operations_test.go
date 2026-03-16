@@ -438,10 +438,10 @@ func TestKMSJanitorSweepExpiredKeys(t *testing.T) {
 			key, err := b.CreateKey(&kms.CreateKeyInput{})
 			require.NoError(t, err)
 
-			_ = b.CreateAlias(&kms.CreateAliasInput{
+			require.NoError(t, b.CreateAlias(&kms.CreateAliasInput{
 				AliasName:   "alias/janitor-test",
 				TargetKeyID: key.KeyMetadata.KeyID,
-			})
+			}))
 
 			_, err = b.CreateGrant(&kms.CreateGrantInput{
 				KeyID:            key.KeyMetadata.KeyID,
@@ -554,10 +554,12 @@ func TestKMSImportKeyMaterial(t *testing.T) {
 					mat[i] = byte(i + 1)
 				}
 
-				_ = b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+				if err = b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
 					KeyID:       key.KeyMetadata.KeyID,
 					KeyMaterial: mat,
-				})
+				}); err != nil {
+					return "", nil
+				}
 
 				return key.KeyMetadata.KeyID, mat
 			},
@@ -657,6 +659,40 @@ func TestKMSImportKeyMaterial(t *testing.T) {
 				assert.Equal(t, kms.KeyOriginExternal, desc.KeyMetadata.Origin)
 			},
 		},
+		{
+			name: "import_on_already_enabled_external_key_fails",
+			setup: func(b *kms.InMemoryBackend) (string, []byte) {
+				key, err := b.CreateKey(&kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+				if err != nil {
+					return "", nil
+				}
+
+				mat := make([]byte, 32)
+				for i := range mat {
+					mat[i] = byte(i + 2)
+				}
+
+				if err = b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+					KeyID:       key.KeyMetadata.KeyID,
+					KeyMaterial: mat,
+				}); err != nil {
+					return "", nil
+				}
+
+				return key.KeyMetadata.KeyID, mat
+			},
+			verify: func(t *testing.T, b *kms.InMemoryBackend, keyID string, mat []byte) {
+				t.Helper()
+
+				// Attempting to re-import while the key is already Enabled must fail.
+				err := b.ImportKeyMaterial(&kms.ImportKeyMaterialInput{
+					KeyID:       keyID,
+					KeyMaterial: mat,
+				})
+				require.Error(t, err)
+				assert.ErrorIs(t, err, kms.ErrKeyInvalidState)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -722,7 +758,8 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 	h := kms.NewHandler(kms.NewInMemoryBackend())
 
 	// Create EXTERNAL-origin key.
-	createBody, _ := json.Marshal(kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+	createBody, err := json.Marshal(kms.CreateKeyInput{Origin: kms.KeyOriginExternal})
+	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(createBody))
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	req.Header.Set("X-Amz-Target", "TrentService.CreateKey")
@@ -743,10 +780,11 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 		mat[i] = byte(i + 7)
 	}
 
-	importBody, _ := json.Marshal(kms.ImportKeyMaterialInput{
+	importBody, err := json.Marshal(kms.ImportKeyMaterialInput{
 		KeyID:       createOut.KeyMetadata.KeyID,
 		KeyMaterial: mat,
 	})
+	require.NoError(t, err)
 	importReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(importBody))
 	importReq.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	importReq.Header.Set("X-Amz-Target", "TrentService.ImportKeyMaterial")
@@ -757,7 +795,8 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 	assert.Equal(t, http.StatusOK, importRec.Code)
 
 	// Describe should show Enabled.
-	descBody, _ := json.Marshal(kms.DescribeKeyInput{KeyID: createOut.KeyMetadata.KeyID})
+	descBody, err := json.Marshal(kms.DescribeKeyInput{KeyID: createOut.KeyMetadata.KeyID})
+	require.NoError(t, err)
 	descReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(descBody))
 	descReq.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	descReq.Header.Set("X-Amz-Target", "TrentService.DescribeKey")
@@ -772,7 +811,8 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 	assert.Equal(t, kms.KeyStateEnabled, descOut.KeyMetadata.KeyState)
 
 	// DeleteImportedKeyMaterial.
-	delBody, _ := json.Marshal(kms.DeleteImportedKeyMaterialInput{KeyID: createOut.KeyMetadata.KeyID})
+	delBody, err := json.Marshal(kms.DeleteImportedKeyMaterialInput{KeyID: createOut.KeyMetadata.KeyID})
+	require.NoError(t, err)
 	delReq := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(delBody))
 	delReq.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	delReq.Header.Set("X-Amz-Target", "TrentService.DeleteImportedKeyMaterial")
@@ -783,7 +823,8 @@ func TestKMSHandlerImportKeyMaterial(t *testing.T) {
 	assert.Equal(t, http.StatusOK, delRec.Code)
 
 	// Key should be back to PendingImport.
-	descBody2, _ := json.Marshal(kms.DescribeKeyInput{KeyID: createOut.KeyMetadata.KeyID})
+	descBody2, err := json.Marshal(kms.DescribeKeyInput{KeyID: createOut.KeyMetadata.KeyID})
+	require.NoError(t, err)
 	descReq2 := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(descBody2))
 	descReq2.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	descReq2.Header.Set("X-Amz-Target", "TrentService.DescribeKey")
@@ -818,7 +859,7 @@ func TestKMSJanitorRunContext(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("janitor did not exit after context cancellation")
+		require.FailNow(t, "janitor did not exit after context cancellation")
 	}
 }
 

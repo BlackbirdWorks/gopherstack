@@ -1285,7 +1285,8 @@ func (b *InMemoryBackend) GetKeyPolicy(input *GetKeyPolicyInput) (*GetKeyPolicyO
 
 // ImportKeyMaterial imports externally supplied key material into a key created with
 // Origin=EXTERNAL. The key must be in PendingImport state. On success the key transitions
-// to Enabled.
+// to Enabled. Only SYMMETRIC_DEFAULT keys are supported; asymmetric EXTERNAL keys are
+// not modeled by this mock.
 func (b *InMemoryBackend) ImportKeyMaterial(input *ImportKeyMaterialInput) error {
 	b.mu.Lock("ImportKeyMaterial")
 	defer b.mu.Unlock()
@@ -1303,23 +1304,35 @@ func (b *InMemoryBackend) ImportKeyMaterial(input *ImportKeyMaterialInput) error
 		)
 	}
 
-	if key.KeyState != KeyStatePendingImport && key.KeyState != KeyStateEnabled {
+	// Only allow import when the key is awaiting material.
+	if key.KeyState != KeyStatePendingImport {
 		return keyStateError(key)
+	}
+
+	// Only symmetric (AES-256) key material is supported for external import.
+	if key.KeySpec != keySpecSymmetric {
+		return fmt.Errorf(
+			"%w: ImportKeyMaterial only supports SYMMETRIC_DEFAULT keys; got %s",
+			ErrInvalidKeyUsage, key.KeySpec,
+		)
 	}
 
 	if len(input.KeyMaterial) == 0 {
 		return fmt.Errorf("%w: KeyMaterial must not be empty", ErrInvalidKeyUsage)
 	}
 
-	if key.KeySpec == keySpecSymmetric && len(input.KeyMaterial) != aes256Bytes {
+	if len(input.KeyMaterial) != aes256Bytes {
 		return fmt.Errorf(
 			"%w: symmetric key material must be exactly %d bytes, got %d",
 			ErrInvalidKeyUsage, aes256Bytes, len(input.KeyMaterial),
 		)
 	}
 
-	km := &keyMaterial{symmetricKey: input.KeyMaterial}
-	b.keyMaterials[key.KeyID] = km
+	// Copy the material bytes so the caller cannot mutate the key's internal state.
+	mat := make([]byte, aes256Bytes)
+	copy(mat, input.KeyMaterial)
+
+	b.keyMaterials[key.KeyID] = &keyMaterial{symmetricKey: mat}
 	key.KeyState = KeyStateEnabled
 	key.Enabled = true
 

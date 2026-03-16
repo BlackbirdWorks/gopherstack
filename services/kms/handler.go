@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -57,6 +58,7 @@ type untagResourceInput struct {
 type Handler struct {
 	Backend       StorageBackend
 	actions       map[string]kmsActionFn
+	janitor       *Janitor
 	tags          map[string]*tags.Tags
 	tagsMu        *lockmetrics.RWMutex
 	DefaultRegion string
@@ -72,6 +74,25 @@ func NewHandler(backend StorageBackend) *Handler {
 	h.actions = h.buildDispatchTable()
 
 	return h
+}
+
+// WithJanitor attaches a background key-deletion janitor to the handler.
+// If the backend is not an *InMemoryBackend, this is a no-op.
+func (h *Handler) WithJanitor(interval time.Duration) *Handler {
+	if mem, ok := h.Backend.(*InMemoryBackend); ok {
+		h.janitor = NewJanitor(mem, interval)
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if one is configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
