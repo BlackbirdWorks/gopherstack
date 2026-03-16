@@ -265,26 +265,15 @@ func (h *S3Handler) putObject(
 	logger.Load(ctx).DebugContext(ctx, "S3 putObject input",
 		"bucket", bucketName, "key", key, "contentType", r.Header.Get("Content-Type"))
 
-	data, err := httputils.ReadBody(r)
-	if err != nil {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
-	if !validateContentMD5(ctx, w, r, data) {
-		return
+	if md5Header := r.Header.Get("Content-MD5"); md5Header != "" {
+		ctx = context.WithValue(ctx, md5Key, md5Header)
 	}
 
 	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)
 
-	if err = verifyChecksumIfPresent(data, algo, crc32p, crc32cp, sha1p, sha256p); err != nil {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
-	ver, err := h.Backend.PutObject(ctx, buildPutObjectInput(r, bucketName, key, data,
+	// We pass r.Body directly to the backend to avoid an intermediate buffer in the handler.
+	// The backend computes ETag/checksums while reading.
+	ver, err := h.Backend.PutObject(ctx, buildPutObjectInput(r, bucketName, key, r.Body,
 		algo, crc32p, crc32cp, sha1p, sha256p, parseUserMetadata(r.Header)))
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -328,14 +317,14 @@ func extractAlgoAndChecksums(r *http.Request) (string, *string, *string, *string
 func buildPutObjectInput(
 	r *http.Request,
 	bucketName, key string,
-	data []byte,
+	body io.Reader,
 	algo string, crc32p, crc32cp, sha1p, sha256p *string,
 	userMeta map[string]string,
 ) *s3.PutObjectInput {
 	return &s3.PutObjectInput{
 		Bucket:             aws.String(bucketName),
 		Key:                aws.String(key),
-		Body:               bytes.NewReader(data),
+		Body:               body,
 		Metadata:           userMeta,
 		ContentType:        aws.String(r.Header.Get("Content-Type")),
 		ContentEncoding:    nilStringIfEmpty(r.Header.Get("Content-Encoding")),
@@ -349,13 +338,13 @@ func buildPutObjectInput(
 	}
 }
 
-// copySourceData reads source object data for CopyObject.
+// copySourceData reads source object metadata for CopyObject.
 func (h *S3Handler) copySourceData(
 	ctx context.Context, r *http.Request,
-) ([]byte, *s3.GetObjectOutput, error) {
+) (*s3.GetObjectOutput, error) {
 	srcBucket, srcKey, srcVersionID, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
 	if !ok {
-		return nil, nil, ErrInvalidArgument
+		return nil, ErrInvalidArgument
 	}
 
 	if hID := r.Header.Get("X-Amz-Copy-Source-Version-Id"); hID != "" {
@@ -373,16 +362,10 @@ func (h *S3Handler) copySourceData(
 		VersionId: vid,
 	})
 	if err != nil {
-		return nil, nil, err
-	}
-	defer srcVer.Body.Close()
-
-	data, err := io.ReadAll(srcVer.Body)
-	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return data, srcVer, nil
+	return srcVer, nil
 }
 
 func (h *S3Handler) copyObject(
@@ -393,12 +376,13 @@ func (h *S3Handler) copyObject(
 ) {
 	h.setOperation(ctx, "CopyObject")
 
-	data, srcVer, err := h.copySourceData(ctx, r)
+	srcVer, err := h.copySourceData(ctx, r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
 	}
+	defer srcVer.Body.Close()
 
 	userMeta := srcVer.Metadata
 	contentType := srcVer.ContentType
@@ -421,7 +405,7 @@ func (h *S3Handler) copyObject(
 	putInput := &s3.PutObjectInput{
 		Bucket:      aws.String(destBucket),
 		Key:         aws.String(destKey),
-		Body:        bytes.NewReader(data),
+		Body:        srcVer.Body,
 		Metadata:    userMeta,
 		ContentType: contentType,
 	}

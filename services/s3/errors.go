@@ -37,6 +37,7 @@ var (
 	ErrNoReplicationConfig    = errors.New("ReplicationConfigurationNotFoundError")
 	ErrNoSuchTagSet           = errors.New("NoSuchTagSet")
 	ErrBadChecksum            = errors.New("BadDigest")
+	ErrDeleteMarker           = errors.New("DeleteMarker")
 )
 
 type s3ErrorInfo struct {

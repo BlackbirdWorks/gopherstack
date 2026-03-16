@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -89,4 +90,55 @@ func verifyChecksumIfPresent(
 	}
 
 	return nil
+}
+
+// ParseRange parses a "bytes=X-Y" Range header and returns clamped [start, end] indices.
+func ParseRange(header string, size int64) (int64, int64, bool) {
+	if !strings.HasPrefix(header, "bytes=") {
+		return 0, 0, false
+	}
+
+	const rangeSpecMaxParts = 2
+	spec := strings.TrimSpace(strings.SplitN(header[len("bytes="):], ",", rangeSpecMaxParts)[0])
+	startStr, endStr, found := strings.Cut(spec, "-")
+	if !found {
+		return 0, 0, false
+	}
+
+	var start, end int64
+	switch {
+	case startStr == "":
+		n, err := strconv.ParseInt(endStr, 10, 64)
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+		start = max(size-n, 0)
+		end = size - 1
+	case endStr == "":
+		var err error
+		start, err = strconv.ParseInt(startStr, 10, 64)
+		if err != nil {
+			return 0, 0, false
+		}
+		end = size - 1
+	default:
+		var err error
+		start, err = strconv.ParseInt(startStr, 10, 64)
+		if err != nil {
+			return 0, 0, false
+		}
+		end, err = strconv.ParseInt(endStr, 10, 64)
+		if err != nil {
+			return 0, 0, false
+		}
+	}
+
+	if start > end || start >= size {
+		return 0, 0, false
+	}
+	if end >= size {
+		end = size - 1
+	}
+
+	return start, end, true
 }

@@ -1,91 +1,101 @@
 package s3
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 )
 
-// evaluateJSONQuery reads JSON rows from data, applies the SQL query, and serializes results.
-func evaluateJSONQuery(query *sqlQuery, data []byte, req *selectRequest) ([]byte, int64, error) {
+// evaluateJSONQuery reads JSON from data, applies the SQL query, and streams results.
+func evaluateJSONQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequest) (int64, error) {
 	jsonIn := req.InputSerialization.JSON
-
-	jsonType := "LINES"
+	jsonType := "DOCUMENT"
 	if jsonIn != nil && jsonIn.Type != "" {
 		jsonType = strings.ToUpper(jsonIn.Type)
 	}
 
-	rows, parseErr := parseJSONRows(data, jsonType)
-	if parseErr != nil {
-		return nil, 0, parseErr
-	}
+	var totalBytesReturned int64
+	var returnedRowsCount int
 
-	resultRows, evalErr := evalQueryJSON(query, rows)
-	if evalErr != nil {
-		return nil, 0, evalErr
-	}
+	if jsonType == "LINES" {
+		scanner := bufio.NewScanner(bytes.NewReader(data))
+		for scanner.Scan() {
+			if query.limit > 0 && returnedRowsCount >= query.limit {
+				break
+			}
 
-	if len(resultRows) == 0 {
-		return nil, 0, nil
-	}
+			line := scanner.Bytes()
+			if len(bytes.TrimSpace(line)) == 0 {
+				continue
+			}
 
-	resultBytes, serialErr := serializeJSONQueryResults(resultRows, req.OutputSerialization)
-	if serialErr != nil {
-		return nil, 0, serialErr
-	}
+			var row map[string]any
+			if err := json.Unmarshal(line, &row); err != nil {
+				return totalBytesReturned, fmt.Errorf("parsing JSON line: %w", err)
+			}
 
-	return resultBytes, int64(len(resultBytes)), nil
-}
+			resultRows, evalErr := evalQueryJSON(query, []map[string]any{row})
+			if evalErr != nil {
+				return totalBytesReturned, evalErr
+			}
 
-func parseJSONRows(data []byte, jsonType string) ([]map[string]any, error) {
-	if jsonType == "DOCUMENT" {
-		return parseJSONDocument(data)
-	}
+			if len(resultRows) > 0 {
+				resultBytes, serialErr := serializeJSONQueryResults(resultRows, req.OutputSerialization)
+				if serialErr != nil {
+					return totalBytesReturned, serialErr
+				}
 
-	return parseJSONLines(data)
-}
-
-func parseJSONDocument(data []byte) ([]map[string]any, error) {
-	var doc any
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("parsing JSON document: %w", err)
-	}
-
-	var rows []map[string]any
-
-	switch v := doc.(type) {
-	case []any:
-		for _, item := range v {
-			if obj, ok := item.(map[string]any); ok {
-				rows = append(rows, obj)
+				if len(resultBytes) > 0 {
+					if err := writeSelectEvent(w, "Records", "application/octet-stream", resultBytes); err != nil {
+						return totalBytesReturned, err
+					}
+					totalBytesReturned += int64(len(resultBytes))
+					returnedRowsCount += len(resultRows)
+				}
 			}
 		}
-	case map[string]any:
-		rows = append(rows, v)
-	}
-
-	return rows, nil
-}
-
-func parseJSONLines(data []byte) ([]map[string]any, error) {
-	var rows []map[string]any
-
-	for line := range strings.SplitSeq(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+	} else {
+		var doc any
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return 0, fmt.Errorf("parsing JSON document: %w", err)
 		}
 
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(line), &obj); err != nil {
-			return nil, fmt.Errorf("parsing JSON line %q: %w", line, err)
+		var rows []map[string]any
+		switch v := doc.(type) {
+		case []any:
+			for _, item := range v {
+				if obj, ok := item.(map[string]any); ok {
+					rows = append(rows, obj)
+				}
+			}
+		case map[string]any:
+			rows = append(rows, v)
 		}
 
-		rows = append(rows, obj)
+		resultRows, evalErr := evalQueryJSON(query, rows)
+		if evalErr != nil {
+			return 0, evalErr
+		}
+
+		if len(resultRows) > 0 {
+			resultBytes, serialErr := serializeJSONQueryResults(resultRows, req.OutputSerialization)
+			if serialErr != nil {
+				return 0, serialErr
+			}
+
+			if len(resultBytes) > 0 {
+				if err := writeSelectEvent(w, "Records", "application/octet-stream", resultBytes); err != nil {
+					return 0, err
+				}
+				totalBytesReturned = int64(len(resultBytes))
+			}
+		}
 	}
 
-	return rows, nil
+	return totalBytesReturned, nil
 }
 
 func serializeJSONQueryResults(resultRows []map[string]any, out selectOutputSerialization) ([]byte, error) {
@@ -122,7 +132,7 @@ func serializeJSONRows(rows []map[string]any, jsonOut *selectJSONOutput) ([]byte
 	var buf bytes.Buffer
 
 	for _, row := range rows {
-		jsonBytes, err := marshalJSONRow(row)
+		jsonBytes, err := json.Marshal(row)
 		if err != nil {
 			return nil, err
 		}
@@ -132,9 +142,4 @@ func serializeJSONRows(rows []map[string]any, jsonOut *selectJSONOutput) ([]byte
 	}
 
 	return buf.Bytes(), nil
-}
-
-// marshalJSONRow serializes a single row to compact JSON.
-func marshalJSONRow(row map[string]any) ([]byte, error) {
-	return json.Marshal(row)
 }

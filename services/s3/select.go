@@ -94,7 +94,6 @@ type selectStatsXML struct {
 	BytesReturned  int64    `xml:"BytesReturned"`
 }
 
-// selectObjectContent handles the POST /<bucket>/<key>?select&select-type=2 request.
 func (h *S3Handler) selectObjectContent(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -114,17 +113,20 @@ func (h *S3Handler) selectObjectContent(
 		return
 	}
 
-	resultData, bytesReturned, evalErr := h.evaluateQuery(ctx, query, objectData, req)
+	// Prepare response for streaming
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.WriteHeader(http.StatusOK)
+
+	bytesReturned, evalErr := h.evaluateQuery(ctx, w, query, objectData, req)
 	if evalErr != nil {
-		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "InternalError",
-			Message: fmt.Sprintf("error evaluating query: %v", evalErr),
-		}, http.StatusInternalServerError)
+		// Too late for error response header, but we can stop streaming.
+		logger.Load(ctx).ErrorContext(ctx, "error evaluating query during streaming", "error", evalErr)
 
 		return
 	}
 
-	h.writeSelectResponse(w, resultData, bytesScanned, bytesReturned)
+	h.writeSelectStatsAndEnd(w, bytesScanned, bytesReturned)
 }
 
 // readSelectRequest parses the incoming HTTP request into a selectRequest and fetches the object.
@@ -212,18 +214,8 @@ func parseSelectQuery(
 	return query, true
 }
 
-// writeSelectResponse sends the event-stream response with Records, Stats, and End events.
-func (h *S3Handler) writeSelectResponse(w http.ResponseWriter, resultData []byte, bytesScanned, bytesReturned int64) {
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Transfer-Encoding", "chunked")
-	w.WriteHeader(http.StatusOK)
-
-	if len(resultData) > 0 {
-		if err := writeSelectEvent(w, "Records", "application/octet-stream", resultData); err != nil {
-			return
-		}
-	}
-
+// writeSelectStatsAndEnd sends the final Stats and End events.
+func (h *S3Handler) writeSelectStatsAndEnd(w http.ResponseWriter, bytesScanned, bytesReturned int64) {
 	statsPayload, _ := xml.Marshal(selectStatsXML{
 		BytesScanned:   bytesScanned,
 		BytesProcessed: bytesScanned,
@@ -241,24 +233,25 @@ func (h *S3Handler) writeSelectResponse(w http.ResponseWriter, resultData []byte
 	}
 }
 
-// evaluateQuery processes the object data with the given SQL query.
-// Returns the serialized result bytes and the count of returned bytes.
+// evaluateQuery processes the object data with the given SQL query and streams results.
+// Returns the count of returned bytes.
 func (h *S3Handler) evaluateQuery(
 	_ context.Context,
+	w io.Writer,
 	query *sqlQuery,
 	data []byte,
 	req *selectRequest,
-) ([]byte, int64, error) {
+) (int64, error) {
 	switch {
 	case req.InputSerialization.CSV != nil:
-		return evaluateCSVQuery(query, data, req)
+		return evaluateCSVQuery(w, query, data, req)
 
 	case req.InputSerialization.JSON != nil:
-		return evaluateJSONQuery(query, data, req)
+		return evaluateJSONQuery(w, query, data, req)
 
 	default:
 		// Default to CSV if nothing specified.
-		return evaluateCSVQuery(query, data, req)
+		return evaluateCSVQuery(w, query, data, req)
 	}
 }
 

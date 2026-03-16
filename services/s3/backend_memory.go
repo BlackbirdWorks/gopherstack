@@ -5,8 +5,14 @@ import (
 	"context"
 	"crypto/md5" //nolint:gosec // MD5 required for S3 ETag compatibility
 	"crypto/rand"
+	"crypto/sha1" //nolint:gosec // SHA1 required for S3 checksum compatibility
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"hash"
+	"hash/crc32"
 	"io"
 	"net/url"
 	"slices"
@@ -23,6 +29,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
+
+type md5ContextKey struct{}
+
+var md5Key = md5ContextKey{} //nolint:gochecknoglobals // internal context key
 
 // objectVersionIDBytes is the number of random bytes used to generate a version ID.
 // 16 bytes produces a 32-character lowercase hex string.
@@ -308,8 +318,30 @@ func (b *InMemoryBackend) PutObject(
 	bucketName := *input.Bucket
 	key := *input.Key
 
-	// 1. Prepare data and metadata outside the lock
-	data, compressedData, isCompressed, etag, err := b.prepareObjectData(input)
+	// 1. Initial check for bucket and existing object lock (if any)
+	// to avoid reading large body if overwrite is blocked.
+	b.mu.RLock("PutObjectCheck")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+
+	bucket.mu.RLock("PutObjectCheck")
+	isVersioningEnabled := bucket.Versioning == types.BucketVersioningStatusEnabled
+	if !isVersioningEnabled {
+		if obj, ok := bucket.Objects[key]; ok {
+			if err = checkObjectLockForOverwrite(obj); err != nil {
+				bucket.mu.RUnlock()
+
+				return nil, err
+			}
+		}
+	}
+	bucket.mu.RUnlock()
+
+	// 2. Prepare data and metadata outside the lock.
+	originalSize, storedData, isCompressed, etag, err := b.prepareObjectData(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -319,22 +351,15 @@ func (b *InMemoryBackend) PutObject(
 		input.ChecksumSHA1, input.ChecksumSHA256,
 	}
 
-	// 2. Lock and update
-	b.mu.RLock("PutObject")
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
-
-	if err != nil {
-		return nil, err
+	// 3. Re-acquire bucket and lock for update
+	bucket.mu.Lock("PutObject")
+	// Double-check if bucket still exists or if versioning status changed
+	// (though highly unlikely in a mock).
+	if bucket.Versioning != (types.BucketVersioningStatusEnabled) && isVersioningEnabled {
+		// Versioning was disabled since our last check - this is safe to continue.
 	}
 
-	// Perform object creation and version insertion entirely under bucket.mu.Lock
-	// to prevent a TOCTOU race: previously bucket.mu was released before acquiring
-	// obj.mu, which allowed a concurrent DeleteObject to close obj.mu between the
-	// two lock operations, leading to a use-after-close on obj.mu.
 	var newVersionID string
-
-	bucket.mu.Lock("PutObject")
 
 	newVersionID = NullVersion
 	if bucket.Versioning == types.BucketVersioningStatusEnabled {
@@ -363,9 +388,9 @@ func (b *InMemoryBackend) PutObject(
 	newVersion := &StoredObjectVersion{
 		VersionID:          newVersionID,
 		Key:                key,
-		Data:               compressedData,
+		Data:               storedData,
 		IsCompressed:       isCompressed,
-		Size:               int64(len(data)),
+		Size:               originalSize,
 		ETag:               finalQuotedETag,
 		LastModified:       time.Now().UTC(),
 		ContentType:        aws.ToString(input.ContentType),
@@ -407,7 +432,7 @@ func (b *InMemoryBackend) PutObject(
 		"versionId", newVersionID)
 
 	return &s3.PutObjectOutput{
-		ETag:           aws.String(finalQuotedETag),
+				ETag:           aws.String(finalQuotedETag),
 		VersionId:      aws.String(newVersionID),
 		ChecksumCRC32:  checksums.crc32,
 		ChecksumCRC32C: checksums.crc32c,
@@ -417,32 +442,101 @@ func (b *InMemoryBackend) PutObject(
 }
 
 func (b *InMemoryBackend) prepareObjectData(
+	ctx context.Context,
 	input *s3.PutObjectInput,
-) ([]byte, []byte, bool, string, error) {
-	data, err := io.ReadAll(input.Body)
-	if err != nil {
-		return nil, nil, false, "", err
-	}
+) (int64, []byte, bool, string, error) {
+	// 1. Snapshot the body into a buffer while computing hashes.
+	// We compute both the MD5 (for ETag) and S3 checksums (if specified) in a single pass.
+	//nolint:gosec // MD5 required for S3 ETag
+	md5Hasher := md5.New()
+	var buf bytes.Buffer
+	writers := []io.Writer{md5Hasher, &buf}
 
-	var compressedData []byte
-	var isCompressed bool
-	if b.compressor != nil && (b.compressionMinBytes == 0 || len(data) >= b.compressionMinBytes) {
-		if cData, cErr := b.compressor.Compress(data); cErr == nil {
-			compressedData = cData
-			isCompressed = true
-		} else {
-			return nil, nil, false, "", cErr
+	var s3Hasher hash.Hash
+	algo := string(input.ChecksumAlgorithm)
+	if algo != "" {
+		switch strings.ToUpper(algo) {
+		case "CRC32":
+			s3Hasher = crc32.NewIEEE()
+		case "CRC32C":
+			s3Hasher = crc32.New(crc32.MakeTable(crc32.Castagnoli))
+		case "SHA1":
+			//nolint:gosec // SHA1 supported
+			s3Hasher = sha1.New()
+		case "SHA256":
+			s3Hasher = sha256.New()
 		}
-	} else {
-		compressedData = data
-		isCompressed = false
+		if s3Hasher != nil {
+			writers = append(writers, s3Hasher)
+		}
 	}
 
-	//nolint:gosec // MD5 is required for S3 ETag
-	hash := md5.Sum(data)
-	etag := hex.EncodeToString(hash[:])
+	tr := io.TeeReader(input.Body, io.MultiWriter(writers...))
+	n, err := io.Copy(io.Discard, tr)
+	if err != nil {
+		return 0, nil, false, "", err
+	}
 
-	return data, compressedData, isCompressed, etag, nil
+	data := buf.Bytes()
+	etag := hex.EncodeToString(md5Hasher.Sum(nil)[:])
+
+	logger.Load(ctx).DebugContext(ctx, "prepareObjectData trace",
+		"n", n, "dataLen", len(data), "dataHex", hex.EncodeToString(data), "etag", etag)
+
+	// 2. Validate Content-MD5 from context if present.
+	if md5Header, ok := ctx.Value(md5Key).(string); ok && md5Header != "" {
+		decoded, dErr := base64.StdEncoding.DecodeString(md5Header)
+		if dErr == nil {
+			computed := md5Hasher.Sum(nil)
+			if !bytes.Equal(computed[:], decoded) {
+				return 0, nil, false, "", ErrBadChecksum
+			}
+		}
+	}
+
+	// 3. Validate S3 checksum if provided.
+	if s3Hasher != nil {
+		computedSum := s3Hasher.Sum(nil)
+		// Go's crc32 Sum(nil) may not be big-endian. S3 expects big-endian for CRC32/CRC32C.
+		if h32, ok := s3Hasher.(hash.Hash32); ok {
+			b := make([]byte, 4)
+			binary.BigEndian.PutUint32(b, h32.Sum32())
+			computedSum = b
+		}
+		var supplied *string
+		switch strings.ToUpper(algo) {
+		case "CRC32":
+			supplied = input.ChecksumCRC32
+		case "CRC32C":
+			supplied = input.ChecksumCRC32C
+		case "SHA1":
+			supplied = input.ChecksumSHA1
+		case "SHA256":
+			supplied = input.ChecksumSHA256
+		}
+
+		if supplied != nil && *supplied != "" {
+			computed := base64.StdEncoding.EncodeToString(computedSum)
+			if computed != *supplied {
+				logger.Load(ctx).ErrorContext(ctx, "Checksum mismatch",
+					"algo", algo, "computed", computed, "supplied", *supplied)
+
+				return 0, nil, false, "", ErrBadChecksum
+			}
+		}
+	}
+
+	// 4. Decide whether to compress based on size.
+	if b.compressor != nil && (b.compressionMinBytes == 0 || n >= int64(b.compressionMinBytes)) {
+		cData, cErr := b.compressor.Compress(data)
+		if cErr == nil {
+			return n, cData, true, etag, nil
+		}
+
+		return 0, nil, false, "", cErr
+	}
+
+	return n, data, false, etag, nil
 }
 
 func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionID string) {
@@ -1431,35 +1525,98 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 }
 
 func (b *InMemoryBackend) UploadPart(
-	_ context.Context,
+	ctx context.Context,
 	input *s3.UploadPartInput,
 ) (*s3.UploadPartOutput, error) {
 	uploadID := *input.UploadId
 	partNumber := *input.PartNumber
 	bucketName := aws.ToString(input.Bucket)
 
-	// 1. Read data outside the lock
-	data, err := io.ReadAll(input.Body)
+	// 1. Snapshot the body while computing MD5 etag and S3 checksums.
+	//nolint:gosec // MD5 required
+	md5Hasher := md5.New()
+	var buf bytes.Buffer
+	writers := []io.Writer{md5Hasher, &buf}
+
+	var s3Hasher hash.Hash
+	algo := string(input.ChecksumAlgorithm)
+	if algo != "" {
+		switch strings.ToUpper(algo) {
+		case "CRC32":
+			s3Hasher = crc32.NewIEEE()
+		case "CRC32C":
+			s3Hasher = crc32.New(crc32.MakeTable(crc32.Castagnoli))
+		case "SHA1":
+			//nolint:gosec // SHA1 supported
+			s3Hasher = sha1.New()
+		case "SHA256":
+			s3Hasher = sha256.New()
+		}
+		if s3Hasher != nil {
+			writers = append(writers, s3Hasher)
+		}
+	}
+
+	tr := io.TeeReader(input.Body, io.MultiWriter(writers...))
+	n, err := io.Copy(io.Discard, tr)
 	if err != nil {
 		return nil, err
 	}
 
-	//nolint:gosec // MD5 required
-	hash := md5.Sum(data)
-	etag := fmt.Sprintf("%q", hex.EncodeToString(hash[:]))
+	data := buf.Bytes()
+	etag := hex.EncodeToString(md5Hasher.Sum(nil)[:])
 
-	// 2. Find the upload using a read lock on the global map
+	// 2. Validate Content-MD5 from context if present.
+	if md5Header, ok := ctx.Value(md5Key).(string); ok && md5Header != "" {
+		decoded, dErr := base64.StdEncoding.DecodeString(md5Header)
+		if dErr == nil {
+			computed := md5Hasher.Sum(nil)
+			if !bytes.Equal(computed[:], decoded) {
+				return nil, ErrBadChecksum
+			}
+		}
+	}
+
+	if s3Hasher != nil {
+		computedSum := s3Hasher.Sum(nil)
+		// Go's crc32 Sum(nil) may not be big-endian. S3 expects big-endian for CRC32/CRC32C.
+		if h32, ok := s3Hasher.(hash.Hash32); ok {
+			b := make([]byte, 4)
+			binary.BigEndian.PutUint32(b, h32.Sum32())
+			computedSum = b
+		}
+		var supplied *string
+		switch strings.ToUpper(algo) {
+		case "CRC32":
+			supplied = input.ChecksumCRC32
+		case "CRC32C":
+			supplied = input.ChecksumCRC32C
+		case "SHA1":
+			supplied = input.ChecksumSHA1
+		case "SHA256":
+			supplied = input.ChecksumSHA256
+		}
+
+		if supplied != nil && *supplied != "" {
+			computed := base64.StdEncoding.EncodeToString(computedSum)
+			if computed != *supplied {
+				return nil, ErrBadChecksum
+			}
+		}
+	}
+
+	quotedETag := "\"" + etag + "\""
+
+	// 3. Find the upload using a read lock on the global map
 	b.mu.RLock("UploadPart")
-	upload := b.uploads[bucketName][uploadID] // reading nil map returns nil safely
+	upload := b.uploads[bucketName][uploadID]
 	b.mu.RUnlock()
 
 	if upload == nil {
 		return nil, ErrNoSuchUpload
 	}
 
-	// 3. Update the upload's part map under the per-upload lock only.
-	// Check closed first: AbortMultipartUpload or CompleteMultipartUpload may have
-	// invalidated this upload while we were reading the body.
+	// 4. Update the upload's part map under the per-upload lock only.
 	upload.mu.Lock("UploadPart")
 	if upload.closed {
 		upload.mu.Unlock()
@@ -1468,14 +1625,14 @@ func (b *InMemoryBackend) UploadPart(
 	}
 	upload.Parts[partNumber] = &StoredPart{
 		PartNumber: partNumber,
-		ETag:       etag,
-		Size:       int64(len(data)),
+		ETag:       quotedETag,
+		Size:       n,
 		Data:       data,
 	}
 	upload.mu.Unlock()
 
 	return &s3.UploadPartOutput{
-		ETag: aws.String(etag),
+		ETag: aws.String(quotedETag),
 	}, nil
 }
 
@@ -2611,4 +2768,24 @@ func (b *InMemoryBackend) Reset() {
 	b.bucketIndex = make(map[string]string)
 	b.tags = make(map[string][]types.Tag)
 	b.uploads = make(map[string]map[string]*StoredMultipartUpload)
+}
+
+
+func (b *InMemoryBackend) GetBucketMetadata(ctx context.Context, bucketName string) (string, string, []types.Tag, error) {
+	b.mu.RLock("GetBucketMetadata")
+	region, ok := b.bucketIndex[bucketName]
+	if !ok {
+		b.mu.RUnlock()
+
+		return "", "", nil, ErrNoSuchBucket
+	}
+	bucket := b.buckets[region][bucketName]
+	b.mu.RUnlock()
+
+	bucket.mu.RLock("GetBucketMetadata")
+	lcXML := bucket.LifecycleConfig
+	tags := slices.Clone(bucket.Tags)
+	bucket.mu.RUnlock()
+
+	return region, lcXML, tags, nil
 }

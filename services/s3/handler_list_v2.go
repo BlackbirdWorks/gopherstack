@@ -31,6 +31,14 @@ func (h *S3Handler) listObjectsV2(
 		return
 	}
 
+	// Inject truncation info into q for renderListObjectsV2Response if needed,
+	// or pass it explicitly. For simplicity, I'll pass it in q temporarily or just
+	// modify the signature.
+	if aws.ToBool(outV2.IsTruncated) {
+		q.Set("is-truncated", "true")
+		q.Set("next-continuation-token", aws.ToString(outV2.NextContinuationToken))
+	}
+
 	h.renderListObjectsV2Response(ctx, w, r, bucketName, q, outV2.Contents)
 }
 
@@ -76,29 +84,8 @@ func (h *S3Handler) renderListObjectsV2Response(
 	q url.Values,
 	objects []types.Object,
 ) {
-	maxKeys := defaultMaxKeys
-	if mk := q.Get("max-keys"); mk != "" {
-		if n, err := strconv.Atoi(mk); err == nil && n > 0 {
-			maxKeys = n
-		}
-	}
-
-	startCursor := q.Get("start-after")
-	if ct := q.Get("continuation-token"); ct != "" {
-		startCursor = ct
-	}
-
-	if startCursor != "" {
-		objects = applyStartCursor(objects, startCursor)
-	}
-
-	isTruncated := false
-	var nextToken string
-	if len(objects) > maxKeys {
-		isTruncated = true
-		objects = objects[:maxKeys]
-		nextToken = *objects[maxKeys-1].Key
-	}
+	isTruncated := q.Get("is-truncated") == "true"
+	nextCont := q.Get("next-continuation-token")
 
 	resp := ListBucketV2Result{
 		Name:                  bucketName,
@@ -106,10 +93,15 @@ func (h *S3Handler) renderListObjectsV2Response(
 		Delimiter:             q.Get("delimiter"),
 		ContinuationToken:     q.Get("continuation-token"),
 		StartAfter:            q.Get("start-after"),
-		MaxKeys:               maxKeys,
+		MaxKeys:               defaultMaxKeys,
 		EncodingType:          q.Get("encoding-type"),
 		IsTruncated:           isTruncated,
-		NextContinuationToken: nextToken,
+		NextContinuationToken: nextCont,
+	}
+	if mk := q.Get("max-keys"); mk != "" {
+		if n, err := strconv.Atoi(mk); err == nil {
+			resp.MaxKeys = n
+		}
 	}
 
 	seenPrefixes := make(map[string]struct{})

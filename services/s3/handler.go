@@ -11,6 +11,7 @@ import (
 
 	s3SDK "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -248,6 +249,9 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		*c.Request() = *requestWithCtx
 
 		sw := httputils.NewResponseWriter(c.Response())
+		// Set standard S3 headers for every response for realism and SDK compatibility.
+		sw.Header().Set("x-amz-request-id", uuid.NewString())
+		sw.Header().Set("x-amz-id-2", uuid.NewString()) // Mock ID-2
 
 		log := logger.Load(ctx)
 
