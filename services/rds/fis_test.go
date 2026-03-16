@@ -104,7 +104,7 @@ func TestRDS_ExecuteFISAction_RebootInstances(t *testing.T) {
 			// Create a test instance if needed.
 			if len(tt.targets) > 0 && !tt.wantErr {
 				id := rdsIDFromARNForTest(tt.targets[0])
-				_, err := h.Backend.CreateDBInstance(id, "mysql", "db.t3.micro", "testdb", "admin", "", 20)
+				_, err := h.Backend.CreateDBInstance(id, "mysql", "db.t3.micro", "testdb", "admin", "", 20, rds.DBInstanceOptions{})
 				require.NoError(t, err)
 			}
 

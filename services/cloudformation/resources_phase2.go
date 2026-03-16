@@ -15,6 +15,7 @@ import (
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	route53backend "github.com/blackbirdworks/gopherstack/services/route53"
 )
 
@@ -78,7 +79,7 @@ func (rc *ResourceCreator) createRDSDBInstance(
 	}
 
 	inst, err := rc.backends.RDS.Backend.CreateDBInstance(
-		id, engine, instanceClass, dbName, masterUser, paramGroupName, allocatedStorage,
+		id, engine, instanceClass, dbName, masterUser, paramGroupName, allocatedStorage, rdsbackend.DBInstanceOptions{},
 	)
 	if err != nil {
 		return "", fmt.Errorf("create RDS DB instance %s: %w", id, err)

@@ -362,6 +362,28 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		}
 	}
 
+	backupRetention := 1
+
+	if rawBR := vals.Get("BackupRetentionPeriod"); rawBR != "" {
+		v, err := strconv.Atoi(rawBR)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid BackupRetentionPeriod %q", ErrInvalidParameter, rawBR)
+		}
+
+		backupRetention = v
+	}
+
+	opts := DBInstanceOptions{
+		EngineVersion:                    vals.Get("EngineVersion"),
+		StorageType:                      vals.Get("StorageType"),
+		AvailabilityZone:                 vals.Get("AvailabilityZone"),
+		BackupRetentionPeriod:            backupRetention,
+		MultiAZ:                          vals.Get("MultiAZ") == "true",
+		StorageEncrypted:                 vals.Get("StorageEncrypted") == "true",
+		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == "true",
+		DeletionProtection:               vals.Get("DeletionProtection") == "true",
+	}
+
 	inst, err := h.Backend.CreateDBInstance(
 		id,
 		engine,
@@ -370,6 +392,7 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		masterUser,
 		paramGroupName,
 		allocatedStorage,
+		opts,
 	)
 	if err != nil {
 		return nil, err
@@ -431,7 +454,26 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 		}
 	}
 
-	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, allocatedStorage)
+	backupRetention := -1
+
+	if rawBR := vals.Get("BackupRetentionPeriod"); rawBR != "" {
+		v, err := strconv.Atoi(rawBR)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid BackupRetentionPeriod %q", ErrInvalidParameter, rawBR)
+		}
+
+		backupRetention = v
+	}
+
+	opts := DBInstanceOptions{
+		StorageType:                      vals.Get("StorageType"),
+		BackupRetentionPeriod:            backupRetention,
+		MultiAZ:                          vals.Get("MultiAZ") == "true",
+		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == "true",
+		DeletionProtection:               vals.Get("DeletionProtection") == "true",
+	}
+
+	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, allocatedStorage, opts)
 	if err != nil {
 		return nil, err
 	}

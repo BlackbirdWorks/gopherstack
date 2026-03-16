@@ -1243,7 +1243,7 @@ func TestRDSBackend_DNSRegistrar(t *testing.T) {
 			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
 			b.SetDNSRegistrar(registrar)
 
-			inst, err := b.CreateDBInstance(tt.instanceID, "postgres", "", "", "", "", 0)
+			inst, err := b.CreateDBInstance(tt.instanceID, "postgres", "", "", "", "", 0, rds.DBInstanceOptions{})
 			require.NoError(t, err)
 
 			if tt.deleteAfter {

@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 // rdsInstanceView is the view model for a single RDS DB instance.
@@ -248,7 +250,7 @@ func (h *DashboardHandler) rdsCreateInstance(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if _, err := h.RDSOps.Backend.CreateDBInstance(id, engine, instanceClass, dbName, masterUser, "", 0); err != nil {
+	if _, err := h.RDSOps.Backend.CreateDBInstance(id, engine, instanceClass, dbName, masterUser, "", 0, rdsbackend.DBInstanceOptions{}); err != nil {
 		h.Logger.Error("failed to create RDS instance", "id", id, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)
