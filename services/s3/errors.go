@@ -107,6 +107,11 @@ func coreErrorTable() []s3ErrorEntry {
 			"The Content-MD5 or checksum you specified did not match what we received.",
 			http.StatusBadRequest,
 		}},
+		{ErrDeleteMarker, s3ErrorInfo{
+			"MethodNotAllowed",
+			"The specified method is not allowed against this resource.",
+			http.StatusMethodNotAllowed,
+		}},
 	}
 }
 

@@ -169,6 +169,13 @@ func (h *S3Handler) headObject(
 		return
 	}
 
+	if errors.Is(err, ErrDeleteMarker) {
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+		WriteError(ctx, w, r, ErrDeleteMarker)
+
+		return
+	}
+
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 
@@ -195,6 +202,23 @@ func (h *S3Handler) headObject(
 	}
 
 	h.setCommonHeaders(w, details)
+
+	// Set x-amz-expiration header if a lifecycle rule matches this object.
+	if h.janitor != nil {
+		if lcXML, lcErr := h.Backend.GetBucketLifecycleConfiguration(ctx, bucketName); lcErr == nil && lcXML != "" {
+			var objTags []types.Tag
+			if tagOut, tagErr := h.Backend.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+				Bucket: aws.String(bucketName),
+				Key:    aws.String(key),
+			}); tagErr == nil {
+				objTags = tagOut.TagSet
+			}
+
+			if exp := h.janitor.GetExpirationHeader(lcXML, key, objTags, aws.ToTime(out.LastModified)); exp != "" {
+				w.Header().Set("X-Amz-Expiration", exp)
+			}
+		}
+	}
 
 	if ce := aws.ToString(out.ContentEncoding); ce != "" {
 		w.Header().Set("Content-Encoding", ce)

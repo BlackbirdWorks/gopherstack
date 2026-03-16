@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	pkgslogger "github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	"github.com/blackbirdworks/gopherstack/pkgs/version"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	acmpcabackend "github.com/blackbirdworks/gopherstack/services/acmpca"
 	amplifybackend "github.com/blackbirdworks/gopherstack/services/amplify"
@@ -1891,20 +1892,22 @@ func (h *DashboardHandler) handleS3File(w http.ResponseWriter, r *http.Request, 
 type SettingsPageData struct {
 	PageData
 
-	AccountID  string
-	Region     string
-	LatencyMs  int
-	EnforceIAM bool
+	AccountID     string
+	Region        string
+	LatencyMs     int
+	EnforceIAM    bool
+	BuildVersion  string
 }
 
 // settingsIndex renders the read-only settings/config page.
 func (h *DashboardHandler) settingsIndex(c *echo.Context) error {
 	data := SettingsPageData{
-		PageData:   PageData{Title: "Settings", ActiveTab: "settings"},
-		AccountID:  h.GlobalConfig.AccountID,
-		Region:     h.GlobalConfig.Region,
-		LatencyMs:  h.GlobalConfig.LatencyMs,
-		EnforceIAM: h.GlobalConfig.EnforceIAM,
+		PageData:     PageData{Title: "Settings", ActiveTab: "settings"},
+		AccountID:    h.GlobalConfig.AccountID,
+		Region:       h.GlobalConfig.Region,
+		LatencyMs:    h.GlobalConfig.LatencyMs,
+		EnforceIAM:   h.GlobalConfig.EnforceIAM,
+		BuildVersion: version.Build,
 	}
 
 	h.renderTemplate(c.Response(), "settings.html", data)

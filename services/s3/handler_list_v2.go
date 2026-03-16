@@ -31,9 +31,6 @@ func (h *S3Handler) listObjectsV2(
 		return
 	}
 
-	// Inject truncation info into q for renderListObjectsV2Response if needed,
-	// or pass it explicitly. For simplicity, I'll pass it in q temporarily or just
-	// modify the signature.
 	if aws.ToBool(outV2.IsTruncated) {
 		q.Set("is-truncated", "true")
 		q.Set("next-continuation-token", aws.ToString(outV2.NextContinuationToken))
@@ -99,7 +96,7 @@ func (h *S3Handler) renderListObjectsV2Response(
 		NextContinuationToken: nextCont,
 	}
 	if mk := q.Get("max-keys"); mk != "" {
-		if n, err := strconv.Atoi(mk); err == nil {
+		if n, err := strconv.Atoi(mk); err == nil && n >= 0 && n <= 1000 {
 			resp.MaxKeys = n
 		}
 	}

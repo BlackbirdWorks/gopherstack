@@ -341,7 +341,7 @@ func (b *InMemoryBackend) PutObject(
 	bucket.mu.RUnlock()
 
 	// 2. Prepare data and metadata outside the lock.
-	originalSize, storedData, isCompressed, etag, err := b.prepareObjectData(ctx, input)
+	originalSize, storedData, isCompressed, etag, computedChecksumB64, err := b.prepareObjectData(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -349,6 +349,30 @@ func (b *InMemoryBackend) PutObject(
 	checksums := objectChecksums{
 		input.ChecksumCRC32, input.ChecksumCRC32C,
 		input.ChecksumSHA1, input.ChecksumSHA256,
+	}
+
+	// When the client specifies a checksum algorithm but omits the checksum value
+	// (requesting server-side computation), populate the computed value.
+	if computedChecksumB64 != "" {
+		algo := strings.ToUpper(string(input.ChecksumAlgorithm))
+		switch algo {
+		case "CRC32":
+			if checksums.crc32 == nil {
+				checksums.crc32 = aws.String(computedChecksumB64)
+			}
+		case "CRC32C":
+			if checksums.crc32c == nil {
+				checksums.crc32c = aws.String(computedChecksumB64)
+			}
+		case "SHA1":
+			if checksums.sha1 == nil {
+				checksums.sha1 = aws.String(computedChecksumB64)
+			}
+		case "SHA256":
+			if checksums.sha256 == nil {
+				checksums.sha256 = aws.String(computedChecksumB64)
+			}
+		}
 	}
 
 	// 3. Re-acquire bucket and lock for update
@@ -444,7 +468,7 @@ func (b *InMemoryBackend) PutObject(
 func (b *InMemoryBackend) prepareObjectData(
 	ctx context.Context,
 	input *s3.PutObjectInput,
-) (int64, []byte, bool, string, error) {
+) (int64, []byte, bool, string, string, error) {
 	// 1. Snapshot the body into a buffer while computing hashes.
 	// We compute both the MD5 (for ETag) and S3 checksums (if specified) in a single pass.
 	//nolint:gosec // MD5 required for S3 ETag
@@ -474,27 +498,30 @@ func (b *InMemoryBackend) prepareObjectData(
 	tr := io.TeeReader(input.Body, io.MultiWriter(writers...))
 	n, err := io.Copy(io.Discard, tr)
 	if err != nil {
-		return 0, nil, false, "", err
+		return 0, nil, false, "", "", err
 	}
 
 	data := buf.Bytes()
 	etag := hex.EncodeToString(md5Hasher.Sum(nil)[:])
 
 	logger.Load(ctx).DebugContext(ctx, "prepareObjectData trace",
-		"n", n, "dataLen", len(data), "dataHex", hex.EncodeToString(data), "etag", etag)
+		"n", n, "dataLen", len(data), "etag", etag)
 
 	// 2. Validate Content-MD5 from context if present.
 	if md5Header, ok := ctx.Value(md5Key).(string); ok && md5Header != "" {
 		decoded, dErr := base64.StdEncoding.DecodeString(md5Header)
-		if dErr == nil {
-			computed := md5Hasher.Sum(nil)
-			if !bytes.Equal(computed[:], decoded) {
-				return 0, nil, false, "", ErrBadChecksum
-			}
+		if dErr != nil || len(decoded) != md5.Size {
+			return 0, nil, false, "", "", ErrBadChecksum
+		}
+
+		computed := md5Hasher.Sum(nil)
+		if !bytes.Equal(computed[:], decoded) {
+			return 0, nil, false, "", "", ErrBadChecksum
 		}
 	}
 
-	// 3. Validate S3 checksum if provided.
+	// 3. Validate S3 checksum if provided; compute it if the algorithm is set.
+	var computedChecksumB64 string
 	if s3Hasher != nil {
 		computedSum := s3Hasher.Sum(nil)
 		// Go's crc32 Sum(nil) may not be big-endian. S3 expects big-endian for CRC32/CRC32C.
@@ -503,6 +530,9 @@ func (b *InMemoryBackend) prepareObjectData(
 			binary.BigEndian.PutUint32(b, h32.Sum32())
 			computedSum = b
 		}
+
+		computedChecksumB64 = base64.StdEncoding.EncodeToString(computedSum)
+
 		var supplied *string
 		switch strings.ToUpper(algo) {
 		case "CRC32":
@@ -516,12 +546,11 @@ func (b *InMemoryBackend) prepareObjectData(
 		}
 
 		if supplied != nil && *supplied != "" {
-			computed := base64.StdEncoding.EncodeToString(computedSum)
-			if computed != *supplied {
+			if computedChecksumB64 != *supplied {
 				logger.Load(ctx).ErrorContext(ctx, "Checksum mismatch",
-					"algo", algo, "computed", computed, "supplied", *supplied)
+					"algo", algo, "computed", computedChecksumB64, "supplied", *supplied)
 
-				return 0, nil, false, "", ErrBadChecksum
+				return 0, nil, false, "", "", ErrBadChecksum
 			}
 		}
 	}
@@ -530,13 +559,13 @@ func (b *InMemoryBackend) prepareObjectData(
 	if b.compressor != nil && (b.compressionMinBytes == 0 || n >= int64(b.compressionMinBytes)) {
 		cData, cErr := b.compressor.Compress(data)
 		if cErr == nil {
-			return n, cData, true, etag, nil
+			return n, cData, true, etag, computedChecksumB64, nil
 		}
 
-		return 0, nil, false, "", cErr
+		return 0, nil, false, "", "", cErr
 	}
 
-	return n, data, false, etag, nil
+	return n, data, false, etag, computedChecksumB64, nil
 }
 
 func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionID string) {
@@ -704,7 +733,17 @@ func (b *InMemoryBackend) HeadObject(
 		ver = findLatestVersion(obj.Versions)
 	}
 
-	if ver == nil || ver.Deleted {
+	if ver == nil {
+		return nil, ErrNoSuchKey
+	}
+
+	// If a specific version was requested and it's a delete marker, return 405 (MethodNotAllowed).
+	if versionID != nil && *versionID != "" && ver.Deleted {
+		return nil, ErrDeleteMarker
+	}
+
+	// If no version specified and latest is a delete marker, return 404.
+	if ver.Deleted {
 		return nil, ErrNoSuchKey
 	}
 
@@ -1569,11 +1608,13 @@ func (b *InMemoryBackend) UploadPart(
 	// 2. Validate Content-MD5 from context if present.
 	if md5Header, ok := ctx.Value(md5Key).(string); ok && md5Header != "" {
 		decoded, dErr := base64.StdEncoding.DecodeString(md5Header)
-		if dErr == nil {
-			computed := md5Hasher.Sum(nil)
-			if !bytes.Equal(computed[:], decoded) {
-				return nil, ErrBadChecksum
-			}
+		if dErr != nil || len(decoded) != md5.Size {
+			return nil, ErrBadChecksum
+		}
+
+		computed := md5Hasher.Sum(nil)
+		if !bytes.Equal(computed[:], decoded) {
+			return nil, ErrBadChecksum
 		}
 	}
 
@@ -1585,6 +1626,9 @@ func (b *InMemoryBackend) UploadPart(
 			binary.BigEndian.PutUint32(b, h32.Sum32())
 			computedSum = b
 		}
+
+		computedChecksumB64 := base64.StdEncoding.EncodeToString(computedSum)
+
 		var supplied *string
 		switch strings.ToUpper(algo) {
 		case "CRC32":
@@ -1598,9 +1642,20 @@ func (b *InMemoryBackend) UploadPart(
 		}
 
 		if supplied != nil && *supplied != "" {
-			computed := base64.StdEncoding.EncodeToString(computedSum)
-			if computed != *supplied {
+			if computedChecksumB64 != *supplied {
 				return nil, ErrBadChecksum
+			}
+		} else {
+			// Client requested server-side checksum computation; propagate result.
+			switch strings.ToUpper(algo) {
+			case "CRC32":
+				input.ChecksumCRC32 = aws.String(computedChecksumB64)
+			case "CRC32C":
+				input.ChecksumCRC32C = aws.String(computedChecksumB64)
+			case "SHA1":
+				input.ChecksumSHA1 = aws.String(computedChecksumB64)
+			case "SHA256":
+				input.ChecksumSHA256 = aws.String(computedChecksumB64)
 			}
 		}
 	}
@@ -1632,7 +1687,11 @@ func (b *InMemoryBackend) UploadPart(
 	upload.mu.Unlock()
 
 	return &s3.UploadPartOutput{
-		ETag: aws.String(quotedETag),
+		ETag:           aws.String(quotedETag),
+		ChecksumCRC32:  input.ChecksumCRC32,
+		ChecksumCRC32C: input.ChecksumCRC32C,
+		ChecksumSHA1:   input.ChecksumSHA1,
+		ChecksumSHA256: input.ChecksumSHA256,
 	}, nil
 }
 
