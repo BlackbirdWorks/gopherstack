@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -265,16 +266,13 @@ func TestHandler_SendTaskSuccess_WithRealToken(t *testing.T) {
 				pollCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 				defer cancel()
 
-				var req *http.Request
-				req, _ = http.NewRequestWithContext(pollCtx, http.MethodPost, "/", nil)
-				// Use the handler directly on backend since GetActivityTask is context-aware.
+				// Use the backend directly since GetActivityTask is context-aware.
 				task, pollErr := bk.GetActivityTask(pollCtx, actARN, "worker")
 				if pollErr != nil || task == nil || task.TaskToken == "" {
 					return false
 				}
 
 				taskToken = task.TaskToken
-				_ = req
 
 				return true
 			}, 5*time.Second, 50*time.Millisecond)
@@ -569,7 +567,7 @@ func TestBackend_ListActivities_Pagination(t *testing.T) {
 			b := stepfunctions.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
 
 			for i := range tt.count {
-				_, err := b.CreateActivity("pag-act-" + tt.name + "-" + string(rune('a'+i)))
+				_, err := b.CreateActivity("pag-act-" + tt.name + "-" + strconv.Itoa(i))
 				require.NoError(t, err)
 			}
 
@@ -677,8 +675,6 @@ func TestHandler_Restore_LegacyFormat(t *testing.T) {
 			require.NoError(t, err)
 			assert.Len(t, sms, 1)
 			assert.Equal(t, "legacy-sm", sms[0].Name)
-
-			_ = tt.name
 		})
 	}
 }
