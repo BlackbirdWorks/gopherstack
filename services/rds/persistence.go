@@ -15,6 +15,9 @@ type backendSnapshot struct {
 	OptionGroups           map[string]*OptionGroup       `json:"optionGroups"`
 	Clusters               map[string]*DBCluster         `json:"clusters"`
 	ClusterSnapshots       map[string]*DBClusterSnapshot `json:"clusterSnapshots"`
+	ClusterEndpoints       map[string]*DBClusterEndpoint `json:"clusterEndpoints"`
+	ExportTasks            map[string]*ExportTask        `json:"exportTasks"`
+	GlobalClusters         map[string]*GlobalCluster     `json:"globalClusters"`
 	AccountID              string                        `json:"accountID"`
 	Region                 string                        `json:"region"`
 }
@@ -35,6 +38,9 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		OptionGroups:           b.optionGroups,
 		Clusters:               b.clusters,
 		ClusterSnapshots:       b.clusterSnapshots,
+		ClusterEndpoints:       b.clusterEndpoints,
+		ExportTasks:            b.exportTasks,
+		GlobalClusters:         b.globalClusters,
 		AccountID:              b.accountID,
 		Region:                 b.region,
 	}
@@ -95,6 +101,18 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.ClusterSnapshots = make(map[string]*DBClusterSnapshot)
 	}
 
+	if snap.ClusterEndpoints == nil {
+		snap.ClusterEndpoints = make(map[string]*DBClusterEndpoint)
+	}
+
+	if snap.ExportTasks == nil {
+		snap.ExportTasks = make(map[string]*ExportTask)
+	}
+
+	if snap.GlobalClusters == nil {
+		snap.GlobalClusters = make(map[string]*GlobalCluster)
+	}
+
 	b.instances = snap.Instances
 	b.snapshots = snap.Snapshots
 	b.subnetGroups = snap.SubnetGroups
@@ -104,6 +122,9 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.optionGroups = snap.OptionGroups
 	b.clusters = snap.Clusters
 	b.clusterSnapshots = snap.ClusterSnapshots
+	b.clusterEndpoints = snap.ClusterEndpoints
+	b.exportTasks = snap.ExportTasks
+	b.globalClusters = snap.GlobalClusters
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	// FIS fault state is transient — clear it on restore so stale faults are not retained.
