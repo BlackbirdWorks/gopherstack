@@ -11,6 +11,7 @@ import (
 
 	s3SDK "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -54,10 +55,10 @@ const (
 	tagKeyValueParts = 2
 	defaultMaxKeys   = 1000
 
-	checksumCRC32   = "CRC32"
-	checksumCRC32C  = "CRC32C"
-	checksumSHA1    = "SHA1"
-	checksumSHA256  = "SHA256"
+	ChecksumCRC32   = "CRC32"
+	ChecksumCRC32C  = "CRC32C"
+	ChecksumSHA1    = "SHA1"
+	ChecksumSHA256  = "SHA256"
 	storageStandard = "STANDARD"
 
 	maxDeleteObjects = 1000
@@ -248,6 +249,9 @@ func (h *S3Handler) Handler() echo.HandlerFunc {
 		*c.Request() = *requestWithCtx
 
 		sw := httputils.NewResponseWriter(c.Response())
+		// Set standard S3 headers for every response for realism and SDK compatibility.
+		sw.Header().Set("X-Amz-Request-Id", uuid.NewString())
+		sw.Header().Set("X-Amz-Id-2", uuid.NewString()) // Mock ID-2
 
 		log := logger.Load(ctx)
 

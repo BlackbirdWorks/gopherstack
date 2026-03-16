@@ -38,8 +38,8 @@ func TestIntegration_LakeFormation_DataLakeSettings(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		admins  []string
+		name   string
+		admins []string
 	}{
 		{
 			name:   "set_and_get_admins",

@@ -312,7 +312,7 @@ func TestPutObject_ChecksumAutoCalculation(t *testing.T) {
 		algorithm string
 		wantCRC32 string
 	}{
-		{name: "CRC32 with value", algorithm: "CRC32", wantCRC32: "val"},
+		{name: "CRC32 with value", algorithm: "CRC32", wantCRC32: "0wiusg=="},
 		{name: "CRC32C", algorithm: "CRC32C"},
 		{name: "SHA1", algorithm: "SHA1"},
 		{name: "SHA256", algorithm: "SHA256"},
@@ -336,7 +336,7 @@ func TestPutObject_ChecksumAutoCalculation(t *testing.T) {
 			if tt.algorithm != "INVALID" {
 				input.ChecksumAlgorithm = types.ChecksumAlgorithm(tt.algorithm)
 				if tt.algorithm == "CRC32" {
-					input.ChecksumCRC32 = aws.String("val")
+					input.ChecksumCRC32 = aws.String("0wiusg==")
 				}
 			}
 

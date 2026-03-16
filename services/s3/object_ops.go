@@ -3,8 +3,6 @@ package s3
 import (
 	"bytes"
 	"context"
-	"crypto/md5" //nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
-	"encoding/base64"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -169,6 +167,13 @@ func (h *S3Handler) headObject(
 		return
 	}
 
+	if errors.Is(err, ErrDeleteMarker) {
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+		WriteError(ctx, w, r, ErrDeleteMarker)
+
+		return
+	}
+
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 
@@ -196,6 +201,9 @@ func (h *S3Handler) headObject(
 
 	h.setCommonHeaders(w, details)
 
+	// Set x-amz-expiration header if a lifecycle rule matches this object.
+	h.setExpirationHeader(ctx, w, bucketName, key, out.LastModified)
+
 	if ce := aws.ToString(out.ContentEncoding); ce != "" {
 		w.Header().Set("Content-Encoding", ce)
 	}
@@ -205,37 +213,6 @@ func (h *S3Handler) headObject(
 	}
 
 	w.WriteHeader(http.StatusOK)
-}
-
-// validateContentMD5 checks the Content-MD5 header against the data. Returns false and writes error if invalid.
-func validateContentMD5(ctx context.Context, w http.ResponseWriter, r *http.Request, data []byte) bool {
-	contentMD5Header := r.Header.Get("Content-MD5")
-	if contentMD5Header == "" {
-		return true
-	}
-
-	decoded, decErr := base64.StdEncoding.DecodeString(contentMD5Header)
-	if decErr != nil || len(decoded) != md5.Size {
-		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "BadDigest",
-			Message: "The Content-MD5 you specified did not match what we received.",
-		}, http.StatusBadRequest)
-
-		return false
-	}
-
-	//nolint:gosec // MD5 required for Content-MD5 header validation per S3 spec
-	computed := md5.Sum(data)
-	if !bytes.Equal(computed[:], decoded) {
-		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "BadDigest",
-			Message: "The Content-MD5 you specified did not match what we received.",
-		}, http.StatusBadRequest)
-
-		return false
-	}
-
-	return true
 }
 
 // setPutObjectResponseHeaders sets ETag, version, and checksum headers on the response.
@@ -265,26 +242,15 @@ func (h *S3Handler) putObject(
 	logger.Load(ctx).DebugContext(ctx, "S3 putObject input",
 		"bucket", bucketName, "key", key, "contentType", r.Header.Get("Content-Type"))
 
-	data, err := httputils.ReadBody(r)
-	if err != nil {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
-	if !validateContentMD5(ctx, w, r, data) {
-		return
+	if md5Header := r.Header.Get("Content-MD5"); md5Header != "" {
+		ctx = context.WithValue(ctx, md5Key, md5Header)
 	}
 
 	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)
 
-	if err = verifyChecksumIfPresent(data, algo, crc32p, crc32cp, sha1p, sha256p); err != nil {
-		WriteError(ctx, w, r, err)
-
-		return
-	}
-
-	ver, err := h.Backend.PutObject(ctx, buildPutObjectInput(r, bucketName, key, data,
+	// We pass r.Body directly to the backend to avoid an intermediate buffer in the handler.
+	// The backend computes ETag/checksums while reading.
+	ver, err := h.Backend.PutObject(ctx, buildPutObjectInput(r, bucketName, key, r.Body,
 		algo, crc32p, crc32cp, sha1p, sha256p, parseUserMetadata(r.Header)))
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -328,14 +294,14 @@ func extractAlgoAndChecksums(r *http.Request) (string, *string, *string, *string
 func buildPutObjectInput(
 	r *http.Request,
 	bucketName, key string,
-	data []byte,
+	body io.Reader,
 	algo string, crc32p, crc32cp, sha1p, sha256p *string,
 	userMeta map[string]string,
 ) *s3.PutObjectInput {
 	return &s3.PutObjectInput{
 		Bucket:             aws.String(bucketName),
 		Key:                aws.String(key),
-		Body:               bytes.NewReader(data),
+		Body:               body,
 		Metadata:           userMeta,
 		ContentType:        aws.String(r.Header.Get("Content-Type")),
 		ContentEncoding:    nilStringIfEmpty(r.Header.Get("Content-Encoding")),
@@ -349,13 +315,13 @@ func buildPutObjectInput(
 	}
 }
 
-// copySourceData reads source object data for CopyObject.
+// copySourceData reads source object metadata for CopyObject.
 func (h *S3Handler) copySourceData(
 	ctx context.Context, r *http.Request,
-) ([]byte, *s3.GetObjectOutput, error) {
+) (*s3.GetObjectOutput, error) {
 	srcBucket, srcKey, srcVersionID, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
 	if !ok {
-		return nil, nil, ErrInvalidArgument
+		return nil, ErrInvalidArgument
 	}
 
 	if hID := r.Header.Get("X-Amz-Copy-Source-Version-Id"); hID != "" {
@@ -373,16 +339,10 @@ func (h *S3Handler) copySourceData(
 		VersionId: vid,
 	})
 	if err != nil {
-		return nil, nil, err
-	}
-	defer srcVer.Body.Close()
-
-	data, err := io.ReadAll(srcVer.Body)
-	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return data, srcVer, nil
+	return srcVer, nil
 }
 
 func (h *S3Handler) copyObject(
@@ -393,12 +353,13 @@ func (h *S3Handler) copyObject(
 ) {
 	h.setOperation(ctx, "CopyObject")
 
-	data, srcVer, err := h.copySourceData(ctx, r)
+	srcVer, err := h.copySourceData(ctx, r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
 	}
+	defer srcVer.Body.Close()
 
 	userMeta := srcVer.Metadata
 	contentType := srcVer.ContentType
@@ -421,7 +382,7 @@ func (h *S3Handler) copyObject(
 	putInput := &s3.PutObjectInput{
 		Bucket:      aws.String(destBucket),
 		Key:         aws.String(destKey),
-		Body:        bytes.NewReader(data),
+		Body:        srcVer.Body,
 		Metadata:    userMeta,
 		ContentType: contentType,
 	}
@@ -912,13 +873,13 @@ func (h *S3Handler) setChecksumHeaders(w http.ResponseWriter, out objectCommonDe
 
 	switch {
 	case out.ChecksumCRC32 != nil:
-		algo, val = checksumCRC32, *out.ChecksumCRC32
+		algo, val = ChecksumCRC32, *out.ChecksumCRC32
 	case out.ChecksumCRC32C != nil:
-		algo, val = checksumCRC32C, *out.ChecksumCRC32C
+		algo, val = ChecksumCRC32C, *out.ChecksumCRC32C
 	case out.ChecksumSHA1 != nil:
-		algo, val = checksumSHA1, *out.ChecksumSHA1
+		algo, val = ChecksumSHA1, *out.ChecksumSHA1
 	case out.ChecksumSHA256 != nil:
-		algo, val = checksumSHA256, *out.ChecksumSHA256
+		algo, val = ChecksumSHA256, *out.ChecksumSHA256
 	}
 
 	if algo != "" {
@@ -940,13 +901,13 @@ func extractChecksumPointers(h http.Header, algo string) (*string, *string, *str
 	}
 
 	switch algo {
-	case checksumCRC32:
+	case ChecksumCRC32:
 		return aws.String(checksum), nil, nil, nil
-	case checksumCRC32C:
+	case ChecksumCRC32C:
 		return nil, aws.String(checksum), nil, nil
-	case checksumSHA1:
+	case ChecksumSHA1:
 		return nil, nil, aws.String(checksum), nil
-	case checksumSHA256:
+	case ChecksumSHA256:
 		return nil, nil, nil, aws.String(checksum)
 	default:
 		return nil, nil, nil, nil
@@ -991,7 +952,7 @@ func (h *S3Handler) handleChecksumMode(
 		data, _ := io.ReadAll(ver.Body)
 		ver.Body = io.NopCloser(bytes.NewReader(data))
 
-		algo = checksumCRC32
+		algo = ChecksumCRC32
 		val = CalculateChecksum(data, algo)
 	}
 
@@ -1002,13 +963,13 @@ func (h *S3Handler) handleChecksumMode(
 func (h *S3Handler) getStoredChecksum(out objectCommonDetails) (string, string) {
 	switch {
 	case out.ChecksumCRC32 != nil:
-		return checksumCRC32, *out.ChecksumCRC32
+		return ChecksumCRC32, *out.ChecksumCRC32
 	case out.ChecksumCRC32C != nil:
-		return checksumCRC32C, *out.ChecksumCRC32C
+		return ChecksumCRC32C, *out.ChecksumCRC32C
 	case out.ChecksumSHA1 != nil:
-		return checksumSHA1, *out.ChecksumSHA1
+		return ChecksumSHA1, *out.ChecksumSHA1
 	case out.ChecksumSHA256 != nil:
-		return checksumSHA256, *out.ChecksumSHA256
+		return ChecksumSHA256, *out.ChecksumSHA256
 	default:
 		return "", ""
 	}
@@ -1302,4 +1263,35 @@ func (h *S3Handler) getObjectLegalHold(
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, lh)
+}
+
+// setExpirationHeader evaluates lifecycle rules and sets the X-Amz-Expiration header.
+func (h *S3Handler) setExpirationHeader(
+	ctx context.Context,
+	w http.ResponseWriter,
+	bucketName, key string,
+	lastModified *time.Time,
+) {
+	if h.janitor == nil {
+		return
+	}
+
+	lcXML, lcErr := h.Backend.GetBucketLifecycleConfiguration(ctx, bucketName)
+	if lcErr != nil || lcXML == "" {
+		return
+	}
+
+	var objTags []types.Tag
+
+	tagOut, tagErr := h.Backend.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(key),
+	})
+	if tagErr == nil {
+		objTags = tagOut.TagSet
+	}
+
+	if exp := h.janitor.GetExpirationHeader(lcXML, key, objTags, aws.ToTime(lastModified)); exp != "" {
+		w.Header().Set("X-Amz-Expiration", exp)
+	}
 }

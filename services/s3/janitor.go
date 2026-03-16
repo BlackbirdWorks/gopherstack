@@ -3,6 +3,7 @@ package s3
 import (
 	"context"
 	"encoding/xml"
+	"fmt"
 	"strings"
 	"time"
 
@@ -15,7 +16,8 @@ import (
 // lifecycleConfiguration mirrors the AWS S3 XML lifecycle configuration schema
 // used to persist and evaluate lifecycle rules stored in StoredBucket.LifecycleConfig.
 type lifecycleConfiguration struct {
-	Rules []lifecycleRule `xml:"Rule"`
+	XMLName xml.Name        `xml:"LifecycleConfiguration"`
+	Rules   []lifecycleRule `xml:"Rule"`
 }
 
 type lifecycleRule struct {
@@ -158,6 +160,41 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ticker.C:
 			j.runOnce(ctx)
 			j.sweepLifecycle(ctx)
+			j.cleanupDefaultMultipart(ctx)
+		}
+	}
+}
+
+const defaultMultipartMaxAge = 24 * time.Hour
+
+// cleanupDefaultMultipart aborts multipart uploads older than 24 hours
+// for buckets without an explicit lifecycle policy.
+func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
+	b := j.Backend
+	now := time.Now().UTC()
+	abortBefore := now.Add(-defaultMultipartMaxAge)
+
+	b.mu.Lock("S3Janitor.cleanupDefaultMultipart")
+	defer b.mu.Unlock()
+
+	for bucketName, uploads := range b.uploads {
+		// Check if bucket has lifecycle; if it does, j.sweepLifecycle handles it.
+		// We only apply the 24h default to buckets WITHOUT lifecycle.
+		hasLifecycle := false
+		if bucket, _ := findBucketAcrossRegions(b.buckets, bucketName); bucket != nil {
+			bucket.mu.RLock("S3Janitor.checkLC")
+			hasLifecycle = bucket.LifecycleConfig != ""
+			bucket.mu.RUnlock()
+		}
+
+		if hasLifecycle {
+			continue
+		}
+
+		for uploadID, upload := range uploads {
+			if upload.Initiated.Before(abortBefore) {
+				delete(uploads, uploadID)
+			}
 		}
 	}
 }
@@ -550,6 +587,62 @@ func findBucketAcrossRegions(buckets map[string]map[string]*StoredBucket, name s
 	}
 
 	return nil, ""
+}
+
+// GetExpirationHeader calculates the x-amz-expiration header for an object
+// based on the bucket's lifecycle configuration.
+func (j *Janitor) GetExpirationHeader(lcXML string, key string, tags []types.Tag, lastModified time.Time) string {
+	if lcXML == "" {
+		return ""
+	}
+
+	var cfg lifecycleConfiguration
+	if err := xml.Unmarshal([]byte(lcXML), &cfg); err != nil {
+		return ""
+	}
+
+	var earliestExpiry time.Time
+	var matchingRuleID string
+
+	for i := range cfg.Rules {
+		rule := &cfg.Rules[i]
+		if !strings.EqualFold(rule.Status, "Enabled") {
+			continue
+		}
+
+		prefix := rule.prefix()
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+
+		tagFilters := rule.Filter.tags()
+		if len(tagFilters) > 0 && !objectMatchesTags(tags, tagFilters) {
+			continue
+		}
+
+		var expiry time.Time
+		if rule.Expiration.Days >= 0 && (rule.Expiration.Date == "") {
+			// S3 rounds up to the next midnight UTC
+			const hoursInDay = 24
+			expiry = lastModified.Add(time.Duration(rule.Expiration.Days) * hoursInDay * time.Hour)
+			expiry = time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 0, 0, 0, 0, time.UTC).
+				Add(hoursInDay * time.Hour)
+		} else if rule.Expiration.Date != "" {
+			expiry, _ = parseLifecycleDate(rule.Expiration.Date)
+		}
+
+		if !expiry.IsZero() && (earliestExpiry.IsZero() || expiry.Before(earliestExpiry)) {
+			earliestExpiry = expiry
+			matchingRuleID = rule.ID
+		}
+	}
+
+	if earliestExpiry.IsZero() {
+		return ""
+	}
+
+	return fmt.Sprintf(`expiry-date="%s", rule-id="%s"`,
+		earliestExpiry.Format(time.RFC1123), matchingRuleID)
 }
 
 // deleteBatch deletes up to maxCount objects from the map, returning the number deleted.
