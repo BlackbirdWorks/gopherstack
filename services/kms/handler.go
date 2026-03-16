@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -57,6 +58,7 @@ type untagResourceInput struct {
 type Handler struct {
 	Backend       StorageBackend
 	actions       map[string]kmsActionFn
+	janitor       *Janitor
 	tags          map[string]*tags.Tags
 	tagsMu        *lockmetrics.RWMutex
 	DefaultRegion string
@@ -72,6 +74,25 @@ func NewHandler(backend StorageBackend) *Handler {
 	h.actions = h.buildDispatchTable()
 
 	return h
+}
+
+// WithJanitor attaches a background key-deletion janitor to the handler.
+// If the backend is not an *InMemoryBackend, this is a no-op.
+func (h *Handler) WithJanitor(interval time.Duration) *Handler {
+	if mem, ok := h.Backend.(*InMemoryBackend); ok {
+		h.janitor = NewJanitor(mem, interval)
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if one is configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 func (h *Handler) setTags(resourceID string, kv map[string]string) {
@@ -117,6 +138,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DisableKey",
 		"DisableKeyRotation",
 		"Decrypt",
+		"DeleteImportedKeyMaterial",
 		"EnableKey",
 		"EnableKeyRotation",
 		"Encrypt",
@@ -124,6 +146,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GenerateDataKeyWithoutPlaintext",
 		"GetKeyRotationStatus",
 		"GetPublicKey",
+		"ImportKeyMaterial",
 		"ListAliases",
 		"ListKeys",
 		"ReEncrypt",
@@ -131,6 +154,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"Sign",
 		"Verify",
 		"CreateAlias",
+		"UpdateAlias",
 		"DeleteAlias",
 		"CreateGrant",
 		"ListGrants",
@@ -288,6 +312,22 @@ func (h *Handler) buildKeyLifecycleActions() map[string]kmsActionFn {
 
 			return struct{}{}, h.Backend.CancelKeyDeletion(&input)
 		},
+		"ImportKeyMaterial": func(_ string, b []byte) (any, error) {
+			var input ImportKeyMaterialInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.ImportKeyMaterial(&input)
+		},
+		"DeleteImportedKeyMaterial": func(_ string, b []byte) (any, error) {
+			var input DeleteImportedKeyMaterialInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.DeleteImportedKeyMaterial(&input)
+		},
 	}
 }
 
@@ -371,6 +411,14 @@ func (h *Handler) buildAliasRotationActions() map[string]kmsActionFn {
 			}
 
 			return struct{}{}, h.Backend.CreateAlias(&input)
+		},
+		"UpdateAlias": func(_ string, b []byte) (any, error) {
+			var input UpdateAliasInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.UpdateAlias(&input)
 		},
 		"DeleteAlias": func(_ string, b []byte) (any, error) {
 			var input DeleteAliasInput
@@ -585,6 +633,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		errorType = "InvalidCiphertextException"
 	case errors.Is(reqErr, ErrInvalidSignature):
 		errorType = "KMSInvalidSignatureException"
+	case errors.Is(reqErr, ErrUnsupportedOrigin):
+		errorType = "UnsupportedOperationException"
 	case errors.Is(reqErr, ErrUnknownOperation):
 		errorType = "UnknownOperationException"
 	default:

@@ -39,12 +39,14 @@ type Key struct {
 	Arn string `json:"Arn"`
 	// Description is an optional human-readable description.
 	Description string `json:"Description,omitempty"`
-	// KeyState is the current state: Enabled, Disabled, or PendingDeletion.
+	// KeyState is the current state: Enabled, Disabled, PendingDeletion, or PendingImport.
 	KeyState string `json:"KeyState"`
 	// KeyUsage is the cryptographic operation: ENCRYPT_DECRYPT.
 	KeyUsage string `json:"KeyUsage"`
 	// KeySpec is the key spec, e.g., "SYMMETRIC_DEFAULT".
 	KeySpec string `json:"KeySpec,omitempty"`
+	// Origin indicates where the key material originates: AWS_KMS or EXTERNAL.
+	Origin string `json:"Origin,omitempty"`
 	// CreationDate is the Unix timestamp when the key was created.
 	CreationDate float64 `json:"CreationDate"`
 	// RotationEnabled indicates whether automatic key rotation is enabled.
@@ -69,7 +71,7 @@ type KeyMetadata struct {
 	KeyUsage string `json:"KeyUsage"`
 	// KeyManager is always "CUSTOMER" for customer-managed keys.
 	KeyManager string `json:"KeyManager,omitempty"`
-	// Origin is always "AWS_KMS" for keys created in KMS.
+	// Origin indicates where the key material originates: AWS_KMS or EXTERNAL.
 	Origin string `json:"Origin,omitempty"`
 	// KeySpec is the key spec, e.g., "SYMMETRIC_DEFAULT".
 	KeySpec string `json:"KeySpec,omitempty"`
@@ -81,6 +83,8 @@ type KeyMetadata struct {
 	MultiRegion bool `json:"MultiRegion"`
 	// CreationDate is the Unix timestamp when the key was created.
 	CreationDate float64 `json:"CreationDate"`
+	// DeletionDate is the Unix timestamp when the key will be deleted (PendingDeletion state only).
+	DeletionDate float64 `json:"DeletionDate,omitempty"`
 }
 
 // Alias represents a KMS alias pointing to a key.
@@ -101,6 +105,8 @@ type CreateKeyInput struct {
 	KeyUsage string `json:"KeyUsage,omitempty"`
 	// KeySpec identifies the cryptographic algorithm to use for the key (e.g. SYMMETRIC_DEFAULT, RSA_2048).
 	KeySpec string `json:"KeySpec,omitempty"`
+	// Origin specifies the source of the key material: AWS_KMS (default) or EXTERNAL.
+	Origin string `json:"Origin,omitempty"`
 	// Region is the AWS region for ARN construction (optional; defaults to backend region).
 	Region string `json:"-"`
 }
@@ -150,10 +156,9 @@ type ListKeysOutput struct {
 
 // EncryptInput is the request payload for Encrypt.
 type EncryptInput struct {
-	// KeyId identifies the KMS key to use for encryption.
-	KeyID string `json:"KeyId"`
-	// Plaintext is the data to encrypt (base64-encoded in JSON wire format).
-	Plaintext []byte `json:"Plaintext"`
+	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
+	KeyID             string            `json:"KeyId"`
+	Plaintext         []byte            `json:"Plaintext"`
 }
 
 // EncryptOutput is the response payload for Encrypt.
@@ -164,8 +169,9 @@ type EncryptOutput struct {
 
 // DecryptInput is the request payload for Decrypt.
 type DecryptInput struct {
-	KeyID          string `json:"KeyId,omitempty"`
-	CiphertextBlob []byte `json:"CiphertextBlob"`
+	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
+	KeyID             string            `json:"KeyId,omitempty"`
+	CiphertextBlob    []byte            `json:"CiphertextBlob"`
 }
 
 // DecryptOutput is the response payload for Decrypt.
@@ -176,9 +182,10 @@ type DecryptOutput struct {
 
 // GenerateDataKeyInput is the request payload for GenerateDataKey.
 type GenerateDataKeyInput struct {
-	NumberOfBytes *int32 `json:"NumberOfBytes,omitempty"`
-	KeyID         string `json:"KeyId"`
-	KeySpec       string `json:"KeySpec,omitempty"`
+	NumberOfBytes     *int32            `json:"NumberOfBytes,omitempty"`
+	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
+	KeyID             string            `json:"KeyId"`
+	KeySpec           string            `json:"KeySpec,omitempty"`
 }
 
 // GenerateDataKeyOutput is the response payload for GenerateDataKey.
@@ -190,9 +197,11 @@ type GenerateDataKeyOutput struct {
 
 // ReEncryptInput is the request payload for ReEncrypt.
 type ReEncryptInput struct {
-	DestinationKeyID string `json:"DestinationKeyId"`
-	SourceKeyID      string `json:"SourceKeyId,omitempty"`
-	CiphertextBlob   []byte `json:"CiphertextBlob"`
+	SourceEncryptionContext      map[string]string `json:"SourceEncryptionContext,omitempty"`
+	DestinationEncryptionContext map[string]string `json:"DestinationEncryptionContext,omitempty"`
+	DestinationKeyID             string            `json:"DestinationKeyId"`
+	SourceKeyID                  string            `json:"SourceKeyId,omitempty"`
+	CiphertextBlob               []byte            `json:"CiphertextBlob"`
 }
 
 // ReEncryptOutput is the response payload for ReEncrypt.
@@ -207,6 +216,14 @@ type CreateAliasInput struct {
 	// AliasName is the name of the alias (must begin with alias/).
 	AliasName string `json:"AliasName"`
 	// TargetKeyId is the key ID the alias should point to.
+	TargetKeyID string `json:"TargetKeyId"`
+}
+
+// UpdateAliasInput is the request payload for UpdateAlias.
+type UpdateAliasInput struct {
+	// AliasName is the existing alias to redirect.
+	AliasName string `json:"AliasName"`
+	// TargetKeyId is the new key ID the alias should point to.
 	TargetKeyID string `json:"TargetKeyId"`
 }
 
@@ -259,6 +276,15 @@ type GetKeyRotationStatusOutput struct {
 
 // KeyStatePendingDeletion is the string constant for a key pending deletion.
 const KeyStatePendingDeletion = "PendingDeletion"
+
+// KeyStatePendingImport is the string constant for a key awaiting imported key material.
+const KeyStatePendingImport = "PendingImport"
+
+// KeyOriginAWSKMS is the origin for keys whose material is generated by AWS KMS.
+const KeyOriginAWSKMS = "AWS_KMS"
+
+// KeyOriginExternal is the origin for keys whose material is imported by the customer.
+const KeyOriginExternal = "EXTERNAL"
 
 // DisableKeyInput is the request payload for DisableKey.
 type DisableKeyInput struct {
@@ -372,9 +398,10 @@ type ListRetirableGrantsInput struct {
 
 // GenerateDataKeyWithoutPlaintextInput is the request payload for GenerateDataKeyWithoutPlaintext.
 type GenerateDataKeyWithoutPlaintextInput struct {
-	NumberOfBytes *int32 `json:"NumberOfBytes,omitempty"`
-	KeyID         string `json:"KeyId"`
-	KeySpec       string `json:"KeySpec,omitempty"`
+	NumberOfBytes     *int32            `json:"NumberOfBytes,omitempty"`
+	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
+	KeyID             string            `json:"KeyId"`
+	KeySpec           string            `json:"KeySpec,omitempty"`
 }
 
 // GenerateDataKeyWithoutPlaintextOutput is the response payload for GenerateDataKeyWithoutPlaintext.
@@ -453,4 +480,18 @@ type GetPublicKeyOutput struct {
 	SigningAlgorithms []string `json:"SigningAlgorithms,omitempty"`
 	// EncryptionAlgorithms lists the encryption algorithms (empty for sign keys).
 	EncryptionAlgorithms []string `json:"EncryptionAlgorithms,omitempty"`
+}
+
+// ImportKeyMaterialInput is the request payload for ImportKeyMaterial.
+type ImportKeyMaterialInput struct {
+	KeyID           string  `json:"KeyId"`
+	ExpirationModel string  `json:"ExpirationModel,omitempty"`
+	KeyMaterial     []byte  `json:"KeyMaterial"`
+	ValidTo         float64 `json:"ValidTo,omitempty"`
+}
+
+// DeleteImportedKeyMaterialInput is the request payload for DeleteImportedKeyMaterial.
+type DeleteImportedKeyMaterialInput struct {
+	// KeyId identifies the EXTERNAL-origin key whose material should be deleted.
+	KeyID string `json:"KeyId"`
 }
