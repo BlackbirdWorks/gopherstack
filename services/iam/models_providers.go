@@ -235,3 +235,22 @@ type SetSecurityTokenServicePreferencesResponse struct {
 	Xmlns            string           `xml:"xmlns,attr"`
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
+
+// GetAccountSummaryResult contains the account summary map.
+type GetAccountSummaryResult struct {
+	SummaryMap []AccountSummaryEntry `xml:"SummaryMap>entry"`
+}
+
+// AccountSummaryEntry represents a single key-value entry in the account summary map.
+type AccountSummaryEntry struct {
+	Key   string `xml:"key"`
+	Value int    `xml:"value"`
+}
+
+// GetAccountSummaryResponse is the XML response for GetAccountSummary.
+type GetAccountSummaryResponse struct {
+	XMLName                 xml.Name                `xml:"GetAccountSummaryResponse"`
+	Xmlns                   string                  `xml:"xmlns,attr"`
+	ResponseMetadata        ResponseMetadata        `xml:"ResponseMetadata"`
+	GetAccountSummaryResult GetAccountSummaryResult `xml:"GetAccountSummaryResult"`
+}
