@@ -8,7 +8,6 @@ import (
 	"maps"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -32,6 +31,12 @@ type createStateMachineInput struct {
 
 type deleteStateMachineInput struct {
 	StateMachineArn string `json:"stateMachineArn"`
+}
+
+type updateStateMachineInput struct {
+	StateMachineArn string `json:"stateMachineArn"`
+	Definition      string `json:"definition"`
+	RoleArn         string `json:"roleArn"`
 }
 
 type listStateMachinesInput struct {
@@ -58,6 +63,12 @@ type sfnUntagResourceInput struct {
 }
 
 type startExecutionInput struct {
+	StateMachineArn string `json:"stateMachineArn"`
+	Name            string `json:"name"`
+	Input           string `json:"input"`
+}
+
+type startSyncExecutionInput struct {
 	StateMachineArn string `json:"stateMachineArn"`
 	Name            string `json:"name"`
 	Input           string `json:"input"`
@@ -114,8 +125,9 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
 	h.tagsMu.RLock("removeTags")
+	defer h.tagsMu.RUnlock()
+
 	t := h.tags[resourceID]
-	h.tagsMu.RUnlock()
 	if t != nil {
 		t.DeleteKeys(keys)
 	}
@@ -144,6 +156,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeStateMachine",
 		"UpdateStateMachine",
 		"StartExecution",
+		"StartSyncExecution",
 		"StopExecution",
 		"DescribeExecution",
 		"ListExecutions",
@@ -151,6 +164,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"CreateActivity",
+		"DeleteActivity",
+		"DescribeActivity",
+		"ListActivities",
+		"GetActivityTask",
+		"SendTaskSuccess",
+		"SendTaskFailure",
+		"SendTaskHeartbeat",
 	}
 }
 
@@ -259,7 +280,7 @@ type listStateMachinesOutput struct {
 }
 
 type updateStateMachineOutput struct {
-	UpdateDate time.Time `json:"updateDate"`
+	UpdateDate float64 `json:"updateDate"`
 }
 
 type startExecutionOutput struct {
@@ -290,6 +311,66 @@ type listStateMachineVersionsOutput struct {
 	StateMachineVersions []any `json:"stateMachineVersions"`
 }
 
+type createActivityInput struct {
+	Name string `json:"name"`
+}
+
+type createActivityOutput struct {
+	ActivityArn  string  `json:"activityArn"`
+	CreationDate float64 `json:"creationDate"`
+}
+
+type deleteActivityInput struct {
+	ActivityArn string `json:"activityArn"`
+}
+
+type deleteActivityOutput struct{}
+
+type describeActivityInput struct {
+	ActivityArn string `json:"activityArn"`
+}
+
+type listActivitiesInput struct {
+	NextToken  string `json:"nextToken"`
+	MaxResults int    `json:"maxResults"`
+}
+
+type listActivitiesOutput struct {
+	NextToken  string     `json:"nextToken"`
+	Activities []Activity `json:"activities"`
+}
+
+type getActivityTaskInput struct {
+	ActivityArn string `json:"activityArn"`
+	WorkerName  string `json:"workerName"`
+}
+
+type getActivityTaskOutput struct {
+	TaskToken string `json:"taskToken"`
+	Input     string `json:"input"`
+}
+
+type sendTaskSuccessInput struct {
+	TaskToken string `json:"taskToken"`
+	Output    string `json:"output"`
+}
+
+type sendTaskSuccessOutput struct{}
+
+type sendTaskFailureInput struct {
+	TaskToken string `json:"taskToken"`
+	Error     string `json:"error"`
+	Cause     string `json:"cause"`
+}
+
+type sendTaskFailureOutput struct{}
+
+type sendTaskHeartbeatInput struct {
+	TaskToken string `json:"taskToken"`
+}
+
+type sendTaskHeartbeatOutput struct{}
+
 func (h *Handler) stateMachineActions() map[string]actionFn {
 	m := map[string]actionFn{
 		"CreateStateMachine": func(b []byte) (any, error) {
@@ -316,6 +397,14 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 				return nil, err
 			}
 
+			// Clean up tags for the deleted state machine.
+			h.tagsMu.Lock("DeleteStateMachine")
+			if t, ok := h.tags[input.StateMachineArn]; ok {
+				t.Close()
+				delete(h.tags, input.StateMachineArn)
+			}
+			h.tagsMu.Unlock()
+
 			return &deleteStateMachineOutput{}, nil
 		},
 		"ListStateMachines": func(b []byte) (any, error) {
@@ -338,8 +427,17 @@ func (h *Handler) stateMachineActions() map[string]actionFn {
 
 			return h.Backend.DescribeStateMachine(input.StateMachineArn)
 		},
-		"UpdateStateMachine": func(_ []byte) (any, error) {
-			return &updateStateMachineOutput{UpdateDate: time.Now().UTC()}, nil
+		"UpdateStateMachine": func(b []byte) (any, error) {
+			var input updateStateMachineInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+			updateDate, err := h.Backend.UpdateStateMachine(input.StateMachineArn, input.Definition, input.RoleArn)
+			if err != nil {
+				return nil, err
+			}
+
+			return &updateStateMachineOutput{UpdateDate: updateDate}, nil
 		},
 	}
 	maps.Copy(m, h.stateMachineTagActions())
@@ -391,82 +489,207 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 
 func (h *Handler) executionActions() map[string]actionFn {
 	return map[string]actionFn{
-		"StartExecution": func(b []byte) (any, error) {
-			var input startExecutionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			exec, err := h.Backend.StartExecution(input.StateMachineArn, input.Name, input.Input)
-			if err != nil {
-				return nil, err
-			}
-
-			return &startExecutionOutput{
-				ExecutionArn: exec.ExecutionArn,
-				StartDate:    exec.StartDate,
-			}, nil
-		},
-		"StopExecution": func(b []byte) (any, error) {
-			var input stopExecutionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			if err := h.Backend.StopExecution(input.ExecutionArn, input.Error, input.Cause); err != nil {
-				return nil, err
-			}
-			exec, err := h.Backend.DescribeExecution(input.ExecutionArn)
-			if err != nil {
-				return nil, err
-			}
-
-			return &stopExecutionOutput{StopDate: exec.StopDate}, nil
-		},
-		"DescribeExecution": func(b []byte) (any, error) {
-			var input describeExecutionInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			return h.Backend.DescribeExecution(input.ExecutionArn)
-		},
-		"ListExecutions": func(b []byte) (any, error) {
-			var input listExecutionsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			execs, next, err := h.Backend.ListExecutions(
-				input.StateMachineArn, input.StatusFilter, input.NextToken, input.MaxResults,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			return &listExecutionsOutput{Executions: execs, NextToken: next}, nil
-		},
-		"GetExecutionHistory": func(b []byte) (any, error) {
-			var input getExecutionHistoryInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			events, next, err := h.Backend.GetExecutionHistory(
-				input.ExecutionArn, input.NextToken, input.MaxResults, input.ReverseOrder,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			return &getExecutionHistoryOutput{Events: events, NextToken: next}, nil
-		},
+		"StartExecution":      h.handleStartExecution,
+		"StartSyncExecution":  h.handleStartSyncExecution,
+		"StopExecution":       h.handleStopExecution,
+		"DescribeExecution":   h.handleDescribeExecution,
+		"ListExecutions":      h.handleListExecutions,
+		"GetExecutionHistory": h.handleGetExecutionHistory,
 	}
+}
+
+func (h *Handler) handleStartExecution(b []byte) (any, error) {
+	var input startExecutionInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	exec, err := h.Backend.StartExecution(input.StateMachineArn, input.Name, input.Input)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startExecutionOutput{ExecutionArn: exec.ExecutionArn, StartDate: exec.StartDate}, nil
+}
+
+func (h *Handler) handleStartSyncExecution(b []byte) (any, error) {
+	var input startSyncExecutionInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	return h.Backend.StartSyncExecution(input.StateMachineArn, input.Name, input.Input)
+}
+
+func (h *Handler) handleStopExecution(b []byte) (any, error) {
+	var input stopExecutionInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.StopExecution(input.ExecutionArn, input.Error, input.Cause); err != nil {
+		return nil, err
+	}
+
+	exec, err := h.Backend.DescribeExecution(input.ExecutionArn)
+	if err != nil {
+		return nil, err
+	}
+
+	return &stopExecutionOutput{StopDate: exec.StopDate}, nil
+}
+
+func (h *Handler) handleDescribeExecution(b []byte) (any, error) {
+	var input describeExecutionInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	return h.Backend.DescribeExecution(input.ExecutionArn)
+}
+
+func (h *Handler) handleListExecutions(b []byte) (any, error) {
+	var input listExecutionsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	execs, next, err := h.Backend.ListExecutions(
+		input.StateMachineArn, input.StatusFilter, input.NextToken, input.MaxResults,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listExecutionsOutput{Executions: execs, NextToken: next}, nil
+}
+
+func (h *Handler) handleGetExecutionHistory(b []byte) (any, error) {
+	var input getExecutionHistoryInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	events, next, err := h.Backend.GetExecutionHistory(
+		input.ExecutionArn, input.NextToken, input.MaxResults, input.ReverseOrder,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getExecutionHistoryOutput{Events: events, NextToken: next}, nil
 }
 
 func (h *Handler) dispatchTable() map[string]actionFn {
 	table := make(map[string]actionFn)
 	maps.Copy(table, h.stateMachineActions())
 	maps.Copy(table, h.executionActions())
+	maps.Copy(table, h.activityActions())
 	maps.Copy(table, h.utilActions())
 
 	return table
+}
+
+// activityActions returns handler functions for activity-related operations.
+func (h *Handler) activityActions() map[string]actionFn {
+	return map[string]actionFn{
+		"CreateActivity":    h.handleCreateActivity,
+		"DeleteActivity":    h.handleDeleteActivity,
+		"DescribeActivity":  h.handleDescribeActivity,
+		"ListActivities":    h.handleListActivities,
+		"SendTaskSuccess":   h.handleSendTaskSuccess,
+		"SendTaskFailure":   h.handleSendTaskFailure,
+		"SendTaskHeartbeat": h.handleSendTaskHeartbeat,
+	}
+}
+
+func (h *Handler) handleCreateActivity(b []byte) (any, error) {
+	var input createActivityInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	a, err := h.Backend.CreateActivity(input.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createActivityOutput{ActivityArn: a.ActivityArn, CreationDate: a.CreationDate}, nil
+}
+
+func (h *Handler) handleDeleteActivity(b []byte) (any, error) {
+	var input deleteActivityInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.DeleteActivity(input.ActivityArn); err != nil {
+		return nil, err
+	}
+
+	return &deleteActivityOutput{}, nil
+}
+
+func (h *Handler) handleDescribeActivity(b []byte) (any, error) {
+	var input describeActivityInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	return h.Backend.DescribeActivity(input.ActivityArn)
+}
+
+func (h *Handler) handleListActivities(b []byte) (any, error) {
+	var input listActivitiesInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	acts, next, err := h.Backend.ListActivities(input.NextToken, input.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listActivitiesOutput{Activities: acts, NextToken: next}, nil
+}
+
+func (h *Handler) handleSendTaskSuccess(b []byte) (any, error) {
+	var input sendTaskSuccessInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.SendTaskSuccess(input.TaskToken, input.Output); err != nil {
+		return nil, err
+	}
+
+	return &sendTaskSuccessOutput{}, nil
+}
+
+func (h *Handler) handleSendTaskFailure(b []byte) (any, error) {
+	var input sendTaskFailureInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.SendTaskFailure(input.TaskToken, input.Error, input.Cause); err != nil {
+		return nil, err
+	}
+
+	return &sendTaskFailureOutput{}, nil
+}
+
+func (h *Handler) handleSendTaskHeartbeat(b []byte) (any, error) {
+	var input sendTaskHeartbeatInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.SendTaskHeartbeat(input.TaskToken); err != nil {
+		return nil, err
+	}
+
+	return &sendTaskHeartbeatOutput{}, nil
 }
 
 type validateStateMachineDefinitionInput struct {
@@ -502,7 +725,12 @@ func (h *Handler) utilActions() map[string]actionFn {
 }
 
 // dispatch routes the action to the correct handler function.
-func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byte, error) {
+func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
+	// GetActivityTask is context-aware (long-poll up to 60 seconds).
+	if action == "GetActivityTask" {
+		return h.handleGetActivityTask(ctx, body)
+	}
+
 	fn, ok := h.dispatchTable()[action]
 	if !ok {
 		return nil, fmt.Errorf("%w:%s", errUnknownOperation, action)
@@ -514,6 +742,28 @@ func (h *Handler) dispatch(_ context.Context, action string, body []byte) ([]byt
 	}
 
 	return json.Marshal(response)
+}
+
+// handleGetActivityTask handles GetActivityTask with context support for long-polling.
+func (h *Handler) handleGetActivityTask(ctx context.Context, body []byte) ([]byte, error) {
+	var input getActivityTaskInput
+	if err := json.Unmarshal(body, &input); err != nil {
+		return nil, err
+	}
+
+	task, err := h.Backend.GetActivityTask(ctx, input.ActivityArn, input.WorkerName)
+	if err != nil {
+		return nil, err
+	}
+
+	if task == nil {
+		return json.Marshal(&getActivityTaskOutput{})
+	}
+
+	return json.Marshal(&getActivityTaskOutput{
+		TaskToken: task.TaskToken,
+		Input:     task.Input,
+	})
 }
 
 // handleError writes a standardized JSON error response.
@@ -545,12 +795,20 @@ func classifyError(reqErr error) (string, int) {
 		return "StateMachineDoesNotExist", http.StatusNotFound
 	case errors.Is(reqErr, ErrExecutionDoesNotExist):
 		return "ExecutionDoesNotExist", http.StatusNotFound
+	case errors.Is(reqErr, ErrActivityDoesNotExist):
+		return "ActivityDoesNotExist", http.StatusNotFound
+	case errors.Is(reqErr, ErrTaskTokenNotFound):
+		return "TaskDoesNotExist", http.StatusNotFound
 	case errors.Is(reqErr, ErrStateMachineAlreadyExists):
 		return "StateMachineAlreadyExists", http.StatusConflict
 	case errors.Is(reqErr, ErrExecutionAlreadyExists):
 		return "ExecutionAlreadyExists", http.StatusConflict
+	case errors.Is(reqErr, ErrActivityAlreadyExists):
+		return "ActivityAlreadyExists", http.StatusConflict
 	case errors.Is(reqErr, ErrInvalidDefinition):
 		return "InvalidDefinition", http.StatusBadRequest
+	case errors.Is(reqErr, ErrInvalidExecutionType):
+		return "InvalidExecutionType", http.StatusBadRequest
 	case errors.Is(reqErr, errUnknownOperation):
 		return "UnknownOperationException", http.StatusBadRequest
 	default:
@@ -561,6 +819,14 @@ func classifyError(reqErr error) (string, int) {
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (h *Handler) Reset() {
+	// Close and clear all Tags objects to avoid lockmetrics leaks.
+	h.tagsMu.Lock("Reset")
+	for _, t := range h.tags {
+		t.Close()
+	}
+	h.tags = make(map[string]*tags.Tags)
+	h.tagsMu.Unlock()
+
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}

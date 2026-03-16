@@ -11,6 +11,7 @@ type StateMachine struct {
 	Definition      string  `json:"definition"`
 	RoleArn         string  `json:"roleArn"`
 	CreationDate    float64 `json:"creationDate"`
+	UpdatedDate     float64 `json:"updatedDate,omitempty"`
 }
 
 // Execution represents a state machine execution.
@@ -47,4 +48,31 @@ type StateEnteredEventDetails struct {
 type StateExitedEventDetails struct {
 	Name   string `json:"name"`
 	Output string `json:"output,omitempty"`
+}
+
+// Activity represents an AWS Step Functions activity resource.
+type Activity struct {
+	Name         string  `json:"name"`
+	ActivityArn  string  `json:"activityArn"`
+	CreationDate float64 `json:"creationDate"`
+}
+
+// ActivityTask represents a task polled from an activity queue.
+type ActivityTask struct {
+	TaskToken string `json:"taskToken"`
+	Input     string `json:"input"`
+}
+
+// SyncExecutionResult holds the result of a synchronous (EXPRESS) execution.
+type SyncExecutionResult struct {
+	ExecutionArn    string  `json:"executionArn"`
+	StateMachineArn string  `json:"stateMachineArn"`
+	Name            string  `json:"name"`
+	Status          string  `json:"status"`
+	Input           string  `json:"input,omitempty"`
+	Output          string  `json:"output,omitempty"`
+	Error           string  `json:"error,omitempty"`
+	Cause           string  `json:"cause,omitempty"`
+	StopDate        float64 `json:"stopDate"`
+	StartDate       float64 `json:"startDate"`
 }
