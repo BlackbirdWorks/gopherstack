@@ -1,6 +1,8 @@
 package iam
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,6 +63,8 @@ var (
 	ErrLoginProfileAlreadyExists = errors.New("EntityAlreadyExists")
 	// ErrInvalidOIDCProviderURL is returned when an OIDC provider URL cannot be parsed.
 	ErrInvalidOIDCProviderURL = errors.New("InvalidInput")
+	// ErrInvalidPassword is returned when a password fails validation (e.g., empty).
+	ErrInvalidPassword = errors.New("InvalidInput")
 )
 
 // StorageBackend defines the interface for the IAM in-memory store.
@@ -119,8 +123,10 @@ type StorageBackend interface {
 	// Groups
 	CreateGroup(groupName, path string) (*Group, error)
 	DeleteGroup(groupName string) error
+	GetGroup(groupName string) (*Group, error)
 	ListGroups(marker string, maxItems int) (page.Page[Group], error)
 	AddUserToGroup(groupName, userName string) error
+	RemoveUserFromGroup(groupName, userName string) error
 	AttachGroupPolicy(groupName, policyArn string) error
 	DetachGroupPolicy(groupName, policyArn string) error
 	ListAttachedGroupPolicies(groupName string) ([]AttachedPolicy, error)
@@ -132,6 +138,7 @@ type StorageBackend interface {
 	GetAccountAuthorizationDetails() AccountAuthorizationDetails
 	SimulatePrincipalPolicy(principalArn string, actionNames, resourceArns []string) ([]SimulationResult, error)
 	GetCredentialReport() string
+	GetAccountSummary() AccountSummary
 
 	// Access Keys
 	CreateAccessKey(userName string) (*AccessKey, error)
@@ -142,6 +149,8 @@ type StorageBackend interface {
 	CreateInstanceProfile(name, path string) (*InstanceProfile, error)
 	DeleteInstanceProfile(name string) error
 	ListInstanceProfiles(marker string, maxItems int) (page.Page[InstanceProfile], error)
+	AddRoleToInstanceProfile(instanceProfileName, roleName string) error
+	RemoveRoleFromInstanceProfile(instanceProfileName, roleName string) error
 
 	// SAML Providers
 	CreateSAMLProvider(name, samlMetadataDocument string) (*SAMLProvider, error)
@@ -194,6 +203,7 @@ type InMemoryBackend struct {
 	userPolicies        map[string][]string          // userName → []policyArn
 	rolePolicies        map[string][]string          // roleName → []policyArn
 	groupPolicies       map[string][]string          // groupName → []policyArn
+	groupMembers        map[string][]string          // groupName → []userName
 	userInlinePolicies  map[string]map[string]string // userName → policyName → document
 	roleInlinePolicies  map[string]map[string]string // roleName → policyName → document
 	groupInlinePolicies map[string]map[string]string // groupName → policyName → document
@@ -221,6 +231,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		userPolicies:        make(map[string][]string),
 		rolePolicies:        make(map[string][]string),
 		groupPolicies:       make(map[string][]string),
+		groupMembers:        make(map[string][]string),
 		userInlinePolicies:  make(map[string]map[string]string),
 		roleInlinePolicies:  make(map[string]map[string]string),
 		groupInlinePolicies: make(map[string]map[string]string),
@@ -269,7 +280,7 @@ func (b *InMemoryBackend) CreateUser(userName, path, permissionsBoundary string)
 	return &u, nil
 }
 
-// DeleteUser deletes an IAM user by name.
+// DeleteUser deletes an IAM user by name, removing all associated access keys and login profile.
 func (b *InMemoryBackend) DeleteUser(userName string) error {
 	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
@@ -284,6 +295,27 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 
 	if len(b.userInlinePolicies[userName]) > 0 {
 		return fmt.Errorf("%w: user %q has inline policies", ErrDeleteConflict, userName)
+	}
+
+	// Clean up access keys belonging to the user.
+	for id, ak := range b.accessKeys {
+		if ak.UserName == userName {
+			delete(b.accessKeys, id)
+		}
+	}
+
+	// Clean up login profile.
+	delete(b.loginProfiles, userName)
+
+	// Remove user from all group memberships.
+	for groupName, members := range b.groupMembers {
+		for i, m := range members {
+			if m == userName {
+				b.groupMembers[groupName] = append(members[:i], members[i+1:]...)
+
+				break
+			}
+		}
 	}
 
 	delete(b.users, userName)
@@ -619,13 +651,16 @@ func (b *InMemoryBackend) DeleteGroup(groupName string) error {
 
 	delete(b.groups, groupName)
 
+	// Clean up group membership tracking.
+	delete(b.groupMembers, groupName)
+
 	return nil
 }
 
-// AddUserToGroup adds a user to an IAM group (stub — no membership tracking).
+// AddUserToGroup adds a user to an IAM group, tracking the membership.
 func (b *InMemoryBackend) AddUserToGroup(groupName, userName string) error {
-	b.mu.RLock("AddUserToGroup")
-	defer b.mu.RUnlock()
+	b.mu.Lock("AddUserToGroup")
+	defer b.mu.Unlock()
 
 	if _, exists := b.groups[groupName]; !exists {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
@@ -635,7 +670,51 @@ func (b *InMemoryBackend) AddUserToGroup(groupName, userName string) error {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	if slices.Contains(b.groupMembers[groupName], userName) {
+		return nil // already a member
+	}
+
+	b.groupMembers[groupName] = append(b.groupMembers[groupName], userName)
+
 	return nil
+}
+
+// RemoveUserFromGroup removes a user from an IAM group.
+func (b *InMemoryBackend) RemoveUserFromGroup(groupName, userName string) error {
+	b.mu.Lock("RemoveUserFromGroup")
+	defer b.mu.Unlock()
+
+	if _, exists := b.groups[groupName]; !exists {
+		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	if _, exists := b.users[userName]; !exists {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
+	}
+
+	members := b.groupMembers[groupName]
+	for i, m := range members {
+		if m == userName {
+			b.groupMembers[groupName] = append(members[:i], members[i+1:]...)
+
+			return nil
+		}
+	}
+
+	return nil
+}
+
+// GetGroup retrieves a single IAM group by name.
+func (b *InMemoryBackend) GetGroup(groupName string) (*Group, error) {
+	b.mu.RLock("GetGroup")
+	defer b.mu.RUnlock()
+
+	g, exists := b.groups[groupName]
+	if !exists {
+		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	return &g, nil
 }
 
 // AttachGroupPolicy attaches a policy to a group.
@@ -723,9 +802,14 @@ func (b *InMemoryBackend) CreateAccessKey(userName string) (*AccessKey, error) {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	secret, err := newSecretAccessKey()
+	if err != nil {
+		return nil, fmt.Errorf("creating access key: %w", err)
+	}
+
 	ak := AccessKey{
 		AccessKeyID:     newAccessKeyID(),
-		SecretAccessKey: uuid.New().String(),
+		SecretAccessKey: secret,
 		UserName:        userName,
 		Status:          "Active",
 		CreateDate:      time.Now().UTC(),
@@ -825,6 +909,52 @@ func (b *InMemoryBackend) ListInstanceProfiles(marker string, maxItems int) (pag
 	})
 
 	return page.New(profiles, marker, maxItems, iamDefaultMaxItems), nil
+}
+
+// AddRoleToInstanceProfile adds a role to an IAM instance profile.
+func (b *InMemoryBackend) AddRoleToInstanceProfile(instanceProfileName, roleName string) error {
+	b.mu.Lock("AddRoleToInstanceProfile")
+	defer b.mu.Unlock()
+
+	ip, exists := b.instanceProfiles[instanceProfileName]
+	if !exists {
+		return fmt.Errorf("%w: instance profile %q not found", ErrInstanceProfileNotFound, instanceProfileName)
+	}
+
+	if _, roleExists := b.roles[roleName]; !roleExists {
+		return fmt.Errorf("%w: role %q not found", ErrRoleNotFound, roleName)
+	}
+
+	if slices.Contains(ip.Roles, roleName) {
+		return nil // already attached
+	}
+
+	ip.Roles = append(ip.Roles, roleName)
+	b.instanceProfiles[instanceProfileName] = ip
+
+	return nil
+}
+
+// RemoveRoleFromInstanceProfile removes a role from an IAM instance profile.
+func (b *InMemoryBackend) RemoveRoleFromInstanceProfile(instanceProfileName, roleName string) error {
+	b.mu.Lock("RemoveRoleFromInstanceProfile")
+	defer b.mu.Unlock()
+
+	ip, exists := b.instanceProfiles[instanceProfileName]
+	if !exists {
+		return fmt.Errorf("%w: instance profile %q not found", ErrInstanceProfileNotFound, instanceProfileName)
+	}
+
+	for i, r := range ip.Roles {
+		if r == roleName {
+			ip.Roles = append(ip.Roles[:i], ip.Roles[i+1:]...)
+			b.instanceProfiles[instanceProfileName] = ip
+
+			return nil
+		}
+	}
+
+	return nil
 }
 
 // ---- Dashboard helpers ----
@@ -937,6 +1067,21 @@ func newID(prefix string) string {
 // newAccessKeyID generates a 20-character access key ID.
 func newAccessKeyID() string {
 	return "AKIA" + uuid.New().String()[:16]
+}
+
+// secretKeyBytes is the number of random bytes to generate for a secret access key.
+// 30 random bytes produce exactly 40 standard base64 characters (30 * 8/6 = 40).
+const secretKeyBytes = 30
+
+// newSecretAccessKey generates a cryptographically secure 40-character secret access key.
+// It uses 30 random bytes encoded as standard base64, which produces exactly 40 characters.
+func newSecretAccessKey() (string, error) {
+	b := make([]byte, secretKeyBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("iam: generate secret access key: %w", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 // ---- Attached Policy Queries ----
@@ -1431,6 +1576,18 @@ type RoleDetail struct {
 	InlinePolicies   []InlinePolicyEntry
 }
 
+// AccountSummary holds summary counts for GetAccountSummary.
+type AccountSummary struct {
+	Users             int
+	Groups            int
+	Roles             int
+	Policies          int
+	InstanceProfiles  int
+	AccessKeysPerUser int
+	SAMLProviders     int
+	MFADevices        int
+}
+
 // AccountAuthorizationDetails is the full IAM entity dump returned by GetAccountAuthorizationDetails.
 type AccountAuthorizationDetails struct {
 	Users    []UserDetail
@@ -1681,6 +1838,21 @@ func (b *InMemoryBackend) GetCredentialReport() string {
 	return strings.Join(lines, "\n")
 }
 
+// GetAccountSummary returns summary counts for the IAM account.
+func (b *InMemoryBackend) GetAccountSummary() AccountSummary {
+	b.mu.RLock("GetAccountSummary")
+	defer b.mu.RUnlock()
+
+	return AccountSummary{
+		Users:            len(b.users),
+		Groups:           len(b.groups),
+		Roles:            len(b.roles),
+		Policies:         len(b.policies),
+		InstanceProfiles: len(b.instanceProfiles),
+		SAMLProviders:    len(b.samlProviders),
+	}
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
@@ -1699,6 +1871,7 @@ func (b *InMemoryBackend) Reset() {
 	b.userPolicies = make(map[string][]string)
 	b.rolePolicies = make(map[string][]string)
 	b.groupPolicies = make(map[string][]string)
+	b.groupMembers = make(map[string][]string)
 	b.userInlinePolicies = make(map[string]map[string]string)
 	b.roleInlinePolicies = make(map[string]map[string]string)
 	b.groupInlinePolicies = make(map[string]map[string]string)

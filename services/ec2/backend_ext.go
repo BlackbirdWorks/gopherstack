@@ -212,10 +212,22 @@ const (
 	// stubFingerprintUUIDLen is the number of UUID hex characters used to build
 	// a stub fingerprint for ImportKeyPair (no actual public key is parsed).
 	stubFingerprintUUIDLen = 11
+	// maxFreePrivateIPs caps the recycled private-IP free list to avoid
+	// unbounded memory growth in long-running tests.
+	maxFreePrivateIPs = 1000
 )
 
 // allocPrivateIP returns the next 172.31.x.y private IP. Must be called with mu held.
+// Recycled IPs from UnassignPrivateIPAddresses are reused before allocating fresh ones.
 func (b *InMemoryBackend) allocPrivateIP() string {
+	if len(b.freePrivateIPs) > 0 {
+		last := len(b.freePrivateIPs) - 1
+		ip := b.freePrivateIPs[last]
+		b.freePrivateIPs = b.freePrivateIPs[:last]
+
+		return ip
+	}
+
 	idx := b.nextPrivateIPIndex
 	b.nextPrivateIPIndex++
 	third := idx / privateIPOctetRange
@@ -505,7 +517,7 @@ func (b *InMemoryBackend) CreateVolume(az, volType string, size int) (*Volume, e
 		AZ:         az,
 		VolumeType: volType,
 		Size:       size,
-		State:      "available",
+		State:      stateAvailable,
 		CreateTime: time.Now(),
 	}
 	b.volumes[id] = vol
@@ -605,7 +617,7 @@ func (b *InMemoryBackend) DetachVolume(volumeID string, _ bool) (*VolumeAttachme
 	att := *vol.Attachment
 	att.State = "detached"
 	vol.Attachment = nil
-	vol.State = "available"
+	vol.State = stateAvailable
 
 	return &att, nil
 }
@@ -770,7 +782,7 @@ func (b *InMemoryBackend) AttachInternetGateway(igwID, vpcID string) error {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
-	igw.Attachments = append(igw.Attachments, IGWAttachment{VPCID: vpcID, State: "available"})
+	igw.Attachments = append(igw.Attachments, IGWAttachment{VPCID: vpcID, State: stateAvailable})
 
 	return nil
 }
@@ -960,7 +972,7 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 		AllocationID: allocationID,
 		PublicIP:     addr.PublicIP,
 		PrivateIP:    b.allocPrivateIP(),
-		State:        "available",
+		State:        stateAvailable,
 		CreateTime:   time.Now(),
 	}
 	b.natGateways[id] = ngw
@@ -968,15 +980,17 @@ func (b *InMemoryBackend) CreateNatGateway(subnetID, allocationID string) (*NatG
 	return ngw, nil
 }
 
-// DeleteNatGateway removes a NAT Gateway.
+// DeleteNatGateway removes a NAT Gateway and recycles its private IP.
 func (b *InMemoryBackend) DeleteNatGateway(id string) error {
 	b.mu.Lock("DeleteNatGateway")
 	defer b.mu.Unlock()
 
-	if _, ok := b.natGateways[id]; !ok {
+	ngw, ok := b.natGateways[id]
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrNatGatewayNotFound, id)
 	}
 
+	b.recycleIPLocked(ngw.PrivateIP)
 	delete(b.natGateways, id)
 	delete(b.tags, id)
 
@@ -1114,7 +1128,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(subnetID, description string) (
 		VPCID:           sub.VPCID,
 		PrivateIP:       b.allocPrivateIP(),
 		Description:     description,
-		Status:          "available",
+		Status:          stateAvailable,
 		SourceDestCheck: true,
 	}
 	b.networkInterfaces[id] = eni
@@ -1137,6 +1151,7 @@ func (b *InMemoryBackend) DeleteNetworkInterface(id string) error {
 		return fmt.Errorf("%w: %s is currently attached to instance %s", ErrNetworkInterfaceInUse, id, eni.InstanceID)
 	}
 
+	b.recycleENIIPsLocked(eni)
 	delete(b.networkInterfaces, id)
 	delete(b.tags, id)
 
@@ -1180,7 +1195,7 @@ func (b *InMemoryBackend) DetachNetworkInterface(attachmentID string, _ bool) er
 			eni.InstanceID = ""
 			eni.AttachmentID = ""
 			eni.DeviceIndex = 0
-			eni.Status = "available"
+			eni.Status = stateAvailable
 
 			return nil
 		}
@@ -1214,6 +1229,8 @@ func (b *InMemoryBackend) AssignPrivateIPAddresses(eniID string, count int, ips 
 }
 
 // UnassignPrivateIPAddresses removes secondary private IP addresses from an ENI.
+// Auto-allocated IPs (172.31.x.y) are returned to the free list so they can be
+// reused by subsequent allocations.
 func (b *InMemoryBackend) UnassignPrivateIPAddresses(eniID string, ips []string) error {
 	b.mu.Lock("UnassignPrivateIPAddresses")
 	defer b.mu.Unlock()
@@ -1233,6 +1250,9 @@ func (b *InMemoryBackend) UnassignPrivateIPAddresses(eniID string, ips []string)
 	for _, ip := range eni.SecondaryPrivateIPs {
 		if !remove[ip] {
 			kept = append(kept, ip)
+		} else {
+			// Return auto-allocated IPs to the free list for reuse, up to the cap.
+			b.recycleIPLocked(ip)
 		}
 	}
 
@@ -1385,7 +1405,7 @@ func (b *InMemoryBackend) CreatePlacementGroup(name, strategy string) (*Placemen
 	pg := &PlacementGroup{
 		Name:     name,
 		Strategy: strategy,
-		State:    "available",
+		State:    stateAvailable,
 	}
 	b.placementGroups[name] = pg
 

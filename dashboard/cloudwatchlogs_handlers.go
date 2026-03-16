@@ -135,7 +135,7 @@ func (h *DashboardHandler) cloudWatchLogsStreamDetail(c *echo.Context) error {
 		events = evts
 	} else {
 		evts, _, _, err := h.CloudWatchLogsOps.Backend.GetLogEvents(
-			groupName, streamName, nil, nil, maxEvents, "",
+			groupName, streamName, nil, nil, maxEvents, "", true,
 		)
 		if err != nil {
 			h.Logger.Warn("failed to get log events", "group", groupName, "stream", streamName, "err", err)

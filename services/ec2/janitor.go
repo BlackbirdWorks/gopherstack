@@ -69,7 +69,9 @@ func (j *Janitor) Run(ctx context.Context) {
 }
 
 // sweepTerminatedInstances removes instances that have been in the terminated
-// state longer than TerminatedTTL and cleans up their tags.
+// state longer than TerminatedTTL and cleans up their tags. As a defensive
+// measure it also removes any network interfaces still attached to swept
+// instances (e.g. state restored from a snapshot predating the ENI cleanup).
 func (j *Janitor) sweepTerminatedInstances(ctx context.Context) {
 	cutoff := time.Now().Add(-j.TerminatedTTL)
 
@@ -82,6 +84,16 @@ func (j *Janitor) sweepTerminatedInstances(ctx context.Context) {
 			swept = append(swept, id)
 			delete(j.Backend.instances, id)
 			delete(j.Backend.tags, id)
+
+			// Defensive: remove any ENIs still referencing this instance
+			// (can happen when state is restored from a pre-cleanup snapshot).
+			for eniID, eni := range j.Backend.networkInterfaces {
+				if eni.InstanceID == id {
+					j.Backend.recycleENIIPsLocked(eni)
+					delete(j.Backend.networkInterfaces, eniID)
+					delete(j.Backend.tags, eniID)
+				}
+			}
 		}
 	}
 

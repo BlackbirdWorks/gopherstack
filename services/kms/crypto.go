@@ -124,9 +124,41 @@ func padKeyID(keyID string) []byte {
 	return b
 }
 
+// buildEncryptionContextAAD constructs the additional authenticated data (AAD) bytes from the key ID
+// and an optional encryption context. When ctx is empty, the AAD is just the key ID bytes.
+// When ctx is non-empty, each sorted key=value pair is appended with a NUL separator,
+// producing a deterministic byte sequence required for authenticated decryption.
+func buildEncryptionContextAAD(keyID string, ctx map[string]string) []byte {
+	if len(ctx) == 0 {
+		return []byte(keyID)
+	}
+
+	keys := make([]string, 0, len(ctx))
+	for k := range ctx {
+		keys = append(keys, k)
+	}
+
+	slices.Sort(keys)
+
+	var b strings.Builder
+
+	b.WriteString(keyID)
+
+	for _, k := range keys {
+		b.WriteByte(0)
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(ctx[k])
+	}
+
+	return []byte(b.String())
+}
+
 // encryptSymmetric encrypts plaintext with the key's AES-256-GCM material, embedding the key ID.
 // The output format is: [keyIDPrefixLen bytes: padded keyID][nonce][AES-GCM ciphertext+tag].
-func encryptSymmetric(plaintext []byte, keyID string, km *keyMaterial) ([]byte, error) {
+// encCtx is incorporated into the AAD for authenticated encryption; callers must supply the
+// same context during decryption or the authentication check will fail.
+func encryptSymmetric(plaintext []byte, keyID string, encCtx map[string]string, km *keyMaterial) ([]byte, error) {
 	if km.symmetricKey == nil {
 		return nil, errMissingSymmetricKey
 	}
@@ -146,7 +178,7 @@ func encryptSymmetric(plaintext []byte, keyID string, km *keyMaterial) ([]byte, 
 		return nil, fmt.Errorf("generating nonce: %w", readErr)
 	}
 
-	aad := []byte(keyID)
+	aad := buildEncryptionContextAAD(keyID, encCtx)
 	encrypted := gcm.Seal(nonce, nonce, plaintext, aad)
 
 	result := make([]byte, keyIDPrefixLen+len(encrypted))
@@ -157,8 +189,10 @@ func encryptSymmetric(plaintext []byte, keyID string, km *keyMaterial) ([]byte, 
 }
 
 // decryptSymmetric decrypts a ciphertext blob produced by encryptSymmetric.
+// encCtx must match the context that was used during encryption; a mismatch causes
+// AES-GCM authentication to fail and ErrInvalidCiphertext is returned.
 // Returns (plaintext, keyID, error).
-func decryptSymmetric(blob []byte, km *keyMaterial) ([]byte, string, error) {
+func decryptSymmetric(blob []byte, encCtx map[string]string, km *keyMaterial) ([]byte, string, error) {
 	if len(blob) < keyIDPrefixLen {
 		return nil, "", ErrCiphertextTooShort
 	}
@@ -186,7 +220,7 @@ func decryptSymmetric(blob []byte, km *keyMaterial) ([]byte, string, error) {
 	}
 
 	nonce, cipherOnly := encrypted[:nonceSize], encrypted[nonceSize:]
-	aad := []byte(keyID)
+	aad := buildEncryptionContextAAD(keyID, encCtx)
 
 	plaintext, openErr := gcm.Open(nil, nonce, cipherOnly, aad)
 	if openErr != nil {

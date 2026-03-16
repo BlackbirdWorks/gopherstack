@@ -30,6 +30,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	handler := NewHandler(backend)
 	handler.DefaultRegion = defaultRegion
+	handler.WithJanitor(0)
 
 	return handler, nil
 }

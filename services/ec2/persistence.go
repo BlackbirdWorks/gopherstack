@@ -5,22 +5,23 @@ import (
 )
 
 type backendSnapshot struct {
-	Instances          map[string]*Instance            `json:"instances"`
-	SecurityGroups     map[string]*SecurityGroup       `json:"securityGroups"`
+	RouteTables        map[string]*RouteTable          `json:"routeTables"`
+	NetworkInterfaces  map[string]*NetworkInterface    `json:"networkInterfaces"`
 	VPCs               map[string]*VPC                 `json:"vpcs"`
-	Subnets            map[string]*Subnet              `json:"subnets"`
+	NatGateways        map[string]*NatGateway          `json:"natGateways"`
 	KeyPairs           map[string]*KeyPair             `json:"keyPairs"`
 	Volumes            map[string]*Volume              `json:"volumes"`
 	Addresses          map[string]*Address             `json:"addresses"`
 	InternetGateways   map[string]*InternetGateway     `json:"internetGateways"`
-	RouteTables        map[string]*RouteTable          `json:"routeTables"`
-	NatGateways        map[string]*NatGateway          `json:"natGateways"`
-	NetworkInterfaces  map[string]*NetworkInterface    `json:"networkInterfaces"`
+	SecurityGroups     map[string]*SecurityGroup       `json:"securityGroups"`
+	Instances          map[string]*Instance            `json:"instances"`
+	Subnets            map[string]*Subnet              `json:"subnets"`
 	SpotRequests       map[string]*SpotInstanceRequest `json:"spotRequests"`
 	PlacementGroups    map[string]*PlacementGroup      `json:"placementGroups"`
 	Tags               map[string]map[string]string    `json:"tags"`
 	AccountID          string                          `json:"accountID"`
 	Region             string                          `json:"region"`
+	FreePrivateIPs     []string                        `json:"freePrivateIPs,omitempty"`
 	NextPrivateIPIndex int                             `json:"nextPrivateIPIndex"`
 	NextElasticIPIndex int                             `json:"nextElasticIPIndex"`
 }
@@ -46,6 +47,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		SpotRequests:       b.spotRequests,
 		PlacementGroups:    b.placementGroups,
 		Tags:               b.tags,
+		FreePrivateIPs:     b.freePrivateIPs,
 		AccountID:          b.AccountID,
 		Region:             b.Region,
 		NextPrivateIPIndex: b.nextPrivateIPIndex,
@@ -88,6 +90,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.spotRequests = snap.SpotRequests
 	b.placementGroups = snap.PlacementGroups
 	b.tags = snap.Tags
+	b.freePrivateIPs = snap.FreePrivateIPs
 	b.AccountID = snap.AccountID
 	b.Region = snap.Region
 	b.nextPrivateIPIndex = snap.NextPrivateIPIndex

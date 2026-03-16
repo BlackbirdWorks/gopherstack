@@ -103,9 +103,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"SimulatePrincipalPolicy",
 		"GenerateCredentialReport", "GetCredentialReport",
 		"CreateGroup", "DeleteGroup", "AddUserToGroup", "ListGroups",
+		"RemoveUserFromGroup", "GetGroup",
 		"AttachGroupPolicy", "DetachGroupPolicy", "ListAttachedGroupPolicies",
 		"CreateAccessKey", "DeleteAccessKey", "ListAccessKeys",
 		"CreateInstanceProfile", "DeleteInstanceProfile", "ListInstanceProfiles",
+		"AddRoleToInstanceProfile", "RemoveRoleFromInstanceProfile",
 		"ListRoleTags", "TagRole", "UntagRole",
 		"ListPolicyTags", "TagPolicy", "UntagPolicy",
 		"ListUserTags", "TagUser", "UntagUser",
@@ -119,6 +121,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"CreateLoginProfile", "UpdateLoginProfile", "DeleteLoginProfile", "GetLoginProfile",
 		// Miscellaneous
 		"GetServiceLastAccessedDetails", "SetSecurityTokenServicePreferences",
+		"GetAccountSummary",
 	}
 }
 
@@ -1009,6 +1012,28 @@ func (h *Handler) iamGroupDispatchTable() map[string]iamActionFn {
 
 			return &AddUserToGroupResponse{Xmlns: iamXMLNS, ResponseMetadata: ResponseMetadata{RequestID: reqID}}, nil
 		},
+		"RemoveUserFromGroup": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.RemoveUserFromGroup(vals.Get("GroupName"), vals.Get("UserName")); err != nil {
+				return nil, err
+			}
+
+			return &RemoveUserFromGroupResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"GetGroup": func(vals url.Values, reqID string) (any, error) {
+			g, err := h.Backend.GetGroup(vals.Get("GroupName"))
+			if err != nil {
+				return nil, err
+			}
+
+			return &GetGroupResponse{
+				Xmlns:            iamXMLNS,
+				GetGroupResult:   GetGroupResult{Group: toGroupXML(g)},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
 		"ListGroups": func(vals url.Values, reqID string) (any, error) {
 			p, err := h.Backend.ListGroups(vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
 			if err != nil {
@@ -1091,9 +1116,11 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 			}
 
 			return &CreateInstanceProfileResponse{
-				Xmlns:                       iamXMLNS,
-				CreateInstanceProfileResult: CreateInstanceProfileResult{InstanceProfile: toInstanceProfileXML(ip)},
-				ResponseMetadata:            ResponseMetadata{RequestID: reqID},
+				Xmlns: iamXMLNS,
+				CreateInstanceProfileResult: CreateInstanceProfileResult{
+					InstanceProfile: toInstanceProfileXML(ip, h.resolveInstanceProfileRoles(ip)),
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 		"DeleteInstanceProfile": func(vals url.Values, reqID string) (any, error) {
@@ -1114,7 +1141,10 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 
 			xmlProfiles := make([]InstanceProfileXML, 0, len(p.Data))
 			for i := range p.Data {
-				xmlProfiles = append(xmlProfiles, toInstanceProfileXML(&p.Data[i]))
+				xmlProfiles = append(
+					xmlProfiles,
+					toInstanceProfileXML(&p.Data[i], h.resolveInstanceProfileRoles(&p.Data[i])),
+				)
 			}
 
 			return &ListInstanceProfilesResponse{
@@ -1124,6 +1154,30 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 					IsTruncated:      p.Next != "",
 					Marker:           p.Next,
 				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"AddRoleToInstanceProfile": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.AddRoleToInstanceProfile(
+				vals.Get("InstanceProfileName"), vals.Get("RoleName"),
+			); err != nil {
+				return nil, err
+			}
+
+			return &AddRoleToInstanceProfileResponse{
+				Xmlns:            iamXMLNS,
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
+		"RemoveRoleFromInstanceProfile": func(vals url.Values, reqID string) (any, error) {
+			if err := h.Backend.RemoveRoleFromInstanceProfile(
+				vals.Get("InstanceProfileName"), vals.Get("RoleName"),
+			); err != nil {
+				return nil, err
+			}
+
+			return &RemoveRoleFromInstanceProfileResponse{
+				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
@@ -1326,6 +1380,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, action strin
 		code = "InvalidAction"
 	case errors.Is(reqErr, ErrInvalidOIDCProviderURL):
 		code = "InvalidInput"
+	case errors.Is(reqErr, ErrInvalidPassword):
+		code = "InvalidInput"
 	default:
 		code = "InternalFailure"
 		statusCode = http.StatusInternalServerError
@@ -1452,14 +1508,36 @@ func toAccessKeyMetadataXML(ak *AccessKey) AccessKeyMetadataXML {
 	}
 }
 
-func toInstanceProfileXML(ip *InstanceProfile) InstanceProfileXML {
+func toInstanceProfileXML(ip *InstanceProfile, roles []RoleXML) InstanceProfileXML {
+	if roles == nil {
+		roles = []RoleXML{}
+	}
+
 	return InstanceProfileXML{
 		Path:                ip.Path,
 		InstanceProfileName: ip.InstanceProfileName,
 		InstanceProfileID:   ip.InstanceProfileID,
 		Arn:                 ip.Arn,
 		CreateDate:          isoTime(ip.CreateDate),
+		Roles:               roles,
 	}
+}
+
+// resolveInstanceProfileRoles looks up the full Role details for each role name
+// in the instance profile, returning RoleXML entries. If a role no longer exists
+// (deleted after the profile was created), a minimal entry with just the name is used.
+func (h *Handler) resolveInstanceProfileRoles(ip *InstanceProfile) []RoleXML {
+	roles := make([]RoleXML, 0, len(ip.Roles))
+
+	for _, roleName := range ip.Roles {
+		if r, err := h.Backend.GetRole(roleName); err == nil {
+			roles = append(roles, toRoleXML(r))
+		} else {
+			roles = append(roles, RoleXML{RoleName: roleName})
+		}
+	}
+
+	return roles
 }
 
 // parseMaxItems converts a query-string MaxItems value to an int.

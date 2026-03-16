@@ -1,6 +1,7 @@
 package sns
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -87,8 +88,38 @@ func (h *Handler) ChaosServiceName() string { return "sns" }
 // ChaosOperations returns all operations that can be fault-injected.
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
 
+// deliveryWaiter is an optional interface implemented by backends that track
+// in-flight HTTP/HTTPS delivery goroutines. Handlers check for this interface
+// during graceful shutdown to drain pending deliveries.
+type deliveryWaiter interface{ WaitDeliveries() }
+
 // ChaosRegions returns all regions this SNS instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
+
+// Shutdown implements service.Shutdowner. It waits for all in-flight HTTP/HTTPS
+// delivery goroutines to finish. If ctx expires before all goroutines complete,
+// Shutdown returns immediately so that process shutdown is not blocked.
+func (h *Handler) Shutdown(ctx context.Context) {
+	b, ok := h.Backend.(deliveryWaiter)
+	if !ok {
+		return
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		b.WaitDeliveries()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+	}
+}
+
+// Ensure Handler implements service.Shutdowner at compile time.
+var _ service.Shutdowner = (*Handler)(nil)
 
 // RouteMatcher returns a function that matches SNS requests by Content-Type and body version.
 func (h *Handler) RouteMatcher() service.Matcher {

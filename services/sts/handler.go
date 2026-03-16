@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -39,6 +40,7 @@ const (
 // Handler is the Echo HTTP handler for STS operations.
 type Handler struct {
 	Backend StorageBackend
+	janitor *Janitor
 }
 
 // NewHandler creates a new STS handler with the given backend.
@@ -46,6 +48,25 @@ func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
 		Backend: backend,
 	}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+// The janitor periodically evicts expired sessions. interval=0 uses the default.
+func (h *Handler) WithJanitor(interval time.Duration) *Handler {
+	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
+		h.janitor = NewJanitor(memBackend, interval)
+	}
+
+	return h
+}
+
+// StartWorker starts the background janitor if it is configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // Name returns the service name.
@@ -57,9 +78,11 @@ func (h *Handler) Name() string {
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"AssumeRole",
+		"AssumeRoleWithWebIdentity",
 		"DecodeAuthorizationMessage",
 		"GetAccessKeyInfo",
 		"GetCallerIdentity",
+		"GetFederationToken",
 		"GetSessionToken",
 	}
 }
@@ -175,8 +198,12 @@ func (h *Handler) dispatch(ctx context.Context, r *http.Request) (any, error) {
 	switch action {
 	case "AssumeRole":
 		return h.dispatchAssumeRole(r)
+	case "AssumeRoleWithWebIdentity":
+		return h.dispatchAssumeRoleWithWebIdentity(r)
 	case "GetCallerIdentity":
 		return h.Backend.GetCallerIdentity(extractAccessKeyFromAuth(r))
+	case "GetFederationToken":
+		return h.dispatchGetFederationToken(r)
 	case "GetSessionToken":
 		return h.dispatchGetSessionToken(r)
 	case "GetAccessKeyInfo":
@@ -237,6 +264,50 @@ func (h *Handler) dispatchGetSessionToken(r *http.Request) (*GetSessionTokenResp
 	return h.Backend.GetSessionToken(input)
 }
 
+// dispatchGetFederationToken handles the GetFederationToken action.
+func (h *Handler) dispatchGetFederationToken(r *http.Request) (*GetFederationTokenResponse, error) {
+	input := &GetFederationTokenInput{
+		Name:   r.FormValue("Name"),
+		Policy: r.FormValue("Policy"),
+		Tags:   parseSessionTags(r),
+	}
+
+	durationStr := r.FormValue("DurationSeconds")
+	if durationStr != "" {
+		d, err := strconv.ParseInt(durationStr, 10, 32)
+		if err != nil {
+			return nil, ErrInvalidDuration
+		}
+
+		input.DurationSeconds = int32(d)
+	}
+
+	return h.Backend.GetFederationToken(input)
+}
+
+// dispatchAssumeRoleWithWebIdentity handles the AssumeRoleWithWebIdentity action.
+func (h *Handler) dispatchAssumeRoleWithWebIdentity(r *http.Request) (*AssumeRoleWithWebIdentityResponse, error) {
+	input := &AssumeRoleWithWebIdentityInput{
+		RoleArn:          r.FormValue("RoleArn"),
+		RoleSessionName:  r.FormValue("RoleSessionName"),
+		WebIdentityToken: r.FormValue("WebIdentityToken"),
+		ProviderID:       r.FormValue("ProviderId"),
+		Policy:           r.FormValue("Policy"),
+	}
+
+	durationStr := r.FormValue("DurationSeconds")
+	if durationStr != "" {
+		d, err := strconv.ParseInt(durationStr, 10, 32)
+		if err != nil {
+			return nil, ErrInvalidDuration
+		}
+
+		input.DurationSeconds = int32(d)
+	}
+
+	return h.Backend.AssumeRoleWithWebIdentity(input)
+}
+
 // dispatchGetAccessKeyInfo handles the GetAccessKeyInfo action.
 func (h *Handler) dispatchGetAccessKeyInfo(r *http.Request) (*GetAccessKeyInfoResponse, error) {
 	_ = r.FormValue("AccessKeyId") // consumed but not validated in mock
@@ -290,7 +361,8 @@ func (h *Handler) handleError(ctx context.Context, c *echo.Context, reqErr error
 	httpStatus := http.StatusInternalServerError
 
 	switch {
-	case errors.Is(reqErr, ErrMissingRoleArn), errors.Is(reqErr, ErrMissingSessionName):
+	case errors.Is(reqErr, ErrMissingRoleArn), errors.Is(reqErr, ErrMissingSessionName),
+		errors.Is(reqErr, ErrMissingFederationTokenName), errors.Is(reqErr, ErrMissingWebIdentityToken):
 		code = "MissingParameter"
 		httpStatus = http.StatusBadRequest
 	case errors.Is(reqErr, ErrInvalidDuration):

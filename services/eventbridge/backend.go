@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -31,6 +32,11 @@ const (
 	ruleStateEnabled       = "ENABLED"
 	ruleStateDisabled      = "DISABLED"
 	defaultDeliveryWorkers = 10
+	// defaultShutdownTimeout is the maximum time Close waits for in-flight delivery
+	// goroutines to finish after cancelling the lifecycle context.
+	defaultShutdownTimeout = 5 * time.Second
+	// defaultDeliveryTimeout is the default maximum time allowed for a single target delivery call.
+	defaultDeliveryTimeout = 30 * time.Second
 )
 
 // StorageBackend is the interface for an EventBridge in-memory store.
@@ -66,6 +72,9 @@ type InMemoryBackend struct {
 	region          string
 	eventLog        []EventLogEntry
 	wg              sync.WaitGroup
+	closing         atomic.Bool
+	shutdownTimeout time.Duration
+	deliveryTimeout time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
@@ -75,6 +84,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
+	//nolint:gosec // G118: cancel is stored in b.cancel and called by Close.
 	ctx, cancel := context.WithCancel(context.Background())
 	b := &InMemoryBackend{
 		accountID:       accountID,
@@ -87,6 +97,8 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		ctx:             ctx,
 		cancel:          cancel,
 		workerSem:       make(chan struct{}, defaultDeliveryWorkers),
+		shutdownTimeout: defaultShutdownTimeout,
+		deliveryTimeout: defaultDeliveryTimeout,
 	}
 	// Create the default event bus.
 	b.buses[defaultEventBusName] = &EventBus{
@@ -98,10 +110,52 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return b
 }
 
-// Close cancels the lifecycle context and waits for all in-flight delivery goroutines to finish.
+// Close marks the backend as closing, cancels the lifecycle context, and waits
+// for all in-flight delivery goroutines to finish. It returns after at most
+// shutdownTimeout to prevent a hung target service from blocking service
+// shutdown indefinitely. Once Close is called, PutEvents will no longer spawn
+// new delivery goroutines. The internal wg.Wait goroutine completes on its own
+// once all delivery goroutines exit — either because the lifecycle context was
+// cancelled (propagated to each delivery) or because the per-delivery deadline
+// fired.
 func (b *InMemoryBackend) Close() {
+	// Mark as closing before cancelling so PutEvents stops scheduling new work.
+	b.closing.Store(true)
+
+	// Read shutdownTimeout under the same lock used by SetShutdownTimeout so
+	// there is no data race between a concurrent setter and Close.
+	b.mu.RLock("Close")
+	timeout := b.shutdownTimeout
+	b.mu.RUnlock()
+
 	b.cancel()
-	b.wg.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		b.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
+}
+
+// SetShutdownTimeout overrides the maximum time Close waits for in-flight goroutines.
+// Primarily intended for tests.
+func (b *InMemoryBackend) SetShutdownTimeout(d time.Duration) {
+	b.mu.Lock("SetShutdownTimeout")
+	defer b.mu.Unlock()
+	b.shutdownTimeout = d
+}
+
+// SetDeliveryTimeout overrides the per-target delivery timeout.
+// Primarily intended for tests.
+func (b *InMemoryBackend) SetDeliveryTimeout(d time.Duration) {
+	b.mu.Lock("SetDeliveryTimeout")
+	defer b.mu.Unlock()
+	b.deliveryTimeout = d
 }
 
 // SetDeliveryTargets configures the service references used for fan-out delivery.
@@ -524,10 +578,13 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 	dt := b.deliveryTargets
 	workerSem := b.workerSem
 	ctx := b.ctx
+	delivTimeout := b.deliveryTimeout
 	b.mu.Unlock()
 
 	// Trigger async fan-out delivery after releasing the lock.
-	if dt != nil {
+	// Skip if the backend is already closing to prevent wg.Add concurrent with
+	// wg.Wait (which would panic per sync.WaitGroup semantics).
+	if dt != nil && !b.closing.Load() {
 		entriesCopy := make([]EventEntry, len(entries))
 		copy(entriesCopy, entries)
 		dtCopy := *dt
@@ -539,7 +596,7 @@ func (b *InMemoryBackend) PutEvents(entries []EventEntry) []EventResultEntry {
 			case <-ctx.Done():
 				return
 			}
-			b.deliverEvents(ctx, entriesCopy, dtCopy)
+			b.deliverEvents(ctx, entriesCopy, dtCopy, delivTimeout)
 		})
 	}
 

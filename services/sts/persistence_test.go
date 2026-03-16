@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/sts"
 	"github.com/labstack/echo/v5"
@@ -17,7 +18,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 	tests := []struct {
 		setup  func(b *sts.InMemoryBackend) string
-		verify func(t *testing.T, b *sts.InMemoryBackend, id string)
+		verify func(t *testing.T, b *sts.InMemoryBackend, accessKeyID string)
 		name   string
 	}{
 		{
@@ -25,8 +26,56 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			setup: func(_ *sts.InMemoryBackend) string { return "" },
 			verify: func(t *testing.T, b *sts.InMemoryBackend, _ string) {
 				t.Helper()
-				// STS has no mutable state; just verify the backend is functional after restore
-				assert.NotNil(t, b)
+				assert.Equal(t, 0, b.SessionCount())
+			},
+		},
+		{
+			name: "round_trip_with_active_session",
+			setup: func(b *sts.InMemoryBackend) string {
+				resp, err := b.AssumeRole(&sts.AssumeRoleInput{
+					RoleArn:         "arn:aws:iam::123456789012:role/TestRole",
+					RoleSessionName: "restore-session",
+					DurationSeconds: 900,
+				})
+				if err != nil {
+					return ""
+				}
+
+				return resp.AssumeRoleResult.Credentials.AccessKeyID
+			},
+			verify: func(t *testing.T, b *sts.InMemoryBackend, accessKeyID string) {
+				t.Helper()
+				require.Equal(t, 1, b.SessionCount())
+
+				// Session should still resolve correctly.
+				ciResp, err := b.GetCallerIdentity(accessKeyID)
+				require.NoError(t, err)
+				assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "assumed-role")
+				assert.Contains(t, ciResp.GetCallerIdentityResult.Arn, "TestRole")
+			},
+		},
+		{
+			name: "round_trip_expired_session_discarded",
+			setup: func(b *sts.InMemoryBackend) string {
+				resp, err := b.AssumeRole(&sts.AssumeRoleInput{
+					RoleArn:         "arn:aws:iam::123456789012:role/TestRole",
+					RoleSessionName: "expired-session",
+					DurationSeconds: 900,
+				})
+				if err != nil {
+					return ""
+				}
+
+				accessKeyID := resp.AssumeRoleResult.Credentials.AccessKeyID
+				// Force the session to be expired before snapshotting.
+				b.SetSessionExpiration(accessKeyID, time.Now().Add(-time.Second))
+
+				return accessKeyID
+			},
+			verify: func(t *testing.T, b *sts.InMemoryBackend, _ string) {
+				t.Helper()
+				// Expired session must not be restored.
+				assert.Equal(t, 0, b.SessionCount())
 			},
 		},
 	}
@@ -36,18 +85,24 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			t.Parallel()
 
 			original := sts.NewInMemoryBackendWithConfig("000000000000")
-			_ = tt.setup(original)
+			accessKeyID := tt.setup(original)
 
 			snap := original.Snapshot()
-			// STS returns nil snapshot since it has no state
-			assert.Nil(t, snap)
 
 			fresh := sts.NewInMemoryBackendWithConfig("000000000000")
 			require.NoError(t, fresh.Restore(snap))
 
-			tt.verify(t, fresh, "")
+			tt.verify(t, fresh, accessKeyID)
 		})
 	}
+}
+
+func TestInMemoryBackend_Restore_NilData(t *testing.T) {
+	t.Parallel()
+
+	b := sts.NewInMemoryBackend()
+	require.NoError(t, b.Restore(nil))
+	assert.Equal(t, 0, b.SessionCount())
 }
 
 func TestSTSHandler_Persistence(t *testing.T) {
@@ -56,9 +111,9 @@ func TestSTSHandler_Persistence(t *testing.T) {
 	backend := sts.NewInMemoryBackendWithConfig("000000000000")
 	h := sts.NewHandler(backend)
 
-	// STS has no state; just verify delegation doesn't panic
+	// Verify round-trip with no sessions.
 	snap := h.Snapshot()
-	assert.Nil(t, snap) // STS returns nil
+	require.NotNil(t, snap)
 
 	fresh := sts.NewInMemoryBackendWithConfig("000000000000")
 	freshH := sts.NewHandler(fresh)

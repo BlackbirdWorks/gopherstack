@@ -37,20 +37,24 @@ type SecretVersion struct {
 
 // Secret represents a stored secret including all versions.
 type Secret struct {
-	// ARN is the full ARN of the secret.
-	ARN string `json:"ARN"`
-	// Name is the human-readable name of the secret.
-	Name string `json:"Name"`
-	// Description is an optional human-readable description.
-	Description string `json:"Description,omitempty"`
 	// Tags is a map of key/value tag pairs.
 	Tags *tags.Tags `json:"Tags,omitempty"`
 	// DeletedDate is set when the secret is deleted; nil means active.
 	DeletedDate *float64 `json:"DeletedDate,omitempty"`
 	// Versions holds all versions keyed by VersionId.
 	Versions map[string]*SecretVersion `json:"-"`
+	// LastChangedDate is the Unix timestamp of the most recent value change.
+	LastChangedDate *float64 `json:"-"`
+	// ARN is the full ARN of the secret.
+	ARN string `json:"ARN"`
+	// Name is the human-readable name of the secret.
+	Name string `json:"Name"`
+	// Description is an optional human-readable description.
+	Description string `json:"Description,omitempty"`
 	// CurrentVersionId is the VersionId with the AWSCURRENT label.
 	CurrentVersionID string `json:"-"`
+	// RotationEnabled is true after RotateSecret has been called at least once.
+	RotationEnabled bool `json:"-"`
 }
 
 // CreateSecretInput is the request payload for CreateSecret.
@@ -115,6 +119,9 @@ type PutSecretValueInput struct {
 	SecretString       string `json:"SecretString,omitempty"`
 	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
 	SecretBinary       []byte `json:"SecretBinary,omitempty"`
+	// VersionStages are the staging labels to attach to the new version.
+	// AWSCURRENT is always added; AWSPENDING is a common value during rotation.
+	VersionStages []string `json:"VersionStages,omitempty"`
 }
 
 // PutSecretValueOutput is the response payload for PutSecretValue.
@@ -182,10 +189,12 @@ type DescribeSecretInput struct {
 type DescribeSecretOutput struct {
 	Tags               *tags.Tags          `json:"Tags,omitempty"`
 	DeletedDate        *float64            `json:"DeletedDate,omitempty"`
+	LastChangedDate    *float64            `json:"LastChangedDate,omitempty"`
 	VersionIDsToStages map[string][]string `json:"VersionIdsToStages,omitempty"`
 	ARN                string              `json:"ARN"`
 	Name               string              `json:"Name"`
 	Description        string              `json:"Description,omitempty"`
+	RotationEnabled    bool                `json:"RotationEnabled"`
 }
 
 // UpdateSecretInput is the request payload for UpdateSecret.
@@ -274,6 +283,36 @@ type ErrorResponse struct {
 	Type string `json:"__type"`
 	// Message is the human-readable error message.
 	Message string `json:"message"`
+}
+
+// SecretVersionEntry is a brief descriptor for a single secret version, used in ListSecretVersionIDs.
+type SecretVersionEntry struct {
+	// VersionID is the unique version identifier.
+	VersionID string `json:"VersionId"`
+	// StagingLabels are the labels attached to this version.
+	StagingLabels []string `json:"VersionStages,omitempty"`
+	// CreatedDate is the Unix timestamp when this version was created.
+	CreatedDate float64 `json:"CreatedDate"`
+}
+
+// ListSecretVersionIDsInput is the request payload for ListSecretVersionIDs.
+type ListSecretVersionIDsInput struct {
+	MaxResults        *int64 `json:"MaxResults,omitempty"`
+	SecretID          string `json:"SecretId"`
+	NextToken         string `json:"NextToken,omitempty"`
+	IncludeDeprecated bool   `json:"IncludeDeprecated,omitempty"`
+}
+
+// ListSecretVersionIDsOutput is the response payload for ListSecretVersionIDs.
+type ListSecretVersionIDsOutput struct {
+	// ARN is the full ARN of the secret.
+	ARN string `json:"ARN"`
+	// Name is the name of the secret.
+	Name string `json:"Name"`
+	// NextToken is the pagination cursor for the next page.
+	NextToken string `json:"NextToken,omitempty"`
+	// Versions is the list of version entries.
+	Versions []SecretVersionEntry `json:"Versions"`
 }
 
 // UnixTimeFloat converts a time value to a Unix timestamp float.

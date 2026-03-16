@@ -586,8 +586,18 @@ func (b *errorBackend) AssumeRole(_ *sts.AssumeRoleInput) (*sts.AssumeRoleRespon
 	return nil, fmt.Errorf("AssumeRole: %w", errBackendFailure)
 }
 
+func (b *errorBackend) AssumeRoleWithWebIdentity(
+	_ *sts.AssumeRoleWithWebIdentityInput,
+) (*sts.AssumeRoleWithWebIdentityResponse, error) {
+	return nil, fmt.Errorf("AssumeRoleWithWebIdentity: %w", errBackendFailure)
+}
+
 func (b *errorBackend) GetCallerIdentity(_ string) (*sts.GetCallerIdentityResponse, error) {
 	return nil, fmt.Errorf("GetCallerIdentity: %w", errBackendFailure)
+}
+
+func (b *errorBackend) GetFederationToken(_ *sts.GetFederationTokenInput) (*sts.GetFederationTokenResponse, error) {
+	return nil, fmt.Errorf("GetFederationToken: %w", errBackendFailure)
 }
 
 func (b *errorBackend) GetSessionToken(_ *sts.GetSessionTokenInput) (*sts.GetSessionTokenResponse, error) {
