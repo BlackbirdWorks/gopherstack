@@ -307,6 +307,17 @@ func (b *InMemoryBackend) DeleteUser(userName string) error {
 	// Clean up login profile.
 	delete(b.loginProfiles, userName)
 
+	// Remove user from all group memberships.
+	for groupName, members := range b.groupMembers {
+		for i, m := range members {
+			if m == userName {
+				b.groupMembers[groupName] = append(members[:i], members[i+1:]...)
+
+				break
+			}
+		}
+	}
+
 	delete(b.users, userName)
 
 	return nil
@@ -640,6 +651,9 @@ func (b *InMemoryBackend) DeleteGroup(groupName string) error {
 
 	delete(b.groups, groupName)
 
+	// Clean up group membership tracking.
+	delete(b.groupMembers, groupName)
+
 	return nil
 }
 
@@ -788,9 +802,14 @@ func (b *InMemoryBackend) CreateAccessKey(userName string) (*AccessKey, error) {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
+	secret, err := newSecretAccessKey()
+	if err != nil {
+		return nil, fmt.Errorf("creating access key: %w", err)
+	}
+
 	ak := AccessKey{
 		AccessKeyID:     newAccessKeyID(),
-		SecretAccessKey: newSecretAccessKey(),
+		SecretAccessKey: secret,
 		UserName:        userName,
 		Status:          "Active",
 		CreateDate:      time.Now().UTC(),
@@ -1056,13 +1075,13 @@ const secretKeyBytes = 30
 
 // newSecretAccessKey generates a cryptographically secure 40-character secret access key.
 // It uses 30 random bytes encoded as standard base64, which produces exactly 40 characters.
-func newSecretAccessKey() string {
+func newSecretAccessKey() (string, error) {
 	b := make([]byte, secretKeyBytes)
 	if _, err := rand.Read(b); err != nil {
-		panic(fmt.Sprintf("iam: failed to generate secret access key: %v", err))
+		return "", fmt.Errorf("iam: generate secret access key: %w", err)
 	}
 
-	return base64.StdEncoding.EncodeToString(b)
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 // ---- Attached Policy Queries ----

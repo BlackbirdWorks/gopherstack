@@ -1116,9 +1116,11 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 			}
 
 			return &CreateInstanceProfileResponse{
-				Xmlns:                       iamXMLNS,
-				CreateInstanceProfileResult: CreateInstanceProfileResult{InstanceProfile: toInstanceProfileXML(ip)},
-				ResponseMetadata:            ResponseMetadata{RequestID: reqID},
+				Xmlns: iamXMLNS,
+				CreateInstanceProfileResult: CreateInstanceProfileResult{
+					InstanceProfile: toInstanceProfileXML(ip, h.resolveInstanceProfileRoles(ip)),
+				},
+				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 		"DeleteInstanceProfile": func(vals url.Values, reqID string) (any, error) {
@@ -1139,7 +1141,10 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 
 			xmlProfiles := make([]InstanceProfileXML, 0, len(p.Data))
 			for i := range p.Data {
-				xmlProfiles = append(xmlProfiles, toInstanceProfileXML(&p.Data[i]))
+				xmlProfiles = append(
+					xmlProfiles,
+					toInstanceProfileXML(&p.Data[i], h.resolveInstanceProfileRoles(&p.Data[i])),
+				)
 			}
 
 			return &ListInstanceProfilesResponse{
@@ -1503,10 +1508,9 @@ func toAccessKeyMetadataXML(ak *AccessKey) AccessKeyMetadataXML {
 	}
 }
 
-func toInstanceProfileXML(ip *InstanceProfile) InstanceProfileXML {
-	roles := make([]RoleXML, 0, len(ip.Roles))
-	for _, roleName := range ip.Roles {
-		roles = append(roles, RoleXML{RoleName: roleName})
+func toInstanceProfileXML(ip *InstanceProfile, roles []RoleXML) InstanceProfileXML {
+	if roles == nil {
+		roles = []RoleXML{}
 	}
 
 	return InstanceProfileXML{
@@ -1517,6 +1521,23 @@ func toInstanceProfileXML(ip *InstanceProfile) InstanceProfileXML {
 		CreateDate:          isoTime(ip.CreateDate),
 		Roles:               roles,
 	}
+}
+
+// resolveInstanceProfileRoles looks up the full Role details for each role name
+// in the instance profile, returning RoleXML entries. If a role no longer exists
+// (deleted after the profile was created), a minimal entry with just the name is used.
+func (h *Handler) resolveInstanceProfileRoles(ip *InstanceProfile) []RoleXML {
+	roles := make([]RoleXML, 0, len(ip.Roles))
+
+	for _, roleName := range ip.Roles {
+		if r, err := h.Backend.GetRole(roleName); err == nil {
+			roles = append(roles, toRoleXML(r))
+		} else {
+			roles = append(roles, RoleXML{RoleName: roleName})
+		}
+	}
+
+	return roles
 }
 
 // parseMaxItems converts a query-string MaxItems value to an int.

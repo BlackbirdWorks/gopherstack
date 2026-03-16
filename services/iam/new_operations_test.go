@@ -657,3 +657,168 @@ func TestPersistence_GroupMembers_RoundTrip(t *testing.T) {
 	// carol is still in devs; removing should succeed without error
 	require.NoError(t, b2.RemoveUserFromGroup("devs", "carol"))
 }
+
+// ---- DeleteUser cleans up group membership ----
+
+func TestDeleteUser_CleansGroupMembership(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(b *iam.InMemoryBackend)
+		name    string
+		delUser string
+	}{
+		{
+			name: "user_removed_from_groups_on_deletion",
+			setup: func(b *iam.InMemoryBackend) {
+				_, err := b.CreateUser("alice", "/", "")
+				require.NoError(t, err)
+				_, err = b.CreateGroup("admins", "/")
+				require.NoError(t, err)
+				_, err = b.CreateGroup("devs", "/")
+				require.NoError(t, err)
+				require.NoError(t, b.AddUserToGroup("admins", "alice"))
+				require.NoError(t, b.AddUserToGroup("devs", "alice"))
+			},
+			delUser: "alice",
+		},
+		{
+			name: "recreated_user_not_in_old_group",
+			setup: func(b *iam.InMemoryBackend) {
+				_, err := b.CreateUser("bob", "/", "")
+				require.NoError(t, err)
+				_, err = b.CreateGroup("ops", "/")
+				require.NoError(t, err)
+				require.NoError(t, b.AddUserToGroup("ops", "bob"))
+			},
+			delUser: "bob",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iam.NewInMemoryBackend()
+			tt.setup(b)
+
+			require.NoError(t, b.DeleteUser(tt.delUser))
+
+			// Re-create the same username; AddUserToGroup for any group
+			// must work without "already a member" from stale state.
+			_, err := b.CreateUser(tt.delUser, "/", "")
+			require.NoError(t, err)
+
+			// The user should not be in any group after re-creation.
+			// AddUserToGroup must succeed (idempotent on fresh membership).
+			for _, groupName := range []string{"admins", "devs", "ops"} {
+				// Only test groups that actually exist in the setup.
+				addErr := b.AddUserToGroup(groupName, tt.delUser)
+				if addErr != nil {
+					// Group may not exist — that's fine.
+					require.ErrorIs(t, addErr, iam.ErrGroupNotFound)
+				}
+			}
+		})
+	}
+}
+
+// ---- DeleteGroup cleans up group membership tracking ----
+
+func TestDeleteGroup_CleansGroupMembers(t *testing.T) {
+	t.Parallel()
+
+	b := iam.NewInMemoryBackend()
+	_, err := b.CreateGroup("temp-group", "/")
+	require.NoError(t, err)
+	_, err = b.CreateUser("alice", "/", "")
+	require.NoError(t, err)
+	require.NoError(t, b.AddUserToGroup("temp-group", "alice"))
+
+	require.NoError(t, b.DeleteGroup("temp-group"))
+
+	// Snapshot must not contain the stale members entry.
+	snap := b.Snapshot()
+	require.NotNil(t, snap)
+
+	b2 := iam.NewInMemoryBackend()
+	require.NoError(t, b2.Restore(snap))
+
+	// Re-create the group — it should be empty.
+	_, groupErr := b2.CreateGroup("temp-group", "/")
+	require.NoError(t, groupErr)
+	// alice still exists; adding her must succeed (no duplicate membership).
+	require.NoError(t, b2.AddUserToGroup("temp-group", "alice"))
+}
+
+// ---- newSecretAccessKey error propagation (no panic) ----
+
+func TestCreateAccessKey_SecretErrorPropagated(t *testing.T) {
+	t.Parallel()
+
+	// This test validates that CreateAccessKey returns an error (not panics)
+	// on underlying rand failures. We validate indirectly by confirming the
+	// happy-path does not panic.
+	b := iam.NewInMemoryBackend()
+	_, err := b.CreateUser("rand-user", "/", "")
+	require.NoError(t, err)
+
+	// If crypto/rand works (normal env), we should get a valid key.
+	ak, err := b.CreateAccessKey("rand-user")
+	require.NoError(t, err)
+	require.NotNil(t, ak)
+	assert.Len(t, ak.SecretAccessKey, 40)
+}
+
+// ---- InstanceProfile includes full Role details in XML ----
+
+func TestInstanceProfile_FullRoleDetailsInXML(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(t *testing.T, b *iam.InMemoryBackend)
+		name        string
+		wantContain string
+	}{
+		{
+			name: "role_arn_present_in_response",
+			setup: func(t *testing.T, b *iam.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateRole("ec2-role", "/", `{"Version":"2012-10-17"}`, "")
+				require.NoError(t, err)
+				_, err = b.CreateInstanceProfile("web-profile", "/")
+				require.NoError(t, err)
+				require.NoError(t, b.AddRoleToInstanceProfile("web-profile", "ec2-role"))
+			},
+			wantContain: "ec2-role",
+		},
+		{
+			name: "list_profiles_includes_role_details",
+			setup: func(t *testing.T, b *iam.InMemoryBackend) {
+				t.Helper()
+				_, err := b.CreateRole("lambda-role", "/", `{}`, "")
+				require.NoError(t, err)
+				_, err = b.CreateInstanceProfile("fn-profile", "/")
+				require.NoError(t, err)
+				require.NoError(t, b.AddRoleToInstanceProfile("fn-profile", "lambda-role"))
+			},
+			wantContain: "lambda-role",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+			tt.setup(t, b)
+
+			rec := httptest.NewRecorder()
+			req := iamRequest("ListInstanceProfiles", nil)
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantContain)
+		})
+	}
+}

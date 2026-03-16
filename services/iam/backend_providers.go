@@ -219,7 +219,7 @@ func (b *InMemoryBackend) CreateLoginProfile(
 	defer b.mu.Unlock()
 
 	if password == "" {
-		return nil, fmt.Errorf("%w: Password must not be empty", ErrInvalidPassword)
+		return nil, fmt.Errorf("%w: password must not be empty", ErrInvalidPassword)
 	}
 
 	if _, exists := b.users[userName]; !exists {
@@ -249,7 +249,7 @@ func (b *InMemoryBackend) UpdateLoginProfile(
 	defer b.mu.Unlock()
 
 	if password == "" {
-		return fmt.Errorf("%w: Password must not be empty", ErrInvalidPassword)
+		return fmt.Errorf("%w: password must not be empty", ErrInvalidPassword)
 	}
 
 	lp, exists := b.loginProfiles[userName]
