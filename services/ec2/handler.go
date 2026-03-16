@@ -996,7 +996,7 @@ func toVPCItem(v *VPC) vpcItem {
 		VpcID:     v.ID,
 		CIDRBlock: v.CIDRBlock,
 		IsDefault: isDefault,
-		State:     "available",
+		State:     stateAvailable,
 	}
 }
 
@@ -1006,7 +1006,7 @@ func toSubnetItem(s *Subnet) subnetItem {
 		VPCID:            s.VPCID,
 		CIDRBlock:        s.CIDRBlock,
 		AvailabilityZone: s.AvailabilityZone,
-		State:            "available",
+		State:            stateAvailable,
 	}
 }
 
