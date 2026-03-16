@@ -332,6 +332,26 @@ type AddUserToGroupResponse struct {
 	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
+// RemoveUserFromGroupResponse is the XML response for RemoveUserFromGroup.
+type RemoveUserFromGroupResponse struct {
+	XMLName          xml.Name         `xml:"RemoveUserFromGroupResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// GetGroupResult wraps a single group.
+type GetGroupResult struct {
+	Group GroupXML `xml:"Group"`
+}
+
+// GetGroupResponse is the XML response for GetGroup.
+type GetGroupResponse struct {
+	XMLName          xml.Name         `xml:"GetGroupResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	GetGroupResult   GetGroupResult   `xml:"GetGroupResult"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
 // ListGroupsResponse is the XML response for ListGroups.
 type ListGroupsResponse struct {
 	XMLName          xml.Name         `xml:"ListGroupsResponse"`
@@ -405,19 +425,20 @@ type ListAccessKeysResult struct {
 
 // InstanceProfileXML is the XML representation of an IAM InstanceProfile.
 type InstanceProfileXML struct {
-	Path                string `xml:"Path"`
-	InstanceProfileName string `xml:"InstanceProfileName"`
-	InstanceProfileID   string `xml:"InstanceProfileId"`
-	Arn                 string `xml:"Arn"`
-	CreateDate          string `xml:"CreateDate"`
+	Path                string    `xml:"Path"`
+	InstanceProfileName string    `xml:"InstanceProfileName"`
+	InstanceProfileID   string    `xml:"InstanceProfileId"`
+	Arn                 string    `xml:"Arn"`
+	CreateDate          string    `xml:"CreateDate"`
+	Roles               []RoleXML `xml:"Roles>member"`
 }
 
 // CreateInstanceProfileResponse is the XML response for CreateInstanceProfile.
 type CreateInstanceProfileResponse struct {
 	XMLName                     xml.Name                    `xml:"CreateInstanceProfileResponse"`
 	Xmlns                       string                      `xml:"xmlns,attr"`
-	CreateInstanceProfileResult CreateInstanceProfileResult `xml:"CreateInstanceProfileResult"`
 	ResponseMetadata            ResponseMetadata            `xml:"ResponseMetadata"`
+	CreateInstanceProfileResult CreateInstanceProfileResult `xml:"CreateInstanceProfileResult"`
 }
 
 // CreateInstanceProfileResult wraps the created instance profile.
@@ -445,6 +466,20 @@ type ListInstanceProfilesResult struct {
 	Marker           string               `xml:"Marker,omitempty"`
 	InstanceProfiles []InstanceProfileXML `xml:"InstanceProfiles>member"`
 	IsTruncated      bool                 `xml:"IsTruncated"`
+}
+
+// AddRoleToInstanceProfileResponse is the XML response for AddRoleToInstanceProfile.
+type AddRoleToInstanceProfileResponse struct {
+	XMLName          xml.Name         `xml:"AddRoleToInstanceProfileResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
+}
+
+// RemoveRoleFromInstanceProfileResponse is the XML response for RemoveRoleFromInstanceProfile.
+type RemoveRoleFromInstanceProfileResponse struct {
+	XMLName          xml.Name         `xml:"RemoveRoleFromInstanceProfileResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata `xml:"ResponseMetadata"`
 }
 
 // isoTime formats a [time.Time] to an ISO 8601 string.

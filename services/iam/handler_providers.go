@@ -254,6 +254,25 @@ func (h *Handler) iamMiscDispatchTable() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
+		"GetAccountSummary": func(_ url.Values, reqID string) (any, error) {
+			summary := h.Backend.GetAccountSummary()
+
+			entries := []AccountSummaryEntry{
+				{Key: "Users", Value: summary.Users},
+				{Key: "Groups", Value: summary.Groups},
+				{Key: "Roles", Value: summary.Roles},
+				{Key: "Policies", Value: summary.Policies},
+				{Key: "InstanceProfiles", Value: summary.InstanceProfiles},
+				{Key: "SAMLProviders", Value: summary.SAMLProviders},
+				{Key: "MFADevices", Value: summary.MFADevices},
+			}
+
+			return &GetAccountSummaryResponse{
+				Xmlns:                   iamXMLNS,
+				GetAccountSummaryResult: GetAccountSummaryResult{SummaryMap: entries},
+				ResponseMetadata:        ResponseMetadata{RequestID: reqID},
+			}, nil
+		},
 	}
 }
 

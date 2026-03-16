@@ -211,13 +211,16 @@ func (b *InMemoryBackend) ListOpenIDConnectProviders() ([]OIDCProvider, error) {
 // ---- Login Profile operations ----
 
 // CreateLoginProfile creates a console login profile for an IAM user.
-// The password parameter is accepted for API compatibility but not stored;
-// this is an in-memory mock and passwords are not persisted.
+// The password is validated but not stored; this is an in-memory mock.
 func (b *InMemoryBackend) CreateLoginProfile(
-	userName, _ string, passwordResetRequired bool,
+	userName, password string, passwordResetRequired bool,
 ) (*LoginProfile, error) {
 	b.mu.Lock("CreateLoginProfile")
 	defer b.mu.Unlock()
+
+	if password == "" {
+		return nil, fmt.Errorf("%w: password must not be empty", ErrInvalidPassword)
+	}
 
 	if _, exists := b.users[userName]; !exists {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
@@ -238,13 +241,16 @@ func (b *InMemoryBackend) CreateLoginProfile(
 }
 
 // UpdateLoginProfile updates the console login profile for an IAM user.
-// The password parameter is accepted for API compatibility but not stored;
-// this is an in-memory mock and passwords are not persisted.
+// The password is validated but not stored; this is an in-memory mock.
 func (b *InMemoryBackend) UpdateLoginProfile(
-	userName, _ string, passwordResetRequired bool,
+	userName, password string, passwordResetRequired bool,
 ) error {
 	b.mu.Lock("UpdateLoginProfile")
 	defer b.mu.Unlock()
+
+	if password == "" {
+		return fmt.Errorf("%w: password must not be empty", ErrInvalidPassword)
+	}
 
 	lp, exists := b.loginProfiles[userName]
 	if !exists {
