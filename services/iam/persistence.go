@@ -17,6 +17,7 @@ type backendSnapshot struct {
 	UserPolicies        map[string][]string          `json:"userPolicies"`
 	RolePolicies        map[string][]string          `json:"rolePolicies"`
 	GroupPolicies       map[string][]string          `json:"groupPolicies"`
+	GroupMembers        map[string][]string          `json:"groupMembers"`
 	UserInlinePolicies  map[string]map[string]string `json:"userInlinePolicies"`
 	RoleInlinePolicies  map[string]map[string]string `json:"roleInlinePolicies"`
 	GroupInlinePolicies map[string]map[string]string `json:"groupInlinePolicies"`
@@ -42,6 +43,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		UserPolicies:        b.userPolicies,
 		RolePolicies:        b.rolePolicies,
 		GroupPolicies:       b.groupPolicies,
+		GroupMembers:        b.groupMembers,
 		UserInlinePolicies:  b.userInlinePolicies,
 		RoleInlinePolicies:  b.roleInlinePolicies,
 		GroupInlinePolicies: b.groupInlinePolicies,
@@ -82,6 +84,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.userPolicies = snap.UserPolicies
 	b.rolePolicies = snap.RolePolicies
 	b.groupPolicies = snap.GroupPolicies
+	b.groupMembers = snap.GroupMembers
 	b.userInlinePolicies = snap.UserInlinePolicies
 	b.roleInlinePolicies = snap.RoleInlinePolicies
 	b.groupInlinePolicies = snap.GroupInlinePolicies
@@ -148,6 +151,10 @@ func normalizeSnapshotPolicies(snap *backendSnapshot) {
 
 	if snap.GroupPolicies == nil {
 		snap.GroupPolicies = make(map[string][]string)
+	}
+
+	if snap.GroupMembers == nil {
+		snap.GroupMembers = make(map[string][]string)
 	}
 
 	if snap.UserInlinePolicies == nil {
