@@ -62,7 +62,8 @@ const (
 	// messageTypeRaw is the message type for raw (un-hashed) messages.
 	messageTypeRaw = "RAW"
 	// maxDataKeyBytes limits the maximum size of a generated data key when NumberOfBytes is specified.
-	maxDataKeyBytes = 4096
+	// AWS KMS enforces a maximum of 1024 bytes for GenerateDataKey.
+	maxDataKeyBytes = 1024
 )
 
 const (
@@ -74,6 +75,14 @@ const (
 	aes256Bytes = 32
 	// aes128Bytes is the size of an AES-128 data key in bytes.
 	aes128Bytes = 16
+	// minPendingWindowDays is the minimum number of days allowed for key deletion pending window.
+	minPendingWindowDays = 7
+	// defaultPendingWindowDays is the default pending window when not specified.
+	// AWS KMS defaults to 30 days, which is also the maximum.
+	defaultPendingWindowDays = 30
+	// maxPendingWindowDays is the maximum number of days allowed for key deletion pending window.
+	// Per AWS docs, the range is [7, 30]. The default and maximum share the same value.
+	maxPendingWindowDays = 30
 )
 
 // StorageBackend defines the interface for the KMS in-memory backend.
@@ -92,6 +101,7 @@ type StorageBackend interface {
 	Verify(input *VerifyInput) (*VerifyOutput, error)
 	GetPublicKey(input *GetPublicKeyInput) (*GetPublicKeyOutput, error)
 	CreateAlias(input *CreateAliasInput) error
+	UpdateAlias(input *UpdateAliasInput) error
 	DeleteAlias(input *DeleteAliasInput) error
 	ListAliases(input *ListAliasesInput) (*ListAliasesOutput, error)
 	EnableKeyRotation(input *EnableKeyRotationInput) error
@@ -720,6 +730,31 @@ func (b *InMemoryBackend) CreateAlias(input *CreateAliasInput) error {
 	return nil
 }
 
+// UpdateAlias redirects an existing alias to a different key.
+// The alias must already exist; the target key must exist.
+func (b *InMemoryBackend) UpdateAlias(input *UpdateAliasInput) error {
+	b.mu.Lock("UpdateAlias")
+	defer b.mu.Unlock()
+
+	alias, exists := b.aliases[input.AliasName]
+	if !exists {
+		return ErrAliasNotFound
+	}
+
+	targetID, err := b.resolveKeyID(input.TargetKeyID)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := b.keys[targetID]; !ok {
+		return ErrKeyNotFound
+	}
+
+	alias.TargetKeyID = targetID
+
+	return nil
+}
+
 // DeleteAlias removes an alias.
 func (b *InMemoryBackend) DeleteAlias(input *DeleteAliasInput) error {
 	b.mu.Lock("DeleteAlias")
@@ -795,7 +830,8 @@ func (b *InMemoryBackend) ListAliases(input *ListAliasesInput) (*ListAliasesOutp
 // EnableKeyRotation enables automatic key rotation for the specified key and immediately
 // rotates the key material. For symmetric keys a new AES key is generated; the previous
 // key material is preserved in history so that ciphertexts produced before rotation
-// can still be decrypted.
+// can still be decrypted. Asymmetric keys and EXTERNAL-origin keys do not support rotation;
+// they return ErrUnsupportedOrigin matching AWS behavior.
 func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error {
 	b.mu.Lock("EnableKeyRotation")
 	defer b.mu.Unlock()
@@ -809,27 +845,40 @@ func (b *InMemoryBackend) EnableKeyRotation(input *EnableKeyRotationInput) error
 		return keyStateError(key)
 	}
 
-	// Rotate the key material for symmetric keys, preserving history for decryption.
-	// Generate new material first; only update state if generation succeeds.
-	if key.KeySpec == keySpecSymmetric {
-		newKM, kmErr := generateKeyMaterial(key.KeySpec)
-		if kmErr != nil {
-			return fmt.Errorf("rotating key material: %w", kmErr)
-		}
-
-		if current := b.keyMaterials[key.KeyID]; current != nil {
-			b.keyMaterialHistory[key.KeyID] = append(b.keyMaterialHistory[key.KeyID], current)
-		}
-
-		b.keyMaterials[key.KeyID] = newKM
+	// Asymmetric keys and EXTERNAL-origin keys do not support rotation.
+	if key.KeySpec != keySpecSymmetric {
+		return fmt.Errorf(
+			"%w: key rotation is only supported for symmetric SYMMETRIC_DEFAULT keys; key %q has spec %s",
+			ErrUnsupportedOrigin, key.KeyID, key.KeySpec,
+		)
 	}
 
+	if key.Origin == KeyOriginExternal {
+		return fmt.Errorf(
+			"%w: key rotation is not supported for EXTERNAL-origin keys; material is managed by the caller",
+			ErrUnsupportedOrigin,
+		)
+	}
+
+	// Rotate the key material, preserving history for decryption.
+	// Generate new material first; only update state if generation succeeds.
+	newKM, kmErr := generateKeyMaterial(key.KeySpec)
+	if kmErr != nil {
+		return fmt.Errorf("rotating key material: %w", kmErr)
+	}
+
+	if current := b.keyMaterials[key.KeyID]; current != nil {
+		b.keyMaterialHistory[key.KeyID] = append(b.keyMaterialHistory[key.KeyID], current)
+	}
+
+	b.keyMaterials[key.KeyID] = newKM
 	key.RotationEnabled = true
 
 	return nil
 }
 
 // DisableKeyRotation disables automatic key rotation for the specified key.
+// Asymmetric keys and EXTERNAL-origin keys do not support rotation and return ErrUnsupportedOrigin.
 func (b *InMemoryBackend) DisableKeyRotation(input *DisableKeyRotationInput) error {
 	b.mu.Lock("DisableKeyRotation")
 	defer b.mu.Unlock()
@@ -837,6 +886,20 @@ func (b *InMemoryBackend) DisableKeyRotation(input *DisableKeyRotationInput) err
 	key, err := b.lookupKeyWrite(input.KeyID)
 	if err != nil {
 		return err
+	}
+
+	if key.KeySpec != keySpecSymmetric {
+		return fmt.Errorf(
+			"%w: key rotation is only supported for symmetric SYMMETRIC_DEFAULT keys; key %q has spec %s",
+			ErrUnsupportedOrigin, key.KeyID, key.KeySpec,
+		)
+	}
+
+	if key.Origin == KeyOriginExternal {
+		return fmt.Errorf(
+			"%w: key rotation is not supported for EXTERNAL-origin keys",
+			ErrUnsupportedOrigin,
+		)
 	}
 
 	key.RotationEnabled = false
@@ -861,6 +924,7 @@ func (b *InMemoryBackend) GetKeyRotationStatus(input *GetKeyRotationStatusInput)
 }
 
 // DisableKey disables the specified key.
+// AWS raises KMSInvalidStateException for keys in PendingDeletion or PendingImport states.
 func (b *InMemoryBackend) DisableKey(input *DisableKeyInput) error {
 	b.mu.Lock("DisableKey")
 	defer b.mu.Unlock()
@@ -870,6 +934,10 @@ func (b *InMemoryBackend) DisableKey(input *DisableKeyInput) error {
 		return err
 	}
 
+	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport {
+		return keyStateError(key)
+	}
+
 	key.KeyState = KeyStateDisabled
 	key.Enabled = false
 
@@ -877,6 +945,7 @@ func (b *InMemoryBackend) DisableKey(input *DisableKeyInput) error {
 }
 
 // EnableKey enables the specified key.
+// AWS raises KMSInvalidStateException for keys in PendingDeletion or PendingImport states.
 func (b *InMemoryBackend) EnableKey(input *EnableKeyInput) error {
 	b.mu.Lock("EnableKey")
 	defer b.mu.Unlock()
@@ -886,15 +955,20 @@ func (b *InMemoryBackend) EnableKey(input *EnableKeyInput) error {
 		return err
 	}
 
+	if key.KeyState == KeyStatePendingDeletion || key.KeyState == KeyStatePendingImport {
+		return keyStateError(key)
+	}
+
 	key.KeyState = KeyStateEnabled
 	key.Enabled = true
 
 	return nil
 }
 
-const defaultPendingWindowDays = 30
-
 // ScheduleKeyDeletion schedules a key for deletion.
+// PendingWindowInDays must be in the range [7, 30]; values outside this range are rejected.
+// AWS raises ValidationException for out-of-range values and KMSInvalidStateException
+// for keys already in PendingDeletion.
 func (b *InMemoryBackend) ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (*ScheduleKeyDeletionOutput, error) {
 	b.mu.Lock("ScheduleKeyDeletion")
 	defer b.mu.Unlock()
@@ -904,9 +978,20 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (
 		return nil, err
 	}
 
+	if key.KeyState == KeyStatePendingDeletion {
+		return nil, keyStateError(key)
+	}
+
 	days := input.PendingWindowInDays
-	if days <= 0 {
+	if days == 0 {
 		days = defaultPendingWindowDays
+	}
+
+	if days < minPendingWindowDays || days > maxPendingWindowDays {
+		return nil, fmt.Errorf(
+			"%w: PendingWindowInDays must be between %d and %d, got %d",
+			ErrInvalidKeyUsage, minPendingWindowDays, maxPendingWindowDays, days,
+		)
 	}
 
 	deletionDate := time.Now().UTC().AddDate(0, 0, days)
@@ -922,6 +1007,7 @@ func (b *InMemoryBackend) ScheduleKeyDeletion(input *ScheduleKeyDeletionInput) (
 }
 
 // CancelKeyDeletion cancels a pending key deletion and sets the key to Disabled.
+// AWS raises KMSInvalidStateException if the key is not in PendingDeletion state.
 func (b *InMemoryBackend) CancelKeyDeletion(input *CancelKeyDeletionInput) error {
 	b.mu.Lock("CancelKeyDeletion")
 	defer b.mu.Unlock()
@@ -929,6 +1015,10 @@ func (b *InMemoryBackend) CancelKeyDeletion(input *CancelKeyDeletionInput) error
 	key, err := b.lookupKeyWrite(input.KeyID)
 	if err != nil {
 		return err
+	}
+
+	if key.KeyState != KeyStatePendingDeletion {
+		return keyStateError(key)
 	}
 
 	key.KeyState = KeyStateDisabled
@@ -987,6 +1077,11 @@ func keyToMetadata(k *Key) KeyMetadata {
 		KeyManager:   "CUSTOMER",
 		Origin:       origin,
 		MultiRegion:  false,
+	}
+
+	// DeletionDate is only meaningful (and set by AWS) for PendingDeletion keys.
+	if k.KeyState == KeyStatePendingDeletion {
+		meta.DeletionDate = k.DeletionDate
 	}
 
 	switch k.KeyUsage {

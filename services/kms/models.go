@@ -83,6 +83,8 @@ type KeyMetadata struct {
 	MultiRegion bool `json:"MultiRegion"`
 	// CreationDate is the Unix timestamp when the key was created.
 	CreationDate float64 `json:"CreationDate"`
+	// DeletionDate is the Unix timestamp when the key will be deleted (PendingDeletion state only).
+	DeletionDate float64 `json:"DeletionDate,omitempty"`
 }
 
 // Alias represents a KMS alias pointing to a key.
@@ -214,6 +216,14 @@ type CreateAliasInput struct {
 	// AliasName is the name of the alias (must begin with alias/).
 	AliasName string `json:"AliasName"`
 	// TargetKeyId is the key ID the alias should point to.
+	TargetKeyID string `json:"TargetKeyId"`
+}
+
+// UpdateAliasInput is the request payload for UpdateAlias.
+type UpdateAliasInput struct {
+	// AliasName is the existing alias to redirect.
+	AliasName string `json:"AliasName"`
+	// TargetKeyId is the new key ID the alias should point to.
 	TargetKeyID string `json:"TargetKeyId"`
 }
 

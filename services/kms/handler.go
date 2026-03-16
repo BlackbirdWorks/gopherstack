@@ -154,6 +154,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"Sign",
 		"Verify",
 		"CreateAlias",
+		"UpdateAlias",
 		"DeleteAlias",
 		"CreateGrant",
 		"ListGrants",
@@ -410,6 +411,14 @@ func (h *Handler) buildAliasRotationActions() map[string]kmsActionFn {
 			}
 
 			return struct{}{}, h.Backend.CreateAlias(&input)
+		},
+		"UpdateAlias": func(_ string, b []byte) (any, error) {
+			var input UpdateAliasInput
+			if err := json.Unmarshal(b, &input); err != nil {
+				return nil, err
+			}
+
+			return struct{}{}, h.Backend.UpdateAlias(&input)
 		},
 		"DeleteAlias": func(_ string, b []byte) (any, error) {
 			var input DeleteAliasInput
