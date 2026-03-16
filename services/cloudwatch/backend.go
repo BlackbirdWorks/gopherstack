@@ -198,21 +198,55 @@ func (b *InMemoryBackend) SweepExpiredMetrics() {
 	cutoff := time.Now().UTC().AddDate(0, 0, -cwMetricRetentionDays)
 
 	for ns, nsMap := range b.metrics {
-		for metricName, pts := range nsMap {
-			start := sort.Search(len(pts), func(i int) bool {
-				return !pts[i].Timestamp.Before(cutoff)
-			})
-			if start == len(pts) {
-				// All points expired: remove the metric entirely.
-				delete(nsMap, metricName)
-			} else if start > 0 {
-				nsMap[metricName] = pts[start:]
-			}
-		}
+		sweepMetricNamespace(nsMap, cutoff)
 		if len(nsMap) == 0 {
 			delete(b.metrics, ns)
 		}
 	}
+}
+
+// sweepMetricNamespace removes expired data points from every metric in nsMap.
+// It deletes metrics whose entire point set has expired.
+func sweepMetricNamespace(nsMap map[string][]MetricDatum, cutoff time.Time) {
+	for metricName, pts := range nsMap {
+		alive := filterAlivePoints(pts, cutoff)
+		if len(alive) == 0 {
+			delete(nsMap, metricName)
+		} else {
+			nsMap[metricName] = alive
+		}
+	}
+}
+
+// filterAlivePoints returns the subset of pts whose Timestamp is not before cutoff.
+// Data points may arrive out of order, so a linear scan is used rather than binary search.
+// When more than half the points have expired a fresh backing slice is allocated so
+// that the old (larger) array can be released to the GC.
+func filterAlivePoints(pts []MetricDatum, cutoff time.Time) []MetricDatum {
+	surviving := 0
+	for _, p := range pts {
+		if !p.Timestamp.Before(cutoff) {
+			surviving++
+		}
+	}
+	if surviving == 0 {
+		return nil
+	}
+	// Allocate a fresh slice only when over half are expired to avoid retaining
+	// the old backing array when memory savings would be significant.
+	var alive []MetricDatum
+	if surviving < len(pts)/2 {
+		alive = make([]MetricDatum, 0, surviving)
+	} else {
+		alive = pts[:0]
+	}
+	for _, p := range pts {
+		if !p.Timestamp.Before(cutoff) {
+			alive = append(alive, p)
+		}
+	}
+
+	return alive
 }
 
 // metricBucket holds aggregated data for a single time bucket.

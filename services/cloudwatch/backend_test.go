@@ -1173,18 +1173,19 @@ func TestCloudWatchBackend_CompositeAlarm_CircularDependency(t *testing.T) {
 
 	tests := []struct {
 		name      string
-		setup     func(b *cloudwatch.InMemoryBackend)
+		setup     func(t *testing.T, b *cloudwatch.InMemoryBackend)
 		alarmName string
 		wantState string
 	}{
 		{
 			name: "self_reference",
-			setup: func(b *cloudwatch.InMemoryBackend) {
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
 				// Composite alarm referencing itself: A -> ALARM("A")
-				_ = b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+				require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
 					AlarmName: "self-ref",
 					AlarmRule: `ALARM("self-ref")`,
-				})
+				}))
 			},
 			alarmName: "self-ref",
 			// Self-reference: the alarm doesn't exist when first evaluated, so rule
@@ -1193,16 +1194,17 @@ func TestCloudWatchBackend_CompositeAlarm_CircularDependency(t *testing.T) {
 		},
 		{
 			name: "mutual_dependency",
-			setup: func(b *cloudwatch.InMemoryBackend) {
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
 				// A -> ALARM("B"), B -> ALARM("A")
-				_ = b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+				require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
 					AlarmName: "cycle-a",
 					AlarmRule: `ALARM("cycle-b")`,
-				})
-				_ = b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
+				}))
+				require.NoError(t, b.PutCompositeAlarm(&cloudwatch.CompositeAlarm{
 					AlarmName: "cycle-b",
 					AlarmRule: `ALARM("cycle-a")`,
-				})
+				}))
 			},
 			alarmName: "cycle-a",
 			// Mutual dependency: cycle-b doesn't exist when cycle-a is first evaluated,
@@ -1216,7 +1218,7 @@ func TestCloudWatchBackend_CompositeAlarm_CircularDependency(t *testing.T) {
 			t.Parallel()
 
 			b := cloudwatch.NewInMemoryBackendWithConfig("123456789012", "us-east-1")
-			tt.setup(b)
+			tt.setup(t, b)
 
 			_, composites, err := b.DescribeAlarms([]string{tt.alarmName}, nil, "", "", 0)
 			require.NoError(t, err)
@@ -1325,4 +1327,35 @@ func TestCloudWatchBackend_SweepExpiredMetrics(t *testing.T) {
 
 	assert.False(t, names["OldMetric"], "expired metric should have been swept")
 	assert.True(t, names["RecentMetric"], "recent metric should remain after sweep")
+}
+
+func TestCloudWatchBackend_SweepExpiredMetrics_OutOfOrder(t *testing.T) {
+	t.Parallel()
+
+	// Verify that SweepExpiredMetrics correctly handles out-of-order data points
+	// (i.e. it uses a linear filter, not binary search).
+	b := cloudwatch.NewInMemoryBackend()
+
+	old := time.Now().UTC().AddDate(0, 0, -(cloudwatch.CwMetricRetentionDays + 5))
+	recent := time.Now().UTC()
+
+	// Intentionally store points out of order: recent first, then old.
+	pts := []cloudwatch.MetricDatum{
+		{MetricName: "Mixed", Value: 1, Count: 1, Sum: 1, Min: 1, Max: 1, Timestamp: recent},
+		{MetricName: "Mixed", Value: 2, Count: 1, Sum: 2, Min: 2, Max: 2, Timestamp: old},
+	}
+	require.NoError(t, b.PutMetricData("NS/OutOfOrder", pts))
+
+	b.SweepExpiredMetrics()
+
+	// The metric still has the recent point; old point should be gone.
+	stats, err := b.GetMetricStatistics(
+		"NS/OutOfOrder", "Mixed",
+		recent.Add(-time.Minute), recent.Add(time.Minute),
+		60, []string{"Sum"},
+	)
+	require.NoError(t, err)
+	require.Len(t, stats, 1)
+	assert.NotNil(t, stats[0].Sum)
+	assert.InDelta(t, 1.0, *stats[0].Sum, 1e-9, "only the recent data point should remain")
 }
