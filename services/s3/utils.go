@@ -32,19 +32,19 @@ func CalculateChecksum(data []byte, algorithm string) string {
 	var sum []byte
 
 	switch strings.ToUpper(algorithm) {
-	case "CRC32":
+	case ChecksumCRC32:
 		c := crc32.ChecksumIEEE(data)
 		sum = make([]byte, crc32Len)
 		binary.BigEndian.PutUint32(sum, c)
-	case "CRC32C":
+	case ChecksumCRC32C:
 		c := crc32.Checksum(data, crc32.MakeTable(crc32.Castagnoli))
 		sum = make([]byte, crc32Len)
 		binary.BigEndian.PutUint32(sum, c)
-	case "SHA1":
+	case ChecksumSHA1:
 		//nolint:gosec // SHA1 supported as per S3 spec
 		h := sha1.Sum(data)
 		sum = h[:]
-	case "SHA256":
+	case ChecksumSHA256:
 		h := sha256.Sum256(data)
 		sum = h[:]
 	default:

@@ -57,33 +57,12 @@ func evaluateCSVQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequ
 		}
 
 		rowCount++
-		rowMap := make(map[string]string, len(headers))
-		for i, h := range headers {
-			if i < len(rec) {
-				rowMap[h] = rec[i]
-			}
-		}
-
-		// Evaluate query on this single row
-		resultRows, evalErr := evalQuery(query, []map[string]string{rowMap})
+		rowBytes, returnedRows, evalErr := processCSVRow(w, query, headers, rec, req)
 		if evalErr != nil {
 			return totalBytesReturned, evalErr
 		}
-
-		if len(resultRows) > 0 {
-			resultBytes, serialErr := serializeCSVQueryResults(resultRows, req.OutputSerialization)
-			if serialErr != nil {
-				return totalBytesReturned, serialErr
-			}
-
-			if len(resultBytes) > 0 {
-				if err := writeSelectEvent(w, "Records", "application/octet-stream", resultBytes); err != nil {
-					return totalBytesReturned, err
-				}
-				totalBytesReturned += int64(len(resultBytes))
-				returnedRowsCount += len(resultRows)
-			}
-		}
+		totalBytesReturned += rowBytes
+		returnedRowsCount += returnedRows
 	}
 
 	return totalBytesReturned, nil
@@ -167,4 +146,44 @@ func mapStringToAny(m map[string]string) map[string]any {
 	}
 
 	return out
+}
+
+func processCSVRow(
+	w io.Writer,
+	query *sqlQuery,
+	headers []string,
+	rec []string,
+	req *selectRequest,
+) (int64, int, error) {
+	rowMap := make(map[string]string, len(headers))
+	for i, h := range headers {
+		if i < len(rec) {
+			rowMap[h] = rec[i]
+		}
+	}
+
+	// Evaluate query on this single row
+	resultRows, evalErr := evalQuery(query, []map[string]string{rowMap})
+	if evalErr != nil {
+		return 0, 0, evalErr
+	}
+
+	if len(resultRows) == 0 {
+		return 0, 0, nil
+	}
+
+	resultBytes, serialErr := serializeCSVQueryResults(resultRows, req.OutputSerialization)
+	if serialErr != nil {
+		return 0, 0, serialErr
+	}
+
+	if len(resultBytes) == 0 {
+		return 0, 0, nil
+	}
+
+	if wErr := writeSelectEvent(w, "Records", "application/octet-stream", resultBytes); wErr != nil {
+		return 0, 0, wErr
+	}
+
+	return int64(len(resultBytes)), len(resultRows), nil
 }

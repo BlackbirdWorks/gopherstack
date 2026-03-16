@@ -1894,9 +1894,9 @@ type SettingsPageData struct {
 
 	AccountID    string
 	Region       string
+	BuildVersion string
 	LatencyMs    int
 	EnforceIAM   bool
-	BuildVersion string
 }
 
 // settingsIndex renders the read-only settings/config page.

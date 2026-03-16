@@ -202,21 +202,7 @@ func (h *S3Handler) headObject(
 	h.setCommonHeaders(w, details)
 
 	// Set x-amz-expiration header if a lifecycle rule matches this object.
-	if h.janitor != nil {
-		if lcXML, lcErr := h.Backend.GetBucketLifecycleConfiguration(ctx, bucketName); lcErr == nil && lcXML != "" {
-			var objTags []types.Tag
-			if tagOut, tagErr := h.Backend.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
-				Bucket: aws.String(bucketName),
-				Key:    aws.String(key),
-			}); tagErr == nil {
-				objTags = tagOut.TagSet
-			}
-
-			if exp := h.janitor.GetExpirationHeader(lcXML, key, objTags, aws.ToTime(out.LastModified)); exp != "" {
-				w.Header().Set("X-Amz-Expiration", exp)
-			}
-		}
-	}
+	h.setExpirationHeader(ctx, w, bucketName, key, out.LastModified)
 
 	if ce := aws.ToString(out.ContentEncoding); ce != "" {
 		w.Header().Set("Content-Encoding", ce)
@@ -887,13 +873,13 @@ func (h *S3Handler) setChecksumHeaders(w http.ResponseWriter, out objectCommonDe
 
 	switch {
 	case out.ChecksumCRC32 != nil:
-		algo, val = checksumCRC32, *out.ChecksumCRC32
+		algo, val = ChecksumCRC32, *out.ChecksumCRC32
 	case out.ChecksumCRC32C != nil:
-		algo, val = checksumCRC32C, *out.ChecksumCRC32C
+		algo, val = ChecksumCRC32C, *out.ChecksumCRC32C
 	case out.ChecksumSHA1 != nil:
-		algo, val = checksumSHA1, *out.ChecksumSHA1
+		algo, val = ChecksumSHA1, *out.ChecksumSHA1
 	case out.ChecksumSHA256 != nil:
-		algo, val = checksumSHA256, *out.ChecksumSHA256
+		algo, val = ChecksumSHA256, *out.ChecksumSHA256
 	}
 
 	if algo != "" {
@@ -915,13 +901,13 @@ func extractChecksumPointers(h http.Header, algo string) (*string, *string, *str
 	}
 
 	switch algo {
-	case checksumCRC32:
+	case ChecksumCRC32:
 		return aws.String(checksum), nil, nil, nil
-	case checksumCRC32C:
+	case ChecksumCRC32C:
 		return nil, aws.String(checksum), nil, nil
-	case checksumSHA1:
+	case ChecksumSHA1:
 		return nil, nil, aws.String(checksum), nil
-	case checksumSHA256:
+	case ChecksumSHA256:
 		return nil, nil, nil, aws.String(checksum)
 	default:
 		return nil, nil, nil, nil
@@ -966,7 +952,7 @@ func (h *S3Handler) handleChecksumMode(
 		data, _ := io.ReadAll(ver.Body)
 		ver.Body = io.NopCloser(bytes.NewReader(data))
 
-		algo = checksumCRC32
+		algo = ChecksumCRC32
 		val = CalculateChecksum(data, algo)
 	}
 
@@ -977,13 +963,13 @@ func (h *S3Handler) handleChecksumMode(
 func (h *S3Handler) getStoredChecksum(out objectCommonDetails) (string, string) {
 	switch {
 	case out.ChecksumCRC32 != nil:
-		return checksumCRC32, *out.ChecksumCRC32
+		return ChecksumCRC32, *out.ChecksumCRC32
 	case out.ChecksumCRC32C != nil:
-		return checksumCRC32C, *out.ChecksumCRC32C
+		return ChecksumCRC32C, *out.ChecksumCRC32C
 	case out.ChecksumSHA1 != nil:
-		return checksumSHA1, *out.ChecksumSHA1
+		return ChecksumSHA1, *out.ChecksumSHA1
 	case out.ChecksumSHA256 != nil:
-		return checksumSHA256, *out.ChecksumSHA256
+		return ChecksumSHA256, *out.ChecksumSHA256
 	default:
 		return "", ""
 	}
@@ -1277,4 +1263,35 @@ func (h *S3Handler) getObjectLegalHold(
 	}
 
 	httputils.WriteXML(ctx, w, http.StatusOK, lh)
+}
+
+// setExpirationHeader evaluates lifecycle rules and sets the X-Amz-Expiration header.
+func (h *S3Handler) setExpirationHeader(
+	ctx context.Context,
+	w http.ResponseWriter,
+	bucketName, key string,
+	lastModified *time.Time,
+) {
+	if h.janitor == nil {
+		return
+	}
+
+	lcXML, lcErr := h.Backend.GetBucketLifecycleConfiguration(ctx, bucketName)
+	if lcErr != nil || lcXML == "" {
+		return
+	}
+
+	var objTags []types.Tag
+
+	tagOut, tagErr := h.Backend.GetObjectTagging(ctx, &s3.GetObjectTaggingInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(key),
+	})
+	if tagErr == nil {
+		objTags = tagOut.TagSet
+	}
+
+	if exp := h.janitor.GetExpirationHeader(lcXML, key, objTags, aws.ToTime(lastModified)); exp != "" {
+		w.Header().Set("X-Amz-Expiration", exp)
+	}
 }

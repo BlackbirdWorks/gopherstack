@@ -605,7 +605,7 @@ func (h *S3Handler) headBucket(
 	}
 
 	if region != "" {
-		w.Header().Set("x-amz-bucket-region", region)
+		w.Header().Set("X-Amz-Bucket-Region", region)
 	}
 	w.WriteHeader(http.StatusOK)
 }

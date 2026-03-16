@@ -623,8 +623,10 @@ func (j *Janitor) GetExpirationHeader(lcXML string, key string, tags []types.Tag
 		var expiry time.Time
 		if rule.Expiration.Days >= 0 && (rule.Expiration.Date == "") {
 			// S3 rounds up to the next midnight UTC
-			expiry = lastModified.Add(time.Duration(rule.Expiration.Days) * 24 * time.Hour)
-			expiry = time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 0, 0, 0, 0, time.UTC).Add(24 * time.Hour)
+			const hoursInDay = 24
+			expiry = lastModified.Add(time.Duration(rule.Expiration.Days) * hoursInDay * time.Hour)
+			expiry = time.Date(expiry.Year(), expiry.Month(), expiry.Day(), 0, 0, 0, 0, time.UTC).
+				Add(hoursInDay * time.Hour)
 		} else if rule.Expiration.Date != "" {
 			expiry, _ = parseLifecycleDate(rule.Expiration.Date)
 		}

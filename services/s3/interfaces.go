@@ -160,5 +160,8 @@ type StorageBackend interface {
 	) (*s3.ListPartsOutput, error)
 
 	// Metadata helpers
-	GetBucketMetadata(ctx context.Context, bucketName string) (region string, lifecycleXML string, tags []types.Tag, err error)
+	GetBucketMetadata(
+		ctx context.Context,
+		bucketName string,
+	) (region string, lifecycleXML string, tags []types.Tag, err error)
 }

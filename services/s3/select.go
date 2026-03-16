@@ -261,7 +261,7 @@ func (h *S3Handler) evaluateQuery(
 // SDK receives a structured error rather than a silently truncated stream.
 func writeSelectErrorEvent(w io.Writer, code, message string) {
 	headers := encodeSelectExceptionHeaders(code)
-	payload := []byte(fmt.Sprintf(`<Error><Code>%s</Code><Message>%s</Message></Error>`, code, message))
+	payload := fmt.Appendf(nil, `<Error><Code>%s</Code><Message>%s</Message></Error>`, code, message)
 
 	msg, err := buildEventStreamMessageRaw(headers, payload)
 	if err != nil {

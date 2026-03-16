@@ -317,27 +317,10 @@ func (b *InMemoryBackend) PutObject(
 	bucketName := *input.Bucket
 	key := *input.Key
 
-	// 1. Initial check for bucket and existing object lock (if any)
-	// to avoid reading large body if overwrite is blocked.
-	b.mu.RLock("PutObjectCheck")
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
+	bucket, err := b.checkPutObjectAuthAndLock(bucketName, key)
 	if err != nil {
 		return nil, err
 	}
-
-	bucket.mu.RLock("PutObjectCheck")
-	isVersioningEnabled := bucket.Versioning == types.BucketVersioningStatusEnabled
-	if !isVersioningEnabled {
-		if obj, ok := bucket.Objects[key]; ok {
-			if err = checkObjectLockForOverwrite(obj); err != nil {
-				bucket.mu.RUnlock()
-
-				return nil, err
-			}
-		}
-	}
-	bucket.mu.RUnlock()
 
 	// 2. Prepare data and metadata outside the lock.
 	originalSize, storedData, isCompressed, etag, computedChecksumB64, err := b.prepareObjectData(ctx, input)
@@ -355,58 +338,28 @@ func (b *InMemoryBackend) PutObject(
 	if computedChecksumB64 != "" {
 		algo := strings.ToUpper(string(input.ChecksumAlgorithm))
 		switch algo {
-		case "CRC32":
+		case ChecksumCRC32:
 			if checksums.crc32 == nil {
 				checksums.crc32 = aws.String(computedChecksumB64)
 			}
-		case "CRC32C":
+		case ChecksumCRC32C:
 			if checksums.crc32c == nil {
 				checksums.crc32c = aws.String(computedChecksumB64)
 			}
-		case "SHA1":
+		case ChecksumSHA1:
 			if checksums.sha1 == nil {
 				checksums.sha1 = aws.String(computedChecksumB64)
 			}
-		case "SHA256":
+		case ChecksumSHA256:
 			if checksums.sha256 == nil {
 				checksums.sha256 = aws.String(computedChecksumB64)
 			}
 		}
 	}
 
-	// 3. Re-acquire bucket and lock for update
-	bucket.mu.Lock("PutObject")
-	// Double-check if bucket still exists or if versioning status changed
-	// (though highly unlikely in a mock).
-
-	var newVersionID string
-
-	newVersionID = NullVersion
-	if bucket.Versioning == types.BucketVersioningStatusEnabled {
-		newVersionID = newObjectVersionID()
-	}
-
-	obj, objExists := bucket.Objects[key]
-	if !objExists {
-		obj = &StoredObject{
-			Key:      key,
-			Versions: make(map[string]*StoredObjectVersion),
-			mu:       lockmetrics.New("s3.object"),
-		}
-		bucket.Objects[key] = obj
-	} else if err = checkObjectLockForOverwrite(obj); err != nil {
-		// Object Lock: COMPLIANCE/GOVERNANCE retention prevents overwriting
-		// a protected version when versioning is not enabled (null version).
-		if bucket.Versioning != types.BucketVersioningStatusEnabled {
-			bucket.mu.Unlock()
-
-			return nil, err
-		}
-	}
-
 	finalQuotedETag := "\"" + etag + "\""
 	newVersion := &StoredObjectVersion{
-		VersionID:          newVersionID,
+		VersionID:          NullVersion, // default, saveObjectVersion will assign if enabled
 		Key:                key,
 		Data:               storedData,
 		IsCompressed:       isCompressed,
@@ -425,22 +378,7 @@ func (b *InMemoryBackend) PutObject(
 		IsLatest:           true,
 	}
 
-	// Acquire obj.mu while bucket.mu is still held so there is no window in
-	// which a concurrent DeleteObject can close obj.mu before we lock it (the
-	// original TOCTOU fix). Holding obj.mu also serializes version-map mutations
-	// with readers (GetObject/HeadObject/ListObjects) that acquire obj.mu.RLock
-	// after releasing bucket.mu.
-	obj.mu.Lock("PutObject")
-	bucket.mu.Unlock()
-
-	for _, v := range obj.Versions {
-		v.IsLatest = false
-	}
-
-	obj.Versions[newVersionID] = newVersion
-	obj.LatestVersionID = newVersionID
-
-	obj.mu.Unlock()
+	newVersionID := b.saveObjectVersion(bucket, key, newVersion)
 
 	// Store tags outside bucket.mu to respect the lock ordering
 	// (b.mu must not be acquired while bucket.mu is held).
@@ -465,90 +403,23 @@ func (b *InMemoryBackend) prepareObjectData(
 	ctx context.Context,
 	input *s3.PutObjectInput,
 ) (int64, []byte, bool, string, string, error) {
-	// 1. Snapshot the body into a buffer while computing hashes.
-	// We compute both the MD5 (for ETag) and S3 checksums (if specified) in a single pass.
-	//nolint:gosec // MD5 required for S3 ETag
-	md5Hasher := md5.New()
-	var buf bytes.Buffer
-	writers := []io.Writer{md5Hasher, &buf}
-
-	var s3Hasher hash.Hash
-	algo := string(input.ChecksumAlgorithm)
-	if algo != "" {
-		switch strings.ToUpper(algo) {
-		case "CRC32":
-			s3Hasher = crc32.NewIEEE()
-		case "CRC32C":
-			s3Hasher = crc32.New(crc32.MakeTable(crc32.Castagnoli))
-		case "SHA1":
-			//nolint:gosec // SHA1 supported
-			s3Hasher = sha1.New()
-		case "SHA256":
-			s3Hasher = sha256.New()
-		}
-		if s3Hasher != nil {
-			writers = append(writers, s3Hasher)
-		}
-	}
-
-	tr := io.TeeReader(input.Body, io.MultiWriter(writers...))
-	n, err := io.Copy(io.Discard, tr)
+	n, data, etag, s3Hasher, err := b.computeObjectHashes(ctx, input.Body, input.ChecksumAlgorithm)
 	if err != nil {
 		return 0, nil, false, "", "", err
 	}
-
-	data := buf.Bytes()
-	etag := hex.EncodeToString(md5Hasher.Sum(nil)[:])
 
 	logger.Load(ctx).DebugContext(ctx, "prepareObjectData trace",
 		"n", n, "dataLen", len(data), "etag", etag)
 
 	// 2. Validate Content-MD5 from context if present.
-	if md5Header, ok := ctx.Value(md5Key).(string); ok && md5Header != "" {
-		decoded, dErr := base64.StdEncoding.DecodeString(md5Header)
-		if dErr != nil || len(decoded) != md5.Size {
-			return 0, nil, false, "", "", ErrBadChecksum
-		}
-
-		computed := md5Hasher.Sum(nil)
-		if !bytes.Equal(computed[:], decoded) {
-			return 0, nil, false, "", "", ErrBadChecksum
-		}
+	if vErr := b.validateContentMD5(ctx, data, etag); vErr != nil {
+		return 0, nil, false, "", "", vErr
 	}
 
 	// 3. Validate S3 checksum if provided; compute it if the algorithm is set.
-	var computedChecksumB64 string
-	if s3Hasher != nil {
-		computedSum := s3Hasher.Sum(nil)
-		// Go's crc32 Sum(nil) may not be big-endian. S3 expects big-endian for CRC32/CRC32C.
-		if h32, ok := s3Hasher.(hash.Hash32); ok {
-			b := make([]byte, 4)
-			binary.BigEndian.PutUint32(b, h32.Sum32())
-			computedSum = b
-		}
-
-		computedChecksumB64 = base64.StdEncoding.EncodeToString(computedSum)
-
-		var supplied *string
-		switch strings.ToUpper(algo) {
-		case "CRC32":
-			supplied = input.ChecksumCRC32
-		case "CRC32C":
-			supplied = input.ChecksumCRC32C
-		case "SHA1":
-			supplied = input.ChecksumSHA1
-		case "SHA256":
-			supplied = input.ChecksumSHA256
-		}
-
-		if supplied != nil && *supplied != "" {
-			if computedChecksumB64 != *supplied {
-				logger.Load(ctx).ErrorContext(ctx, "Checksum mismatch",
-					"algo", algo, "computed", computedChecksumB64, "supplied", *supplied)
-
-				return 0, nil, false, "", "", ErrBadChecksum
-			}
-		}
+	computedChecksumB64, fErr := b.finalizeChecksum(s3Hasher, input)
+	if fErr != nil {
+		return 0, nil, false, "", "", fErr
 	}
 
 	// 4. Decide whether to compress based on size.
@@ -562,6 +433,43 @@ func (b *InMemoryBackend) prepareObjectData(
 	}
 
 	return n, data, false, etag, computedChecksumB64, nil
+}
+
+func (b *InMemoryBackend) finalizeChecksum(s3Hasher hash.Hash, input *s3.PutObjectInput) (string, error) {
+	if s3Hasher == nil {
+		return "", nil
+	}
+
+	computedSum := s3Hasher.Sum(nil)
+	// Go's crc32 Sum(nil) may not be big-endian. S3 expects big-endian for CRC32/CRC32C.
+	if h32, ok := s3Hasher.(hash.Hash32); ok {
+		const checksumSize = 4
+		b := make([]byte, checksumSize)
+		binary.BigEndian.PutUint32(b, h32.Sum32())
+		computedSum = b
+	}
+
+	computedChecksumB64 := base64.StdEncoding.EncodeToString(computedSum)
+	algo := strings.ToUpper(string(input.ChecksumAlgorithm))
+
+	var supplied *string
+
+	switch algo {
+	case ChecksumCRC32:
+		supplied = input.ChecksumCRC32
+	case ChecksumCRC32C:
+		supplied = input.ChecksumCRC32C
+	case ChecksumSHA1:
+		supplied = input.ChecksumSHA1
+	case ChecksumSHA256:
+		supplied = input.ChecksumSHA256
+	}
+
+	if supplied != nil && *supplied != "" && computedChecksumB64 != *supplied {
+		return "", ErrBadChecksum
+	}
+
+	return computedChecksumB64, nil
 }
 
 func (b *InMemoryBackend) storeObjectTags(tagging *string, bucket, key, versionID string) {
@@ -1093,20 +1001,10 @@ func applyDelimiter(prefix, delimiter string, contents []types.Object) ([]types.
 	return filtered, cpList
 }
 
-func (b *InMemoryBackend) ListObjects(
-	_ context.Context,
+func (b *InMemoryBackend) processListObjects(
+	bucket *StoredBucket,
 	input *s3.ListObjectsInput,
-) (*s3.ListObjectsOutput, error) {
-	bucketName := *input.Bucket
-
-	b.mu.RLock("ListObjects")
-	bucket, err := b.getBucket(bucketName)
-	b.mu.RUnlock()
-
-	if err != nil {
-		return nil, err
-	}
-
+) ([]types.Object, []types.CommonPrefix, bool, string, int32) {
 	// Snapshot object pointers under lock
 	bucket.mu.RLock("ListObjects")
 	prefix := aws.ToString(input.Prefix)
@@ -1119,6 +1017,48 @@ func (b *InMemoryBackend) ListObjects(
 	bucket.mu.RUnlock()
 
 	// Process objects outside the bucket lock
+	contents := b.processObjectSnapshots(objectSnapshots)
+
+	sort.Slice(contents, func(i, j int) bool {
+		return *contents[i].Key < *contents[j].Key
+	})
+
+	// Apply Marker
+	marker := aws.ToString(input.Marker)
+	if marker != "" {
+		startIndex := -1
+		for i, obj := range contents {
+			if *obj.Key > marker {
+				startIndex = i
+
+				break
+			}
+		}
+		if startIndex == -1 {
+			contents = nil
+		} else {
+			contents = contents[startIndex:]
+		}
+	}
+
+	delimiter := aws.ToString(input.Delimiter)
+	var cpList []types.CommonPrefix
+
+	if delimiter != "" {
+		contents, cpList = applyDelimiter(prefix, delimiter, contents)
+	}
+
+	maxKeys := int32(defaultMaxKeys)
+	if input.MaxKeys != nil {
+		maxKeys = *input.MaxKeys
+	}
+
+	contents, cpList, isTruncated, nextMarker := b.truncateListResults(contents, cpList, maxKeys)
+
+	return contents, cpList, isTruncated, nextMarker, maxKeys
+}
+
+func (b *InMemoryBackend) processObjectSnapshots(objectSnapshots []*StoredObject) []types.Object {
 	var contents []types.Object
 	for _, obj := range objectSnapshots {
 		obj.mu.RLock("ListObjects")
@@ -1155,66 +1095,24 @@ func (b *InMemoryBackend) ListObjects(
 		})
 	}
 
-	sort.Slice(contents, func(i, j int) bool {
-		return *contents[i].Key < *contents[j].Key
-	})
+	return contents
+}
 
-	// Apply Marker
-	marker := aws.ToString(input.Marker)
-	if marker != "" {
-		startIndex := -1
-		for i, obj := range contents {
-			if *obj.Key > marker {
-				startIndex = i
+func (b *InMemoryBackend) ListObjects(
+	_ context.Context,
+	input *s3.ListObjectsInput,
+) (*s3.ListObjectsOutput, error) {
+	bucketName := *input.Bucket
 
-				break
-			}
-		}
-		if startIndex == -1 {
-			contents = nil
-		} else {
-			contents = contents[startIndex:]
-		}
+	b.mu.RLock("ListObjects")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return nil, err
 	}
 
-	delimiter := aws.ToString(input.Delimiter)
-	var cpList []types.CommonPrefix
-
-	if delimiter != "" {
-		contents, cpList = applyDelimiter(prefix, delimiter, contents)
-	}
-
-	maxKeys := int32(1000)
-	if input.MaxKeys != nil {
-		maxKeys = *input.MaxKeys
-	}
-
-	isTruncated := false
-	var nextMarker string
-	if int32(len(contents)+len(cpList)) > maxKeys {
-		isTruncated = true
-		total := len(contents) + len(cpList)
-		_ = total // keep track if needed
-
-		// This is a simplified truncation. Proper S3 pagination with delimiters is complex.
-		// For now, we limit the combined results.
-		allResultsCount := int32(len(contents) + len(cpList))
-		if allResultsCount > maxKeys {
-			// Basic truncation
-			if int32(len(contents)) > maxKeys {
-				nextMarker = *contents[maxKeys-1].Key
-				contents = contents[:maxKeys]
-				cpList = nil
-			} else {
-				// Some contents, some common prefixes
-				remaining := maxKeys - int32(len(contents))
-				if remaining > 0 && int32(len(cpList)) > remaining {
-					nextMarker = *cpList[remaining-1].Prefix
-					cpList = cpList[:remaining]
-				}
-			}
-		}
-	}
+	contents, cpList, isTruncated, nextMarker, maxKeys := b.processListObjects(bucket, input)
 
 	return &s3.ListObjectsOutput{
 		Name:           input.Bucket,
@@ -1252,7 +1150,8 @@ func (b *InMemoryBackend) ListObjectsV2(
 		return nil, err
 	}
 
-	count := int32(len(listOut.Contents) + len(listOut.CommonPrefixes))
+	count64 := int64(len(listOut.Contents)) + int64(len(listOut.CommonPrefixes))
+	count := int32(uint32(count64)) //nolint:gosec // intentional conversion for key count
 
 	nextCont := ""
 	if aws.ToBool(listOut.IsTruncated) {
@@ -1646,14 +1545,14 @@ func (b *InMemoryBackend) UploadPart(
 	algo := string(input.ChecksumAlgorithm)
 	if algo != "" {
 		switch strings.ToUpper(algo) {
-		case "CRC32":
+		case ChecksumCRC32:
 			s3Hasher = crc32.NewIEEE()
-		case "CRC32C":
+		case ChecksumCRC32C:
 			s3Hasher = crc32.New(crc32.MakeTable(crc32.Castagnoli))
-		case "SHA1":
+		case ChecksumSHA1:
 			//nolint:gosec // SHA1 supported
 			s3Hasher = sha1.New()
-		case "SHA256":
+		case ChecksumSHA256:
 			s3Hasher = sha256.New()
 		}
 		if s3Hasher != nil {
@@ -1662,13 +1561,13 @@ func (b *InMemoryBackend) UploadPart(
 	}
 
 	tr := io.TeeReader(input.Body, io.MultiWriter(writers...))
-	n, err := io.Copy(io.Discard, tr)
+	originalSize, err := io.Copy(io.Discard, tr)
 	if err != nil {
 		return nil, err
 	}
 
-	data := buf.Bytes()
-	etag := hex.EncodeToString(md5Hasher.Sum(nil)[:])
+	storedData := buf.Bytes()
+	etag := hex.EncodeToString(md5Hasher.Sum(nil))
 
 	// 2. Validate Content-MD5 from context if present.
 	if md5Header, ok := ctx.Value(md5Key).(string); ok && md5Header != "" {
@@ -1678,78 +1577,26 @@ func (b *InMemoryBackend) UploadPart(
 		}
 
 		computed := md5Hasher.Sum(nil)
-		if !bytes.Equal(computed[:], decoded) {
+		if !bytes.Equal(computed, decoded) {
 			return nil, ErrBadChecksum
 		}
 	}
 
-	if s3Hasher != nil {
-		computedSum := s3Hasher.Sum(nil)
-		// Go's crc32 Sum(nil) may not be big-endian. S3 expects big-endian for CRC32/CRC32C.
-		if h32, ok := s3Hasher.(hash.Hash32); ok {
-			b := make([]byte, 4)
-			binary.BigEndian.PutUint32(b, h32.Sum32())
-			computedSum = b
-		}
-
-		computedChecksumB64 := base64.StdEncoding.EncodeToString(computedSum)
-
-		var supplied *string
-		switch strings.ToUpper(algo) {
-		case "CRC32":
-			supplied = input.ChecksumCRC32
-		case "CRC32C":
-			supplied = input.ChecksumCRC32C
-		case "SHA1":
-			supplied = input.ChecksumSHA1
-		case "SHA256":
-			supplied = input.ChecksumSHA256
-		}
-
-		if supplied != nil && *supplied != "" {
-			if computedChecksumB64 != *supplied {
-				return nil, ErrBadChecksum
-			}
-		} else {
-			// Client requested server-side checksum computation; propagate result.
-			switch strings.ToUpper(algo) {
-			case "CRC32":
-				input.ChecksumCRC32 = aws.String(computedChecksumB64)
-			case "CRC32C":
-				input.ChecksumCRC32C = aws.String(computedChecksumB64)
-			case "SHA1":
-				input.ChecksumSHA1 = aws.String(computedChecksumB64)
-			case "SHA256":
-				input.ChecksumSHA256 = aws.String(computedChecksumB64)
-			}
-		}
+	if vErr := b.verifyChecksum(input, s3Hasher, algo); vErr != nil {
+		return nil, vErr
 	}
 
 	quotedETag := "\"" + etag + "\""
 
-	// 3. Find the upload using a read lock on the global map
-	b.mu.RLock("UploadPart")
-	upload := b.uploads[bucketName][uploadID]
-	b.mu.RUnlock()
-
-	if upload == nil {
-		return nil, ErrNoSuchUpload
-	}
-
-	// 4. Update the upload's part map under the per-upload lock only.
-	upload.mu.Lock("UploadPart")
-	if upload.closed {
-		upload.mu.Unlock()
-
-		return nil, ErrNoSuchUpload
-	}
-	upload.Parts[partNumber] = &StoredPart{
+	// 3. Store the part.
+	if sErr := b.storePart(bucketName, uploadID, partNumber, &StoredPart{
 		PartNumber: partNumber,
+		Data:       storedData,
 		ETag:       quotedETag,
-		Size:       n,
-		Data:       data,
+		Size:       originalSize,
+	}); sErr != nil {
+		return nil, sErr
 	}
-	upload.mu.Unlock()
 
 	return &s3.UploadPartOutput{
 		ETag:           aws.String(quotedETag),
@@ -2911,4 +2758,227 @@ func (b *InMemoryBackend) GetBucketMetadata(_ context.Context, bucketName string
 	bucket.mu.RUnlock()
 
 	return region, lcXML, tags, nil
+}
+
+// verifyChecksum validates the S3 checksum if a hasher is provided.
+func (b *InMemoryBackend) verifyChecksum(input *s3.UploadPartInput, s3Hasher hash.Hash, algo string) error {
+	if s3Hasher == nil {
+		return nil
+	}
+
+	computedSum := s3Hasher.Sum(nil)
+
+	// Go's crc32 Sum(nil) may not be big-endian. S3 expects big-endian for CRC32/CRC32C.
+	if h32, ok := s3Hasher.(hash.Hash32); ok {
+		const checksumSize = 4
+		tmp := make([]byte, checksumSize)
+		binary.BigEndian.PutUint32(tmp, h32.Sum32())
+		computedSum = tmp
+	}
+
+	computedChecksumB64 := base64.StdEncoding.EncodeToString(computedSum)
+
+	var supplied *string
+
+	switch strings.ToUpper(algo) {
+	case ChecksumCRC32:
+		supplied = input.ChecksumCRC32
+	case ChecksumCRC32C:
+		supplied = input.ChecksumCRC32C
+	case ChecksumSHA1:
+		supplied = input.ChecksumSHA1
+	case ChecksumSHA256:
+		supplied = input.ChecksumSHA256
+	}
+
+	if supplied != nil && *supplied != "" {
+		if computedChecksumB64 != *supplied {
+			return ErrBadChecksum
+		}
+
+		return nil
+	}
+
+	// Client requested server-side checksum computation; propagate result.
+	switch strings.ToUpper(algo) {
+	case ChecksumCRC32:
+		input.ChecksumCRC32 = aws.String(computedChecksumB64)
+	case ChecksumCRC32C:
+		input.ChecksumCRC32C = aws.String(computedChecksumB64)
+	case ChecksumSHA1:
+		input.ChecksumSHA1 = aws.String(computedChecksumB64)
+	case ChecksumSHA256:
+		input.ChecksumSHA256 = aws.String(computedChecksumB64)
+	}
+
+	return nil
+}
+
+// storePart saves a multipart upload part under the per-upload lock.
+func (b *InMemoryBackend) storePart(bucketName, uploadID string, partNumber int32, part *StoredPart) error {
+	b.mu.RLock("storePart")
+	bucketUploads, ok := b.uploads[bucketName]
+	b.mu.RUnlock()
+
+	if !ok {
+		return ErrNoSuchUpload
+	}
+
+	upload, ok := bucketUploads[uploadID]
+	if !ok {
+		return ErrNoSuchUpload
+	}
+
+	upload.mu.Lock("storePart")
+	defer upload.mu.Unlock()
+
+	if upload.closed {
+		return ErrNoSuchUpload
+	}
+
+	upload.Parts[partNumber] = part
+
+	return nil
+}
+
+// checkPutObjectAuthAndLock performs initial checks for bucket existence and object lock.
+func (b *InMemoryBackend) checkPutObjectAuthAndLock(bucketName, key string) (*StoredBucket, error) {
+	b.mu.RLock("PutObjectCheck")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+
+	bucket.mu.RLock("PutObjectCheck")
+	defer bucket.mu.RUnlock()
+
+	isVersioningEnabled := bucket.Versioning == types.BucketVersioningStatusEnabled
+	if !isVersioningEnabled {
+		if obj, ok := bucket.Objects[key]; ok {
+			err = checkObjectLockForOverwrite(obj)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return bucket, nil
+}
+
+// saveObjectVersion saves an object version under the bucket lock.
+func (b *InMemoryBackend) saveObjectVersion(bucket *StoredBucket, key string, ver *StoredObjectVersion) string {
+	bucket.mu.Lock("saveObjectVersion")
+	defer bucket.mu.Unlock()
+
+	// Handle versioning
+	if ver.VersionID == NullVersion && bucket.Versioning == types.BucketVersioningStatusEnabled {
+		ver.VersionID = newObjectVersionID()
+	}
+
+	obj, ok := bucket.Objects[key]
+	if !ok {
+		obj = &StoredObject{
+			Key:      key,
+			Versions: make(map[string]*StoredObjectVersion),
+			mu:       lockmetrics.New("s3.object"),
+		}
+		bucket.Objects[key] = obj
+	}
+
+	// Capture obj.mu while bucket lock is held
+	obj.mu.Lock("saveObjectVersionObj")
+	defer obj.mu.Unlock()
+
+	for _, v := range obj.Versions {
+		v.IsLatest = false
+	}
+
+	obj.Versions[ver.VersionID] = ver
+	obj.LatestVersionID = ver.VersionID
+
+	return ver.VersionID
+}
+
+// computeObjectHashes snapshots the body while computing MD5 and S3 checksums.
+func (b *InMemoryBackend) computeObjectHashes(
+	_ context.Context,
+	body io.Reader,
+	algorithm types.ChecksumAlgorithm,
+) (int64, []byte, string, hash.Hash, error) {
+	//nolint:gosec // MD5 required for S3 ETag
+	md5Hasher := md5.New()
+	var buf bytes.Buffer
+	writers := []io.Writer{md5Hasher, &buf}
+
+	var s3Hasher hash.Hash
+	algo := string(algorithm)
+	if algo != "" {
+		switch strings.ToUpper(algo) {
+		case ChecksumCRC32:
+			s3Hasher = crc32.NewIEEE()
+		case ChecksumCRC32C:
+			s3Hasher = crc32.New(crc32.MakeTable(crc32.Castagnoli))
+		case ChecksumSHA1:
+			//nolint:gosec // SHA1 supported
+			s3Hasher = sha1.New()
+		case ChecksumSHA256:
+			s3Hasher = sha256.New()
+		}
+		if s3Hasher != nil {
+			writers = append(writers, s3Hasher)
+		}
+	}
+
+	tr := io.TeeReader(body, io.MultiWriter(writers...))
+	n, err := io.Copy(io.Discard, tr)
+	if err != nil {
+		return 0, nil, "", nil, err
+	}
+
+	return n, buf.Bytes(), hex.EncodeToString(md5Hasher.Sum(nil)), s3Hasher, nil
+}
+
+// validateContentMD5 validates the Content-MD5 header from context against the computed etag.
+func (b *InMemoryBackend) validateContentMD5(ctx context.Context, _ []byte, etag string) error {
+	if md5Header, ok := ctx.Value(md5Key).(string); ok && md5Header != "" {
+		decoded, dErr := base64.StdEncoding.DecodeString(md5Header)
+		if dErr != nil || len(decoded) != md5.Size {
+			return ErrBadChecksum
+		}
+
+		if hex.EncodeToString(decoded) != etag {
+			return ErrBadChecksum
+		}
+	}
+
+	return nil
+}
+
+func (b *InMemoryBackend) truncateListResults(
+	contents []types.Object,
+	cpList []types.CommonPrefix,
+	maxKeys int32,
+) ([]types.Object, []types.CommonPrefix, bool, string) {
+	totalCount64 := int64(len(contents)) + int64(len(cpList))
+	if totalCount64 <= int64(maxKeys) {
+		return contents, cpList, false, ""
+	}
+
+	isTruncated := true
+	var nextMarker string
+
+	if int64(len(contents)) > int64(maxKeys) {
+		nextMarker = aws.ToString(contents[maxKeys-1].Key)
+		contents = contents[:maxKeys]
+		cpList = nil
+	} else {
+		remaining := int64(maxKeys) - int64(len(contents))
+		if remaining > 0 && int64(len(cpList)) > remaining {
+			nextMarker = aws.ToString(cpList[remaining-1].Prefix)
+			cpList = cpList[:remaining]
+		}
+	}
+
+	return contents, cpList, isTruncated, nextMarker
 }
