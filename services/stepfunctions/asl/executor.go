@@ -45,11 +45,17 @@ var (
 	ErrUnsupportedSQSAction             = errors.New("unsupported SQS action")
 	ErrUnsupportedSNSAction             = errors.New("unsupported SNS action")
 	ErrUnsupportedDynamoDBAction        = errors.New("unsupported DynamoDB action")
+	ErrActivityNotConfigured            = errors.New("activity invoker not configured")
 )
 
 // LambdaInvoker can invoke a Lambda function.
 type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+}
+
+// ActivityInvoker can enqueue an activity task and wait for its result.
+type ActivityInvoker interface {
+	InvokeActivity(ctx context.Context, activityArn, input string) (string, error)
 }
 
 // SQSIntegration handles Step Functions SQS service integration.
@@ -90,6 +96,8 @@ type ExecutionResult struct {
 	Cause  string
 }
 
+const maxConcurrentSubExecutors = 64
+
 // Executor runs an ASL state machine.
 type Executor struct {
 	sm       *StateMachine
@@ -98,11 +106,34 @@ type Executor struct {
 	sns      SNSIntegration
 	dynamodb DynamoDBIntegration
 	history  HistoryRecorder
+	activity ActivityInvoker
+	// execSem limits the total number of concurrently running sub-executors
+	// (spawned by Parallel/Map states) to prevent goroutine explosion.
+	execSem chan struct{}
 }
 
 // NewExecutor creates an Executor for the given state machine.
 func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder) *Executor {
-	return &Executor{sm: sm, lambda: lambda, history: history}
+	return &Executor{
+		sm:      sm,
+		lambda:  lambda,
+		history: history,
+		execSem: make(chan struct{}, maxConcurrentSubExecutors),
+	}
+}
+
+// newSubExecutor creates a sub-executor sharing this executor's semaphore and integrations.
+func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
+	return &Executor{
+		sm:       sm,
+		lambda:   e.lambda,
+		sqs:      e.sqs,
+		sns:      e.sns,
+		dynamodb: e.dynamodb,
+		history:  e.history,
+		activity: e.activity,
+		execSem:  e.execSem,
+	}
 }
 
 // SetSQSIntegration configures the SQS integration for Task states.
@@ -113,6 +144,9 @@ func (e *Executor) SetSNSIntegration(sns SNSIntegration) { e.sns = sns }
 
 // SetDynamoDBIntegration configures the DynamoDB integration for Task states.
 func (e *Executor) SetDynamoDBIntegration(ddb DynamoDBIntegration) { e.dynamodb = ddb }
+
+// SetActivityInvoker configures the activity invoker for activity Task states.
+func (e *Executor) SetActivityInvoker(ai ActivityInvoker) { e.activity = ai }
 
 // Execute runs the state machine with the given input JSON and returns the result.
 func (e *Executor) Execute(ctx context.Context, executionARN, inputJSON string) (*ExecutionResult, error) {
@@ -533,6 +567,9 @@ func (e *Executor) recordTaskFailed(executionARN, stateName, errCode string) {
 
 // invokeTask performs the actual task invocation.
 func (e *Executor) invokeTask(ctx context.Context, state *State, input any) (any, error) {
+	if isActivityResource(state.Resource) {
+		return e.invokeActivityTask(ctx, state, input)
+	}
 	if isLambdaResource(state.Resource) {
 		return e.invokeLambdaTask(ctx, state, input)
 	}
@@ -548,6 +585,26 @@ func (e *Executor) invokeTask(ctx context.Context, state *State, input any) (any
 
 	// For unsupported resource types, pass input through (permissive stub).
 	return input, nil
+}
+
+// invokeActivityTask enqueues a task for an activity worker and waits for the result.
+func (e *Executor) invokeActivityTask(ctx context.Context, state *State, input any) (any, error) {
+	if e.activity == nil {
+		return nil, ErrActivityNotConfigured
+	}
+
+	output, err := e.activity.InvokeActivity(ctx, state.Resource, marshalInput(input))
+	if err != nil {
+		return nil, err
+	}
+
+	var result any
+	if unmarshalErr := json.Unmarshal([]byte(output), &result); unmarshalErr != nil {
+		// Non-JSON output is valid; return the raw string. Intentionally ignoring unmarshalErr.
+		return output, nil //nolint:nilerr // non-JSON activity output is valid; return as string
+	}
+
+	return result, nil
 }
 
 // invokeLambdaTask invokes a Lambda function as a Task state.
@@ -685,14 +742,17 @@ func (e *Executor) executeParallel(
 	var wg sync.WaitGroup
 	for i, branch := range state.Branches {
 		wg.Add(1)
+		e.execSem <- struct{}{} // acquire global sub-executor slot before spawning
 
 		go func(idx int, b Branch) {
 			defer wg.Done()
+			defer func() { <-e.execSem }()
+
 			branchSM := &StateMachine{
 				StartAt: b.StartAt,
 				States:  b.States,
 			}
-			exec := NewExecutor(branchSM, e.lambda, e.history)
+			exec := e.newSubExecutor(branchSM)
 			res, err := exec.Execute(ctx, executionARN, marshalInput(input))
 			if err != nil {
 				errs[idx] = err
@@ -713,6 +773,8 @@ func (e *Executor) executeParallel(
 
 	return state.Next, results, nil
 }
+
+const maxMapConcurrencyLimit = 40
 
 // executeMap handles Map state: iterates over an array.
 func (e *Executor) executeMap(ctx context.Context, executionARN string, state *State, input any) (string, any, error) {
@@ -737,7 +799,12 @@ func (e *Executor) executeMap(ctx context.Context, executionARN string, state *S
 
 	concurrency := state.MaxConcurrency
 	if concurrency <= 0 {
-		concurrency = len(items)
+		// AWS MaxConcurrency=0 means unlimited; apply safety cap to avoid goroutine explosion.
+		concurrency = min(len(items), maxMapConcurrencyLimit)
+	}
+
+	if concurrency == 0 {
+		concurrency = 1
 	}
 
 	sem := make(chan struct{}, concurrency)
@@ -745,13 +812,15 @@ func (e *Executor) executeMap(ctx context.Context, executionARN string, state *S
 	var wg sync.WaitGroup
 	for i, item := range items {
 		wg.Add(1)
+		e.execSem <- struct{}{} // acquire global sub-executor slot before spawning
 		sem <- struct{}{}
 
 		go func(idx int, it any) {
 			defer wg.Done()
+			defer func() { <-e.execSem }()
 			defer func() { <-sem }()
 
-			exec := NewExecutor(iterator, e.lambda, e.history)
+			exec := e.newSubExecutor(iterator)
 			res, execErr := exec.Execute(ctx, executionARN, marshalInput(it))
 			if execErr != nil {
 				errs[idx] = execErr
@@ -1341,6 +1410,11 @@ func catchesError(errorEquals []string, err error) bool {
 	}
 
 	return false
+}
+
+// isActivityResource returns true if the resource ARN refers to an activity.
+func isActivityResource(resource string) bool {
+	return strings.Contains(resource, ":activity:")
 }
 
 // isLambdaResource returns true if the resource ARN is a Lambda function.

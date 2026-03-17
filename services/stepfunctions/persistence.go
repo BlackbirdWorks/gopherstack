@@ -3,14 +3,24 @@ package stepfunctions
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type backendSnapshot struct {
 	StateMachines map[string]*StateMachine   `json:"stateMachines"`
 	Executions    map[string]*Execution      `json:"executions"`
 	History       map[string][]*HistoryEvent `json:"history"`
+	Activities    map[string]*Activity       `json:"activities,omitempty"`
 	AccountID     string                     `json:"accountID"`
 	Region        string                     `json:"region"`
+}
+
+// handlerSnapshot wraps the backend snapshot together with handler-level state
+// (tags) so both are persisted and restored together.
+type handlerSnapshot struct {
+	Tags    map[string]map[string]string `json:"tags,omitempty"`
+	Backend json.RawMessage              `json:"backend"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -25,7 +35,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	execsCopy := make(map[string]*Execution, len(b.executions))
 	for k, exec := range b.executions {
 		cp := *exec
-		if cp.Status == "RUNNING" {
+		if cp.Status == statusRunning {
 			cp.Status = "TIMED_OUT"
 		}
 
@@ -36,6 +46,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		StateMachines: b.stateMachines,
 		Executions:    execsCopy,
 		History:       b.history,
+		Activities:    b.activities,
 		AccountID:     b.accountID,
 		Region:        b.region,
 	}
@@ -75,9 +86,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.History = make(map[string][]*HistoryEvent)
 	}
 
+	if snap.Activities == nil {
+		snap.Activities = make(map[string]*Activity)
+	}
+
 	b.stateMachines = snap.StateMachines
 	b.executions = snap.Executions
 	b.history = snap.History
+	b.activities = snap.Activities
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
@@ -92,6 +108,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		b.smExecutions[exec.StateMachineArn] = append(b.smExecutions[exec.StateMachineArn], execARN)
 	}
 
+	// Rebuild activity name index and create empty queues (pending tasks are not persisted).
+	b.activityNameIndex = make(map[string]string, len(b.activities))
+	b.pendingTaskQueues = make(map[string]chan *activityTaskEntry, len(b.activities))
+
+	for actARN, a := range b.activities {
+		b.activityNameIndex[a.Name] = actARN
+		b.pendingTaskQueues[actARN] = make(chan *activityTaskEntry, maxPendingActivityTasks)
+	}
+
+	b.tasksByToken = make(map[string]*activityTaskEntry)
+
 	// cancelFns is intentionally empty after restore. Snapshot() converts any
 	// RUNNING execution to TIMED_OUT before serialization, so all restored
 	// executions are in terminal states and no goroutines need to be tracked.
@@ -101,21 +128,69 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	return nil
 }
 
-// Snapshot implements persistence.Persistable by delegating to the backend.
+// Snapshot implements persistence.Persistable.
+// It serialises both the backend state and the handler's tag map.
 func (h *Handler) Snapshot() []byte {
 	type snapshotter interface{ Snapshot() []byte }
+
+	var backendBytes json.RawMessage
 	if s, ok := h.Backend.(snapshotter); ok {
-		return s.Snapshot()
+		backendBytes = s.Snapshot()
 	}
 
-	return nil
+	h.tagsMu.RLock("Handler.Snapshot")
+	tagsData := make(map[string]map[string]string, len(h.tags))
+	for resourceID, t := range h.tags {
+		tagsData[resourceID] = t.Clone()
+	}
+	h.tagsMu.RUnlock()
+
+	snap := handlerSnapshot{
+		Backend: backendBytes,
+		Tags:    tagsData,
+	}
+
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return backendBytes
+	}
+
+	return data
 }
 
-// Restore implements persistence.Persistable by delegating to the backend.
+// Restore implements persistence.Persistable.
+// It restores both the backend state and the handler's tag map.
 func (h *Handler) Restore(data []byte) error {
+	var snap handlerSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return err
+	}
+
+	// If the new wrapped format has a backend field use it;
+	// otherwise treat the raw data as a legacy backend-only snapshot.
+	backendData := snap.Backend
+	if len(backendData) == 0 {
+		backendData = data
+	}
+
 	type restorer interface{ Restore([]byte) error }
 	if r, ok := h.Backend.(restorer); ok {
-		return r.Restore(data)
+		if err := r.Restore(backendData); err != nil {
+			return err
+		}
+	}
+
+	if len(snap.Tags) > 0 {
+		h.tagsMu.Lock("Handler.Restore")
+		for _, t := range h.tags {
+			t.Close()
+		}
+
+		h.tags = make(map[string]*tags.Tags, len(snap.Tags))
+		for resourceID, tagMap := range snap.Tags {
+			h.tags[resourceID] = tags.FromMap("sfn."+resourceID+".tags", tagMap)
+		}
+		h.tagsMu.Unlock()
 	}
 
 	return nil

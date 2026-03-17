@@ -267,10 +267,16 @@ func TestHandler_UpdateStateMachine(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		roleOnly bool
 		wantCode int
 	}{
 		{
-			name:     "always_succeeds",
+			name:     "update_with_valid_definition",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "update_roleArn_only",
+			roleOnly: true,
 			wantCode: http.StatusOK,
 		},
 	}
@@ -283,8 +289,24 @@ func TestHandler_UpdateStateMachine(t *testing.T) {
 			h, e := newSFNHandler(t)
 			smARN := createSM(ctx, t, h, e, "update-sm")
 
-			rec := sfnPost(ctx, t, h, e, "UpdateStateMachine",
-				`{"stateMachineArn":"`+smARN+`","definition":"{}"}`)
+			var body []byte
+			if tt.roleOnly {
+				var err error
+				body, err = json.Marshal(map[string]any{
+					"stateMachineArn": smARN,
+					"roleArn":         "arn:aws:iam::123456789012:role/new-role",
+				})
+				require.NoError(t, err)
+			} else {
+				var err error
+				body, err = json.Marshal(map[string]any{
+					"stateMachineArn": smARN,
+					"definition":      sfnPassDefinition,
+				})
+				require.NoError(t, err)
+			}
+
+			rec := sfnPost(ctx, t, h, e, "UpdateStateMachine", string(body))
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			var resp map[string]any
