@@ -74,7 +74,9 @@ func (b *InMemoryBackend) CreateConnection(name, providerType string, tags map[s
 
 	b.connections[connectionArn] = conn
 
-	return conn, nil
+	cp := *conn
+
+	return &cp, nil
 }
 
 // GetConnection retrieves a connection by ARN.
@@ -87,7 +89,11 @@ func (b *InMemoryBackend) GetConnection(connectionArn string) (*Connection, erro
 		return nil, ErrNotFound
 	}
 
-	return conn, nil
+	cp := *conn
+	cp.Tags = make(map[string]string, len(conn.Tags))
+	maps.Copy(cp.Tags, conn.Tags)
+
+	return &cp, nil
 }
 
 // ListConnections returns all connections, optionally filtered by provider type.
@@ -99,7 +105,10 @@ func (b *InMemoryBackend) ListConnections(providerTypeFilter string) []*Connecti
 
 	for _, conn := range b.connections {
 		if providerTypeFilter == "" || conn.ProviderType == providerTypeFilter {
-			conns = append(conns, conn)
+			cp := *conn
+			cp.Tags = make(map[string]string, len(conn.Tags))
+			maps.Copy(cp.Tags, conn.Tags)
+			conns = append(conns, &cp)
 		}
 	}
 

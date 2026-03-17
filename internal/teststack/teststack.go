@@ -802,7 +802,7 @@ func populateNewestHandlers(h *handlers) {
 		amplifybackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion),
 	)
 	h.apigwv2 = apigwv2backend.NewHandler(apigwv2backend.NewInMemoryBackend())
-	h.appConfig = appconfigbackend.NewHandler(appconfigbackend.NewInMemoryBackend())
+	h.appConfig = appconfigbackend.NewHandler(appconfigbackend.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion))
 	h.athena = athenabackend.NewHandler(athenabackend.NewInMemoryBackend())
 	h.autoscaling = autoscalingbackend.NewHandler(autoscalingbackend.NewInMemoryBackend())
 	h.appAutoScaling = applicationautoscalingbackend.NewHandler(

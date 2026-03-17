@@ -42,10 +42,12 @@ type InMemoryBackend struct {
 	versionCounters      map[string]map[string]int32
 	deploymentCounters   map[string]map[string]int32
 	mu                   *lockmetrics.RWMutex
+	accountID            string
+	region               string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend for AppConfig.
-func NewInMemoryBackend() *InMemoryBackend {
+func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		applications:         make(map[string]*Application),
 		environments:         make(map[string]map[string]*Environment),
@@ -57,7 +59,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 		versionCounters:      make(map[string]map[string]int32),
 		deploymentCounters:   make(map[string]map[string]int32),
 		mu:                   lockmetrics.New("appconfig"),
+		accountID:            accountID,
+		region:               region,
 	}
+}
+
+// appconfigARN builds an AppConfig resource ARN for tag lookup/cleanup.
+func (b *InMemoryBackend) appconfigARN(resourcePath string) string {
+	return fmt.Sprintf("arn:aws:appconfig:%s:%s:%s", b.region, b.accountID, resourcePath)
 }
 
 // CreateApplication creates a new AppConfig application.
@@ -139,6 +148,17 @@ func (b *InMemoryBackend) DeleteApplication(applicationID string) error {
 
 	if _, ok := b.applications[applicationID]; !ok {
 		return fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
+	}
+
+	// Clean up tags for the application and all its child resources.
+	delete(b.tags, b.appconfigARN("application/"+applicationID))
+
+	for envID := range b.environments[applicationID] {
+		delete(b.tags, b.appconfigARN("application/"+applicationID+"/environment/"+envID))
+	}
+
+	for profileID := range b.configProfiles[applicationID] {
+		delete(b.tags, b.appconfigARN("application/"+applicationID+"/configurationprofile/"+profileID))
 	}
 
 	delete(b.applications, applicationID)
@@ -270,6 +290,7 @@ func (b *InMemoryBackend) DeleteEnvironment(applicationID, environmentID string)
 	}
 
 	delete(envs, environmentID)
+	delete(b.tags, b.appconfigARN("application/"+applicationID+"/environment/"+environmentID))
 
 	return nil
 }
@@ -391,6 +412,7 @@ func (b *InMemoryBackend) DeleteConfigurationProfile(applicationID, profileID st
 	}
 
 	delete(profiles, profileID)
+	delete(b.tags, b.appconfigARN("application/"+applicationID+"/configurationprofile/"+profileID))
 
 	return nil
 }
@@ -621,6 +643,7 @@ func (b *InMemoryBackend) DeleteDeploymentStrategy(strategyID string) error {
 	}
 
 	delete(b.deploymentStrategies, strategyID)
+	delete(b.tags, b.appconfigARN("deploymentstrategy/"+strategyID))
 
 	return nil
 }
@@ -785,8 +808,13 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
+	t := b.tags[resourceArn]
+	if t == nil {
+		return nil
+	}
+
 	for _, k := range tagKeys {
-		delete(b.tags[resourceArn], k)
+		delete(t, k)
 	}
 
 	return nil

@@ -20,6 +20,10 @@ var (
 	ErrTypeAlreadyExists = errors.New("TypeAlreadyExistsFault")
 )
 
+// maxWorkflowExecutions is the maximum number of workflow executions retained.
+// Oldest executions are evicted when this limit is exceeded.
+const maxWorkflowExecutions = 10_000
+
 // Domain represents an SWF domain.
 type Domain struct {
 	Name        string `json:"name"`
@@ -45,10 +49,11 @@ type WorkflowExecution struct {
 
 // InMemoryBackend is the in-memory store for SWF resources.
 type InMemoryBackend struct {
-	domains    map[string]*Domain
-	workflows  map[string]*WorkflowType      // key: domain+":"+name+":"+version
-	executions map[string]*WorkflowExecution // key: domain+":"+workflowID
-	mu         *lockmetrics.RWMutex
+	domains        map[string]*Domain
+	workflows      map[string]*WorkflowType      // key: domain+":"+name+":"+version
+	executions     map[string]*WorkflowExecution // key: domain+":"+workflowID
+	executionOrder []string                      // FIFO order of execution keys for eviction
+	mu             *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -160,6 +165,18 @@ func (b *InMemoryBackend) StartWorkflowExecution(domain, workflowID, runID strin
 	defer b.mu.Unlock()
 
 	key := domain + ":" + workflowID
+
+	// If this is a new key, track it for eviction and enforce the cap.
+	if _, exists := b.executions[key]; !exists {
+		b.executionOrder = append(b.executionOrder, key)
+
+		if len(b.executionOrder) > maxWorkflowExecutions {
+			oldest := b.executionOrder[0]
+			b.executionOrder = b.executionOrder[1:]
+			delete(b.executions, oldest)
+		}
+	}
+
 	exec := &WorkflowExecution{Domain: domain, WorkflowID: workflowID, RunID: runID, Status: "RUNNING"}
 	b.executions[key] = exec
 

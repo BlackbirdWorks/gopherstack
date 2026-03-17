@@ -158,7 +158,9 @@ func (b *InMemoryBackend) CreateInstance(name, ownerAccountID, identityStoreID s
 	}
 	b.instances[instanceArn] = inst
 
-	return inst, nil
+	cp := *inst
+
+	return &cp, nil
 }
 
 // ListInstances returns all SSO instances.
@@ -168,7 +170,8 @@ func (b *InMemoryBackend) ListInstances() []*Instance {
 
 	list := make([]*Instance, 0, len(b.instances))
 	for _, inst := range b.instances {
-		list = append(list, inst)
+		cp := *inst
+		list = append(list, &cp)
 	}
 
 	return list
@@ -184,7 +187,9 @@ func (b *InMemoryBackend) DescribeInstance(instanceArn string) (*Instance, error
 		return nil, ErrInstanceNotFound
 	}
 
-	return inst, nil
+	cp := *inst
+
+	return &cp, nil
 }
 
 // DeleteInstance removes an SSO instance.
@@ -239,7 +244,9 @@ func (b *InMemoryBackend) CreatePermissionSet(
 	maps.Copy(ps.Tags, tags)
 	b.permissionSets[psArn] = ps
 
-	return ps, nil
+	cp := b.copyPermissionSet(ps)
+
+	return cp, nil
 }
 
 // DescribePermissionSet returns a specific permission set.
@@ -252,7 +259,7 @@ func (b *InMemoryBackend) DescribePermissionSet(instanceArn, permissionSetArn st
 		return nil, ErrPermissionSetNotFound
 	}
 
-	return ps, nil
+	return b.copyPermissionSet(ps), nil
 }
 
 // ListPermissionSets returns all permission sets for an SSO instance.
@@ -263,7 +270,7 @@ func (b *InMemoryBackend) ListPermissionSets(instanceArn string) []*PermissionSe
 	var list []*PermissionSet
 	for _, ps := range b.permissionSets {
 		if ps.InstanceArn == instanceArn {
-			list = append(list, ps)
+			list = append(list, b.copyPermissionSet(ps))
 		}
 	}
 
@@ -561,7 +568,9 @@ func (b *InMemoryBackend) DescribePermissionSetProvisioningStatus(
 		return nil, ErrRequestNotFound
 	}
 
-	return status, nil
+	cp := *status
+
+	return &cp, nil
 }
 
 // TagResource adds tags to a resource (permission set or instance).
@@ -622,6 +631,17 @@ func (b *InMemoryBackend) ListTagsForResource(instanceArn, resourceArn string) (
 	}
 
 	return nil, ErrInstanceNotFound
+}
+
+// copyPermissionSet returns a deep copy of a PermissionSet. Must be called with mu held.
+func (b *InMemoryBackend) copyPermissionSet(ps *PermissionSet) *PermissionSet {
+	cp := *ps
+	cp.Tags = make(map[string]string, len(ps.Tags))
+	maps.Copy(cp.Tags, ps.Tags)
+	cp.ManagedPolicies = make([]ManagedPolicy, len(ps.ManagedPolicies))
+	copy(cp.ManagedPolicies, ps.ManagedPolicies)
+
+	return &cp
 }
 
 // instanceARNToID extracts the instance ID segment from an instance ARN.
