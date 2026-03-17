@@ -86,10 +86,39 @@ func (b *InMemoryBackend) GetRules() []*TopicRule {
 	out := make([]*TopicRule, 0, len(b.rules))
 
 	for _, r := range b.rules {
-		out = append(out, r)
+		out = append(out, cloneTopicRule(r))
 	}
 
 	return out
+}
+
+// cloneTopicRule creates a deep copy of a TopicRule.
+func cloneTopicRule(r *TopicRule) *TopicRule {
+	clone := &TopicRule{
+		RuleName:    r.RuleName,
+		SQL:         r.SQL,
+		Description: r.Description,
+		Enabled:     r.Enabled,
+		CreatedAt:   r.CreatedAt,
+		Actions:     make([]RuleAction, len(r.Actions)),
+	}
+
+	for i, action := range r.Actions {
+		clone.Actions[i] = RuleAction{}
+		if action.SQS != nil {
+			clone.Actions[i].SQS = &SQSAction{
+				QueueURL: action.SQS.QueueURL,
+				RoleARN:  action.SQS.RoleARN,
+			}
+		}
+		if action.Lambda != nil {
+			clone.Actions[i].Lambda = &LambdaAction{
+				FunctionARN: action.Lambda.FunctionARN,
+			}
+		}
+	}
+
+	return clone
 }
 
 // MQTTPort returns the configured TCP port for the MQTT broker.

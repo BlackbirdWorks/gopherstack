@@ -135,9 +135,7 @@ func (h *ruleHook) dispatchActions(rule *TopicRule, dispatcher RuleDispatcher, p
 		return
 	}
 
-	for i := range rule.Actions {
-		action := &rule.Actions[i]
-
+	for _, action := range rule.Actions {
 		if action.SQS != nil {
 			if err := dispatcher.SendToSQS(action.SQS.QueueURL, string(payload)); err != nil {
 				h.logger.Error("iot sqs action failed", "rule", rule.RuleName, "error", err)
