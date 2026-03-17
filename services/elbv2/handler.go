@@ -798,6 +798,7 @@ func (h *Handler) handleCreateRule(vals url.Values) (any, error) {
 		ListenerArn: listenerArn,
 		Priority:    vals.Get("Priority"),
 		Actions:     actions,
+		Tags:        parseTagKVs(vals),
 	})
 	if err != nil {
 		return nil, err

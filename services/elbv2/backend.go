@@ -97,11 +97,12 @@ type Listener struct {
 
 // Rule represents an ELBv2 listener rule.
 type Rule struct {
-	RuleArn     string   `json:"ruleArn"`
-	ListenerArn string   `json:"listenerArn"`
-	Priority    string   `json:"priority"`
-	Actions     []Action `json:"actions"`
-	IsDefault   bool     `json:"isDefault"`
+	Tags        *tags.Tags `json:"tags,omitempty"`
+	RuleArn     string     `json:"ruleArn"`
+	ListenerArn string     `json:"listenerArn"`
+	Priority    string     `json:"priority"`
+	Actions     []Action   `json:"actions"`
+	IsDefault   bool       `json:"isDefault"`
 }
 
 // StorageBackend is the interface for ELBv2 storage operations.
@@ -162,6 +163,7 @@ type CreateRuleInput struct {
 	ListenerArn string
 	Priority    string
 	Actions     []Action
+	Tags        []tags.KV
 }
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
@@ -616,12 +618,18 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 	idx := strconv.Itoa(len(b.rules))
 	ruleArn := b.ruleARN(input.ListenerArn, idx)
 
+	t := tags.New("elbv2.rule." + ruleArn + ".tags")
+	for _, kv := range input.Tags {
+		t.Set(kv.Key, kv.Value)
+	}
+
 	rule := &Rule{
 		RuleArn:     ruleArn,
 		ListenerArn: input.ListenerArn,
 		Priority:    input.Priority,
 		IsDefault:   false,
 		Actions:     input.Actions,
+		Tags:        t,
 	}
 
 	b.rules[ruleArn] = rule
@@ -671,7 +679,31 @@ func (b *InMemoryBackend) DeleteRule(ruleArn string) error {
 		return ErrRuleNotFound
 	}
 
+	rule := b.rules[ruleArn]
+	rule.Tags.Close()
 	delete(b.rules, ruleArn)
+
+	return nil
+}
+
+// findTagsLocked returns the *tags.Tags for the given resource ARN.
+// Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) findTagsLocked(resArn string) *tags.Tags {
+	if lb, ok := b.loadBalancers[resArn]; ok {
+		return lb.Tags
+	}
+
+	if tg, ok := b.targetGroups[resArn]; ok {
+		return tg.Tags
+	}
+
+	if l, ok := b.listeners[resArn]; ok {
+		return l.Tags
+	}
+
+	if r, ok := b.rules[resArn]; ok {
+		return r.Tags
+	}
 
 	return nil
 }
@@ -682,28 +714,13 @@ func (b *InMemoryBackend) AddTags(resourceArns []string, kvs []tags.KV) error {
 	defer b.mu.Unlock()
 
 	for _, resArn := range resourceArns {
-		if lb, ok := b.loadBalancers[resArn]; ok {
-			for _, kv := range kvs {
-				lb.Tags.Set(kv.Key, kv.Value)
-			}
-
+		t := b.findTagsLocked(resArn)
+		if t == nil {
 			continue
 		}
 
-		if tg, ok := b.targetGroups[resArn]; ok {
-			for _, kv := range kvs {
-				tg.Tags.Set(kv.Key, kv.Value)
-			}
-
-			continue
-		}
-
-		if l, ok := b.listeners[resArn]; ok {
-			for _, kv := range kvs {
-				l.Tags.Set(kv.Key, kv.Value)
-			}
-
-			continue
+		for _, kv := range kvs {
+			t.Set(kv.Key, kv.Value)
 		}
 	}
 
@@ -716,22 +733,9 @@ func (b *InMemoryBackend) RemoveTags(resourceArns []string, keys []string) error
 	defer b.mu.Unlock()
 
 	for _, resArn := range resourceArns {
-		if lb, ok := b.loadBalancers[resArn]; ok {
-			lb.Tags.DeleteKeys(keys)
-
-			continue
-		}
-
-		if tg, ok := b.targetGroups[resArn]; ok {
-			tg.Tags.DeleteKeys(keys)
-
-			continue
-		}
-
-		if l, ok := b.listeners[resArn]; ok {
-			l.Tags.DeleteKeys(keys)
-
-			continue
+		t := b.findTagsLocked(resArn)
+		if t != nil {
+			t.DeleteKeys(keys)
 		}
 	}
 
@@ -759,25 +763,12 @@ func (b *InMemoryBackend) DescribeTags(resourceArns []string) (map[string][]tags
 	result := make(map[string][]tags.KV, len(resourceArns))
 
 	for _, resArn := range resourceArns {
-		if lb, ok := b.loadBalancers[resArn]; ok {
-			result[resArn] = tagsToKVs(lb.Tags)
-
-			continue
+		t := b.findTagsLocked(resArn)
+		if t != nil {
+			result[resArn] = tagsToKVs(t)
+		} else {
+			result[resArn] = []tags.KV{}
 		}
-
-		if tg, ok := b.targetGroups[resArn]; ok {
-			result[resArn] = tagsToKVs(tg.Tags)
-
-			continue
-		}
-
-		if l, ok := b.listeners[resArn]; ok {
-			result[resArn] = tagsToKVs(l.Tags)
-
-			continue
-		}
-
-		result[resArn] = []tags.KV{}
 	}
 
 	return result, nil
