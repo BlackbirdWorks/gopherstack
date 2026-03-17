@@ -926,3 +926,96 @@ func TestRDSBackend_ModifyDBInstance_NewFields(t *testing.T) {
 	assert.Equal(t, 14, inst.BackupRetentionPeriod)
 	assert.True(t, inst.MultiAZ)
 }
+
+// TestRDSBackend_DeletionProtection tests that resources with deletion protection cannot be deleted.
+func TestRDSBackend_DeletionProtection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		errIs   error
+		setup   func(b *rds.InMemoryBackend)
+		action  func(b *rds.InMemoryBackend) error
+		name    string
+		wantErr bool
+	}{
+		{
+			name: "delete_protected_instance_blocked",
+			setup: func(b *rds.InMemoryBackend) {
+				_, _ = b.CreateDBInstance(
+					"prot-db", "postgres", "", "", "", "", 20,
+					rds.DBInstanceOptions{DeletionProtection: true},
+				)
+			},
+			action: func(b *rds.InMemoryBackend) error {
+				_, err := b.DeleteDBInstance("prot-db")
+
+				return err
+			},
+			wantErr: true,
+			errIs:   rds.ErrInvalidDBInstanceState,
+		},
+		{
+			name: "delete_unprotected_instance_allowed",
+			setup: func(b *rds.InMemoryBackend) {
+				_, _ = b.CreateDBInstance(
+					"unprot-db", "postgres", "", "", "", "", 20,
+					rds.DBInstanceOptions{DeletionProtection: false},
+				)
+			},
+			action: func(b *rds.InMemoryBackend) error {
+				_, err := b.DeleteDBInstance("unprot-db")
+
+				return err
+			},
+			wantErr: false,
+		},
+		{
+			name: "delete_protected_global_cluster_blocked",
+			setup: func(b *rds.InMemoryBackend) {
+				_, _ = b.CreateGlobalCluster("gc-prot", "aurora-postgresql", "14.3", false, true)
+			},
+			action: func(b *rds.InMemoryBackend) error {
+				_, err := b.DeleteGlobalCluster("gc-prot")
+
+				return err
+			},
+			wantErr: true,
+			errIs:   rds.ErrInvalidGlobalClusterState,
+		},
+		{
+			name: "delete_unprotected_global_cluster_allowed",
+			setup: func(b *rds.InMemoryBackend) {
+				_, _ = b.CreateGlobalCluster("gc-unprot", "aurora-postgresql", "14.3", false, false)
+			},
+			action: func(b *rds.InMemoryBackend) error {
+				_, err := b.DeleteGlobalCluster("gc-unprot")
+
+				return err
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := rds.NewInMemoryBackend("000000000000", "us-east-1")
+
+			if tt.setup != nil {
+				tt.setup(b)
+			}
+
+			err := tt.action(b)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorIs(t, err, tt.errIs)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

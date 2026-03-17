@@ -755,6 +755,8 @@ func rdsErrorCode(opErr error) string {
 		{ErrExportTaskAlreadyExists, "ExportTaskAlreadyExists"},
 		{ErrGlobalClusterNotFound, "GlobalClusterNotFound"},
 		{ErrGlobalClusterAlreadyExists, "GlobalClusterAlreadyExists"},
+		{ErrInvalidDBClusterStateFault, "InvalidDBClusterStateFault"},
+		{ErrInvalidGlobalClusterState, "InvalidGlobalClusterStateFault"},
 	}
 
 	for _, m := range mappings {

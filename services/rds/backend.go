@@ -43,6 +43,8 @@ var (
 	ErrExportTaskAlreadyExists      = errors.New("ExportTaskAlreadyExists")
 	ErrGlobalClusterNotFound        = errors.New("GlobalClusterNotFound")
 	ErrGlobalClusterAlreadyExists   = errors.New("GlobalClusterAlreadyExists")
+	ErrInvalidDBClusterStateFault   = errors.New("InvalidDBClusterStateFault")
+	ErrInvalidGlobalClusterState    = errors.New("InvalidGlobalClusterStateFault")
 )
 
 const (
@@ -379,6 +381,15 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 		b.mu.Unlock()
 
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
+	}
+
+	if inst.DeletionProtection {
+		b.mu.Unlock()
+
+		return nil, fmt.Errorf(
+			"%w: cannot delete protected DB Instance %s, disable deletion protection first",
+			ErrInvalidDBInstanceState, id,
+		)
 	}
 
 	cp := *inst
@@ -1813,6 +1824,13 @@ func (b *InMemoryBackend) DeleteGlobalCluster(id string) (*GlobalCluster, error)
 	gc, exists := b.globalClusters[id]
 	if !exists {
 		return nil, fmt.Errorf("%w: global cluster %s not found", ErrGlobalClusterNotFound, id)
+	}
+
+	if gc.DeletionProtection {
+		return nil, fmt.Errorf(
+			"%w: cannot delete protected global cluster %s, disable deletion protection first",
+			ErrInvalidGlobalClusterState, id,
+		)
 	}
 
 	cp := *gc
