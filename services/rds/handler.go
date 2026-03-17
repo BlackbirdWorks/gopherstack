@@ -20,6 +20,7 @@ import (
 const (
 	rdsVersion = "2014-10-31"
 	rdsXMLNS   = "http://rds.amazonaws.com/doc/2014-10-31/"
+	formTrue   = "true"
 )
 
 // Handler is the Echo HTTP handler for RDS operations.
@@ -42,9 +43,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteDBInstance",
 		"DescribeDBInstances",
 		"ModifyDBInstance",
+		"StartDBInstance",
+		"StopDBInstance",
+		"RebootDBInstance",
 		"CreateDBSnapshot",
 		"DescribeDBSnapshots",
 		"DeleteDBSnapshot",
+		"CopyDBSnapshot",
+		"RestoreDBInstanceFromDBSnapshot",
+		"RestoreDBInstanceToPointInTime",
 		"CreateDBSubnetGroup",
 		"DescribeDBSubnetGroups",
 		"DeleteDBSubnetGroup",
@@ -81,13 +88,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteDBClusterEndpoint",
 		"CreateDBInstanceReadReplica",
 		"PromoteReadReplica",
-		"RebootDBInstance",
 		"DescribeDBEngineVersions",
 		"DescribeOrderableDBInstanceOptions",
 		"DescribeValidDBInstanceModifications",
 		"DescribeDBLogFiles",
 		"DownloadDBLogFilePortion",
+		"CreateGlobalCluster",
 		"DescribeGlobalClusters",
+		"DeleteGlobalCluster",
+		"ModifyGlobalCluster",
 		"StartExportTask",
 		"DescribeExportTasks",
 		"CancelExportTask",
@@ -338,6 +347,33 @@ func (h *Handler) dispatchExtended4(action string, vals url.Values) (any, error)
 	case "CancelExportTask":
 		return h.handleCancelExportTask(vals)
 	default:
+		return h.dispatchExtended5(action, vals)
+	}
+}
+
+// dispatchExtended5 routes instance restore, snapshot copy, start/stop, and global cluster operations.
+// Split from dispatchExtended4 to keep cyclomatic complexity within limits.
+func (h *Handler) dispatchExtended5(action string, vals url.Values) (any, error) {
+	switch action {
+	case "RestoreDBInstanceFromDBSnapshot":
+		return h.handleRestoreDBInstanceFromDBSnapshot(vals)
+	case "RestoreDBInstanceToPointInTime":
+		return h.handleRestoreDBInstanceToPointInTime(vals)
+	case "CopyDBSnapshot":
+		return h.handleCopyDBSnapshot(vals)
+	case "StartDBInstance":
+		return h.handleStartDBInstance(vals)
+	case "StopDBInstance":
+		return h.handleStopDBInstance(vals)
+	case "CreateGlobalCluster":
+		return h.handleCreateGlobalCluster(vals)
+	case "DescribeGlobalClusters":
+		return h.handleDescribeGlobalClusters(vals)
+	case "DeleteGlobalCluster":
+		return h.handleDeleteGlobalCluster(vals)
+	case "ModifyGlobalCluster":
+		return h.handleModifyGlobalCluster(vals)
+	default:
 		return nil, fmt.Errorf("%w: %s is not a valid RDS action", ErrUnknownAction, action)
 	}
 }
@@ -362,6 +398,28 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		}
 	}
 
+	backupRetention := 1
+
+	if rawBR := vals.Get("BackupRetentionPeriod"); rawBR != "" {
+		v, err := strconv.Atoi(rawBR)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid BackupRetentionPeriod %q", ErrInvalidParameter, rawBR)
+		}
+
+		backupRetention = v
+	}
+
+	opts := DBInstanceOptions{
+		EngineVersion:                    vals.Get("EngineVersion"),
+		StorageType:                      vals.Get("StorageType"),
+		AvailabilityZone:                 vals.Get("AvailabilityZone"),
+		BackupRetentionPeriod:            backupRetention,
+		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
+		StorageEncrypted:                 vals.Get("StorageEncrypted") == formTrue,
+		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
+	}
+
 	inst, err := h.Backend.CreateDBInstance(
 		id,
 		engine,
@@ -370,6 +428,7 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		masterUser,
 		paramGroupName,
 		allocatedStorage,
+		opts,
 	)
 	if err != nil {
 		return nil, err
@@ -431,7 +490,26 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 		}
 	}
 
-	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, allocatedStorage)
+	backupRetention := -1
+
+	if rawBR := vals.Get("BackupRetentionPeriod"); rawBR != "" {
+		v, err := strconv.Atoi(rawBR)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid BackupRetentionPeriod %q", ErrInvalidParameter, rawBR)
+		}
+
+		backupRetention = v
+	}
+
+	opts := DBInstanceOptions{
+		StorageType:                      vals.Get("StorageType"),
+		BackupRetentionPeriod:            backupRetention,
+		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
+		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
+	}
+
+	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, allocatedStorage, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -577,6 +655,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		DbiResourceID:                     inst.DbiResourceID,
 		DBInstanceClass:                   inst.DBInstanceClass,
 		Engine:                            inst.Engine,
+		EngineVersion:                     inst.EngineVersion,
 		DBInstanceStatus:                  inst.DBInstanceStatus,
 		MasterUsername:                    inst.MasterUsername,
 		DBName:                            inst.DBName,
@@ -586,6 +665,13 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		VpcID:                             inst.VpcID,
 		DBSubnetGroupName:                 inst.DBSubnetGroupName,
 		ReplicaSourceDBInstanceIdentifier: inst.ReplicaSourceDBInstanceIdentifier,
+		StorageType:                       inst.StorageType,
+		StorageEncrypted:                  inst.StorageEncrypted,
+		MultiAZ:                           inst.MultiAZ,
+		AvailabilityZone:                  inst.AvailabilityZone,
+		BackupRetentionPeriod:             inst.BackupRetentionPeriod,
+		IAMDatabaseAuthenticationEnabled:  inst.IAMDatabaseAuthenticationEnabled,
+		DeletionProtection:                inst.DeletionProtection,
 	}
 
 	if inst.DBParameterGroupName != "" {
@@ -602,7 +688,12 @@ func toXMLSnapshot(snap *DBSnapshot) xmlDBSnapshot {
 		DBSnapshotIdentifier: snap.DBSnapshotIdentifier,
 		DBInstanceIdentifier: snap.DBInstanceIdentifier,
 		Engine:               snap.Engine,
+		EngineVersion:        snap.EngineVersion,
 		Status:               snap.Status,
+		AllocatedStorage:     snap.AllocatedStorage,
+		Port:                 snap.Port,
+		StorageType:          snap.StorageType,
+		Encrypted:            snap.StorageEncrypted,
 	}
 }
 
@@ -649,6 +740,7 @@ func rdsErrorCode(opErr error) string {
 		{ErrSubnetGroupAlreadyExists, "DBSubnetGroupAlreadyExists"},
 		{ErrInvalidParameter, "InvalidParameterValue"},
 		{ErrUnknownAction, "InvalidAction"},
+		{ErrInvalidDBInstanceState, "InvalidDBInstanceState"},
 		{ErrParameterGroupNotFound, "DBParameterGroupNotFound"},
 		{ErrParameterGroupAlreadyExists, "DBParameterGroupAlreadyExists"},
 		{ErrOptionGroupNotFound, "OptionGroupNotFound"},
@@ -661,6 +753,10 @@ func rdsErrorCode(opErr error) string {
 		{ErrClusterEndpointAlreadyExists, "DBClusterEndpointAlreadyExists"},
 		{ErrExportTaskNotFound, "ExportTaskNotFound"},
 		{ErrExportTaskAlreadyExists, "ExportTaskAlreadyExists"},
+		{ErrGlobalClusterNotFound, "GlobalClusterNotFound"},
+		{ErrGlobalClusterAlreadyExists, "GlobalClusterAlreadyExists"},
+		{ErrInvalidDBClusterStateFault, "InvalidDBClusterStateFault"},
+		{ErrInvalidGlobalClusterState, "InvalidGlobalClusterStateFault"},
 	}
 
 	for _, m := range mappings {
@@ -722,16 +818,24 @@ type xmlDBInstance struct {
 	DbiResourceID                     string                   `xml:"DbiResourceId,omitempty"`
 	DBInstanceClass                   string                   `xml:"DBInstanceClass"`
 	Engine                            string                   `xml:"Engine"`
+	EngineVersion                     string                   `xml:"EngineVersion,omitempty"`
 	DBInstanceStatus                  string                   `xml:"DBInstanceStatus"`
 	MasterUsername                    string                   `xml:"MasterUsername"`
-	DBName                            string                   `xml:"DBName"`
+	DBName                            string                   `xml:"DBName,omitempty"`
 	Endpoint                          string                   `xml:"Endpoint>Address"`
 	VpcID                             string                   `xml:"DBSubnetGroup>VpcId,omitempty"`
 	DBSubnetGroupName                 string                   `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
 	DBParameterGroups                 *xmlDBParamGroupsWrapper `xml:"DBParameterGroups,omitempty"`
 	ReplicaSourceDBInstanceIdentifier string                   `xml:"ReadReplicaSourceDBInstanceIdentifier,omitempty"`
+	StorageType                       string                   `xml:"StorageType,omitempty"`
+	AvailabilityZone                  string                   `xml:"AvailabilityZone,omitempty"`
 	Port                              int                      `xml:"Endpoint>Port"`
 	AllocatedStorage                  int                      `xml:"AllocatedStorage"`
+	BackupRetentionPeriod             int                      `xml:"BackupRetentionPeriod,omitempty"`
+	MultiAZ                           bool                     `xml:"MultiAZ"`
+	StorageEncrypted                  bool                     `xml:"StorageEncrypted"`
+	IAMDatabaseAuthenticationEnabled  bool                     `xml:"IAMDatabaseAuthenticationEnabled,omitempty"`
+	DeletionProtection                bool                     `xml:"DeletionProtection,omitempty"`
 }
 
 type xmlDBInstanceList struct {
@@ -766,7 +870,12 @@ type xmlDBSnapshot struct {
 	DBSnapshotIdentifier string `xml:"DBSnapshotIdentifier"`
 	DBInstanceIdentifier string `xml:"DBInstanceIdentifier"`
 	Engine               string `xml:"Engine"`
+	EngineVersion        string `xml:"EngineVersion,omitempty"`
 	Status               string `xml:"Status"`
+	StorageType          string `xml:"StorageType,omitempty"`
+	AllocatedStorage     int    `xml:"AllocatedStorage,omitempty"`
+	Port                 int    `xml:"Port,omitempty"`
+	Encrypted            bool   `xml:"Encrypted,omitempty"`
 }
 
 type xmlDBSnapshotList struct {
@@ -976,7 +1085,7 @@ func (h *Handler) handleDescribeDBParameters(vals url.Values) (any, error) {
 
 func (h *Handler) handleResetDBParameterGroup(vals url.Values) (any, error) {
 	name := vals.Get("DBParameterGroupName")
-	resetAll := vals.Get("ResetAllParameters") == "true"
+	resetAll := vals.Get("ResetAllParameters") == formTrue
 	var paramNames []string
 	for i := 1; ; i++ {
 		pName := vals.Get(fmt.Sprintf("Parameters.Parameter.%d.ParameterName", i))
@@ -1326,10 +1435,21 @@ func (h *Handler) handleDownloadDBLogFilePortion(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeGlobalClusters(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeGlobalClusters(vals url.Values) (any, error) {
+	id := vals.Get("GlobalClusterIdentifier")
+	clusters, err := h.Backend.DescribeGlobalClusters(id)
+	if err != nil {
+		return nil, err
+	}
+	members := make([]xmlGlobalCluster, 0, len(clusters))
+	for _, gc := range clusters {
+		cp := gc
+		members = append(members, toXMLGlobalCluster(&cp))
+	}
+
 	return &describeGlobalClustersResponse{
 		Xmlns:          rdsXMLNS,
-		GlobalClusters: xmlGlobalClusterList{},
+		GlobalClusters: xmlGlobalClusterList{Members: members},
 	}, nil
 }
 
@@ -1874,14 +1994,41 @@ type downloadDBLogFilePortionResponse struct {
 	AdditionalDataPending bool     `xml:"DownloadDBLogFilePortionResult>AdditionalDataPending"`
 }
 
+type xmlGlobalCluster struct {
+	GlobalClusterIdentifier string `xml:"GlobalClusterIdentifier"`
+	Engine                  string `xml:"Engine,omitempty"`
+	EngineVersion           string `xml:"EngineVersion,omitempty"`
+	Status                  string `xml:"Status,omitempty"`
+	StorageEncrypted        bool   `xml:"StorageEncrypted,omitempty"`
+	DeletionProtection      bool   `xml:"DeletionProtection,omitempty"`
+}
+
 type xmlGlobalClusterList struct {
-	Members []struct{} `xml:"GlobalCluster"`
+	Members []xmlGlobalCluster `xml:"GlobalCluster"`
 }
 
 type describeGlobalClustersResponse struct {
 	XMLName        xml.Name             `xml:"DescribeGlobalClustersResponse"`
 	Xmlns          string               `xml:"xmlns,attr"`
 	GlobalClusters xmlGlobalClusterList `xml:"DescribeGlobalClustersResult>GlobalClusters"`
+}
+
+type createGlobalClusterResponse struct {
+	XMLName       xml.Name         `xml:"CreateGlobalClusterResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	GlobalCluster xmlGlobalCluster `xml:"CreateGlobalClusterResult>GlobalCluster"`
+}
+
+type deleteGlobalClusterResponse struct {
+	XMLName       xml.Name         `xml:"DeleteGlobalClusterResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	GlobalCluster xmlGlobalCluster `xml:"DeleteGlobalClusterResult>GlobalCluster"`
+}
+
+type modifyGlobalClusterResponse struct {
+	XMLName       xml.Name         `xml:"ModifyGlobalClusterResponse"`
+	Xmlns         string           `xml:"xmlns,attr"`
+	GlobalCluster xmlGlobalCluster `xml:"ModifyGlobalClusterResult>GlobalCluster"`
 }
 
 // ---- Cluster start/stop XML types ----
@@ -2036,4 +2183,190 @@ type cancelExportTaskResponse struct {
 	XMLName xml.Name               `xml:"CancelExportTaskResponse"`
 	Xmlns   string                 `xml:"xmlns,attr"`
 	Result  cancelExportTaskResult `xml:"CancelExportTaskResult"`
+}
+
+// ---- New instance-level operations XML types ----
+
+type restoreDBInstanceFromDBSnapshotResponse struct {
+	XMLName    xml.Name      `xml:"RestoreDBInstanceFromDBSnapshotResponse"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	DBInstance xmlDBInstance `xml:"RestoreDBInstanceFromDBSnapshotResult>DBInstance"`
+}
+
+type restoreDBInstanceToPointInTimeResponse struct {
+	XMLName    xml.Name      `xml:"RestoreDBInstanceToPointInTimeResponse"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	DBInstance xmlDBInstance `xml:"RestoreDBInstanceToPointInTimeResult>DBInstance"`
+}
+
+type copyDBSnapshotResponse struct {
+	XMLName    xml.Name      `xml:"CopyDBSnapshotResponse"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	DBSnapshot xmlDBSnapshot `xml:"CopyDBSnapshotResult>DBSnapshot"`
+}
+
+type startDBInstanceResponse struct {
+	XMLName    xml.Name      `xml:"StartDBInstanceResponse"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	DBInstance xmlDBInstance `xml:"StartDBInstanceResult>DBInstance"`
+}
+
+type stopDBInstanceResponse struct {
+	XMLName    xml.Name      `xml:"StopDBInstanceResponse"`
+	Xmlns      string        `xml:"xmlns,attr"`
+	DBInstance xmlDBInstance `xml:"StopDBInstanceResult>DBInstance"`
+}
+
+// ---- New instance-level operation handlers ----
+
+func (h *Handler) handleRestoreDBInstanceFromDBSnapshot(vals url.Values) (any, error) {
+	id := vals.Get("DBInstanceIdentifier")
+	snapshotID := vals.Get("DBSnapshotIdentifier")
+	opts := DBInstanceOptions{
+		MultiAZ:            vals.Get("MultiAZ") == formTrue,
+		DeletionProtection: vals.Get("DeletionProtection") == formTrue,
+		StorageType:        vals.Get("StorageType"),
+		AvailabilityZone:   vals.Get("AvailabilityZone"),
+	}
+
+	inst, err := h.Backend.RestoreDBInstanceFromDBSnapshot(id, snapshotID, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &restoreDBInstanceFromDBSnapshotResponse{
+		Xmlns:      rdsXMLNS,
+		DBInstance: toXMLInstance(inst),
+	}, nil
+}
+
+func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, error) {
+	id := vals.Get("TargetDBInstanceIdentifier")
+	sourceID := vals.Get("SourceDBInstanceIdentifier")
+	opts := DBInstanceOptions{
+		MultiAZ:            vals.Get("MultiAZ") == formTrue,
+		DeletionProtection: vals.Get("DeletionProtection") == formTrue,
+		StorageType:        vals.Get("StorageType"),
+		AvailabilityZone:   vals.Get("AvailabilityZone"),
+	}
+
+	inst, err := h.Backend.RestoreDBInstanceToPointInTime(id, sourceID, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &restoreDBInstanceToPointInTimeResponse{
+		Xmlns:      rdsXMLNS,
+		DBInstance: toXMLInstance(inst),
+	}, nil
+}
+
+func (h *Handler) handleCopyDBSnapshot(vals url.Values) (any, error) {
+	sourceSnapshotID := vals.Get("SourceDBSnapshotIdentifier")
+	targetSnapshotID := vals.Get("TargetDBSnapshotIdentifier")
+
+	snap, err := h.Backend.CopyDBSnapshot(sourceSnapshotID, targetSnapshotID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &copyDBSnapshotResponse{
+		Xmlns:      rdsXMLNS,
+		DBSnapshot: toXMLSnapshot(snap),
+	}, nil
+}
+
+func (h *Handler) handleStartDBInstance(vals url.Values) (any, error) {
+	id := vals.Get("DBInstanceIdentifier")
+
+	inst, err := h.Backend.StartDBInstance(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &startDBInstanceResponse{
+		Xmlns:      rdsXMLNS,
+		DBInstance: toXMLInstance(inst),
+	}, nil
+}
+
+func (h *Handler) handleStopDBInstance(vals url.Values) (any, error) {
+	id := vals.Get("DBInstanceIdentifier")
+
+	inst, err := h.Backend.StopDBInstance(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &stopDBInstanceResponse{
+		Xmlns:      rdsXMLNS,
+		DBInstance: toXMLInstance(inst),
+	}, nil
+}
+
+// ---- Global cluster handlers ----
+
+func (h *Handler) handleCreateGlobalCluster(vals url.Values) (any, error) {
+	id := vals.Get("GlobalClusterIdentifier")
+	engine := vals.Get("Engine")
+	engineVersion := vals.Get("EngineVersion")
+	storageEncrypted := vals.Get("StorageEncrypted") == formTrue
+	deletionProtection := vals.Get("DeletionProtection") == formTrue
+
+	gc, err := h.Backend.CreateGlobalCluster(id, engine, engineVersion, storageEncrypted, deletionProtection)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createGlobalClusterResponse{
+		Xmlns:         rdsXMLNS,
+		GlobalCluster: toXMLGlobalCluster(gc),
+	}, nil
+}
+
+func (h *Handler) handleDeleteGlobalCluster(vals url.Values) (any, error) {
+	id := vals.Get("GlobalClusterIdentifier")
+
+	gc, err := h.Backend.DeleteGlobalCluster(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteGlobalClusterResponse{
+		Xmlns:         rdsXMLNS,
+		GlobalCluster: toXMLGlobalCluster(gc),
+	}, nil
+}
+
+func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
+	id := vals.Get("GlobalClusterIdentifier")
+	newID := vals.Get("NewGlobalClusterIdentifier")
+	engineVersion := vals.Get("EngineVersion")
+
+	var deletionProtection *bool
+	if dp := vals.Get("DeletionProtection"); dp != "" {
+		v := dp == formTrue
+		deletionProtection = &v
+	}
+
+	gc, err := h.Backend.ModifyGlobalCluster(id, newID, engineVersion, deletionProtection)
+	if err != nil {
+		return nil, err
+	}
+
+	return &modifyGlobalClusterResponse{
+		Xmlns:         rdsXMLNS,
+		GlobalCluster: toXMLGlobalCluster(gc),
+	}, nil
+}
+
+func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
+	return xmlGlobalCluster{
+		GlobalClusterIdentifier: gc.GlobalClusterIdentifier,
+		Engine:                  gc.Engine,
+		EngineVersion:           gc.EngineVersion,
+		Status:                  gc.Status,
+		StorageEncrypted:        gc.StorageEncrypted,
+		DeletionProtection:      gc.DeletionProtection,
+	}
 }
