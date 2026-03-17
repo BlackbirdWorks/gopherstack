@@ -373,6 +373,7 @@ func (h *Handler) handleListTagsForResource(
 	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
 	kvs := h.Backend.ListTagsForResource(in.ResourceArn)
+
 	return &listTagsForResourceOutput{Tags: kvs}, nil
 }
 

@@ -98,7 +98,12 @@ func (b *InMemoryBackend) CreateEnvironment(
 	}
 
 	if minWorkers > maxWorkers {
-		return nil, fmt.Errorf("%w: MinWorkers (%d) must be <= MaxWorkers (%d)", ErrInvalidParameter, minWorkers, maxWorkers)
+		return nil, fmt.Errorf(
+			"%w: MinWorkers (%d) must be <= MaxWorkers (%d)",
+			ErrInvalidParameter,
+			minWorkers,
+			maxWorkers,
+		)
 	}
 
 	accessMode := req.WebserverAccessMode
@@ -207,7 +212,12 @@ func (b *InMemoryBackend) UpdateEnvironment(name string, req *updateEnvironmentR
 	}
 
 	if env.MinWorkers > env.MaxWorkers {
-		return nil, fmt.Errorf("%w: MinWorkers (%d) must be <= MaxWorkers (%d)", ErrInvalidParameter, env.MinWorkers, env.MaxWorkers)
+		return nil, fmt.Errorf(
+			"%w: MinWorkers (%d) must be <= MaxWorkers (%d)",
+			ErrInvalidParameter,
+			env.MinWorkers,
+			env.MaxWorkers,
+		)
 	}
 
 	if req.WebserverAccessMode != "" {

@@ -23,7 +23,10 @@ var (
 	// ErrInvalidProtocol is returned when an unsupported protocol is specified.
 	ErrInvalidProtocol = awserr.New("InvalidRequestException: unsupported protocol", awserr.ErrInvalidParameter)
 	// ErrServerStateConflict is returned when a state transition is invalid.
-	ErrServerStateConflict = awserr.New("ConflictException: server is already in the requested state", awserr.ErrConflict)
+	ErrServerStateConflict = awserr.New(
+		"ConflictException: server is already in the requested state",
+		awserr.ErrConflict,
+	)
 )
 
 // Server represents an AWS Transfer Family server.
@@ -102,14 +105,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
-// validProtocols is the set of protocols supported by AWS Transfer Family.
-var validProtocols = map[string]struct{}{
-	"SFTP": {},
-	"FTP":  {},
-	"FTPS": {},
-	"AS2":  {},
-}
-
 // CreateServer creates a new Transfer Family server.
 func (b *InMemoryBackend) CreateServer(protocols []string, tags map[string]string) (*Server, error) {
 	b.mu.Lock("CreateServer")
@@ -122,7 +117,10 @@ func (b *InMemoryBackend) CreateServer(protocols []string, tags map[string]strin
 	}
 
 	for _, p := range protocols {
-		if _, ok := validProtocols[p]; !ok {
+		switch p {
+		case "SFTP", "FTP", "FTPS", "AS2":
+			// valid
+		default:
 			return nil, fmt.Errorf("%w: %s", ErrInvalidProtocol, p)
 		}
 	}
@@ -193,6 +191,7 @@ func (b *InMemoryBackend) DeleteServer(serverID string) error {
 }
 
 // StartServer transitions a server to ONLINE state.
+// The operation is idempotent: calling it on an already ONLINE server succeeds.
 func (b *InMemoryBackend) StartServer(serverID string) error {
 	b.mu.Lock("StartServer")
 	defer b.mu.Unlock()
@@ -202,16 +201,13 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
-	if s.State == "ONLINE" {
-		return fmt.Errorf("%w: server %s", ErrServerStateConflict, serverID)
-	}
-
 	s.State = "ONLINE"
 
 	return nil
 }
 
 // StopServer transitions a server to OFFLINE state.
+// The operation is idempotent: calling it on an already OFFLINE server succeeds.
 func (b *InMemoryBackend) StopServer(serverID string) error {
 	b.mu.Lock("StopServer")
 	defer b.mu.Unlock()
@@ -219,10 +215,6 @@ func (b *InMemoryBackend) StopServer(serverID string) error {
 	s, ok := b.servers[serverID]
 	if !ok {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
-	}
-
-	if s.State == "OFFLINE" {
-		return fmt.Errorf("%w: server %s", ErrServerStateConflict, serverID)
 	}
 
 	s.State = "OFFLINE"

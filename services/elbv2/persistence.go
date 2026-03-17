@@ -1,6 +1,9 @@
 package elbv2
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 type backendSnapshot struct {
 	LoadBalancers map[string]*LoadBalancer `json:"loadBalancers"`
@@ -74,10 +77,20 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Snapshot() []byte {
-	return h.Backend.(*InMemoryBackend).Snapshot()
+	b, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return nil
+	}
+
+	return b.Snapshot()
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(data []byte) error {
-	return h.Backend.(*InMemoryBackend).Restore(data)
+	b, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return errors.New("elbv2: backend is not *InMemoryBackend")
+	}
+
+	return b.Restore(data)
 }

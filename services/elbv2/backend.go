@@ -36,72 +36,72 @@ var (
 
 // LoadBalancerState represents the state of a load balancer.
 type LoadBalancerState struct {
-	Code        string
-	Description string
+	Code        string `json:"code"`
+	Description string `json:"description"`
 }
 
 // LoadBalancer represents an ELBv2 load balancer.
 type LoadBalancer struct {
-	CreatedTime           time.Time
-	State                 LoadBalancerState
-	Tags                  *tags.Tags
-	LoadBalancerArn       string
-	LoadBalancerName      string
-	DNSName               string
-	CanonicalHostedZoneID string
-	VpcID                 string
-	Scheme                string
-	Type                  string
-	IPAddressType         string
-	AvailabilityZones     []string
-	SecurityGroups        []string
+	CreatedTime           time.Time         `json:"createdTime"`
+	State                 LoadBalancerState `json:"state"`
+	Tags                  *tags.Tags        `json:"tags,omitempty"`
+	LoadBalancerArn       string            `json:"loadBalancerArn"`
+	LoadBalancerName      string            `json:"loadBalancerName"`
+	DNSName               string            `json:"dnsName"`
+	CanonicalHostedZoneID string            `json:"canonicalHostedZoneId"`
+	VpcID                 string            `json:"vpcId"`
+	Scheme                string            `json:"scheme"`
+	Type                  string            `json:"type"`
+	IPAddressType         string            `json:"ipAddressType"`
+	AvailabilityZones     []string          `json:"availabilityZones"`
+	SecurityGroups        []string          `json:"securityGroups"`
 }
 
 // TargetGroup represents an ELBv2 target group.
 type TargetGroup struct {
-	Tags                *tags.Tags
-	TargetGroupArn      string
-	TargetGroupName     string
-	Protocol            string
-	VpcID               string
-	TargetType          string
-	HealthCheckProtocol string
-	HealthCheckPort     string
-	HealthCheckPath     string
-	Targets             []Target
-	Port                int32
-	HealthCheckEnabled  bool
+	Tags                *tags.Tags `json:"tags,omitempty"`
+	TargetGroupArn      string     `json:"targetGroupArn"`
+	TargetGroupName     string     `json:"targetGroupName"`
+	Protocol            string     `json:"protocol"`
+	VpcID               string     `json:"vpcId"`
+	TargetType          string     `json:"targetType"`
+	HealthCheckProtocol string     `json:"healthCheckProtocol"`
+	HealthCheckPort     string     `json:"healthCheckPort"`
+	HealthCheckPath     string     `json:"healthCheckPath"`
+	Targets             []Target   `json:"targets"`
+	Port                int32      `json:"port"`
+	HealthCheckEnabled  bool       `json:"healthCheckEnabled"`
 }
 
 // Target represents a registered target in a target group.
 type Target struct {
-	ID   string
-	Port int32
+	ID   string `json:"id"`
+	Port int32  `json:"port"`
 }
 
 // Action represents a listener or rule action.
 type Action struct {
-	Type           string
-	TargetGroupArn string
+	Type           string `json:"type"`
+	TargetGroupArn string `json:"targetGroupArn"`
 }
 
 // Listener represents an ELBv2 listener.
 type Listener struct {
-	Tags            *tags.Tags
-	ListenerArn     string
-	LoadBalancerArn string
-	Protocol        string
-	DefaultActions  []Action
-	Port            int32
+	Tags            *tags.Tags `json:"tags,omitempty"`
+	ListenerArn     string     `json:"listenerArn"`
+	LoadBalancerArn string     `json:"loadBalancerArn"`
+	Protocol        string     `json:"protocol"`
+	DefaultActions  []Action   `json:"defaultActions"`
+	Port            int32      `json:"port"`
 }
 
 // Rule represents an ELBv2 listener rule.
 type Rule struct {
-	RuleArn     string
-	ListenerArn string
-	Priority    string
-	Actions     []Action
-	IsDefault   bool
+	RuleArn     string   `json:"ruleArn"`
+	ListenerArn string   `json:"listenerArn"`
+	Priority    string   `json:"priority"`
+	Actions     []Action `json:"actions"`
+	IsDefault   bool     `json:"isDefault"`
 }
 
 // StorageBackend is the interface for ELBv2 storage operations.

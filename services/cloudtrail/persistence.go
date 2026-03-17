@@ -5,10 +5,10 @@ import (
 )
 
 type backendSnapshot struct {
-	Trails      map[string]*Trail  `json:"trails"`
-	TrailsByARN map[string]string  `json:"trailsByArn"`
-	AccountID   string             `json:"accountID"`
-	Region      string             `json:"region"`
+	Trails      map[string]*Trail `json:"trails"`
+	TrailsByARN map[string]string `json:"trailsByArn"`
+	AccountID   string            `json:"accountID"`
+	Region      string            `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
