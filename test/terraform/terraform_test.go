@@ -2269,8 +2269,8 @@ func TestTerraform_Route53Resolver(t *testing.T) {
 				id := uuid.NewString()[:8]
 
 				return map[string]any{
-					"RuleName":   "tf-r53r-" + id,
-					"EndpointID": id,
+					"RuleName":     "tf-r53r-" + id,
+					"EndpointName": "tf-r53r-ep-" + id,
 				}
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
