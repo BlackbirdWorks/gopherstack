@@ -329,6 +329,7 @@ func (b *InMemoryBackend) DeleteLoadBalancer(lbArn string) error {
 		return ErrLoadBalancerNotFound
 	}
 
+	b.loadBalancers[lbArn].Tags.Close()
 	delete(b.loadBalancers, lbArn)
 
 	return nil
@@ -449,6 +450,7 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgArn string) error {
 		return ErrTargetGroupNotFound
 	}
 
+	b.targetGroups[tgArn].Tags.Close()
 	delete(b.targetGroups, tgArn)
 
 	return nil
@@ -596,6 +598,7 @@ func (b *InMemoryBackend) DeleteListener(listenerArn string) error {
 		return ErrListenerNotFound
 	}
 
+	b.listeners[listenerArn].Tags.Close()
 	delete(b.listeners, listenerArn)
 
 	return nil

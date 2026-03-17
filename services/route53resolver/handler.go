@@ -52,6 +52,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteResolverRule",
 		"ListResolverRules",
 		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -120,6 +122,8 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"DeleteResolverRule":     service.WrapOp(h.handleDeleteResolverRule),
 		"ListResolverRules":      service.WrapOp(h.handleListResolverRules),
 		"ListTagsForResource":    service.WrapOp(h.handleListTagsForResource),
+		"TagResource":            service.WrapOp(h.handleTagResource),
+		"UntagResource":          service.WrapOp(h.handleUntagResource),
 	}
 }
 
@@ -363,11 +367,47 @@ type listTagsForResourceOutput struct {
 	Tags []svcTags.KV `json:"Tags"`
 }
 
-// handleListTagsForResource returns an empty tag list.
-// Terraform calls this after creating a Route53 Resolver rule to read tags.
+// handleListTagsForResource returns tags for the given resource ARN.
 func (h *Handler) handleListTagsForResource(
 	_ context.Context,
-	_ *listTagsForResourceInput,
+	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	return &listTagsForResourceOutput{Tags: []svcTags.KV{}}, nil
+	kvs := h.Backend.ListTagsForResource(in.ResourceArn)
+	return &listTagsForResourceOutput{Tags: kvs}, nil
+}
+
+type tagResourceInput struct {
+	ResourceArn string       `json:"ResourceArn"`
+	Tags        []svcTags.KV `json:"Tags"`
+}
+
+type tagResourceOutput struct{}
+
+type untagResourceInput struct {
+	ResourceArn string   `json:"ResourceArn"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+type untagResourceOutput struct{}
+
+func (h *Handler) handleTagResource(
+	_ context.Context,
+	in *tagResourceInput,
+) (*tagResourceOutput, error) {
+	if err := h.Backend.TagResource(in.ResourceArn, in.Tags); err != nil {
+		return nil, err
+	}
+
+	return &tagResourceOutput{}, nil
+}
+
+func (h *Handler) handleUntagResource(
+	_ context.Context,
+	in *untagResourceInput,
+) (*untagResourceOutput, error) {
+	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return &untagResourceOutput{}, nil
 }
