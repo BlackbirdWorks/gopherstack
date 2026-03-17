@@ -5,6 +5,9 @@ import (
 	"errors"
 )
 
+// errBackendNotInMemory is returned when the Handler's backend cannot be cast to *InMemoryBackend.
+var errBackendNotInMemory = errors.New("elbv2: backend is not *InMemoryBackend")
+
 type backendSnapshot struct {
 	LoadBalancers map[string]*LoadBalancer `json:"loadBalancers"`
 	TargetGroups  map[string]*TargetGroup  `json:"targetGroups"`
@@ -89,7 +92,7 @@ func (h *Handler) Snapshot() []byte {
 func (h *Handler) Restore(data []byte) error {
 	b, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
-		return errors.New("elbv2: backend is not *InMemoryBackend")
+		return errBackendNotInMemory
 	}
 
 	return b.Restore(data)
