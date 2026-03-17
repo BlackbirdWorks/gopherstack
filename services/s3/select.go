@@ -94,7 +94,6 @@ type selectStatsXML struct {
 	BytesReturned  int64    `xml:"BytesReturned"`
 }
 
-// selectObjectContent handles the POST /<bucket>/<key>?select&select-type=2 request.
 func (h *S3Handler) selectObjectContent(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -114,17 +113,22 @@ func (h *S3Handler) selectObjectContent(
 		return
 	}
 
-	resultData, bytesReturned, evalErr := h.evaluateQuery(ctx, query, objectData, req)
+	// Prepare response for streaming
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Transfer-Encoding", "chunked")
+	w.WriteHeader(http.StatusOK)
+
+	bytesReturned, evalErr := h.evaluateQuery(ctx, w, query, objectData, req)
 	if evalErr != nil {
-		httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
-			Code:    "InternalError",
-			Message: fmt.Sprintf("error evaluating query: %v", evalErr),
-		}, http.StatusInternalServerError)
+		logger.Load(ctx).ErrorContext(ctx, "error evaluating query during streaming", "error", evalErr)
+		// Emit an exception event so the SDK receives a well-formed error
+		// rather than a truncated stream, which it would otherwise treat as success.
+		writeSelectErrorEvent(w, "InternalError", evalErr.Error())
 
 		return
 	}
 
-	h.writeSelectResponse(w, resultData, bytesScanned, bytesReturned)
+	h.writeSelectStatsAndEnd(w, bytesScanned, bytesReturned)
 }
 
 // readSelectRequest parses the incoming HTTP request into a selectRequest and fetches the object.
@@ -212,18 +216,8 @@ func parseSelectQuery(
 	return query, true
 }
 
-// writeSelectResponse sends the event-stream response with Records, Stats, and End events.
-func (h *S3Handler) writeSelectResponse(w http.ResponseWriter, resultData []byte, bytesScanned, bytesReturned int64) {
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Transfer-Encoding", "chunked")
-	w.WriteHeader(http.StatusOK)
-
-	if len(resultData) > 0 {
-		if err := writeSelectEvent(w, "Records", "application/octet-stream", resultData); err != nil {
-			return
-		}
-	}
-
+// writeSelectStatsAndEnd sends the final Stats and End events.
+func (h *S3Handler) writeSelectStatsAndEnd(w http.ResponseWriter, bytesScanned, bytesReturned int64) {
 	statsPayload, _ := xml.Marshal(selectStatsXML{
 		BytesScanned:   bytesScanned,
 		BytesProcessed: bytesScanned,
@@ -241,25 +235,105 @@ func (h *S3Handler) writeSelectResponse(w http.ResponseWriter, resultData []byte
 	}
 }
 
-// evaluateQuery processes the object data with the given SQL query.
-// Returns the serialized result bytes and the count of returned bytes.
+// evaluateQuery processes the object data with the given SQL query and streams results.
+// Returns the count of returned bytes.
 func (h *S3Handler) evaluateQuery(
 	_ context.Context,
+	w io.Writer,
 	query *sqlQuery,
 	data []byte,
 	req *selectRequest,
-) ([]byte, int64, error) {
+) (int64, error) {
 	switch {
 	case req.InputSerialization.CSV != nil:
-		return evaluateCSVQuery(query, data, req)
+		return evaluateCSVQuery(w, query, data, req)
 
 	case req.InputSerialization.JSON != nil:
-		return evaluateJSONQuery(query, data, req)
+		return evaluateJSONQuery(w, query, data, req)
 
 	default:
 		// Default to CSV if nothing specified.
-		return evaluateCSVQuery(query, data, req)
+		return evaluateCSVQuery(w, query, data, req)
 	}
+}
+
+// writeSelectErrorEvent writes an exception event into the event stream so the
+// SDK receives a structured error rather than a silently truncated stream.
+func writeSelectErrorEvent(w io.Writer, code, message string) {
+	headers := encodeSelectExceptionHeaders(code)
+	payload := fmt.Appendf(nil, `<Error><Code>%s</Code><Message>%s</Message></Error>`, code, message)
+
+	msg, err := buildEventStreamMessageRaw(headers, payload)
+	if err != nil {
+		return
+	}
+
+	_, _ = w.Write(msg)
+}
+
+// encodeSelectExceptionHeaders encodes exception event-stream headers.
+func encodeSelectExceptionHeaders(exceptionType string) []byte {
+	var buf bytes.Buffer
+
+	writeEventStringHeader(&buf, ":message-type", "exception")
+	writeEventStringHeader(&buf, ":exception-type", exceptionType)
+	writeEventStringHeader(&buf, ":content-type", "application/xml")
+
+	return buf.Bytes()
+}
+
+// buildEventStreamMessageRaw builds an event-stream frame from pre-encoded headers and payload.
+func buildEventStreamMessageRaw(headers, payload []byte) ([]byte, error) {
+	headersLen := uint32(len(headers)) //nolint:gosec // headers are small; no overflow possible
+	payloadLen := uint32(len(payload)) //nolint:gosec // payload bounded
+	totalLen := eventStreamMinMsgLen + headersLen + payloadLen
+
+	crcHash := crc32.New(crc32.IEEETable)
+
+	var buf bytes.Buffer
+
+	writeChunk := func(data []byte) error {
+		if _, err := buf.Write(data); err != nil {
+			return err
+		}
+
+		_, err := crcHash.Write(data)
+
+		return err
+	}
+
+	prelude := make([]byte, eventStreamPreludeLen)
+	binary.BigEndian.PutUint32(prelude[0:], totalLen)
+	binary.BigEndian.PutUint32(prelude[4:], headersLen)
+
+	if err := writeChunk(prelude); err != nil {
+		return nil, err
+	}
+
+	preludeCRC := make([]byte, eventStreamPreludeCRCLen)
+	binary.BigEndian.PutUint32(preludeCRC, crcHash.Sum32())
+
+	if err := writeChunk(preludeCRC); err != nil {
+		return nil, err
+	}
+
+	if len(headers) > 0 {
+		if err := writeChunk(headers); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(payload) > 0 {
+		if err := writeChunk(payload); err != nil {
+			return nil, err
+		}
+	}
+
+	msgCRC := make([]byte, eventStreamMsgCRCLen)
+	binary.BigEndian.PutUint32(msgCRC, crcHash.Sum32())
+	buf.Write(msgCRC)
+
+	return buf.Bytes(), nil
 }
 
 // ---- Event stream encoding ----

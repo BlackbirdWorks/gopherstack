@@ -1032,9 +1032,10 @@ func castSQLValue(s, castType string) (string, error) {
 		return s, nil
 
 	case "BOOL", "BOOLEAN":
+		const sTrue = "true"
 		switch strings.ToLower(s) {
-		case "true", "1", "yes":
-			return "true", nil
+		case sTrue, "1", "yes":
+			return sTrue, nil
 		default:
 			return "false", nil
 		}

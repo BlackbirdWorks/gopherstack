@@ -37,6 +37,7 @@ var (
 	ErrNoReplicationConfig    = errors.New("ReplicationConfigurationNotFoundError")
 	ErrNoSuchTagSet           = errors.New("NoSuchTagSet")
 	ErrBadChecksum            = errors.New("BadDigest")
+	ErrDeleteMarker           = errors.New("DeleteMarker")
 )
 
 type s3ErrorInfo struct {
@@ -105,6 +106,11 @@ func coreErrorTable() []s3ErrorEntry {
 			"BadDigest",
 			"The Content-MD5 or checksum you specified did not match what we received.",
 			http.StatusBadRequest,
+		}},
+		{ErrDeleteMarker, s3ErrorInfo{
+			"MethodNotAllowed",
+			"The specified method is not allowed against this resource.",
+			http.StatusMethodNotAllowed,
 		}},
 	}
 }

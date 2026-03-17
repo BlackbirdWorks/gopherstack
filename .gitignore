@@ -19,3 +19,4 @@ coverage.html
 test/e2e/failures/go.mod.bak
 /go.mod.bak
 *.png
+!dashboard/static/favicon.png

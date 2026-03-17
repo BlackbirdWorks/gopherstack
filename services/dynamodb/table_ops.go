@@ -61,17 +61,10 @@ func (db *InMemoryDB) CreateTable(
 
 	region := getRegionFromContext(ctx, db)
 
-	db.mu.Lock("CreateTable")
-	defer db.mu.Unlock()
-
-	if _, exists := db.Tables[region]; !exists {
-		db.Tables[region] = make(map[string]*Table)
-	}
-
-	if _, exists := db.Tables[region][tableName]; exists {
-		return nil, NewResourceInUseException(fmt.Sprintf("table already exists: %s", tableName))
-	}
-
+	// Pre-lock: validate input and construct the table object. These operations
+	// touch no shared state and can run concurrently with other requests. Building
+	// the struct before the lock keeps the critical section to a handful of map ops,
+	// significantly reducing contention when thousands of tables are created together.
 	if err := validateAttributeDefinitions(input); err != nil {
 		return nil, err
 	}
@@ -100,12 +93,32 @@ func (db *InMemoryDB) CreateTable(
 		newTable.Status = string(types.TableStatusActive)
 	}
 
+	// Minimal critical section: check for duplicate, then insert into the shared maps.
+	db.mu.Lock("CreateTable")
+
+	if _, exists := db.Tables[region]; !exists {
+		db.Tables[region] = make(map[string]*Table)
+	}
+
+	if _, exists := db.Tables[region][tableName]; exists {
+		db.mu.Unlock()
+		// Release resources we allocated before discovering the duplicate.
+		stopTableTimers(newTable)
+		newTable.mu.Close()
+
+		return nil, NewResourceInUseException(fmt.Sprintf("table already exists: %s", tableName))
+	}
+
 	db.Tables[region][tableName] = newTable
 
 	if newTable.StreamARN != "" {
 		db.streamARNIndex[newTable.StreamARN] = newTable
 	}
 
+	db.mu.Unlock()
+
+	// Throttler has its own internal lock; call after releasing db.mu to keep the
+	// critical section above as short as possible.
 	rcu := int64(newTable.ProvisionedThroughput.ReadCapacityUnits)
 	wcu := int64(newTable.ProvisionedThroughput.WriteCapacityUnits)
 	db.throttler.SetTableCapacity(throttleKey(region, tableName), rcu, wcu)

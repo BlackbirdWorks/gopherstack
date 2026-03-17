@@ -31,7 +31,12 @@ func (h *S3Handler) listObjectsV2(
 		return
 	}
 
-	h.renderListObjectsV2Response(ctx, w, r, bucketName, q, outV2.Contents)
+	if aws.ToBool(outV2.IsTruncated) {
+		q.Set("is-truncated", "true")
+		q.Set("next-continuation-token", aws.ToString(outV2.NextContinuationToken))
+	}
+
+	h.renderListObjectsV2Response(ctx, w, r, bucketName, q, outV2.Contents, outV2.CommonPrefixes)
 }
 
 func (h *S3Handler) prepareListObjectsV2Input(
@@ -48,9 +53,12 @@ func (h *S3Handler) prepareListObjectsV2Input(
 	return &s3.ListObjectsV2Input{
 		Bucket:            aws.String(bucketName),
 		Prefix:            aws.String(q.Get("prefix")),
+		Delimiter:         aws.String(q.Get("delimiter")),
 		ContinuationToken: aws.String(q.Get("continuation-token")),
 		StartAfter:        aws.String(q.Get("start-after")),
 		MaxKeys:           aws.Int32(maxKeys),
+		EncodingType:      types.EncodingType(q.Get("encoding-type")),
+		FetchOwner:        aws.Bool(q.Get("fetch-owner") == "true"),
 	}
 }
 
@@ -75,30 +83,10 @@ func (h *S3Handler) renderListObjectsV2Response(
 	bucketName string,
 	q url.Values,
 	objects []types.Object,
+	commonPrefixes []types.CommonPrefix,
 ) {
-	maxKeys := defaultMaxKeys
-	if mk := q.Get("max-keys"); mk != "" {
-		if n, err := strconv.Atoi(mk); err == nil && n > 0 {
-			maxKeys = n
-		}
-	}
-
-	startCursor := q.Get("start-after")
-	if ct := q.Get("continuation-token"); ct != "" {
-		startCursor = ct
-	}
-
-	if startCursor != "" {
-		objects = applyStartCursor(objects, startCursor)
-	}
-
-	isTruncated := false
-	var nextToken string
-	if len(objects) > maxKeys {
-		isTruncated = true
-		objects = objects[:maxKeys]
-		nextToken = *objects[maxKeys-1].Key
-	}
+	isTruncated := q.Get("is-truncated") == "true"
+	nextCont := q.Get("next-continuation-token")
 
 	resp := ListBucketV2Result{
 		Name:                  bucketName,
@@ -106,10 +94,15 @@ func (h *S3Handler) renderListObjectsV2Response(
 		Delimiter:             q.Get("delimiter"),
 		ContinuationToken:     q.Get("continuation-token"),
 		StartAfter:            q.Get("start-after"),
-		MaxKeys:               maxKeys,
+		MaxKeys:               defaultMaxKeys,
 		EncodingType:          q.Get("encoding-type"),
 		IsTruncated:           isTruncated,
-		NextContinuationToken: nextToken,
+		NextContinuationToken: nextCont,
+	}
+	if mk := q.Get("max-keys"); mk != "" {
+		if n, err := strconv.Atoi(mk); err == nil && n >= 0 && n <= 1000 {
+			resp.MaxKeys = n
+		}
 	}
 
 	seenPrefixes := make(map[string]struct{})
@@ -119,19 +112,11 @@ func (h *S3Handler) renderListObjectsV2Response(
 		q.Get("delimiter"),
 		seenPrefixes,
 	)
+	// Add common prefixes from backend (if any)
+	for _, cp := range commonPrefixes {
+		resp.CommonPrefixes = append(resp.CommonPrefixes, CommonPrefixXML{Prefix: aws.ToString(cp.Prefix)})
+	}
 	resp.KeyCount = len(resp.Contents) + len(resp.CommonPrefixes)
 
 	httputils.WriteXML(ctx, w, http.StatusOK, resp)
-}
-
-// applyStartCursor advances objects past all keys that are <= startCursor,
-// returning the subslice starting at the first key greater than startCursor.
-func applyStartCursor(objects []types.Object, startCursor string) []types.Object {
-	for i, obj := range objects {
-		if *obj.Key > startCursor {
-			return objects[i:]
-		}
-	}
-
-	return nil
 }
