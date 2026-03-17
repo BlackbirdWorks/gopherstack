@@ -170,7 +170,7 @@ func (b *InMemoryBackend) StartWorkflowExecution(domain, workflowID, runID strin
 	if _, exists := b.executions[key]; !exists {
 		b.executionOrder = append(b.executionOrder, key)
 
-		if len(b.executionOrder) > maxWorkflowExecutions {
+		if len(b.executionOrder) >= maxWorkflowExecutions {
 			oldest := b.executionOrder[0]
 			b.executionOrder = b.executionOrder[1:]
 			delete(b.executions, oldest)
