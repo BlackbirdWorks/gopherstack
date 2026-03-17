@@ -480,7 +480,7 @@ func (b *InMemoryBackend) ListHostedConfigurationVersions(
 		return nil, "", fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
 	}
 
-	if _, ok := b.configProfiles[applicationID][profileID]; !ok {
+	if profiles, ok := b.configProfiles[applicationID]; !ok || profiles[profileID] == nil {
 		return nil, "", fmt.Errorf("%w: configuration profile %s", ErrConfigurationProfileNotFound, profileID)
 	}
 
@@ -706,7 +706,7 @@ func (b *InMemoryBackend) ListDeployments(
 	defer b.mu.RUnlock()
 
 	// Single lookup — returns a clear error for app-not-found or env-not-found.
-	if _, ok := b.environments[applicationID][environmentID]; !ok {
+	if envs, ok := b.environments[applicationID]; !ok || envs[environmentID] == nil {
 		if _, appOk := b.applications[applicationID]; !appOk {
 			return nil, "", fmt.Errorf("%w: application %s", ErrApplicationNotFound, applicationID)
 		}
@@ -784,6 +784,10 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
+
+	if b.tags[resourceArn] == nil {
+		return nil
+	}
 
 	for _, k := range tagKeys {
 		delete(b.tags[resourceArn], k)

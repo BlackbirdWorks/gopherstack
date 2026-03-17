@@ -144,7 +144,7 @@ func (b *InMemoryBackend) CreateCluster(
 	}
 	b.clusters[clusterArn] = cluster
 
-	return cluster, nil
+	return copyCluster(cluster), nil
 }
 
 // DescribeCluster retrieves a cluster by ARN.
@@ -157,7 +157,7 @@ func (b *InMemoryBackend) DescribeCluster(clusterArn string) (*Cluster, error) {
 		return nil, ErrNotFound
 	}
 
-	return c, nil
+	return copyCluster(c), nil
 }
 
 // ListClusters returns all MSK clusters.
@@ -167,7 +167,7 @@ func (b *InMemoryBackend) ListClusters() []*Cluster {
 
 	out := make([]*Cluster, 0, len(b.clusters))
 	for _, c := range b.clusters {
-		out = append(out, c)
+		out = append(out, copyCluster(c))
 	}
 
 	return out
@@ -227,7 +227,7 @@ func (b *InMemoryBackend) DescribeConfiguration(configArn string) (*Configuratio
 		return nil, ErrNotFound
 	}
 
-	return c, nil
+	return copyConfiguration(c), nil
 }
 
 // ListConfigurations returns all MSK configurations.
@@ -237,7 +237,7 @@ func (b *InMemoryBackend) ListConfigurations() []*Configuration {
 
 	out := make([]*Configuration, 0, len(b.configurations))
 	for _, c := range b.configurations {
-		out = append(out, c)
+		out = append(out, copyConfiguration(c))
 	}
 
 	return out
@@ -309,6 +309,44 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 	}
 
 	return ErrNotFound
+}
+
+// copyCluster returns a deep copy of a Cluster (cloning Tags, slices, and StorageInfo).
+func copyCluster(c *Cluster) *Cluster {
+	cp := *c
+	if c.Tags != nil {
+		cp.Tags = maps.Clone(c.Tags)
+	}
+
+	if c.BrokerNodeGroupInfo.ClientSubnets != nil {
+		cp.BrokerNodeGroupInfo.ClientSubnets = append([]string(nil), c.BrokerNodeGroupInfo.ClientSubnets...)
+	}
+
+	if c.BrokerNodeGroupInfo.SecurityGroups != nil {
+		cp.BrokerNodeGroupInfo.SecurityGroups = append([]string(nil), c.BrokerNodeGroupInfo.SecurityGroups...)
+	}
+
+	if c.BrokerNodeGroupInfo.StorageInfo != nil && c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo != nil {
+		ebs := *c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo
+		si := StorageInfo{EbsStorageInfo: &ebs}
+		cp.BrokerNodeGroupInfo.StorageInfo = &si
+	}
+
+	return &cp
+}
+
+// copyConfiguration returns a deep copy of a Configuration.
+func copyConfiguration(c *Configuration) *Configuration {
+	cp := *c
+	if c.Tags != nil {
+		cp.Tags = maps.Clone(c.Tags)
+	}
+
+	if c.KafkaVersions != nil {
+		cp.KafkaVersions = append([]string(nil), c.KafkaVersions...)
+	}
+
+	return &cp
 }
 
 // GetTags retrieves tags for a cluster or configuration by ARN.

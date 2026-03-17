@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"maps"
 	"sort"
-	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/google/uuid"
 )
 
@@ -28,9 +28,10 @@ type StorageBackend interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	apps      map[string]*App
+	arnIndex  map[string]string
+	mu        *lockmetrics.RWMutex
 	region    string
 	accountID string
-	mu        sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new Pinpoint in-memory backend.
@@ -39,12 +40,24 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		region:    region,
 		accountID: accountID,
 		apps:      make(map[string]*App),
+		arnIndex:  make(map[string]string),
+		mu:        lockmetrics.New("pinpoint"),
 	}
+}
+
+// copyApp returns a copy of an App with a cloned Tags map.
+func copyApp(app *App) *App {
+	cp := *app
+	if app.Tags != nil {
+		cp.Tags = maps.Clone(app.Tags)
+	}
+
+	return &cp
 }
 
 // CreateApp creates a new Pinpoint application.
 func (b *InMemoryBackend) CreateApp(region, accountID, name string, tags map[string]string) (*App, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateApp")
 	defer b.mu.Unlock()
 
 	appID := uuid.NewString()
@@ -62,13 +75,14 @@ func (b *InMemoryBackend) CreateApp(region, accountID, name string, tags map[str
 	}
 
 	b.apps[appID] = app
+	b.arnIndex[appARN] = appID
 
-	return app, nil
+	return copyApp(app), nil
 }
 
 // GetApp retrieves a Pinpoint application by ID.
 func (b *InMemoryBackend) GetApp(appID string) (*App, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetApp")
 	defer b.mu.RUnlock()
 
 	app, ok := b.apps[appID]
@@ -76,12 +90,12 @@ func (b *InMemoryBackend) GetApp(appID string) (*App, error) {
 		return nil, ErrAppNotFound
 	}
 
-	return app, nil
+	return copyApp(app), nil
 }
 
 // DeleteApp deletes a Pinpoint application by ID.
 func (b *InMemoryBackend) DeleteApp(appID string) (*App, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteApp")
 	defer b.mu.Unlock()
 
 	app, ok := b.apps[appID]
@@ -90,19 +104,20 @@ func (b *InMemoryBackend) DeleteApp(appID string) (*App, error) {
 	}
 
 	delete(b.apps, appID)
+	delete(b.arnIndex, app.ARN)
 
-	return app, nil
+	return copyApp(app), nil
 }
 
 // GetApps returns all Pinpoint applications sorted by name.
 func (b *InMemoryBackend) GetApps() ([]*App, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetApps")
 	defer b.mu.RUnlock()
 
 	apps := make([]*App, 0, len(b.apps))
 
 	for _, app := range b.apps {
-		apps = append(apps, app)
+		apps = append(apps, copyApp(app))
 	}
 
 	sort.Slice(apps, func(i, j int) bool {
@@ -114,7 +129,7 @@ func (b *InMemoryBackend) GetApps() ([]*App, error) {
 
 // TagResource adds or updates tags on a resource identified by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	app := b.findByARN(resourceARN)
@@ -133,7 +148,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 
 // UntagResource removes tags from a resource identified by ARN.
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	app := b.findByARN(resourceARN)
@@ -150,7 +165,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 // ListTagsForResource returns all tags for a resource identified by ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	app := b.findByARN(resourceARN)
@@ -164,13 +179,12 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return result, nil
 }
 
-// findByARN looks up an app by its ARN. Must be called with lock held.
+// findByARN looks up an app by its ARN using the O(1) index. Must be called with lock held.
 func (b *InMemoryBackend) findByARN(resourceARN string) *App {
-	for _, app := range b.apps {
-		if app.ARN == resourceARN {
-			return app
-		}
+	appID, ok := b.arnIndex[resourceARN]
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return b.apps[appID]
 }
