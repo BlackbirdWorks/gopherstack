@@ -1,7 +1,6 @@
 package s3
 
 import (
-	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -61,19 +60,23 @@ func (h *S3Handler) uploadPart(
 		return
 	}
 
-	data, err := httputils.ReadBody(r)
-	if err != nil {
-		WriteError(ctx, w, r, err)
-
-		return
+	if md5Header := r.Header.Get("Content-MD5"); md5Header != "" {
+		ctx = context.WithValue(ctx, md5Key, md5Header)
 	}
 
+	algo, crc32p, crc32cp, sha1p, sha256p := extractAlgoAndChecksums(r)
+
 	out, err := h.Backend.UploadPart(ctx, &s3.UploadPartInput{
-		Bucket:     aws.String(bucketName),
-		Key:        aws.String(key),
-		UploadId:   aws.String(uploadID),
-		PartNumber: aws.Int32(int32(partNumber)), // #nosec G109 G115
-		Body:       bytes.NewReader(data),
+		Bucket:            aws.String(bucketName),
+		Key:               aws.String(key),
+		UploadId:          aws.String(uploadID),
+		PartNumber:        aws.Int32(int32(partNumber)), // #nosec G109 G115
+		Body:              r.Body,
+		ChecksumAlgorithm: types.ChecksumAlgorithm(algo),
+		ChecksumCRC32:     crc32p,
+		ChecksumCRC32C:    crc32cp,
+		ChecksumSHA1:      sha1p,
+		ChecksumSHA256:    sha256p,
 	})
 	if errors.Is(err, ErrNoSuchBucket) || errors.Is(err, ErrNoSuchKey) ||
 		errors.Is(err, ErrNoSuchUpload) {

@@ -3,12 +3,15 @@ package s3
 import (
 	"bytes"
 	"encoding/csv"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
-// evaluateCSVQuery reads CSV rows from data, applies the SQL query, and serializes results.
-func evaluateCSVQuery(query *sqlQuery, data []byte, req *selectRequest) ([]byte, int64, error) {
+// evaluateCSVQuery reads CSV rows from data, applies the SQL query, and streams results.
+func evaluateCSVQuery(w io.Writer, query *sqlQuery, data []byte, req *selectRequest) (int64, error) {
 	csvIn := req.InputSerialization.CSV
 
 	fieldDelim := ','
@@ -30,70 +33,53 @@ func evaluateCSVQuery(query *sqlQuery, data []byte, req *selectRequest) ([]byte,
 		r.Comment = rune(csvIn.Comments[0])
 	}
 
-	allRecords, err := r.ReadAll()
-	if err != nil {
-		return nil, 0, fmt.Errorf("reading CSV: %w", err)
-	}
-
-	if len(allRecords) == 0 {
-		return nil, 0, nil
-	}
-
-	rows := buildCSVRows(fileHeaderInfo, allRecords)
-
-	resultRows, evalErr := evalQuery(query, rows)
-	if evalErr != nil {
-		return nil, 0, evalErr
-	}
-
-	if len(resultRows) == 0 {
-		return nil, 0, nil
-	}
-
-	resultBytes, serialErr := serializeCSVQueryResults(resultRows, req.OutputSerialization)
-	if serialErr != nil {
-		return nil, 0, serialErr
-	}
-
-	return resultBytes, int64(len(resultBytes)), nil
-}
-
-func buildCSVRows(fileHeaderInfo string, allRecords [][]string) []map[string]string {
 	var headers []string
-	var dataRows [][]string
+	var totalBytesReturned int64
+	var returnedRowsCount int
+	rowCount := 0
 
-	switch fileHeaderInfo {
-	case "USE":
-		headers = allRecords[0]
-		dataRows = allRecords[1:]
-	case "IGNORE":
-		for i := range allRecords[0] {
-			headers = append(headers, fmt.Sprintf("_%d", i+1))
+	for query.limit <= 0 || returnedRowsCount < query.limit {
+		rec, err := r.Read()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return totalBytesReturned, fmt.Errorf("reading CSV: %w", err)
 		}
 
-		dataRows = allRecords[1:]
-	default: // NONE
-		for i := range allRecords[0] {
-			headers = append(headers, fmt.Sprintf("_%d", i+1))
-		}
+		if rowCount == 0 {
+			headers = prepareCSVHeaders(fileHeaderInfo, rec)
+			if fileHeaderInfo == "USE" {
+				rowCount++
 
-		dataRows = allRecords
-	}
-
-	rows := make([]map[string]string, 0, len(dataRows))
-
-	for _, rec := range dataRows {
-		row := make(map[string]string, len(headers))
-		for i, h := range headers {
-			if i < len(rec) {
-				row[h] = rec[i]
+				continue
 			}
 		}
 
-		rows = append(rows, row)
+		rowCount++
+		rowBytes, returnedRows, evalErr := processCSVRow(w, query, headers, rec, req)
+		if evalErr != nil {
+			return totalBytesReturned, evalErr
+		}
+		totalBytesReturned += rowBytes
+		returnedRowsCount += returnedRows
 	}
 
-	return rows
+	return totalBytesReturned, nil
+}
+
+func prepareCSVHeaders(fileHeaderInfo string, firstRecord []string) []string {
+	var headers []string
+	switch fileHeaderInfo {
+	case "USE":
+		headers = firstRecord
+	default: // IGNORE or NONE
+		for i := range firstRecord {
+			headers = append(headers, fmt.Sprintf("_%d", i+1))
+		}
+	}
+
+	return headers
 }
 
 func serializeCSVQueryResults(resultRows []map[string]string, out selectOutputSerialization) ([]byte, error) {
@@ -115,7 +101,7 @@ func serializeCSVRowsAsJSON(rows []map[string]string, jsonOut *selectJSONOutput)
 	var buf bytes.Buffer
 
 	for _, row := range rows {
-		jsonBytes, err := marshalJSONRow(mapStringToAny(row))
+		jsonBytes, err := json.Marshal(mapStringToAny(row))
 		if err != nil {
 			return nil, err
 		}
@@ -160,4 +146,44 @@ func mapStringToAny(m map[string]string) map[string]any {
 	}
 
 	return out
+}
+
+func processCSVRow(
+	w io.Writer,
+	query *sqlQuery,
+	headers []string,
+	rec []string,
+	req *selectRequest,
+) (int64, int, error) {
+	rowMap := make(map[string]string, len(headers))
+	for i, h := range headers {
+		if i < len(rec) {
+			rowMap[h] = rec[i]
+		}
+	}
+
+	// Evaluate query on this single row
+	resultRows, evalErr := evalQuery(query, []map[string]string{rowMap})
+	if evalErr != nil {
+		return 0, 0, evalErr
+	}
+
+	if len(resultRows) == 0 {
+		return 0, 0, nil
+	}
+
+	resultBytes, serialErr := serializeCSVQueryResults(resultRows, req.OutputSerialization)
+	if serialErr != nil {
+		return 0, 0, serialErr
+	}
+
+	if len(resultBytes) == 0 {
+		return 0, 0, nil
+	}
+
+	if wErr := writeSelectEvent(w, "Records", "application/octet-stream", resultBytes); wErr != nil {
+		return 0, 0, wErr
+	}
+
+	return int64(len(resultBytes)), len(resultRows), nil
 }
