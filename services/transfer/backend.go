@@ -20,6 +20,10 @@ var (
 	ErrUserNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrUserAlreadyExists is returned when a Transfer user already exists.
 	ErrUserAlreadyExists = awserr.New("ResourceExistsException", awserr.ErrConflict)
+	// ErrInvalidProtocol is returned when an unsupported protocol is specified.
+	ErrInvalidProtocol = awserr.New("InvalidRequestException: unsupported protocol", awserr.ErrInvalidParameter)
+	// ErrServerStateConflict is returned when a state transition is invalid.
+	ErrServerStateConflict = awserr.New("ConflictException: server is already in the requested state", awserr.ErrConflict)
 )
 
 // Server represents an AWS Transfer Family server.
@@ -98,6 +102,14 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// validProtocols is the set of protocols supported by AWS Transfer Family.
+var validProtocols = map[string]struct{}{
+	"SFTP": {},
+	"FTP":  {},
+	"FTPS": {},
+	"AS2":  {},
+}
+
 // CreateServer creates a new Transfer Family server.
 func (b *InMemoryBackend) CreateServer(protocols []string, tags map[string]string) (*Server, error) {
 	b.mu.Lock("CreateServer")
@@ -109,12 +121,19 @@ func (b *InMemoryBackend) CreateServer(protocols []string, tags map[string]strin
 		protocols = []string{"SFTP"}
 	}
 
+	for _, p := range protocols {
+		if _, ok := validProtocols[p]; !ok {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidProtocol, p)
+		}
+	}
+
 	merged := make(map[string]string, len(tags))
 	maps.Copy(merged, tags)
 
 	s := &Server{
 		ServerID:  serverID,
 		State:     "ONLINE",
+		Endpoint:  fmt.Sprintf("%s.server.transfer.%s.amazonaws.com", serverID, b.region),
 		Protocols: protocols,
 		Domain:    "S3",
 		CreatedAt: time.Now(),
@@ -183,6 +202,10 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
 	}
 
+	if s.State == "ONLINE" {
+		return fmt.Errorf("%w: server %s", ErrServerStateConflict, serverID)
+	}
+
 	s.State = "ONLINE"
 
 	return nil
@@ -196,6 +219,10 @@ func (b *InMemoryBackend) StopServer(serverID string) error {
 	s, ok := b.servers[serverID]
 	if !ok {
 		return fmt.Errorf("%w: server %s not found", ErrServerNotFound, serverID)
+	}
+
+	if s.State == "OFFLINE" {
+		return fmt.Errorf("%w: server %s", ErrServerStateConflict, serverID)
 	}
 
 	s.State = "OFFLINE"

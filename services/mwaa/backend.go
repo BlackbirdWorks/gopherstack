@@ -30,6 +30,8 @@ var (
 		"AlreadyExistsException: environment already exists",
 		awserr.ErrAlreadyExists,
 	)
+	// ErrInvalidParameter is returned when an invalid or missing parameter is provided.
+	ErrInvalidParameter = awserr.New("ValidationException: invalid parameter", awserr.ErrInvalidParameter)
 )
 
 // StorageBackend is the interface for the MWAA in-memory backend.
@@ -47,6 +49,7 @@ type StorageBackend interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	environments map[string]*Environment
+	arnIndex     map[string]string // ARN -> name
 	region       string
 	accountID    string
 	mu           sync.RWMutex
@@ -58,6 +61,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		region:       region,
 		accountID:    accountID,
 		environments: make(map[string]*Environment),
+		arnIndex:     make(map[string]string),
 	}
 }
 
@@ -93,6 +97,10 @@ func (b *InMemoryBackend) CreateEnvironment(
 		minWorkers = defaultMinWorkers
 	}
 
+	if minWorkers > maxWorkers {
+		return nil, fmt.Errorf("%w: MinWorkers (%d) must be <= MaxWorkers (%d)", ErrInvalidParameter, minWorkers, maxWorkers)
+	}
+
 	accessMode := req.WebserverAccessMode
 	if accessMode == "" {
 		accessMode = defaultWebserverAccessMode
@@ -102,7 +110,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 
 	// Generate a deterministic unique ID for the webserver URL based on the environment name.
 	sum := sha256.Sum256([]byte(name))
-	uniqueID := hex.EncodeToString(sum[:4])
+	uniqueID := hex.EncodeToString(sum[:8])
 
 	tags := make(map[string]string)
 	maps.Copy(tags, req.Tags)
@@ -126,6 +134,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 	}
 
 	b.environments[name] = env
+	b.arnIndex[envARN] = name
 
 	return env, nil
 }
@@ -154,6 +163,7 @@ func (b *InMemoryBackend) DeleteEnvironment(name string) (*Environment, error) {
 	}
 
 	delete(b.environments, name)
+	delete(b.arnIndex, env.ARN)
 
 	return env, nil
 }
@@ -194,6 +204,10 @@ func (b *InMemoryBackend) UpdateEnvironment(name string, req *updateEnvironmentR
 
 	if req.MinWorkers != 0 {
 		env.MinWorkers = req.MinWorkers
+	}
+
+	if env.MinWorkers > env.MaxWorkers {
+		return nil, fmt.Errorf("%w: MinWorkers (%d) must be <= MaxWorkers (%d)", ErrInvalidParameter, env.MinWorkers, env.MaxWorkers)
 	}
 
 	if req.WebserverAccessMode != "" {
@@ -275,13 +289,12 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return result, nil
 }
 
-// findByARN looks up an environment by its ARN. Must be called with lock held.
+// findByARN looks up an environment by its ARN using the ARN index. Must be called with lock held.
 func (b *InMemoryBackend) findByARN(resourceARN string) *Environment {
-	for _, env := range b.environments {
-		if env.ARN == resourceARN {
-			return env
-		}
+	name, ok := b.arnIndex[resourceARN]
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return b.environments[name]
 }
