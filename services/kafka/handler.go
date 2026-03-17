@@ -3,6 +3,7 @@ package kafka
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -594,7 +595,7 @@ func toClusterInfoV1(cl *Cluster) *clusterInfoV1 {
 		CurrentVersion:            cl.CurrentVersion,
 		BrokerNodeGroupInfo:       cl.BrokerNodeGroupInfo,
 		NumberOfBrokerNodes:       cl.NumberOfBrokerNodes,
-		Tags:                      cl.Tags,
+		Tags:                      maps.Clone(cl.Tags),
 		CurrentBrokerSoftwareInfo: brokerSoftwareInfoFor(cl.KafkaVersion),
 	}
 }
@@ -607,7 +608,7 @@ func toClusterInfoV2(cl *Cluster) *clusterInfoV2 {
 		ClusterType:    "PROVISIONED",
 		State:          cl.State,
 		CurrentVersion: cl.CurrentVersion,
-		Tags:           cl.Tags,
+		Tags:           maps.Clone(cl.Tags),
 		Provisioned: &provisionedClusterInfo{
 			BrokerNodeGroupInfo:       cl.BrokerNodeGroupInfo,
 			KafkaVersion:              cl.KafkaVersion,

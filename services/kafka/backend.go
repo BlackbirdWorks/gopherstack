@@ -157,7 +157,7 @@ func (b *InMemoryBackend) DescribeCluster(clusterArn string) (*Cluster, error) {
 		return nil, ErrNotFound
 	}
 
-	return c, nil
+	return cloneCluster(c), nil
 }
 
 // ListClusters returns all MSK clusters.
@@ -167,7 +167,7 @@ func (b *InMemoryBackend) ListClusters() []*Cluster {
 
 	out := make([]*Cluster, 0, len(b.clusters))
 	for _, c := range b.clusters {
-		out = append(out, c)
+		out = append(out, cloneCluster(c))
 	}
 
 	return out
@@ -325,4 +325,34 @@ func (b *InMemoryBackend) GetTags(resourceArn string) (map[string]string, error)
 	}
 
 	return nil, ErrNotFound
+}
+
+// cloneCluster creates a deep copy of a cluster.
+func cloneCluster(c *Cluster) *Cluster {
+	clone := &Cluster{
+		ClusterArn:          c.ClusterArn,
+		ClusterName:         c.ClusterName,
+		KafkaVersion:        c.KafkaVersion,
+		State:               c.State,
+		CurrentVersion:      c.CurrentVersion,
+		NumberOfBrokerNodes: c.NumberOfBrokerNodes,
+		Tags:                maps.Clone(c.Tags),
+		BrokerNodeGroupInfo: BrokerNodeGroupInfo{
+			BrokerAZDistribution: c.BrokerNodeGroupInfo.BrokerAZDistribution,
+			InstanceType:         c.BrokerNodeGroupInfo.InstanceType,
+			ClientSubnets:        append([]string(nil), c.BrokerNodeGroupInfo.ClientSubnets...),
+			SecurityGroups:       append([]string(nil), c.BrokerNodeGroupInfo.SecurityGroups...),
+		},
+	}
+
+	if c.BrokerNodeGroupInfo.StorageInfo != nil {
+		clone.BrokerNodeGroupInfo.StorageInfo = &StorageInfo{}
+		if c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo != nil {
+			clone.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo = &EBSStorageInfo{
+				VolumeSize: c.BrokerNodeGroupInfo.StorageInfo.EbsStorageInfo.VolumeSize,
+			}
+		}
+	}
+
+	return clone
 }
