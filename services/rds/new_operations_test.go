@@ -15,13 +15,13 @@ func TestRDSBackend_NewInstanceFields(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		opts    rds.DBInstanceOptions
-		wantST  string
-		wantAZ  string
-		wantBR  int
-		wantMA  bool
-		wantSE  bool
+		name   string
+		wantST string
+		wantAZ string
+		opts   rds.DBInstanceOptions
+		wantBR int
+		wantMA bool
+		wantSE bool
 	}{
 		{
 			name:   "defaults",
@@ -33,8 +33,14 @@ func TestRDSBackend_NewInstanceFields(t *testing.T) {
 			wantSE: false,
 		},
 		{
-			name:   "custom_fields",
-			opts:   rds.DBInstanceOptions{StorageType: "io1", AvailabilityZone: "us-east-1b", BackupRetentionPeriod: 7, MultiAZ: true, StorageEncrypted: true},
+			name: "custom_fields",
+			opts: rds.DBInstanceOptions{
+				StorageType:           "io1",
+				AvailabilityZone:      "us-east-1b",
+				BackupRetentionPeriod: 7,
+				MultiAZ:               true,
+				StorageEncrypted:      true,
+			},
 			wantST: "io1",
 			wantAZ: "us-east-1b",
 			wantBR: 7,
@@ -65,16 +71,17 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
+		wantErrIs error
 		setup     func(b *rds.InMemoryBackend) error
 		action    func(b *rds.InMemoryBackend) error
+		name      string
 		wantErr   bool
-		wantErrIs error
 	}{
 		{
 			name: "stop_available_instance",
 			setup: func(b *rds.InMemoryBackend) error {
 				_, err := b.CreateDBInstance("inst", "postgres", "", "", "", "", 0, rds.DBInstanceOptions{})
+
 				return err
 			},
 			action: func(b *rds.InMemoryBackend) error {
@@ -83,6 +90,7 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 					return err
 				}
 				assert.Equal(t, "stopped", inst.DBInstanceStatus)
+
 				return nil
 			},
 		},
@@ -94,6 +102,7 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 					return err
 				}
 				_, err = b.StopDBInstance("inst")
+
 				return err
 			},
 			action: func(b *rds.InMemoryBackend) error {
@@ -102,14 +111,16 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 					return err
 				}
 				assert.Equal(t, "available", inst.DBInstanceStatus)
+
 				return nil
 			},
 		},
 		{
-			name: "stop_not_found",
+			name:  "stop_not_found",
 			setup: func(_ *rds.InMemoryBackend) error { return nil },
 			action: func(b *rds.InMemoryBackend) error {
 				_, err := b.StopDBInstance("nonexistent")
+
 				return err
 			},
 			wantErr:   true,
@@ -119,10 +130,12 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 			name: "start_not_stopped",
 			setup: func(b *rds.InMemoryBackend) error {
 				_, err := b.CreateDBInstance("inst", "postgres", "", "", "", "", 0, rds.DBInstanceOptions{})
+
 				return err
 			},
 			action: func(b *rds.InMemoryBackend) error {
 				_, err := b.StartDBInstance("inst")
+
 				return err
 			},
 			wantErr:   true,
@@ -136,10 +149,12 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 					return err
 				}
 				_, err = b.StopDBInstance("inst")
+
 				return err
 			},
 			action: func(b *rds.InMemoryBackend) error {
 				_, err := b.StopDBInstance("inst")
+
 				return err
 			},
 			wantErr:   true,
@@ -150,6 +165,7 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 			setup: func(_ *rds.InMemoryBackend) error { return nil },
 			action: func(b *rds.InMemoryBackend) error {
 				_, err := b.StopDBInstance("")
+
 				return err
 			},
 			wantErr:   true,
@@ -160,6 +176,7 @@ func TestRDSBackend_StartStopDBInstance(t *testing.T) {
 			setup: func(_ *rds.InMemoryBackend) error { return nil },
 			action: func(b *rds.InMemoryBackend) error {
 				_, err := b.StartDBInstance("")
+
 				return err
 			},
 			wantErr:   true,
@@ -191,17 +208,26 @@ func TestRDSBackend_CopyDBSnapshot(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
+		errIs    error
 		setup    func(b *rds.InMemoryBackend)
+		name     string
 		sourceID string
 		targetID string
 		wantErr  bool
-		errIs    error
 	}{
 		{
 			name: "success",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateDBInstance("db", "postgres", "", "", "", "", 20, rds.DBInstanceOptions{StorageEncrypted: true})
+				_, _ = b.CreateDBInstance(
+					"db",
+					"postgres",
+					"",
+					"",
+					"",
+					"",
+					20,
+					rds.DBInstanceOptions{StorageEncrypted: true},
+				)
 				_, _ = b.CreateDBSnapshot("snap-src", "db")
 			},
 			sourceID: "snap-src",
@@ -273,18 +299,27 @@ func TestRDSBackend_RestoreDBInstanceFromDBSnapshot(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
+		errIs      error
 		setup      func(b *rds.InMemoryBackend)
+		name       string
 		instanceID string
 		snapshotID string
 		opts       rds.DBInstanceOptions
 		wantErr    bool
-		errIs      error
 	}{
 		{
 			name: "success",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateDBInstance("src-db", "postgres", "db.t3.micro", "mydb", "admin", "", 20, rds.DBInstanceOptions{StorageEncrypted: true})
+				_, _ = b.CreateDBInstance(
+					"src-db",
+					"postgres",
+					"db.t3.micro",
+					"mydb",
+					"admin",
+					"",
+					20,
+					rds.DBInstanceOptions{StorageEncrypted: true},
+				)
 				_, _ = b.CreateDBSnapshot("snap", "src-db")
 			},
 			instanceID: "restored-db",
@@ -356,17 +391,26 @@ func TestRDSBackend_RestoreDBInstanceToPointInTime(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		setup    func(b *rds.InMemoryBackend)
-		target   string
-		source   string
-		wantErr  bool
-		errIs    error
+		errIs   error
+		setup   func(b *rds.InMemoryBackend)
+		name    string
+		target  string
+		source  string
+		wantErr bool
 	}{
 		{
 			name: "success",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateDBInstance("src-db", "postgres", "db.t3.micro", "mydb", "admin", "", 20, rds.DBInstanceOptions{})
+				_, _ = b.CreateDBInstance(
+					"src-db",
+					"postgres",
+					"db.t3.micro",
+					"mydb",
+					"admin",
+					"",
+					20,
+					rds.DBInstanceOptions{},
+				)
 			},
 			target: "pit-db",
 			source: "src-db",
@@ -436,11 +480,11 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
+		errIs   error
 		setup   func(b *rds.InMemoryBackend)
 		run     func(b *rds.InMemoryBackend) error
+		name    string
 		wantErr bool
-		errIs   error
 	}{
 		{
 			name:  "create_and_describe",
@@ -475,6 +519,7 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 				}
 				assert.Len(t, clusters, 1)
 				assert.Equal(t, "gc1", clusters[0].GlobalClusterIdentifier)
+
 				return nil
 			},
 		},
@@ -483,13 +528,14 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 			setup: func(b *rds.InMemoryBackend) { _, _ = b.CreateGlobalCluster("gc1", "", "", false, false) },
 			run: func(b *rds.InMemoryBackend) error {
 				_, err := b.CreateGlobalCluster("gc1", "", "", false, false)
+
 				return err
 			},
 			wantErr: true,
 			errIs:   rds.ErrGlobalClusterAlreadyExists,
 		},
 		{
-			name: "delete",
+			name:  "delete",
 			setup: func(b *rds.InMemoryBackend) { _, _ = b.CreateGlobalCluster("gc1", "", "", false, false) },
 			run: func(b *rds.InMemoryBackend) error {
 				gc, err := b.DeleteGlobalCluster("gc1")
@@ -499,6 +545,7 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 				assert.Equal(t, "gc1", gc.GlobalClusterIdentifier)
 				clusters, _ := b.DescribeGlobalClusters("")
 				assert.Empty(t, clusters)
+
 				return nil
 			},
 		},
@@ -507,6 +554,7 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 			setup: func(_ *rds.InMemoryBackend) {},
 			run: func(b *rds.InMemoryBackend) error {
 				_, err := b.DeleteGlobalCluster("nonexistent")
+
 				return err
 			},
 			wantErr: true,
@@ -525,6 +573,7 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 				}
 				assert.Equal(t, "14.5", gc.EngineVersion)
 				assert.True(t, gc.DeletionProtection)
+
 				return nil
 			},
 		},
@@ -533,6 +582,7 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 			setup: func(_ *rds.InMemoryBackend) {},
 			run: func(b *rds.InMemoryBackend) error {
 				_, err := b.CreateGlobalCluster("", "", "", false, false)
+
 				return err
 			},
 			wantErr: true,
@@ -543,6 +593,7 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 			setup: func(_ *rds.InMemoryBackend) {},
 			run: func(b *rds.InMemoryBackend) error {
 				_, err := b.DescribeGlobalClusters("no-such-gc")
+
 				return err
 			},
 			wantErr: true,
@@ -575,10 +626,10 @@ func TestRDSHandler_NewOperations(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		setupBodies  []string
 		body         string
-		wantCode     int
+		setupBodies  []string
 		wantContains []string
+		wantCode     int
 	}{
 		{
 			name: "CopyDBSnapshot_success",
@@ -586,13 +637,15 @@ func TestRDSHandler_NewOperations(t *testing.T) {
 				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=snap-copy-db&Engine=postgres",
 				"Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=src-snap&DBInstanceIdentifier=snap-copy-db",
 			},
-			body:         "Action=CopyDBSnapshot&Version=2014-10-31&SourceDBSnapshotIdentifier=src-snap&TargetDBSnapshotIdentifier=dst-snap",
+			body: "Action=CopyDBSnapshot&Version=2014-10-31" +
+				"&SourceDBSnapshotIdentifier=src-snap&TargetDBSnapshotIdentifier=dst-snap",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"CopyDBSnapshotResponse", "dst-snap"},
 		},
 		{
-			name:         "CopyDBSnapshot_source_not_found",
-			body:         "Action=CopyDBSnapshot&Version=2014-10-31&SourceDBSnapshotIdentifier=no-snap&TargetDBSnapshotIdentifier=dst-snap",
+			name: "CopyDBSnapshot_source_not_found",
+			body: "Action=CopyDBSnapshot&Version=2014-10-31" +
+				"&SourceDBSnapshotIdentifier=no-snap&TargetDBSnapshotIdentifier=dst-snap",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"DBSnapshotNotFound"},
 		},
@@ -602,13 +655,15 @@ func TestRDSHandler_NewOperations(t *testing.T) {
 				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=orig-db&Engine=postgres",
 				"Action=CreateDBSnapshot&Version=2014-10-31&DBSnapshotIdentifier=restore-snap&DBInstanceIdentifier=orig-db",
 			},
-			body:         "Action=RestoreDBInstanceFromDBSnapshot&Version=2014-10-31&DBInstanceIdentifier=restored-db&DBSnapshotIdentifier=restore-snap",
+			body: "Action=RestoreDBInstanceFromDBSnapshot&Version=2014-10-31" +
+				"&DBInstanceIdentifier=restored-db&DBSnapshotIdentifier=restore-snap",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"RestoreDBInstanceFromDBSnapshotResponse", "restored-db"},
 		},
 		{
-			name:         "RestoreDBInstanceFromDBSnapshot_snap_not_found",
-			body:         "Action=RestoreDBInstanceFromDBSnapshot&Version=2014-10-31&DBInstanceIdentifier=restored-db&DBSnapshotIdentifier=no-snap",
+			name: "RestoreDBInstanceFromDBSnapshot_snap_not_found",
+			body: "Action=RestoreDBInstanceFromDBSnapshot&Version=2014-10-31" +
+				"&DBInstanceIdentifier=restored-db&DBSnapshotIdentifier=no-snap",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"DBSnapshotNotFound"},
 		},
@@ -617,13 +672,15 @@ func TestRDSHandler_NewOperations(t *testing.T) {
 			setupBodies: []string{
 				"Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=pit-src-db&Engine=mysql",
 			},
-			body:         "Action=RestoreDBInstanceToPointInTime&Version=2014-10-31&TargetDBInstanceIdentifier=pit-restored-db&SourceDBInstanceIdentifier=pit-src-db",
+			body: "Action=RestoreDBInstanceToPointInTime&Version=2014-10-31" +
+				"&TargetDBInstanceIdentifier=pit-restored-db&SourceDBInstanceIdentifier=pit-src-db",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"RestoreDBInstanceToPointInTimeResponse", "pit-restored-db"},
 		},
 		{
-			name:         "RestoreDBInstanceToPointInTime_source_not_found",
-			body:         "Action=RestoreDBInstanceToPointInTime&Version=2014-10-31&TargetDBInstanceIdentifier=pit-db&SourceDBInstanceIdentifier=no-db",
+			name: "RestoreDBInstanceToPointInTime_source_not_found",
+			body: "Action=RestoreDBInstanceToPointInTime&Version=2014-10-31" +
+				"&TargetDBInstanceIdentifier=pit-db&SourceDBInstanceIdentifier=no-db",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"DBInstanceNotFound"},
 		},
@@ -662,13 +719,14 @@ func TestRDSHandler_NewOperations(t *testing.T) {
 			wantContains: []string{"InvalidDBInstanceState"},
 		},
 		{
-			name:         "CreateGlobalCluster_success",
-			body:         "Action=CreateGlobalCluster&Version=2014-10-31&GlobalClusterIdentifier=gc1&Engine=aurora-postgresql&EngineVersion=14.3",
+			name: "CreateGlobalCluster_success",
+			body: "Action=CreateGlobalCluster&Version=2014-10-31" +
+				"&GlobalClusterIdentifier=gc1&Engine=aurora-postgresql&EngineVersion=14.3",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"CreateGlobalClusterResponse", "gc1", "aurora-postgresql"},
 		},
 		{
-			name:  "DescribeGlobalClusters_all",
+			name: "DescribeGlobalClusters_all",
 			setupBodies: []string{
 				"Action=CreateGlobalCluster&Version=2014-10-31&GlobalClusterIdentifier=gc-list1",
 				"Action=CreateGlobalCluster&Version=2014-10-31&GlobalClusterIdentifier=gc-list2",
@@ -697,7 +755,8 @@ func TestRDSHandler_NewOperations(t *testing.T) {
 			setupBodies: []string{
 				"Action=CreateGlobalCluster&Version=2014-10-31&GlobalClusterIdentifier=gc-mod",
 			},
-			body:         "Action=ModifyGlobalCluster&Version=2014-10-31&GlobalClusterIdentifier=gc-mod&EngineVersion=15.0&DeletionProtection=true",
+			body: "Action=ModifyGlobalCluster&Version=2014-10-31" +
+				"&GlobalClusterIdentifier=gc-mod&EngineVersion=15.0&DeletionProtection=true",
 			wantCode:     http.StatusOK,
 			wantContains: []string{"ModifyGlobalClusterResponse", "gc-mod", "15.0"},
 		},
@@ -705,8 +764,14 @@ func TestRDSHandler_NewOperations(t *testing.T) {
 			name: "CreateDBInstance_with_new_fields",
 			body: "Action=CreateDBInstance&Version=2014-10-31&DBInstanceIdentifier=rich-db&Engine=postgres" +
 				"&MultiAZ=true&StorageType=io1&BackupRetentionPeriod=7&StorageEncrypted=true",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"CreateDBInstanceResponse", "rich-db", "<MultiAZ>true</MultiAZ>", "<StorageType>io1</StorageType>", "<StorageEncrypted>true</StorageEncrypted>"},
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"CreateDBInstanceResponse",
+				"rich-db",
+				"<MultiAZ>true</MultiAZ>",
+				"<StorageType>io1</StorageType>",
+				"<StorageEncrypted>true</StorageEncrypted>",
+			},
 		},
 	}
 

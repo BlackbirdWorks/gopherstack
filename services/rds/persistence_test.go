@@ -19,7 +19,16 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *rds.InMemoryBackend) string {
-				inst, err := b.CreateDBInstance("test-db", "mysql", "db.t3.micro", "testdb", "admin", "", 20, rds.DBInstanceOptions{})
+				inst, err := b.CreateDBInstance(
+					"test-db",
+					"mysql",
+					"db.t3.micro",
+					"testdb",
+					"admin",
+					"",
+					20,
+					rds.DBInstanceOptions{},
+				)
 				if err != nil {
 					return ""
 				}

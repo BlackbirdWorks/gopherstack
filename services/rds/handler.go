@@ -20,6 +20,7 @@ import (
 const (
 	rdsVersion = "2014-10-31"
 	rdsXMLNS   = "http://rds.amazonaws.com/doc/2014-10-31/"
+	formTrue   = "true"
 )
 
 // Handler is the Echo HTTP handler for RDS operations.
@@ -413,10 +414,10 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		StorageType:                      vals.Get("StorageType"),
 		AvailabilityZone:                 vals.Get("AvailabilityZone"),
 		BackupRetentionPeriod:            backupRetention,
-		MultiAZ:                          vals.Get("MultiAZ") == "true",
-		StorageEncrypted:                 vals.Get("StorageEncrypted") == "true",
-		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == "true",
-		DeletionProtection:               vals.Get("DeletionProtection") == "true",
+		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
+		StorageEncrypted:                 vals.Get("StorageEncrypted") == formTrue,
+		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
 	}
 
 	inst, err := h.Backend.CreateDBInstance(
@@ -503,9 +504,9 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 	opts := DBInstanceOptions{
 		StorageType:                      vals.Get("StorageType"),
 		BackupRetentionPeriod:            backupRetention,
-		MultiAZ:                          vals.Get("MultiAZ") == "true",
-		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == "true",
-		DeletionProtection:               vals.Get("DeletionProtection") == "true",
+		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
+		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
 	}
 
 	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, allocatedStorage, opts)
@@ -1082,7 +1083,7 @@ func (h *Handler) handleDescribeDBParameters(vals url.Values) (any, error) {
 
 func (h *Handler) handleResetDBParameterGroup(vals url.Values) (any, error) {
 	name := vals.Get("DBParameterGroupName")
-	resetAll := vals.Get("ResetAllParameters") == "true"
+	resetAll := vals.Get("ResetAllParameters") == formTrue
 	var paramNames []string
 	for i := 1; ; i++ {
 		pName := vals.Get(fmt.Sprintf("Parameters.Parameter.%d.ParameterName", i))
@@ -2220,8 +2221,8 @@ func (h *Handler) handleRestoreDBInstanceFromDBSnapshot(vals url.Values) (any, e
 	id := vals.Get("DBInstanceIdentifier")
 	snapshotID := vals.Get("DBSnapshotIdentifier")
 	opts := DBInstanceOptions{
-		MultiAZ:            vals.Get("MultiAZ") == "true",
-		DeletionProtection: vals.Get("DeletionProtection") == "true",
+		MultiAZ:            vals.Get("MultiAZ") == formTrue,
+		DeletionProtection: vals.Get("DeletionProtection") == formTrue,
 		StorageType:        vals.Get("StorageType"),
 		AvailabilityZone:   vals.Get("AvailabilityZone"),
 	}
@@ -2241,8 +2242,8 @@ func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, er
 	id := vals.Get("TargetDBInstanceIdentifier")
 	sourceID := vals.Get("SourceDBInstanceIdentifier")
 	opts := DBInstanceOptions{
-		MultiAZ:            vals.Get("MultiAZ") == "true",
-		DeletionProtection: vals.Get("DeletionProtection") == "true",
+		MultiAZ:            vals.Get("MultiAZ") == formTrue,
+		DeletionProtection: vals.Get("DeletionProtection") == formTrue,
 		StorageType:        vals.Get("StorageType"),
 		AvailabilityZone:   vals.Get("AvailabilityZone"),
 	}
@@ -2307,8 +2308,8 @@ func (h *Handler) handleCreateGlobalCluster(vals url.Values) (any, error) {
 	id := vals.Get("GlobalClusterIdentifier")
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
-	storageEncrypted := vals.Get("StorageEncrypted") == "true"
-	deletionProtection := vals.Get("DeletionProtection") == "true"
+	storageEncrypted := vals.Get("StorageEncrypted") == formTrue
+	deletionProtection := vals.Get("DeletionProtection") == formTrue
 
 	gc, err := h.Backend.CreateGlobalCluster(id, engine, engineVersion, storageEncrypted, deletionProtection)
 	if err != nil {
@@ -2342,7 +2343,7 @@ func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
 
 	var deletionProtection *bool
 	if dp := vals.Get("DeletionProtection"); dp != "" {
-		v := dp == "true"
+		v := dp == formTrue
 		deletionProtection = &v
 	}
 

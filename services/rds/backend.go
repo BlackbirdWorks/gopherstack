@@ -50,6 +50,9 @@ const (
 	mysqlPort               = 3306
 	defaultInstanceClass    = "db.t3.micro"
 	defaultAllocatedStorage = 20
+
+	instanceStatusAvailable = "available"
+	instanceStatusStopped   = "stopped"
 )
 
 // DBInstance represents an RDS database instance.
@@ -85,9 +88,9 @@ type DBSnapshot struct {
 	Engine               string `json:"engine"`
 	EngineVersion        string `json:"engineVersion"`
 	Status               string `json:"status"`
+	StorageType          string `json:"storageType"`
 	AllocatedStorage     int    `json:"allocatedStorage"`
 	Port                 int    `json:"port"`
-	StorageType          string `json:"storageType"`
 	StorageEncrypted     bool   `json:"storageEncrypted"`
 }
 
@@ -334,7 +337,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		DBInstanceClass:                  instanceClass,
 		Engine:                           engine,
 		EngineVersion:                    opts.EngineVersion,
-		DBInstanceStatus:                 "available",
+		DBInstanceStatus:                 instanceStatusAvailable,
 		MasterUsername:                   masterUser,
 		DBName:                           dbName,
 		Endpoint:                         endpoint,
@@ -414,7 +417,11 @@ func (b *InMemoryBackend) DescribeDBInstances(id string) ([]DBInstance, error) {
 }
 
 // ModifyDBInstance modifies properties of an existing DB instance.
-func (b *InMemoryBackend) ModifyDBInstance(id, instanceClass string, allocatedStorage int, opts DBInstanceOptions) (*DBInstance, error) {
+func (b *InMemoryBackend) ModifyDBInstance(
+	id, instanceClass string,
+	allocatedStorage int,
+	opts DBInstanceOptions,
+) (*DBInstance, error) {
 	b.mu.Lock("ModifyDBInstance")
 	defer b.mu.Unlock()
 
@@ -545,7 +552,7 @@ func (b *InMemoryBackend) CopyDBSnapshot(sourceSnapshotID, targetSnapshotID stri
 	if !exists {
 		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, sourceSnapshotID)
 	}
-	if _, exists := b.snapshots[targetSnapshotID]; exists {
+	if _, alreadyExists := b.snapshots[targetSnapshotID]; alreadyExists {
 		return nil, fmt.Errorf("%w: snapshot %s already exists", ErrSnapshotAlreadyExists, targetSnapshotID)
 	}
 
@@ -567,7 +574,10 @@ func (b *InMemoryBackend) CopyDBSnapshot(sourceSnapshotID, targetSnapshotID stri
 }
 
 // RestoreDBInstanceFromDBSnapshot creates a new DB instance from the given snapshot.
-func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(id, snapshotID string, opts DBInstanceOptions) (*DBInstance, error) {
+func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
+	id, snapshotID string,
+	opts DBInstanceOptions,
+) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier is required", ErrInvalidParameter)
 	}
@@ -608,7 +618,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(id, snapshotID string,
 		DbiResourceID:        id,
 		Engine:               snap.Engine,
 		EngineVersion:        snap.EngineVersion,
-		DBInstanceStatus:     "available",
+		DBInstanceStatus:     instanceStatusAvailable,
 		Endpoint:             endpoint,
 		Port:                 port,
 		AllocatedStorage:     snap.AllocatedStorage,
@@ -631,7 +641,10 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(id, snapshotID string,
 }
 
 // RestoreDBInstanceToPointInTime creates a new DB instance as a point-in-time restore of the source.
-func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(id, sourceID string, opts DBInstanceOptions) (*DBInstance, error) {
+func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
+	id, sourceID string,
+	opts DBInstanceOptions,
+) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: TargetDBInstanceIdentifier is required", ErrInvalidParameter)
 	}
@@ -663,23 +676,23 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(id, sourceID string, op
 
 	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 	inst := &DBInstance{
-		DBInstanceIdentifier:  id,
-		DbiResourceID:         id,
-		DBInstanceClass:       source.DBInstanceClass,
-		Engine:                source.Engine,
-		EngineVersion:         source.EngineVersion,
-		DBInstanceStatus:      "available",
-		MasterUsername:        source.MasterUsername,
-		DBName:                source.DBName,
-		Endpoint:              endpoint,
-		Port:                  source.Port,
-		AllocatedStorage:      source.AllocatedStorage,
-		DBParameterGroupName:  source.DBParameterGroupName,
-		StorageType:           opts.StorageType,
-		StorageEncrypted:      source.StorageEncrypted,
-		AvailabilityZone:      opts.AvailabilityZone,
-		MultiAZ:               opts.MultiAZ,
-		DeletionProtection:    opts.DeletionProtection,
+		DBInstanceIdentifier: id,
+		DbiResourceID:        id,
+		DBInstanceClass:      source.DBInstanceClass,
+		Engine:               source.Engine,
+		EngineVersion:        source.EngineVersion,
+		DBInstanceStatus:     instanceStatusAvailable,
+		MasterUsername:       source.MasterUsername,
+		DBName:               source.DBName,
+		Endpoint:             endpoint,
+		Port:                 source.Port,
+		AllocatedStorage:     source.AllocatedStorage,
+		DBParameterGroupName: source.DBParameterGroupName,
+		StorageType:          opts.StorageType,
+		StorageEncrypted:     source.StorageEncrypted,
+		AvailabilityZone:     opts.AvailabilityZone,
+		MultiAZ:              opts.MultiAZ,
+		DeletionProtection:   opts.DeletionProtection,
 	}
 	b.instances[id] = inst
 	cp := *inst
@@ -706,11 +719,11 @@ func (b *InMemoryBackend) StartDBInstance(id string) (*DBInstance, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
-	if inst.DBInstanceStatus != "stopped" {
+	if inst.DBInstanceStatus != instanceStatusStopped {
 		return nil, fmt.Errorf("%w: instance %s is not in stopped state", ErrInvalidDBInstanceState, id)
 	}
 
-	inst.DBInstanceStatus = "available"
+	inst.DBInstanceStatus = instanceStatusAvailable
 	cp := *inst
 
 	return &cp, nil
@@ -729,11 +742,11 @@ func (b *InMemoryBackend) StopDBInstance(id string) (*DBInstance, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
-	if inst.DBInstanceStatus != "available" {
+	if inst.DBInstanceStatus != instanceStatusAvailable {
 		return nil, fmt.Errorf("%w: instance %s is not in available state", ErrInvalidDBInstanceState, id)
 	}
 
-	inst.DBInstanceStatus = "stopped"
+	inst.DBInstanceStatus = instanceStatusStopped
 	cp := *inst
 
 	return &cp, nil
@@ -1305,7 +1318,7 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(id, sourceID string) (*DBI
 		DbiResourceID:                     id,
 		DBInstanceClass:                   source.DBInstanceClass,
 		Engine:                            source.Engine,
-		DBInstanceStatus:                  "available",
+		DBInstanceStatus:                  instanceStatusAvailable,
 		MasterUsername:                    source.MasterUsername,
 		Endpoint:                          endpoint,
 		Port:                              port,
@@ -1343,7 +1356,7 @@ func (b *InMemoryBackend) RebootDBInstance(id string) (*DBInstance, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
-	inst.DBInstanceStatus = "available"
+	inst.DBInstanceStatus = instanceStatusAvailable
 	cp := *inst
 
 	return &cp, nil
@@ -1732,7 +1745,10 @@ func (b *InMemoryBackend) CancelExportTask(taskID string) (*ExportTask, error) {
 }
 
 // CreateGlobalCluster creates a new global cluster.
-func (b *InMemoryBackend) CreateGlobalCluster(id, engine, engineVersion string, storageEncrypted, deletionProtection bool) (*GlobalCluster, error) {
+func (b *InMemoryBackend) CreateGlobalCluster(
+	id, engine, engineVersion string,
+	storageEncrypted, deletionProtection bool,
+) (*GlobalCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -1806,7 +1822,10 @@ func (b *InMemoryBackend) DeleteGlobalCluster(id string) (*GlobalCluster, error)
 }
 
 // ModifyGlobalCluster modifies properties of a global cluster.
-func (b *InMemoryBackend) ModifyGlobalCluster(id, newGlobalClusterID, engineVersion string, deletionProtection *bool) (*GlobalCluster, error) {
+func (b *InMemoryBackend) ModifyGlobalCluster(
+	id, newGlobalClusterID, engineVersion string,
+	deletionProtection *bool,
+) (*GlobalCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -1820,8 +1839,12 @@ func (b *InMemoryBackend) ModifyGlobalCluster(id, newGlobalClusterID, engineVers
 	}
 
 	if newGlobalClusterID != "" && newGlobalClusterID != id {
-		if _, exists := b.globalClusters[newGlobalClusterID]; exists {
-			return nil, fmt.Errorf("%w: global cluster %s already exists", ErrGlobalClusterAlreadyExists, newGlobalClusterID)
+		if _, alreadyExists := b.globalClusters[newGlobalClusterID]; alreadyExists {
+			return nil, fmt.Errorf(
+				"%w: global cluster %s already exists",
+				ErrGlobalClusterAlreadyExists,
+				newGlobalClusterID,
+			)
 		}
 		delete(b.globalClusters, id)
 		gc.GlobalClusterIdentifier = newGlobalClusterID
