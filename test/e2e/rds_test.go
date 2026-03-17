@@ -10,6 +10,8 @@ import (
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 // TestRDSDashboard verifies the RDS dashboard UI renders instances.
@@ -17,7 +19,7 @@ func TestRDSDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.RDSHandler.Backend.CreateDBInstance(
-		"test-db", "postgres", "db.t3.micro", "mydb", "admin", "", 20,
+		"test-db", "postgres", "db.t3.micro", "mydb", "admin", "", 20, rds.DBInstanceOptions{},
 	)
 	require.NoError(t, err)
 
