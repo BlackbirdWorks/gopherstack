@@ -6,6 +6,10 @@ resource "aws_route53_resolver_endpoint" "this" {
   ip_address {
     subnet_id = "subnet-00000001"
   }
+
+  ip_address {
+    subnet_id = "subnet-00000002"
+  }
 }
 
 resource "aws_route53_resolver_rule" "this" {
