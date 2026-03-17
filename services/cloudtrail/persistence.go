@@ -5,9 +5,10 @@ import (
 )
 
 type backendSnapshot struct {
-	Trails    map[string]*Trail `json:"trails"`
-	AccountID string            `json:"accountID"`
-	Region    string            `json:"region"`
+	Trails      map[string]*Trail  `json:"trails"`
+	TrailsByARN map[string]string  `json:"trailsByArn"`
+	AccountID   string             `json:"accountID"`
+	Region      string             `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -17,9 +18,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Trails:    b.trails,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Trails:      b.trails,
+		TrailsByARN: b.trailsByARN,
+		AccountID:   b.accountID,
+		Region:      b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -45,8 +47,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	if snap.Trails == nil {
 		snap.Trails = make(map[string]*Trail)
 	}
+	if snap.TrailsByARN == nil {
+		snap.TrailsByARN = make(map[string]string)
+	}
 
 	b.trails = snap.Trails
+	b.trailsByARN = snap.TrailsByARN
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
