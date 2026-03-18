@@ -47,11 +47,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteResolverEndpoint",
 		"ListResolverEndpoints",
 		"GetResolverEndpoint",
+		"ListResolverEndpointIpAddresses",
 		"CreateResolverRule",
 		"GetResolverRule",
 		"DeleteResolverRule",
 		"ListResolverRules",
 		"ListTagsForResource",
+		"TagResource",
+		"UntagResource",
 	}
 }
 
@@ -111,15 +114,18 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateResolverEndpoint": service.WrapOp(h.handleCreateResolverEndpoint),
-		"DeleteResolverEndpoint": service.WrapOp(h.handleDeleteResolverEndpoint),
-		"ListResolverEndpoints":  service.WrapOp(h.handleListResolverEndpoints),
-		"GetResolverEndpoint":    service.WrapOp(h.handleGetResolverEndpoint),
-		"CreateResolverRule":     service.WrapOp(h.handleCreateResolverRule),
-		"GetResolverRule":        service.WrapOp(h.handleGetResolverRule),
-		"DeleteResolverRule":     service.WrapOp(h.handleDeleteResolverRule),
-		"ListResolverRules":      service.WrapOp(h.handleListResolverRules),
-		"ListTagsForResource":    service.WrapOp(h.handleListTagsForResource),
+		"CreateResolverEndpoint":          service.WrapOp(h.handleCreateResolverEndpoint),
+		"DeleteResolverEndpoint":          service.WrapOp(h.handleDeleteResolverEndpoint),
+		"ListResolverEndpoints":           service.WrapOp(h.handleListResolverEndpoints),
+		"GetResolverEndpoint":             service.WrapOp(h.handleGetResolverEndpoint),
+		"ListResolverEndpointIpAddresses": service.WrapOp(h.handleListResolverEndpointIPAddresses),
+		"CreateResolverRule":              service.WrapOp(h.handleCreateResolverRule),
+		"GetResolverRule":                 service.WrapOp(h.handleGetResolverRule),
+		"DeleteResolverRule":              service.WrapOp(h.handleDeleteResolverRule),
+		"ListResolverRules":               service.WrapOp(h.handleListResolverRules),
+		"ListTagsForResource":             service.WrapOp(h.handleListTagsForResource),
+		"TagResource":                     service.WrapOp(h.handleTagResource),
+		"UntagResource":                   service.WrapOp(h.handleUntagResource),
 	}
 }
 
@@ -161,6 +167,21 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 type resolverEndpointIPAddress struct {
 	SubnetID string `json:"SubnetId"`
 	IP       string `json:"Ip"`
+}
+
+type resolverEndpointIPAddressDetail struct {
+	IPID     string `json:"IpId"`
+	SubnetID string `json:"SubnetId"`
+	IP       string `json:"Ip"`
+	Status   string `json:"Status"`
+}
+
+type listResolverEndpointIPAddressesInput struct {
+	ResolverEndpointID string `json:"ResolverEndpointId"`
+}
+
+type listResolverEndpointIPAddressesOutput struct {
+	IPAddresses []resolverEndpointIPAddressDetail `json:"IpAddresses"`
 }
 
 type handleCreateResolverEndpointInput struct {
@@ -236,7 +257,7 @@ type listResolverRulesOutput struct {
 func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 	ips := make([]resolverEndpointIPOutput, 0, len(ep.IPAddresses))
 	for _, ip := range ep.IPAddresses {
-		ips = append(ips, resolverEndpointIPOutput(ip))
+		ips = append(ips, resolverEndpointIPOutput{SubnetID: ip.SubnetID, IP: ip.IP})
 	}
 
 	return resolverEndpointOutput{
@@ -263,7 +284,7 @@ func (h *Handler) handleCreateResolverEndpoint(
 ) (*createResolverEndpointOutput, error) {
 	ips := make([]IPAddress, 0, len(in.IPAddresses))
 	for _, ip := range in.IPAddresses {
-		ips = append(ips, IPAddress(ip))
+		ips = append(ips, IPAddress{SubnetID: ip.SubnetID, IP: ip.IP})
 	}
 
 	ep, err := h.Backend.CreateResolverEndpoint(in.Name, in.Direction, "", ips)
@@ -308,6 +329,27 @@ func (h *Handler) handleGetResolverEndpoint(
 	}
 
 	return &getResolverEndpointOutput{ResolverEndpoint: endpointToOutput(ep)}, nil
+}
+
+func (h *Handler) handleListResolverEndpointIPAddresses(
+	_ context.Context,
+	in *listResolverEndpointIPAddressesInput,
+) (*listResolverEndpointIPAddressesOutput, error) {
+	ips, err := h.Backend.ListResolverEndpointIPAddresses(in.ResolverEndpointID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]resolverEndpointIPAddressDetail, 0, len(ips))
+	for _, ip := range ips {
+		items = append(items, resolverEndpointIPAddressDetail{
+			IPID:     ip.IPID,
+			SubnetID: ip.SubnetID,
+			IP:       ip.IP,
+			Status:   "ATTACHED",
+		})
+	}
+
+	return &listResolverEndpointIPAddressesOutput{IPAddresses: items}, nil
 }
 
 func (h *Handler) handleCreateResolverRule(
@@ -363,11 +405,48 @@ type listTagsForResourceOutput struct {
 	Tags []svcTags.KV `json:"Tags"`
 }
 
-// handleListTagsForResource returns an empty tag list.
-// Terraform calls this after creating a Route53 Resolver rule to read tags.
+// handleListTagsForResource returns tags for the given resource ARN.
 func (h *Handler) handleListTagsForResource(
 	_ context.Context,
-	_ *listTagsForResourceInput,
+	in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	return &listTagsForResourceOutput{Tags: []svcTags.KV{}}, nil
+	kvs := h.Backend.ListTagsForResource(in.ResourceArn)
+
+	return &listTagsForResourceOutput{Tags: kvs}, nil
+}
+
+type tagResourceInput struct {
+	ResourceArn string       `json:"ResourceArn"`
+	Tags        []svcTags.KV `json:"Tags"`
+}
+
+type tagResourceOutput struct{}
+
+type untagResourceInput struct {
+	ResourceArn string   `json:"ResourceArn"`
+	TagKeys     []string `json:"TagKeys"`
+}
+
+type untagResourceOutput struct{}
+
+func (h *Handler) handleTagResource(
+	_ context.Context,
+	in *tagResourceInput,
+) (*tagResourceOutput, error) {
+	if err := h.Backend.TagResource(in.ResourceArn, in.Tags); err != nil {
+		return nil, err
+	}
+
+	return &tagResourceOutput{}, nil
+}
+
+func (h *Handler) handleUntagResource(
+	_ context.Context,
+	in *untagResourceInput,
+) (*untagResourceOutput, error) {
+	if err := h.Backend.UntagResource(in.ResourceArn, in.TagKeys); err != nil {
+		return nil, err
+	}
+
+	return &untagResourceOutput{}, nil
 }

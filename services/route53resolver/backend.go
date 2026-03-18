@@ -2,12 +2,14 @@ package route53resolver
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 var (
@@ -16,6 +18,7 @@ var (
 )
 
 type IPAddress struct {
+	IPID     string `json:"ipID"`
 	SubnetID string `json:"subnetID"`
 	IP       string `json:"ip"`
 }
@@ -47,6 +50,7 @@ type ResolverRule struct {
 type InMemoryBackend struct {
 	endpoints map[string]*ResolverEndpoint
 	rules     map[string]*ResolverRule
+	tags      map[string][]svcTags.KV
 	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
@@ -56,6 +60,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		endpoints: make(map[string]*ResolverEndpoint),
 		rules:     make(map[string]*ResolverRule),
+		tags:      make(map[string][]svcTags.KV),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("route53resolver"),
@@ -80,6 +85,15 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	}
 	id := "rslvr-" + dirPrefix + "-" + uuid.New().String()[:8]
 	epARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-endpoint/"+id)
+
+	ipsCopy := make([]IPAddress, len(ips))
+	for i, ip := range ips {
+		ipsCopy[i] = ip
+		if ipsCopy[i].IPID == "" {
+			ipsCopy[i].IPID = "rni-" + uuid.New().String()[:8]
+		}
+	}
+
 	ep := &ResolverEndpoint{
 		ID:          id,
 		ARN:         epARN,
@@ -87,7 +101,7 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 		Direction:   direction,
 		Status:      "OPERATIONAL",
 		VpcID:       vpcID,
-		IPAddresses: ips,
+		IPAddresses: ipsCopy,
 		AccountID:   b.accountID,
 		Region:      b.region,
 	}
@@ -97,6 +111,21 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	copy(cp.IPAddresses, ep.IPAddresses)
 
 	return &cp, nil
+}
+
+// ListResolverEndpointIPAddresses returns the IP addresses associated with a resolver endpoint.
+func (b *InMemoryBackend) ListResolverEndpointIPAddresses(endpointID string) ([]IPAddress, error) {
+	b.mu.RLock("ListResolverEndpointIpAddresses")
+	defer b.mu.RUnlock()
+
+	ep, ok := b.endpoints[endpointID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
+	}
+	cp := make([]IPAddress, len(ep.IPAddresses))
+	copy(cp, ep.IPAddresses)
+
+	return cp, nil
 }
 
 func (b *InMemoryBackend) GetResolverEndpoint(id string) (*ResolverEndpoint, error) {
@@ -136,6 +165,17 @@ func (b *InMemoryBackend) DeleteResolverEndpoint(id string) error {
 	if _, ok := b.endpoints[id]; !ok {
 		return fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, id)
 	}
+
+	toDelete := make([]string, 0)
+	for ruleID, r := range b.rules {
+		if r.ResolverEndpointID == id {
+			toDelete = append(toDelete, ruleID)
+		}
+	}
+	for _, ruleID := range toDelete {
+		delete(b.rules, ruleID)
+	}
+
 	delete(b.endpoints, id)
 
 	return nil
@@ -144,6 +184,12 @@ func (b *InMemoryBackend) DeleteResolverEndpoint(id string) error {
 func (b *InMemoryBackend) CreateResolverRule(name, domainName, ruleType, endpointID string) (*ResolverRule, error) {
 	b.mu.Lock("CreateResolverRule")
 	defer b.mu.Unlock()
+
+	if endpointID != "" {
+		if _, ok := b.endpoints[endpointID]; !ok {
+			return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
+		}
+	}
 
 	id := "rslvr-rr-" + uuid.New().String()[:8]
 	ruleARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-rule/"+id)
@@ -200,4 +246,64 @@ func (b *InMemoryBackend) DeleteResolverRule(id string) error {
 	delete(b.rules, id)
 
 	return nil
+}
+
+// TagResource adds or updates tags on a resource identified by its ARN.
+func (b *InMemoryBackend) TagResource(resourceARN string, kvs []svcTags.KV) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	existing := b.tags[resourceARN]
+	keyIdx := make(map[string]int, len(existing))
+	for i, kv := range existing {
+		keyIdx[kv.Key] = i
+	}
+	for _, kv := range kvs {
+		if i, ok := keyIdx[kv.Key]; ok {
+			existing[i].Value = kv.Value
+		} else {
+			existing = append(existing, kv)
+			keyIdx[kv.Key] = len(existing) - 1
+		}
+	}
+	sort.Slice(existing, func(i, j int) bool { return existing[i].Key < existing[j].Key })
+	b.tags[resourceARN] = existing
+
+	return nil
+}
+
+// UntagResource removes tags from a resource identified by its ARN.
+func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	existing := b.tags[resourceARN]
+	keySet := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		keySet[k] = true
+	}
+	remaining := make([]svcTags.KV, 0, len(existing))
+	for _, kv := range existing {
+		if !keySet[kv.Key] {
+			remaining = append(remaining, kv)
+		}
+	}
+	b.tags[resourceARN] = remaining
+
+	return nil
+}
+
+// ListTagsForResource returns the tags for a resource identified by its ARN.
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) []svcTags.KV {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	kvs := b.tags[resourceARN]
+	if len(kvs) == 0 {
+		return []svcTags.KV{}
+	}
+	cp := make([]svcTags.KV, len(kvs))
+	copy(cp, kvs)
+
+	return cp
 }

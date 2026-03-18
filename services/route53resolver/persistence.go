@@ -2,11 +2,14 @@ package route53resolver
 
 import (
 	"encoding/json"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 type backendSnapshot struct {
 	Endpoints map[string]*ResolverEndpoint `json:"endpoints"`
 	Rules     map[string]*ResolverRule     `json:"rules"`
+	Tags      map[string][]svcTags.KV      `json:"tags"`
 	AccountID string                       `json:"accountID"`
 	Region    string                       `json:"region"`
 }
@@ -20,6 +23,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	snap := backendSnapshot{
 		Endpoints: b.endpoints,
 		Rules:     b.rules,
+		Tags:      b.tags,
 		AccountID: b.accountID,
 		Region:    b.region,
 	}
@@ -52,8 +56,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Rules = make(map[string]*ResolverRule)
 	}
 
+	if snap.Tags == nil {
+		snap.Tags = make(map[string][]svcTags.KV)
+	}
+
 	b.endpoints = snap.Endpoints
 	b.rules = snap.Rules
+	b.tags = snap.Tags
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

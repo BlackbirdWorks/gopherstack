@@ -187,10 +187,19 @@ func (b *InMemoryBackend) DeleteFileSystem(fileSystemID string) error {
 	b.mu.Lock("DeleteFileSystem")
 	defer b.mu.Unlock()
 
-	if _, ok := b.fileSystems[fileSystemID]; !ok {
+	fs, ok := b.fileSystems[fileSystemID]
+	if !ok {
 		return fmt.Errorf("%w: file system %s not found", ErrNotFound, fileSystemID)
 	}
+	fs.Tags.Close()
 	delete(b.fileSystems, fileSystemID)
+	delete(b.lifecyclePolicies, fileSystemID)
+
+	for id, mt := range b.mountTargets {
+		if mt.FileSystemID == fileSystemID {
+			delete(b.mountTargets, id)
+		}
+	}
 
 	return nil
 }
@@ -390,9 +399,11 @@ func (b *InMemoryBackend) DeleteAccessPoint(accessPointID string) error {
 	b.mu.Lock("DeleteAccessPoint")
 	defer b.mu.Unlock()
 
-	if _, ok := b.accessPoints[accessPointID]; !ok {
+	ap, ok := b.accessPoints[accessPointID]
+	if !ok {
 		return fmt.Errorf("%w: access point %s not found", ErrAccessPointNotFound, accessPointID)
 	}
+	ap.Tags.Close()
 	delete(b.accessPoints, accessPointID)
 
 	return nil

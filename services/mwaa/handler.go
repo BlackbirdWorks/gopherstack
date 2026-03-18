@@ -245,6 +245,10 @@ func (h *Handler) handleCreateEnvironment(c *echo.Context, name string) error {
 			return writeErrorResponse(c, http.StatusConflict, "AlreadyExistsException", err.Error())
 		}
 
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", err.Error())
+		}
+
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
@@ -305,6 +309,10 @@ func (h *Handler) handleUpdateEnvironment(c *echo.Context, name string) error {
 	if err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return writeErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+		}
+
+		if errors.Is(err, awserr.ErrInvalidParameter) {
+			return writeErrorResponse(c, http.StatusBadRequest, "ValidationException", err.Error())
 		}
 
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())

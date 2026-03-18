@@ -167,8 +167,11 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 			"__type":  "ResourceExistsException",
 			"message": err.Error(),
 		})
-	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
-		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
+	case errors.Is(err, awserr.ErrInvalidParameter),
+		errors.Is(err, errInvalidRequest),
+		errors.Is(err, errUnknownAction),
+		errors.As(err, &syntaxErr),
+		errors.As(err, &typeErr):
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"__type":  "InvalidRequestException",
 			"message": err.Error(),
