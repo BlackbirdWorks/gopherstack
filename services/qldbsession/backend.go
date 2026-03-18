@@ -21,6 +21,11 @@ var (
 	ErrNoActiveTransaction = awserr.New("InvalidSessionException", awserr.ErrNotFound)
 )
 
+const (
+	// maxSessions is the maximum number of concurrent sessions retained in memory.
+	maxSessions = 10000
+)
+
 // Session represents an active QLDB session.
 type Session struct {
 	CreatedAt      time.Time
@@ -31,10 +36,11 @@ type Session struct {
 
 // InMemoryBackend stores QLDB sessions in memory.
 type InMemoryBackend struct {
-	sessions  map[string]*Session
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	sessions    map[string]*Session
+	mu          *lockmetrics.RWMutex
+	accountID   string
+	region      string
+	sessionKeys []string
 }
 
 // NewInMemoryBackend creates a new in-memory QLDB Session backend.
@@ -51,6 +57,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 func (b *InMemoryBackend) Region() string { return b.region }
 
 // StartSession creates a new session for the given ledger and returns its token.
+// Oldest sessions are evicted when the cap is exceeded to prevent unbounded growth.
 func (b *InMemoryBackend) StartSession(ledgerName string) (*Session, error) {
 	b.mu.Lock("StartSession")
 	defer b.mu.Unlock()
@@ -63,6 +70,14 @@ func (b *InMemoryBackend) StartSession(ledgerName string) (*Session, error) {
 		TransactionIDs: make(map[string]bool),
 	}
 	b.sessions[token] = sess
+	b.sessionKeys = append(b.sessionKeys, token)
+
+	// Evict oldest session when the cap is exceeded.
+	if len(b.sessionKeys) > maxSessions {
+		oldest := b.sessionKeys[0]
+		b.sessionKeys = b.sessionKeys[1:]
+		delete(b.sessions, oldest)
+	}
 
 	return cloneSession(sess), nil
 }

@@ -689,11 +689,13 @@ type replicationInstanceJSON struct {
 }
 
 func riToJSON(ri *ReplicationInstance) replicationInstanceJSON {
+	emptyID := ""
+
 	return replicationInstanceJSON{
-		// ReplicationSubnetGroup must always be present and non-null.
+		// ReplicationSubnetGroup must always be present with a non-nil Identifier.
 		// The Terraform AWS provider accesses ReplicationSubnetGroup.ReplicationSubnetGroupIdentifier
-		// directly (no nil check), so a missing field causes a nil pointer dereference panic.
-		ReplicationSubnetGroup:        replicationSubnetGroupJSON{ReplicationSubnetGroupIdentifier: nil},
+		// directly (no nil check), so a nil pointer causes a panic.
+		ReplicationSubnetGroup:        replicationSubnetGroupJSON{ReplicationSubnetGroupIdentifier: &emptyID},
 		ReplicationInstanceIdentifier: ri.ReplicationInstanceIdentifier,
 		ReplicationInstanceArn:        ri.ReplicationInstanceArn,
 		ReplicationInstanceClass:      ri.ReplicationInstanceClass,

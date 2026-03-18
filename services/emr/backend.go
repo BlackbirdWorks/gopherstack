@@ -100,7 +100,8 @@ type ClusterSummary struct {
 
 // InMemoryBackend stores EMR state in memory.
 type InMemoryBackend struct {
-	clusters  map[string]*Cluster
+	clusters  map[string]*Cluster // keyed by cluster ID
+	arnIndex  map[string]string   // ARN → cluster ID
 	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
@@ -111,6 +112,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		clusters:  make(map[string]*Cluster),
+		arnIndex:  make(map[string]string),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("emr"),
@@ -176,6 +178,7 @@ func (b *InMemoryBackend) RunJobFlow(
 		instanceGroups: groups,
 	}
 	b.clusters[id] = cluster
+	b.arnIndex[clusterARN] = id
 	cp := cluster.clone()
 
 	return &cp, nil
@@ -346,10 +349,8 @@ func (b *InMemoryBackend) findClusterByIDOrARN(idOrARN string) *Cluster {
 		return c
 	}
 
-	for _, c := range b.clusters {
-		if c.ARN == idOrARN {
-			return c
-		}
+	if id, ok := b.arnIndex[idOrARN]; ok {
+		return b.clusters[id]
 	}
 
 	return nil
@@ -380,5 +381,6 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.clusters = make(map[string]*Cluster)
+	b.arnIndex = make(map[string]string)
 	b.counter.Store(0)
 }

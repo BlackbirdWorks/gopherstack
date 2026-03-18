@@ -155,6 +155,30 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // AccountID returns the backend account ID.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
 
+// cloneDatabase returns a deep copy of a Database.
+func cloneDatabase(db *Database) *Database {
+	cp := *db
+	cp.Tags = maps.Clone(db.Tags)
+
+	return &cp
+}
+
+// cloneCrawler returns a deep copy of a Crawler.
+func cloneCrawler(c *Crawler) *Crawler {
+	cp := *c
+	cp.Tags = maps.Clone(c.Tags)
+
+	return &cp
+}
+
+// cloneJob returns a deep copy of a Job.
+func cloneJob(j *Job) *Job {
+	cp := *j
+	cp.Tags = maps.Clone(j.Tags)
+
+	return &cp
+}
+
 // databaseARN returns the ARN for a Glue database.
 func (b *InMemoryBackend) databaseARN(name string) string {
 	return arn.Build("glue", b.region, b.accountID, "database/"+name)
@@ -226,7 +250,7 @@ func (b *InMemoryBackend) GetDatabase(name string) (*Database, error) {
 		return nil, ErrNotFound
 	}
 
-	return db, nil
+	return cloneDatabase(db), nil
 }
 
 // GetDatabases returns all Glue databases.
@@ -236,7 +260,7 @@ func (b *InMemoryBackend) GetDatabases() []*Database {
 
 	out := make([]*Database, 0, len(b.databases))
 	for _, db := range b.databases {
-		out = append(out, db)
+		out = append(out, cloneDatabase(db))
 	}
 
 	return out
@@ -420,7 +444,7 @@ func (b *InMemoryBackend) GetCrawler(name string) (*Crawler, error) {
 		return nil, ErrNotFound
 	}
 
-	return c, nil
+	return cloneCrawler(c), nil
 }
 
 // GetCrawlers returns all Glue crawlers.
@@ -430,7 +454,7 @@ func (b *InMemoryBackend) GetCrawlers() []*Crawler {
 
 	out := make([]*Crawler, 0, len(b.crawlers))
 	for _, c := range b.crawlers {
-		out = append(out, c)
+		out = append(out, cloneCrawler(c))
 	}
 
 	return out
@@ -509,7 +533,7 @@ func (b *InMemoryBackend) GetJob(name string) (*Job, error) {
 		return nil, ErrNotFound
 	}
 
-	return j, nil
+	return cloneJob(j), nil
 }
 
 // GetJobs returns all Glue jobs.
@@ -519,7 +543,7 @@ func (b *InMemoryBackend) GetJobs() []*Job {
 
 	out := make([]*Job, 0, len(b.jobs))
 	for _, j := range b.jobs {
-		out = append(out, j)
+		out = append(out, cloneJob(j))
 	}
 
 	return out

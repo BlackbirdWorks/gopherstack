@@ -17,6 +17,8 @@ const (
 	statusFailed = "FAILED"
 	// statusAborted is the aborted status for a SQL statement (cancelled).
 	statusAborted = "ABORTED"
+	// maxStatementHistory is the maximum number of statements to retain in memory.
+	maxStatementHistory = 1000
 )
 
 var (
@@ -47,10 +49,11 @@ type Statement struct {
 
 // InMemoryBackend is an in-memory store for Redshift Data API statements.
 type InMemoryBackend struct {
-	statements map[string]*Statement
-	mu         *lockmetrics.RWMutex
-	accountID  string
-	region     string
+	statements    map[string]*Statement
+	mu            *lockmetrics.RWMutex
+	accountID     string
+	region        string
+	statementKeys []string
 }
 
 // NewInMemoryBackend creates a new in-memory Redshift Data backend.
@@ -65,6 +68,19 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// addStatement inserts a statement and evicts the oldest if the cap is exceeded.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) addStatement(stmt *Statement) {
+	b.statements[stmt.ID] = stmt
+	b.statementKeys = append(b.statementKeys, stmt.ID)
+
+	if len(b.statementKeys) > maxStatementHistory {
+		oldest := b.statementKeys[0]
+		b.statementKeys = b.statementKeys[1:]
+		delete(b.statements, oldest)
+	}
+}
 
 // ExecuteStatement creates and immediately completes a SQL statement.
 func (b *InMemoryBackend) ExecuteStatement(
@@ -89,7 +105,7 @@ func (b *InMemoryBackend) ExecuteStatement(
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	b.statements[stmt.ID] = stmt
+	b.addStatement(stmt)
 
 	return cloneStatement(stmt), nil
 }
@@ -117,7 +133,7 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	b.statements[stmt.ID] = stmt
+	b.addStatement(stmt)
 
 	return cloneStatement(stmt), nil
 }

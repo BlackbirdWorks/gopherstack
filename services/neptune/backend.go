@@ -3,8 +3,8 @@ package neptune
 import (
 	"errors"
 	"fmt"
-	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
@@ -95,7 +95,6 @@ type InMemoryBackend struct {
 	clusterParameterGroups map[string]*DBClusterParameterGroup
 	clusterSnapshots       map[string]*DBClusterSnapshot
 	tags                   map[string][]Tag
-	fisFailoverFaults      map[string]time.Time
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -110,7 +109,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		clusterParameterGroups: make(map[string]*DBClusterParameterGroup),
 		clusterSnapshots:       make(map[string]*DBClusterSnapshot),
 		tags:                   make(map[string][]Tag),
-		fisFailoverFaults:      make(map[string]time.Time),
 		accountID:              accountID,
 		region:                 region,
 		mu:                     lockmetrics.New("neptune"),
@@ -119,6 +117,16 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // Region returns the backend's AWS region.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// clusterARN returns the ARN for a Neptune DB cluster.
+func (b *InMemoryBackend) clusterARN(id string) string {
+	return arn.Build("neptune", b.region, b.accountID, "cluster:"+id)
+}
+
+// instanceARN returns the ARN for a Neptune DB instance.
+func (b *InMemoryBackend) instanceARN(id string) string {
+	return arn.Build("neptune", b.region, b.accountID, "db:"+id)
+}
 
 // CreateDBCluster creates a new Neptune DB cluster.
 func (b *InMemoryBackend) CreateDBCluster(id, paramGroupName string, port int) (*DBCluster, error) {
@@ -172,7 +180,7 @@ func (b *InMemoryBackend) DescribeDBClusters(id string) ([]DBCluster, error) {
 	return result, nil
 }
 
-// DeleteDBCluster deletes a Neptune DB cluster.
+// DeleteDBCluster deletes a Neptune DB cluster and all associated DB instances.
 func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 	b.mu.Lock("DeleteDBCluster")
 	defer b.mu.Unlock()
@@ -182,6 +190,15 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 	}
 	cp := *c
 	delete(b.clusters, id)
+	delete(b.tags, b.clusterARN(id))
+
+	// Clean up all instances associated with this cluster.
+	for instID, inst := range b.instances {
+		if inst.DBClusterIdentifier == id {
+			delete(b.instances, instID)
+			delete(b.tags, b.instanceARN(instID))
+		}
+	}
 
 	return &cp, nil
 }
@@ -310,9 +327,10 @@ func (b *InMemoryBackend) DeleteDBInstance(id string) (*DBInstance, error) {
 	}
 	cp := *inst
 	delete(b.instances, id)
+	delete(b.tags, b.instanceARN(id))
 	if cp.DBClusterIdentifier != "" {
 		if cl, ok := b.clusters[cp.DBClusterIdentifier]; ok {
-			members := cl.DBClusterMembers[:0]
+			members := make([]DBClusterMember, 0, len(cl.DBClusterMembers))
 			for _, m := range cl.DBClusterMembers {
 				if m.DBInstanceIdentifier != id {
 					members = append(members, m)
@@ -587,7 +605,7 @@ func (b *InMemoryBackend) RemoveTagsFromResource(arn string, keys []string) {
 		remove[k] = true
 	}
 	current := b.tags[arn]
-	kept := current[:0]
+	kept := make([]Tag, 0, len(current))
 	for _, t := range current {
 		if !remove[t.Key] {
 			kept = append(kept, t)
