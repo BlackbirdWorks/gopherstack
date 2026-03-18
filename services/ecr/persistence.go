@@ -44,7 +44,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Repos = make(map[string]*Repository)
 	}
 
-	b.repos = snap.Repos
+	// Deep-copy to ensure the restored backend state is isolated from the snapshot bytes.
+	repos := make(map[string]*Repository, len(snap.Repos))
+	for k, v := range snap.Repos {
+		cp := *v
+		repos[k] = &cp
+	}
+
+	b.repos = repos
 
 	return nil
 }

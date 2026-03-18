@@ -33,6 +33,10 @@ const (
 	EngineTypeActiveMQ = "ACTIVEMQ"
 	// EngineTypeRabbitMQ is the RabbitMQ engine type.
 	EngineTypeRabbitMQ = "RABBITMQ"
+
+	// maxConfigurationRevisions is the maximum number of revisions retained per configuration.
+	// AWS MQ supports up to 50 revisions; older ones are pruned when this limit is exceeded.
+	maxConfigurationRevisions = 50
 )
 
 // BrokerInstance holds endpoint information for a broker instance.
@@ -581,6 +585,13 @@ func (b *InMemoryBackend) UpdateConfiguration(configID, description, data string
 	cfg.LatestRevision = &rev
 	cfg.Revisions = append(cfg.Revisions, rev)
 	cfg.Data[nextRev] = data
+
+	// Prune oldest revision when the cap is exceeded.
+	if len(cfg.Revisions) > maxConfigurationRevisions {
+		oldest := cfg.Revisions[0]
+		cfg.Revisions = cfg.Revisions[1:]
+		delete(cfg.Data, oldest.Revision)
+	}
 
 	return b.copyConfiguration(cfg), nil
 }

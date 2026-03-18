@@ -63,7 +63,11 @@ func (b *InMemoryBackend) CreateApp(region, accountID, name string, tags map[str
 
 	b.apps[appID] = app
 
-	return app, nil
+	cp := *app
+	cp.Tags = make(map[string]string, len(app.Tags))
+	maps.Copy(cp.Tags, app.Tags)
+
+	return &cp, nil
 }
 
 // GetApp retrieves a Pinpoint application by ID.
@@ -76,7 +80,11 @@ func (b *InMemoryBackend) GetApp(appID string) (*App, error) {
 		return nil, ErrAppNotFound
 	}
 
-	return app, nil
+	cp := *app
+	cp.Tags = make(map[string]string, len(app.Tags))
+	maps.Copy(cp.Tags, app.Tags)
+
+	return &cp, nil
 }
 
 // DeleteApp deletes a Pinpoint application by ID.
@@ -91,7 +99,11 @@ func (b *InMemoryBackend) DeleteApp(appID string) (*App, error) {
 
 	delete(b.apps, appID)
 
-	return app, nil
+	cp := *app
+	cp.Tags = make(map[string]string, len(app.Tags))
+	maps.Copy(cp.Tags, app.Tags)
+
+	return &cp, nil
 }
 
 // GetApps returns all Pinpoint applications sorted by name.
@@ -102,7 +114,10 @@ func (b *InMemoryBackend) GetApps() ([]*App, error) {
 	apps := make([]*App, 0, len(b.apps))
 
 	for _, app := range b.apps {
-		apps = append(apps, app)
+		cp := *app
+		cp.Tags = make(map[string]string, len(app.Tags))
+		maps.Copy(cp.Tags, app.Tags)
+		apps = append(apps, &cp)
 	}
 
 	sort.Slice(apps, func(i, j int) bool {

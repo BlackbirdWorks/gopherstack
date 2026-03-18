@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
@@ -156,13 +157,12 @@ func (b *InMemoryBackend) DeleteProfile(app, env, profile string) bool {
 	delete(b.profiles, key)
 
 	// Remove sessions linked to this profile.
-	for token, s := range b.sessions {
-		if s.ApplicationIdentifier == app &&
+	// Collect tokens first to avoid mutating the map during iteration.
+	maps.DeleteFunc(b.sessions, func(_ string, s *Session) bool {
+		return s.ApplicationIdentifier == app &&
 			s.EnvironmentIdentifier == env &&
-			s.ConfigurationProfileIdentifier == profile {
-			delete(b.sessions, token)
-		}
-	}
+			s.ConfigurationProfileIdentifier == profile
+	})
 
 	return true
 }

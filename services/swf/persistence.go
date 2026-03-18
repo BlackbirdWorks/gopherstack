@@ -5,9 +5,10 @@ import (
 )
 
 type backendSnapshot struct {
-	Domains    map[string]*Domain            `json:"domains"`
-	Workflows  map[string]*WorkflowType      `json:"workflows"`
-	Executions map[string]*WorkflowExecution `json:"executions"`
+	Domains        map[string]*Domain            `json:"domains"`
+	Workflows      map[string]*WorkflowType      `json:"workflows"`
+	Executions     map[string]*WorkflowExecution `json:"executions"`
+	ExecutionOrder []string                      `json:"executionOrder"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -16,10 +17,33 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
+	// Deep-copy maps to ensure snapshot isolation.
+	domains := make(map[string]*Domain, len(b.domains))
+	for k, v := range b.domains {
+		cp := *v
+		domains[k] = &cp
+	}
+
+	workflows := make(map[string]*WorkflowType, len(b.workflows))
+	for k, v := range b.workflows {
+		cp := *v
+		workflows[k] = &cp
+	}
+
+	executions := make(map[string]*WorkflowExecution, len(b.executions))
+	for k, v := range b.executions {
+		cp := *v
+		executions[k] = &cp
+	}
+
+	order := make([]string, len(b.executionOrder))
+	copy(order, b.executionOrder)
+
 	snap := backendSnapshot{
-		Domains:    b.domains,
-		Workflows:  b.workflows,
-		Executions: b.executions,
+		Domains:        domains,
+		Workflows:      workflows,
+		Executions:     executions,
+		ExecutionOrder: order,
 	}
 
 	data, err := json.Marshal(snap)
@@ -57,6 +81,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.domains = snap.Domains
 	b.workflows = snap.Workflows
 	b.executions = snap.Executions
+	b.executionOrder = snap.ExecutionOrder
 
 	return nil
 }

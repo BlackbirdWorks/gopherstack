@@ -19,7 +19,7 @@ import (
 func newTestHandler(t *testing.T) *appconfig.Handler {
 	t.Helper()
 
-	return appconfig.NewHandler(appconfig.NewInMemoryBackend())
+	return appconfig.NewHandler(appconfig.NewInMemoryBackend("123456789012", "us-east-1"))
 }
 
 func doRequest(
@@ -483,7 +483,7 @@ func TestProvider_NameAndInit(t *testing.T) {
 func TestBackend_GetApplication_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.GetApplication("nonexistent")
 	require.Error(t, err)
 }
@@ -491,7 +491,7 @@ func TestBackend_GetApplication_NotFound(t *testing.T) {
 func TestBackend_ListApplications_Empty(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	apps, _ := b.ListApplications("", 0)
 	assert.Empty(t, apps)
 }
@@ -499,7 +499,7 @@ func TestBackend_ListApplications_Empty(t *testing.T) {
 func TestBackend_DeleteApplication_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	err := b.DeleteApplication("nonexistent")
 	require.Error(t, err)
 }
@@ -507,7 +507,7 @@ func TestBackend_DeleteApplication_NotFound(t *testing.T) {
 func TestBackend_CreateEnvironment_AppNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.CreateEnvironment("nonexistent", "env", "")
 	require.Error(t, err)
 }
@@ -515,7 +515,7 @@ func TestBackend_CreateEnvironment_AppNotFound(t *testing.T) {
 func TestBackend_CreateDeploymentStrategy(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	s, err := b.CreateDeploymentStrategy("strat", "desc", 0, 0, 100, "LINEAR", "NONE")
 	require.NoError(t, err)
 	assert.Equal(t, "strat", s.Name)
@@ -528,7 +528,7 @@ func TestBackend_CreateDeploymentStrategy(t *testing.T) {
 func TestBackend_UpdateDeploymentStrategy_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.UpdateDeploymentStrategy("nonexistent", "name", "", 0, 0, 0)
 	require.Error(t, err)
 }
@@ -536,7 +536,7 @@ func TestBackend_UpdateDeploymentStrategy_NotFound(t *testing.T) {
 func TestBackend_DeleteDeploymentStrategy_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	err := b.DeleteDeploymentStrategy("nonexistent")
 	require.Error(t, err)
 }
@@ -544,7 +544,7 @@ func TestBackend_DeleteDeploymentStrategy_NotFound(t *testing.T) {
 func TestBackend_GetDeploymentStrategy_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.GetDeploymentStrategy("nonexistent")
 	require.Error(t, err)
 }
@@ -552,7 +552,7 @@ func TestBackend_GetDeploymentStrategy_NotFound(t *testing.T) {
 func TestBackend_GetDeployment_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.GetDeployment("app-1", "env-1", 1)
 	require.Error(t, err)
 }
@@ -560,7 +560,7 @@ func TestBackend_GetDeployment_NotFound(t *testing.T) {
 func TestBackend_StopDeployment_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	err := b.StopDeployment("app-1", "env-1", 1)
 	require.Error(t, err)
 }
@@ -568,7 +568,7 @@ func TestBackend_StopDeployment_NotFound(t *testing.T) {
 func TestBackend_HostedConfigVersion_ProfileNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	app, err := b.CreateApplication("app", "")
 	require.NoError(t, err)
 
@@ -579,7 +579,7 @@ func TestBackend_HostedConfigVersion_ProfileNotFound(t *testing.T) {
 func TestBackend_GetHostedConfigVersion_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.GetHostedConfigurationVersion("app-1", "prof-1", 1)
 	require.Error(t, err)
 }
@@ -587,7 +587,7 @@ func TestBackend_GetHostedConfigVersion_NotFound(t *testing.T) {
 func TestBackend_DeleteHostedConfigVersion_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	err := b.DeleteHostedConfigurationVersion("app-1", "prof-1", 1)
 	require.Error(t, err)
 }
@@ -595,7 +595,7 @@ func TestBackend_DeleteHostedConfigVersion_NotFound(t *testing.T) {
 func TestBackend_GetEnvironment_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.GetEnvironment("app-1", "env-1")
 	require.Error(t, err)
 }
@@ -603,7 +603,7 @@ func TestBackend_GetEnvironment_NotFound(t *testing.T) {
 func TestBackend_ListEnvironments_AppNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, _, err := b.ListEnvironments("nonexistent", "", 0)
 	require.Error(t, err)
 }
@@ -611,7 +611,7 @@ func TestBackend_ListEnvironments_AppNotFound(t *testing.T) {
 func TestBackend_GetConfigurationProfile_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.GetConfigurationProfile("app-1", "prof-1")
 	require.Error(t, err)
 }
@@ -619,7 +619,7 @@ func TestBackend_GetConfigurationProfile_NotFound(t *testing.T) {
 func TestBackend_ListConfigurationProfiles_AppNotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, _, err := b.ListConfigurationProfiles("nonexistent", "", 0)
 	require.Error(t, err)
 }
@@ -627,7 +627,7 @@ func TestBackend_ListConfigurationProfiles_AppNotFound(t *testing.T) {
 func TestBackend_UpdateConfigurationProfile_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.UpdateConfigurationProfile("app-1", "prof-1", "name", "")
 	require.Error(t, err)
 }
@@ -635,7 +635,7 @@ func TestBackend_UpdateConfigurationProfile_NotFound(t *testing.T) {
 func TestBackend_DeleteConfigurationProfile_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	err := b.DeleteConfigurationProfile("app-1", "prof-1")
 	require.Error(t, err)
 }
@@ -643,7 +643,7 @@ func TestBackend_DeleteConfigurationProfile_NotFound(t *testing.T) {
 func TestBackend_UpdateEnvironment_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	_, err := b.UpdateEnvironment("app-1", "env-1", "name", "")
 	require.Error(t, err)
 }
@@ -651,7 +651,7 @@ func TestBackend_UpdateEnvironment_NotFound(t *testing.T) {
 func TestBackend_DeleteEnvironment_NotFound(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 	err := b.DeleteEnvironment("app-1", "env-1")
 	require.Error(t, err)
 }
@@ -1143,7 +1143,7 @@ func TestHandler_ListApplicationsPagination(t *testing.T) {
 func TestBackend_appConfigPaginate_EdgeCases(t *testing.T) {
 	t.Parallel()
 
-	b := appconfig.NewInMemoryBackend()
+	b := appconfig.NewInMemoryBackend("123456789012", "us-east-1")
 
 	// Create 4 apps.
 	for _, name := range []string{"a", "b", "c", "d"} {
