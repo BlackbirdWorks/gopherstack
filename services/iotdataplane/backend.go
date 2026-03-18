@@ -1,9 +1,11 @@
 package iotdataplane
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // ErrNoBroker is returned when no MQTT broker has been wired.
@@ -12,17 +14,28 @@ var ErrNoBroker = errors.New("no mqtt broker configured")
 // ErrShadowNotFound is returned when a thing shadow is not found.
 var ErrShadowNotFound = errors.New("ResourceNotFoundException")
 
+// ErrVersionConflict is returned when a shadow update specifies a version
+// that does not match the current shadow version (optimistic locking violation).
+var ErrVersionConflict = errors.New("VersionConflictException")
+
+// shadowEntry holds a shadow document together with its version and timestamp.
+type shadowEntry struct {
+	updatedAt time.Time
+	document  []byte
+	version   int
+}
+
 // InMemoryBackend implements the IoT Data Plane backend.
 type InMemoryBackend struct {
 	broker  MQTTPublisher
-	shadows map[string]map[string][]byte // thingName -> shadowName -> document
+	shadows map[string]map[string]*shadowEntry // thingName -> shadowName -> entry
 	mu      sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		shadows: make(map[string]map[string][]byte),
+		shadows: make(map[string]map[string]*shadowEntry),
 	}
 }
 
@@ -47,7 +60,30 @@ func (b *InMemoryBackend) Publish(topic string, payload []byte) error {
 	return broker.Publish(topic, payload, false, 0)
 }
 
-// GetThingShadow returns the document for the named shadow of a thing.
+// buildShadowResponse merges version and timestamp into the stored shadow document.
+// If the document is a valid JSON object, the fields are injected directly;
+// otherwise the raw bytes are wrapped under a "payload" key.
+func buildShadowResponse(doc []byte, version int, updatedAt time.Time) ([]byte, error) {
+	var m map[string]json.RawMessage
+
+	if err := json.Unmarshal(doc, &m); err != nil {
+		return json.Marshal(map[string]any{
+			"payload":   json.RawMessage(doc),
+			"version":   version,
+			"timestamp": updatedAt.Unix(),
+		})
+	}
+
+	verBytes, _ := json.Marshal(version)
+	tsBytes, _ := json.Marshal(updatedAt.Unix())
+	m["version"] = verBytes
+	m["timestamp"] = tsBytes
+
+	return json.Marshal(m)
+}
+
+// GetThingShadow returns the shadow document for the named shadow of a thing.
+// The response includes "version" and "timestamp" metadata fields.
 // An empty shadowName refers to the classic (unnamed) shadow.
 func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, error) {
 	b.mu.RLock()
@@ -58,31 +94,65 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, 
 		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
 	}
 
-	doc, ok := thingShadows[shadowName]
+	entry, ok := thingShadows[shadowName]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s/%s", ErrShadowNotFound, thingName, shadowName)
 	}
 
-	cp := make([]byte, len(doc))
-	copy(cp, doc)
-
-	return cp, nil
+	return buildShadowResponse(entry.document, entry.version, entry.updatedAt)
 }
 
-// UpdateThingShadow stores or replaces the document for the named shadow of a thing.
-func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, document []byte) error {
+// UpdateThingShadow stores or merges the document for the named shadow of a thing.
+// If the document contains a "version" field it must equal the current shadow
+// version; a mismatch returns ErrVersionConflict (optimistic locking).
+// The version is incremented on every successful update.
+// The returned bytes represent the updated shadow response including the new version.
+func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, document []byte) ([]byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if _, ok := b.shadows[thingName]; !ok {
-		b.shadows[thingName] = make(map[string][]byte)
+		b.shadows[thingName] = make(map[string]*shadowEntry)
 	}
+
+	current := b.shadows[thingName][shadowName]
+
+	// Check optimistic locking version if the caller supplied one.
+	var vc struct {
+		Version *int `json:"version,omitempty"`
+	}
+
+	_ = json.Unmarshal(document, &vc)
+
+	if vc.Version != nil {
+		currentVersion := 0
+		if current != nil {
+			currentVersion = current.version
+		}
+
+		if *vc.Version != currentVersion {
+			return nil, fmt.Errorf("%w: expected %d, got %d",
+				ErrVersionConflict, currentVersion, *vc.Version)
+		}
+	}
+
+	newVersion := 1
+	if current != nil {
+		newVersion = current.version + 1
+	}
+
+	now := time.Now()
 
 	cp := make([]byte, len(document))
 	copy(cp, document)
-	b.shadows[thingName][shadowName] = cp
 
-	return nil
+	b.shadows[thingName][shadowName] = &shadowEntry{
+		document:  cp,
+		version:   newVersion,
+		updatedAt: now,
+	}
+
+	return buildShadowResponse(cp, newVersion, now)
 }
 
 // DeleteThingShadow removes the document for the named shadow of a thing.

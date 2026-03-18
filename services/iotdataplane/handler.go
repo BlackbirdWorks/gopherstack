@@ -159,14 +159,16 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 
 	payload := body
 
-	// If the body is a JSON object with a "payload" key, unwrap it.
-	var wrapper map[string]json.RawMessage
-	if jsonErr := json.Unmarshal(body, &wrapper); jsonErr == nil {
-		if rawPayload, ok := wrapper["payload"]; ok {
-			var payloadStr string
-			if unmarshalErr := json.Unmarshal(rawPayload, &payloadStr); unmarshalErr == nil {
-				payload = []byte(payloadStr)
-			}
+	// If the body is a JSON object with a "payload" string key, unwrap it.
+	// Using a fixed struct avoids the map allocation that a map[string]json.RawMessage would incur.
+	var wrapper struct {
+		Payload *json.RawMessage `json:"payload"`
+	}
+
+	if jsonErr := json.Unmarshal(body, &wrapper); jsonErr == nil && wrapper.Payload != nil {
+		var payloadStr string
+		if unmarshalErr := json.Unmarshal(*wrapper.Payload, &payloadStr); unmarshalErr == nil {
+			payload = []byte(payloadStr)
 		}
 	}
 
@@ -227,11 +229,19 @@ func (h *Handler) handleUpdateThingShadow(c *echo.Context, thingName, shadowName
 		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
 	}
 
-	if updateErr := h.Backend.UpdateThingShadow(thingName, shadowName, body); updateErr != nil {
+	updated, updateErr := h.Backend.UpdateThingShadow(thingName, shadowName, body)
+	if updateErr != nil {
+		if errors.Is(updateErr, ErrVersionConflict) {
+			return c.JSON(http.StatusConflict, map[string]string{
+				"error":   "VersionConflictException",
+				"message": updateErr.Error(),
+			})
+		}
+
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": updateErr.Error()})
 	}
 
-	return c.Blob(http.StatusOK, "application/json", body)
+	return c.Blob(http.StatusOK, "application/json", updated)
 }
 
 // handleDeleteThingShadow processes DELETE /things/{thingName}/shadow.

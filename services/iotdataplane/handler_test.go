@@ -342,6 +342,134 @@ func TestBackend_GetThingShadow_ThingNotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestBackend_ShadowVersioning(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		updates     [][]byte
+		wantVersion int
+		wantErr     bool
+	}{
+		{
+			name: "first_update_is_version_1",
+			updates: [][]byte{
+				[]byte(`{"state":{"desired":{"color":"red"}}}`),
+			},
+			wantVersion: 1,
+		},
+		{
+			name: "second_update_increments_to_2",
+			updates: [][]byte{
+				[]byte(`{"state":{"desired":{"color":"red"}}}`),
+				[]byte(`{"state":{"desired":{"color":"blue"}}}`),
+			},
+			wantVersion: 2,
+		},
+		{
+			name: "correct_version_check_succeeds",
+			updates: [][]byte{
+				[]byte(`{"state":{"desired":{"color":"red"}}}`),
+				// second update supplies version=1 which matches current
+				[]byte(`{"state":{"desired":{"color":"blue"}},"version":1}`),
+			},
+			wantVersion: 2,
+		},
+		{
+			name: "wrong_version_check_returns_conflict",
+			updates: [][]byte{
+				[]byte(`{"state":{"desired":{"color":"red"}}}`),
+				// second update supplies wrong version=99
+				[]byte(`{"state":{"desired":{"color":"blue"}},"version":99}`),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := iotdataplane.NewInMemoryBackend()
+
+			var lastErr error
+
+			for _, doc := range tt.updates {
+				_, lastErr = b.UpdateThingShadow("thing", "", doc)
+				if lastErr != nil {
+					break
+				}
+			}
+
+			if tt.wantErr {
+				require.Error(t, lastErr)
+				require.ErrorIs(t, lastErr, iotdataplane.ErrVersionConflict)
+
+				return
+			}
+
+			require.NoError(t, lastErr)
+
+			resp, err := b.GetThingShadow("thing", "")
+			require.NoError(t, err)
+
+			var result map[string]any
+			require.NoError(t, json.Unmarshal(resp, &result))
+
+			gotVersion, ok := result["version"].(float64)
+			require.True(t, ok, "response should contain numeric version field")
+			assert.Equal(t, tt.wantVersion, int(gotVersion))
+
+			_, hasTimestamp := result["timestamp"]
+			assert.True(t, hasTimestamp, "response should contain timestamp field")
+		})
+	}
+}
+
+func TestHandler_ShadowVersionConflict(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doc := []byte(`{"state":{"desired":{"color":"red"}}}`)
+
+	// Initial update – creates shadow at version 1.
+	rec := doRequest(t, h, http.MethodPost, "/things/myThing/shadow", doc)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Second update with wrong version should return HTTP 409.
+	docBadVer := []byte(`{"state":{"desired":{"color":"blue"}},"version":99}`)
+	rec = doRequest(t, h, http.MethodPost, "/things/myThing/shadow", docBadVer)
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "VersionConflictException")
+}
+
+func TestHandler_ShadowResponseContainsVersionAndTimestamp(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doc := []byte(`{"state":{"desired":{"color":"green"}}}`)
+
+	// Update returns shadow document with version and timestamp.
+	rec := doRequest(t, h, http.MethodPost, "/things/myThing/shadow", doc)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Contains(t, resp, "version")
+	assert.Contains(t, resp, "timestamp")
+
+	// Get also returns shadow document with version and timestamp.
+	rec = doRequest(t, h, http.MethodGet, "/things/myThing/shadow", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	assert.Contains(t, getResp, "version")
+	assert.Contains(t, getResp, "timestamp")
+}
+
 // mockMQTTPublisher implements MQTTPublisher for testing.
 type mockMQTTPublisher struct {
 	topic   string
