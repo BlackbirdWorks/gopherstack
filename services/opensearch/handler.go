@@ -453,7 +453,16 @@ func (h *Handler) handleAddTags(w http.ResponseWriter, r *http.Request) {
 		tagMap[t.Key] = t.Value
 	}
 
-	_ = h.Backend.AddTags(req.ARN, tagMap)
+	if addErr := h.Backend.AddTags(req.ARN, tagMap); addErr != nil {
+		if errors.Is(addErr, ErrDomainNotFound) {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", addErr.Error())
+		} else {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", addErr.Error())
+		}
+
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -477,7 +486,16 @@ func (h *Handler) handleRemoveTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = h.Backend.RemoveTags(req.ARN, req.TagKeys)
+	if removeErr := h.Backend.RemoveTags(req.ARN, req.TagKeys); removeErr != nil {
+		if errors.Is(removeErr, ErrDomainNotFound) {
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", removeErr.Error())
+		} else {
+			h.writeError(r, w, http.StatusBadRequest, "ValidationException", removeErr.Error())
+		}
+
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 

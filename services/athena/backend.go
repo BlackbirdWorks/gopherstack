@@ -268,6 +268,7 @@ func (b *InMemoryBackend) GetWorkGroup(name string) (*WorkGroup, error) {
 	}
 
 	cp := *wg
+	cp.Tags = maps.Clone(wg.Tags)
 
 	return &cp, nil
 }
@@ -462,6 +463,8 @@ func (b *InMemoryBackend) GetDataCatalog(name string) (*DataCatalog, error) {
 	}
 
 	cp := *dc
+	cp.Tags = maps.Clone(dc.Tags)
+	cp.Parameters = maps.Clone(dc.Parameters)
 
 	return &cp, nil
 }

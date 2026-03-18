@@ -1,6 +1,9 @@
 package appsync
 
-import "github.com/blackbirdworks/gopherstack/pkgs/tags"
+import (
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+	"github.com/vektah/gqlparser/v2/ast"
+)
 
 // AuthenticationType represents the authentication type for a GraphQL API.
 type AuthenticationType string
@@ -101,8 +104,13 @@ const (
 
 // Schema represents a stored GraphQL schema.
 type Schema struct {
-	SDL     string       `json:"sdl"`
-	Status  SchemaStatus `json:"status"`
-	Details string       `json:"details,omitempty"`
-	APIID   string       `json:"apiId"`
+	// parsedSchema is the compiled AST, populated once in StartSchemaCreation
+	// and never modified afterwards.  ExecuteGraphQL copies the *Schema pointer
+	// under a read-lock, so concurrent reads of this immutable field are safe
+	// without additional synchronization.
+	parsedSchema *ast.Schema  // not serialized to JSON
+	SDL          string       `json:"sdl"`
+	Status       SchemaStatus `json:"status"`
+	Details      string       `json:"details,omitempty"`
+	APIID        string       `json:"apiId"`
 }
