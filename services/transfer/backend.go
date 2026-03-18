@@ -20,6 +20,13 @@ var (
 	ErrUserNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 	// ErrUserAlreadyExists is returned when a Transfer user already exists.
 	ErrUserAlreadyExists = awserr.New("ResourceExistsException", awserr.ErrConflict)
+	// ErrInvalidProtocol is returned when an unsupported protocol is specified.
+	ErrInvalidProtocol = awserr.New("InvalidRequestException: unsupported protocol", awserr.ErrInvalidParameter)
+	// ErrServerStateConflict is returned when a state transition is invalid.
+	ErrServerStateConflict = awserr.New(
+		"ConflictException: server is already in the requested state",
+		awserr.ErrConflict,
+	)
 )
 
 // Server represents an AWS Transfer Family server.
@@ -109,12 +116,22 @@ func (b *InMemoryBackend) CreateServer(protocols []string, tags map[string]strin
 		protocols = []string{"SFTP"}
 	}
 
+	for _, p := range protocols {
+		switch p {
+		case "SFTP", "FTP", "FTPS", "AS2":
+			// valid
+		default:
+			return nil, fmt.Errorf("%w: %s", ErrInvalidProtocol, p)
+		}
+	}
+
 	merged := make(map[string]string, len(tags))
 	maps.Copy(merged, tags)
 
 	s := &Server{
 		ServerID:  serverID,
 		State:     "ONLINE",
+		Endpoint:  fmt.Sprintf("%s.server.transfer.%s.amazonaws.com", serverID, b.region),
 		Protocols: protocols,
 		Domain:    "S3",
 		CreatedAt: time.Now(),
@@ -174,6 +191,7 @@ func (b *InMemoryBackend) DeleteServer(serverID string) error {
 }
 
 // StartServer transitions a server to ONLINE state.
+// The operation is idempotent: calling it on an already ONLINE server succeeds.
 func (b *InMemoryBackend) StartServer(serverID string) error {
 	b.mu.Lock("StartServer")
 	defer b.mu.Unlock()
@@ -189,6 +207,7 @@ func (b *InMemoryBackend) StartServer(serverID string) error {
 }
 
 // StopServer transitions a server to OFFLINE state.
+// The operation is idempotent: calling it on an already OFFLINE server succeeds.
 func (b *InMemoryBackend) StopServer(serverID string) error {
 	b.mu.Lock("StopServer")
 	defer b.mu.Unlock()

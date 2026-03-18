@@ -59,19 +59,21 @@ type Trail struct {
 
 // InMemoryBackend is the in-memory store for CloudTrail resources.
 type InMemoryBackend struct {
-	trails    map[string]*Trail
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	trails      map[string]*Trail
+	trailsByARN map[string]string
+	mu          *lockmetrics.RWMutex
+	accountID   string
+	region      string
 }
 
 // NewInMemoryBackend creates a new in-memory CloudTrail backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		trails:    make(map[string]*Trail),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("cloudtrail"),
+		trails:      make(map[string]*Trail),
+		trailsByARN: make(map[string]string),
+		accountID:   accountID,
+		region:      region,
+		mu:          lockmetrics.New("cloudtrail"),
 	}
 }
 
@@ -97,11 +99,16 @@ func (b *InMemoryBackend) CreateTrail(
 	if len(kv) > 0 {
 		t.Merge(kv)
 	}
+	var snsTopicARN string
+	if snsTopicName != "" {
+		snsTopicARN = arn.Build("sns", b.region, b.accountID, snsTopicName)
+	}
 	trail := &Trail{
 		Name:                       name,
 		S3BucketName:               s3BucketName,
 		S3KeyPrefix:                s3KeyPrefix,
 		SnsTopicName:               snsTopicName,
+		SnsTopicARN:                snsTopicARN,
 		CloudWatchLogsLogGroupARN:  cloudWatchLogsLogGroupARN,
 		CloudWatchLogsRoleARN:      cloudWatchLogsRoleARN,
 		KMSKeyID:                   kmsKeyID,
@@ -117,6 +124,7 @@ func (b *InMemoryBackend) CreateTrail(
 		Tags:                       t,
 	}
 	b.trails[name] = trail
+	b.trailsByARN[trailARN] = name
 	cp := *trail
 
 	return &cp, nil
@@ -189,16 +197,13 @@ func (b *InMemoryBackend) UpdateTrail(
 
 	t, ok := b.trails[name]
 	if !ok {
-		for _, trail := range b.trails {
-			if trail.TrailARN == name {
-				t = trail
-
-				break
-			}
+		if trailName, found := b.trailsByARN[name]; found {
+			t = b.trails[trailName]
+			ok = t != nil
 		}
 	}
 
-	if t == nil {
+	if !ok || t == nil {
 		return nil, fmt.Errorf("%w: trail %s not found", ErrNotFound, name)
 	}
 
@@ -210,6 +215,7 @@ func (b *InMemoryBackend) UpdateTrail(
 	}
 	if snsTopicName != "" {
 		t.SnsTopicName = snsTopicName
+		t.SnsTopicARN = arn.Build("sns", b.region, b.accountID, snsTopicName)
 	}
 	if cloudWatchLogsLogGroupARN != "" {
 		t.CloudWatchLogsLogGroupARN = cloudWatchLogsLogGroupARN
@@ -241,17 +247,17 @@ func (b *InMemoryBackend) DeleteTrail(nameOrARN string) error {
 	b.mu.Lock("DeleteTrail")
 	defer b.mu.Unlock()
 
-	if _, ok := b.trails[nameOrARN]; ok {
+	if t, ok := b.trails[nameOrARN]; ok {
+		delete(b.trailsByARN, t.TrailARN)
 		delete(b.trails, nameOrARN)
 
 		return nil
 	}
-	for name, t := range b.trails {
-		if t.TrailARN == nameOrARN {
-			delete(b.trails, name)
+	if name, ok := b.trailsByARN[nameOrARN]; ok {
+		delete(b.trailsByARN, nameOrARN)
+		delete(b.trails, name)
 
-			return nil
-		}
+		return nil
 	}
 
 	return fmt.Errorf("%w: trail %s not found", ErrNotFound, nameOrARN)
@@ -333,15 +339,13 @@ func (b *InMemoryBackend) AddTags(resourceID string, kv map[string]string) error
 	b.mu.Lock("AddTags")
 	defer b.mu.Unlock()
 
-	for _, t := range b.trails {
-		if t.TrailARN == resourceID || t.Name == resourceID {
-			t.Tags.Merge(kv)
-
-			return nil
-		}
+	t := b.findByNameOrARNLocked(resourceID)
+	if t == nil {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
 	}
+	t.Tags.Merge(kv)
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
+	return nil
 }
 
 // RemoveTags removes tags from a trail resource by ARN.
@@ -349,15 +353,13 @@ func (b *InMemoryBackend) RemoveTags(resourceID string, keys []string) error {
 	b.mu.Lock("RemoveTags")
 	defer b.mu.Unlock()
 
-	for _, t := range b.trails {
-		if t.TrailARN == resourceID || t.Name == resourceID {
-			t.Tags.DeleteKeys(keys)
-
-			return nil
-		}
+	t := b.findByNameOrARNLocked(resourceID)
+	if t == nil {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
 	}
+	t.Tags.DeleteKeys(keys)
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceID)
+	return nil
 }
 
 // ListTags returns tags for the given resource ARNs.
@@ -367,12 +369,9 @@ func (b *InMemoryBackend) ListTags(resourceIDs []string) map[string]map[string]s
 
 	result := make(map[string]map[string]string, len(resourceIDs))
 	for _, rid := range resourceIDs {
-		for _, t := range b.trails {
-			if t.TrailARN == rid || t.Name == rid {
-				result[rid] = t.Tags.Clone()
-
-				break
-			}
+		t := b.findByNameOrARNLocked(rid)
+		if t != nil {
+			result[rid] = t.Tags.Clone()
 		}
 	}
 
@@ -399,10 +398,8 @@ func (b *InMemoryBackend) findByNameOrARNLocked(nameOrARN string) *Trail {
 	if t, ok := b.trails[nameOrARN]; ok {
 		return t
 	}
-	for _, t := range b.trails {
-		if t.TrailARN == nameOrARN {
-			return t
-		}
+	if name, ok := b.trailsByARN[nameOrARN]; ok {
+		return b.trails[name]
 	}
 
 	return nil
@@ -415,7 +412,7 @@ func copyEventSelectors(in []EventSelector) []EventSelector {
 	out := make([]EventSelector, len(in))
 	copy(out, in)
 	for i, es := range in {
-		if len(es.DataResources) > 0 {
+		if es.DataResources != nil {
 			out[i].DataResources = make([]DataResource, len(es.DataResources))
 			copy(out[i].DataResources, es.DataResources)
 		}

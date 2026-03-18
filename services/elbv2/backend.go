@@ -36,72 +36,73 @@ var (
 
 // LoadBalancerState represents the state of a load balancer.
 type LoadBalancerState struct {
-	Code        string
-	Description string
+	Code        string `json:"code"`
+	Description string `json:"description"`
 }
 
 // LoadBalancer represents an ELBv2 load balancer.
 type LoadBalancer struct {
-	CreatedTime           time.Time
-	State                 LoadBalancerState
-	Tags                  *tags.Tags
-	LoadBalancerArn       string
-	LoadBalancerName      string
-	DNSName               string
-	CanonicalHostedZoneID string
-	VpcID                 string
-	Scheme                string
-	Type                  string
-	IPAddressType         string
-	AvailabilityZones     []string
-	SecurityGroups        []string
+	CreatedTime           time.Time         `json:"createdTime"`
+	State                 LoadBalancerState `json:"state"`
+	Tags                  *tags.Tags        `json:"tags,omitempty"`
+	LoadBalancerArn       string            `json:"loadBalancerArn"`
+	LoadBalancerName      string            `json:"loadBalancerName"`
+	DNSName               string            `json:"dnsName"`
+	CanonicalHostedZoneID string            `json:"canonicalHostedZoneId"`
+	VpcID                 string            `json:"vpcId"`
+	Scheme                string            `json:"scheme"`
+	Type                  string            `json:"type"`
+	IPAddressType         string            `json:"ipAddressType"`
+	AvailabilityZones     []string          `json:"availabilityZones"`
+	SecurityGroups        []string          `json:"securityGroups"`
 }
 
 // TargetGroup represents an ELBv2 target group.
 type TargetGroup struct {
-	Tags                *tags.Tags
-	TargetGroupArn      string
-	TargetGroupName     string
-	Protocol            string
-	VpcID               string
-	TargetType          string
-	HealthCheckProtocol string
-	HealthCheckPort     string
-	HealthCheckPath     string
-	Targets             []Target
-	Port                int32
-	HealthCheckEnabled  bool
+	Tags                *tags.Tags `json:"tags,omitempty"`
+	TargetGroupArn      string     `json:"targetGroupArn"`
+	TargetGroupName     string     `json:"targetGroupName"`
+	Protocol            string     `json:"protocol"`
+	VpcID               string     `json:"vpcId"`
+	TargetType          string     `json:"targetType"`
+	HealthCheckProtocol string     `json:"healthCheckProtocol"`
+	HealthCheckPort     string     `json:"healthCheckPort"`
+	HealthCheckPath     string     `json:"healthCheckPath"`
+	Targets             []Target   `json:"targets"`
+	Port                int32      `json:"port"`
+	HealthCheckEnabled  bool       `json:"healthCheckEnabled"`
 }
 
 // Target represents a registered target in a target group.
 type Target struct {
-	ID   string
-	Port int32
+	ID   string `json:"id"`
+	Port int32  `json:"port"`
 }
 
 // Action represents a listener or rule action.
 type Action struct {
-	Type           string
-	TargetGroupArn string
+	Type           string `json:"type"`
+	TargetGroupArn string `json:"targetGroupArn"`
 }
 
 // Listener represents an ELBv2 listener.
 type Listener struct {
-	Tags            *tags.Tags
-	ListenerArn     string
-	LoadBalancerArn string
-	Protocol        string
-	DefaultActions  []Action
-	Port            int32
+	Tags            *tags.Tags `json:"tags,omitempty"`
+	ListenerArn     string     `json:"listenerArn"`
+	LoadBalancerArn string     `json:"loadBalancerArn"`
+	Protocol        string     `json:"protocol"`
+	DefaultActions  []Action   `json:"defaultActions"`
+	Port            int32      `json:"port"`
 }
 
 // Rule represents an ELBv2 listener rule.
 type Rule struct {
-	RuleArn     string
-	ListenerArn string
-	Priority    string
-	Actions     []Action
-	IsDefault   bool
+	Tags        *tags.Tags `json:"tags,omitempty"`
+	RuleArn     string     `json:"ruleArn"`
+	ListenerArn string     `json:"listenerArn"`
+	Priority    string     `json:"priority"`
+	Actions     []Action   `json:"actions"`
+	IsDefault   bool       `json:"isDefault"`
 }
 
 // StorageBackend is the interface for ELBv2 storage operations.
@@ -162,6 +163,7 @@ type CreateRuleInput struct {
 	ListenerArn string
 	Priority    string
 	Actions     []Action
+	Tags        []tags.KV
 }
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
@@ -329,6 +331,7 @@ func (b *InMemoryBackend) DeleteLoadBalancer(lbArn string) error {
 		return ErrLoadBalancerNotFound
 	}
 
+	b.loadBalancers[lbArn].Tags.Close()
 	delete(b.loadBalancers, lbArn)
 
 	return nil
@@ -449,6 +452,7 @@ func (b *InMemoryBackend) DeleteTargetGroup(tgArn string) error {
 		return ErrTargetGroupNotFound
 	}
 
+	b.targetGroups[tgArn].Tags.Close()
 	delete(b.targetGroups, tgArn)
 
 	return nil
@@ -596,6 +600,7 @@ func (b *InMemoryBackend) DeleteListener(listenerArn string) error {
 		return ErrListenerNotFound
 	}
 
+	b.listeners[listenerArn].Tags.Close()
 	delete(b.listeners, listenerArn)
 
 	return nil
@@ -613,12 +618,18 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 	idx := strconv.Itoa(len(b.rules))
 	ruleArn := b.ruleARN(input.ListenerArn, idx)
 
+	t := tags.New("elbv2.rule." + ruleArn + ".tags")
+	for _, kv := range input.Tags {
+		t.Set(kv.Key, kv.Value)
+	}
+
 	rule := &Rule{
 		RuleArn:     ruleArn,
 		ListenerArn: input.ListenerArn,
 		Priority:    input.Priority,
 		IsDefault:   false,
 		Actions:     input.Actions,
+		Tags:        t,
 	}
 
 	b.rules[ruleArn] = rule
@@ -668,7 +679,31 @@ func (b *InMemoryBackend) DeleteRule(ruleArn string) error {
 		return ErrRuleNotFound
 	}
 
+	rule := b.rules[ruleArn]
+	rule.Tags.Close()
 	delete(b.rules, ruleArn)
+
+	return nil
+}
+
+// findTagsLocked returns the *tags.Tags for the given resource ARN.
+// Caller must hold b.mu (read or write).
+func (b *InMemoryBackend) findTagsLocked(resArn string) *tags.Tags {
+	if lb, ok := b.loadBalancers[resArn]; ok {
+		return lb.Tags
+	}
+
+	if tg, ok := b.targetGroups[resArn]; ok {
+		return tg.Tags
+	}
+
+	if l, ok := b.listeners[resArn]; ok {
+		return l.Tags
+	}
+
+	if r, ok := b.rules[resArn]; ok {
+		return r.Tags
+	}
 
 	return nil
 }
@@ -679,28 +714,13 @@ func (b *InMemoryBackend) AddTags(resourceArns []string, kvs []tags.KV) error {
 	defer b.mu.Unlock()
 
 	for _, resArn := range resourceArns {
-		if lb, ok := b.loadBalancers[resArn]; ok {
-			for _, kv := range kvs {
-				lb.Tags.Set(kv.Key, kv.Value)
-			}
-
+		t := b.findTagsLocked(resArn)
+		if t == nil {
 			continue
 		}
 
-		if tg, ok := b.targetGroups[resArn]; ok {
-			for _, kv := range kvs {
-				tg.Tags.Set(kv.Key, kv.Value)
-			}
-
-			continue
-		}
-
-		if l, ok := b.listeners[resArn]; ok {
-			for _, kv := range kvs {
-				l.Tags.Set(kv.Key, kv.Value)
-			}
-
-			continue
+		for _, kv := range kvs {
+			t.Set(kv.Key, kv.Value)
 		}
 	}
 
@@ -713,22 +733,9 @@ func (b *InMemoryBackend) RemoveTags(resourceArns []string, keys []string) error
 	defer b.mu.Unlock()
 
 	for _, resArn := range resourceArns {
-		if lb, ok := b.loadBalancers[resArn]; ok {
-			lb.Tags.DeleteKeys(keys)
-
-			continue
-		}
-
-		if tg, ok := b.targetGroups[resArn]; ok {
-			tg.Tags.DeleteKeys(keys)
-
-			continue
-		}
-
-		if l, ok := b.listeners[resArn]; ok {
-			l.Tags.DeleteKeys(keys)
-
-			continue
+		t := b.findTagsLocked(resArn)
+		if t != nil {
+			t.DeleteKeys(keys)
 		}
 	}
 
@@ -756,25 +763,12 @@ func (b *InMemoryBackend) DescribeTags(resourceArns []string) (map[string][]tags
 	result := make(map[string][]tags.KV, len(resourceArns))
 
 	for _, resArn := range resourceArns {
-		if lb, ok := b.loadBalancers[resArn]; ok {
-			result[resArn] = tagsToKVs(lb.Tags)
-
-			continue
+		t := b.findTagsLocked(resArn)
+		if t != nil {
+			result[resArn] = tagsToKVs(t)
+		} else {
+			result[resArn] = []tags.KV{}
 		}
-
-		if tg, ok := b.targetGroups[resArn]; ok {
-			result[resArn] = tagsToKVs(tg.Tags)
-
-			continue
-		}
-
-		if l, ok := b.listeners[resArn]; ok {
-			result[resArn] = tagsToKVs(l.Tags)
-
-			continue
-		}
-
-		result[resArn] = []tags.KV{}
 	}
 
 	return result, nil

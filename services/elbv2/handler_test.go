@@ -1974,3 +1974,118 @@ func TestDescribeListenerAttributes(t *testing.T) {
 		})
 	}
 }
+
+// TestRuleTagOperations tests AddTags, DescribeTags, RemoveTags, and DeleteRule on a Rule resource.
+func TestRuleTagOperations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	lbArn := mustCreateLB(t, h, "rule-tag-lb")
+	tgArn := mustCreateTG(t, h, "rule-tag-tg")
+
+	listenerRec := doELBv2(t, h, url.Values{
+		"Action":                                 {"CreateListener"},
+		"Version":                                {"2015-12-01"},
+		"LoadBalancerArn":                        {lbArn},
+		"Protocol":                               {"HTTP"},
+		"Port":                                   {"80"},
+		"DefaultActions.member.1.Type":           {"forward"},
+		"DefaultActions.member.1.TargetGroupArn": {tgArn},
+	})
+	require.Equal(t, http.StatusOK, listenerRec.Code)
+
+	var listenerResp struct {
+		Result struct {
+			Listeners struct {
+				Members []struct {
+					ListenerArn string `xml:"ListenerArn"`
+				} `xml:"member"`
+			} `xml:"Listeners"`
+		} `xml:"CreateListenerResult"`
+	}
+
+	require.NoError(t, xml.Unmarshal(listenerRec.Body.Bytes(), &listenerResp))
+	listenerArn := listenerResp.Result.Listeners.Members[0].ListenerArn
+
+	// Create a rule with an initial tag.
+	ruleRec := doELBv2(t, h, url.Values{
+		"Action":                          {"CreateRule"},
+		"Version":                         {"2015-12-01"},
+		"ListenerArn":                     {listenerArn},
+		"Priority":                        {"10"},
+		"Actions.member.1.Type":           {"forward"},
+		"Actions.member.1.TargetGroupArn": {tgArn},
+		"Tags.member.1.Key":               {"env"},
+		"Tags.member.1.Value":             {"prod"},
+	})
+	require.Equal(t, http.StatusOK, ruleRec.Code)
+
+	var ruleResp struct {
+		Result struct {
+			Rules struct {
+				Members []struct {
+					RuleArn string `xml:"RuleArn"`
+				} `xml:"member"`
+			} `xml:"Rules"`
+		} `xml:"CreateRuleResult"`
+	}
+
+	require.NoError(t, xml.Unmarshal(ruleRec.Body.Bytes(), &ruleResp))
+	ruleArn := ruleResp.Result.Rules.Members[0].RuleArn
+
+	// DescribeTags — should return the initial "env" tag.
+	descRec := doELBv2(t, h, url.Values{
+		"Action":                {"DescribeTags"},
+		"Version":               {"2015-12-01"},
+		"ResourceArns.member.1": {ruleArn},
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descResp struct {
+		Result struct {
+			TagDescriptions struct {
+				Members []struct {
+					Tags struct {
+						Members []struct {
+							Key   string `xml:"Key"`
+							Value string `xml:"Value"`
+						} `xml:"member"`
+					} `xml:"Tags"`
+				} `xml:"member"`
+			} `xml:"TagDescriptions"`
+		} `xml:"DescribeTagsResult"`
+	}
+
+	require.NoError(t, xml.Unmarshal(descRec.Body.Bytes(), &descResp))
+	require.Len(t, descResp.Result.TagDescriptions.Members, 1)
+	require.Len(t, descResp.Result.TagDescriptions.Members[0].Tags.Members, 1)
+	assert.Equal(t, "env", descResp.Result.TagDescriptions.Members[0].Tags.Members[0].Key)
+	assert.Equal(t, "prod", descResp.Result.TagDescriptions.Members[0].Tags.Members[0].Value)
+
+	// AddTags — add a second tag.
+	addRec := doELBv2(t, h, url.Values{
+		"Action":                {"AddTags"},
+		"Version":               {"2015-12-01"},
+		"ResourceArns.member.1": {ruleArn},
+		"Tags.member.1.Key":     {"team"},
+		"Tags.member.1.Value":   {"platform"},
+	})
+	assert.Equal(t, http.StatusOK, addRec.Code)
+
+	// RemoveTags — remove the "env" tag.
+	rmRec := doELBv2(t, h, url.Values{
+		"Action":                {"RemoveTags"},
+		"Version":               {"2015-12-01"},
+		"ResourceArns.member.1": {ruleArn},
+		"TagKeys.member.1":      {"env"},
+	})
+	assert.Equal(t, http.StatusOK, rmRec.Code)
+
+	// DeleteRule — should close tags without panic.
+	delRec := doELBv2(t, h, url.Values{
+		"Action":  {"DeleteRule"},
+		"Version": {"2015-12-01"},
+		"RuleArn": {ruleArn},
+	})
+	assert.Equal(t, http.StatusOK, delRec.Code)
+}
