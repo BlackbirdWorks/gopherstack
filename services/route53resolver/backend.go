@@ -18,6 +18,7 @@ var (
 )
 
 type IPAddress struct {
+	IPID     string `json:"ipID"`
 	SubnetID string `json:"subnetID"`
 	IP       string `json:"ip"`
 }
@@ -84,6 +85,15 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	}
 	id := "rslvr-" + dirPrefix + "-" + uuid.New().String()[:8]
 	epARN := arn.Build("route53resolver", b.region, b.accountID, "resolver-endpoint/"+id)
+
+	ipsCopy := make([]IPAddress, len(ips))
+	for i, ip := range ips {
+		ipsCopy[i] = ip
+		if ipsCopy[i].IPID == "" {
+			ipsCopy[i].IPID = "rni-" + uuid.New().String()[:8]
+		}
+	}
+
 	ep := &ResolverEndpoint{
 		ID:          id,
 		ARN:         epARN,
@@ -91,7 +101,7 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 		Direction:   direction,
 		Status:      "OPERATIONAL",
 		VpcID:       vpcID,
-		IPAddresses: ips,
+		IPAddresses: ipsCopy,
 		AccountID:   b.accountID,
 		Region:      b.region,
 	}
@@ -101,6 +111,21 @@ func (b *InMemoryBackend) CreateResolverEndpoint(
 	copy(cp.IPAddresses, ep.IPAddresses)
 
 	return &cp, nil
+}
+
+// ListResolverEndpointIPAddresses returns the IP addresses associated with a resolver endpoint.
+func (b *InMemoryBackend) ListResolverEndpointIPAddresses(endpointID string) ([]IPAddress, error) {
+	b.mu.RLock("ListResolverEndpointIpAddresses")
+	defer b.mu.RUnlock()
+
+	ep, ok := b.endpoints[endpointID]
+	if !ok {
+		return nil, fmt.Errorf("%w: resolver endpoint %s not found", ErrNotFound, endpointID)
+	}
+	cp := make([]IPAddress, len(ep.IPAddresses))
+	copy(cp, ep.IPAddresses)
+
+	return cp, nil
 }
 
 func (b *InMemoryBackend) GetResolverEndpoint(id string) (*ResolverEndpoint, error) {
