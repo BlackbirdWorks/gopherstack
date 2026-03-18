@@ -52,8 +52,8 @@ type InMemoryBackend struct {
 	domains        map[string]*Domain
 	workflows      map[string]*WorkflowType      // key: domain+":"+name+":"+version
 	executions     map[string]*WorkflowExecution // key: domain+":"+workflowID
-	executionOrder []string                      // FIFO order of execution keys for eviction
 	mu             *lockmetrics.RWMutex
+	executionOrder []string // FIFO order of execution keys for eviction
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
