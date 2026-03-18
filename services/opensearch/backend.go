@@ -130,6 +130,7 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 	cp := *d
 	delete(b.domains, name)
 	delete(b.arnIndex, d.ARN)
+	d.Tags.Close()
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Deregister(cp.Endpoint)

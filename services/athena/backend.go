@@ -245,7 +245,7 @@ func (b *InMemoryBackend) CreateWorkGroup(
 		Name:          name,
 		Description:   description,
 		State:         state,
-		Tags:          tags,
+		Tags:          maps.Clone(tags),
 		Configuration: cfg,
 	}
 
@@ -440,8 +440,8 @@ func (b *InMemoryBackend) CreateDataCatalog(
 		Name:        name,
 		Type:        catalogType,
 		Description: description,
-		Parameters:  params,
-		Tags:        tags,
+		Parameters:  maps.Clone(params),
+		Tags:        maps.Clone(tags),
 	}
 
 	arn := dataCatalogARN(name)

@@ -90,7 +90,9 @@ func (b *InMemoryBackend) ExecuteStatement(
 		TransactionID: transactionID,
 	})
 	if len(b.executedStatements) > maxExecutedStatements {
-		b.executedStatements = b.executedStatements[len(b.executedStatements)-maxExecutedStatements:]
+		trimmed := make([]ExecutedStatement, maxExecutedStatements)
+		copy(trimmed, b.executedStatements[len(b.executedStatements)-maxExecutedStatements:])
+		b.executedStatements = trimmed
 	}
 
 	return [][]Field{}, []ColumnMetadata{}, 0, nil
@@ -116,7 +118,9 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		TransactionID: transactionID,
 	})
 	if len(b.executedStatements) > maxExecutedStatements {
-		b.executedStatements = b.executedStatements[len(b.executedStatements)-maxExecutedStatements:]
+		trimmed := make([]ExecutedStatement, maxExecutedStatements)
+		copy(trimmed, b.executedStatements[len(b.executedStatements)-maxExecutedStatements:])
+		b.executedStatements = trimmed
 	}
 
 	results := make([]UpdateResult, len(parameterSets))

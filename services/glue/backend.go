@@ -167,6 +167,10 @@ func cloneDatabase(db *Database) *Database {
 func cloneCrawler(c *Crawler) *Crawler {
 	cp := *c
 	cp.Tags = maps.Clone(c.Tags)
+	if len(c.Targets.S3Targets) > 0 {
+		cp.Targets.S3Targets = make([]S3Target, len(c.Targets.S3Targets))
+		copy(cp.Targets.S3Targets, c.Targets.S3Targets)
+	}
 
 	return &cp
 }
@@ -175,6 +179,11 @@ func cloneCrawler(c *Crawler) *Crawler {
 func cloneJob(j *Job) *Job {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
+	cp.DefaultArguments = maps.Clone(j.DefaultArguments)
+	if len(j.Connections.Connections) > 0 {
+		cp.Connections.Connections = make([]string, len(j.Connections.Connections))
+		copy(cp.Connections.Connections, j.Connections.Connections)
+	}
 
 	return &cp
 }

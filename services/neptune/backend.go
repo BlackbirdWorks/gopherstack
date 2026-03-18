@@ -128,6 +128,21 @@ func (b *InMemoryBackend) instanceARN(id string) string {
 	return arn.Build("neptune", b.region, b.accountID, "db:"+id)
 }
 
+// subnetGroupARN returns the ARN for a Neptune DB subnet group.
+func (b *InMemoryBackend) subnetGroupARN(name string) string {
+	return arn.Build("rds", b.region, b.accountID, "subgrp:"+name)
+}
+
+// clusterParameterGroupARN returns the ARN for a Neptune DB cluster parameter group.
+func (b *InMemoryBackend) clusterParameterGroupARN(name string) string {
+	return arn.Build("rds", b.region, b.accountID, "cluster-pg:"+name)
+}
+
+// clusterSnapshotARN returns the ARN for a Neptune DB cluster snapshot.
+func (b *InMemoryBackend) clusterSnapshotARN(id string) string {
+	return arn.Build("rds", b.region, b.accountID, "cluster-snapshot:"+id)
+}
+
 // CreateDBCluster creates a new Neptune DB cluster.
 func (b *InMemoryBackend) CreateDBCluster(id, paramGroupName string, port int) (*DBCluster, error) {
 	if id == "" {
@@ -436,6 +451,7 @@ func (b *InMemoryBackend) DeleteDBSubnetGroup(name string) error {
 		return fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, name)
 	}
 	delete(b.subnetGroups, name)
+	delete(b.tags, b.subnetGroupARN(name))
 
 	return nil
 }
@@ -496,6 +512,7 @@ func (b *InMemoryBackend) DeleteDBClusterParameterGroup(name string) error {
 		return fmt.Errorf("%w: cluster parameter group %s not found", ErrClusterParameterGroupNotFound, name)
 	}
 	delete(b.clusterParameterGroups, name)
+	delete(b.tags, b.clusterParameterGroupARN(name))
 
 	return nil
 }
@@ -572,6 +589,7 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 	}
 	cp := *snap
 	delete(b.clusterSnapshots, snapshotID)
+	delete(b.tags, b.clusterSnapshotARN(snapshotID))
 
 	return &cp, nil
 }
