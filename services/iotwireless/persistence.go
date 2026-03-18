@@ -5,6 +5,34 @@ import (
 	"maps"
 )
 
+// Snapshottable is an optional interface that a StorageBackend may implement to
+// support state serialisation and restoration (e.g. for --persist mode).
+// Backends that do not implement it are silently skipped during snapshot/restore.
+type Snapshottable interface {
+	Snapshot() []byte
+	Restore(data []byte) error
+}
+
+// Snapshot implements persistence.Persistable by delegating to the backend
+// when it implements Snapshottable. Returns nil for non-snapshottable backends.
+func (h *Handler) Snapshot() []byte {
+	if s, ok := h.Backend.(Snapshottable); ok {
+		return s.Snapshot()
+	}
+
+	return nil
+}
+
+// Restore implements persistence.Persistable by delegating to the backend
+// when it implements Snapshottable. Non-snapshottable backends are skipped.
+func (h *Handler) Restore(data []byte) error {
+	if s, ok := h.Backend.(Snapshottable); ok {
+		return s.Restore(data)
+	}
+
+	return nil
+}
+
 // deviceRecord serialises a WirelessDevice together with its resource key.
 type deviceRecord struct {
 	Device    *WirelessDevice `json:"device"`

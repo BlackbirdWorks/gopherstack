@@ -62,13 +62,16 @@ func (b *InMemoryBackend) Publish(topic string, payload []byte) error {
 
 // buildShadowResponse merges version and timestamp into the stored shadow document.
 // If the document is a valid JSON object, the fields are injected directly;
-// otherwise the raw bytes are wrapped under a "payload" key.
+// otherwise the raw bytes are encoded as a JSON string under a "payload" key,
+// which always produces valid JSON regardless of the content of doc.
 func buildShadowResponse(doc []byte, version int, updatedAt time.Time) ([]byte, error) {
 	var m map[string]json.RawMessage
 
 	if err := json.Unmarshal(doc, &m); err != nil {
+		// doc is not a JSON object; encode it as a plain string so json.Marshal
+		// never fails on raw bytes that are not valid JSON.
 		return json.Marshal(map[string]any{
-			"payload":   json.RawMessage(doc),
+			"payload":   string(doc),
 			"version":   version,
 			"timestamp": updatedAt.Unix(),
 		})
@@ -103,11 +106,13 @@ func (b *InMemoryBackend) GetThingShadow(thingName, shadowName string) ([]byte, 
 	return buildShadowResponse(entry.document, entry.version, entry.updatedAt)
 }
 
-// UpdateThingShadow stores or merges the document for the named shadow of a thing.
+// UpdateThingShadow stores or replaces the document for the named shadow of a thing.
 // If the document contains a "version" field it must equal the current shadow
 // version; a mismatch returns ErrVersionConflict (optimistic locking).
 // The version is incremented on every successful update.
 // The returned bytes represent the updated shadow response including the new version.
+// The response is constructed before mutating state so a marshal error cannot
+// leave a partial update behind.
 func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, document []byte) ([]byte, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -149,13 +154,20 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	cp := make([]byte, len(document))
 	copy(cp, document)
 
+	// Build the response before writing state so a marshal error cannot leave
+	// a partial update behind.
+	resp, err := buildShadowResponse(cp, newVersion, now)
+	if err != nil {
+		return nil, err
+	}
+
 	b.shadows[thingName][shadowName] = &shadowEntry{
 		document:  cp,
 		version:   newVersion,
 		updatedAt: now,
 	}
 
-	return buildShadowResponse(cp, newVersion, now)
+	return resp, nil
 }
 
 // DeleteThingShadow removes the document for the named shadow of a thing.
