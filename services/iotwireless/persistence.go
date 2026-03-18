@@ -93,6 +93,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
+		// Marshal of plain Go structs with JSON tags should never fail.
+		// Returning nil signals to the persistence layer that nothing was captured.
 		return nil
 	}
 

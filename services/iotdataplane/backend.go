@@ -74,6 +74,7 @@ func buildShadowResponse(doc []byte, version int, updatedAt time.Time) ([]byte, 
 		})
 	}
 
+	// json.Marshal on plain int/int64 values is infallible, so errors are ignored.
 	verBytes, _ := json.Marshal(version)
 	tsBytes, _ := json.Marshal(updatedAt.Unix())
 	m["version"] = verBytes
@@ -118,6 +119,8 @@ func (b *InMemoryBackend) UpdateThingShadow(thingName, shadowName string, docume
 	current := b.shadows[thingName][shadowName]
 
 	// Check optimistic locking version if the caller supplied one.
+	// An unmarshal error here is intentional: if the document is not valid JSON
+	// or contains no "version" field, vc.Version stays nil and the lock is skipped.
 	var vc struct {
 		Version *int `json:"version,omitempty"`
 	}
