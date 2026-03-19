@@ -10,6 +10,8 @@ import (
 const (
 	// transactionStatusActive is the active state for a transaction.
 	transactionStatusActive = "ACTIVE"
+	// maxExecutedStatements is the maximum number of executed statements to retain.
+	maxExecutedStatements = 1000
 )
 
 var (
@@ -87,6 +89,11 @@ func (b *InMemoryBackend) ExecuteStatement(
 		ResourceARN:   resourceARN,
 		TransactionID: transactionID,
 	})
+	if len(b.executedStatements) > maxExecutedStatements {
+		trimmed := make([]ExecutedStatement, maxExecutedStatements)
+		copy(trimmed, b.executedStatements[len(b.executedStatements)-maxExecutedStatements:])
+		b.executedStatements = trimmed
+	}
 
 	return [][]Field{}, []ColumnMetadata{}, 0, nil
 }
@@ -110,6 +117,11 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		ResourceARN:   resourceARN,
 		TransactionID: transactionID,
 	})
+	if len(b.executedStatements) > maxExecutedStatements {
+		trimmed := make([]ExecutedStatement, maxExecutedStatements)
+		copy(trimmed, b.executedStatements[len(b.executedStatements)-maxExecutedStatements:])
+		b.executedStatements = trimmed
+	}
 
 	results := make([]UpdateResult, len(parameterSets))
 	for i := range results {

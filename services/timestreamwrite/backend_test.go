@@ -698,3 +698,62 @@ func TestInMemoryBackend_TableCount(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, db.TableCount)
 }
+
+func TestInMemoryBackend_DeleteDatabase_CleansUpTags(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+
+	_, err := b.CreateDatabase("cleanup-db")
+	require.NoError(t, err)
+
+	_, err = b.CreateTable("cleanup-db", "t1")
+	require.NoError(t, err)
+
+	_, err = b.CreateTable("cleanup-db", "t2")
+	require.NoError(t, err)
+
+	dbARN := "arn:aws:timestream:us-east-1:000000000000:database/cleanup-db"
+	t1ARN := "arn:aws:timestream:us-east-1:000000000000:database/cleanup-db/table/t1"
+	t2ARN := "arn:aws:timestream:us-east-1:000000000000:database/cleanup-db/table/t2"
+
+	err = b.TagResource(dbARN, map[string]string{"key": "dbval"})
+	require.NoError(t, err)
+
+	err = b.TagResource(t1ARN, map[string]string{"key": "t1val"})
+	require.NoError(t, err)
+
+	err = b.TagResource(t2ARN, map[string]string{"key": "t2val"})
+	require.NoError(t, err)
+
+	err = b.DeleteDatabase("cleanup-db")
+	require.NoError(t, err)
+
+	assert.Empty(t, b.ListTagsForResource(dbARN))
+	assert.Empty(t, b.ListTagsForResource(t1ARN))
+	assert.Empty(t, b.ListTagsForResource(t2ARN))
+}
+
+func TestInMemoryBackend_DeleteTable_CleansUpTags(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+
+	_, err := b.CreateDatabase("db")
+	require.NoError(t, err)
+
+	_, err = b.CreateTable("db", "tbl")
+	require.NoError(t, err)
+
+	tblARN := "arn:aws:timestream:us-east-1:000000000000:database/db/table/tbl"
+
+	err = b.TagResource(tblARN, map[string]string{"env": "prod"})
+	require.NoError(t, err)
+
+	assert.Equal(t, "prod", b.ListTagsForResource(tblARN)["env"])
+
+	err = b.DeleteTable("db", "tbl")
+	require.NoError(t, err)
+
+	assert.Empty(t, b.ListTagsForResource(tblARN))
+}

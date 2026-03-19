@@ -67,13 +67,17 @@ func executeGraphQL(
 		return nil, ErrNoSchema
 	}
 
-	// Parse schema.
-	gqlSchema, gqlErr := gqlparser.LoadSchema(&ast.Source{
-		Name:  "schema.graphql",
-		Input: schema.SDL,
-	})
-	if gqlErr != nil {
-		return nil, fmt.Errorf("invalid schema: %w", gqlErr)
+	// Use cached parsed schema; re-parse only if the cache is missing.
+	gqlSchema := schema.parsedSchema
+	if gqlSchema == nil {
+		var schemaErr error
+		gqlSchema, schemaErr = gqlparser.LoadSchema(&ast.Source{
+			Name:  "schema.graphql",
+			Input: schema.SDL,
+		})
+		if schemaErr != nil {
+			return nil, fmt.Errorf("invalid schema: %w", schemaErr)
+		}
 	}
 
 	// Parse query document.

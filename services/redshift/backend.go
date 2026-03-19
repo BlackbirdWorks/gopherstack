@@ -57,8 +57,8 @@ func (b *InMemoryBackend) Region() string { return b.region }
 // SetDNSRegistrar wires a DNS server so Redshift cluster hostnames are auto-registered.
 func (b *InMemoryBackend) SetDNSRegistrar(dns DNSRegistrar) {
 	b.mu.Lock("SetDNSRegistrar")
+	defer b.mu.Unlock()
 	b.dnsRegistrar = dns
-	b.mu.Unlock()
 }
 
 // CreateCluster creates a new Redshift cluster.

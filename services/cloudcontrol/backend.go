@@ -216,13 +216,21 @@ func (b *InMemoryBackend) UpdateResource(typeName, identifier, patchDocument str
 }
 
 // GetResourceRequestStatus returns the ProgressEvent for the given request token.
+// Terminal requests (SUCCESS, FAILED, CANCEL_COMPLETE) are removed from the map
+// after being read to prevent unbounded memory growth.
 func (b *InMemoryBackend) GetResourceRequestStatus(requestToken string) (*ProgressEvent, error) {
-	b.mu.RLock("GetResourceRequestStatus")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetResourceRequestStatus")
+	defer b.mu.Unlock()
 
 	event, ok := b.requests[requestToken]
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	// Remove terminal requests after reading to prevent unbounded map growth.
+	switch event.OperationStatus {
+	case "SUCCESS", "FAILED", "CANCEL_COMPLETE":
+		delete(b.requests, requestToken)
 	}
 
 	return event, nil
