@@ -960,28 +960,28 @@ func TestBackend_AbortTransaction(t *testing.T) {
 }
 
 func TestInMemoryBackend_SessionCap_OldestEvicted(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-backend := qldbsession.NewInMemoryBackend("000000000000", "us-east-1")
+	backend := qldbsession.NewInMemoryBackend("000000000000", "us-east-1")
 
-// Pre-fill to exactly the cap using the test helper.
-existing := backend.InjectSessionsForTest(qldbsession.MaxSessionsForTest)
-oldestToken := existing[0]
+	// Pre-fill to exactly the cap using the test helper.
+	existing := backend.InjectSessionsForTest(qldbsession.MaxSessionsForTest)
+	oldestToken := existing[0]
 
-// Verify the oldest token is still present before overflow.
-require.Equal(t, qldbsession.MaxSessionsForTest, backend.SessionCount())
-_, err := backend.GetSession(oldestToken)
-require.NoError(t, err)
+	// Verify the oldest token is still present before overflow.
+	require.Equal(t, qldbsession.MaxSessionsForTest, backend.SessionCount())
+	_, err := backend.GetSession(oldestToken)
+	require.NoError(t, err)
 
-// Adding one more session must evict the oldest.
-newSess, err := backend.StartSession("evict-ledger")
-require.NoError(t, err)
-assert.NotEmpty(t, newSess.Token)
+	// Adding one more session must evict the oldest.
+	newSess, err := backend.StartSession("evict-ledger")
+	require.NoError(t, err)
+	assert.NotEmpty(t, newSess.Token)
 
-// Count stays at or below the cap.
-assert.LessOrEqual(t, backend.SessionCount(), qldbsession.MaxSessionsForTest)
+	// Count stays at or below the cap.
+	assert.LessOrEqual(t, backend.SessionCount(), qldbsession.MaxSessionsForTest)
 
-// The oldest session is gone.
-_, err = backend.GetSession(oldestToken)
-require.Error(t, err)
+	// The oldest session is gone.
+	_, err = backend.GetSession(oldestToken)
+	require.Error(t, err)
 }
