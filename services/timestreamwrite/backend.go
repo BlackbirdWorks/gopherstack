@@ -161,9 +161,15 @@ func (b *InMemoryBackend) DeleteDatabase(name string) error {
 		return fmt.Errorf("%w: database %s not found", ErrDatabaseNotFound, name)
 	}
 
+	// Clean up tags for all tables in this database before deleting.
+	for tblName := range b.tables[name] {
+		delete(b.tags, tableARN(name, tblName))
+	}
+
 	delete(b.databases, name)
 	delete(b.tables, name)
 	delete(b.records, name)
+	delete(b.tags, databaseARN(name))
 
 	return nil
 }
@@ -272,6 +278,7 @@ func (b *InMemoryBackend) DeleteTable(dbName, tblName string) error {
 
 	delete(b.tables[dbName], tblName)
 	delete(b.records[dbName], tblName)
+	delete(b.tags, tableARN(dbName, tblName))
 	b.databases[dbName].TableCount--
 
 	return nil

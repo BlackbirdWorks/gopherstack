@@ -59,7 +59,8 @@ type QueryResult struct {
 // InMemoryBackend is the in-memory backend for the Timestream Query service.
 type InMemoryBackend struct {
 	mu               *lockmetrics.RWMutex
-	scheduledQueries map[string]*ScheduledQuery
+	scheduledQueries map[string]*ScheduledQuery // keyed by name
+	arnIndex         map[string]string          // ARN → name
 	queries          map[string]*QueryResult
 	accountID        string
 	region           string
@@ -70,6 +71,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		mu:               lockmetrics.New("timestreamquery"),
 		scheduledQueries: make(map[string]*ScheduledQuery),
+		arnIndex:         make(map[string]string),
 		queries:          make(map[string]*QueryResult),
 		accountID:        accountID,
 		region:           region,
@@ -117,6 +119,7 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 	}
 
 	b.scheduledQueries[name] = sq
+	b.arnIndex[arn] = name
 
 	cp := *sq
 
@@ -124,35 +127,34 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 }
 
 // DescribeScheduledQuery returns details of a scheduled query by ARN.
-func (b *InMemoryBackend) DescribeScheduledQuery(arn string) (*ScheduledQuery, error) {
+func (b *InMemoryBackend) DescribeScheduledQuery(arnStr string) (*ScheduledQuery, error) {
 	b.mu.RLock("DescribeScheduledQuery")
 	defer b.mu.RUnlock()
 
-	for _, sq := range b.scheduledQueries {
-		if sq.Arn == arn {
-			cp := *sq
-
-			return &cp, nil
-		}
+	sq, err := b.lookupByARN(arnStr)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arn)
+	cp := *sq
+
+	return &cp, nil
 }
 
 // DeleteScheduledQuery deletes a scheduled query by ARN.
-func (b *InMemoryBackend) DeleteScheduledQuery(arn string) error {
+func (b *InMemoryBackend) DeleteScheduledQuery(arnStr string) error {
 	b.mu.Lock("DeleteScheduledQuery")
 	defer b.mu.Unlock()
 
-	for name, sq := range b.scheduledQueries {
-		if sq.Arn == arn {
-			delete(b.scheduledQueries, name)
-
-			return nil
-		}
+	name, ok := b.arnIndex[arnStr]
+	if !ok {
+		return fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arnStr)
 	}
 
-	return fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arn)
+	delete(b.scheduledQueries, name)
+	delete(b.arnIndex, arnStr)
+
+	return nil
 }
 
 // ListScheduledQueries returns all scheduled queries sorted by name.
@@ -182,35 +184,33 @@ func (b *InMemoryBackend) ListScheduledQueries() []ScheduledQuerySummary {
 }
 
 // UpdateScheduledQuery updates the state of a scheduled query by ARN.
-func (b *InMemoryBackend) UpdateScheduledQuery(arn, state string) error {
+func (b *InMemoryBackend) UpdateScheduledQuery(arnStr, state string) error {
 	b.mu.Lock("UpdateScheduledQuery")
 	defer b.mu.Unlock()
 
-	for _, sq := range b.scheduledQueries {
-		if sq.Arn == arn {
-			sq.State = state
-
-			return nil
-		}
+	sq, err := b.lookupByARN(arnStr)
+	if err != nil {
+		return err
 	}
 
-	return fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arn)
+	sq.State = state
+
+	return nil
 }
 
 // ExecuteScheduledQuery marks a scheduled query as executed at the given invocation time.
-func (b *InMemoryBackend) ExecuteScheduledQuery(arn string, invocationTime time.Time) error {
+func (b *InMemoryBackend) ExecuteScheduledQuery(arnStr string, invocationTime time.Time) error {
 	b.mu.Lock("ExecuteScheduledQuery")
 	defer b.mu.Unlock()
 
-	for _, sq := range b.scheduledQueries {
-		if sq.Arn == arn {
-			sq.LastRunTime = invocationTime
-
-			return nil
-		}
+	sq, err := b.lookupByARN(arnStr)
+	if err != nil {
+		return err
 	}
 
-	return fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arn)
+	sq.LastRunTime = invocationTime
+
+	return nil
 }
 
 // Query runs a query and returns an empty result set (simulated).
@@ -250,15 +250,22 @@ func (b *InMemoryBackend) CancelQuery(queryID string) error {
 	return nil
 }
 
-// lookupByARN finds a scheduled query by ARN. Must be called with the lock held.
-func (b *InMemoryBackend) lookupByARN(arn string) (*ScheduledQuery, error) {
-	for _, sq := range b.scheduledQueries {
-		if sq.Arn == arn {
-			return sq, nil
-		}
+// lookupByARN finds a scheduled query by ARN using the ARN index. Must be called with the lock held.
+// The double lookup (ARN index → name, then name → struct) is intentional: the ARN index
+// may briefly diverge from scheduledQueries only if there is a bug, so the second check
+// is a defensive guard against index inconsistency.
+func (b *InMemoryBackend) lookupByARN(arnStr string) (*ScheduledQuery, error) {
+	name, ok := b.arnIndex[arnStr]
+	if !ok {
+		return nil, fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arnStr)
 	}
 
-	return nil, fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arn)
+	sq, ok := b.scheduledQueries[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: scheduled query %q not found", ErrNotFound, arnStr)
+	}
+
+	return sq, nil
 }
 
 // TagResource adds tags to a resource identified by its ARN.

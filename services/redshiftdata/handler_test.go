@@ -818,3 +818,37 @@ func TestHandler_ListStatements_WithSecretARN(t *testing.T) {
 	assert.Equal(t, "named-stmt", stmt["StatementName"])
 	assert.Equal(t, "arn:aws:secretsmanager:us-east-1:000000000000:secret:mysecret", stmt["SecretArn"])
 }
+
+func TestInMemoryBackend_StatementCap_OldestEvicted(t *testing.T) {
+	t.Parallel()
+
+	backend := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
+
+	// Create exactly the cap worth of statements.
+	var firstID string
+	for i := range redshiftdata.MaxStatementHistoryForTest {
+		stmt, err := backend.ExecuteStatement(
+			"SELECT 1", "cluster", "", "db", "", "", "",
+		)
+		require.NoError(t, err)
+		if i == 0 {
+			firstID = stmt.ID
+		}
+	}
+
+	require.Equal(t, redshiftdata.MaxStatementHistoryForTest, backend.StatementCount())
+
+	// The first statement is still present before overflow.
+	_, err := backend.DescribeStatement(firstID)
+	require.NoError(t, err)
+
+	// One more statement pushes the oldest out.
+	_, err = backend.ExecuteStatement("SELECT 2", "cluster", "", "db", "", "", "")
+	require.NoError(t, err)
+
+	assert.LessOrEqual(t, backend.StatementCount(), redshiftdata.MaxStatementHistoryForTest)
+
+	// The first statement is now evicted.
+	_, err = backend.DescribeStatement(firstID)
+	require.Error(t, err)
+}

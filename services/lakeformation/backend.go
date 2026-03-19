@@ -103,7 +103,7 @@ func (b *InMemoryBackend) RegisterResource(resourceArn, roleArn string) error {
 	return nil
 }
 
-// DeregisterResource removes a registered data lake resource.
+// DeregisterResource removes a registered data lake resource and its associated permissions.
 func (b *InMemoryBackend) DeregisterResource(resourceArn string) error {
 	b.mu.Lock("DeregisterResource")
 	defer b.mu.Unlock()
@@ -116,6 +116,15 @@ func (b *InMemoryBackend) DeregisterResource(resourceArn string) error {
 	}
 
 	delete(b.resources, resourceArn)
+
+	// Clean up all permissions associated with this resource.
+	updated := make([]*PermissionEntry, 0, len(b.permissions))
+	for _, p := range b.permissions {
+		if !permissionMatchesARN(p, resourceArn) {
+			updated = append(updated, p)
+		}
+	}
+	b.permissions = updated
 
 	return nil
 }

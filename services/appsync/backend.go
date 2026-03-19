@@ -216,7 +216,7 @@ func (b *InMemoryBackend) StartSchemaCreation(apiID, sdl string) (*Schema, error
 	}
 
 	// Validate and parse the schema.
-	_, gqlErr := gqlparser.LoadSchema(&ast.Source{
+	parsed, gqlErr := gqlparser.LoadSchema(&ast.Source{
 		Name:  "schema.graphql",
 		Input: sdl,
 	})
@@ -233,9 +233,10 @@ func (b *InMemoryBackend) StartSchemaCreation(apiID, sdl string) (*Schema, error
 	}
 
 	schema := &Schema{
-		APIID:  apiID,
-		SDL:    sdl,
-		Status: SchemaStatusActive,
+		APIID:        apiID,
+		SDL:          sdl,
+		Status:       SchemaStatusActive,
+		parsedSchema: parsed,
 	}
 	b.schemas[apiID] = schema
 
