@@ -23,6 +23,8 @@ var (
 	ErrSubscriptionAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrConflict)
 	// ErrSubscriptionNotFound is returned when no subscription exists.
 	ErrSubscriptionNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrSubscriptionRequired is returned when an operation requires an active Shield Advanced subscription.
+	ErrSubscriptionRequired = awserr.New("InvalidOperationException: subscription required", awserr.ErrConflict)
 )
 
 // Protection represents an AWS Shield Advanced protection.
@@ -126,6 +128,13 @@ func (b *InMemoryBackend) GetSubscriptionState() string {
 func (b *InMemoryBackend) CreateProtection(name, resourceARN string, tags map[string]string) (*Protection, error) {
 	b.mu.Lock("CreateProtection")
 	defer b.mu.Unlock()
+
+	if b.subscription == nil {
+		return nil, fmt.Errorf(
+			"%w: Shield Advanced subscription is required to create protections",
+			ErrSubscriptionRequired,
+		)
+	}
 
 	if _, exists := b.nameIndex[name]; exists {
 		return nil, fmt.Errorf("%w: protection %q already exists", ErrProtectionAlreadyExists, name)

@@ -125,6 +125,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	// Rebuild certsByCASerial index from restored certificates.
+	b.certsByCASerial = make(map[string]string, len(b.certs))
+	for certARN, cert := range b.certs {
+		b.certsByCASerial[cert.CAARN+"#"+cert.Serial] = certARN
+	}
+
 	return nil
 }
 

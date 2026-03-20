@@ -65,25 +65,27 @@ type Identity struct {
 
 // InMemoryBackend is the in-memory store for Cognito Identity Pool resources.
 type InMemoryBackend struct {
-	mu          *lockmetrics.RWMutex
-	pools       map[string]*IdentityPool
-	poolsByName map[string]*IdentityPool
-	identities  map[string]*Identity
-	roles       map[string]*IdentityRoles
-	accountID   string
-	region      string
+	mu               *lockmetrics.RWMutex
+	pools            map[string]*IdentityPool
+	poolsByName      map[string]*IdentityPool
+	identities       map[string]*Identity
+	identitiesByPool map[string][]*Identity // poolID → identities (O(1) GetID lookup)
+	roles            map[string]*IdentityRoles
+	accountID        string
+	region           string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:          lockmetrics.New("cognitoidentity"),
-		pools:       make(map[string]*IdentityPool),
-		poolsByName: make(map[string]*IdentityPool),
-		identities:  make(map[string]*Identity),
-		roles:       make(map[string]*IdentityRoles),
-		accountID:   accountID,
-		region:      region,
+		mu:               lockmetrics.New("cognitoidentity"),
+		pools:            make(map[string]*IdentityPool),
+		poolsByName:      make(map[string]*IdentityPool),
+		identities:       make(map[string]*Identity),
+		identitiesByPool: make(map[string][]*Identity),
+		roles:            make(map[string]*IdentityRoles),
+		accountID:        accountID,
+		region:           region,
 	}
 }
 
@@ -150,6 +152,8 @@ func (b *InMemoryBackend) DeleteIdentityPool(poolID string) error {
 			delete(b.identities, id)
 		}
 	}
+
+	delete(b.identitiesByPool, poolID)
 
 	return nil
 }
@@ -228,9 +232,9 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	// Attempt to find an existing identity for this pool with the same logins.
-	for _, identity := range b.identities {
-		if identity.IdentityPoolID == poolID && mapsEqual(identity.Logins, logins) {
+	// O(n pool size) but bounded to the specific pool, not all identities.
+	for _, identity := range b.identitiesByPool[poolID] {
+		if mapsEqual(identity.Logins, logins) {
 			return cloneIdentity(identity), nil
 		}
 	}
@@ -245,6 +249,7 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 	}
 
 	b.identities[identityID] = identity
+	b.identitiesByPool[poolID] = append(b.identitiesByPool[poolID], identity)
 
 	return cloneIdentity(identity), nil
 }
@@ -440,5 +445,6 @@ func (b *InMemoryBackend) Reset() {
 	b.pools = make(map[string]*IdentityPool)
 	b.poolsByName = make(map[string]*IdentityPool)
 	b.identities = make(map[string]*Identity)
+	b.identitiesByPool = make(map[string][]*Identity)
 	b.roles = make(map[string]*IdentityRoles)
 }

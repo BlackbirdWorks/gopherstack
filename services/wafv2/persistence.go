@@ -3,10 +3,11 @@ package wafv2
 import "encoding/json"
 
 type backendSnapshot struct {
-	WebACLs   map[string]*WebACL `json:"webACLs"`
-	IPSets    map[string]*IPSet  `json:"ipSets"`
-	AccountID string             `json:"accountID"`
-	Region    string             `json:"region"`
+	WebACLs      map[string]*WebACL `json:"webACLs"`
+	IPSets       map[string]*IPSet  `json:"ipSets"`
+	Associations map[string]string  `json:"associations,omitempty"`
+	AccountID    string             `json:"accountID"`
+	Region       string             `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -15,10 +16,11 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		WebACLs:   b.webACLs,
-		IPSets:    b.ipSets,
-		AccountID: b.accountID,
-		Region:    b.region,
+		WebACLs:      b.webACLs,
+		IPSets:       b.ipSets,
+		Associations: b.associations,
+		AccountID:    b.accountID,
+		Region:       b.region,
 	}
 
 	data, _ := json.Marshal(snap)
@@ -49,8 +51,13 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.IPSets = make(map[string]*IPSet)
 	}
 
+	if snap.Associations == nil {
+		snap.Associations = make(map[string]string)
+	}
+
 	b.webACLs = snap.WebACLs
 	b.ipSets = snap.IPSets
+	b.associations = snap.Associations
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

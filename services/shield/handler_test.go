@@ -276,6 +276,9 @@ func TestHandler_CreateProtection(t *testing.T) {
 	}{
 		{
 			name: "success",
+			setup: func(h *shield.Handler) {
+				_ = h.Backend.CreateSubscription()
+			},
 			body: map[string]any{
 				"Name":        "my-protection",
 				"ResourceArn": "arn:aws:ec2:us-east-1:123456789012:eip-allocation/eipalloc-12345678",
@@ -286,6 +289,7 @@ func TestHandler_CreateProtection(t *testing.T) {
 		{
 			name: "duplicate name returns conflict",
 			setup: func(h *shield.Handler) {
+				_ = h.Backend.CreateSubscription()
 				_, _ = h.Backend.CreateProtection("my-protection", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
 			},
 			body: map[string]any{
@@ -345,6 +349,7 @@ func TestHandler_DescribeProtection(t *testing.T) {
 		{
 			name: "by protection id",
 			setup: func(h *shield.Handler) string {
+				_ = h.Backend.CreateSubscription()
 				p, _ := h.Backend.CreateProtection("my-protection", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
 
 				return p.ID
@@ -358,6 +363,7 @@ func TestHandler_DescribeProtection(t *testing.T) {
 		{
 			name: "by resource arn",
 			setup: func(h *shield.Handler) string {
+				_ = h.Backend.CreateSubscription()
 				_, _ = h.Backend.CreateProtection("arn-protection", "arn:aws:ec2:us-east-1:123:eip/eipalloc-2", nil)
 
 				return "arn:aws:ec2:us-east-1:123:eip/eipalloc-2"
@@ -422,6 +428,7 @@ func TestHandler_DeleteProtection(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *shield.Handler) string {
+				_ = h.Backend.CreateSubscription()
 				p, _ := h.Backend.CreateProtection("my-protection", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
 
 				return p.ID
@@ -481,6 +488,7 @@ func TestHandler_ListProtections(t *testing.T) {
 		{
 			name: "two protections",
 			setup: func(h *shield.Handler) {
+				_ = h.Backend.CreateSubscription()
 				_, _ = h.Backend.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
 				_, _ = h.Backend.CreateProtection("p2", "arn:aws:ec2:us-east-1:123:eip/eipalloc-2", nil)
 			},
@@ -520,6 +528,7 @@ func TestHandler_TagResource(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *shield.Handler) string {
+				_ = h.Backend.CreateSubscription()
 				p, _ := h.Backend.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
 
 				return p.ID
@@ -583,6 +592,7 @@ func TestHandler_ListTagsForResource(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *shield.Handler) string {
+				_ = h.Backend.CreateSubscription()
 				p, _ := h.Backend.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1",
 					map[string]string{"env": "prod"})
 
@@ -639,6 +649,7 @@ func TestHandler_UntagResource(t *testing.T) {
 		{
 			name: "success",
 			setup: func(h *shield.Handler) string {
+				_ = h.Backend.CreateSubscription()
 				p, _ := h.Backend.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1",
 					map[string]string{"env": "prod"})
 
@@ -722,6 +733,7 @@ func TestBackend_ListProtections(t *testing.T) {
 		{
 			name: "one protection",
 			setup: func(b *shield.InMemoryBackend) {
+				_ = b.CreateSubscription()
 				_, _ = b.CreateProtection("p1", "arn:aws:ec2:us-east-1:123:eip/eipalloc-1", nil)
 			},
 			wantLen: 1,

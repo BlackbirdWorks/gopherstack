@@ -57,11 +57,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
-	// Rebuild poolsByName index.
+	// Rebuild poolsByName and identitiesByPool indexes.
 	b.poolsByName = make(map[string]*IdentityPool, len(snap.Pools))
 
 	for _, p := range snap.Pools {
 		b.poolsByName[p.IdentityPoolName] = p
+	}
+
+	b.identitiesByPool = make(map[string][]*Identity)
+
+	for _, identity := range snap.Identities {
+		b.identitiesByPool[identity.IdentityPoolID] = append(b.identitiesByPool[identity.IdentityPoolID], identity)
 	}
 
 	return nil

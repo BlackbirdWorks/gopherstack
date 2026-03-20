@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"math/big"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // Sentinel errors.
@@ -66,6 +66,11 @@ var (
 		"AccountAlreadyRegisteredException: account is already a delegated administrator",
 		awserr.ErrAlreadyExists,
 	)
+	// ErrPolicyLimitExceeded is returned when the maximum number of policies per target is exceeded.
+	ErrPolicyLimitExceeded = awserr.New(
+		"ConstraintViolationException: maximum policies per target exceeded",
+		awserr.ErrConflict,
+	)
 )
 
 const (
@@ -90,6 +95,9 @@ const (
 	ouRandomLen = 8
 	// policyIDLen is the number of random chars in a policy ID.
 	policyIDLen = 8
+
+	// maxPoliciesPerTarget is the AWS limit for the number of policies of the same type attached to a target.
+	maxPoliciesPerTarget = 5
 )
 
 const idChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -152,24 +160,24 @@ func newAccountID(counter int) string {
 
 // InMemoryBackend is the in-memory storage for the Organizations service.
 type InMemoryBackend struct {
-	policyTargets   map[string][]string
-	accountParent   map[string]string
+	serviceAccess   map[string]time.Time
+	targetPolicies  map[string][]string
 	delegatedAdmins map[string]map[string]*DelegatedAdmin
 	org             *Organization
 	root            *Root
 	accounts        map[string]*Account
 	ous             map[string]*OrganizationalUnit
 	policies        map[string]*Policy
-	serviceAccess   map[string]time.Time
+	accountParent   map[string]string
+	policyTargets   map[string][]string
 	createStatuses  map[string]*CreateAccountStatus
-	targetPolicies  map[string][]string
 	ouParent        map[string]string
 	tags            map[string]map[string]string
-	accountID       string
+	mu              *lockmetrics.RWMutex
 	region          string
+	accountID       string
 	accountCounter  int
 	statusCounter   int
-	mu              sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory Organizations backend.
@@ -189,6 +197,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		serviceAccess:   make(map[string]time.Time),
 		delegatedAdmins: make(map[string]map[string]*DelegatedAdmin),
 		accountCounter:  managementAccountCounter,
+		mu:              lockmetrics.New("organizations"),
 	}
 }
 
@@ -226,7 +235,7 @@ func (b *InMemoryBackend) policyARN(orgID, policyType, policyID string) string {
 
 // CreateOrganization creates a new organization.
 func (b *InMemoryBackend) CreateOrganization(featureSet string) (*Organization, *Root, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateOrganization")
 	defer b.mu.Unlock()
 
 	if b.org != nil {
@@ -279,19 +288,19 @@ func (b *InMemoryBackend) CreateOrganization(featureSet string) (*Organization, 
 
 // DescribeOrganization returns the current organization.
 func (b *InMemoryBackend) DescribeOrganization() (*Organization, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeOrganization")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
 		return nil, ErrOrgNotFound
 	}
 
-	return b.org, nil
+	return copyOrg(b.org), nil
 }
 
 // DeleteOrganization removes the organization.
 func (b *InMemoryBackend) DeleteOrganization() error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteOrganization")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -320,7 +329,7 @@ func (b *InMemoryBackend) DeleteOrganization() error {
 
 // CreateAccount creates a new account and returns its status.
 func (b *InMemoryBackend) CreateAccount(name, email string, tags []Tag) (*CreateAccountStatus, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateAccount")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -364,7 +373,7 @@ func (b *InMemoryBackend) CreateAccount(name, email string, tags []Tag) (*Create
 
 // DescribeCreateAccountStatus returns the status of a CreateAccount request.
 func (b *InMemoryBackend) DescribeCreateAccountStatus(requestID string) (*CreateAccountStatus, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCreateAccountStatus")
 	defer b.mu.RUnlock()
 
 	s, ok := b.createStatuses[requestID]
@@ -377,7 +386,7 @@ func (b *InMemoryBackend) DescribeCreateAccountStatus(requestID string) (*Create
 
 // DescribeAccount returns an account by ID.
 func (b *InMemoryBackend) DescribeAccount(accountID string) (*Account, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeAccount")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -389,12 +398,10 @@ func (b *InMemoryBackend) DescribeAccount(accountID string) (*Account, error) {
 		return nil, ErrAccountNotFound
 	}
 
-	return a, nil
+	return copyAccount(a), nil
 }
-
-// ListAccounts returns all accounts in the organization.
 func (b *InMemoryBackend) ListAccounts() ([]*Account, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAccounts")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -403,7 +410,7 @@ func (b *InMemoryBackend) ListAccounts() ([]*Account, error) {
 
 	out := make([]*Account, 0, len(b.accounts))
 	for _, a := range b.accounts {
-		out = append(out, a)
+		out = append(out, copyAccount(a))
 	}
 
 	return out, nil
@@ -411,7 +418,7 @@ func (b *InMemoryBackend) ListAccounts() ([]*Account, error) {
 
 // RemoveAccountFromOrganization removes an account from the organization.
 func (b *InMemoryBackend) RemoveAccountFromOrganization(accountID string) error {
-	b.mu.Lock()
+	b.mu.Lock("RemoveAccountFromOrganization")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -443,7 +450,7 @@ func (b *InMemoryBackend) RemoveAccountFromOrganization(accountID string) error 
 
 // MoveAccount moves an account from one parent to another.
 func (b *InMemoryBackend) MoveAccount(accountID, sourceParentID, destParentID string) error {
-	b.mu.Lock()
+	b.mu.Lock("MoveAccount")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -483,7 +490,7 @@ func (b *InMemoryBackend) parentExists(parentID string) bool {
 
 // ListRoots returns the organization roots.
 func (b *InMemoryBackend) ListRoots() ([]*Root, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListRoots")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -497,7 +504,7 @@ func (b *InMemoryBackend) ListRoots() ([]*Root, error) {
 
 // CreateOrganizationalUnit creates a new OU under the given parent.
 func (b *InMemoryBackend) CreateOrganizationalUnit(parentID, name string, tags []Tag) (*OrganizationalUnit, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateOrganizationalUnit")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -525,7 +532,7 @@ func (b *InMemoryBackend) CreateOrganizationalUnit(parentID, name string, tags [
 
 // DescribeOrganizationalUnit returns an OU by ID.
 func (b *InMemoryBackend) DescribeOrganizationalUnit(ouID string) (*OrganizationalUnit, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeOrganizationalUnit")
 	defer b.mu.RUnlock()
 
 	ou, ok := b.ous[ouID]
@@ -533,12 +540,12 @@ func (b *InMemoryBackend) DescribeOrganizationalUnit(ouID string) (*Organization
 		return nil, ErrOUNotFound
 	}
 
-	return ou, nil
+	return copyOU(ou), nil
 }
 
 // DeleteOrganizationalUnit removes an OU.
 func (b *InMemoryBackend) DeleteOrganizationalUnit(ouID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteOrganizationalUnit")
 	defer b.mu.Unlock()
 
 	if _, ok := b.ous[ouID]; !ok {
@@ -555,7 +562,7 @@ func (b *InMemoryBackend) DeleteOrganizationalUnit(ouID string) error {
 
 // UpdateOrganizationalUnit renames an OU.
 func (b *InMemoryBackend) UpdateOrganizationalUnit(ouID, name string) (*OrganizationalUnit, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateOrganizationalUnit")
 	defer b.mu.Unlock()
 
 	ou, ok := b.ous[ouID]
@@ -565,12 +572,12 @@ func (b *InMemoryBackend) UpdateOrganizationalUnit(ouID, name string) (*Organiza
 
 	ou.Name = name
 
-	return ou, nil
+	return copyOU(ou), nil
 }
 
 // ListOrganizationalUnitsForParent returns all OUs under a parent.
 func (b *InMemoryBackend) ListOrganizationalUnitsForParent(parentID string) ([]*OrganizationalUnit, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListOrganizationalUnitsForParent")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -585,7 +592,7 @@ func (b *InMemoryBackend) ListOrganizationalUnitsForParent(parentID string) ([]*
 
 	for _, ou := range b.ous {
 		if ou.ParentID == parentID {
-			out = append(out, ou)
+			out = append(out, copyOU(ou))
 		}
 	}
 
@@ -594,7 +601,7 @@ func (b *InMemoryBackend) ListOrganizationalUnitsForParent(parentID string) ([]*
 
 // ListAccountsForParent returns all accounts directly under a parent.
 func (b *InMemoryBackend) ListAccountsForParent(parentID string) ([]*Account, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAccountsForParent")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -610,7 +617,7 @@ func (b *InMemoryBackend) ListAccountsForParent(parentID string) ([]*Account, er
 	for acctID, pid := range b.accountParent {
 		if pid == parentID {
 			if a, ok := b.accounts[acctID]; ok {
-				out = append(out, a)
+				out = append(out, copyAccount(a))
 			}
 		}
 	}
@@ -620,7 +627,7 @@ func (b *InMemoryBackend) ListAccountsForParent(parentID string) ([]*Account, er
 
 // ListParents returns the parents of an account or OU.
 func (b *InMemoryBackend) ListParents(childID string) ([]ParentSummary, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListParents")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -655,7 +662,7 @@ func (b *InMemoryBackend) resolveParentType(parentID string) string {
 
 // ListChildren returns children of a given type under a parent.
 func (b *InMemoryBackend) ListChildren(parentID, childType string) ([]ChildSummary, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListChildren")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -692,7 +699,7 @@ func (b *InMemoryBackend) ListChildren(parentID, childType string) ([]ChildSumma
 
 // CreatePolicy creates a new policy.
 func (b *InMemoryBackend) CreatePolicy(name, description, content, policyType string, tags []Tag) (*Policy, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreatePolicy")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -721,7 +728,7 @@ func (b *InMemoryBackend) CreatePolicy(name, description, content, policyType st
 
 // DescribePolicy returns a policy by ID.
 func (b *InMemoryBackend) DescribePolicy(policyID string) (*Policy, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribePolicy")
 	defer b.mu.RUnlock()
 
 	p, ok := b.policies[policyID]
@@ -729,12 +736,12 @@ func (b *InMemoryBackend) DescribePolicy(policyID string) (*Policy, error) {
 		return nil, ErrPolicyNotFound
 	}
 
-	return p, nil
+	return copyPolicy(p), nil
 }
 
 // UpdatePolicy updates a policy.
 func (b *InMemoryBackend) UpdatePolicy(policyID, name, description, content string) (*Policy, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdatePolicy")
 	defer b.mu.Unlock()
 
 	p, ok := b.policies[policyID]
@@ -754,12 +761,12 @@ func (b *InMemoryBackend) UpdatePolicy(policyID, name, description, content stri
 		p.Content = content
 	}
 
-	return p, nil
+	return copyPolicy(p), nil
 }
 
 // DeletePolicy removes a policy.
 func (b *InMemoryBackend) DeletePolicy(policyID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeletePolicy")
 	defer b.mu.Unlock()
 
 	if _, ok := b.policies[policyID]; !ok {
@@ -780,7 +787,7 @@ func (b *InMemoryBackend) DeletePolicy(policyID string) error {
 
 // ListPolicies returns all policies of a given type.
 func (b *InMemoryBackend) ListPolicies(filter string) ([]*Policy, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListPolicies")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -791,7 +798,7 @@ func (b *InMemoryBackend) ListPolicies(filter string) ([]*Policy, error) {
 
 	for _, p := range b.policies {
 		if filter == "" || p.PolicySummary.Type == filter {
-			out = append(out, p)
+			out = append(out, copyPolicy(p))
 		}
 	}
 
@@ -800,16 +807,31 @@ func (b *InMemoryBackend) ListPolicies(filter string) ([]*Policy, error) {
 
 // AttachPolicy attaches a policy to a target.
 func (b *InMemoryBackend) AttachPolicy(policyID, targetID string) error {
-	b.mu.Lock()
+	b.mu.Lock("AttachPolicy")
 	defer b.mu.Unlock()
 
-	if _, ok := b.policies[policyID]; !ok {
+	policy, ok := b.policies[policyID]
+	if !ok {
 		return ErrPolicyNotFound
 	}
 
 	targets := b.policyTargets[policyID]
 	if slices.Contains(targets, targetID) {
 		return ErrDuplicatePolicyAttachment
+	}
+
+	// Enforce per-target, per-policy-type limit (AWS limit is 5).
+	policyType := policy.PolicySummary.Type
+	typeCount := 0
+
+	for _, attachedPolicyID := range b.targetPolicies[targetID] {
+		if p, exists := b.policies[attachedPolicyID]; exists && p.PolicySummary.Type == policyType {
+			typeCount++
+		}
+	}
+
+	if typeCount >= maxPoliciesPerTarget {
+		return ErrPolicyLimitExceeded
 	}
 
 	b.policyTargets[policyID] = append(targets, targetID)
@@ -820,7 +842,7 @@ func (b *InMemoryBackend) AttachPolicy(policyID, targetID string) error {
 
 // DetachPolicy detaches a policy from a target.
 func (b *InMemoryBackend) DetachPolicy(policyID, targetID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DetachPolicy")
 	defer b.mu.Unlock()
 
 	if _, ok := b.policies[policyID]; !ok {
@@ -841,7 +863,7 @@ func (b *InMemoryBackend) DetachPolicy(policyID, targetID string) error {
 
 // ListPoliciesForTarget returns policies attached to a target, filtered by type.
 func (b *InMemoryBackend) ListPoliciesForTarget(targetID, filter string) ([]*Policy, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListPoliciesForTarget")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -855,7 +877,7 @@ func (b *InMemoryBackend) ListPoliciesForTarget(targetID, filter string) ([]*Pol
 	for _, pid := range policyIDs {
 		if p, ok := b.policies[pid]; ok {
 			if filter == "" || p.PolicySummary.Type == filter {
-				out = append(out, p)
+				out = append(out, copyPolicy(p))
 			}
 		}
 	}
@@ -865,7 +887,7 @@ func (b *InMemoryBackend) ListPoliciesForTarget(targetID, filter string) ([]*Pol
 
 // ListTargetsForPolicy returns targets that a policy is attached to.
 func (b *InMemoryBackend) ListTargetsForPolicy(policyID string) ([]PolicyTargetSummary, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTargetsForPolicy")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.policies[policyID]; !ok {
@@ -917,7 +939,7 @@ func (b *InMemoryBackend) resolveTargetSummary(targetID string) PolicyTargetSumm
 
 // EnablePolicyType enables a policy type on the root.
 func (b *InMemoryBackend) EnablePolicyType(rootID, policyType string) (*Root, error) {
-	b.mu.Lock()
+	b.mu.Lock("EnablePolicyType")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -939,12 +961,12 @@ func (b *InMemoryBackend) EnablePolicyType(rootID, policyType string) (*Root, er
 		Status: policyStatusEnabled,
 	})
 
-	return b.root, nil
+	return copyRoot(b.root), nil
 }
 
 // DisablePolicyType disables a policy type on the root.
 func (b *InMemoryBackend) DisablePolicyType(rootID, policyType string) (*Root, error) {
-	b.mu.Lock()
+	b.mu.Lock("DisablePolicyType")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -975,14 +997,14 @@ func (b *InMemoryBackend) DisablePolicyType(rootID, policyType string) (*Root, e
 
 	b.root.PolicyTypes = newTypes
 
-	return b.root, nil
+	return copyRoot(b.root), nil
 }
 
 // -- Tag operations --
 
 // TagResource adds or updates tags on a resource.
 func (b *InMemoryBackend) TagResource(resourceID string, tags []Tag) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	b.setTagsLocked(resourceID, tags)
@@ -992,7 +1014,7 @@ func (b *InMemoryBackend) TagResource(resourceID string, tags []Tag) error {
 
 // UntagResource removes tags from a resource.
 func (b *InMemoryBackend) UntagResource(resourceID string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	t := b.tags[resourceID]
@@ -1009,7 +1031,7 @@ func (b *InMemoryBackend) UntagResource(resourceID string, tagKeys []string) err
 
 // ListTagsForResource returns all tags for a resource.
 func (b *InMemoryBackend) ListTagsForResource(resourceID string) ([]Tag, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	t := b.tags[resourceID]
@@ -1041,7 +1063,7 @@ func (b *InMemoryBackend) setTagsLocked(resourceID string, tags []Tag) {
 
 // EnableAWSServiceAccess enables a service principal for org-wide access.
 func (b *InMemoryBackend) EnableAWSServiceAccess(servicePrincipal string) error {
-	b.mu.Lock()
+	b.mu.Lock("EnableAWSServiceAccess")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -1055,7 +1077,7 @@ func (b *InMemoryBackend) EnableAWSServiceAccess(servicePrincipal string) error 
 
 // DisableAWSServiceAccess disables a service principal.
 func (b *InMemoryBackend) DisableAWSServiceAccess(servicePrincipal string) error {
-	b.mu.Lock()
+	b.mu.Lock("DisableAWSServiceAccess")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -1069,7 +1091,7 @@ func (b *InMemoryBackend) DisableAWSServiceAccess(servicePrincipal string) error
 
 // ListAWSServiceAccessForOrganization returns enabled service principals.
 func (b *InMemoryBackend) ListAWSServiceAccessForOrganization() ([]EnabledServicePrincipal, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAWSServiceAccessForOrganization")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -1092,7 +1114,7 @@ func (b *InMemoryBackend) ListAWSServiceAccessForOrganization() ([]EnabledServic
 
 // RegisterDelegatedAdministrator registers a delegated admin for a service.
 func (b *InMemoryBackend) RegisterDelegatedAdministrator(accountID, servicePrincipal string) error {
-	b.mu.Lock()
+	b.mu.Lock("RegisterDelegatedAdministrator")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -1129,7 +1151,7 @@ func (b *InMemoryBackend) RegisterDelegatedAdministrator(accountID, servicePrinc
 
 // DeregisterDelegatedAdministrator removes a delegated admin.
 func (b *InMemoryBackend) DeregisterDelegatedAdministrator(accountID, servicePrincipal string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeregisterDelegatedAdministrator")
 	defer b.mu.Unlock()
 
 	if b.org == nil {
@@ -1152,7 +1174,7 @@ func (b *InMemoryBackend) DeregisterDelegatedAdministrator(accountID, servicePri
 
 // ListDelegatedAdministrators lists delegated admins, optionally filtered by service principal.
 func (b *InMemoryBackend) ListDelegatedAdministrators(servicePrincipal string) ([]*DelegatedAdmin, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListDelegatedAdministrators")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -1185,9 +1207,49 @@ func removeString(s []string, v string) []string {
 	return slices.DeleteFunc(slices.Clone(s), func(x string) bool { return x == v })
 }
 
+// copyOrg returns a value copy of org (all fields are scalars).
+func copyOrg(org *Organization) *Organization {
+	cp := *org
+
+	return &cp
+}
+
+// copyAccount returns a value copy of account (all fields are scalars).
+func copyAccount(a *Account) *Account {
+	cp := *a
+
+	return &cp
+}
+
+// copyOU returns a value copy of an OrganizationalUnit (all fields are scalars).
+func copyOU(ou *OrganizationalUnit) *OrganizationalUnit {
+	cp := *ou
+
+	return &cp
+}
+
+// copyPolicy returns a value copy of a Policy (all fields are scalars).
+func copyPolicy(p *Policy) *Policy {
+	cp := *p
+
+	return &cp
+}
+
+// copyRoot returns a value copy of Root, including its PolicyTypes slice.
+func copyRoot(r *Root) *Root {
+	cp := *r
+
+	if r.PolicyTypes != nil {
+		cp.PolicyTypes = make([]PolicyTypeSummary, len(r.PolicyTypes))
+		copy(cp.PolicyTypes, r.PolicyTypes)
+	}
+
+	return &cp
+}
+
 // EnsureOrgExists returns ErrOrgNotFound if no org exists (for operations that require it).
 func (b *InMemoryBackend) EnsureOrgExists() error {
-	b.mu.RLock()
+	b.mu.RLock("EnsureOrgExists")
 	defer b.mu.RUnlock()
 
 	if b.org == nil {
@@ -1202,7 +1264,7 @@ var _ = errors.Is(ErrOrgNotFound, awserr.ErrNotFound)
 
 // Reset clears all organization state.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.org = nil

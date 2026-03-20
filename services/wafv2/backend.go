@@ -21,6 +21,8 @@ var (
 	ErrIPSetNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
 	// ErrIPSetAlreadyExists is returned when an IPSet with the same name already exists.
 	ErrIPSetAlreadyExists = awserr.New("WAFDuplicateItemException", awserr.ErrConflict)
+	// ErrAssociationNotFound is returned when a WebACL association does not exist.
+	ErrAssociationNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
 )
 
 // WebACL represents an AWS WAFv2 Web ACL.
@@ -55,6 +57,7 @@ type InMemoryBackend struct {
 	ipSetByARN        map[string]string // ARN → ipSet ID
 	webACLByNameScope map[string]string // "name:scope" → webACL ID (O(1) duplicate check)
 	ipSetByNameScope  map[string]string // "name:scope" → ipSet ID (O(1) duplicate check)
+	associations      map[string]string // resourceARN → webACL ID (AssociateWebACL)
 	mu                *lockmetrics.RWMutex
 	accountID         string
 	region            string
@@ -69,6 +72,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		ipSetByARN:        make(map[string]string),
 		webACLByNameScope: make(map[string]string),
 		ipSetByNameScope:  make(map[string]string),
+		associations:      make(map[string]string),
 		accountID:         accountID,
 		region:            region,
 		mu:                lockmetrics.New("wafv2"),
@@ -426,4 +430,52 @@ func (b *InMemoryBackend) Reset() {
 	b.ipSetByARN = make(map[string]string)
 	b.webACLByNameScope = make(map[string]string)
 	b.ipSetByNameScope = make(map[string]string)
+	b.associations = make(map[string]string)
+}
+
+// AssociateWebACL associates a WebACL with a resource ARN.
+func (b *InMemoryBackend) AssociateWebACL(webACLARN, resourceARN string) error {
+	b.mu.Lock("AssociateWebACL")
+	defer b.mu.Unlock()
+
+	webACLID, ok := b.webACLByARN[webACLARN]
+	if !ok {
+		return fmt.Errorf("%w: web ACL with ARN %q not found", ErrWebACLNotFound, webACLARN)
+	}
+
+	b.associations[resourceARN] = webACLID
+
+	return nil
+}
+
+// DisassociateWebACL removes the WebACL association from a resource ARN.
+func (b *InMemoryBackend) DisassociateWebACL(resourceARN string) error {
+	b.mu.Lock("DisassociateWebACL")
+	defer b.mu.Unlock()
+
+	if _, ok := b.associations[resourceARN]; !ok {
+		return fmt.Errorf("%w: no web ACL association found for resource %q", ErrAssociationNotFound, resourceARN)
+	}
+
+	delete(b.associations, resourceARN)
+
+	return nil
+}
+
+// GetWebACLForResource returns the WebACL associated with the given resource ARN.
+func (b *InMemoryBackend) GetWebACLForResource(resourceARN string) (*WebACL, error) {
+	b.mu.RLock("GetWebACLForResource")
+	defer b.mu.RUnlock()
+
+	webACLID, ok := b.associations[resourceARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: no web ACL association found for resource %q", ErrAssociationNotFound, resourceARN)
+	}
+
+	w, ok := b.webACLs[webACLID]
+	if !ok {
+		return nil, fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, webACLID)
+	}
+
+	return cloneWebACL(w), nil
 }
