@@ -353,17 +353,19 @@ type CLI struct {
 	InitScriptTimeout             time.Duration          `                                  name:"init-timeout"         env:"INIT_TIMEOUT"            default:"30s"          help:"Per-script timeout for init hooks."`                                                                                         //nolint:lll // config struct tags are intentionally verbose
 	Demo                          bool                   `                                  name:"demo"                 env:"DEMO"                    default:"false"        help:"Load demo data on startup."`                                                                                                 //nolint:lll // config struct tags are intentionally verbose
 	Persist                       bool                   `                                  name:"persist"              env:"PERSIST"                 default:"false"        help:"Enable snapshot-based persistence across restarts."`                                                                         //nolint:lll // config struct tags are intentionally verbose
-	EnforceIAM                    bool                   `                                  name:"enforce-iam"          env:"GOPHERSTACK_ENFORCE_IAM" default:"false"        help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                //nolint:lll // config struct tags are intentionally verbose
-	LatencyMs                     int                    `                                  name:"latency-ms"           env:"LATENCY_MS"              default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."` //nolint:lll // config struct tags are intentionally verbose
+	EnforceIAM                    bool                   `                                  name:"enforce-iam"          env:"GOPHERSTACK_ENFORCE_IAM" default:"false"        help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                                                                //nolint:lll // config struct tags are intentionally verbose
+	LatencyMs                     int                    `                                  name:"latency-ms"           env:"LATENCY_MS"              default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	JanitorTimeout                time.Duration          `                                  name:"janitor-timeout"      env:"JANITOR_TIMEOUT"         default:"30s"          help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
 func (c *CLI) GetGlobalConfig() config.GlobalConfig {
 	return config.GlobalConfig{
-		AccountID:  c.AccountID,
-		Region:     c.Region,
-		LatencyMs:  c.LatencyMs,
-		EnforceIAM: c.EnforceIAM,
+		AccountID:      c.AccountID,
+		Region:         c.Region,
+		LatencyMs:      c.LatencyMs,
+		EnforceIAM:     c.EnforceIAM,
+		JanitorTimeout: c.JanitorTimeout,
 	}
 }
 
@@ -1194,10 +1196,11 @@ func run(ctx context.Context, cli CLI) error {
 	}
 
 	appCtx := &service.AppContext{
-		Logger:     log,
-		Config:     &cli,
-		JanitorCtx: janitorCtx,
-		PortAlloc:  portAlloc,
+		Logger:         log,
+		Config:         &cli,
+		JanitorCtx:     janitorCtx,
+		JanitorTimeout: cli.JanitorTimeout,
+		PortAlloc:      portAlloc,
 	}
 
 	// Create the fault store before initialising services so the dashboard can

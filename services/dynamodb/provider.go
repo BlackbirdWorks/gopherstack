@@ -1,6 +1,8 @@
 package dynamodb
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -42,7 +44,12 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend.createDelay = settings.CreateDelay
 	backend.SetEnforceThroughput(settings.EnforceThroughput)
 
-	handler := NewHandler(backend).WithJanitor(settings)
+	janitorTimeout := time.Duration(0)
+	if cp, ok := ctx.Config.(config.Provider); ok {
+		janitorTimeout = cp.GetGlobalConfig().JanitorTimeout
+	}
+
+	handler := NewHandler(backend).WithJanitor(settings, janitorTimeout)
 
 	return handler, nil
 }

@@ -136,6 +136,10 @@ type Janitor struct {
 	Backend      *InMemoryBackend
 	activeDrains sync.Map
 	Interval     time.Duration
+	// TaskTimeout bounds each individual janitor task. When non-zero, each task
+	// runs with a child context that expires after this duration, preventing a
+	// stalled operation from blocking the janitor loop indefinitely.
+	TaskTimeout time.Duration
 }
 
 // NewJanitor creates a new S3 Janitor for the given backend.
@@ -165,11 +169,25 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			// sweepAndDrain spawns long-lived drain goroutines that must outlive
+			// the per-tick task context, so the parent ctx is passed directly.
 			j.sweepAndDrain(ctx)
-			j.sweepLifecycle(ctx)
-			j.cleanupDefaultMultipart(ctx)
+			taskCtx, cancel := j.taskContext(ctx)
+			j.sweepLifecycle(taskCtx)
+			j.cleanupDefaultMultipart(taskCtx)
+			cancel()
 		}
 	}
+}
+
+// taskContext returns a child context bounded by TaskTimeout (if non-zero).
+// The caller is responsible for calling the returned cancel function.
+func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if j.TaskTimeout > 0 {
+		return context.WithTimeout(parent, j.TaskTimeout)
+	}
+
+	return context.WithCancel(parent)
 }
 
 // sweepAndDrain records queue depth and spawns a dedicated goroutine per

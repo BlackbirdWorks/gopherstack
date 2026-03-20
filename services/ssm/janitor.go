@@ -15,6 +15,10 @@ const defaultSSMJanitorInterval = 30 * time.Second
 type Janitor struct {
 	Backend  *InMemoryBackend
 	Interval time.Duration
+	// TaskTimeout bounds each individual janitor task. When non-zero, each task
+	// runs with a child context that expires after this duration, preventing a
+	// stalled operation from blocking the janitor loop indefinitely.
+	TaskTimeout time.Duration
 }
 
 // NewJanitor creates a new SSM Janitor for the given backend.
@@ -40,9 +44,21 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			j.sweepExpiredCommands(ctx)
+			taskCtx, cancel := j.taskContext(ctx)
+			j.sweepExpiredCommands(taskCtx)
+			cancel()
 		}
 	}
+}
+
+// taskContext returns a child context bounded by TaskTimeout (if non-zero).
+// The caller is responsible for calling the returned cancel function.
+func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if j.TaskTimeout > 0 {
+		return context.WithTimeout(parent, j.TaskTimeout)
+	}
+
+	return context.WithCancel(parent)
 }
 
 // sweepExpiredCommands removes commands whose ExpiresAfter timestamp has passed,

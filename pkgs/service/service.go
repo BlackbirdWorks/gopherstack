@@ -170,12 +170,11 @@ type FISActionProvider interface {
 
 // AppContext contains shared resources needed by services during initialization.
 type AppContext struct {
-	Logger     *slog.Logger
-	Config     any // The raw configuration object
-	JanitorCtx context.Context
-	// PortAlloc is the shared port allocator for services that need dedicated ports (e.g. Lambda).
-	// May be nil if the port range was not configured.
-	PortAlloc *portalloc.Allocator
+	Config         any
+	JanitorCtx     context.Context
+	Logger         *slog.Logger
+	PortAlloc      *portalloc.Allocator
+	JanitorTimeout time.Duration
 }
 
 // Provider encapsulates the logic to initialize a service.

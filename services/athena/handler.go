@@ -33,9 +33,13 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // WithJanitor attaches a background janitor to the handler.
 // If the backend is not an *InMemoryBackend, this is a no-op.
-func (h *Handler) WithJanitor(interval, executionTTL time.Duration) *Handler {
+func (h *Handler) WithJanitor(interval, executionTTL time.Duration, taskTimeout ...time.Duration) *Handler {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
-		h.janitor = NewJanitor(mem, interval, executionTTL)
+		j := NewJanitor(mem, interval, executionTTL)
+		if len(taskTimeout) > 0 {
+			j.TaskTimeout = taskTimeout[0]
+		}
+		h.janitor = j
 	}
 
 	return h

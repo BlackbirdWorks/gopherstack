@@ -78,9 +78,13 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // WithJanitor attaches a background key-deletion janitor to the handler.
 // If the backend is not an *InMemoryBackend, this is a no-op.
-func (h *Handler) WithJanitor(interval time.Duration) *Handler {
+func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Duration) *Handler {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
-		h.janitor = NewJanitor(mem, interval)
+		j := NewJanitor(mem, interval)
+		if len(taskTimeout) > 0 {
+			j.TaskTimeout = taskTimeout[0]
+		}
+		h.janitor = j
 	}
 
 	return h
