@@ -74,7 +74,7 @@ func TestJanitor_SweepOnce(t *testing.T) {
 			j.SweepOnce(t.Context())
 
 			terminated := b.DescribeInstances(nil, "terminated")
-			assert.Equal(t, tt.wantInstanceCount, len(terminated))
+			assert.Len(t, terminated, tt.wantInstanceCount)
 
 			spotReqs := b.DescribeSpotInstanceRequests(nil)
 			cancelled := 0

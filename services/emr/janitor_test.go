@@ -123,9 +123,9 @@ func TestEMR_Janitor_SweepOnce(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		clusterOld  bool
-		wantSwept   bool
+		name       string
+		clusterOld bool
+		wantSwept  bool
 	}{
 		{name: "old_terminated_cluster_swept", clusterOld: true, wantSwept: true},
 		{name: "recent_terminated_cluster_kept", clusterOld: false, wantSwept: false},

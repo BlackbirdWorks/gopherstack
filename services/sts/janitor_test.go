@@ -153,6 +153,7 @@ func TestJanitor_TaskTimeout_STS(t *testing.T) {
 	err := h.StartWorker(ctx)
 	require.NoError(t, err)
 }
+
 // not removed by the janitor.
 func TestJanitor_PreservesActiveSessions(t *testing.T) {
 	t.Parallel()
