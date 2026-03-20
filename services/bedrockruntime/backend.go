@@ -6,6 +6,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+// maxInvocationHistory is the maximum number of invocations retained in memory.
+const maxInvocationHistory = 1000
+
+// MaxInvocationHistory is the exported value for testing.
+const MaxInvocationHistory = maxInvocationHistory
+
 // Invocation records a single model invocation.
 type Invocation struct {
 	CreatedAt time.Time
@@ -49,6 +55,10 @@ func (b *InMemoryBackend) RecordInvocation(operation, modelID, input, output str
 		CreatedAt: time.Now().UTC(),
 	}
 	b.invocations = append(b.invocations, inv)
+
+	if len(b.invocations) > maxInvocationHistory {
+		b.invocations = b.invocations[len(b.invocations)-maxInvocationHistory:]
+	}
 
 	cp := *inv
 

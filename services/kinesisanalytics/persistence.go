@@ -1,28 +1,28 @@
-package transcribe
+package kinesisanalytics
 
 import (
 	"encoding/json"
+	"maps"
 )
 
 type backendSnapshot struct {
-	Jobs map[string]*TranscriptionJob `json:"jobs"`
+	Apps map[string]*Application `json:"apps"`
 }
 
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot() []byte {
-	b.mu.RLock("Snapshot")
+	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	jobsCopy := make(map[string]*TranscriptionJob, len(b.jobs))
-	for k, v := range b.jobs {
+	appsCopy := make(map[string]*Application, len(b.apps))
+	for k, v := range b.apps {
 		cp := *v
-		jobsCopy[k] = &cp
+		cp.Tags = maps.Clone(v.Tags)
+		appsCopy[k] = &cp
 	}
 
-	snap := backendSnapshot{
-		Jobs: jobsCopy,
-	}
+	snap := backendSnapshot{Apps: appsCopy}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -41,24 +41,38 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		return err
 	}
 
-	b.mu.Lock("Restore")
+	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if snap.Jobs == nil {
-		snap.Jobs = make(map[string]*TranscriptionJob)
+	if snap.Apps == nil {
+		snap.Apps = make(map[string]*Application)
 	}
 
-	b.jobs = snap.Jobs
+	b.apps = snap.Apps
+
+	// Rebuild ARN index from restored applications.
+	b.appsByARN = make(map[string]*Application, len(b.apps))
+	for _, app := range b.apps {
+		b.appsByARN[app.ApplicationARN] = app
+	}
 
 	return nil
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Snapshot() []byte {
-	return h.Backend.Snapshot()
+	if sb, ok := h.Backend.(*InMemoryBackend); ok {
+		return sb.Snapshot()
+	}
+
+	return nil
 }
 
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(data []byte) error {
-	return h.Backend.Restore(data)
+	if sb, ok := h.Backend.(*InMemoryBackend); ok {
+		return sb.Restore(data)
+	}
+
+	return nil
 }

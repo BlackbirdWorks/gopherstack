@@ -6,13 +6,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
+// maxInvocationHistory is the maximum number of invocations retained in memory.
+const maxInvocationHistory = 1000
+
+// MaxInvocationHistory is the exported value for testing.
+const MaxInvocationHistory = maxInvocationHistory
+
 // Invocation records a single SageMaker Runtime endpoint invocation.
 type Invocation struct {
-	CreatedAt    time.Time
-	EndpointName string
-	Operation    string
-	Input        string
-	Output       string
+	CreatedAt    time.Time `json:"createdAt"`
+	EndpointName string    `json:"endpointName"`
+	Operation    string    `json:"operation"`
+	Input        string    `json:"input"`
+	Output       string    `json:"output"`
 }
 
 // InMemoryBackend stores SageMaker Runtime state in memory.
@@ -49,6 +55,10 @@ func (b *InMemoryBackend) RecordInvocation(operation, endpointName, input, outpu
 		CreatedAt:    time.Now().UTC(),
 	}
 	b.invocations = append(b.invocations, inv)
+
+	if len(b.invocations) > maxInvocationHistory {
+		b.invocations = b.invocations[len(b.invocations)-maxInvocationHistory:]
+	}
 
 	cp := *inv
 

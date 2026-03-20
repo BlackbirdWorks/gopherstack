@@ -548,3 +548,110 @@ func TestMediaConvert_ExtractOperation(t *testing.T) {
 		})
 	}
 }
+
+func TestMediaConvert_TagLeakOnDeleteQueue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "tags_cleaned_on_delete_queue"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+
+			q, err := b.CreateQueue("my-queue", "", "", "")
+			require.NoError(t, err)
+
+			b.TagResource(q.Arn, map[string]string{"env": "test"})
+			assert.Equal(t, "test", b.GetTags(q.Arn)["env"])
+
+			require.NoError(t, b.DeleteQueue("my-queue"))
+
+			// Tags must be gone after deletion.
+			assert.Empty(t, b.GetTags(q.Arn))
+		})
+	}
+}
+
+func TestMediaConvert_TagLeakOnDeleteJobTemplate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "tags_cleaned_on_delete_job_template"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+
+			jt, err := b.CreateJobTemplate("my-template", "desc", "", "", 0, nil)
+			require.NoError(t, err)
+
+			b.TagResource(jt.Arn, map[string]string{"team": "infra"})
+			assert.Equal(t, "infra", b.GetTags(jt.Arn)["team"])
+
+			require.NoError(t, b.DeleteJobTemplate("my-template"))
+
+			// Tags must be gone after deletion.
+			assert.Empty(t, b.GetTags(jt.Arn))
+		})
+	}
+}
+
+func TestMediaConvert_UntagResource_RemovesEntryOnLastKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(b *mediaconvert.InMemoryBackend, arn string)
+		name     string
+		tagKeys  []string
+		wantZero bool
+	}{
+		{
+			name: "remove_last_key_cleans_entry",
+			setup: func(b *mediaconvert.InMemoryBackend, a string) {
+				b.TagResource(a, map[string]string{"only-key": "v1"})
+			},
+			tagKeys:  []string{"only-key"},
+			wantZero: true,
+		},
+		{
+			name: "partial_untag_keeps_entry",
+			setup: func(b *mediaconvert.InMemoryBackend, a string) {
+				b.TagResource(a, map[string]string{"key1": "v1", "key2": "v2"})
+			},
+			tagKeys:  []string{"key1"},
+			wantZero: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := mediaconvert.NewInMemoryBackend(testAccountID, testRegion)
+
+			q, err := b.CreateQueue("untag-queue-"+tt.name, "", "", "")
+			require.NoError(t, err)
+
+			tt.setup(b, q.Arn)
+			b.UntagResource(q.Arn, tt.tagKeys)
+
+			remaining := b.GetTags(q.Arn)
+			if tt.wantZero {
+				assert.Empty(t, remaining)
+			} else {
+				assert.NotEmpty(t, remaining)
+			}
+		})
+	}
+}

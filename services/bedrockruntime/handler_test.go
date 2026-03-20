@@ -3,6 +3,7 @@ package bedrockruntime_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -415,4 +416,51 @@ func TestBackend_RecordAndList(t *testing.T) {
 	invocations = b.ListInvocations()
 	require.Len(t, invocations, 1)
 	assert.Equal(t, "InvokeModel", invocations[0].Operation)
+}
+
+func TestBackend_InvocationHistoryCap(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		recordCount int
+		wantLen     int
+	}{
+		{
+			name:        "below_cap",
+			recordCount: 10,
+			wantLen:     10,
+		},
+		{
+			name:        "at_cap",
+			recordCount: bedrockruntime.MaxInvocationHistory,
+			wantLen:     bedrockruntime.MaxInvocationHistory,
+		},
+		{
+			name:        "above_cap_retains_most_recent",
+			recordCount: bedrockruntime.MaxInvocationHistory + 50,
+			wantLen:     bedrockruntime.MaxInvocationHistory,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := bedrockruntime.NewInMemoryBackend("123456789012", "us-east-1")
+
+			for i := range tt.recordCount {
+				b.RecordInvocation("InvokeModel", "model", fmt.Sprintf(`{"seq":%d}`, i), `{}`)
+			}
+
+			invocations := b.ListInvocations()
+			assert.Len(t, invocations, tt.wantLen)
+
+			// Verify the most recent entries are retained (not the oldest).
+			if tt.recordCount > bedrockruntime.MaxInvocationHistory {
+				last := invocations[len(invocations)-1]
+				assert.Contains(t, last.Input, fmt.Sprintf(`"seq":%d`, tt.recordCount-1))
+			}
+		})
+	}
 }

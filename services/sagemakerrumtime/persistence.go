@@ -1,11 +1,11 @@
-package transcribe
+package sagemakerrumtime
 
 import (
 	"encoding/json"
 )
 
 type backendSnapshot struct {
-	Jobs map[string]*TranscriptionJob `json:"jobs"`
+	Invocations []*Invocation `json:"invocations"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -14,15 +14,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	jobsCopy := make(map[string]*TranscriptionJob, len(b.jobs))
-	for k, v := range b.jobs {
-		cp := *v
-		jobsCopy[k] = &cp
+	invCopy := make([]*Invocation, len(b.invocations))
+	for i, inv := range b.invocations {
+		cp := *inv
+		invCopy[i] = &cp
 	}
 
-	snap := backendSnapshot{
-		Jobs: jobsCopy,
-	}
+	snap := backendSnapshot{Invocations: invCopy}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -44,11 +42,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Jobs == nil {
-		snap.Jobs = make(map[string]*TranscriptionJob)
+	if snap.Invocations == nil {
+		snap.Invocations = make([]*Invocation, 0)
 	}
 
-	b.jobs = snap.Jobs
+	b.invocations = snap.Invocations
 
 	return nil
 }

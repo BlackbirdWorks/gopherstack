@@ -1,11 +1,11 @@
-package transcribe
+package textract
 
 import (
 	"encoding/json"
 )
 
 type backendSnapshot struct {
-	Jobs map[string]*TranscriptionJob `json:"jobs"`
+	Jobs map[string]*DocumentJob `json:"jobs"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -14,15 +14,12 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
-	jobsCopy := make(map[string]*TranscriptionJob, len(b.jobs))
+	jobsCopy := make(map[string]*DocumentJob, len(b.jobs))
 	for k, v := range b.jobs {
-		cp := *v
-		jobsCopy[k] = &cp
+		jobsCopy[k] = cloneJob(v)
 	}
 
-	snap := backendSnapshot{
-		Jobs: jobsCopy,
-	}
+	snap := backendSnapshot{Jobs: jobsCopy}
 
 	data, err := json.Marshal(snap)
 	if err != nil {
@@ -45,7 +42,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	defer b.mu.Unlock()
 
 	if snap.Jobs == nil {
-		snap.Jobs = make(map[string]*TranscriptionJob)
+		snap.Jobs = make(map[string]*DocumentJob)
 	}
 
 	b.jobs = snap.Jobs

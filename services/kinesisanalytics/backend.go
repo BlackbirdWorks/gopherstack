@@ -45,6 +45,7 @@ type StorageBackend interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	apps      map[string]*Application
+	appsByARN map[string]*Application // application ARN → Application
 	region    string
 	accountID string
 	mu        sync.RWMutex
@@ -54,6 +55,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 	return &InMemoryBackend{
 		apps:      make(map[string]*Application),
+		appsByARN: make(map[string]*Application),
 		region:    region,
 		accountID: accountID,
 	}
@@ -93,6 +95,7 @@ func (b *InMemoryBackend) CreateApplication(
 	}
 
 	b.apps[name] = app
+	b.appsByARN[app.ApplicationARN] = app
 
 	return app, nil
 }
@@ -102,10 +105,12 @@ func (b *InMemoryBackend) DeleteApplication(name string, _ *time.Time) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if _, exists := b.apps[name]; !exists {
+	app, exists := b.apps[name]
+	if !exists {
 		return ErrNotFound
 	}
 
+	delete(b.appsByARN, app.ApplicationARN)
 	delete(b.apps, name)
 
 	return nil
@@ -226,16 +231,15 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	for _, app := range b.apps {
-		if app.ApplicationARN == resourceARN {
-			result := make(map[string]string, len(app.Tags))
-			maps.Copy(result, app.Tags)
-
-			return result, nil
-		}
+	app, ok := b.appsByARN[resourceARN]
+	if !ok {
+		return nil, ErrNotFound
 	}
 
-	return nil, ErrNotFound
+	result := make(map[string]string, len(app.Tags))
+	maps.Copy(result, app.Tags)
+
+	return result, nil
 }
 
 // TagResource adds or updates tags on a resource.
@@ -243,19 +247,18 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, app := range b.apps {
-		if app.ApplicationARN == resourceARN {
-			if app.Tags == nil {
-				app.Tags = make(map[string]string)
-			}
-
-			maps.Copy(app.Tags, tags)
-
-			return nil
-		}
+	app, ok := b.appsByARN[resourceARN]
+	if !ok {
+		return ErrNotFound
 	}
 
-	return ErrNotFound
+	if app.Tags == nil {
+		app.Tags = make(map[string]string)
+	}
+
+	maps.Copy(app.Tags, tags)
+
+	return nil
 }
 
 // UntagResource removes tags from a resource.
@@ -263,15 +266,14 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, app := range b.apps {
-		if app.ApplicationARN == resourceARN {
-			for _, k := range tagKeys {
-				delete(app.Tags, k)
-			}
-
-			return nil
-		}
+	app, ok := b.appsByARN[resourceARN]
+	if !ok {
+		return ErrNotFound
 	}
 
-	return ErrNotFound
+	for _, k := range tagKeys {
+		delete(app.Tags, k)
+	}
+
+	return nil
 }

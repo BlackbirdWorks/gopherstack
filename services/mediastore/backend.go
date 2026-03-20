@@ -76,15 +76,17 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	containers map[string]*Container
-	mu         *lockmetrics.RWMutex
+	containers    map[string]*Container
+	containerARNs map[string]string // container ARN → container name
+	mu            *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory MediaStore backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		containers: make(map[string]*Container),
-		mu:         lockmetrics.New("mediastore"),
+		containers:    make(map[string]*Container),
+		containerARNs: make(map[string]string),
+		mu:            lockmetrics.New("mediastore"),
 	}
 }
 
@@ -122,6 +124,7 @@ func (b *InMemoryBackend) CreateContainer(region, accountID, name string, tags m
 	}
 
 	b.containers[name] = c
+	b.containerARNs[c.ARN] = name
 
 	return copyContainer(c), nil
 }
@@ -131,10 +134,12 @@ func (b *InMemoryBackend) DeleteContainer(name string) error {
 	b.mu.Lock("DeleteContainer")
 	defer b.mu.Unlock()
 
-	if _, exists := b.containers[name]; !exists {
+	c, exists := b.containers[name]
+	if !exists {
 		return ErrContainerNotFound
 	}
 
+	delete(b.containerARNs, c.ARN)
 	delete(b.containers, name)
 
 	return nil
@@ -414,19 +419,19 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, c := range b.containers {
-		if c.ARN == resourceARN {
-			if c.Tags == nil {
-				c.Tags = make(map[string]string)
-			}
-
-			maps.Copy(c.Tags, tags)
-
-			return nil
-		}
+	name, ok := b.containerARNs[resourceARN]
+	if !ok {
+		return ErrContainerNotFound
 	}
 
-	return ErrContainerNotFound
+	c := b.containers[name]
+	if c.Tags == nil {
+		c.Tags = make(map[string]string)
+	}
+
+	maps.Copy(c.Tags, tags)
+
+	return nil
 }
 
 // UntagResource removes tags from a container identified by ARN.
@@ -434,17 +439,17 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, c := range b.containers {
-		if c.ARN == resourceARN {
-			for _, k := range tagKeys {
-				delete(c.Tags, k)
-			}
-
-			return nil
-		}
+	name, ok := b.containerARNs[resourceARN]
+	if !ok {
+		return ErrContainerNotFound
 	}
 
-	return ErrContainerNotFound
+	c := b.containers[name]
+	for _, k := range tagKeys {
+		delete(c.Tags, k)
+	}
+
+	return nil
 }
 
 // ListTagsForResource returns tags for a container identified by ARN.
@@ -452,16 +457,16 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, c := range b.containers {
-		if c.ARN == resourceARN {
-			result := make(map[string]string, len(c.Tags))
-			maps.Copy(result, c.Tags)
-
-			return result, nil
-		}
+	name, ok := b.containerARNs[resourceARN]
+	if !ok {
+		return nil, ErrContainerNotFound
 	}
 
-	return nil, ErrContainerNotFound
+	c := b.containers[name]
+	result := make(map[string]string, len(c.Tags))
+	maps.Copy(result, c.Tags)
+
+	return result, nil
 }
 
 // copyContainer returns a deep copy of the Container, copying Tags and CreationTime.

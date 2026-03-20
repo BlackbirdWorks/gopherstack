@@ -19,6 +19,7 @@ const (
 	pipelinesPath   = "/2012-09-25/pipelines"
 	presetsPath     = "/2012-09-25/presets"
 	jobsPath        = "/2012-09-25/jobs"
+	taggingPath     = "/2012-09-25/tags"
 )
 
 // Handler is the Echo HTTP handler for Amazon Elastic Transcoder operations.
@@ -50,6 +51,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ReadJob",
 		"ListJobsByPipeline",
 		"CancelJob",
+		"AddTagsToResource",
+		"RemoveTagsFromResource",
+		"ListTagsForResource",
 	}
 }
 
@@ -128,6 +132,8 @@ func (h *Handler) dispatch(c *echo.Context, route etRoute) error {
 		return h.handleCancelJob(c, route.resource)
 	case "ListJobsByPipeline":
 		return h.handleListJobsByPipeline(c, route.resource)
+	case "ListTagsForResource":
+		return h.handleListTagsForResource(c, route.resource)
 	}
 
 	return h.dispatchMutating(c, route, readBody)
@@ -149,6 +155,10 @@ func (h *Handler) dispatchMutating(c *echo.Context, route etRoute, readBody func
 		return h.handleCreatePreset(c, body)
 	case "CreateJob":
 		return h.handleCreateJob(c, body)
+	case "AddTagsToResource":
+		return h.handleAddTagsToResource(c, route.resource, body)
+	case "RemoveTagsFromResource":
+		return h.handleRemoveTagsFromResource(c, route.resource, body)
 	}
 
 	return c.JSON(
@@ -171,6 +181,18 @@ func parseRoute(method, path string) etRoute {
 		id := strings.TrimPrefix(path, "/2012-09-25/jobsByPipeline/")
 
 		return etRoute{operation: "ListJobsByPipeline", resource: id}
+	case strings.HasPrefix(path, taggingPath+"/"):
+		resourceARN := strings.TrimPrefix(path, taggingPath+"/")
+		switch method {
+		case http.MethodGet:
+			return etRoute{operation: "ListTagsForResource", resource: resourceARN}
+		case http.MethodPost:
+			return etRoute{operation: "AddTagsToResource", resource: resourceARN}
+		case http.MethodDelete:
+			return etRoute{operation: "RemoveTagsFromResource", resource: resourceARN}
+		}
+
+		return etRoute{operation: "Unknown"}
 	case strings.HasPrefix(path, pipelinesPath):
 		return parsePipelineRoute(method, strings.TrimPrefix(path, pipelinesPath))
 	case strings.HasPrefix(path, presetsPath):
@@ -446,6 +468,72 @@ func (h *Handler) handleCancelJob(c *echo.Context, id string) error {
 	}
 
 	return c.JSON(http.StatusAccepted, struct{}{})
+}
+
+// --- Tag handlers ---
+
+// tagEntry is used for JSON tag marshaling/unmarshaling in Elastic Transcoder tag operations.
+type tagEntry struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+type addTagsInput struct {
+	Tags []tagEntry `json:"Tags"`
+}
+
+func (h *Handler) handleAddTagsToResource(c *echo.Context, resourceARN string, body []byte) error {
+	var in addTagsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	tags := make(map[string]string, len(in.Tags))
+	for _, t := range in.Tags {
+		tags[t.Key] = t.Value
+	}
+
+	if err := h.Backend.AddTagsToResource(resourceARN, tags); err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, struct{}{})
+}
+
+type removeTagsInput struct {
+	TagKeys []string `json:"TagKeys"`
+}
+
+func (h *Handler) handleRemoveTagsFromResource(c *echo.Context, resourceARN string, body []byte) error {
+	var in removeTagsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	if err := h.Backend.RemoveTagsFromResource(resourceARN, in.TagKeys); err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, struct{}{})
+}
+
+type tagsListOutput struct {
+	Tags []tagEntry `json:"Tags"`
+}
+
+func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string) error {
+	tags, err := h.Backend.ListTagsForResource(resourceARN)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	out := tagsListOutput{Tags: make([]tagEntry, 0, len(tags))}
+
+	for k, v := range tags {
+		out.Tags = append(out.Tags, tagEntry{Key: k, Value: v})
+	}
+
+	return c.JSON(http.StatusOK, out)
 }
 
 // --- Error handling ---
