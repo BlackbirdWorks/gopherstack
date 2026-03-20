@@ -49,15 +49,15 @@ type IPSet struct {
 
 // InMemoryBackend is an in-memory store for WAFv2 resources.
 type InMemoryBackend struct {
-	webACLs        map[string]*WebACL
-	ipSets         map[string]*IPSet
-	webACLByARN    map[string]string // ARN → webACL ID
-	ipSetByARN     map[string]string // ARN → ipSet ID
+	webACLs           map[string]*WebACL
+	ipSets            map[string]*IPSet
+	webACLByARN       map[string]string // ARN → webACL ID
+	ipSetByARN        map[string]string // ARN → ipSet ID
 	webACLByNameScope map[string]string // "name:scope" → webACL ID (O(1) duplicate check)
 	ipSetByNameScope  map[string]string // "name:scope" → ipSet ID (O(1) duplicate check)
-	mu          *lockmetrics.RWMutex
-	accountID   string
-	region      string
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new in-memory WAFv2 backend.
@@ -417,13 +417,13 @@ func cloneTags(tags map[string]string) map[string]string {
 
 // Reset clears all WAFv2 WebACL and IPSet state.
 func (b *InMemoryBackend) Reset() {
-b.mu.Lock("Reset")
-defer b.mu.Unlock()
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
 
-b.webACLs = make(map[string]*WebACL)
-b.ipSets = make(map[string]*IPSet)
-b.webACLByARN = make(map[string]string)
-b.ipSetByARN = make(map[string]string)
-b.webACLByNameScope = make(map[string]string)
-b.ipSetByNameScope = make(map[string]string)
+	b.webACLs = make(map[string]*WebACL)
+	b.ipSets = make(map[string]*IPSet)
+	b.webACLByARN = make(map[string]string)
+	b.ipSetByARN = make(map[string]string)
+	b.webACLByNameScope = make(map[string]string)
+	b.ipSetByNameScope = make(map[string]string)
 }

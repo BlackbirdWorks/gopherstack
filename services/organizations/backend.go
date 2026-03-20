@@ -1202,22 +1202,22 @@ var _ = errors.Is(ErrOrgNotFound, awserr.ErrNotFound)
 
 // Reset clears all organization state.
 func (b *InMemoryBackend) Reset() {
-b.mu.Lock()
-defer b.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-b.org = nil
-b.root = nil
-b.accounts = make(map[string]*Account)
-b.ous = make(map[string]*OrganizationalUnit)
-b.policies = make(map[string]*Policy)
-b.policyTargets = make(map[string][]string)
-b.targetPolicies = make(map[string][]string)
-b.accountParent = make(map[string]string)
-b.ouParent = make(map[string]string)
-b.tags = make(map[string]map[string]string)
-b.createStatuses = make(map[string]*CreateAccountStatus)
-b.serviceAccess = make(map[string]time.Time)
-b.delegatedAdmins = make(map[string]map[string]*DelegatedAdmin)
-b.accountCounter = managementAccountCounter
-b.statusCounter = 0
+	b.org = nil
+	b.root = nil
+	b.accounts = make(map[string]*Account)
+	b.ous = make(map[string]*OrganizationalUnit)
+	b.policies = make(map[string]*Policy)
+	b.policyTargets = make(map[string][]string)
+	b.targetPolicies = make(map[string][]string)
+	b.accountParent = make(map[string]string)
+	b.ouParent = make(map[string]string)
+	b.tags = make(map[string]map[string]string)
+	b.createStatuses = make(map[string]*CreateAccountStatus)
+	b.serviceAccess = make(map[string]time.Time)
+	b.delegatedAdmins = make(map[string]map[string]*DelegatedAdmin)
+	b.accountCounter = managementAccountCounter
+	b.statusCounter = 0
 }

@@ -747,12 +747,12 @@ func toCAOutput(ca *CertificateAuthority) certAuthorityOutput {
 
 // Reset clears all handler tag state and delegates to the backend Reset.
 func (h *Handler) Reset() {
-h.tagsMu.Lock("Reset")
-for _, t := range h.tags {
-t.Close()
-}
-h.tags = make(map[string]*svcTags.Tags)
-h.tagsMu.Unlock()
+	h.tagsMu.Lock("Reset")
+	for _, t := range h.tags {
+		t.Close()
+	}
+	h.tags = make(map[string]*svcTags.Tags)
+	h.tagsMu.Unlock()
 
-h.Backend.Reset()
+	h.Backend.Reset()
 }

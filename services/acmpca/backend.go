@@ -620,9 +620,9 @@ func splitARN(a string) []string {
 
 // Reset clears all CAs and issued certificates.
 func (b *InMemoryBackend) Reset() {
-b.mu.Lock("Reset")
-defer b.mu.Unlock()
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
 
-b.cas = make(map[string]*CertificateAuthority)
-b.certs = make(map[string]*IssuedCertificate)
+	b.cas = make(map[string]*CertificateAuthority)
+	b.certs = make(map[string]*IssuedCertificate)
 }

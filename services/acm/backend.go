@@ -521,13 +521,13 @@ func extractCertMetadata(certPEM string) (string, time.Time, time.Time, error) {
 
 // Reset clears all certificate state and stops any pending auto-validate timers.
 func (b *InMemoryBackend) Reset() {
-b.mu.Lock("Reset")
-defer b.mu.Unlock()
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
 
-for _, t := range b.timers {
-t.Stop()
-}
+	for _, t := range b.timers {
+		t.Stop()
+	}
 
-b.certs = make(map[string]*Certificate)
-b.timers = make(map[string]*time.Timer)
+	b.certs = make(map[string]*Certificate)
+	b.timers = make(map[string]*time.Timer)
 }

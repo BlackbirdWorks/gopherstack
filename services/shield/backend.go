@@ -267,11 +267,11 @@ func cloneTags(tags map[string]string) map[string]string {
 
 // Reset clears all Shield protections and subscription state.
 func (b *InMemoryBackend) Reset() {
-b.mu.Lock("Reset")
-defer b.mu.Unlock()
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
 
-b.protections = make(map[string]*Protection)
-b.resourceARNIndex = make(map[string]string)
-b.nameIndex = make(map[string]string)
-b.subscription = nil
+	b.protections = make(map[string]*Protection)
+	b.resourceARNIndex = make(map[string]string)
+	b.nameIndex = make(map[string]string)
+	b.subscription = nil
 }

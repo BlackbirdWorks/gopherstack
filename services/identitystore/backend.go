@@ -728,14 +728,14 @@ func (b *InMemoryBackend) rebuildIndexes() {
 
 // Reset clears all user, group, and membership state.
 func (b *InMemoryBackend) Reset() {
-b.mu.Lock()
-defer b.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-b.users = make(map[string]*User)
-b.groups = make(map[string]*Group)
-b.memberships = make(map[string]*GroupMembership)
-b.usersByName = make(map[string]string)
-b.groupsByName = make(map[string]string)
-b.membershipKeys = make(map[string]string)
-b.counter = 0
+	b.users = make(map[string]*User)
+	b.groups = make(map[string]*Group)
+	b.memberships = make(map[string]*GroupMembership)
+	b.usersByName = make(map[string]string)
+	b.groupsByName = make(map[string]string)
+	b.membershipKeys = make(map[string]string)
+	b.counter = 0
 }
