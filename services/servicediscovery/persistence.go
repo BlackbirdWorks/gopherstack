@@ -3,16 +3,16 @@ package servicediscovery
 import "encoding/json"
 
 type backendSnapshot struct {
-	Namespaces  map[string]*Namespace  `json:"namespaces"`
-	Services    map[string]*Service    `json:"services"`
-	Instances   map[string]*Instance   `json:"instances"`
-	Operations  map[string]*Operation  `json:"operations"`
-	AccountID   string                 `json:"accountID"`
-	Region      string                 `json:"region"`
-	NsCounter   int                    `json:"nsCounter"`
-	SvcCounter  int                    `json:"svcCounter"`
-	InstCounter int                    `json:"instCounter"`
-	OpCounter   int                    `json:"opCounter"`
+	Namespaces  map[string]*Namespace `json:"namespaces"`
+	Services    map[string]*Service   `json:"services"`
+	Instances   map[string]*Instance  `json:"instances"`
+	Operations  map[string]*Operation `json:"operations"`
+	AccountID   string                `json:"accountID"`
+	Region      string                `json:"region"`
+	NsCounter   int                   `json:"nsCounter"`
+	SvcCounter  int                   `json:"svcCounter"`
+	InstCounter int                   `json:"instCounter"`
+	OpCounter   int                   `json:"opCounter"`
 }
 
 // Snapshot serialises the backend state to JSON.

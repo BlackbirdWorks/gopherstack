@@ -12,8 +12,8 @@ const (
 	defaultXRayJanitorInterval = time.Minute
 	defaultXRayTraceTTL        = 30 * time.Minute
 
-	xrayWorkerServiceName  = "xray"
-	traceSweeperComponent  = "TraceAgeEvictor"
+	xrayWorkerServiceName = "xray"
+	traceSweeperComponent = "TraceAgeEvictor"
 )
 
 // Janitor is the X-Ray background worker that evicts old traces to prevent

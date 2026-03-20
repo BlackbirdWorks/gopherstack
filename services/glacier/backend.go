@@ -58,9 +58,9 @@ type StorageBackend interface {
 
 // vaultKey uniquely identifies a vault within an account and region.
 type vaultKey struct {
-	AccountID string
-	Region    string
-	VaultName string
+	AccountID string `json:"accountID"`
+	Region    string `json:"region"`
+	VaultName string `json:"vaultName"`
 }
 
 // InMemoryBackend is the in-memory backend for Glacier.

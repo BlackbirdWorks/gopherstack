@@ -3,18 +3,18 @@ package glacier
 import "encoding/json"
 
 type vaultSnapshot struct {
-	Key   vaultKey `json:"key"`
 	Vault *Vault   `json:"vault"`
+	Key   vaultKey `json:"key"`
 }
 
 type archiveSnapshot struct {
-	Key      vaultKey            `json:"key"`
 	Archives map[string]*Archive `json:"archives"`
+	Key      vaultKey            `json:"key"`
 }
 
 type jobSnapshot struct {
-	Key  vaultKey        `json:"key"`
 	Jobs map[string]*Job `json:"jobs"`
+	Key  vaultKey        `json:"key"`
 }
 
 type backendSnapshot struct {
