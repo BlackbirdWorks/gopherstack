@@ -1,25 +1,24 @@
-package resourcegroups
+package ram
 
-import (
-	"encoding/json"
-)
+import "encoding/json"
 
 type backendSnapshot struct {
-	Groups    map[string]*Group `json:"groups"`
-	AccountID string            `json:"accountID"`
-	Region    string            `json:"region"`
+	ResourceShares map[string]*ResourceShare          `json:"resourceShares"`
+	Associations   []*ResourceShareAssociation        `json:"associations"`
+	AccountID      string                             `json:"accountID"`
+	Region         string                             `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
-// It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Groups:    b.groups,
-		AccountID: b.accountID,
-		Region:    b.region,
+		ResourceShares: b.resourceShares,
+		Associations:   b.associations,
+		AccountID:      b.accountID,
+		Region:         b.region,
 	}
 
 	data, err := json.Marshal(snap)
@@ -31,7 +30,6 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot.
-// It implements persistence.Persistable.
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
@@ -42,19 +40,18 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Groups == nil {
-		snap.Groups = make(map[string]*Group)
+	if snap.ResourceShares == nil {
+		snap.ResourceShares = make(map[string]*ResourceShare)
 	}
 
-	b.groups = snap.Groups
+	if snap.Associations == nil {
+		snap.Associations = make([]*ResourceShareAssociation, 0)
+	}
+
+	b.resourceShares = snap.ResourceShares
+	b.associations = snap.Associations
 	b.accountID = snap.AccountID
 	b.region = snap.Region
-
-	// Rebuild ARN index.
-	b.arnIndex = make(map[string]string, len(b.groups))
-	for name, g := range b.groups {
-		b.arnIndex[g.ARN] = name
-	}
 
 	return nil
 }

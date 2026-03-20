@@ -160,14 +160,16 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	templates       map[string]*ExperimentTemplate
-	experiments     map[string]*Experiment
-	faultStore      *chaos.FaultStore
-	safetyLever     *SafetyLever
-	mu              *lockmetrics.RWMutex
-	accountID       string
-	region          string
-	actionProviders []service.FISActionProvider
+	templates             map[string]*ExperimentTemplate
+	experiments           map[string]*Experiment
+	templateARNIndex      map[string]string // ARN → template ID
+	experimentARNIndex    map[string]string // ARN → experiment ID
+	faultStore            *chaos.FaultStore
+	safetyLever           *SafetyLever
+	mu                    *lockmetrics.RWMutex
+	accountID             string
+	region                string
+	actionProviders       []service.FISActionProvider
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -175,11 +177,13 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	safetyLeverARN := arn.Build("fis", region, accountID, fmt.Sprintf("safety-lever/%s", accountID))
 
 	return &InMemoryBackend{
-		templates:   make(map[string]*ExperimentTemplate),
-		experiments: make(map[string]*Experiment),
-		accountID:   accountID,
-		region:      region,
-		mu:          lockmetrics.New("fis"),
+		templates:          make(map[string]*ExperimentTemplate),
+		experiments:        make(map[string]*Experiment),
+		templateARNIndex:   make(map[string]string),
+		experimentARNIndex: make(map[string]string),
+		accountID:          accountID,
+		region:             region,
+		mu:                 lockmetrics.New("fis"),
 		safetyLever: &SafetyLever{
 			ID:    accountID,
 			Arn:   safetyLeverARN,
@@ -246,6 +250,7 @@ func (b *InMemoryBackend) CreateExperimentTemplate(
 	defer b.mu.Unlock()
 
 	b.templates[id] = tpl
+	b.templateARNIndex[arnStr] = id
 
 	return tpl, nil
 }
@@ -323,6 +328,7 @@ func (b *InMemoryBackend) DeleteExperimentTemplate(id string) error {
 		return fmt.Errorf("%w: %s", ErrTemplateNotFound, id)
 	}
 
+	delete(b.templateARNIndex, b.templates[id].Arn)
 	delete(b.templates, id)
 
 	return nil
@@ -451,6 +457,7 @@ func (b *InMemoryBackend) StartExperiment(
 
 	b.mu.Lock("StartExperiment")
 	b.experiments[id] = exp
+	b.experimentARNIndex[arnStr] = id
 	// Take the snapshot while holding the lock, before launching the goroutine,
 	// so the background goroutine cannot mutate exp while we're reading it.
 	snapshot := cloneExperiment(exp)
@@ -695,16 +702,18 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	// Check templates.
-	for _, tpl := range b.templates {
-		if tpl.Arn == resourceARN {
+	if b.safetyLever != nil && b.safetyLever.Arn == resourceARN {
+		return copyStringMap(b.safetyLever.Tags), nil
+	}
+
+	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
+		if tpl, ok := b.templates[tplID]; ok {
 			return copyStringMap(tpl.Tags), nil
 		}
 	}
 
-	// Check experiments.
-	for _, exp := range b.experiments {
-		if exp.Arn == resourceARN {
+	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
+		if exp, ok := b.experiments[expID]; ok {
 			return copyStringMap(exp.Tags), nil
 		}
 	}
@@ -717,9 +726,18 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	// Check templates.
-	for _, tpl := range b.templates {
-		if tpl.Arn == resourceARN {
+	if b.safetyLever != nil && b.safetyLever.Arn == resourceARN {
+		if b.safetyLever.Tags == nil {
+			b.safetyLever.Tags = make(map[string]string)
+		}
+
+		maps.Copy(b.safetyLever.Tags, tags)
+
+		return nil
+	}
+
+	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
+		if tpl, ok := b.templates[tplID]; ok {
 			if tpl.Tags == nil {
 				tpl.Tags = make(map[string]string)
 			}
@@ -730,9 +748,8 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		}
 	}
 
-	// Check experiments.
-	for _, exp := range b.experiments {
-		if exp.Arn == resourceARN {
+	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
+		if exp, ok := b.experiments[expID]; ok {
 			if exp.Tags == nil {
 				exp.Tags = make(map[string]string)
 			}
@@ -751,9 +768,16 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	// Check templates.
-	for _, tpl := range b.templates {
-		if tpl.Arn == resourceARN {
+	if b.safetyLever != nil && b.safetyLever.Arn == resourceARN {
+		for _, k := range keys {
+			delete(b.safetyLever.Tags, k)
+		}
+
+		return nil
+	}
+
+	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
+		if tpl, ok := b.templates[tplID]; ok {
 			for _, k := range keys {
 				delete(tpl.Tags, k)
 			}
@@ -762,9 +786,8 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 		}
 	}
 
-	// Check experiments.
-	for _, exp := range b.experiments {
-		if exp.Arn == resourceARN {
+	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
+		if exp, ok := b.experiments[expID]; ok {
 			for _, k := range keys {
 				delete(exp.Tags, k)
 			}

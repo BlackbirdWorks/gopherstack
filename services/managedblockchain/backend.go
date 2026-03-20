@@ -64,16 +64,18 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	networks map[string]*Network
-	members  map[string]map[string]*Member // networkID → memberID → Member
-	mu       sync.RWMutex
+	networks     map[string]*Network
+	members      map[string]map[string]*Member // networkID → memberID → Member
+	arnToResource map[string]interface{}        // ARN → *Network or *Member
+	mu           sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory Managed Blockchain backend.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		networks: make(map[string]*Network),
-		members:  make(map[string]map[string]*Member),
+		networks:      make(map[string]*Network),
+		members:       make(map[string]map[string]*Member),
+		arnToResource: make(map[string]interface{}),
 	}
 }
 
@@ -132,6 +134,7 @@ func (b *InMemoryBackend) CreateNetwork(
 
 	b.networks[networkID] = network
 	b.members[networkID] = make(map[string]*Member)
+	b.arnToResource[network.Arn] = network
 
 	member := &Member{
 		ID:           memberID,
@@ -145,6 +148,7 @@ func (b *InMemoryBackend) CreateNetwork(
 	}
 
 	b.members[networkID][memberID] = member
+	b.arnToResource[member.Arn] = member
 
 	return network, member, nil
 }
@@ -214,6 +218,7 @@ func (b *InMemoryBackend) CreateMember(
 	}
 
 	b.members[networkID][memberID] = member
+	b.arnToResource[member.Arn] = member
 
 	return member, nil
 }
@@ -277,6 +282,8 @@ func (b *InMemoryBackend) DeleteMember(networkID, memberID string) error {
 		return ErrMemberNotFound
 	}
 
+	m := members[memberID]
+	delete(b.arnToResource, m.Arn)
 	delete(members, memberID)
 
 	return nil
@@ -287,22 +294,22 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	for _, network := range b.networks {
-		if network.Arn == resourceARN {
-			result := make(map[string]string, len(network.Tags))
-			maps.Copy(result, network.Tags)
+	res, ok := b.arnToResource[resourceARN]
+	if !ok {
+		return nil, ErrResourceNotFound
+	}
 
-			return result, nil
-		}
+	switch r := res.(type) {
+	case *Network:
+		result := make(map[string]string, len(r.Tags))
+		maps.Copy(result, r.Tags)
 
-		for _, member := range b.members[network.ID] {
-			if member.Arn == resourceARN {
-				result := make(map[string]string, len(member.Tags))
-				maps.Copy(result, member.Tags)
+		return result, nil
+	case *Member:
+		result := make(map[string]string, len(r.Tags))
+		maps.Copy(result, r.Tags)
 
-				return result, nil
-			}
-		}
+		return result, nil
 	}
 
 	return nil, ErrResourceNotFound
@@ -313,28 +320,28 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, network := range b.networks {
-		if network.Arn == resourceARN {
-			if network.Tags == nil {
-				network.Tags = make(map[string]string)
-			}
+	res, ok := b.arnToResource[resourceARN]
+	if !ok {
+		return ErrResourceNotFound
+	}
 
-			maps.Copy(network.Tags, tags)
-
-			return nil
+	switch r := res.(type) {
+	case *Network:
+		if r.Tags == nil {
+			r.Tags = make(map[string]string)
 		}
 
-		for _, member := range b.members[network.ID] {
-			if member.Arn == resourceARN {
-				if member.Tags == nil {
-					member.Tags = make(map[string]string)
-				}
+		maps.Copy(r.Tags, tags)
 
-				maps.Copy(member.Tags, tags)
-
-				return nil
-			}
+		return nil
+	case *Member:
+		if r.Tags == nil {
+			r.Tags = make(map[string]string)
 		}
+
+		maps.Copy(r.Tags, tags)
+
+		return nil
 	}
 
 	return ErrResourceNotFound
@@ -345,24 +352,24 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, network := range b.networks {
-		if network.Arn == resourceARN {
-			for _, k := range tagKeys {
-				delete(network.Tags, k)
-			}
+	res, ok := b.arnToResource[resourceARN]
+	if !ok {
+		return ErrResourceNotFound
+	}
 
-			return nil
+	switch r := res.(type) {
+	case *Network:
+		for _, k := range tagKeys {
+			delete(r.Tags, k)
 		}
 
-		for _, member := range b.members[network.ID] {
-			if member.Arn == resourceARN {
-				for _, k := range tagKeys {
-					delete(member.Tags, k)
-				}
-
-				return nil
-			}
+		return nil
+	case *Member:
+		for _, k := range tagKeys {
+			delete(r.Tags, k)
 		}
+
+		return nil
 	}
 
 	return ErrResourceNotFound

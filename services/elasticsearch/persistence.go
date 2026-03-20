@@ -1,23 +1,20 @@
-package resourcegroups
+package elasticsearch
 
-import (
-	"encoding/json"
-)
+import "encoding/json"
 
 type backendSnapshot struct {
-	Groups    map[string]*Group `json:"groups"`
-	AccountID string            `json:"accountID"`
-	Region    string            `json:"region"`
+	Domains   map[string]*Domain `json:"domains"`
+	AccountID string             `json:"accountID"`
+	Region    string             `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
-// It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot() []byte {
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
 
 	snap := backendSnapshot{
-		Groups:    b.groups,
+		Domains:   b.domains,
 		AccountID: b.accountID,
 		Region:    b.region,
 	}
@@ -31,7 +28,6 @@ func (b *InMemoryBackend) Snapshot() []byte {
 }
 
 // Restore loads backend state from a JSON snapshot.
-// It implements persistence.Persistable.
 func (b *InMemoryBackend) Restore(data []byte) error {
 	var snap backendSnapshot
 
@@ -42,18 +38,18 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
-	if snap.Groups == nil {
-		snap.Groups = make(map[string]*Group)
+	if snap.Domains == nil {
+		snap.Domains = make(map[string]*Domain)
 	}
 
-	b.groups = snap.Groups
+	b.domains = snap.Domains
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
-	// Rebuild ARN index.
-	b.arnIndex = make(map[string]string, len(b.groups))
-	for name, g := range b.groups {
-		b.arnIndex[g.ARN] = name
+	// Rebuild ARN index from restored state.
+	b.arnIndex = make(map[string]string, len(b.domains))
+	for name, d := range b.domains {
+		b.arnIndex[d.ARN] = name
 	}
 
 	return nil

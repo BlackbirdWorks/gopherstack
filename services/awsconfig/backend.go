@@ -13,6 +13,8 @@ var (
 	ErrNotFound = awserr.New("NoSuchConfigurationRecorder", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("MaxNumberOfConfigurationRecordersExceededException", awserr.ErrAlreadyExists)
+	// ErrNoDeliveryChannel is returned when starting a recorder with no delivery channel configured.
+	ErrNoDeliveryChannel = awserr.New("NoAvailableDeliveryChannelException", awserr.ErrInvalidParameter)
 )
 
 // ConfigurationRecorder represents an AWS Config configuration recorder.
@@ -76,6 +78,10 @@ func (b *InMemoryBackend) StartConfigurationRecorder(name string) error {
 	r, ok := b.recorders[name]
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
+	}
+
+	if len(b.channels) == 0 {
+		return fmt.Errorf("%w: no delivery channel configured", ErrNoDeliveryChannel)
 	}
 
 	r.Status = "ACTIVE"

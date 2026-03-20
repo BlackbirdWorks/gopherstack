@@ -58,6 +58,7 @@ type UpdateConfig struct {
 type InMemoryBackend struct {
 	dnsRegistrar DNSRegistrar
 	domains      map[string]*Domain
+	arnIndex     map[string]string // ARN → domain name
 	mu           *lockmetrics.RWMutex
 	accountID    string
 	region       string
@@ -67,6 +68,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		domains:   make(map[string]*Domain),
+		arnIndex:  make(map[string]string),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("elasticsearch"),
@@ -125,6 +127,7 @@ func (b *InMemoryBackend) CreateDomain(
 		Tags:                 tags.New("elasticsearch." + name + ".tags"),
 	}
 	b.domains[name] = d
+	b.arnIndex[domainARN] = name
 
 	if b.dnsRegistrar != nil {
 		b.dnsRegistrar.Register(endpoint)
@@ -146,6 +149,8 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 	}
 
 	cp := *d
+	d.Tags.Close()
+	delete(b.arnIndex, d.ARN)
 	delete(b.domains, name)
 
 	if b.dnsRegistrar != nil {
@@ -207,14 +212,14 @@ func (b *InMemoryBackend) UpdateDomainConfig(name string, cfg UpdateConfig) (*Do
 }
 
 // findDomainByARN returns the domain matching the given ARN, or nil if not found.
+// Caller must hold at least a read lock.
 func (b *InMemoryBackend) findDomainByARN(domainARN string) *Domain {
-	for _, d := range b.domains {
-		if d.ARN == domainARN {
-			return d
-		}
+	name, ok := b.arnIndex[domainARN]
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return b.domains[name]
 }
 
 // ListTags returns tags for the domain identified by ARN.
