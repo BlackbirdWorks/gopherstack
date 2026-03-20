@@ -5,11 +5,18 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
+)
+
+var (
+	errDecodePEM       = errors.New("failed to decode private key PEM")
+	errNotECDSAKey     = errors.New("private key is not *ecdsa.PrivateKey")
 )
 
 type caSnapshot struct {
 	CertificateAuthority
+
 	PrivKeyPEM string `json:"privKeyPEM,omitempty"`
 }
 
@@ -33,7 +40,7 @@ func unmarshalPrivKey(pemStr string) (*ecdsa.PrivateKey, error) {
 
 	block, _ := pem.Decode([]byte(pemStr))
 	if block == nil {
-		return nil, fmt.Errorf("failed to decode private key PEM")
+		return nil, errDecodePEM
 	}
 
 	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
@@ -43,7 +50,7 @@ func unmarshalPrivKey(pemStr string) (*ecdsa.PrivateKey, error) {
 
 	ecKey, ok := key.(*ecdsa.PrivateKey)
 	if !ok {
-		return nil, fmt.Errorf("expected *ecdsa.PrivateKey, got %T", key)
+		return nil, fmt.Errorf("%w: got %T", errNotECDSAKey, key)
 	}
 
 	return ecKey, nil
