@@ -31,59 +31,61 @@ const (
 
 // IdentityProvider represents a linked Cognito User Pool provider.
 type IdentityProvider struct {
-	ProviderName         string
-	ClientID             string
-	ServerSideTokenCheck bool
+	ProviderName         string `json:"providerName"`
+	ClientID             string `json:"clientID"`
+	ServerSideTokenCheck bool   `json:"serverSideTokenCheck"`
 }
 
 // IdentityPool represents an Amazon Cognito Identity Pool.
 type IdentityPool struct {
-	CreatedAt                      time.Time
-	SupportedLoginProviders        map[string]string
-	Tags                           map[string]string
-	IdentityPoolID                 string
-	IdentityPoolName               string
-	ARN                            string
-	IdentityProviders              []IdentityProvider
-	AllowUnauthenticatedIdentities bool
-	AllowClassicFlow               bool
+	CreatedAt                      time.Time          `json:"createdAt"`
+	SupportedLoginProviders        map[string]string  `json:"supportedLoginProviders,omitempty"`
+	Tags                           map[string]string  `json:"tags,omitempty"`
+	IdentityPoolID                 string             `json:"identityPoolID"`
+	IdentityPoolName               string             `json:"identityPoolName"`
+	ARN                            string             `json:"arn"`
+	IdentityProviders              []IdentityProvider `json:"identityProviders,omitempty"`
+	AllowUnauthenticatedIdentities bool               `json:"allowUnauthenticatedIdentities"`
+	AllowClassicFlow               bool               `json:"allowClassicFlow"`
 }
 
 // IdentityRoles holds IAM role mappings for an identity pool.
 type IdentityRoles struct {
-	AuthenticatedRoleARN   string
-	UnauthenticatedRoleARN string
+	AuthenticatedRoleARN   string `json:"authenticatedRoleARN"`
+	UnauthenticatedRoleARN string `json:"unauthenticatedRoleARN"`
 }
 
 // Identity represents a federated identity.
 type Identity struct {
-	CreatedAt      time.Time
-	Logins         map[string]string
-	IdentityID     string
-	IdentityPoolID string
+	CreatedAt      time.Time         `json:"createdAt"`
+	Logins         map[string]string `json:"logins,omitempty"`
+	IdentityID     string            `json:"identityID"`
+	IdentityPoolID string            `json:"identityPoolID"`
 }
 
 // InMemoryBackend is the in-memory store for Cognito Identity Pool resources.
 type InMemoryBackend struct {
-	mu          *lockmetrics.RWMutex
-	pools       map[string]*IdentityPool
-	poolsByName map[string]*IdentityPool
-	identities  map[string]*Identity
-	roles       map[string]*IdentityRoles
-	accountID   string
-	region      string
+	mu               *lockmetrics.RWMutex
+	pools            map[string]*IdentityPool
+	poolsByName      map[string]*IdentityPool
+	identities       map[string]*Identity
+	identitiesByPool map[string][]*Identity // poolID → identities (O(1) GetID lookup)
+	roles            map[string]*IdentityRoles
+	accountID        string
+	region           string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:          lockmetrics.New("cognitoidentity"),
-		pools:       make(map[string]*IdentityPool),
-		poolsByName: make(map[string]*IdentityPool),
-		identities:  make(map[string]*Identity),
-		roles:       make(map[string]*IdentityRoles),
-		accountID:   accountID,
-		region:      region,
+		mu:               lockmetrics.New("cognitoidentity"),
+		pools:            make(map[string]*IdentityPool),
+		poolsByName:      make(map[string]*IdentityPool),
+		identities:       make(map[string]*Identity),
+		identitiesByPool: make(map[string][]*Identity),
+		roles:            make(map[string]*IdentityRoles),
+		accountID:        accountID,
+		region:           region,
 	}
 }
 
@@ -150,6 +152,8 @@ func (b *InMemoryBackend) DeleteIdentityPool(poolID string) error {
 			delete(b.identities, id)
 		}
 	}
+
+	delete(b.identitiesByPool, poolID)
 
 	return nil
 }
@@ -228,9 +232,9 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 		return nil, fmt.Errorf("%w: identity pool %q not found", ErrIdentityPoolNotFound, poolID)
 	}
 
-	// Attempt to find an existing identity for this pool with the same logins.
-	for _, identity := range b.identities {
-		if identity.IdentityPoolID == poolID && mapsEqual(identity.Logins, logins) {
+	// O(n pool size) but bounded to the specific pool, not all identities.
+	for _, identity := range b.identitiesByPool[poolID] {
+		if mapsEqual(identity.Logins, logins) {
 			return cloneIdentity(identity), nil
 		}
 	}
@@ -245,6 +249,7 @@ func (b *InMemoryBackend) GetID(poolID string, _ string, logins map[string]strin
 	}
 
 	b.identities[identityID] = identity
+	b.identitiesByPool[poolID] = append(b.identitiesByPool[poolID], identity)
 
 	return cloneIdentity(identity), nil
 }
@@ -260,10 +265,25 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(identityID string, _ map[str
 
 	expiry := time.Now().Add(credentialsExpirySeconds * time.Second)
 
+	keyID, err := randomAlphanumeric(accessKeyIDLen)
+	if err != nil {
+		return nil, fmt.Errorf("generate access key ID: %w", err)
+	}
+
+	secretKey, err := randomAlphanumeric(secretKeyLen)
+	if err != nil {
+		return nil, fmt.Errorf("generate secret key: %w", err)
+	}
+
+	sessionToken, err := randomAlphanumeric(tokenLen)
+	if err != nil {
+		return nil, fmt.Errorf("generate session token: %w", err)
+	}
+
 	return &Credentials{
-		AccessKeyID:     "ASIA" + randomAlphanumeric(accessKeyIDLen),
-		SecretAccessKey: randomAlphanumeric(secretKeyLen),
-		SessionToken:    randomAlphanumeric(tokenLen),
+		AccessKeyID:     "ASIA" + keyID,
+		SecretAccessKey: secretKey,
+		SessionToken:    sessionToken,
 		Expiration:      expiry,
 		IdentityID:      identityID,
 	}, nil
@@ -279,8 +299,12 @@ func (b *InMemoryBackend) GetOpenIDToken(identityID string, _ map[string]string)
 	}
 
 	// Return a synthetic token.
-	token := fmt.Sprintf("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.%s.signature",
-		randomAlphanumeric(tokenLen))
+	payload, err := randomAlphanumeric(tokenLen)
+	if err != nil {
+		return nil, fmt.Errorf("generate token: %w", err)
+	}
+
+	token := fmt.Sprintf("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.%s.signature", payload)
 
 	return &OpenIDToken{
 		IdentityID: identityID,
@@ -399,18 +423,28 @@ func mapsEqual(a, b map[string]string) bool {
 }
 
 // randomAlphanumeric returns a random alphanumeric string of length n.
-func randomAlphanumeric(n int) string {
+func randomAlphanumeric(n int) (string, error) {
 	buf := make([]byte, n)
 	for i := range buf {
 		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphanumChars))))
 		if err != nil {
-			buf[i] = alphanumChars[0]
-
-			continue
+			return "", fmt.Errorf("crypto/rand failure: %w", err)
 		}
 
 		buf[i] = alphanumChars[idx.Int64()]
 	}
 
-	return string(buf)
+	return string(buf), nil
+}
+
+// Reset clears all identity pool, identity and role state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.pools = make(map[string]*IdentityPool)
+	b.poolsByName = make(map[string]*IdentityPool)
+	b.identities = make(map[string]*Identity)
+	b.identitiesByPool = make(map[string][]*Identity)
+	b.roles = make(map[string]*IdentityRoles)
 }

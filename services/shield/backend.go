@@ -23,15 +23,17 @@ var (
 	ErrSubscriptionAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrConflict)
 	// ErrSubscriptionNotFound is returned when no subscription exists.
 	ErrSubscriptionNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrSubscriptionRequired is returned when an operation requires an active Shield Advanced subscription.
+	ErrSubscriptionRequired = awserr.New("InvalidOperationException: subscription required", awserr.ErrConflict)
 )
 
 // Protection represents an AWS Shield Advanced protection.
 type Protection struct {
-	CreationTime time.Time
-	Tags         map[string]string
-	ID           string
-	Name         string
-	ResourceARN  string
+	CreationTime time.Time         `json:"creationTime"`
+	Tags         map[string]string `json:"tags,omitempty"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	ResourceARN  string            `json:"resourceARN"`
 }
 
 // cloneProtection returns a deep copy of p, including its Tags map.
@@ -44,28 +46,32 @@ func cloneProtection(p *Protection) *Protection {
 
 // Subscription represents an AWS Shield Advanced subscription.
 type Subscription struct {
-	StartTime            time.Time
-	EndTime              time.Time
-	AutoRenew            string
-	TimeCommitmentInDays int64
+	StartTime            time.Time `json:"startTime"`
+	EndTime              time.Time `json:"endTime"`
+	AutoRenew            string    `json:"autoRenew"`
+	TimeCommitmentInDays int64     `json:"timeCommitmentInDays"`
 }
 
 // InMemoryBackend is an in-memory store for Shield Advanced resources.
 type InMemoryBackend struct {
-	protections  map[string]*Protection
-	subscription *Subscription
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	protections      map[string]*Protection
+	subscription     *Subscription
+	resourceARNIndex map[string]string // resourceARN → protection ID
+	nameIndex        map[string]string // name → protection ID
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
 }
 
 // NewInMemoryBackend creates a new in-memory Shield backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		protections: make(map[string]*Protection),
-		accountID:   accountID,
-		region:      region,
-		mu:          lockmetrics.New("shield"),
+		protections:      make(map[string]*Protection),
+		resourceARNIndex: make(map[string]string),
+		nameIndex:        make(map[string]string),
+		accountID:        accountID,
+		region:           region,
+		mu:               lockmetrics.New("shield"),
 	}
 }
 
@@ -123,18 +129,19 @@ func (b *InMemoryBackend) CreateProtection(name, resourceARN string, tags map[st
 	b.mu.Lock("CreateProtection")
 	defer b.mu.Unlock()
 
-	for _, p := range b.protections {
-		if p.ResourceARN == resourceARN {
-			return nil, fmt.Errorf(
-				"%w: protection for resource %s already exists",
-				ErrProtectionAlreadyExists,
-				resourceARN,
-			)
-		}
+	if b.subscription == nil {
+		return nil, fmt.Errorf(
+			"%w: Shield Advanced subscription is required to create protections",
+			ErrSubscriptionRequired,
+		)
+	}
 
-		if p.Name == name {
-			return nil, fmt.Errorf("%w: protection with name %q already exists", ErrProtectionAlreadyExists, name)
-		}
+	if _, exists := b.nameIndex[name]; exists {
+		return nil, fmt.Errorf("%w: protection %q already exists", ErrProtectionAlreadyExists, name)
+	}
+
+	if _, exists := b.resourceARNIndex[resourceARN]; exists {
+		return nil, fmt.Errorf("%w: protection for resource %s already exists", ErrProtectionAlreadyExists, resourceARN)
 	}
 
 	protectionARN := arn.Build("shield", b.region, b.accountID, "protection/"+name)
@@ -147,6 +154,8 @@ func (b *InMemoryBackend) CreateProtection(name, resourceARN string, tags map[st
 		Tags:         cloneTags(tags),
 	}
 	b.protections[protectionARN] = p
+	b.resourceARNIndex[resourceARN] = protectionARN
+	b.nameIndex[name] = protectionARN
 
 	return cloneProtection(p), nil
 }
@@ -165,13 +174,11 @@ func (b *InMemoryBackend) DescribeProtection(protectionID, resourceARN string) (
 		return cloneProtection(p), nil
 	}
 
-	for _, p := range b.protections {
-		if p.ResourceARN == resourceARN {
-			return cloneProtection(p), nil
-		}
+	if pid, ok := b.resourceARNIndex[resourceARN]; ok {
+		return cloneProtection(b.protections[pid]), nil
 	}
 
-	return nil, fmt.Errorf("%w: protection for resource %q not found", ErrProtectionNotFound, resourceARN)
+	return nil, fmt.Errorf("%w: no protection for resource %q", ErrProtectionNotFound, resourceARN)
 }
 
 // DeleteProtection deletes a protection by ID.
@@ -179,7 +186,10 @@ func (b *InMemoryBackend) DeleteProtection(protectionID string) error {
 	b.mu.Lock("DeleteProtection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.protections[protectionID]; !ok {
+	if p, ok := b.protections[protectionID]; ok {
+		delete(b.resourceARNIndex, p.ResourceARN)
+		delete(b.nameIndex, p.Name)
+	} else {
 		return fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, protectionID)
 	}
 
@@ -262,4 +272,15 @@ func cloneTags(tags map[string]string) map[string]string {
 	}
 
 	return maps.Clone(tags)
+}
+
+// Reset clears all Shield protections and subscription state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.protections = make(map[string]*Protection)
+	b.resourceARNIndex = make(map[string]string)
+	b.nameIndex = make(map[string]string)
+	b.subscription = nil
 }

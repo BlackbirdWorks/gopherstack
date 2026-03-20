@@ -21,49 +21,61 @@ var (
 	ErrIPSetNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
 	// ErrIPSetAlreadyExists is returned when an IPSet with the same name already exists.
 	ErrIPSetAlreadyExists = awserr.New("WAFDuplicateItemException", awserr.ErrConflict)
+	// ErrAssociationNotFound is returned when a WebACL association does not exist.
+	ErrAssociationNotFound = awserr.New("WAFNonexistentItemException", awserr.ErrNotFound)
 )
 
 // WebACL represents an AWS WAFv2 Web ACL.
 type WebACL struct {
-	Tags             map[string]string
-	ID               string
-	Name             string
-	Scope            string
-	Description      string
-	DefaultAction    string
-	VisibilityConfig string
-	LockToken        string
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Scope            string            `json:"scope"`
+	Description      string            `json:"description"`
+	DefaultAction    string            `json:"defaultAction"`
+	VisibilityConfig string            `json:"visibilityConfig"`
+	LockToken        string            `json:"lockToken"`
 }
 
 // IPSet represents an AWS WAFv2 IP Set.
 type IPSet struct {
-	Tags             map[string]string
-	ID               string
-	Name             string
-	Scope            string
-	Description      string
-	IPAddressVersion string
-	LockToken        string
-	Addresses        []string
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Scope            string            `json:"scope"`
+	Description      string            `json:"description"`
+	IPAddressVersion string            `json:"ipAddressVersion"`
+	LockToken        string            `json:"lockToken"`
+	Addresses        []string          `json:"addresses,omitempty"`
 }
 
 // InMemoryBackend is an in-memory store for WAFv2 resources.
 type InMemoryBackend struct {
-	webACLs   map[string]*WebACL
-	ipSets    map[string]*IPSet
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	webACLs           map[string]*WebACL
+	ipSets            map[string]*IPSet
+	webACLByARN       map[string]string // ARN → webACL ID
+	ipSetByARN        map[string]string // ARN → ipSet ID
+	webACLByNameScope map[string]string // "name:scope" → webACL ID (O(1) duplicate check)
+	ipSetByNameScope  map[string]string // "name:scope" → ipSet ID (O(1) duplicate check)
+	associations      map[string]string // resourceARN → webACL ID (AssociateWebACL)
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new in-memory WAFv2 backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		webACLs:   make(map[string]*WebACL),
-		ipSets:    make(map[string]*IPSet),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("wafv2"),
+		webACLs:           make(map[string]*WebACL),
+		ipSets:            make(map[string]*IPSet),
+		webACLByARN:       make(map[string]string),
+		ipSetByARN:        make(map[string]string),
+		webACLByNameScope: make(map[string]string),
+		ipSetByNameScope:  make(map[string]string),
+		associations:      make(map[string]string),
+		accountID:         accountID,
+		region:            region,
+		mu:                lockmetrics.New("wafv2"),
 	}
 }
 
@@ -92,6 +104,10 @@ func scopePrefix(scope string) string {
 	return "regional"
 }
 
+func nameScope(name, scope string) string {
+	return name + ":" + scope
+}
+
 // CreateWebACL creates a new WebACL.
 func (b *InMemoryBackend) CreateWebACL(
 	name, scope, description, defaultAction, visibilityConfig string,
@@ -100,10 +116,8 @@ func (b *InMemoryBackend) CreateWebACL(
 	b.mu.Lock("CreateWebACL")
 	defer b.mu.Unlock()
 
-	for _, w := range b.webACLs {
-		if w.Name == name && w.Scope == scope {
-			return nil, fmt.Errorf("%w: web ACL %q already exists in scope %s", ErrWebACLAlreadyExists, name, scope)
-		}
+	if _, exists := b.webACLByNameScope[nameScope(name, scope)]; exists {
+		return nil, fmt.Errorf("%w: web ACL %q already exists in scope %s", ErrWebACLAlreadyExists, name, scope)
 	}
 
 	id := uuid.NewString()
@@ -118,11 +132,11 @@ func (b *InMemoryBackend) CreateWebACL(
 		Tags:             cloneTags(tags),
 	}
 	b.webACLs[id] = w
+	b.webACLByARN[b.WebACLARN(name, id, scope)] = id
+	b.webACLByNameScope[nameScope(name, scope)] = id
 
 	return cloneWebACL(w), nil
 }
-
-// GetWebACL returns a WebACL by ID.
 func (b *InMemoryBackend) GetWebACL(id string) (*WebACL, error) {
 	b.mu.RLock("GetWebACL")
 	defer b.mu.RUnlock()
@@ -167,11 +181,21 @@ func (b *InMemoryBackend) DeleteWebACL(id string) error {
 	b.mu.Lock("DeleteWebACL")
 	defer b.mu.Unlock()
 
-	if _, ok := b.webACLs[id]; !ok {
+	w, ok := b.webACLs[id]
+	if !ok {
 		return fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, id)
 	}
 
+	delete(b.webACLByARN, b.WebACLARN(w.Name, w.ID, w.Scope))
+	delete(b.webACLByNameScope, nameScope(w.Name, w.Scope))
 	delete(b.webACLs, id)
+
+	// Cascade: remove all resource associations for this WebACL.
+	for resourceARN, assocID := range b.associations {
+		if assocID == id {
+			delete(b.associations, resourceARN)
+		}
+	}
 
 	return nil
 }
@@ -203,10 +227,8 @@ func (b *InMemoryBackend) CreateIPSet(
 	b.mu.Lock("CreateIPSet")
 	defer b.mu.Unlock()
 
-	for _, s := range b.ipSets {
-		if s.Name == name && s.Scope == scope {
-			return nil, fmt.Errorf("%w: IP set %q already exists in scope %s", ErrIPSetAlreadyExists, name, scope)
-		}
+	if _, exists := b.ipSetByNameScope[nameScope(name, scope)]; exists {
+		return nil, fmt.Errorf("%w: IP set %q already exists in scope %s", ErrIPSetAlreadyExists, name, scope)
 	}
 
 	id := uuid.NewString()
@@ -221,6 +243,8 @@ func (b *InMemoryBackend) CreateIPSet(
 		Tags:             cloneTags(tags),
 	}
 	b.ipSets[id] = s
+	b.ipSetByARN[b.IPSetARN(name, id, scope)] = id
+	b.ipSetByNameScope[nameScope(name, scope)] = id
 
 	return cloneIPSet(s), nil
 }
@@ -266,7 +290,10 @@ func (b *InMemoryBackend) DeleteIPSet(id string) error {
 	b.mu.Lock("DeleteIPSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipSets[id]; !ok {
+	if s, ok := b.ipSets[id]; ok {
+		delete(b.ipSetByARN, b.IPSetARN(s.Name, s.ID, s.Scope))
+		delete(b.ipSetByNameScope, nameScope(s.Name, s.Scope))
+	} else {
 		return fmt.Errorf("%w: IP set %q not found", ErrIPSetNotFound, id)
 	}
 
@@ -298,28 +325,26 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, w := range b.webACLs {
-		if b.WebACLARN(w.Name, w.ID, w.Scope) == resourceARN {
-			if w.Tags == nil {
-				w.Tags = make(map[string]string)
-			}
-
-			maps.Copy(w.Tags, tags)
-
-			return nil
+	if id, ok := b.webACLByARN[resourceARN]; ok {
+		w := b.webACLs[id]
+		if w.Tags == nil {
+			w.Tags = make(map[string]string)
 		}
+
+		maps.Copy(w.Tags, tags)
+
+		return nil
 	}
 
-	for _, s := range b.ipSets {
-		if b.IPSetARN(s.Name, s.ID, s.Scope) == resourceARN {
-			if s.Tags == nil {
-				s.Tags = make(map[string]string)
-			}
-
-			maps.Copy(s.Tags, tags)
-
-			return nil
+	if id, ok := b.ipSetByARN[resourceARN]; ok {
+		s := b.ipSets[id]
+		if s.Tags == nil {
+			s.Tags = make(map[string]string)
 		}
+
+		maps.Copy(s.Tags, tags)
+
+		return nil
 	}
 
 	return fmt.Errorf("%w: resource %q not found", ErrWebACLNotFound, resourceARN)
@@ -330,16 +355,12 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, w := range b.webACLs {
-		if b.WebACLARN(w.Name, w.ID, w.Scope) == resourceARN {
-			return maps.Clone(w.Tags), nil
-		}
+	if id, ok := b.webACLByARN[resourceARN]; ok {
+		return maps.Clone(b.webACLs[id].Tags), nil
 	}
 
-	for _, s := range b.ipSets {
-		if b.IPSetARN(s.Name, s.ID, s.Scope) == resourceARN {
-			return maps.Clone(s.Tags), nil
-		}
+	if id, ok := b.ipSetByARN[resourceARN]; ok {
+		return maps.Clone(b.ipSets[id].Tags), nil
 	}
 
 	return nil, fmt.Errorf("%w: resource %q not found", ErrWebACLNotFound, resourceARN)
@@ -350,24 +371,22 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, w := range b.webACLs {
-		if b.WebACLARN(w.Name, w.ID, w.Scope) == resourceARN {
-			for _, k := range tagKeys {
-				delete(w.Tags, k)
-			}
-
-			return nil
+	if id, ok := b.webACLByARN[resourceARN]; ok {
+		w := b.webACLs[id]
+		for _, k := range tagKeys {
+			delete(w.Tags, k)
 		}
+
+		return nil
 	}
 
-	for _, s := range b.ipSets {
-		if b.IPSetARN(s.Name, s.ID, s.Scope) == resourceARN {
-			for _, k := range tagKeys {
-				delete(s.Tags, k)
-			}
-
-			return nil
+	if id, ok := b.ipSetByARN[resourceARN]; ok {
+		s := b.ipSets[id]
+		for _, k := range tagKeys {
+			delete(s.Tags, k)
 		}
+
+		return nil
 	}
 
 	return fmt.Errorf("%w: resource %q not found", ErrWebACLNotFound, resourceARN)
@@ -405,4 +424,65 @@ func cloneTags(tags map[string]string) map[string]string {
 	}
 
 	return maps.Clone(tags)
+}
+
+// Reset clears all WAFv2 WebACL and IPSet state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.webACLs = make(map[string]*WebACL)
+	b.ipSets = make(map[string]*IPSet)
+	b.webACLByARN = make(map[string]string)
+	b.ipSetByARN = make(map[string]string)
+	b.webACLByNameScope = make(map[string]string)
+	b.ipSetByNameScope = make(map[string]string)
+	b.associations = make(map[string]string)
+}
+
+// AssociateWebACL associates a WebACL with a resource ARN.
+func (b *InMemoryBackend) AssociateWebACL(webACLARN, resourceARN string) error {
+	b.mu.Lock("AssociateWebACL")
+	defer b.mu.Unlock()
+
+	webACLID, ok := b.webACLByARN[webACLARN]
+	if !ok {
+		return fmt.Errorf("%w: web ACL with ARN %q not found", ErrWebACLNotFound, webACLARN)
+	}
+
+	b.associations[resourceARN] = webACLID
+
+	return nil
+}
+
+// DisassociateWebACL removes the WebACL association from a resource ARN.
+func (b *InMemoryBackend) DisassociateWebACL(resourceARN string) error {
+	b.mu.Lock("DisassociateWebACL")
+	defer b.mu.Unlock()
+
+	if _, ok := b.associations[resourceARN]; !ok {
+		return fmt.Errorf("%w: no web ACL association found for resource %q", ErrAssociationNotFound, resourceARN)
+	}
+
+	delete(b.associations, resourceARN)
+
+	return nil
+}
+
+// GetWebACLForResource returns the WebACL associated with the given resource ARN.
+func (b *InMemoryBackend) GetWebACLForResource(resourceARN string) (*WebACL, error) {
+	b.mu.RLock("GetWebACLForResource")
+	defer b.mu.RUnlock()
+
+	webACLID, ok := b.associations[resourceARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: no web ACL association found for resource %q", ErrAssociationNotFound, resourceARN)
+	}
+
+	w, ok := b.webACLs[webACLID]
+	if !ok {
+		return nil, fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, webACLID)
+	}
+
+	return cloneWebACL(w), nil
 }

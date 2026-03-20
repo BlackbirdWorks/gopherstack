@@ -38,6 +38,7 @@ var (
 const (
 	caStatusCreating     = "CREATING"
 	caStatusActive       = "ACTIVE"
+	caStatusDisabled     = "DISABLED"
 	caStatusDeleted      = "DELETED"
 	caTypePRoot          = "ROOT"
 	caTypeSubordinate    = "SUBORDINATE"
@@ -99,21 +100,23 @@ type IssuedCertificate struct {
 
 // InMemoryBackend is the in-memory store for ACM PCA resources.
 type InMemoryBackend struct {
-	cas       map[string]*CertificateAuthority
-	certs     map[string]*IssuedCertificate
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	cas             map[string]*CertificateAuthority
+	certs           map[string]*IssuedCertificate
+	certsByCASerial map[string]string // caARN+"#"+serial → certARN (O(1) RevokeCertificate)
+	mu              *lockmetrics.RWMutex
+	accountID       string
+	region          string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		cas:       make(map[string]*CertificateAuthority),
-		certs:     make(map[string]*IssuedCertificate),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("acmpca"),
+		cas:             make(map[string]*CertificateAuthority),
+		certs:           make(map[string]*IssuedCertificate),
+		certsByCASerial: make(map[string]string),
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("acmpca"),
 	}
 }
 
@@ -243,6 +246,10 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(caARN string) error {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
+	if ca.Status != caStatusDisabled {
+		return fmt.Errorf("%w: CA must be in DISABLED state before deletion (current: %s)", ErrInvalidState, ca.Status)
+	}
+
 	ca.Status = caStatusDeleted
 
 	return nil
@@ -366,6 +373,7 @@ func (b *InMemoryBackend) IssueCertificate(caARN, csrPEM string, validityDays in
 	}
 
 	b.certs[certARN] = cert
+	b.certsByCASerial[caARN+"#"+serial] = certARN
 
 	cp := *cert
 
@@ -392,7 +400,7 @@ func (b *InMemoryBackend) GetCertificate(caARN, certARN string) (*IssuedCertific
 	return &cp, nil
 }
 
-// RevokeCertificate revokes the given certificate.
+// RevokeCertificate revokes the given certificate using the O(1) serial index.
 func (b *InMemoryBackend) RevokeCertificate(caARN, serial, _ string) error {
 	b.mu.Lock("RevokeCertificate")
 	defer b.mu.Unlock()
@@ -401,15 +409,14 @@ func (b *InMemoryBackend) RevokeCertificate(caARN, serial, _ string) error {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
 	}
 
-	for _, cert := range b.certs {
-		if cert.CAARN == caARN && cert.Serial == serial {
-			cert.Status = certStatusRevoked
-
-			return nil
-		}
+	certARN, ok := b.certsByCASerial[caARN+"#"+serial]
+	if !ok {
+		return fmt.Errorf("%w: certificate with serial %s not found", ErrCertNotFound, serial)
 	}
 
-	return fmt.Errorf("%w: certificate with serial %s not found", ErrCertNotFound, serial)
+	b.certs[certARN].Status = certStatusRevoked
+
+	return nil
 }
 
 // ListCertificates returns a paginated list of certificates issued by the given CA.
@@ -611,4 +618,14 @@ func splitARN(a string) []string {
 	}
 
 	return nil
+}
+
+// Reset clears all CAs and issued certificates.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.cas = make(map[string]*CertificateAuthority)
+	b.certs = make(map[string]*IssuedCertificate)
+	b.certsByCASerial = make(map[string]string)
 }

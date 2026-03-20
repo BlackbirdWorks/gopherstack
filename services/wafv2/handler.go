@@ -126,37 +126,36 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+func (h *Handler) buildDispatchTable(ctx context.Context) map[string]func([]byte) ([]byte, error) {
+	return map[string]func([]byte) ([]byte, error){
+		"CreateWebACL":         func(b []byte) ([]byte, error) { return h.handleCreateWebACL(ctx, b) },
+		"GetWebACL":            h.handleGetWebACL,
+		"UpdateWebACL":         func(b []byte) ([]byte, error) { return h.handleUpdateWebACL(ctx, b) },
+		"DeleteWebACL":         func(b []byte) ([]byte, error) { return h.handleDeleteWebACL(ctx, b) },
+		"ListWebACLs":          h.handleListWebACLs,
+		"CreateIPSet":          func(b []byte) ([]byte, error) { return h.handleCreateIPSet(ctx, b) },
+		"GetIPSet":             h.handleGetIPSet,
+		"UpdateIPSet":          func(b []byte) ([]byte, error) { return h.handleUpdateIPSet(ctx, b) },
+		"DeleteIPSet":          func(b []byte) ([]byte, error) { return h.handleDeleteIPSet(ctx, b) },
+		"ListIPSets":           h.handleListIPSets,
+		"TagResource":          h.handleTagResource,
+		"ListTagsForResource":  h.handleListTagsForResource,
+		"UntagResource":        h.handleUntagResource,
+		"AssociateWebACL":      h.handleAssociateWebACL,
+		"DisassociateWebACL":   h.handleDisassociateWebACL,
+		"GetWebACLForResource": h.handleGetWebACLForResource,
+	}
+}
+
 func (h *Handler) dispatch(ctx context.Context, op string, body []byte) ([]byte, error) {
-	switch op {
-	case "CreateWebACL":
-		return h.handleCreateWebACL(ctx, body)
-	case "GetWebACL":
-		return h.handleGetWebACL(body)
-	case "UpdateWebACL":
-		return h.handleUpdateWebACL(ctx, body)
-	case "DeleteWebACL":
-		return h.handleDeleteWebACL(ctx, body)
-	case "ListWebACLs":
-		return h.handleListWebACLs(body)
-	case "CreateIPSet":
-		return h.handleCreateIPSet(ctx, body)
-	case "GetIPSet":
-		return h.handleGetIPSet(body)
-	case "UpdateIPSet":
-		return h.handleUpdateIPSet(ctx, body)
-	case "DeleteIPSet":
-		return h.handleDeleteIPSet(ctx, body)
-	case "ListIPSets":
-		return h.handleListIPSets(body)
-	case "TagResource":
-		return h.handleTagResource(body)
-	case "ListTagsForResource":
-		return h.handleListTagsForResource(body)
-	case "UntagResource":
-		return h.handleUntagResource(body)
-	default:
+	table := h.buildDispatchTable(ctx)
+
+	fn, ok := table[op]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, op)
 	}
+
+	return fn(body)
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
@@ -748,4 +747,92 @@ func buildSummaryItems[T any](
 	}
 
 	return result
+}
+
+// associateWebACLRequest is the request body for AssociateWebACL.
+type associateWebACLRequest struct {
+	WebACLArn   string `json:"WebACLArn"`
+	ResourceArn string `json:"ResourceArn"`
+}
+
+func (h *Handler) handleAssociateWebACL(body []byte) ([]byte, error) {
+	var req associateWebACLRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.WebACLArn == "" {
+		return nil, fmt.Errorf("%w: WebACLArn is required", errInvalidRequest)
+	}
+
+	if req.ResourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.AssociateWebACL(req.WebACLArn, req.ResourceArn); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+// disassociateWebACLRequest is the request body for DisassociateWebACL.
+type disassociateWebACLRequest struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+func (h *Handler) handleDisassociateWebACL(body []byte) ([]byte, error) {
+	var req disassociateWebACLRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ResourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+	}
+
+	if err := h.Backend.DisassociateWebACL(req.ResourceArn); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+// getWebACLForResourceRequest is the request body for GetWebACLForResource.
+type getWebACLForResourceRequest struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+func (h *Handler) handleGetWebACLForResource(body []byte) ([]byte, error) {
+	var req getWebACLForResourceRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ResourceArn == "" {
+		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
+	}
+
+	w, err := h.Backend.GetWebACLForResource(req.ResourceArn)
+	if err != nil {
+		return nil, err
+	}
+
+	arnStr := h.Backend.WebACLARN(w.Name, w.ID, w.Scope)
+	defaultActionMap := buildDefaultActionMap(w.DefaultAction)
+	visConfig := parseVisibilityConfig(w.VisibilityConfig, w.Name)
+
+	return json.Marshal(map[string]any{
+		"WebACL": map[string]any{
+			"Id":               w.ID,
+			"Name":             w.Name,
+			"ARN":              arnStr,
+			"LockToken":        w.LockToken,
+			"Scope":            w.Scope,
+			"Description":      w.Description,
+			"DefaultAction":    defaultActionMap,
+			"VisibilityConfig": visConfig,
+			"Rules":            []any{},
+		},
+	})
 }

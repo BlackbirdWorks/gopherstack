@@ -180,13 +180,18 @@ func TestInMemoryBackend_DeleteCertificateAuthority(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "existing CA",
+			name:    "existing CA after disable",
 			caARN:   "",
 			wantErr: false,
 		},
 		{
 			name:    "non-existent CA",
 			caARN:   "arn:aws:acm-pca:us-east-1:000000000000:certificate-authority/nonexistent",
+			wantErr: true,
+		},
+		{
+			name:    "active CA without disabling first",
+			caARN:   "active",
 			wantErr: true,
 		},
 	}
@@ -198,13 +203,23 @@ func TestInMemoryBackend_DeleteCertificateAuthority(t *testing.T) {
 			b := newTestBackend()
 			var caARN string
 
-			if tt.caARN == "" {
+			switch tt.caARN {
+			case "":
 				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
 					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Test CA"},
 				})
 				require.NoError(t, err)
 				caARN = ca.ARN
-			} else {
+				// Disable the CA first (AWS requirement before deletion).
+				require.NoError(t, b.UpdateCertificateAuthority(caARN, "DISABLED"))
+			case "active":
+				ca, err := b.CreateCertificateAuthority("ROOT", acmpca.CertificateAuthorityConfiguration{
+					Subject: acmpca.CertificateAuthoritySubject{CommonName: "Active CA"},
+				})
+				require.NoError(t, err)
+				caARN = ca.ARN
+				// Do NOT disable — deletion should fail.
+			default:
 				caARN = tt.caARN
 			}
 

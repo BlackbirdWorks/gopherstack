@@ -24,34 +24,34 @@ var (
 
 // PolicyStore represents an Amazon Verified Permissions policy store.
 type PolicyStore struct {
-	CreatedDate   time.Time
-	LastUpdated   time.Time
-	Tags          map[string]string
-	PolicyStoreID string
-	Arn           string
-	Description   string
-	AccountID     string
-	Region        string
+	CreatedDate   time.Time         `json:"createdDate"`
+	LastUpdated   time.Time         `json:"lastUpdated"`
+	Tags          map[string]string `json:"tags,omitempty"`
+	PolicyStoreID string            `json:"policyStoreID"`
+	Arn           string            `json:"arn"`
+	Description   string            `json:"description"`
+	AccountID     string            `json:"accountID"`
+	Region        string            `json:"region"`
 }
 
 // Policy represents a policy in a Verified Permissions policy store.
 type Policy struct {
-	CreatedDate   time.Time
-	LastUpdated   time.Time
-	PolicyStoreID string
-	PolicyID      string
-	PolicyType    string
-	Statement     string
+	CreatedDate   time.Time `json:"createdDate"`
+	LastUpdated   time.Time `json:"lastUpdated"`
+	PolicyStoreID string    `json:"policyStoreID"`
+	PolicyID      string    `json:"policyID"`
+	PolicyType    string    `json:"policyType"`
+	Statement     string    `json:"statement"`
 }
 
 // PolicyTemplate represents a policy template in a Verified Permissions policy store.
 type PolicyTemplate struct {
-	CreatedDate      time.Time
-	LastUpdated      time.Time
-	PolicyStoreID    string
-	PolicyTemplateID string
-	Description      string
-	Statement        string
+	CreatedDate      time.Time `json:"createdDate"`
+	LastUpdated      time.Time `json:"lastUpdated"`
+	PolicyStoreID    string    `json:"policyStoreID"`
+	PolicyTemplateID string    `json:"policyTemplateID"`
+	Description      string    `json:"description"`
+	Statement        string    `json:"statement"`
 }
 
 // policyStoreARN builds the ARN for a policy store.
@@ -411,4 +411,66 @@ func (b *InMemoryBackend) DeletePolicyTemplate(policyStoreID, policyTemplateID s
 	delete(templates, policyTemplateID)
 
 	return nil
+}
+
+// Reset clears all policy store state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.policyStores = make(map[string]*PolicyStore)
+	b.policies = make(map[string]map[string]*Policy)
+	b.policyTemplates = make(map[string]map[string]*PolicyTemplate)
+}
+
+// TagResource adds or updates tags on a policy store identified by its ARN.
+func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	for _, ps := range b.policyStores {
+		if ps.Arn == resourceARN {
+			if ps.Tags == nil {
+				ps.Tags = make(map[string]string, len(tags))
+			}
+
+			maps.Copy(ps.Tags, tags)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
+}
+
+// UntagResource removes tags from a policy store identified by its ARN.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	for _, ps := range b.policyStores {
+		if ps.Arn == resourceARN {
+			for _, k := range tagKeys {
+				delete(ps.Tags, k)
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
+}
+
+// ListTagsForResource returns the tags for a policy store identified by its ARN.
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	for _, ps := range b.policyStores {
+		if ps.Arn == resourceARN {
+			return maps.Clone(ps.Tags), nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
 }

@@ -177,11 +177,19 @@ func (h *Handler) setTags(resourceID string, kv map[string]string) {
 }
 
 func (h *Handler) removeTags(resourceID string, keys []string) {
-	h.tagsMu.RLock("removeTags")
-	t := h.tags[resourceID]
-	h.tagsMu.RUnlock()
-	if t != nil {
+	h.tagsMu.Lock("removeTags")
+	defer h.tagsMu.Unlock()
+	if t := h.tags[resourceID]; t != nil {
 		t.DeleteKeys(keys)
+	}
+}
+
+func (h *Handler) cleanupTags(resourceID string) {
+	h.tagsMu.Lock("cleanupTags")
+	defer h.tagsMu.Unlock()
+	if t, ok := h.tags[resourceID]; ok {
+		t.Close()
+		delete(h.tags, resourceID)
 	}
 }
 
@@ -430,6 +438,7 @@ func (h *Handler) jsonDeleteCertificate(body []byte) (any, error) {
 	if err := h.Backend.DeleteCertificate(input.CertificateArn); err != nil {
 		return nil, err
 	}
+	h.cleanupTags(input.CertificateArn)
 
 	return &deleteCertificateOutput{}, nil
 }
@@ -553,4 +562,16 @@ func (h *Handler) writeJSONError(c *echo.Context, statusCode int, code, message 
 		"__type":  code,
 		"message": message,
 	})
+}
+
+// Reset clears all handler tag state and delegates to the backend Reset.
+func (h *Handler) Reset() {
+	h.tagsMu.Lock("Reset")
+	for _, t := range h.tags {
+		t.Close()
+	}
+	h.tags = make(map[string]*svcTags.Tags)
+	h.tagsMu.Unlock()
+
+	h.Backend.Reset()
 }

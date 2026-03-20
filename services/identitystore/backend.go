@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
 // Sentinel errors.
@@ -113,13 +113,16 @@ type GroupMembershipExistence struct {
 
 // InMemoryBackend is the in-memory store for the Identity Store service.
 type InMemoryBackend struct {
-	users       map[string]*User
-	groups      map[string]*Group
-	memberships map[string]*GroupMembership
-	accountID   string
-	region      string
-	counter     int
-	mu          sync.RWMutex
+	users          map[string]*User
+	groups         map[string]*Group
+	memberships    map[string]*GroupMembership
+	usersByName    map[string]string
+	groupsByName   map[string]string
+	membershipKeys map[string]string
+	mu             *lockmetrics.RWMutex
+	accountID      string
+	region         string
+	counter        int
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the given account and region.
@@ -133,11 +136,15 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 
 	return &InMemoryBackend{
-		accountID:   accountID,
-		region:      region,
-		users:       make(map[string]*User),
-		groups:      make(map[string]*Group),
-		memberships: make(map[string]*GroupMembership),
+		accountID:      accountID,
+		region:         region,
+		users:          make(map[string]*User),
+		groups:         make(map[string]*Group),
+		memberships:    make(map[string]*GroupMembership),
+		usersByName:    make(map[string]string),
+		groupsByName:   make(map[string]string),
+		membershipKeys: make(map[string]string),
+		mu:             lockmetrics.New("identitystore"),
 	}
 }
 
@@ -180,15 +187,13 @@ type CreateGroupRequest struct {
 
 // CreateUser creates a new user in the identity store.
 func (b *InMemoryBackend) CreateUser(storeID string, req *CreateUserRequest) (*User, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
-	// Check uniqueness by UserName.
+	// Check uniqueness by UserName using index.
 	if req.UserName != "" {
-		for _, u := range b.users {
-			if u.IdentityStoreID == storeID && u.UserName == req.UserName {
-				return nil, fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, req.UserName)
-			}
+		if _, exists := b.usersByName[storeID+"#"+req.UserName]; exists {
+			return nil, fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, req.UserName)
 		}
 	}
 
@@ -213,12 +218,16 @@ func (b *InMemoryBackend) CreateUser(storeID string, req *CreateUserRequest) (*U
 
 	b.users[userID] = user
 
-	return user, nil
+	if req.UserName != "" {
+		b.usersByName[storeID+"#"+req.UserName] = userID
+	}
+
+	return copyUser(user), nil
 }
 
 // DescribeUser returns a user by ID.
 func (b *InMemoryBackend) DescribeUser(storeID, userID string) (*User, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeUser")
 	defer b.mu.RUnlock()
 
 	user, ok := b.users[userID]
@@ -226,19 +235,19 @@ func (b *InMemoryBackend) DescribeUser(storeID, userID string) (*User, error) {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userID)
 	}
 
-	return user, nil
+	return copyUser(user), nil
 }
 
 // ListUsers lists all users for the given identity store.
 func (b *InMemoryBackend) ListUsers(storeID string) []*User {
-	b.mu.RLock()
+	b.mu.RLock("ListUsers")
 	defer b.mu.RUnlock()
 
 	result := make([]*User, 0)
 
 	for _, u := range b.users {
 		if u.IdentityStoreID == storeID {
-			result = append(result, u)
+			result = append(result, copyUser(u))
 		}
 	}
 
@@ -247,7 +256,7 @@ func (b *InMemoryBackend) ListUsers(storeID string) []*User {
 
 // UpdateUser applies attribute operations to a user.
 func (b *InMemoryBackend) UpdateUser(storeID, userID string, ops []attributeOperation) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
 	user, ok := b.users[userID]
@@ -255,8 +264,21 @@ func (b *InMemoryBackend) UpdateUser(storeID, userID string, ops []attributeOper
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userID)
 	}
 
+	oldUserName := user.UserName
+
 	for _, op := range ops {
 		applyUserAttribute(user, op.AttributePath, op.AttributeValue)
+	}
+
+	// Maintain usersByName index if UserName changed.
+	if oldUserName != user.UserName {
+		if oldUserName != "" {
+			delete(b.usersByName, storeID+"#"+oldUserName)
+		}
+
+		if user.UserName != "" {
+			b.usersByName[storeID+"#"+user.UserName] = userID
+		}
 	}
 
 	return nil
@@ -323,7 +345,7 @@ func ensureUserName(user *User) {
 
 // DeleteUser removes a user from the identity store.
 func (b *InMemoryBackend) DeleteUser(storeID, userID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
 
 	user, ok := b.users[userID]
@@ -331,11 +353,16 @@ func (b *InMemoryBackend) DeleteUser(storeID, userID string) error {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userID)
 	}
 
+	if user.UserName != "" {
+		delete(b.usersByName, storeID+"#"+user.UserName)
+	}
+
 	delete(b.users, userID)
 
 	// Remove associated memberships.
 	for id, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.MemberID.UserID == userID {
+			delete(b.membershipKeys, storeID+"#"+m.GroupID+"#"+userID)
 			delete(b.memberships, id)
 		}
 	}
@@ -345,20 +372,23 @@ func (b *InMemoryBackend) DeleteUser(storeID, userID string) error {
 
 // GetUserID looks up a user ID by alternate identifier (UserName or email).
 func (b *InMemoryBackend) GetUserID(storeID, attrPath, attrValue string) (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetUserID")
 	defer b.mu.RUnlock()
+
+	if strings.EqualFold(attrPath, "username") {
+		if uid, ok := b.usersByName[storeID+"#"+attrValue]; ok {
+			return uid, nil
+		}
+
+		return "", fmt.Errorf("%w: no user found with %s=%q", ErrUserNotFound, attrPath, attrValue)
+	}
 
 	for _, u := range b.users {
 		if u.IdentityStoreID != storeID {
 			continue
 		}
 
-		switch strings.ToLower(attrPath) {
-		case "username":
-			if u.UserName == attrValue {
-				return u.UserID, nil
-			}
-		case "emails.value":
+		if strings.EqualFold(attrPath, "emails.value") {
 			for _, e := range u.Emails {
 				if e.Value == attrValue {
 					return u.UserID, nil
@@ -376,15 +406,13 @@ func (b *InMemoryBackend) GetUserID(storeID, attrPath, attrValue string) (string
 
 // CreateGroup creates a new group in the identity store.
 func (b *InMemoryBackend) CreateGroup(storeID string, req *CreateGroupRequest) (*Group, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateGroup")
 	defer b.mu.Unlock()
 
-	// Check uniqueness by DisplayName.
+	// Check uniqueness by DisplayName using index.
 	if req.DisplayName != "" {
-		for _, g := range b.groups {
-			if g.IdentityStoreID == storeID && g.DisplayName == req.DisplayName {
-				return nil, fmt.Errorf("%w: group with DisplayName %q already exists", ErrConflict, req.DisplayName)
-			}
+		if _, exists := b.groupsByName[storeID+"#"+req.DisplayName]; exists {
+			return nil, fmt.Errorf("%w: group with DisplayName %q already exists", ErrConflict, req.DisplayName)
 		}
 	}
 
@@ -398,12 +426,16 @@ func (b *InMemoryBackend) CreateGroup(storeID string, req *CreateGroupRequest) (
 
 	b.groups[groupID] = group
 
-	return group, nil
+	if req.DisplayName != "" {
+		b.groupsByName[storeID+"#"+req.DisplayName] = groupID
+	}
+
+	return copyGroup(group), nil
 }
 
 // DescribeGroup returns a group by ID.
 func (b *InMemoryBackend) DescribeGroup(storeID, groupID string) (*Group, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeGroup")
 	defer b.mu.RUnlock()
 
 	group, ok := b.groups[groupID]
@@ -411,19 +443,19 @@ func (b *InMemoryBackend) DescribeGroup(storeID, groupID string) (*Group, error)
 		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
 
-	return group, nil
+	return copyGroup(group), nil
 }
 
 // ListGroups lists all groups for the given identity store.
 func (b *InMemoryBackend) ListGroups(storeID string) []*Group {
-	b.mu.RLock()
+	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
 	result := make([]*Group, 0)
 
 	for _, g := range b.groups {
 		if g.IdentityStoreID == storeID {
-			result = append(result, g)
+			result = append(result, copyGroup(g))
 		}
 	}
 
@@ -432,13 +464,15 @@ func (b *InMemoryBackend) ListGroups(storeID string) []*Group {
 
 // UpdateGroup applies attribute operations to a group.
 func (b *InMemoryBackend) UpdateGroup(storeID, groupID string, ops []attributeOperation) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateGroup")
 	defer b.mu.Unlock()
 
 	group, ok := b.groups[groupID]
 	if !ok || group.IdentityStoreID != storeID {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
+
+	oldDisplayName := group.DisplayName
 
 	for _, op := range ops {
 		switch strings.ToLower(op.AttributePath) {
@@ -453,12 +487,23 @@ func (b *InMemoryBackend) UpdateGroup(storeID, groupID string, ops []attributeOp
 		}
 	}
 
+	// Maintain groupsByName index if DisplayName changed.
+	if oldDisplayName != group.DisplayName {
+		if oldDisplayName != "" {
+			delete(b.groupsByName, storeID+"#"+oldDisplayName)
+		}
+
+		if group.DisplayName != "" {
+			b.groupsByName[storeID+"#"+group.DisplayName] = groupID
+		}
+	}
+
 	return nil
 }
 
 // DeleteGroup removes a group from the identity store.
 func (b *InMemoryBackend) DeleteGroup(storeID, groupID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteGroup")
 	defer b.mu.Unlock()
 
 	group, ok := b.groups[groupID]
@@ -466,11 +511,16 @@ func (b *InMemoryBackend) DeleteGroup(storeID, groupID string) error {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
 
+	if group.DisplayName != "" {
+		delete(b.groupsByName, storeID+"#"+group.DisplayName)
+	}
+
 	delete(b.groups, groupID)
 
 	// Remove associated memberships.
 	for id, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.GroupID == groupID {
+			delete(b.membershipKeys, storeID+"#"+groupID+"#"+m.MemberID.UserID)
 			delete(b.memberships, id)
 		}
 	}
@@ -480,16 +530,12 @@ func (b *InMemoryBackend) DeleteGroup(storeID, groupID string) error {
 
 // GetGroupID looks up a group ID by alternate identifier (DisplayName).
 func (b *InMemoryBackend) GetGroupID(storeID, attrPath, attrValue string) (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetGroupID")
 	defer b.mu.RUnlock()
 
-	for _, g := range b.groups {
-		if g.IdentityStoreID != storeID {
-			continue
-		}
-
-		if strings.EqualFold(attrPath, "displayName") && g.DisplayName == attrValue {
-			return g.GroupID, nil
+	if strings.EqualFold(attrPath, "displayName") {
+		if gid, ok := b.groupsByName[storeID+"#"+attrValue]; ok {
+			return gid, nil
 		}
 	}
 
@@ -502,7 +548,7 @@ func (b *InMemoryBackend) GetGroupID(storeID, attrPath, attrValue string) (strin
 
 // CreateGroupMembership creates a membership between a user and a group.
 func (b *InMemoryBackend) CreateGroupMembership(storeID, groupID string, memberID MemberID) (*GroupMembership, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateGroupMembership")
 	defer b.mu.Unlock()
 
 	// Validate group exists.
@@ -519,11 +565,10 @@ func (b *InMemoryBackend) CreateGroupMembership(storeID, groupID string, memberI
 		}
 	}
 
-	// Check for duplicate membership.
-	for _, m := range b.memberships {
-		if m.IdentityStoreID == storeID && m.GroupID == groupID && m.MemberID.UserID == memberID.UserID {
-			return nil, fmt.Errorf("%w: membership already exists", ErrConflict)
-		}
+	// Check for duplicate membership using index.
+	key := storeID + "#" + groupID + "#" + memberID.UserID
+	if _, exists := b.membershipKeys[key]; exists {
+		return nil, fmt.Errorf("%w: membership already exists", ErrConflict)
 	}
 
 	membershipID := b.generateID("membership")
@@ -535,13 +580,14 @@ func (b *InMemoryBackend) CreateGroupMembership(storeID, groupID string, memberI
 	}
 
 	b.memberships[membershipID] = membership
+	b.membershipKeys[key] = membershipID
 
-	return membership, nil
+	return copyMembership(membership), nil
 }
 
 // DescribeGroupMembership returns a membership by ID.
 func (b *InMemoryBackend) DescribeGroupMembership(storeID, membershipID string) (*GroupMembership, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeGroupMembership")
 	defer b.mu.RUnlock()
 
 	m, ok := b.memberships[membershipID]
@@ -549,19 +595,19 @@ func (b *InMemoryBackend) DescribeGroupMembership(storeID, membershipID string) 
 		return nil, fmt.Errorf("%w: membership %q not found", ErrMembershipNotFound, membershipID)
 	}
 
-	return m, nil
+	return copyMembership(m), nil
 }
 
 // ListGroupMemberships lists all memberships for a group.
 func (b *InMemoryBackend) ListGroupMemberships(storeID, groupID string) []*GroupMembership {
-	b.mu.RLock()
+	b.mu.RLock("ListGroupMemberships")
 	defer b.mu.RUnlock()
 
 	result := make([]*GroupMembership, 0)
 
 	for _, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.GroupID == groupID {
-			result = append(result, m)
+			result = append(result, copyMembership(m))
 		}
 	}
 
@@ -570,7 +616,7 @@ func (b *InMemoryBackend) ListGroupMemberships(storeID, groupID string) []*Group
 
 // DeleteGroupMembership removes a membership.
 func (b *InMemoryBackend) DeleteGroupMembership(storeID, membershipID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteGroupMembership")
 	defer b.mu.Unlock()
 
 	m, ok := b.memberships[membershipID]
@@ -578,6 +624,7 @@ func (b *InMemoryBackend) DeleteGroupMembership(storeID, membershipID string) er
 		return fmt.Errorf("%w: membership %q not found", ErrMembershipNotFound, membershipID)
 	}
 
+	delete(b.membershipKeys, storeID+"#"+m.GroupID+"#"+m.MemberID.UserID)
 	delete(b.memberships, membershipID)
 
 	return nil
@@ -585,13 +632,12 @@ func (b *InMemoryBackend) DeleteGroupMembership(storeID, membershipID string) er
 
 // GetGroupMembershipID looks up a membership ID by group and member.
 func (b *InMemoryBackend) GetGroupMembershipID(storeID, groupID string, memberID MemberID) (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetGroupMembershipID")
 	defer b.mu.RUnlock()
 
-	for _, m := range b.memberships {
-		if m.IdentityStoreID == storeID && m.GroupID == groupID && m.MemberID.UserID == memberID.UserID {
-			return m.MembershipID, nil
-		}
+	key := storeID + "#" + groupID + "#" + memberID.UserID
+	if mid, ok := b.membershipKeys[key]; ok {
+		return mid, nil
 	}
 
 	return "", fmt.Errorf(
@@ -604,14 +650,14 @@ func (b *InMemoryBackend) GetGroupMembershipID(storeID, groupID string, memberID
 
 // ListGroupMembershipsForMember lists all group memberships for a given member.
 func (b *InMemoryBackend) ListGroupMembershipsForMember(storeID string, memberID MemberID) []*GroupMembership {
-	b.mu.RLock()
+	b.mu.RLock("ListGroupMembershipsForMember")
 	defer b.mu.RUnlock()
 
 	result := make([]*GroupMembership, 0)
 
 	for _, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.MemberID.UserID == memberID.UserID {
-			result = append(result, m)
+			result = append(result, copyMembership(m))
 		}
 	}
 
@@ -624,7 +670,7 @@ func (b *InMemoryBackend) IsMemberInGroups(
 	memberID MemberID,
 	groupIDs []string,
 ) []GroupMembershipExistence {
-	b.mu.RLock()
+	b.mu.RLock("IsMemberInGroups")
 	defer b.mu.RUnlock()
 
 	groupSet := make(map[string]bool, len(groupIDs))
@@ -651,4 +697,72 @@ func (b *InMemoryBackend) IsMemberInGroups(
 	}
 
 	return result
+}
+
+func copyUser(u *User) *User {
+	if u == nil {
+		return nil
+	}
+	cp := *u
+	if u.Name != nil {
+		n := *u.Name
+		cp.Name = &n
+	}
+	cp.Emails = append([]Email(nil), u.Emails...)
+	cp.Addresses = append([]Address(nil), u.Addresses...)
+	cp.PhoneNumbers = append([]PhoneNumber(nil), u.PhoneNumbers...)
+
+	return &cp
+}
+
+func copyGroup(g *Group) *Group {
+	if g == nil {
+		return nil
+	}
+	cp := *g
+
+	return &cp
+}
+
+func copyMembership(m *GroupMembership) *GroupMembership {
+	if m == nil {
+		return nil
+	}
+	cp := *m
+
+	return &cp
+}
+
+func (b *InMemoryBackend) rebuildIndexes() {
+	b.usersByName = make(map[string]string, len(b.users))
+	b.groupsByName = make(map[string]string, len(b.groups))
+	b.membershipKeys = make(map[string]string, len(b.memberships))
+	for id, u := range b.users {
+		if u.UserName != "" {
+			b.usersByName[u.IdentityStoreID+"#"+u.UserName] = id
+		}
+	}
+	for id, g := range b.groups {
+		if g.DisplayName != "" {
+			b.groupsByName[g.IdentityStoreID+"#"+g.DisplayName] = id
+		}
+	}
+	for id, m := range b.memberships {
+		key := m.IdentityStoreID + "#" + m.GroupID + "#" + m.MemberID.UserID
+		b.membershipKeys[key] = id
+	}
+}
+
+// Reset clears all user, group, and membership state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.users = make(map[string]*User)
+	b.groups = make(map[string]*Group)
+	b.memberships = make(map[string]*GroupMembership)
+	b.usersByName = make(map[string]string)
+	b.groupsByName = make(map[string]string)
+	b.membershipKeys = make(map[string]string)
+	b.counter = 0
 }
