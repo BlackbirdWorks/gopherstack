@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	errDecodePEM       = errors.New("failed to decode private key PEM")
-	errNotECDSAKey     = errors.New("private key is not *ecdsa.PrivateKey")
+	errDecodePEM   = errors.New("failed to decode private key PEM")
+	errNotECDSAKey = errors.New("private key is not *ecdsa.PrivateKey")
 )
 
 type caSnapshot struct {
@@ -34,10 +34,6 @@ func marshalPrivKey(key *ecdsa.PrivateKey) (string, error) {
 }
 
 func unmarshalPrivKey(pemStr string) (*ecdsa.PrivateKey, error) {
-	if pemStr == "" {
-		return nil, nil
-	}
-
 	block, _ := pem.Decode([]byte(pemStr))
 	if block == nil {
 		return nil, errDecodePEM
@@ -57,10 +53,10 @@ func unmarshalPrivKey(pemStr string) (*ecdsa.PrivateKey, error) {
 }
 
 type backendSnapshot struct {
-	CAs       map[string]*caSnapshot     `json:"cas"`
+	CAs       map[string]*caSnapshot        `json:"cas"`
 	Certs     map[string]*IssuedCertificate `json:"certs"`
-	AccountID string                     `json:"accountID"`
-	Region    string                     `json:"region"`
+	AccountID string                        `json:"accountID"`
+	Region    string                        `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -111,12 +107,16 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	cas := make(map[string]*CertificateAuthority, len(snap.CAs))
 	for k, s := range snap.CAs {
 		ca := s.CertificateAuthority
-		privKey, err := unmarshalPrivKey(s.PrivKeyPEM)
-		if err != nil {
-			return fmt.Errorf("restore CA %s private key: %w", k, err)
+
+		if s.PrivKeyPEM != "" {
+			privKey, err := unmarshalPrivKey(s.PrivKeyPEM)
+			if err != nil {
+				return fmt.Errorf("restore CA %s private key: %w", k, err)
+			}
+
+			ca.privKey = privKey
 		}
 
-		ca.privKey = privKey
 		cas[k] = &ca
 	}
 

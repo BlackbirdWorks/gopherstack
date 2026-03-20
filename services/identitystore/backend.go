@@ -673,52 +673,55 @@ func (b *InMemoryBackend) IsMemberInGroups(
 }
 
 func copyUser(u *User) *User {
-if u == nil {
-return nil
-}
-cp := *u
-if u.Name != nil {
-n := *u.Name
-cp.Name = &n
-}
-cp.Emails = append([]Email(nil), u.Emails...)
-cp.Addresses = append([]Address(nil), u.Addresses...)
-cp.PhoneNumbers = append([]PhoneNumber(nil), u.PhoneNumbers...)
-return &cp
+	if u == nil {
+		return nil
+	}
+	cp := *u
+	if u.Name != nil {
+		n := *u.Name
+		cp.Name = &n
+	}
+	cp.Emails = append([]Email(nil), u.Emails...)
+	cp.Addresses = append([]Address(nil), u.Addresses...)
+	cp.PhoneNumbers = append([]PhoneNumber(nil), u.PhoneNumbers...)
+
+	return &cp
 }
 
 func copyGroup(g *Group) *Group {
-if g == nil {
-return nil
-}
-cp := *g
-return &cp
+	if g == nil {
+		return nil
+	}
+	cp := *g
+
+	return &cp
 }
 
 func copyMembership(m *GroupMembership) *GroupMembership {
-if m == nil {
-return nil
-}
-cp := *m
-return &cp
+	if m == nil {
+		return nil
+	}
+	cp := *m
+
+	return &cp
 }
 
 func (b *InMemoryBackend) rebuildIndexes() {
-b.usersByName = make(map[string]string, len(b.users))
-b.groupsByName = make(map[string]string, len(b.groups))
-b.membershipKeys = make(map[string]string, len(b.memberships))
-for id, u := range b.users {
-if u.UserName != "" {
-b.usersByName[u.IdentityStoreID+"#"+u.UserName] = id
-}
-}
-for id, g := range b.groups {
-if g.DisplayName != "" {
-b.groupsByName[g.IdentityStoreID+"#"+g.DisplayName] = id
-}
-}
-for id, m := range b.memberships {
-key := m.IdentityStoreID + "#" + m.GroupID + "#" + m.MemberID.UserID
-b.membershipKeys[key] = id
-}
+	b.usersByName = make(map[string]string, len(b.users))
+	b.groupsByName = make(map[string]string, len(b.groups))
+	b.membershipKeys = make(map[string]string, len(b.memberships))
+	for id, u := range b.users {
+		if u.UserName != "" {
+			b.usersByName[u.IdentityStoreID+"#"+u.UserName] = id
+		}
+	}
+	for id, g := range b.groups {
+		if g.DisplayName != "" {
+			b.groupsByName[g.IdentityStoreID+"#"+g.DisplayName] = id
+		}
+	}
+	for id, m := range b.memberships {
+		key := m.IdentityStoreID + "#" + m.GroupID + "#" + m.MemberID.UserID
+		b.membershipKeys[key] = id
+	}
 }

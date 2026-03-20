@@ -13,8 +13,8 @@ type backendSnapshot struct {
 }
 
 type handlerSnapshot struct {
-	Backend backendSnapshot            `json:"backend"`
 	Tags    map[string]map[string]string `json:"tags"`
+	Backend backendSnapshot              `json:"backend"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -100,8 +100,8 @@ func (h *Handler) Restore(data []byte) error {
 		return err
 	}
 
-	if err := h.Backend.Restore(backendData); err != nil {
-		return err
+	if restoreErr := h.Backend.Restore(backendData); restoreErr != nil {
+		return restoreErr
 	}
 
 	h.tagsMu.Lock("Restore")

@@ -52,24 +52,24 @@ type Subscription struct {
 
 // InMemoryBackend is an in-memory store for Shield Advanced resources.
 type InMemoryBackend struct {
-	protections     map[string]*Protection
-	subscription    *Subscription
+	protections      map[string]*Protection
+	subscription     *Subscription
 	resourceARNIndex map[string]string // resourceARN → protection ID
 	nameIndex        map[string]string // name → protection ID
-	mu              *lockmetrics.RWMutex
-	accountID       string
-	region          string
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
 }
 
 // NewInMemoryBackend creates a new in-memory Shield backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		protections:     make(map[string]*Protection),
+		protections:      make(map[string]*Protection),
 		resourceARNIndex: make(map[string]string),
 		nameIndex:        make(map[string]string),
-		accountID:       accountID,
-		region:          region,
-		mu:              lockmetrics.New("shield"),
+		accountID:        accountID,
+		region:           region,
+		mu:               lockmetrics.New("shield"),
 	}
 }
 

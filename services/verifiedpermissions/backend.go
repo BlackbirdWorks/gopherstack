@@ -24,34 +24,34 @@ var (
 
 // PolicyStore represents an Amazon Verified Permissions policy store.
 type PolicyStore struct {
-	CreatedDate   time.Time
-	LastUpdated   time.Time
-	Tags          map[string]string
-	PolicyStoreID string
-	Arn           string
-	Description   string
-	AccountID     string
-	Region        string
+	CreatedDate   time.Time         `json:"createdDate"`
+	LastUpdated   time.Time         `json:"lastUpdated"`
+	Tags          map[string]string `json:"tags,omitempty"`
+	PolicyStoreID string            `json:"policyStoreID"`
+	Arn           string            `json:"arn"`
+	Description   string            `json:"description"`
+	AccountID     string            `json:"accountID"`
+	Region        string            `json:"region"`
 }
 
 // Policy represents a policy in a Verified Permissions policy store.
 type Policy struct {
-	CreatedDate   time.Time
-	LastUpdated   time.Time
-	PolicyStoreID string
-	PolicyID      string
-	PolicyType    string
-	Statement     string
+	CreatedDate   time.Time `json:"createdDate"`
+	LastUpdated   time.Time `json:"lastUpdated"`
+	PolicyStoreID string    `json:"policyStoreID"`
+	PolicyID      string    `json:"policyID"`
+	PolicyType    string    `json:"policyType"`
+	Statement     string    `json:"statement"`
 }
 
 // PolicyTemplate represents a policy template in a Verified Permissions policy store.
 type PolicyTemplate struct {
-	CreatedDate      time.Time
-	LastUpdated      time.Time
-	PolicyStoreID    string
-	PolicyTemplateID string
-	Description      string
-	Statement        string
+	CreatedDate      time.Time `json:"createdDate"`
+	LastUpdated      time.Time `json:"lastUpdated"`
+	PolicyStoreID    string    `json:"policyStoreID"`
+	PolicyTemplateID string    `json:"policyTemplateID"`
+	Description      string    `json:"description"`
+	Statement        string    `json:"statement"`
 }
 
 // policyStoreARN builds the ARN for a policy store.

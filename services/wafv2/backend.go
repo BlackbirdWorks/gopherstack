@@ -25,49 +25,49 @@ var (
 
 // WebACL represents an AWS WAFv2 Web ACL.
 type WebACL struct {
-	Tags             map[string]string
-	ID               string
-	Name             string
-	Scope            string
-	Description      string
-	DefaultAction    string
-	VisibilityConfig string
-	LockToken        string
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Scope            string            `json:"scope"`
+	Description      string            `json:"description"`
+	DefaultAction    string            `json:"defaultAction"`
+	VisibilityConfig string            `json:"visibilityConfig"`
+	LockToken        string            `json:"lockToken"`
 }
 
 // IPSet represents an AWS WAFv2 IP Set.
 type IPSet struct {
-	Tags             map[string]string
-	ID               string
-	Name             string
-	Scope            string
-	Description      string
-	IPAddressVersion string
-	LockToken        string
-	Addresses        []string
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Scope            string            `json:"scope"`
+	Description      string            `json:"description"`
+	IPAddressVersion string            `json:"ipAddressVersion"`
+	LockToken        string            `json:"lockToken"`
+	Addresses        []string          `json:"addresses,omitempty"`
 }
 
 // InMemoryBackend is an in-memory store for WAFv2 resources.
 type InMemoryBackend struct {
-	webACLs    map[string]*WebACL
-	ipSets     map[string]*IPSet
+	webACLs     map[string]*WebACL
+	ipSets      map[string]*IPSet
 	webACLByARN map[string]string // ARN → webACL ID
 	ipSetByARN  map[string]string // ARN → ipSet ID
-	mu         *lockmetrics.RWMutex
-	accountID  string
-	region     string
+	mu          *lockmetrics.RWMutex
+	accountID   string
+	region      string
 }
 
 // NewInMemoryBackend creates a new in-memory WAFv2 backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		webACLs:    make(map[string]*WebACL),
-		ipSets:     make(map[string]*IPSet),
+		webACLs:     make(map[string]*WebACL),
+		ipSets:      make(map[string]*IPSet),
 		webACLByARN: make(map[string]string),
 		ipSetByARN:  make(map[string]string),
-		accountID:  accountID,
-		region:     region,
-		mu:         lockmetrics.New("wafv2"),
+		accountID:   accountID,
+		region:      region,
+		mu:          lockmetrics.New("wafv2"),
 	}
 }
 
