@@ -101,21 +101,32 @@ type DeliveryStream struct {
 
 // InMemoryBackend is the in-memory store for Firehose resources.
 type InMemoryBackend struct {
-	s3        S3Storer
-	lambda    LambdaInvoker
-	streams   map[string]*DeliveryStream
-	mu        *lockmetrics.RWMutex
+	s3      S3Storer
+	lambda  LambdaInvoker
+	streams map[string]*DeliveryStream
+	mu      *lockmetrics.RWMutex
+	// svcCtx is the service lifecycle context; delivery operations use it so
+	// they are cancelled when the server shuts down rather than blocking indefinitely.
+	svcCtx    context.Context
 	accountID string
 	region    string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose delivery
+// operations are bounded by the provided parent context. Use this in production
+// to ensure in-flight deliveries are cancelled on server shutdown.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		streams:   make(map[string]*DeliveryStream),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("firehose"),
+		svcCtx:    svcCtx,
 	}
 }
 
@@ -237,7 +248,7 @@ func (b *InMemoryBackend) PutRecord(streamName string, data []byte) error {
 	b.mu.Unlock()
 
 	if snap != nil {
-		b.deliverSnapshot(context.Background(), snap, streamName)
+		b.deliverSnapshot(b.svcCtx, snap, streamName)
 	}
 
 	return nil
@@ -275,7 +286,7 @@ func (b *InMemoryBackend) PutRecordBatch(streamName string, records [][]byte) (i
 	b.mu.Unlock()
 
 	if snap != nil {
-		b.deliverSnapshot(context.Background(), snap, streamName)
+		b.deliverSnapshot(b.svcCtx, snap, streamName)
 	}
 
 	return 0, nil

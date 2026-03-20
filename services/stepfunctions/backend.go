@@ -101,8 +101,11 @@ type InMemoryBackend struct {
 	tasksByToken map[string]*activityTaskEntry
 	logger       *slog.Logger
 	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	// svcCtx is the service lifecycle context. Execution goroutines derive their
+	// contexts from it so that all active executions are cancelled on server shutdown.
+	svcCtx    context.Context
+	accountID string
+	region    string
 }
 
 // activityTaskEntry holds a pending activity task and its result channel.
@@ -126,10 +129,23 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
+// Use NewInMemoryBackendWithContext to bind execution goroutines to a parent context.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
+	return newInMemoryBackend(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend whose execution goroutines
+// derive their contexts from svcCtx. When svcCtx is cancelled (e.g. on server shutdown),
+// all running executions are also cancelled.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	return newInMemoryBackend(svcCtx, accountID, region)
+}
+
+func newInMemoryBackend(svcCtx context.Context, accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		accountID:         accountID,
 		region:            region,
+		svcCtx:            svcCtx,
 		stateMachines:     make(map[string]*StateMachine),
 		executions:        make(map[string]*Execution),
 		history:           make(map[string][]*HistoryEvent),
@@ -391,7 +407,7 @@ func (b *InMemoryBackend) StartSyncExecution(stateMachineArn, name, input string
 	executor.SetDynamoDBIntegration(ddbIntegration)
 	executor.SetActivityInvoker(b)
 
-	result, execErr := executor.Execute(context.Background(), execARN, input)
+	result, execErr := executor.Execute(b.svcCtx, execARN, input)
 
 	stopDate := float64(time.Now().Unix())
 
@@ -476,8 +492,10 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 
 	// Register the execution in the SM→executions index and store a cancel fn
 	// so StopExecution and DeleteStateMachine can cancel the goroutine.
+	// The context is derived from b.svcCtx so that all active executions are
+	// also cancelled when the server shuts down.
 	//nolint:gosec // G118: cancel is stored in b.cancelFns and called by StopExecution/DeleteStateMachine/Destroy
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(b.svcCtx)
 	b.cancelFns[execArn] = cancel
 	b.smExecutions[stateMachineArn] = append(b.smExecutions[stateMachineArn], execArn)
 
