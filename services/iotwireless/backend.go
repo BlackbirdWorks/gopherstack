@@ -99,6 +99,42 @@ func destinationARN(region, accountID, name string) string {
 	return fmt.Sprintf("arn:aws:iotwireless:%s:%s:Destination/%s", region, accountID, name)
 }
 
+// copyWirelessDevice returns a shallow copy of d with an independent Tags map.
+func copyWirelessDevice(d *WirelessDevice) *WirelessDevice {
+	cp := *d
+	cp.Tags = make(map[string]string, len(d.Tags))
+	maps.Copy(cp.Tags, d.Tags)
+
+	return &cp
+}
+
+// copyWirelessGateway returns a shallow copy of gw with an independent Tags map.
+func copyWirelessGateway(gw *WirelessGateway) *WirelessGateway {
+	cp := *gw
+	cp.Tags = make(map[string]string, len(gw.Tags))
+	maps.Copy(cp.Tags, gw.Tags)
+
+	return &cp
+}
+
+// copyServiceProfile returns a shallow copy of sp with an independent Tags map.
+func copyServiceProfile(sp *ServiceProfile) *ServiceProfile {
+	cp := *sp
+	cp.Tags = make(map[string]string, len(sp.Tags))
+	maps.Copy(cp.Tags, sp.Tags)
+
+	return &cp
+}
+
+// copyDestination returns a shallow copy of dest with an independent Tags map.
+func copyDestination(dest *Destination) *Destination {
+	cp := *dest
+	cp.Tags = make(map[string]string, len(dest.Tags))
+	maps.Copy(cp.Tags, dest.Tags)
+
+	return &cp
+}
+
 // CreateWirelessDevice creates a new wireless device.
 func (b *InMemoryBackend) CreateWirelessDevice(
 	accountID, region, name, devType, destinationName, description string,
@@ -130,7 +166,7 @@ func (b *InMemoryBackend) CreateWirelessDevice(
 	b.resourceTags[arn] = make(map[string]string, len(tags))
 	maps.Copy(b.resourceTags[arn], tags)
 
-	return d, nil
+	return copyWirelessDevice(d), nil
 }
 
 // GetWirelessDevice returns a wireless device by ID.
@@ -145,7 +181,7 @@ func (b *InMemoryBackend) GetWirelessDevice(accountID, region, id string) (*Wire
 		return nil, ErrDeviceNotFound
 	}
 
-	return d, nil
+	return copyWirelessDevice(d), nil
 }
 
 // ListWirelessDevices returns all wireless devices for the given account and region.
@@ -157,7 +193,7 @@ func (b *InMemoryBackend) ListWirelessDevices(accountID, region string) []*Wirel
 
 	for k, d := range b.devices {
 		if k.AccountID == accountID && k.Region == region {
-			result = append(result, d)
+			result = append(result, copyWirelessDevice(d))
 		}
 	}
 
@@ -211,7 +247,7 @@ func (b *InMemoryBackend) CreateWirelessGateway(
 	b.resourceTags[arn] = make(map[string]string, len(tags))
 	maps.Copy(b.resourceTags[arn], tags)
 
-	return gw, nil
+	return copyWirelessGateway(gw), nil
 }
 
 // GetWirelessGateway returns a wireless gateway by ID.
@@ -226,7 +262,7 @@ func (b *InMemoryBackend) GetWirelessGateway(accountID, region, id string) (*Wir
 		return nil, ErrGatewayNotFound
 	}
 
-	return gw, nil
+	return copyWirelessGateway(gw), nil
 }
 
 // ListWirelessGateways returns all wireless gateways for the given account and region.
@@ -238,7 +274,7 @@ func (b *InMemoryBackend) ListWirelessGateways(accountID, region string) []*Wire
 
 	for k, gw := range b.gateways {
 		if k.AccountID == accountID && k.Region == region {
-			result = append(result, gw)
+			result = append(result, copyWirelessGateway(gw))
 		}
 	}
 
@@ -291,7 +327,7 @@ func (b *InMemoryBackend) CreateServiceProfile(
 	b.resourceTags[arn] = make(map[string]string, len(tags))
 	maps.Copy(b.resourceTags[arn], tags)
 
-	return sp, nil
+	return copyServiceProfile(sp), nil
 }
 
 // GetServiceProfile returns a service profile by ID.
@@ -306,7 +342,7 @@ func (b *InMemoryBackend) GetServiceProfile(accountID, region, id string) (*Serv
 		return nil, ErrServiceProfileNotFound
 	}
 
-	return sp, nil
+	return copyServiceProfile(sp), nil
 }
 
 // ListServiceProfiles returns all service profiles for the given account and region.
@@ -318,7 +354,7 @@ func (b *InMemoryBackend) ListServiceProfiles(accountID, region string) []*Servi
 
 	for k, sp := range b.serviceProfiles {
 		if k.AccountID == accountID && k.Region == region {
-			result = append(result, sp)
+			result = append(result, copyServiceProfile(sp))
 		}
 	}
 
@@ -373,7 +409,7 @@ func (b *InMemoryBackend) CreateDestination(
 	b.resourceTags[arn] = make(map[string]string, len(tags))
 	maps.Copy(b.resourceTags[arn], tags)
 
-	return dest, nil
+	return copyDestination(dest), nil
 }
 
 // GetDestination returns a destination by name.
@@ -388,7 +424,7 @@ func (b *InMemoryBackend) GetDestination(accountID, region, name string) (*Desti
 		return nil, ErrDestinationNotFound
 	}
 
-	return dest, nil
+	return copyDestination(dest), nil
 }
 
 // ListDestinations returns all destinations for the given account and region.
@@ -400,7 +436,7 @@ func (b *InMemoryBackend) ListDestinations(accountID, region string) []*Destinat
 
 	for k, dest := range b.destinations {
 		if k.AccountID == accountID && k.Region == region {
-			result = append(result, dest)
+			result = append(result, copyDestination(dest))
 		}
 	}
 
@@ -440,6 +476,7 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 }
 
 // UntagResource removes tags from a resource identified by ARN.
+// If all tags are removed the empty map entry is cleaned up to prevent memory leaks.
 func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -450,6 +487,10 @@ func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 
 	for _, k := range tagKeys {
 		delete(b.resourceTags[arn], k)
+	}
+
+	if len(b.resourceTags[arn]) == 0 {
+		delete(b.resourceTags, arn)
 	}
 
 	return nil
