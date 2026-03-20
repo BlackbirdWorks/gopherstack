@@ -26,7 +26,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			name: "protection_round_trip",
 			setup: func(b *shield.InMemoryBackend) string {
 				require.NoError(t, b.CreateSubscription())
-				p, err := b.CreateProtection("web-app", "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/web", nil)
+
+				const webARN = "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/web"
+
+				p, err := b.CreateProtection("web-app", webARN, nil)
 				require.NoError(t, err)
 
 				return p.ID
@@ -34,13 +37,15 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *shield.InMemoryBackend, id string) {
 				t.Helper()
 
+				const webARN = "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/web"
+
 				p, err := b.DescribeProtection(id, "")
 				require.NoError(t, err)
 				assert.Equal(t, "web-app", p.Name)
 				assert.Equal(t, id, p.ID)
 
 				// Indexes must be rebuilt.
-				p2, err := b.DescribeProtection("", "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/web")
+				p2, err := b.DescribeProtection("", webARN)
 				require.NoError(t, err)
 				assert.Equal(t, id, p2.ID)
 			},
@@ -115,7 +120,9 @@ func TestInMemoryBackend_ProtectionIndexConsistency(t *testing.T) {
 	assert.Equal(t, p.ID, byARN.ID)
 
 	// Duplicate name rejected.
-	_, err = b.CreateProtection("app-protection", "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/other", nil)
+	const otherARN = "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/other"
+
+	_, err = b.CreateProtection("app-protection", otherARN, nil)
 	require.Error(t, err)
 
 	// Duplicate resource ARN rejected.
@@ -137,7 +144,10 @@ func TestShieldHandler_Persistence(t *testing.T) {
 	h := shield.NewHandler(backend)
 
 	require.NoError(t, backend.CreateSubscription())
-	_, err := backend.CreateProtection("test", "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/t", nil)
+
+	const testARN = "arn:aws:elasticloadbalancing:us-east-1:000000000000:loadbalancer/t"
+
+	_, err := backend.CreateProtection("test", testARN, nil)
 	require.NoError(t, err)
 
 	snap := h.Snapshot()

@@ -60,7 +60,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 				return cert.ARN
 			},
-			verify: func(t *testing.T, b *acmpca.InMemoryBackend, id string) {
+			verify: func(t *testing.T, b *acmpca.InMemoryBackend, _ string) {
 				t.Helper()
 
 				// IssuedCertificate ARN contains the CA ARN as a prefix
@@ -142,7 +142,8 @@ func TestInMemoryBackend_GetCertificate(t *testing.T) {
 				_, err = b.GetCertificate(ca.ARN, "nonexistent-arn")
 				require.Error(t, err)
 			} else {
-				cert, err := b.GetCertificate(ca.ARN, issuedCert.ARN)
+				var cert *acmpca.IssuedCertificate
+				cert, err = b.GetCertificate(ca.ARN, issuedCert.ARN)
 				require.NoError(t, err)
 				assert.Equal(t, issuedCert.ARN, cert.ARN)
 				assert.Equal(t, ca.ARN, cert.CAARN)
@@ -192,7 +193,8 @@ func TestInMemoryBackend_RevokeCertificate(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 
-				got, err := b.GetCertificate(ca.ARN, cert.ARN)
+				var got *acmpca.IssuedCertificate
+				got, err = b.GetCertificate(ca.ARN, cert.ARN)
 				require.NoError(t, err)
 				assert.Equal(t, "REVOKED", got.Status)
 			}
@@ -260,7 +262,8 @@ func TestInMemoryBackend_UpdateCertificateAuthority(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 
-				got, err := b.DescribeCertificateAuthority(caARN)
+				var got *acmpca.CertificateAuthority
+				got, err = b.DescribeCertificateAuthority(caARN)
 				require.NoError(t, err)
 				assert.Equal(t, tt.status, got.Status)
 			}
