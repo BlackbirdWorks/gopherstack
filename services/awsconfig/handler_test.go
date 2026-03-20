@@ -143,6 +143,12 @@ func TestAWSConfigHandler_StartConfigurationRecorder(t *testing.T) {
 						"roleARN": "arn:aws:iam::000000000000:role/config",
 					},
 				})
+				doAWSConfigRequest(t, h, "PutDeliveryChannel", map[string]any{
+					"DeliveryChannel": map[string]any{
+						"name":         "default",
+						"s3BucketName": "my-bucket",
+					},
+				})
 			},
 			body:     map[string]any{"ConfigurationRecorderName": "default"},
 			wantCode: http.StatusOK,
