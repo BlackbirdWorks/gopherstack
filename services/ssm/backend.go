@@ -320,6 +320,7 @@ func (b *InMemoryBackend) DeleteParameter(input *DeleteParameterInput) (*DeleteP
 
 	delete(b.parameters, input.Name)
 	delete(b.history, input.Name)
+	b.tags[input.Name].Close()
 	delete(b.tags, input.Name)
 
 	return &DeleteParameterOutput{}, nil
@@ -339,6 +340,7 @@ func (b *InMemoryBackend) DeleteParameters(input *DeleteParametersInput) (*Delet
 		if _, exists := b.parameters[name]; exists {
 			delete(b.parameters, name)
 			delete(b.history, name)
+			b.tags[name].Close()
 			delete(b.tags, name)
 			output.DeletedParameters = append(output.DeletedParameters, name)
 		} else {

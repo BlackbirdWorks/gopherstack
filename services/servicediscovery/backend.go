@@ -524,13 +524,23 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 	defer b.mu.Unlock()
 
 	if nsID, ok := b.nsARNIndex[arn]; ok {
-		maps.Copy(b.namespaces[nsID].Tags, tags)
+		ns := b.namespaces[nsID]
+		if ns.Tags == nil {
+			ns.Tags = make(map[string]string)
+		}
+
+		maps.Copy(ns.Tags, tags)
 
 		return nil
 	}
 
 	if svcID, ok := b.svcARNIndex[arn]; ok {
-		maps.Copy(b.services[svcID].Tags, tags)
+		svc := b.services[svcID]
+		if svc.Tags == nil {
+			svc.Tags = make(map[string]string)
+		}
+
+		maps.Copy(svc.Tags, tags)
 
 		return nil
 	}

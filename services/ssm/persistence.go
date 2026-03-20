@@ -88,6 +88,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	b.parameters = snap.Parameters
 	b.history = snap.History
+
+	for _, t := range b.tags {
+		t.Close()
+	}
+
 	b.tags = snap.Tags
 	b.documents = snap.Documents
 	b.documentVersions = snap.DocumentVersions
