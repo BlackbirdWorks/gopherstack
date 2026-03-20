@@ -49,21 +49,25 @@ type IPSet struct {
 
 // InMemoryBackend is an in-memory store for WAFv2 resources.
 type InMemoryBackend struct {
-	webACLs   map[string]*WebACL
-	ipSets    map[string]*IPSet
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	webACLs    map[string]*WebACL
+	ipSets     map[string]*IPSet
+	webACLByARN map[string]string // ARN → webACL ID
+	ipSetByARN  map[string]string // ARN → ipSet ID
+	mu         *lockmetrics.RWMutex
+	accountID  string
+	region     string
 }
 
 // NewInMemoryBackend creates a new in-memory WAFv2 backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		webACLs:   make(map[string]*WebACL),
-		ipSets:    make(map[string]*IPSet),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("wafv2"),
+		webACLs:    make(map[string]*WebACL),
+		ipSets:     make(map[string]*IPSet),
+		webACLByARN: make(map[string]string),
+		ipSetByARN:  make(map[string]string),
+		accountID:  accountID,
+		region:     region,
+		mu:         lockmetrics.New("wafv2"),
 	}
 }
 
@@ -118,11 +122,10 @@ func (b *InMemoryBackend) CreateWebACL(
 		Tags:             cloneTags(tags),
 	}
 	b.webACLs[id] = w
+	b.webACLByARN[b.WebACLARN(name, id, scope)] = id
 
 	return cloneWebACL(w), nil
 }
-
-// GetWebACL returns a WebACL by ID.
 func (b *InMemoryBackend) GetWebACL(id string) (*WebACL, error) {
 	b.mu.RLock("GetWebACL")
 	defer b.mu.RUnlock()
@@ -167,7 +170,9 @@ func (b *InMemoryBackend) DeleteWebACL(id string) error {
 	b.mu.Lock("DeleteWebACL")
 	defer b.mu.Unlock()
 
-	if _, ok := b.webACLs[id]; !ok {
+	if w, ok := b.webACLs[id]; ok {
+		delete(b.webACLByARN, b.WebACLARN(w.Name, w.ID, w.Scope))
+	} else {
 		return fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, id)
 	}
 
@@ -221,6 +226,7 @@ func (b *InMemoryBackend) CreateIPSet(
 		Tags:             cloneTags(tags),
 	}
 	b.ipSets[id] = s
+	b.ipSetByARN[b.IPSetARN(name, id, scope)] = id
 
 	return cloneIPSet(s), nil
 }
@@ -266,7 +272,9 @@ func (b *InMemoryBackend) DeleteIPSet(id string) error {
 	b.mu.Lock("DeleteIPSet")
 	defer b.mu.Unlock()
 
-	if _, ok := b.ipSets[id]; !ok {
+	if s, ok := b.ipSets[id]; ok {
+		delete(b.ipSetByARN, b.IPSetARN(s.Name, s.ID, s.Scope))
+	} else {
 		return fmt.Errorf("%w: IP set %q not found", ErrIPSetNotFound, id)
 	}
 
@@ -298,28 +306,26 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, w := range b.webACLs {
-		if b.WebACLARN(w.Name, w.ID, w.Scope) == resourceARN {
-			if w.Tags == nil {
-				w.Tags = make(map[string]string)
-			}
-
-			maps.Copy(w.Tags, tags)
-
-			return nil
+	if id, ok := b.webACLByARN[resourceARN]; ok {
+		w := b.webACLs[id]
+		if w.Tags == nil {
+			w.Tags = make(map[string]string)
 		}
+
+		maps.Copy(w.Tags, tags)
+
+		return nil
 	}
 
-	for _, s := range b.ipSets {
-		if b.IPSetARN(s.Name, s.ID, s.Scope) == resourceARN {
-			if s.Tags == nil {
-				s.Tags = make(map[string]string)
-			}
-
-			maps.Copy(s.Tags, tags)
-
-			return nil
+	if id, ok := b.ipSetByARN[resourceARN]; ok {
+		s := b.ipSets[id]
+		if s.Tags == nil {
+			s.Tags = make(map[string]string)
 		}
+
+		maps.Copy(s.Tags, tags)
+
+		return nil
 	}
 
 	return fmt.Errorf("%w: resource %q not found", ErrWebACLNotFound, resourceARN)
@@ -330,16 +336,12 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, w := range b.webACLs {
-		if b.WebACLARN(w.Name, w.ID, w.Scope) == resourceARN {
-			return maps.Clone(w.Tags), nil
-		}
+	if id, ok := b.webACLByARN[resourceARN]; ok {
+		return maps.Clone(b.webACLs[id].Tags), nil
 	}
 
-	for _, s := range b.ipSets {
-		if b.IPSetARN(s.Name, s.ID, s.Scope) == resourceARN {
-			return maps.Clone(s.Tags), nil
-		}
+	if id, ok := b.ipSetByARN[resourceARN]; ok {
+		return maps.Clone(b.ipSets[id].Tags), nil
 	}
 
 	return nil, fmt.Errorf("%w: resource %q not found", ErrWebACLNotFound, resourceARN)
@@ -350,24 +352,22 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, w := range b.webACLs {
-		if b.WebACLARN(w.Name, w.ID, w.Scope) == resourceARN {
-			for _, k := range tagKeys {
-				delete(w.Tags, k)
-			}
-
-			return nil
+	if id, ok := b.webACLByARN[resourceARN]; ok {
+		w := b.webACLs[id]
+		for _, k := range tagKeys {
+			delete(w.Tags, k)
 		}
+
+		return nil
 	}
 
-	for _, s := range b.ipSets {
-		if b.IPSetARN(s.Name, s.ID, s.Scope) == resourceARN {
-			for _, k := range tagKeys {
-				delete(s.Tags, k)
-			}
-
-			return nil
+	if id, ok := b.ipSetByARN[resourceARN]; ok {
+		s := b.ipSets[id]
+		for _, k := range tagKeys {
+			delete(s.Tags, k)
 		}
+
+		return nil
 	}
 
 	return fmt.Errorf("%w: resource %q not found", ErrWebACLNotFound, resourceARN)

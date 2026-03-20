@@ -260,10 +260,25 @@ func (b *InMemoryBackend) GetCredentialsForIdentity(identityID string, _ map[str
 
 	expiry := time.Now().Add(credentialsExpirySeconds * time.Second)
 
+	keyID, err := randomAlphanumeric(accessKeyIDLen)
+	if err != nil {
+		return nil, fmt.Errorf("generate access key ID: %w", err)
+	}
+
+	secretKey, err := randomAlphanumeric(secretKeyLen)
+	if err != nil {
+		return nil, fmt.Errorf("generate secret key: %w", err)
+	}
+
+	sessionToken, err := randomAlphanumeric(tokenLen)
+	if err != nil {
+		return nil, fmt.Errorf("generate session token: %w", err)
+	}
+
 	return &Credentials{
-		AccessKeyID:     "ASIA" + randomAlphanumeric(accessKeyIDLen),
-		SecretAccessKey: randomAlphanumeric(secretKeyLen),
-		SessionToken:    randomAlphanumeric(tokenLen),
+		AccessKeyID:     "ASIA" + keyID,
+		SecretAccessKey: secretKey,
+		SessionToken:    sessionToken,
 		Expiration:      expiry,
 		IdentityID:      identityID,
 	}, nil
@@ -279,8 +294,12 @@ func (b *InMemoryBackend) GetOpenIDToken(identityID string, _ map[string]string)
 	}
 
 	// Return a synthetic token.
-	token := fmt.Sprintf("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.%s.signature",
-		randomAlphanumeric(tokenLen))
+	payload, err := randomAlphanumeric(tokenLen)
+	if err != nil {
+		return nil, fmt.Errorf("generate token: %w", err)
+	}
+
+	token := fmt.Sprintf("eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.%s.signature", payload)
 
 	return &OpenIDToken{
 		IdentityID: identityID,
@@ -399,18 +418,16 @@ func mapsEqual(a, b map[string]string) bool {
 }
 
 // randomAlphanumeric returns a random alphanumeric string of length n.
-func randomAlphanumeric(n int) string {
+func randomAlphanumeric(n int) (string, error) {
 	buf := make([]byte, n)
 	for i := range buf {
 		idx, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphanumChars))))
 		if err != nil {
-			buf[i] = alphanumChars[0]
-
-			continue
+			return "", fmt.Errorf("crypto/rand failure: %w", err)
 		}
 
 		buf[i] = alphanumChars[idx.Int64()]
 	}
 
-	return string(buf)
+	return string(buf), nil
 }

@@ -52,20 +52,24 @@ type Subscription struct {
 
 // InMemoryBackend is an in-memory store for Shield Advanced resources.
 type InMemoryBackend struct {
-	protections  map[string]*Protection
-	subscription *Subscription
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	protections     map[string]*Protection
+	subscription    *Subscription
+	resourceARNIndex map[string]string // resourceARN → protection ID
+	nameIndex        map[string]string // name → protection ID
+	mu              *lockmetrics.RWMutex
+	accountID       string
+	region          string
 }
 
 // NewInMemoryBackend creates a new in-memory Shield backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		protections: make(map[string]*Protection),
-		accountID:   accountID,
-		region:      region,
-		mu:          lockmetrics.New("shield"),
+		protections:     make(map[string]*Protection),
+		resourceARNIndex: make(map[string]string),
+		nameIndex:        make(map[string]string),
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("shield"),
 	}
 }
 
@@ -123,18 +127,12 @@ func (b *InMemoryBackend) CreateProtection(name, resourceARN string, tags map[st
 	b.mu.Lock("CreateProtection")
 	defer b.mu.Unlock()
 
-	for _, p := range b.protections {
-		if p.ResourceARN == resourceARN {
-			return nil, fmt.Errorf(
-				"%w: protection for resource %s already exists",
-				ErrProtectionAlreadyExists,
-				resourceARN,
-			)
-		}
+	if _, exists := b.nameIndex[name]; exists {
+		return nil, fmt.Errorf("%w: protection %q already exists", ErrProtectionAlreadyExists, name)
+	}
 
-		if p.Name == name {
-			return nil, fmt.Errorf("%w: protection with name %q already exists", ErrProtectionAlreadyExists, name)
-		}
+	if _, exists := b.resourceARNIndex[resourceARN]; exists {
+		return nil, fmt.Errorf("%w: protection for resource %s already exists", ErrProtectionAlreadyExists, resourceARN)
 	}
 
 	protectionARN := arn.Build("shield", b.region, b.accountID, "protection/"+name)
@@ -147,6 +145,8 @@ func (b *InMemoryBackend) CreateProtection(name, resourceARN string, tags map[st
 		Tags:         cloneTags(tags),
 	}
 	b.protections[protectionARN] = p
+	b.resourceARNIndex[resourceARN] = protectionARN
+	b.nameIndex[name] = protectionARN
 
 	return cloneProtection(p), nil
 }
@@ -165,13 +165,11 @@ func (b *InMemoryBackend) DescribeProtection(protectionID, resourceARN string) (
 		return cloneProtection(p), nil
 	}
 
-	for _, p := range b.protections {
-		if p.ResourceARN == resourceARN {
-			return cloneProtection(p), nil
-		}
+	if pid, ok := b.resourceARNIndex[resourceARN]; ok {
+		return cloneProtection(b.protections[pid]), nil
 	}
 
-	return nil, fmt.Errorf("%w: protection for resource %q not found", ErrProtectionNotFound, resourceARN)
+	return nil, fmt.Errorf("%w: no protection for resource %q", ErrProtectionNotFound, resourceARN)
 }
 
 // DeleteProtection deletes a protection by ID.
@@ -179,7 +177,10 @@ func (b *InMemoryBackend) DeleteProtection(protectionID string) error {
 	b.mu.Lock("DeleteProtection")
 	defer b.mu.Unlock()
 
-	if _, ok := b.protections[protectionID]; !ok {
+	if p, ok := b.protections[protectionID]; ok {
+		delete(b.resourceARNIndex, p.ResourceARN)
+		delete(b.nameIndex, p.Name)
+	} else {
 		return fmt.Errorf("%w: protection %q not found", ErrProtectionNotFound, protectionID)
 	}
 

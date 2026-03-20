@@ -428,6 +428,15 @@ func (b *InMemoryBackend) RemoveAccountFromOrganization(accountID string) error 
 
 	delete(b.accounts, accountID)
 	delete(b.accountParent, accountID)
+	delete(b.tags, accountID)
+	delete(b.targetPolicies, accountID)
+
+	for svcPrincipal, admins := range b.delegatedAdmins {
+		delete(admins, accountID)
+		if len(admins) == 0 {
+			delete(b.delegatedAdmins, svcPrincipal)
+		}
+	}
 
 	return nil
 }
@@ -538,6 +547,8 @@ func (b *InMemoryBackend) DeleteOrganizationalUnit(ouID string) error {
 
 	delete(b.ous, ouID)
 	delete(b.ouParent, ouID)
+	delete(b.tags, ouID)
+	delete(b.targetPolicies, ouID)
 
 	return nil
 }

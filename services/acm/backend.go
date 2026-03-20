@@ -172,7 +172,7 @@ func (b *InMemoryBackend) RequestCertificate(
 	b.certs[certARN] = cert
 
 	if status == statusPendingValidation {
-		go b.autoValidate(certARN)
+		time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidate(certARN) })
 	}
 
 	cp := copyCert(cert)
@@ -203,8 +203,6 @@ func copyCert(c *Certificate) Certificate {
 // autoValidate transitions a certificate from PENDING_VALIDATION to ISSUED after a
 // short delay, simulating the DNS/email validation workflow.
 func (b *InMemoryBackend) autoValidate(certARN string) {
-	time.Sleep(autoValidateDelayMS * time.Millisecond)
-
 	b.mu.Lock("autoValidate")
 	defer b.mu.Unlock()
 

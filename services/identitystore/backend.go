@@ -113,13 +113,16 @@ type GroupMembershipExistence struct {
 
 // InMemoryBackend is the in-memory store for the Identity Store service.
 type InMemoryBackend struct {
-	users       map[string]*User
-	groups      map[string]*Group
-	memberships map[string]*GroupMembership
-	accountID   string
-	region      string
-	counter     int
-	mu          sync.RWMutex
+	users          map[string]*User
+	groups         map[string]*Group
+	memberships    map[string]*GroupMembership
+	usersByName    map[string]string // storeID+"#"+userName → userID
+	groupsByName   map[string]string // storeID+"#"+displayName → groupID
+	membershipKeys map[string]string // storeID+"#"+groupID+"#"+userID → membershipID
+	accountID      string
+	region         string
+	counter        int
+	mu             sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the given account and region.
@@ -133,11 +136,14 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 
 	return &InMemoryBackend{
-		accountID:   accountID,
-		region:      region,
-		users:       make(map[string]*User),
-		groups:      make(map[string]*Group),
-		memberships: make(map[string]*GroupMembership),
+		accountID:      accountID,
+		region:         region,
+		users:          make(map[string]*User),
+		groups:         make(map[string]*Group),
+		memberships:    make(map[string]*GroupMembership),
+		usersByName:    make(map[string]string),
+		groupsByName:   make(map[string]string),
+		membershipKeys: make(map[string]string),
 	}
 }
 
@@ -183,12 +189,10 @@ func (b *InMemoryBackend) CreateUser(storeID string, req *CreateUserRequest) (*U
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Check uniqueness by UserName.
+	// Check uniqueness by UserName using index.
 	if req.UserName != "" {
-		for _, u := range b.users {
-			if u.IdentityStoreID == storeID && u.UserName == req.UserName {
-				return nil, fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, req.UserName)
-			}
+		if _, exists := b.usersByName[storeID+"#"+req.UserName]; exists {
+			return nil, fmt.Errorf("%w: user with UserName %q already exists", ErrConflict, req.UserName)
 		}
 	}
 
@@ -213,7 +217,11 @@ func (b *InMemoryBackend) CreateUser(storeID string, req *CreateUserRequest) (*U
 
 	b.users[userID] = user
 
-	return user, nil
+	if req.UserName != "" {
+		b.usersByName[storeID+"#"+req.UserName] = userID
+	}
+
+	return copyUser(user), nil
 }
 
 // DescribeUser returns a user by ID.
@@ -226,7 +234,7 @@ func (b *InMemoryBackend) DescribeUser(storeID, userID string) (*User, error) {
 		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userID)
 	}
 
-	return user, nil
+	return copyUser(user), nil
 }
 
 // ListUsers lists all users for the given identity store.
@@ -238,7 +246,7 @@ func (b *InMemoryBackend) ListUsers(storeID string) []*User {
 
 	for _, u := range b.users {
 		if u.IdentityStoreID == storeID {
-			result = append(result, u)
+			result = append(result, copyUser(u))
 		}
 	}
 
@@ -331,11 +339,16 @@ func (b *InMemoryBackend) DeleteUser(storeID, userID string) error {
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, userID)
 	}
 
+	if user.UserName != "" {
+		delete(b.usersByName, storeID+"#"+user.UserName)
+	}
+
 	delete(b.users, userID)
 
 	// Remove associated memberships.
 	for id, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.MemberID.UserID == userID {
+			delete(b.membershipKeys, storeID+"#"+m.GroupID+"#"+userID)
 			delete(b.memberships, id)
 		}
 	}
@@ -348,17 +361,20 @@ func (b *InMemoryBackend) GetUserID(storeID, attrPath, attrValue string) (string
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	if strings.EqualFold(attrPath, "username") {
+		if uid, ok := b.usersByName[storeID+"#"+attrValue]; ok {
+			return uid, nil
+		}
+
+		return "", fmt.Errorf("%w: no user found with %s=%q", ErrUserNotFound, attrPath, attrValue)
+	}
+
 	for _, u := range b.users {
 		if u.IdentityStoreID != storeID {
 			continue
 		}
 
-		switch strings.ToLower(attrPath) {
-		case "username":
-			if u.UserName == attrValue {
-				return u.UserID, nil
-			}
-		case "emails.value":
+		if strings.EqualFold(attrPath, "emails.value") {
 			for _, e := range u.Emails {
 				if e.Value == attrValue {
 					return u.UserID, nil
@@ -379,12 +395,10 @@ func (b *InMemoryBackend) CreateGroup(storeID string, req *CreateGroupRequest) (
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Check uniqueness by DisplayName.
+	// Check uniqueness by DisplayName using index.
 	if req.DisplayName != "" {
-		for _, g := range b.groups {
-			if g.IdentityStoreID == storeID && g.DisplayName == req.DisplayName {
-				return nil, fmt.Errorf("%w: group with DisplayName %q already exists", ErrConflict, req.DisplayName)
-			}
+		if _, exists := b.groupsByName[storeID+"#"+req.DisplayName]; exists {
+			return nil, fmt.Errorf("%w: group with DisplayName %q already exists", ErrConflict, req.DisplayName)
 		}
 	}
 
@@ -398,7 +412,11 @@ func (b *InMemoryBackend) CreateGroup(storeID string, req *CreateGroupRequest) (
 
 	b.groups[groupID] = group
 
-	return group, nil
+	if req.DisplayName != "" {
+		b.groupsByName[storeID+"#"+req.DisplayName] = groupID
+	}
+
+	return copyGroup(group), nil
 }
 
 // DescribeGroup returns a group by ID.
@@ -411,7 +429,7 @@ func (b *InMemoryBackend) DescribeGroup(storeID, groupID string) (*Group, error)
 		return nil, fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
 
-	return group, nil
+	return copyGroup(group), nil
 }
 
 // ListGroups lists all groups for the given identity store.
@@ -423,7 +441,7 @@ func (b *InMemoryBackend) ListGroups(storeID string) []*Group {
 
 	for _, g := range b.groups {
 		if g.IdentityStoreID == storeID {
-			result = append(result, g)
+			result = append(result, copyGroup(g))
 		}
 	}
 
@@ -466,11 +484,16 @@ func (b *InMemoryBackend) DeleteGroup(storeID, groupID string) error {
 		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupID)
 	}
 
+	if group.DisplayName != "" {
+		delete(b.groupsByName, storeID+"#"+group.DisplayName)
+	}
+
 	delete(b.groups, groupID)
 
 	// Remove associated memberships.
 	for id, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.GroupID == groupID {
+			delete(b.membershipKeys, storeID+"#"+groupID+"#"+m.MemberID.UserID)
 			delete(b.memberships, id)
 		}
 	}
@@ -483,13 +506,9 @@ func (b *InMemoryBackend) GetGroupID(storeID, attrPath, attrValue string) (strin
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	for _, g := range b.groups {
-		if g.IdentityStoreID != storeID {
-			continue
-		}
-
-		if strings.EqualFold(attrPath, "displayName") && g.DisplayName == attrValue {
-			return g.GroupID, nil
+	if strings.EqualFold(attrPath, "displayName") {
+		if gid, ok := b.groupsByName[storeID+"#"+attrValue]; ok {
+			return gid, nil
 		}
 	}
 
@@ -519,11 +538,10 @@ func (b *InMemoryBackend) CreateGroupMembership(storeID, groupID string, memberI
 		}
 	}
 
-	// Check for duplicate membership.
-	for _, m := range b.memberships {
-		if m.IdentityStoreID == storeID && m.GroupID == groupID && m.MemberID.UserID == memberID.UserID {
-			return nil, fmt.Errorf("%w: membership already exists", ErrConflict)
-		}
+	// Check for duplicate membership using index.
+	key := storeID + "#" + groupID + "#" + memberID.UserID
+	if _, exists := b.membershipKeys[key]; exists {
+		return nil, fmt.Errorf("%w: membership already exists", ErrConflict)
 	}
 
 	membershipID := b.generateID("membership")
@@ -535,8 +553,9 @@ func (b *InMemoryBackend) CreateGroupMembership(storeID, groupID string, memberI
 	}
 
 	b.memberships[membershipID] = membership
+	b.membershipKeys[key] = membershipID
 
-	return membership, nil
+	return copyMembership(membership), nil
 }
 
 // DescribeGroupMembership returns a membership by ID.
@@ -549,7 +568,7 @@ func (b *InMemoryBackend) DescribeGroupMembership(storeID, membershipID string) 
 		return nil, fmt.Errorf("%w: membership %q not found", ErrMembershipNotFound, membershipID)
 	}
 
-	return m, nil
+	return copyMembership(m), nil
 }
 
 // ListGroupMemberships lists all memberships for a group.
@@ -561,7 +580,7 @@ func (b *InMemoryBackend) ListGroupMemberships(storeID, groupID string) []*Group
 
 	for _, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.GroupID == groupID {
-			result = append(result, m)
+			result = append(result, copyMembership(m))
 		}
 	}
 
@@ -578,6 +597,7 @@ func (b *InMemoryBackend) DeleteGroupMembership(storeID, membershipID string) er
 		return fmt.Errorf("%w: membership %q not found", ErrMembershipNotFound, membershipID)
 	}
 
+	delete(b.membershipKeys, storeID+"#"+m.GroupID+"#"+m.MemberID.UserID)
 	delete(b.memberships, membershipID)
 
 	return nil
@@ -588,10 +608,9 @@ func (b *InMemoryBackend) GetGroupMembershipID(storeID, groupID string, memberID
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	for _, m := range b.memberships {
-		if m.IdentityStoreID == storeID && m.GroupID == groupID && m.MemberID.UserID == memberID.UserID {
-			return m.MembershipID, nil
-		}
+	key := storeID + "#" + groupID + "#" + memberID.UserID
+	if mid, ok := b.membershipKeys[key]; ok {
+		return mid, nil
 	}
 
 	return "", fmt.Errorf(
@@ -611,7 +630,7 @@ func (b *InMemoryBackend) ListGroupMembershipsForMember(storeID string, memberID
 
 	for _, m := range b.memberships {
 		if m.IdentityStoreID == storeID && m.MemberID.UserID == memberID.UserID {
-			result = append(result, m)
+			result = append(result, copyMembership(m))
 		}
 	}
 
@@ -651,4 +670,55 @@ func (b *InMemoryBackend) IsMemberInGroups(
 	}
 
 	return result
+}
+
+func copyUser(u *User) *User {
+if u == nil {
+return nil
+}
+cp := *u
+if u.Name != nil {
+n := *u.Name
+cp.Name = &n
+}
+cp.Emails = append([]Email(nil), u.Emails...)
+cp.Addresses = append([]Address(nil), u.Addresses...)
+cp.PhoneNumbers = append([]PhoneNumber(nil), u.PhoneNumbers...)
+return &cp
+}
+
+func copyGroup(g *Group) *Group {
+if g == nil {
+return nil
+}
+cp := *g
+return &cp
+}
+
+func copyMembership(m *GroupMembership) *GroupMembership {
+if m == nil {
+return nil
+}
+cp := *m
+return &cp
+}
+
+func (b *InMemoryBackend) rebuildIndexes() {
+b.usersByName = make(map[string]string, len(b.users))
+b.groupsByName = make(map[string]string, len(b.groups))
+b.membershipKeys = make(map[string]string, len(b.memberships))
+for id, u := range b.users {
+if u.UserName != "" {
+b.usersByName[u.IdentityStoreID+"#"+u.UserName] = id
+}
+}
+for id, g := range b.groups {
+if g.DisplayName != "" {
+b.groupsByName[g.IdentityStoreID+"#"+g.DisplayName] = id
+}
+}
+for id, m := range b.memberships {
+key := m.IdentityStoreID + "#" + m.GroupID + "#" + m.MemberID.UserID
+b.membershipKeys[key] = id
+}
 }
