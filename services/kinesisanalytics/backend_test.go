@@ -528,3 +528,70 @@ func TestInMemoryBackend_TagResource_InitNil(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "val", tags["key"])
 }
+
+func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup   func(*kinesisanalytics.InMemoryBackend)
+		name    string
+		wantLen int
+	}{
+		{
+			name:    "empty_backend",
+			setup:   func(_ *kinesisanalytics.InMemoryBackend) {},
+			wantLen: 0,
+		},
+		{
+			name: "with_applications",
+			setup: func(b *kinesisanalytics.InMemoryBackend) {
+				_, _ = b.CreateApplication(
+					testRegion, testAccountID,
+					"persist-app-1", "desc", "SELECT 1",
+					map[string]string{"env": "test"},
+				)
+				_, _ = b.CreateApplication(testRegion, testAccountID, "persist-app-2", "", "", nil)
+			},
+			wantLen: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend()
+			tt.setup(b)
+
+			snap := b.Snapshot()
+			require.NotNil(t, snap)
+
+			b2 := newBackend()
+			require.NoError(t, b2.Restore(snap))
+
+			apps, _ := b2.ListApplications("", 0)
+			require.Len(t, apps, tt.wantLen)
+
+			// Verify appsByARN index is rebuilt: tag operations should work via ARN.
+			if tt.wantLen > 0 {
+				app, err := b2.DescribeApplication("persist-app-1")
+				require.NoError(t, err)
+
+				err = b2.TagResource(app.ApplicationARN, map[string]string{"new": "tag"})
+				require.NoError(t, err)
+
+				tags, err := b2.ListTagsForResource(app.ApplicationARN)
+				require.NoError(t, err)
+				assert.Equal(t, "tag", tags["new"])
+				assert.Equal(t, "test", tags["env"])
+			}
+
+			// Snapshot isolation: mutating b2 should not affect original snapshot bytes.
+			if tt.wantLen > 0 {
+				_, _ = b2.CreateApplication(testRegion, testAccountID, "extra-app", "", "", nil)
+				snap2 := b2.Snapshot()
+				assert.NotEqual(t, snap, snap2)
+			}
+		})
+	}
+}

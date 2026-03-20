@@ -2,6 +2,7 @@ package elastictranscoder
 
 import (
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,35 +21,38 @@ var (
 
 // Pipeline represents an Elastic Transcoder pipeline.
 type Pipeline struct {
-	CreationTime time.Time `json:"creationTime,omitzero"`
-	Name         string    `json:"Name"`
-	ID           string    `json:"Id"`
-	ARN          string    `json:"Arn"`
-	InputBucket  string    `json:"InputBucket"`
-	OutputBucket string    `json:"OutputBucket,omitempty"`
-	Role         string    `json:"Role"`
-	Status       string    `json:"Status"`
-	AccountID    string    `json:"accountId,omitempty"`
-	Region       string    `json:"region,omitempty"`
+	CreationTime time.Time         `json:"creationTime,omitzero"`
+	Tags         map[string]string `json:"Tags,omitempty"`
+	Name         string            `json:"Name"`
+	ID           string            `json:"Id"`
+	ARN          string            `json:"Arn"`
+	InputBucket  string            `json:"InputBucket"`
+	OutputBucket string            `json:"OutputBucket,omitempty"`
+	Role         string            `json:"Role"`
+	Status       string            `json:"Status"`
+	AccountID    string            `json:"accountId,omitempty"`
+	Region       string            `json:"region,omitempty"`
 }
 
 // Preset represents an Elastic Transcoder preset.
 type Preset struct {
-	Name        string `json:"Name"`
-	ID          string `json:"Id"`
-	ARN         string `json:"Arn"`
-	Description string `json:"Description,omitempty"`
-	Container   string `json:"Container"`
-	Type        string `json:"Type"`
+	Tags        map[string]string `json:"Tags,omitempty"`
+	Name        string            `json:"Name"`
+	ID          string            `json:"Id"`
+	ARN         string            `json:"Arn"`
+	Description string            `json:"Description,omitempty"`
+	Container   string            `json:"Container"`
+	Type        string            `json:"Type"`
 }
 
 // Job represents an Elastic Transcoder job.
 type Job struct {
-	CreationTime time.Time `json:"creationTime,omitzero"`
-	ID           string    `json:"Id"`
-	ARN          string    `json:"Arn"`
-	PipelineID   string    `json:"PipelineId"`
-	Status       string    `json:"Status"`
+	CreationTime time.Time         `json:"creationTime,omitzero"`
+	Tags         map[string]string `json:"Tags,omitempty"`
+	ID           string            `json:"Id"`
+	ARN          string            `json:"Arn"`
+	PipelineID   string            `json:"PipelineId"`
+	Status       string            `json:"Status"`
 }
 
 // InMemoryBackend is the in-memory store for Elastic Transcoder resources.
@@ -57,6 +61,9 @@ type InMemoryBackend struct {
 	presets         map[string]*Preset
 	jobs            map[string]*Job
 	pipelinesByName map[string]string // pipeline name → ID
+	pipelinesByARN  map[string]string // pipeline ARN → ID
+	presetsByARN    map[string]string // preset ARN → ID
+	jobsByARN       map[string]string // job ARN → ID
 	mu              *lockmetrics.RWMutex
 	accountID       string
 	region          string
@@ -69,6 +76,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		presets:         make(map[string]*Preset),
 		jobs:            make(map[string]*Job),
 		pipelinesByName: make(map[string]string),
+		pipelinesByARN:  make(map[string]string),
+		presetsByARN:    make(map[string]string),
+		jobsByARN:       make(map[string]string),
 		accountID:       accountID,
 		region:          region,
 		mu:              lockmetrics.New("elastictranscoder"),
@@ -100,10 +110,13 @@ func (b *InMemoryBackend) CreatePipeline(name, inputBucket, outputBucket, role s
 		AccountID:    b.accountID,
 		Region:       b.region,
 		CreationTime: time.Now().UTC(),
+		Tags:         make(map[string]string),
 	}
 	b.pipelines[id] = p
 	b.pipelinesByName[name] = id
+	b.pipelinesByARN[pipelineARN] = id
 	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
 
 	return &cp, nil
 }
@@ -118,6 +131,7 @@ func (b *InMemoryBackend) ReadPipeline(id string) (*Pipeline, error) {
 		return nil, fmt.Errorf("%w: pipeline %s not found", ErrNotFound, id)
 	}
 	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
 
 	return &cp, nil
 }
@@ -130,6 +144,7 @@ func (b *InMemoryBackend) ListPipelines() []*Pipeline {
 	list := make([]*Pipeline, 0, len(b.pipelines))
 	for _, p := range b.pipelines {
 		cp := *p
+		cp.Tags = maps.Clone(p.Tags)
 		list = append(list, &cp)
 	}
 
@@ -165,6 +180,7 @@ func (b *InMemoryBackend) UpdatePipeline(id, name, inputBucket, outputBucket, ro
 	}
 
 	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
 
 	return &cp, nil
 }
@@ -179,6 +195,7 @@ func (b *InMemoryBackend) DeletePipeline(id string) error {
 		return fmt.Errorf("%w: pipeline %s not found", ErrNotFound, id)
 	}
 	delete(b.pipelinesByName, p.Name)
+	delete(b.pipelinesByARN, p.ARN)
 	delete(b.pipelines, id)
 
 	return nil
@@ -198,9 +215,12 @@ func (b *InMemoryBackend) CreatePreset(name, description, container string) (*Pr
 		Description: description,
 		Container:   container,
 		Type:        "Custom",
+		Tags:        make(map[string]string),
 	}
 	b.presets[id] = p
+	b.presetsByARN[presetARN] = id
 	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
 
 	return &cp, nil
 }
@@ -215,6 +235,7 @@ func (b *InMemoryBackend) ReadPreset(id string) (*Preset, error) {
 		return nil, fmt.Errorf("%w: preset %s not found", ErrNotFound, id)
 	}
 	cp := *p
+	cp.Tags = maps.Clone(p.Tags)
 
 	return &cp, nil
 }
@@ -227,6 +248,7 @@ func (b *InMemoryBackend) ListPresets() []*Preset {
 	list := make([]*Preset, 0, len(b.presets))
 	for _, p := range b.presets {
 		cp := *p
+		cp.Tags = maps.Clone(p.Tags)
 		list = append(list, &cp)
 	}
 
@@ -238,9 +260,11 @@ func (b *InMemoryBackend) DeletePreset(id string) error {
 	b.mu.Lock("DeletePreset")
 	defer b.mu.Unlock()
 
-	if _, ok := b.presets[id]; !ok {
+	p, ok := b.presets[id]
+	if !ok {
 		return fmt.Errorf("%w: preset %s not found", ErrNotFound, id)
 	}
+	delete(b.presetsByARN, p.ARN)
 	delete(b.presets, id)
 
 	return nil
@@ -263,9 +287,12 @@ func (b *InMemoryBackend) CreateJob(pipelineID string) (*Job, error) {
 		PipelineID:   pipelineID,
 		Status:       "Progressing",
 		CreationTime: time.Now().UTC(),
+		Tags:         make(map[string]string),
 	}
 	b.jobs[id] = j
+	b.jobsByARN[jobARN] = id
 	cp := *j
+	cp.Tags = maps.Clone(j.Tags)
 
 	return &cp, nil
 }
@@ -280,6 +307,7 @@ func (b *InMemoryBackend) ReadJob(id string) (*Job, error) {
 		return nil, fmt.Errorf("%w: job %s not found", ErrNotFound, id)
 	}
 	cp := *j
+	cp.Tags = maps.Clone(j.Tags)
 
 	return &cp, nil
 }
@@ -293,6 +321,7 @@ func (b *InMemoryBackend) ListJobsByPipeline(pipelineID string) []*Job {
 	for _, j := range b.jobs {
 		if j.PipelineID == pipelineID {
 			cp := *j
+			cp.Tags = maps.Clone(j.Tags)
 			list = append(list, &cp)
 		}
 	}
@@ -305,10 +334,99 @@ func (b *InMemoryBackend) CancelJob(id string) error {
 	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.jobs[id]; !ok {
+	j, ok := b.jobs[id]
+	if !ok {
 		return fmt.Errorf("%w: job %s not found", ErrNotFound, id)
 	}
+	delete(b.jobsByARN, j.ARN)
 	delete(b.jobs, id)
 
 	return nil
+}
+
+// AddTagsToResource adds or updates tags on a resource identified by ARN.
+func (b *InMemoryBackend) AddTagsToResource(resourceARN string, tags map[string]string) error {
+	b.mu.Lock("AddTagsToResource")
+	defer b.mu.Unlock()
+
+	if id, ok := b.pipelinesByARN[resourceARN]; ok {
+		if b.pipelines[id].Tags == nil {
+			b.pipelines[id].Tags = make(map[string]string)
+		}
+		maps.Copy(b.pipelines[id].Tags, tags)
+
+		return nil
+	}
+
+	if id, ok := b.presetsByARN[resourceARN]; ok {
+		if b.presets[id].Tags == nil {
+			b.presets[id].Tags = make(map[string]string)
+		}
+		maps.Copy(b.presets[id].Tags, tags)
+
+		return nil
+	}
+
+	if id, ok := b.jobsByARN[resourceARN]; ok {
+		if b.jobs[id].Tags == nil {
+			b.jobs[id].Tags = make(map[string]string)
+		}
+		maps.Copy(b.jobs[id].Tags, tags)
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+}
+
+// RemoveTagsFromResource removes tag keys from a resource identified by ARN.
+func (b *InMemoryBackend) RemoveTagsFromResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("RemoveTagsFromResource")
+	defer b.mu.Unlock()
+
+	if id, ok := b.pipelinesByARN[resourceARN]; ok {
+		for _, k := range tagKeys {
+			delete(b.pipelines[id].Tags, k)
+		}
+
+		return nil
+	}
+
+	if id, ok := b.presetsByARN[resourceARN]; ok {
+		for _, k := range tagKeys {
+			delete(b.presets[id].Tags, k)
+		}
+
+		return nil
+	}
+
+	if id, ok := b.jobsByARN[resourceARN]; ok {
+		for _, k := range tagKeys {
+			delete(b.jobs[id].Tags, k)
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+}
+
+// ListTagsForResource returns the tags for a resource identified by ARN.
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	if id, ok := b.pipelinesByARN[resourceARN]; ok {
+		return maps.Clone(b.pipelines[id].Tags), nil
+	}
+
+	if id, ok := b.presetsByARN[resourceARN]; ok {
+		return maps.Clone(b.presets[id].Tags), nil
+	}
+
+	if id, ok := b.jobsByARN[resourceARN]; ok {
+		return maps.Clone(b.jobs[id].Tags), nil
+	}
+
+	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }

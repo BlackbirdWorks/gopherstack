@@ -9,6 +9,9 @@ import (
 // maxInvocationHistory is the maximum number of invocations retained in memory.
 const maxInvocationHistory = 1000
 
+// MaxInvocationHistory is the exported value for testing.
+const MaxInvocationHistory = maxInvocationHistory
+
 // Invocation records a single model invocation.
 type Invocation struct {
 	CreatedAt time.Time

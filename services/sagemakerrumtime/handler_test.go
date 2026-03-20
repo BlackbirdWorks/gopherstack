@@ -3,6 +3,7 @@ package sagemakerrumtime_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -401,6 +402,98 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
 			c := e.NewContext(req, httptest.NewRecorder())
 			assert.Equal(t, tt.match, matcher(c))
+		})
+	}
+}
+
+func TestBackend_InvocationHistoryCap(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		recordCount int
+		wantLen     int
+	}{
+		{
+			name:        "below_cap",
+			recordCount: 10,
+			wantLen:     10,
+		},
+		{
+			name:        "at_cap",
+			recordCount: sagemakerrumtime.MaxInvocationHistory,
+			wantLen:     sagemakerrumtime.MaxInvocationHistory,
+		},
+		{
+			name:        "above_cap_retains_most_recent",
+			recordCount: sagemakerrumtime.MaxInvocationHistory + 50,
+			wantLen:     sagemakerrumtime.MaxInvocationHistory,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sagemakerrumtime.NewInMemoryBackend("123456789012", "us-east-1")
+
+			for i := range tt.recordCount {
+				b.RecordInvocation("InvokeEndpoint", "ep", fmt.Sprintf(`{"seq":%d}`, i), `{}`)
+			}
+
+			invocations := b.ListInvocations()
+			assert.Len(t, invocations, tt.wantLen)
+
+			if tt.recordCount > sagemakerrumtime.MaxInvocationHistory {
+				last := invocations[len(invocations)-1]
+				assert.Contains(t, last.Input, fmt.Sprintf(`"seq":%d`, tt.recordCount-1))
+			}
+		})
+	}
+}
+
+func TestBackend_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		setupInvCount int
+	}{
+		{
+			name:          "empty_backend",
+			setupInvCount: 0,
+		},
+		{
+			name:          "with_invocations",
+			setupInvCount: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sagemakerrumtime.NewInMemoryBackend("123456789012", "us-east-1")
+
+			for i := range tt.setupInvCount {
+				b.RecordInvocation("InvokeEndpoint", "ep", fmt.Sprintf(`{"seq":%d}`, i), `{}`)
+			}
+
+			snap := b.Snapshot()
+			require.NotNil(t, snap)
+
+			// Restore into a fresh backend.
+			b2 := sagemakerrumtime.NewInMemoryBackend("123456789012", "us-east-1")
+			require.NoError(t, b2.Restore(snap))
+
+			restored := b2.ListInvocations()
+			assert.Len(t, restored, tt.setupInvCount)
+
+			// Snapshot isolation: adding more invocations to b2 should not affect snap.
+			b2.RecordInvocation("InvokeEndpoint", "ep", `{"seq":99}`, `{}`)
+			snap2 := b2.Snapshot()
+			require.NotNil(t, snap2)
+			assert.NotEqual(t, snap, snap2)
 		})
 	}
 }

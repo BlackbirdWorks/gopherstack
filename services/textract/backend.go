@@ -36,6 +36,9 @@ type DocumentJob struct {
 // maxJobHistory is the maximum number of completed jobs retained in memory.
 const maxJobHistory = 10000
 
+// MaxJobHistory is the exported value for testing.
+const MaxJobHistory = maxJobHistory
+
 // InMemoryBackend is the in-memory store for Textract jobs.
 type InMemoryBackend struct {
 	jobs map[string]*DocumentJob

@@ -2,6 +2,7 @@ package elastictranscoder
 
 import (
 	"encoding/json"
+	"maps"
 )
 
 type backendSnapshot struct {
@@ -19,18 +20,21 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	pipelinesCopy := make(map[string]*Pipeline, len(b.pipelines))
 	for k, v := range b.pipelines {
 		cp := *v
+		cp.Tags = copyStringMap(v.Tags)
 		pipelinesCopy[k] = &cp
 	}
 
 	presetsCopy := make(map[string]*Preset, len(b.presets))
 	for k, v := range b.presets {
 		cp := *v
+		cp.Tags = copyStringMap(v.Tags)
 		presetsCopy[k] = &cp
 	}
 
 	jobsCopy := make(map[string]*Job, len(b.jobs))
 	for k, v := range b.jobs {
 		cp := *v
+		cp.Tags = copyStringMap(v.Tags)
 		jobsCopy[k] = &cp
 	}
 
@@ -76,13 +80,38 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.presets = snap.Presets
 	b.jobs = snap.Jobs
 
-	// Rebuild name index from restored pipelines.
+	// Rebuild derived indices from restored data.
 	b.pipelinesByName = make(map[string]string, len(b.pipelines))
+	b.pipelinesByARN = make(map[string]string, len(b.pipelines))
+	b.presetsByARN = make(map[string]string, len(b.presets))
+	b.jobsByARN = make(map[string]string, len(b.jobs))
+
 	for id, p := range b.pipelines {
 		b.pipelinesByName[p.Name] = id
+		b.pipelinesByARN[p.ARN] = id
+	}
+
+	for id, p := range b.presets {
+		b.presetsByARN[p.ARN] = id
+	}
+
+	for id, j := range b.jobs {
+		b.jobsByARN[j.ARN] = id
 	}
 
 	return nil
+}
+
+// copyStringMap returns a copy of a string map (nil-safe).
+func copyStringMap(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+
+	cp := make(map[string]string, len(m))
+	maps.Copy(cp, m)
+
+	return cp
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

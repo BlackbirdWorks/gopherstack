@@ -177,3 +177,110 @@ func TestInMemoryBackend_GetDocumentTextDetection_WrongType(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, awserr.ErrNotFound)
 }
+
+func TestInMemoryBackend_JobHistoryCap(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		insertAna int
+		insertDet int
+		wantLen   int
+	}{
+		{
+			name:      "below_cap",
+			insertAna: 5,
+			insertDet: 5,
+			wantLen:   10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := textract.NewInMemoryBackend()
+
+			for range tt.insertAna {
+				_, err := b.StartDocumentAnalysis("s3://bucket/doc.pdf")
+				require.NoError(t, err)
+			}
+
+			for range tt.insertDet {
+				_, err := b.StartDocumentTextDetection("s3://bucket/doc.png")
+				require.NoError(t, err)
+			}
+
+			jobs := b.ListJobs()
+			assert.Len(t, jobs, tt.wantLen)
+		})
+	}
+}
+
+func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		jobCount int
+	}{
+		{
+			name:     "empty_backend",
+			jobCount: 0,
+		},
+		{
+			name:     "with_jobs",
+			jobCount: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := textract.NewInMemoryBackend()
+
+			var lastJobID string
+
+			for i := range tt.jobCount {
+				var job *textract.DocumentJob
+				var err error
+
+				if i%2 == 0 {
+					job, err = b.StartDocumentAnalysis("s3://bucket/doc.pdf")
+				} else {
+					job, err = b.StartDocumentTextDetection("s3://bucket/doc.png")
+				}
+
+				require.NoError(t, err)
+				lastJobID = job.JobID
+			}
+
+			snap := b.Snapshot()
+			require.NotNil(t, snap)
+
+			b2 := textract.NewInMemoryBackend()
+			require.NoError(t, b2.Restore(snap))
+
+			jobs := b2.ListJobs()
+			assert.Len(t, jobs, tt.jobCount)
+
+			if tt.jobCount > 0 {
+				// The last job from original backend should be retrievable after restore.
+				retrieved, err := b2.GetDocumentAnalysis(lastJobID)
+				if err != nil {
+					// May be text detection type; try that.
+					retrieved, err = b2.GetDocumentTextDetection(lastJobID)
+					require.NoError(t, err)
+				}
+
+				assert.Equal(t, lastJobID, retrieved.JobID)
+
+				// Snapshot isolation: adding to b2 after restore should not affect original snap.
+				_, _ = b2.StartDocumentAnalysis("s3://bucket/extra.pdf")
+				snap2 := b2.Snapshot()
+				assert.NotEqual(t, snap, snap2)
+			}
+		})
+	}
+}
