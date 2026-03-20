@@ -472,3 +472,17 @@ func (b *InMemoryBackend) ensureTagsByARN(resourceARN string) {
 		}
 	}
 }
+
+// Reset clears all backend state, resetting to an empty store.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.applications = make(map[string]*Application)
+	b.environments = make(map[string]*Environment)
+	b.appVersions = make(map[string]*ApplicationVersion)
+	b.appARNIndex = make(map[string]string)
+	b.envARNIndex = make(map[string]string)
+	b.verARNIndex = make(map[string]string)
+	b.envCounter = 0
+}

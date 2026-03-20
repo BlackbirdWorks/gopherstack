@@ -2,6 +2,7 @@ package elasticbeanstalk_test
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -536,4 +537,59 @@ func TestHandler_XMLResponseFormat(t *testing.T) {
 	assert.Equal(t, "text/xml", rec.Header().Get("Content-Type"))
 	assert.Contains(t, rec.Body.String(), "<?xml")
 	assert.Contains(t, rec.Body.String(), "DescribeApplicationsResponse")
+}
+
+func TestElasticBeanstalk_Handler_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		createApps int
+		wantAfter  int
+	}{
+		{
+			name:       "reset clears all applications",
+			createApps: 2,
+			wantAfter:  0,
+		},
+		{
+			name:       "reset on empty backend is a no-op",
+			createApps: 0,
+			wantAfter:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			for i := range tt.createApps {
+				rec := postEBForm(t, h, fmt.Sprintf(
+					"Action=CreateApplication&ApplicationName=app-%d&Version=2010-12-01", i,
+				))
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			h.Reset()
+
+			rec := postEBForm(t, h, "Action=DescribeApplications&Version=2010-12-01")
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				XMLName                    xml.Name `xml:"DescribeApplicationsResponse"`
+				DescribeApplicationsResult struct {
+					Applications struct {
+						Members []struct {
+							ApplicationName string `xml:"ApplicationName"`
+						} `xml:"member"`
+					} `xml:"Applications"`
+				} `xml:"DescribeApplicationsResult"`
+			}
+
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out.DescribeApplicationsResult.Applications.Members, tt.wantAfter)
+		})
+	}
 }

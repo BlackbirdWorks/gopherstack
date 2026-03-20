@@ -153,6 +153,7 @@ func (b *InMemoryBackend) DescribeScalableTargets(serviceNamespace string) []*Sc
 			continue
 		}
 		cp := *t
+		cp.Tags = maps.Clone(t.Tags)
 
 		list = append(list, &cp)
 	}
@@ -362,4 +363,15 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	}
 
 	return nil
+}
+
+// Reset clears all backend state, resetting to an empty store.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.scalableTargets = make(map[string]*ScalableTarget)
+	b.scalingPolicies = make(map[string]*ScalingPolicy)
+	b.scheduledActions = make(map[string]*ScheduledAction)
+	b.targetARNIndex = make(map[string]string)
 }

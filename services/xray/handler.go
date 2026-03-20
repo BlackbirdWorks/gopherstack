@@ -704,3 +704,8 @@ func (h *Handler) handleBatchGetTraces(_ context.Context, body []byte) ([]byte, 
 		"UnprocessedTraceIds": unprocessed,
 	})
 }
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}

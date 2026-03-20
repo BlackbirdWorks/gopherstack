@@ -54,6 +54,8 @@ type StorageBackend interface {
 	AddTagsToVault(accountID, region, vaultName string, tags map[string]string) error
 	ListTagsForVault(accountID, region, vaultName string) (map[string]string, error)
 	RemoveTagsFromVault(accountID, region, vaultName string, tagKeys []string) error
+
+	Reset()
 }
 
 // vaultKey uniquely identifies a vault within an account and region.
@@ -480,4 +482,14 @@ func (b *InMemoryBackend) RemoveTagsFromVault(accountID, region, vaultName strin
 	}
 
 	return nil
+}
+
+// Reset clears all backend state, resetting to an empty store.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.vaults = make(map[vaultKey]*Vault)
+	b.archives = make(map[vaultKey]map[string]*Archive)
+	b.jobs = make(map[vaultKey]map[string]*Job)
 }

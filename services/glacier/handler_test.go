@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -414,6 +415,51 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			c := e.NewContext(req, rec)
 
 			assert.Equal(t, tt.match, matcher(c))
+		})
+	}
+}
+
+func TestGlacier_Handler_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		createVaults int
+		wantAfter    int
+	}{
+		{
+			name:         "reset clears all vaults",
+			createVaults: 3,
+			wantAfter:    0,
+		},
+		{
+			name:         "reset on empty backend is a no-op",
+			createVaults: 0,
+			wantAfter:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			for i := range tt.createVaults {
+				rec := doRequest(t, h, http.MethodPut, "/-/vaults/vault-"+strconv.Itoa(i), "")
+				require.Equal(t, http.StatusCreated, rec.Code)
+			}
+
+			h.Reset()
+
+			rec := doRequest(t, h, http.MethodGet, "/-/vaults", "")
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				VaultList []any `json:"VaultList"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out.VaultList, tt.wantAfter)
 		})
 	}
 }

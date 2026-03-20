@@ -948,3 +948,8 @@ func parseTagList(vals url.Values, prefix string) map[string]string {
 
 	return tags
 }
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}

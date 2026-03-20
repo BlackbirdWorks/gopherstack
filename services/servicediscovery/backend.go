@@ -594,3 +594,21 @@ func copyTags(tags map[string]string) map[string]string {
 func copyAttrs(attrs map[string]string) map[string]string {
 	return copyTags(attrs)
 }
+
+// Reset clears all backend state, resetting to an empty store.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.namespaces = make(map[string]*Namespace)
+	b.services = make(map[string]*Service)
+	b.instances = make(map[string]*Instance)
+	b.operations = make(map[string]*Operation)
+	b.nsARNIndex = make(map[string]string)
+	b.svcARNIndex = make(map[string]string)
+	b.nsNameIndex = make(map[string]string)
+	b.nsCounter = 0
+	b.svcCounter = 0
+	b.instCounter = 0
+	b.opCounter = 0
+}

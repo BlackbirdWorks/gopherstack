@@ -3,6 +3,7 @@ package servicediscovery_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -1268,4 +1269,52 @@ func TestProvider_Init(t *testing.T) {
 	svc, err := p.Init(&service.AppContext{})
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
+}
+
+func TestServiceDiscovery_Handler_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		createNamespaces int
+		wantAfter        int
+	}{
+		{
+			name:             "reset clears all namespaces",
+			createNamespaces: 2,
+			wantAfter:        0,
+		},
+		{
+			name:             "reset on empty backend is a no-op",
+			createNamespaces: 0,
+			wantAfter:        0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for i := range tt.createNamespaces {
+				rec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{
+					"Name":             fmt.Sprintf("ns-%d", i),
+					"CreatorRequestId": fmt.Sprintf("req-%d", i),
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			h.Reset()
+
+			rec := doSDRequest(t, h, "ListNamespaces", map[string]any{})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				Namespaces []any `json:"Namespaces"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out.Namespaces, tt.wantAfter)
+		})
+	}
 }

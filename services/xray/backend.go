@@ -343,3 +343,13 @@ func (b *InMemoryBackend) GetTrace(traceID string) *Trace {
 
 	return &cp
 }
+
+// Reset clears all backend state, resetting to an empty store.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.groups = make(map[string]*Group)
+	b.samplingRules = make(map[string]*SamplingRule)
+	b.traces = make(map[string]*Trace)
+}

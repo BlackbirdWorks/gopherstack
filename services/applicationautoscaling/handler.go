@@ -486,3 +486,8 @@ func (h *Handler) handleUntagResource(_ context.Context, in *untagResourceInput)
 
 	return &untagResourceOutput{}, nil
 }
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}

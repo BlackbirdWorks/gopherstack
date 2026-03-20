@@ -899,3 +899,8 @@ func serviceToMap(svc *Service) map[string]any {
 		"Description": svc.Description,
 	}
 }
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
