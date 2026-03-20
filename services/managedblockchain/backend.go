@@ -150,7 +150,23 @@ func (b *InMemoryBackend) CreateNetwork(
 	b.members[networkID][memberID] = member
 	b.arnToResource[member.Arn] = member
 
-	return network, member, nil
+	return cloneNetwork(network), cloneMember(member), nil
+}
+
+// cloneNetwork returns a deep copy of n with the Tags map cloned.
+func cloneNetwork(n *Network) *Network {
+	cp := *n
+	cp.Tags = maps.Clone(n.Tags)
+
+	return &cp
+}
+
+// cloneMember returns a deep copy of m with the Tags map cloned.
+func cloneMember(m *Member) *Member {
+	cp := *m
+	cp.Tags = maps.Clone(m.Tags)
+
+	return &cp
 }
 
 // GetNetwork returns the details of a network by ID.
@@ -163,7 +179,7 @@ func (b *InMemoryBackend) GetNetwork(networkID string) (*Network, error) {
 		return nil, ErrNetworkNotFound
 	}
 
-	return network, nil
+	return cloneNetwork(network), nil
 }
 
 // ListNetworks returns all networks.
@@ -174,7 +190,7 @@ func (b *InMemoryBackend) ListNetworks() ([]*Network, error) {
 	all := make([]*Network, 0, len(b.networks))
 
 	for _, n := range b.networks {
-		all = append(all, n)
+		all = append(all, cloneNetwork(n))
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -220,7 +236,7 @@ func (b *InMemoryBackend) CreateMember(
 	b.members[networkID][memberID] = member
 	b.arnToResource[member.Arn] = member
 
-	return member, nil
+	return cloneMember(member), nil
 }
 
 // GetMember returns a member by network ID and member ID.
@@ -242,7 +258,7 @@ func (b *InMemoryBackend) GetMember(networkID, memberID string) (*Member, error)
 		return nil, ErrMemberNotFound
 	}
 
-	return member, nil
+	return cloneMember(member), nil
 }
 
 // ListMembers returns all members in a network.
@@ -258,7 +274,7 @@ func (b *InMemoryBackend) ListMembers(networkID string) ([]*Member, error) {
 	all := make([]*Member, 0, len(members))
 
 	for _, m := range members {
-		all = append(all, m)
+		all = append(all, cloneMember(m))
 	}
 
 	sort.Slice(all, func(i, j int) bool {

@@ -42,6 +42,11 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Domains = make(map[string]*Domain)
 	}
 
+	// Close existing Tags to release Prometheus metrics before replacing state.
+	for _, d := range b.domains {
+		d.Tags.Close()
+	}
+
 	b.domains = snap.Domains
 	b.accountID = snap.AccountID
 	b.region = snap.Region
