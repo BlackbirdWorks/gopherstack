@@ -72,6 +72,7 @@ func (j *Janitor) sweepTerminatedClusters(ctx context.Context) {
 		if terminal && !c.TerminatedAt.IsZero() && c.TerminatedAt.Before(cutoff) {
 			swept = append(swept, id)
 			delete(j.Backend.clusters, id)
+			delete(j.Backend.arnIndex, c.ARN)
 		}
 	}
 

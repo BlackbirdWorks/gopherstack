@@ -479,3 +479,198 @@ func TestInMemoryBackend_ListTagsForResource_UnknownARN(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, tags)
 }
+
+func TestInMemoryBackend_UntagResource_CleansEmptyMap(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		setupTags    map[string]string
+		removeTags   []string
+		wantTagsLeft int
+	}{
+		{
+			name:         "removing_all_tags_cleans_map",
+			setupTags:    map[string]string{"env": "prod", "team": "platform"},
+			removeTags:   []string{"env", "team"},
+			wantTagsLeft: 0,
+		},
+		{
+			name:         "removing_some_tags_leaves_rest",
+			setupTags:    map[string]string{"env": "prod", "team": "platform"},
+			removeTags:   []string{"team"},
+			wantTagsLeft: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := iotwireless.NewInMemoryBackend()
+
+			sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp-cleanup", tt.setupTags)
+			require.NoError(t, err)
+
+			err = bk.UntagResource(sp.ARN, tt.removeTags)
+			require.NoError(t, err)
+
+			tags, err := bk.ListTagsForResource(sp.ARN)
+			require.NoError(t, err)
+			assert.Len(t, tags, tt.wantTagsLeft)
+		})
+	}
+}
+
+func TestInMemoryBackend_GetReturnsIsolatedCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "wireless_device"},
+		{name: "wireless_gateway"},
+		{name: "service_profile"},
+		{name: "destination"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := iotwireless.NewInMemoryBackend()
+
+			switch tt.name {
+			case "wireless_device":
+				d, err := bk.CreateWirelessDevice(
+					testAccountID,
+					testRegion,
+					"dev",
+					"LoRaWAN",
+					"",
+					"",
+					map[string]string{"k": "v"},
+				)
+				require.NoError(t, err)
+
+				d.Tags["injected"] = "yes"
+
+				got, err := bk.GetWirelessDevice(testAccountID, testRegion, d.ID)
+				require.NoError(t, err)
+				assert.NotContains(t, got.Tags, "injected", "mutation of returned pointer must not affect backend")
+
+			case "wireless_gateway":
+				gw, err := bk.CreateWirelessGateway(testAccountID, testRegion, "gw", "", map[string]string{"k": "v"})
+				require.NoError(t, err)
+
+				gw.Tags["injected"] = "yes"
+
+				got, err := bk.GetWirelessGateway(testAccountID, testRegion, gw.ID)
+				require.NoError(t, err)
+				assert.NotContains(t, got.Tags, "injected", "mutation of returned pointer must not affect backend")
+
+			case "service_profile":
+				sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp", map[string]string{"k": "v"})
+				require.NoError(t, err)
+
+				sp.Tags["injected"] = "yes"
+
+				got, err := bk.GetServiceProfile(testAccountID, testRegion, sp.ID)
+				require.NoError(t, err)
+				assert.NotContains(t, got.Tags, "injected", "mutation of returned pointer must not affect backend")
+
+			case "destination":
+				dest, err := bk.CreateDestination(
+					testAccountID,
+					testRegion,
+					"dest",
+					"",
+					"",
+					"",
+					"",
+					map[string]string{"k": "v"},
+				)
+				require.NoError(t, err)
+
+				dest.Tags["injected"] = "yes"
+
+				got, err := bk.GetDestination(testAccountID, testRegion, dest.Name)
+				require.NoError(t, err)
+				assert.NotContains(t, got.Tags, "injected", "mutation of returned pointer must not affect backend")
+			}
+		})
+	}
+}
+
+func TestInMemoryBackend_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	bk := iotwireless.NewInMemoryBackend()
+
+	// Create one of each resource type.
+	dev, err := bk.CreateWirelessDevice(
+		testAccountID,
+		testRegion,
+		"dev-snap",
+		"LoRaWAN",
+		"dest-snap",
+		"desc",
+		map[string]string{"env": "test"},
+	)
+	require.NoError(t, err)
+
+	gw, err := bk.CreateWirelessGateway(
+		testAccountID,
+		testRegion,
+		"gw-snap",
+		"gateway",
+		map[string]string{"tier": "free"},
+	)
+	require.NoError(t, err)
+
+	sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp-snap", map[string]string{"role": "iot"})
+	require.NoError(t, err)
+
+	dest, err := bk.CreateDestination(
+		testAccountID,
+		testRegion,
+		"dest-snap",
+		"rule",
+		"RuleName",
+		"arn:role",
+		"desc",
+		nil,
+	)
+	require.NoError(t, err)
+
+	// Snapshot.
+	snap := bk.Snapshot()
+	require.NotNil(t, snap)
+
+	// Restore into a fresh backend.
+	bk2 := iotwireless.NewInMemoryBackend()
+	require.NoError(t, bk2.Restore(snap))
+
+	// Verify all resources are present with correct fields.
+	gotDev, err := bk2.GetWirelessDevice(testAccountID, testRegion, dev.ID)
+	require.NoError(t, err)
+	assert.Equal(t, dev.Name, gotDev.Name)
+	assert.Equal(t, "test", gotDev.Tags["env"])
+
+	gotGW, err := bk2.GetWirelessGateway(testAccountID, testRegion, gw.ID)
+	require.NoError(t, err)
+	assert.Equal(t, gw.Name, gotGW.Name)
+
+	gotSP, err := bk2.GetServiceProfile(testAccountID, testRegion, sp.ID)
+	require.NoError(t, err)
+	assert.Equal(t, sp.Name, gotSP.Name)
+
+	gotDest, err := bk2.GetDestination(testAccountID, testRegion, dest.Name)
+	require.NoError(t, err)
+	assert.Equal(t, dest.Expression, gotDest.Expression)
+
+	// Resource tags are preserved.
+	tags, err := bk2.ListTagsForResource(dev.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, "test", tags["env"])
+}

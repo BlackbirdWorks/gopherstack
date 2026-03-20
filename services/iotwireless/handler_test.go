@@ -555,3 +555,32 @@ func TestHandler_ErrorCases(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	// Populate a device so the snapshot is non-trivial.
+	body := `{"Name":"persist-dev","Type":"LoRaWAN","DestinationName":"d","Description":"desc"}`
+	rec := doIoTWRequest(t, h, http.MethodPost, "/wireless-devices", body)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	// Snapshot via the handler.
+	snap := h.Snapshot()
+	require.NotNil(t, snap, "Snapshot must return non-nil data")
+
+	// Fresh handler with the same backend type.
+	bk2 := iotwireless.NewInMemoryBackend()
+	h2 := iotwireless.NewHandler(bk2)
+	h2.AccountID = testAccountID
+	h2.DefaultRegion = testRegion
+
+	// Restore into h2.
+	require.NoError(t, h2.Restore(snap))
+
+	// The device must be visible through h2.
+	devices := bk2.ListWirelessDevices(testAccountID, testRegion)
+	assert.Len(t, devices, 1)
+	assert.Equal(t, "persist-dev", devices[0].Name)
+}

@@ -245,7 +245,7 @@ func (b *InMemoryBackend) CreateWorkGroup(
 		Name:          name,
 		Description:   description,
 		State:         state,
-		Tags:          tags,
+		Tags:          maps.Clone(tags),
 		Configuration: cfg,
 	}
 
@@ -268,6 +268,7 @@ func (b *InMemoryBackend) GetWorkGroup(name string) (*WorkGroup, error) {
 	}
 
 	cp := *wg
+	cp.Tags = maps.Clone(wg.Tags)
 
 	return &cp, nil
 }
@@ -439,8 +440,8 @@ func (b *InMemoryBackend) CreateDataCatalog(
 		Name:        name,
 		Type:        catalogType,
 		Description: description,
-		Parameters:  params,
-		Tags:        tags,
+		Parameters:  maps.Clone(params),
+		Tags:        maps.Clone(tags),
 	}
 
 	arn := dataCatalogARN(name)
@@ -462,6 +463,8 @@ func (b *InMemoryBackend) GetDataCatalog(name string) (*DataCatalog, error) {
 	}
 
 	cp := *dc
+	cp.Tags = maps.Clone(dc.Tags)
+	cp.Parameters = maps.Clone(dc.Parameters)
 
 	return &cp, nil
 }
