@@ -471,3 +471,58 @@ func TestAWSConfigProvider_Init(t *testing.T) {
 	assert.NotNil(t, svc)
 	assert.Equal(t, "AWSConfig", svc.Name())
 }
+
+func TestAWSConfigHandler_DescribeConfigRulesAndCompliance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body      any
+		name      string
+		action    string
+		wantField string
+		wantCode  int
+	}{
+		{
+			name:      "describe_config_rules_empty",
+			action:    "DescribeConfigRules",
+			body:      map[string]any{},
+			wantCode:  http.StatusOK,
+			wantField: "ConfigRules",
+		},
+		{
+			name:      "describe_config_rules_with_names",
+			action:    "DescribeConfigRules",
+			body:      map[string]any{"ConfigRuleNames": []string{"my-rule"}},
+			wantCode:  http.StatusOK,
+			wantField: "ConfigRules",
+		},
+		{
+			name:      "get_compliance_details_empty",
+			action:    "GetComplianceDetailsByConfigRule",
+			body:      map[string]any{"ConfigRuleName": "my-rule"},
+			wantCode:  http.StatusOK,
+			wantField: "EvaluationResults",
+		},
+		{
+			name:      "get_compliance_details_no_name",
+			action:    "GetComplianceDetailsByConfigRule",
+			body:      map[string]any{},
+			wantCode:  http.StatusOK,
+			wantField: "EvaluationResults",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, tt.action, tt.body)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.NotNil(t, out[tt.wantField])
+		})
+	}
+}

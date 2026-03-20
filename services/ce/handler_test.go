@@ -571,3 +571,49 @@ func TestHandler_UnknownAction(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestHandler_ForecastStubs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   any
+		name   string
+		action string
+	}{
+		{
+			name:   "get_cost_forecast",
+			action: "GetCostForecast",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-02-01", "End": "2024-03-01"},
+				"Granularity": "MONTHLY",
+				"Metric":      "BLENDED_COST",
+			},
+		},
+		{
+			name:   "get_usage_forecast",
+			action: "GetUsageForecast",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-02-01", "End": "2024-03-01"},
+				"Granularity": "MONTHLY",
+				"Metric":      "USAGE_QUANTITY",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.NotNil(t, out["Total"])
+			forecastResults, ok := out["ForecastResultsByTime"].([]any)
+			require.True(t, ok)
+			assert.Empty(t, forecastResults)
+		})
+	}
+}

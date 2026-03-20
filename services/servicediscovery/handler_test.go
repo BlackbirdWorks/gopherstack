@@ -1318,3 +1318,77 @@ func TestServiceDiscovery_Handler_Reset(t *testing.T) {
 		})
 	}
 }
+
+func TestHandler_GetInstancesHealthStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, h *servicediscovery.Handler) string
+		body       func(serviceID string) map[string]any
+		name       string
+		wantFields []string
+		wantCode   int
+	}{
+		{
+			name: "returns_healthy_for_all_instances",
+			setup: func(t *testing.T, h *servicediscovery.Handler) string {
+				t.Helper()
+				// Create namespace and service
+				nsRec := doSDRequest(t, h, "CreateHttpNamespace", map[string]any{
+					"Name":             "ns-health",
+					"CreatorRequestId": "req-health",
+				})
+				require.Equal(t, http.StatusOK, nsRec.Code)
+
+				// Create service
+				svcRec := doSDRequest(t, h, "CreateService", map[string]any{
+					"Name":             "svc-health",
+					"CreatorRequestId": "req-svc-health",
+				})
+				require.Equal(t, http.StatusOK, svcRec.Code)
+
+				var svcOut map[string]any
+				require.NoError(t, json.Unmarshal(svcRec.Body.Bytes(), &svcOut))
+				svc := svcOut["Service"].(map[string]any)
+
+				return svc["Id"].(string)
+			},
+			body: func(serviceID string) map[string]any {
+				return map[string]any{"ServiceId": serviceID}
+			},
+			wantCode:   http.StatusOK,
+			wantFields: []string{"Status"},
+		},
+		{
+			name: "missing_service_id_returns_error",
+			setup: func(t *testing.T, _ *servicediscovery.Handler) string {
+				t.Helper()
+
+				return ""
+			},
+			body: func(_ string) map[string]any {
+				return map[string]any{}
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			serviceID := tt.setup(t, h)
+			rec := doSDRequest(t, h, "GetInstancesHealthStatus", tt.body(serviceID))
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			if len(tt.wantFields) > 0 {
+				var out map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+				for _, field := range tt.wantFields {
+					assert.Contains(t, out, field)
+				}
+			}
+		})
+	}
+}
