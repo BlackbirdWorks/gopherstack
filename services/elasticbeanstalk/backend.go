@@ -58,6 +58,9 @@ type InMemoryBackend struct {
 	applications map[string]*Application
 	environments map[string]*Environment
 	appVersions  map[string]*ApplicationVersion
+	appARNIndex  map[string]string // ARN → app name
+	envARNIndex  map[string]string // ARN → envKey
+	verARNIndex  map[string]string // ARN → appVersionKey
 	mu           *lockmetrics.RWMutex
 	accountID    string
 	region       string
@@ -102,6 +105,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		applications: make(map[string]*Application),
 		environments: make(map[string]*Environment),
 		appVersions:  make(map[string]*ApplicationVersion),
+		appARNIndex:  make(map[string]string),
+		envARNIndex:  make(map[string]string),
+		verARNIndex:  make(map[string]string),
 		accountID:    accountID,
 		region:       region,
 		mu:           lockmetrics.New("elasticbeanstalk"),
@@ -142,6 +148,7 @@ func (b *InMemoryBackend) CreateApplication(
 		Tags:            copyTags(tags),
 	}
 	b.applications[name] = app
+	b.appARNIndex[appARN] = name
 
 	return cloneApplication(app), nil
 }
@@ -196,6 +203,7 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, name)
 	}
 
+	delete(b.appARNIndex, b.applications[name].ApplicationARN)
 	delete(b.applications, name)
 
 	return nil
@@ -231,6 +239,7 @@ func (b *InMemoryBackend) CreateEnvironment(
 		Tags:              copyTags(tags),
 	}
 	b.environments[key] = env
+	b.envARNIndex[envARN] = key
 
 	return cloneEnvironment(env), nil
 }
@@ -306,6 +315,7 @@ func (b *InMemoryBackend) TerminateEnvironment(appName, envName string) (*Enviro
 
 	env.Status = "Terminated"
 	out := cloneEnvironment(env)
+	delete(b.envARNIndex, env.EnvironmentARN)
 	delete(b.environments, key)
 
 	return out, nil
@@ -336,6 +346,7 @@ func (b *InMemoryBackend) CreateApplicationVersion(
 		Tags:                  copyTags(tags),
 	}
 	b.appVersions[key] = ver
+	b.verARNIndex[ver.ApplicationVersionARN] = key
 
 	return cloneApplicationVersion(ver), nil
 }
@@ -376,6 +387,7 @@ func (b *InMemoryBackend) DeleteApplicationVersion(appName, versionLabel string)
 		return fmt.Errorf("%w: application version %s not found", ErrNotFound, versionLabel)
 	}
 
+	delete(b.verARNIndex, b.appVersions[key].ApplicationVersionARN)
 	delete(b.appVersions, key)
 
 	return nil
@@ -386,7 +398,7 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	if tags, ok := b.findTagsByARN(resourceARN); ok {
+	if tags, ok := b.lookupTagsByARN(resourceARN); ok {
 		return copyTags(tags), nil
 	}
 
@@ -398,14 +410,14 @@ func (b *InMemoryBackend) UpdateTagsForResource(resourceARN string, addTags, rem
 	b.mu.Lock("UpdateTagsForResource")
 	defer b.mu.Unlock()
 
-	existing, ok := b.findTagsByARN(resourceARN)
+	existing, ok := b.lookupTagsByARN(resourceARN)
 	if !ok {
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
 	if existing == nil {
-		b.initTagsByARN(resourceARN)
-		existing, _ = b.findTagsByARN(resourceARN)
+		b.ensureTagsByARN(resourceARN)
+		existing, _ = b.lookupTagsByARN(resourceARN)
 	}
 
 	maps.Copy(existing, addTags)
@@ -417,52 +429,46 @@ func (b *InMemoryBackend) UpdateTagsForResource(resourceARN string, addTags, rem
 	return nil
 }
 
-// findTagsByARN looks up the tags map for a resource by ARN.
+// lookupTagsByARN looks up the tags map for a resource by ARN using O(1) index lookups.
 // Caller must hold at least a read lock.
-func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, bool) {
-	for _, app := range b.applications {
-		if app.ApplicationARN == resourceARN {
-			return app.Tags, true
-		}
+func (b *InMemoryBackend) lookupTagsByARN(resourceARN string) (map[string]string, bool) {
+	if name, ok := b.appARNIndex[resourceARN]; ok {
+		return b.applications[name].Tags, true
 	}
 
-	for _, env := range b.environments {
-		if env.EnvironmentARN == resourceARN {
-			return env.Tags, true
-		}
+	if key, ok := b.envARNIndex[resourceARN]; ok {
+		return b.environments[key].Tags, true
 	}
 
-	for _, ver := range b.appVersions {
-		if ver.ApplicationVersionARN == resourceARN {
-			return ver.Tags, true
-		}
+	if key, ok := b.verARNIndex[resourceARN]; ok {
+		return b.appVersions[key].Tags, true
 	}
 
 	return nil, false
 }
 
-// initTagsByARN ensures a resource has an initialised tags map.
+// ensureTagsByARN ensures a resource has an initialised tags map.
 // Caller must hold the write lock.
-func (b *InMemoryBackend) initTagsByARN(resourceARN string) {
-	for _, app := range b.applications {
-		if app.ApplicationARN == resourceARN {
-			app.Tags = make(map[string]string)
-
-			return
+func (b *InMemoryBackend) ensureTagsByARN(resourceARN string) {
+	if name, ok := b.appARNIndex[resourceARN]; ok {
+		if b.applications[name].Tags == nil {
+			b.applications[name].Tags = make(map[string]string)
 		}
+
+		return
 	}
 
-	for _, env := range b.environments {
-		if env.EnvironmentARN == resourceARN {
-			env.Tags = make(map[string]string)
-
-			return
+	if key, ok := b.envARNIndex[resourceARN]; ok {
+		if b.environments[key].Tags == nil {
+			b.environments[key].Tags = make(map[string]string)
 		}
+
+		return
 	}
 
-	for _, ver := range b.appVersions {
-		if ver.ApplicationVersionARN == resourceARN {
-			ver.Tags = make(map[string]string)
+	if key, ok := b.verARNIndex[resourceARN]; ok {
+		if b.appVersions[key].Tags == nil {
+			b.appVersions[key].Tags = make(map[string]string)
 		}
 	}
 }

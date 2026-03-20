@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -58,11 +59,28 @@ var pathToOperation = map[string]string{ //nolint:gochecknoglobals // package-le
 // Handler is the Echo HTTP handler for AWS X-Ray operations.
 type Handler struct {
 	Backend *InMemoryBackend
+	janitor *Janitor
 }
 
 // NewHandler creates a new X-Ray handler backed by backend.
 func NewHandler(backend *InMemoryBackend) *Handler {
 	return &Handler{Backend: backend}
+}
+
+// WithJanitor attaches a background janitor to the handler.
+func (h *Handler) WithJanitor(interval, ttl time.Duration) *Handler {
+	h.janitor = NewJanitor(h.Backend, interval, ttl)
+
+	return h
+}
+
+// StartWorker starts the background janitor if configured.
+func (h *Handler) StartWorker(ctx context.Context) error {
+	if h.janitor != nil {
+		go h.janitor.Run(ctx)
+	}
+
+	return nil
 }
 
 // Name returns the service name.

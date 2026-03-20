@@ -26,33 +26,33 @@ var (
 
 // Group represents an X-Ray group used to filter trace data.
 type Group struct {
-	CreatedAt        time.Time
-	GroupARN         string
-	GroupName        string
-	FilterExpression string
+	CreatedAt        time.Time `json:"createdAt"`
+	GroupARN         string    `json:"groupARN"`
+	GroupName        string    `json:"groupName"`
+	FilterExpression string    `json:"filterExpression"`
 }
 
 // SamplingRule represents an X-Ray sampling rule that controls the rate of data collection.
 type SamplingRule struct {
-	CreatedAt     time.Time
-	RuleARN       string
-	RuleName      string
-	ResourceARN   string
-	ServiceName   string
-	ServiceType   string
-	Host          string
-	HTTPMethod    string
-	URLPath       string
-	FixedRate     float64
-	Priority      int32
-	ReservoirSize int32
+	CreatedAt     time.Time `json:"createdAt"`
+	RuleARN       string    `json:"ruleARN"`
+	RuleName      string    `json:"ruleName"`
+	ResourceARN   string    `json:"resourceARN"`
+	ServiceName   string    `json:"serviceName"`
+	ServiceType   string    `json:"serviceType"`
+	Host          string    `json:"host"`
+	HTTPMethod    string    `json:"httpMethod"`
+	URLPath       string    `json:"urlPath"`
+	FixedRate     float64   `json:"fixedRate"`
+	Priority      int32     `json:"priority"`
+	ReservoirSize int32     `json:"reservoirSize"`
 }
 
 // Trace represents a collected X-Ray trace with its constituent segments.
 type Trace struct {
-	StartTime time.Time
-	TraceID   string
-	Segments  []string
+	StartTime time.Time `json:"startTime"`
+	TraceID   string    `json:"traceID"`
+	Segments  []string  `json:"segments"`
 }
 
 // InMemoryBackend is the in-memory store for X-Ray resources.

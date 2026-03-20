@@ -36,40 +36,40 @@ const (
 
 // Namespace represents an AWS Cloud Map namespace.
 type Namespace struct {
-	CreatedAt   time.Time
-	Tags        map[string]string
-	ID          string
-	ARN         string
-	Name        string
-	Type        string
-	Description string
+	CreatedAt   time.Time         `json:"createdAt"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	ID          string            `json:"id"`
+	ARN         string            `json:"arn"`
+	Name        string            `json:"name"`
+	Type        string            `json:"type"`
+	Description string            `json:"description,omitempty"`
 }
 
 // Service represents an AWS Cloud Map service.
 type Service struct {
-	CreatedAt   time.Time
-	Tags        map[string]string
-	ID          string
-	ARN         string
-	Name        string
-	NamespaceID string
-	Description string
+	CreatedAt   time.Time         `json:"createdAt"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	ID          string            `json:"id"`
+	ARN         string            `json:"arn"`
+	Name        string            `json:"name"`
+	NamespaceID string            `json:"namespaceID"`
+	Description string            `json:"description,omitempty"`
 }
 
 // Instance represents a registered instance in a Cloud Map service.
 type Instance struct {
-	Attributes map[string]string
-	ID         string
-	ServiceID  string
+	Attributes map[string]string `json:"attributes,omitempty"`
+	ID         string            `json:"id"`
+	ServiceID  string            `json:"serviceID"`
 }
 
 // Operation represents an async Cloud Map operation (e.g., create/delete namespace).
 type Operation struct {
-	ID         string
-	Type       string
-	Status     string
-	TargetID   string
-	TargetType string
+	ID         string `json:"id"`
+	Type       string `json:"type"`
+	Status     string `json:"status"`
+	TargetID   string `json:"targetID"`
+	TargetType string `json:"targetType"`
 }
 
 // InMemoryBackend is the in-memory Cloud Map backend.
@@ -78,6 +78,9 @@ type InMemoryBackend struct {
 	services    map[string]*Service
 	instances   map[string]*Instance
 	operations  map[string]*Operation
+	nsARNIndex  map[string]string // ARN → namespace ID
+	svcARNIndex map[string]string // ARN → service ID
+	nsNameIndex map[string]string // name → namespace ID
 	mu          *lockmetrics.RWMutex
 	accountID   string
 	region      string
@@ -90,13 +93,16 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory Cloud Map backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		namespaces: make(map[string]*Namespace),
-		services:   make(map[string]*Service),
-		instances:  make(map[string]*Instance),
-		operations: make(map[string]*Operation),
-		mu:         lockmetrics.New("servicediscovery"),
-		accountID:  accountID,
-		region:     region,
+		namespaces:  make(map[string]*Namespace),
+		services:    make(map[string]*Service),
+		instances:   make(map[string]*Instance),
+		operations:  make(map[string]*Operation),
+		nsARNIndex:  make(map[string]string),
+		svcARNIndex: make(map[string]string),
+		nsNameIndex: make(map[string]string),
+		mu:          lockmetrics.New("servicediscovery"),
+		accountID:   accountID,
+		region:      region,
 	}
 }
 
@@ -116,16 +122,14 @@ func (b *InMemoryBackend) createNamespace(name, nsType, description string, tags
 	b.mu.Lock("createNamespace")
 	defer b.mu.Unlock()
 
-	for _, ns := range b.namespaces {
-		if ns.Name == name {
-			return "", fmt.Errorf("%w: namespace %s already exists", ErrNamespaceAlreadyExists, name)
-		}
+	if _, exists := b.nsNameIndex[name]; exists {
+		return "", fmt.Errorf("%w: namespace %s already exists", ErrNamespaceAlreadyExists, name)
 	}
 
 	b.nsCounter++
 	id := fmt.Sprintf("ns-%08d", b.nsCounter)
 
-	b.namespaces[id] = &Namespace{
+	ns := &Namespace{
 		ID:          id,
 		ARN:         b.namespaceARN(id),
 		Name:        name,
@@ -134,6 +138,9 @@ func (b *InMemoryBackend) createNamespace(name, nsType, description string, tags
 		Tags:        copyTags(tags),
 		CreatedAt:   time.Now(),
 	}
+	b.namespaces[id] = ns
+	b.nsARNIndex[ns.ARN] = id
+	b.nsNameIndex[name] = id
 
 	b.opCounter++
 	opID := fmt.Sprintf("op-%08d", b.opCounter)
@@ -169,11 +176,28 @@ func (b *InMemoryBackend) DeleteNamespace(id string) (string, error) {
 	b.mu.Lock("DeleteNamespace")
 	defer b.mu.Unlock()
 
-	if _, ok := b.namespaces[id]; !ok {
+	ns, ok := b.namespaces[id]
+	if !ok {
 		return "", fmt.Errorf("%w: namespace %s not found", ErrNamespaceNotFound, id)
 	}
 
+	delete(b.nsARNIndex, ns.ARN)
+	delete(b.nsNameIndex, ns.Name)
 	delete(b.namespaces, id)
+
+	// Cascade delete services and their instances.
+	for svcID, svc := range b.services {
+		if svc.NamespaceID == id {
+			delete(b.svcARNIndex, svc.ARN)
+			delete(b.services, svcID)
+
+			for instKey := range b.instances {
+				if len(instKey) > len(svcID) && instKey[:len(svcID)] == svcID {
+					delete(b.instances, instKey)
+				}
+			}
+		}
+	}
 
 	b.opCounter++
 	opID := fmt.Sprintf("op-%08d", b.opCounter)
@@ -253,6 +277,7 @@ func (b *InMemoryBackend) CreateService(
 	}
 
 	b.services[id] = svc
+	b.svcARNIndex[svc.ARN] = id
 
 	cp := *svc
 	cp.Tags = copyTags(svc.Tags)
@@ -265,11 +290,20 @@ func (b *InMemoryBackend) DeleteService(id string) error {
 	b.mu.Lock("DeleteService")
 	defer b.mu.Unlock()
 
-	if _, ok := b.services[id]; !ok {
+	svc, ok := b.services[id]
+	if !ok {
 		return fmt.Errorf("%w: service %s not found", ErrServiceNotFound, id)
 	}
 
+	delete(b.svcARNIndex, svc.ARN)
 	delete(b.services, id)
+
+	// Cascade delete all instances for this service.
+	for instKey := range b.instances {
+		if len(instKey) > len(id) && instKey[:len(id)] == id {
+			delete(b.instances, instKey)
+		}
+	}
 
 	return nil
 }
@@ -399,17 +433,8 @@ func (b *InMemoryBackend) DiscoverInstances(namespaceName, serviceName string) (
 	b.mu.RLock("DiscoverInstances")
 	defer b.mu.RUnlock()
 
-	var nsID string
-
-	for _, ns := range b.namespaces {
-		if ns.Name == namespaceName {
-			nsID = ns.ID
-
-			break
-		}
-	}
-
-	if nsID == "" {
+	nsID, ok := b.nsNameIndex[namespaceName]
+	if !ok {
 		return []Instance{}, nil
 	}
 
@@ -482,16 +507,12 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) (map[string]string, er
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, ns := range b.namespaces {
-		if ns.ARN == arn {
-			return copyTags(ns.Tags), nil
-		}
+	if nsID, ok := b.nsARNIndex[arn]; ok {
+		return copyTags(b.namespaces[nsID].Tags), nil
 	}
 
-	for _, svc := range b.services {
-		if svc.ARN == arn {
-			return copyTags(svc.Tags), nil
-		}
+	if svcID, ok := b.svcARNIndex[arn]; ok {
+		return copyTags(b.services[svcID].Tags), nil
 	}
 
 	return nil, fmt.Errorf("%w: resource %s not found", ErrNamespaceNotFound, arn)
@@ -502,20 +523,16 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, ns := range b.namespaces {
-		if ns.ARN == arn {
-			maps.Copy(ns.Tags, tags)
+	if nsID, ok := b.nsARNIndex[arn]; ok {
+		maps.Copy(b.namespaces[nsID].Tags, tags)
 
-			return nil
-		}
+		return nil
 	}
 
-	for _, svc := range b.services {
-		if svc.ARN == arn {
-			maps.Copy(svc.Tags, tags)
+	if svcID, ok := b.svcARNIndex[arn]; ok {
+		maps.Copy(b.services[svcID].Tags, tags)
 
-			return nil
-		}
+		return nil
 	}
 
 	return fmt.Errorf("%w: resource %s not found", ErrNamespaceNotFound, arn)
@@ -526,24 +543,20 @@ func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, ns := range b.namespaces {
-		if ns.ARN == arn {
-			for _, k := range tagKeys {
-				delete(ns.Tags, k)
-			}
-
-			return nil
+	if nsID, ok := b.nsARNIndex[arn]; ok {
+		for _, k := range tagKeys {
+			delete(b.namespaces[nsID].Tags, k)
 		}
+
+		return nil
 	}
 
-	for _, svc := range b.services {
-		if svc.ARN == arn {
-			for _, k := range tagKeys {
-				delete(svc.Tags, k)
-			}
-
-			return nil
+	if svcID, ok := b.svcARNIndex[arn]; ok {
+		for _, k := range tagKeys {
+			delete(b.services[svcID].Tags, k)
 		}
+
+		return nil
 	}
 
 	return fmt.Errorf("%w: resource %s not found", ErrNamespaceNotFound, arn)

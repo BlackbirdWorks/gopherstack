@@ -80,6 +80,22 @@ func NewInMemoryBackend() *InMemoryBackend {
 	}
 }
 
+// cloneVault returns a deep copy of the vault with Tags and NotificationEvents cloned.
+func cloneVault(v *Vault) *Vault {
+	cp := *v
+	cp.Tags = maps.Clone(v.Tags)
+	cp.NotificationEvents = append([]string(nil), v.NotificationEvents...)
+
+	return &cp
+}
+
+// cloneJob returns a shallow copy of a Job.
+func cloneJob(j *Job) *Job {
+	cp := *j
+
+	return &cp
+}
+
 // generateID creates a random ID of the given length.
 func generateID(length int) string {
 	b := make([]byte, length)
@@ -144,7 +160,7 @@ func (b *InMemoryBackend) DescribeVault(accountID, region, vaultName string) (*V
 		return nil, ErrVaultNotFound
 	}
 
-	return v, nil
+	return cloneVault(v), nil
 }
 
 // DeleteVault deletes a vault.
@@ -174,7 +190,7 @@ func (b *InMemoryBackend) ListVaults(accountID, region string) []*Vault {
 
 	for k, v := range b.vaults {
 		if k.AccountID == accountID && k.Region == region {
-			result = append(result, v)
+			result = append(result, cloneVault(v))
 		}
 	}
 
@@ -288,7 +304,7 @@ func (b *InMemoryBackend) DescribeJob(accountID, region, vaultName, jobID string
 		return nil, ErrJobNotFound
 	}
 
-	return j, nil
+	return cloneJob(j), nil
 }
 
 // ListJobs returns all jobs for the given vault.
@@ -301,7 +317,7 @@ func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) []*Job {
 	result := make([]*Job, 0, len(b.jobs[key]))
 
 	for _, j := range b.jobs[key] {
-		result = append(result, j)
+		result = append(result, cloneJob(j))
 	}
 
 	return result
