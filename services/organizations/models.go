@@ -16,69 +16,69 @@ func epochSeconds(t time.Time) float64 {
 
 // Organization represents an AWS organization.
 type Organization struct {
-	ID                 string
-	ARN                string
-	FeatureSet         string
-	MasterAccountID    string
-	MasterAccountARN   string
-	MasterAccountEmail string
+	ID                 string `json:"id"`
+	ARN                string `json:"arn"`
+	FeatureSet         string `json:"featureSet"`
+	MasterAccountID    string `json:"masterAccountID"`
+	MasterAccountARN   string `json:"masterAccountARN"`
+	MasterAccountEmail string `json:"masterAccountEmail"`
 }
 
 // Account represents an AWS account in an organization.
 type Account struct {
-	JoinedAt     time.Time
-	ID           string
-	ARN          string
-	Name         string
-	Email        string
-	Status       string
-	JoinedMethod string
+	JoinedAt     time.Time `json:"joinedAt"`
+	ID           string    `json:"id"`
+	ARN          string    `json:"arn"`
+	Name         string    `json:"name"`
+	Email        string    `json:"email"`
+	Status       string    `json:"status"`
+	JoinedMethod string    `json:"joinedMethod"`
 }
 
 // Root represents the root container in an organization.
 type Root struct {
-	ID          string
-	ARN         string
-	Name        string
-	PolicyTypes []PolicyTypeSummary
+	ID          string              `json:"id"`
+	ARN         string              `json:"arn"`
+	Name        string              `json:"name"`
+	PolicyTypes []PolicyTypeSummary `json:"policyTypes,omitempty"`
 }
 
 // PolicyTypeSummary holds policy type enablement state for a root.
 type PolicyTypeSummary struct {
-	Type   string
-	Status string
+	Type   string `json:"type"`
+	Status string `json:"status"`
 }
 
 // OrganizationalUnit represents an OU in the organization hierarchy.
 type OrganizationalUnit struct {
-	ID       string
-	ARN      string
-	Name     string
-	ParentID string
+	ID       string `json:"id"`
+	ARN      string `json:"arn"`
+	Name     string `json:"name"`
+	ParentID string `json:"parentID"`
 }
 
 // Policy represents an Organizations policy.
 type Policy struct {
-	Content       string
-	PolicySummary PolicySummary
+	Content       string        `json:"content"`
+	PolicySummary PolicySummary `json:"policySummary"`
 }
 
 // PolicySummary holds metadata about a policy.
 type PolicySummary struct {
-	ID          string
-	ARN         string
-	Name        string
-	Description string
-	Type        string
-	AwsManaged  bool
+	ID          string `json:"id"`
+	ARN         string `json:"arn"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+	AwsManaged  bool   `json:"awsManaged"`
 }
 
 // PolicyTargetSummary describes a target of a policy attachment.
 type PolicyTargetSummary struct {
-	TargetID string
-	ARN      string
-	Name     string
-	Type     string
+	TargetID string `json:"targetID"`
+	ARN      string `json:"arn"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
 }
 
 // Tag is a key-value pair attached to an Organizations resource.

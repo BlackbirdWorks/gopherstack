@@ -80,6 +80,7 @@ const (
 
 // InMemoryBackend is the in-memory store for ACM certificates.
 type InMemoryBackend struct {
+	timers    map[string]*time.Timer // pending autoValidate timers keyed by cert ARN
 	certs     map[string]*Certificate
 	mu        *lockmetrics.RWMutex
 	accountID string
@@ -90,6 +91,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		certs:     make(map[string]*Certificate),
+		timers:    make(map[string]*time.Timer),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("acm"),
@@ -172,7 +174,8 @@ func (b *InMemoryBackend) RequestCertificate(
 	b.certs[certARN] = cert
 
 	if status == statusPendingValidation {
-		time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidate(certARN) })
+		t := time.AfterFunc(autoValidateDelayMS*time.Millisecond, func() { b.autoValidate(certARN) })
+		b.timers[certARN] = t
 	}
 
 	cp := copyCert(cert)
@@ -205,6 +208,8 @@ func copyCert(c *Certificate) Certificate {
 func (b *InMemoryBackend) autoValidate(certARN string) {
 	b.mu.Lock("autoValidate")
 	defer b.mu.Unlock()
+
+	delete(b.timers, certARN)
 
 	c, ok := b.certs[certARN]
 	if !ok || c.Status != statusPendingValidation {
@@ -378,6 +383,11 @@ func (b *InMemoryBackend) DeleteCertificate(arn string) error {
 
 	if _, exists := b.certs[arn]; !exists {
 		return fmt.Errorf("%w: certificate %s not found", ErrCertNotFound, arn)
+	}
+
+	if t, ok := b.timers[arn]; ok {
+		t.Stop()
+		delete(b.timers, arn)
 	}
 
 	delete(b.certs, arn)

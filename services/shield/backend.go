@@ -27,11 +27,11 @@ var (
 
 // Protection represents an AWS Shield Advanced protection.
 type Protection struct {
-	CreationTime time.Time
-	Tags         map[string]string
-	ID           string
-	Name         string
-	ResourceARN  string
+	CreationTime time.Time         `json:"creationTime"`
+	Tags         map[string]string `json:"tags,omitempty"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	ResourceARN  string            `json:"resourceARN"`
 }
 
 // cloneProtection returns a deep copy of p, including its Tags map.
@@ -44,10 +44,10 @@ func cloneProtection(p *Protection) *Protection {
 
 // Subscription represents an AWS Shield Advanced subscription.
 type Subscription struct {
-	StartTime            time.Time
-	EndTime              time.Time
-	AutoRenew            string
-	TimeCommitmentInDays int64
+	StartTime            time.Time `json:"startTime"`
+	EndTime              time.Time `json:"endTime"`
+	AutoRenew            string    `json:"autoRenew"`
+	TimeCommitmentInDays int64     `json:"timeCommitmentInDays"`
 }
 
 // InMemoryBackend is an in-memory store for Shield Advanced resources.

@@ -25,6 +25,10 @@ func (b *InMemoryBackend) Snapshot() []byte {
 
 	data, _ := json.Marshal(snap)
 
+	if data == nil {
+		return nil
+	}
+
 	return data
 }
 

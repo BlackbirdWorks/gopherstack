@@ -31,36 +31,36 @@ const (
 
 // IdentityProvider represents a linked Cognito User Pool provider.
 type IdentityProvider struct {
-	ProviderName         string
-	ClientID             string
-	ServerSideTokenCheck bool
+	ProviderName         string `json:"providerName"`
+	ClientID             string `json:"clientID"`
+	ServerSideTokenCheck bool   `json:"serverSideTokenCheck"`
 }
 
 // IdentityPool represents an Amazon Cognito Identity Pool.
 type IdentityPool struct {
-	CreatedAt                      time.Time
-	SupportedLoginProviders        map[string]string
-	Tags                           map[string]string
-	IdentityPoolID                 string
-	IdentityPoolName               string
-	ARN                            string
-	IdentityProviders              []IdentityProvider
-	AllowUnauthenticatedIdentities bool
-	AllowClassicFlow               bool
+	CreatedAt                      time.Time          `json:"createdAt"`
+	SupportedLoginProviders        map[string]string  `json:"supportedLoginProviders,omitempty"`
+	Tags                           map[string]string  `json:"tags,omitempty"`
+	IdentityPoolID                 string             `json:"identityPoolID"`
+	IdentityPoolName               string             `json:"identityPoolName"`
+	ARN                            string             `json:"arn"`
+	IdentityProviders              []IdentityProvider `json:"identityProviders,omitempty"`
+	AllowUnauthenticatedIdentities bool               `json:"allowUnauthenticatedIdentities"`
+	AllowClassicFlow               bool               `json:"allowClassicFlow"`
 }
 
 // IdentityRoles holds IAM role mappings for an identity pool.
 type IdentityRoles struct {
-	AuthenticatedRoleARN   string
-	UnauthenticatedRoleARN string
+	AuthenticatedRoleARN   string `json:"authenticatedRoleARN"`
+	UnauthenticatedRoleARN string `json:"unauthenticatedRoleARN"`
 }
 
 // Identity represents a federated identity.
 type Identity struct {
-	CreatedAt      time.Time
-	Logins         map[string]string
-	IdentityID     string
-	IdentityPoolID string
+	CreatedAt      time.Time         `json:"createdAt"`
+	Logins         map[string]string `json:"logins,omitempty"`
+	IdentityID     string            `json:"identityID"`
+	IdentityPoolID string            `json:"identityPoolID"`
 }
 
 // InMemoryBackend is the in-memory store for Cognito Identity Pool resources.
