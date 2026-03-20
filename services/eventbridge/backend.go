@@ -83,7 +83,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
-// The backend's lifecycle context is derived from context.Background(); use
+// The backend's lifecycle context is derived from [context.Background]; use
 // NewInMemoryBackendWithContext to bind it to a parent service context instead.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
@@ -92,7 +92,11 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 // NewInMemoryBackendWithContext creates a new InMemoryBackend whose lifecycle context
 // is derived from the provided parent. When the parent is cancelled (e.g. on server
 // shutdown), all in-flight delivery workers are also cancelled.
+// If svcCtx is nil, [context.Background] is used.
 func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
 	//nolint:gosec // G118: cancel is stored in b.cancel and called by Close.
 	ctx, cancel := context.WithCancel(svcCtx)
 	b := &InMemoryBackend{

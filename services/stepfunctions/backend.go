@@ -137,11 +137,16 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 // NewInMemoryBackendWithContext creates a new InMemoryBackend whose execution goroutines
 // derive their contexts from svcCtx. When svcCtx is cancelled (e.g. on server shutdown),
 // all running executions are also cancelled.
+// If svcCtx is nil, [context.Background] is used.
 func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
 	return newInMemoryBackend(svcCtx, accountID, region)
 }
 
 func newInMemoryBackend(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		accountID:         accountID,
 		region:            region,

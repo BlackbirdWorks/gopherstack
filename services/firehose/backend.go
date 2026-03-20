@@ -120,7 +120,12 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // NewInMemoryBackendWithContext creates a new InMemoryBackend whose delivery
 // operations are bounded by the provided parent context. Use this in production
 // to ensure in-flight deliveries are cancelled on server shutdown.
+// If svcCtx is nil, [context.Background] is used.
 func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		streams:   make(map[string]*DeliveryStream),
 		accountID: accountID,

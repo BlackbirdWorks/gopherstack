@@ -79,7 +79,9 @@ func NewHandler(backend StorageBackend) *DynamoDBHandler {
 }
 
 // WithJanitor attaches a background janitor to the handler.
-func (h *DynamoDBHandler) WithJanitor(settings Settings, janitorTimeout time.Duration) *DynamoDBHandler {
+// The optional janitorTimeout parameter bounds each individual janitor task;
+// zero (or omitted) disables per-task timeouts.
+func (h *DynamoDBHandler) WithJanitor(settings Settings, janitorTimeout ...time.Duration) *DynamoDBHandler {
 	h.DefaultRegion = settings.DefaultRegion
 	if h.DefaultRegion == "" {
 		h.DefaultRegion = config.DefaultRegion
@@ -87,7 +89,9 @@ func (h *DynamoDBHandler) WithJanitor(settings Settings, janitorTimeout time.Dur
 	if memBackend, ok := h.Backend.(*InMemoryDB); ok {
 		memBackend.SetDefaultRegion(h.DefaultRegion)
 		j := NewJanitor(memBackend, settings)
-		j.TaskTimeout = janitorTimeout
+		if len(janitorTimeout) > 0 {
+			j.TaskTimeout = janitorTimeout[0]
+		}
 		h.janitor = j
 	}
 
