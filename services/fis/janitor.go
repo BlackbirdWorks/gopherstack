@@ -79,6 +79,7 @@ func (j *Janitor) sweepCompletedExperiments(ctx context.Context) {
 	for id, exp := range j.Backend.experiments {
 		if isTerminalExperiment(exp.Status.Status) && exp.EndTime != nil && exp.EndTime.Before(cutoff) {
 			swept = append(swept, id)
+			delete(j.Backend.experimentARNIndex, exp.Arn)
 			delete(j.Backend.experiments, id)
 		}
 	}

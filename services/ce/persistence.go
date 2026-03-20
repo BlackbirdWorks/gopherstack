@@ -3,11 +3,11 @@ package ce
 import "encoding/json"
 
 type backendSnapshot struct {
-	CostCategories       map[string]*CostCategory       `json:"costCategories"`
-	AnomalyMonitors      map[string]*AnomalyMonitor     `json:"anomalyMonitors"`
+	CostCategories       map[string]*CostCategory        `json:"costCategories"`
+	AnomalyMonitors      map[string]*AnomalyMonitor      `json:"anomalyMonitors"`
 	AnomalySubscriptions map[string]*AnomalySubscription `json:"anomalySubscriptions"`
-	AccountID            string                         `json:"accountID"`
-	Region               string                         `json:"region"`
+	AccountID            string                          `json:"accountID"`
+	Region               string                          `json:"region"`
 }
 
 // Snapshot serialises the backend state to JSON.

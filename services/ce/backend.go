@@ -21,56 +21,56 @@ var (
 
 // CostCategory represents an in-memory AWS Cost Explorer cost category.
 type CostCategory struct {
-	CreationDate     time.Time
-	Tags             map[string]string
-	ARN              string
-	Name             string
-	RuleVersion      string
-	DefaultValue     string
-	EffectiveStart   string
-	Rules            []CostCategoryRule
-	SplitChargeRules []SplitChargeRule
+	CreationDate     time.Time          `json:"creationDate"`
+	Tags             map[string]string  `json:"tags"`
+	ARN              string             `json:"arn"`
+	Name             string             `json:"name"`
+	RuleVersion      string             `json:"ruleVersion"`
+	DefaultValue     string             `json:"defaultValue"`
+	EffectiveStart   string             `json:"effectiveStart"`
+	Rules            []CostCategoryRule `json:"rules"`
+	SplitChargeRules []SplitChargeRule  `json:"splitChargeRules"`
 }
 
 // CostCategoryRule represents a single cost category rule.
 type CostCategoryRule struct {
-	Value string
+	Value string `json:"value"`
 }
 
 // SplitChargeRule represents a cost category split charge rule.
 type SplitChargeRule struct {
-	Source  string
-	Method  string
-	Targets []string
+	Source  string   `json:"source"`
+	Method  string   `json:"method"`
+	Targets []string `json:"targets"`
 }
 
 // AnomalyMonitor represents an in-memory AWS CE anomaly monitor.
 type AnomalyMonitor struct {
-	CreationDate     time.Time
-	Tags             map[string]string
-	MonitorARN       string
-	MonitorName      string
-	MonitorType      string
-	MonitorDimension string
+	CreationDate     time.Time         `json:"creationDate"`
+	Tags             map[string]string `json:"tags"`
+	MonitorARN       string            `json:"monitorARN"`
+	MonitorName      string            `json:"monitorName"`
+	MonitorType      string            `json:"monitorType"`
+	MonitorDimension string            `json:"monitorDimension"`
 }
 
 // AnomalySubscription represents an in-memory AWS CE anomaly subscription.
 type AnomalySubscription struct {
-	CreationDate     time.Time
-	Tags             map[string]string
-	SubscriptionARN  string
-	SubscriptionName string
-	Frequency        string
-	MonitorARNList   []string
-	Subscribers      []Subscriber
-	Threshold        float64
+	CreationDate     time.Time         `json:"creationDate"`
+	Tags             map[string]string `json:"tags"`
+	SubscriptionARN  string            `json:"subscriptionARN"`
+	SubscriptionName string            `json:"subscriptionName"`
+	Frequency        string            `json:"frequency"`
+	MonitorARNList   []string          `json:"monitorARNList"`
+	Subscribers      []Subscriber      `json:"subscribers"`
+	Threshold        float64           `json:"threshold"`
 }
 
 // Subscriber represents a CE anomaly subscription notification target.
 type Subscriber struct {
-	Address string
-	Type    string
-	Status  string
+	Address string `json:"address"`
+	Type    string `json:"type"`
+	Status  string `json:"status"`
 }
 
 // InMemoryBackend is a thread-safe in-memory store for Cost Explorer resources.

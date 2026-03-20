@@ -72,7 +72,11 @@ func (b *InMemoryBackend) PostToConnection(connectionID string, data []byte) err
 	})
 
 	if len(b.messages[connectionID]) > maxMessagesPerConnection {
-		b.messages[connectionID] = b.messages[connectionID][len(b.messages[connectionID])-maxMessagesPerConnection:]
+		old := b.messages[connectionID]
+		start := len(old) - maxMessagesPerConnection
+		fresh := make([]PostedMessage, maxMessagesPerConnection)
+		copy(fresh, old[start:])
+		b.messages[connectionID] = fresh
 	}
 
 	return nil

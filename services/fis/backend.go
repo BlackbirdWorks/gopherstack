@@ -160,16 +160,16 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	templates             map[string]*ExperimentTemplate
-	experiments           map[string]*Experiment
-	templateARNIndex      map[string]string // ARN → template ID
-	experimentARNIndex    map[string]string // ARN → experiment ID
-	faultStore            *chaos.FaultStore
-	safetyLever           *SafetyLever
-	mu                    *lockmetrics.RWMutex
-	accountID             string
-	region                string
-	actionProviders       []service.FISActionProvider
+	templates          map[string]*ExperimentTemplate
+	experiments        map[string]*Experiment
+	templateARNIndex   map[string]string // ARN → template ID
+	experimentARNIndex map[string]string // ARN → experiment ID
+	faultStore         *chaos.FaultStore
+	safetyLever        *SafetyLever
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
+	actionProviders    []service.FISActionProvider
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -373,84 +373,11 @@ func (b *InMemoryBackend) StartExperiment(
 	id := generateID("EXP")
 	arnStr := arn.Build("fis", region, accountID, fmt.Sprintf("experiment/%s", id))
 
-	// Build resolved targets from template (simplified: copy ARNs directly).
-	targets := make(map[string]ExperimentTarget, len(tpl.Targets))
-	for name, t := range tpl.Targets {
-		targets[name] = ExperimentTarget{
-			ResourceType: t.ResourceType,
-			ResourceArns: append([]string(nil), t.ResourceArns...),
-			Parameters:   copyStringMap(t.Parameters),
-		}
-	}
-
-	// Build action state.
-	actions := make(map[string]ExperimentAction, len(tpl.Actions))
-	for name, a := range tpl.Actions {
-		actions[name] = ExperimentAction{
-			ActionID:   a.ActionID,
-			Parameters: copyStringMap(a.Parameters),
-			Targets:    copyStringMap(a.Targets),
-			Status:     ExperimentActionStatus{Status: actionStatusPending},
-		}
-	}
-
-	// Copy stop conditions.
-	stopConditions := make([]ExperimentStopCondition, len(tpl.StopConditions))
-	for i, sc := range tpl.StopConditions {
-		stopConditions[i] = ExperimentStopCondition(sc)
-	}
-
-	// Copy log configuration.
-	var logConfig *ExperimentLogConfiguration
-	if tpl.LogConfiguration != nil {
-		logConfig = &ExperimentLogConfiguration{
-			LogSchemaVersion: tpl.LogConfiguration.LogSchemaVersion,
-		}
-
-		if tpl.LogConfiguration.CloudWatchLogsConfiguration != nil {
-			logConfig.CloudWatchLogsConfiguration = &ExperimentCloudWatchLogsConfiguration{
-				LogGroupArn: tpl.LogConfiguration.CloudWatchLogsConfiguration.LogGroupArn,
-			}
-		}
-
-		if tpl.LogConfiguration.S3Configuration != nil {
-			logConfig.S3Configuration = &ExperimentS3Configuration{
-				BucketName: tpl.LogConfiguration.S3Configuration.BucketName,
-				Prefix:     tpl.LogConfiguration.S3Configuration.Prefix,
-			}
-		}
-	}
-
-	// Copy experiment options.
-	var expOptions *ExperimentExperimentOptions
-	if tpl.ExperimentOptions != nil {
-		expOptions = &ExperimentExperimentOptions{
-			AccountTargeting:          tpl.ExperimentOptions.AccountTargeting,
-			EmptyTargetResolutionMode: tpl.ExperimentOptions.EmptyTargetResolutionMode,
-		}
-	}
-
 	// expCtx uses context.Background() as parent — NOT the HTTP request context — so the
 	// experiment goroutine is NOT cancelled when the HTTP response is sent.
-	// The cancel function is stored on exp and called by StopExperiment or on graceful shutdown.
-	//nolint:gosec // cancel stored in exp.cancel and called by StopExperiment
-	expCtx, cancel := context.WithCancel(context.Background())
 
-	exp := &Experiment{
-		ID:                   id,
-		Arn:                  arnStr,
-		ExperimentTemplateID: tpl.ID,
-		RoleArn:              tpl.RoleArn,
-		Status:               ExperimentStatus{Status: statusPending},
-		Targets:              targets,
-		Actions:              actions,
-		StopConditions:       stopConditions,
-		LogConfiguration:     logConfig,
-		ExperimentOptions:    expOptions,
-		Tags:                 copyStringMap(input.Tags),
-		StartTime:            time.Now(),
-		cancel:               cancel,
-	}
+	expCtx, cancel := context.WithCancel(context.Background())
+	exp := buildExperimentFromTemplate(id, arnStr, tpl, input.Tags, cancel)
 
 	// Clone the template BEFORE passing to the goroutine so template updates don't race.
 	tplForRun := cloneTemplate(tpl)
@@ -467,6 +394,92 @@ func (b *InMemoryBackend) StartExperiment(
 	go b.runExperiment(expCtx, id, tplForRun)
 
 	return snapshot, nil
+}
+
+// buildExperimentFromTemplate constructs a new Experiment from a template and input tags.
+func buildExperimentFromTemplate(
+	id, arnStr string,
+	tpl *ExperimentTemplate,
+	inputTags map[string]string,
+	cancel context.CancelFunc,
+) *Experiment {
+	targets := make(map[string]ExperimentTarget, len(tpl.Targets))
+	for name, t := range tpl.Targets {
+		targets[name] = ExperimentTarget{
+			ResourceType: t.ResourceType,
+			ResourceArns: append([]string(nil), t.ResourceArns...),
+			Parameters:   copyStringMap(t.Parameters),
+		}
+	}
+
+	actions := make(map[string]ExperimentAction, len(tpl.Actions))
+	for name, a := range tpl.Actions {
+		actions[name] = ExperimentAction{
+			ActionID:   a.ActionID,
+			Parameters: copyStringMap(a.Parameters),
+			Targets:    copyStringMap(a.Targets),
+			Status:     ExperimentActionStatus{Status: actionStatusPending},
+		}
+	}
+
+	stopConditions := make([]ExperimentStopCondition, len(tpl.StopConditions))
+	for i, sc := range tpl.StopConditions {
+		stopConditions[i] = ExperimentStopCondition(sc)
+	}
+
+	logConfig := copyLogConfiguration(tpl.LogConfiguration)
+
+	var expOptions *ExperimentExperimentOptions
+	if tpl.ExperimentOptions != nil {
+		expOptions = &ExperimentExperimentOptions{
+			AccountTargeting:          tpl.ExperimentOptions.AccountTargeting,
+			EmptyTargetResolutionMode: tpl.ExperimentOptions.EmptyTargetResolutionMode,
+		}
+	}
+
+	// expCtx uses context.Background() as parent — NOT the HTTP request context — so the
+	// experiment goroutine is NOT cancelled when the HTTP response is sent.
+	// cancel is passed in from StartExperiment and stored on the returned experiment.
+
+	return &Experiment{
+		ID:                   id,
+		Arn:                  arnStr,
+		ExperimentTemplateID: tpl.ID,
+		RoleArn:              tpl.RoleArn,
+		Status:               ExperimentStatus{Status: statusPending},
+		Targets:              targets,
+		Actions:              actions,
+		StopConditions:       stopConditions,
+		LogConfiguration:     logConfig,
+		ExperimentOptions:    expOptions,
+		Tags:                 copyStringMap(inputTags),
+		StartTime:            time.Now(),
+		cancel:               cancel,
+	}
+}
+
+// copyLogConfiguration deep-copies a template log configuration into its experiment equivalent.
+func copyLogConfiguration(tplLog *ExperimentTemplateLogConfiguration) *ExperimentLogConfiguration {
+	if tplLog == nil {
+		return nil
+	}
+
+	lc := &ExperimentLogConfiguration{LogSchemaVersion: tplLog.LogSchemaVersion}
+
+	if tplLog.CloudWatchLogsConfiguration != nil {
+		lc.CloudWatchLogsConfiguration = &ExperimentCloudWatchLogsConfiguration{
+			LogGroupArn: tplLog.CloudWatchLogsConfiguration.LogGroupArn,
+		}
+	}
+
+	if tplLog.S3Configuration != nil {
+		lc.S3Configuration = &ExperimentS3Configuration{
+			BucketName: tplLog.S3Configuration.BucketName,
+			Prefix:     tplLog.S3Configuration.Prefix,
+		}
+	}
+
+	return lc
 }
 
 // GetExperiment retrieves an experiment by ID.
@@ -707,13 +720,13 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	}
 
 	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
-		if tpl, ok := b.templates[tplID]; ok {
+		if tpl := b.templates[tplID]; tpl != nil {
 			return copyStringMap(tpl.Tags), nil
 		}
 	}
 
 	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
-		if exp, ok := b.experiments[expID]; ok {
+		if exp := b.experiments[expID]; exp != nil {
 			return copyStringMap(exp.Tags), nil
 		}
 	}
@@ -737,7 +750,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	}
 
 	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
-		if tpl, ok := b.templates[tplID]; ok {
+		if tpl := b.templates[tplID]; tpl != nil {
 			if tpl.Tags == nil {
 				tpl.Tags = make(map[string]string)
 			}
@@ -749,7 +762,7 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	}
 
 	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
-		if exp, ok := b.experiments[expID]; ok {
+		if exp := b.experiments[expID]; exp != nil {
 			if exp.Tags == nil {
 				exp.Tags = make(map[string]string)
 			}
@@ -777,7 +790,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	}
 
 	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
-		if tpl, ok := b.templates[tplID]; ok {
+		if tpl := b.templates[tplID]; tpl != nil {
 			for _, k := range keys {
 				delete(tpl.Tags, k)
 			}
@@ -787,7 +800,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	}
 
 	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
-		if exp, ok := b.experiments[expID]; ok {
+		if exp := b.experiments[expID]; exp != nil {
 			for _, k := range keys {
 				delete(exp.Tags, k)
 			}

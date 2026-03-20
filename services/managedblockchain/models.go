@@ -4,49 +4,49 @@ import "time"
 
 // Network represents an Amazon Managed Blockchain network.
 type Network struct {
-	CreationDate     *time.Time
-	Tags             map[string]string
-	Arn              string
-	Description      string
-	Framework        string
-	FrameworkVersion string
-	ID               string
-	Name             string
-	Status           string
+	CreationDate     *time.Time        `json:"creationDate"`
+	Tags             map[string]string `json:"tags"`
+	Arn              string            `json:"arn"`
+	Description      string            `json:"description"`
+	Framework        string            `json:"framework"`
+	FrameworkVersion string            `json:"frameworkVersion"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Status           string            `json:"status"`
 }
 
 // NetworkSummary is the short form returned by ListNetworks.
 type NetworkSummary struct {
-	CreationDate     *time.Time
-	Arn              string
-	Description      string
-	Framework        string
-	FrameworkVersion string
-	ID               string
-	Name             string
-	Status           string
+	CreationDate     *time.Time `json:"creationDate"`
+	Arn              string     `json:"arn"`
+	Description      string     `json:"description"`
+	Framework        string     `json:"framework"`
+	FrameworkVersion string     `json:"frameworkVersion"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	Status           string     `json:"status"`
 }
 
 // Member represents a member within a Managed Blockchain network.
 type Member struct {
-	CreationDate *time.Time
-	Tags         map[string]string
-	Arn          string
-	Description  string
-	ID           string
-	Name         string
-	NetworkID    string
-	Status       string
+	CreationDate *time.Time        `json:"creationDate"`
+	Tags         map[string]string `json:"tags"`
+	Arn          string            `json:"arn"`
+	Description  string            `json:"description"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	NetworkID    string            `json:"networkID"`
+	Status       string            `json:"status"`
 }
 
 // MemberSummary is the short form returned by ListMembers.
 type MemberSummary struct {
-	CreationDate *time.Time
-	Arn          string
-	Description  string
-	ID           string
-	Name         string
-	Status       string
+	CreationDate *time.Time `json:"creationDate"`
+	Arn          string     `json:"arn"`
+	Description  string     `json:"description"`
+	ID           string     `json:"id"`
+	Name         string     `json:"name"`
+	Status       string     `json:"status"`
 }
 
 // -- Request / Response bodies ------------------------------------------------

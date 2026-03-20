@@ -3,10 +3,10 @@ package ram
 import "encoding/json"
 
 type backendSnapshot struct {
-	ResourceShares map[string]*ResourceShare          `json:"resourceShares"`
-	Associations   []*ResourceShareAssociation        `json:"associations"`
-	AccountID      string                             `json:"accountID"`
-	Region         string                             `json:"region"`
+	ResourceShares map[string]*ResourceShare   `json:"resourceShares"`
+	AccountID      string                      `json:"accountID"`
+	Region         string                      `json:"region"`
+	Associations   []*ResourceShareAssociation `json:"associations"`
 }
 
 // Snapshot serialises the backend state to JSON.

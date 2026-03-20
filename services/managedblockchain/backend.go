@@ -64,10 +64,10 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	networks     map[string]*Network
-	members      map[string]map[string]*Member // networkID → memberID → Member
-	arnToResource map[string]interface{}        // ARN → *Network or *Member
-	mu           sync.RWMutex
+	networks      map[string]*Network
+	members       map[string]map[string]*Member // networkID → memberID → Member
+	arnToResource map[string]any                // ARN → *Network or *Member
+	mu            sync.RWMutex
 }
 
 // NewInMemoryBackend creates a new in-memory Managed Blockchain backend.
@@ -75,7 +75,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		networks:      make(map[string]*Network),
 		members:       make(map[string]map[string]*Member),
-		arnToResource: make(map[string]interface{}),
+		arnToResource: make(map[string]any),
 	}
 }
 

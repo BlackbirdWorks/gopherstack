@@ -106,7 +106,9 @@ func (b *InMemoryBackend) DeleteGroup(nameOrARN string) error {
 		return fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
-	delete(b.arnIndex, b.groups[name].ARN)
+	g := b.groups[name]
+	delete(b.arnIndex, g.ARN)
+	g.Tags.Close()
 	delete(b.groups, name)
 
 	return nil
@@ -120,7 +122,7 @@ func (b *InMemoryBackend) ListGroups() []Group {
 	out := make([]Group, 0, len(b.groups))
 	for _, g := range b.groups {
 		cp := *g
-		cp.Tags = tags.FromMap("rg."+g.Name+".tags.copy", g.Tags.Clone())
+		cp.Tags = nil
 		out = append(out, cp)
 	}
 

@@ -3,8 +3,8 @@ package managedblockchain
 import "encoding/json"
 
 type backendSnapshot struct {
-	Networks map[string]*Network               `json:"networks"`
-	Members  map[string]map[string]*Member     `json:"members"`
+	Networks map[string]*Network           `json:"networks"`
+	Members  map[string]map[string]*Member `json:"members"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -48,7 +48,7 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.members = snap.Members
 
 	// Rebuild ARN index from restored state.
-	b.arnToResource = make(map[string]interface{})
+	b.arnToResource = make(map[string]any)
 
 	for _, n := range b.networks {
 		b.arnToResource[n.Arn] = n
