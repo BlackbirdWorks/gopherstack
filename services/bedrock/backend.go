@@ -83,6 +83,9 @@ type FoundationModelSummary struct {
 type InMemoryBackend struct {
 	guardrails                  map[string]*Guardrail
 	provisionedModelThroughputs map[string]*ProvisionedModelThroughput
+	guardrailsByName            map[string]string // guardrail name → ID
+	guardrailsByARN             map[string]string // guardrail ARN → ID
+	pmtsByName                  map[string]string // PMT name → ARN (PMT map is keyed by ARN)
 	mu                          *lockmetrics.RWMutex
 	accountID                   string
 	region                      string
@@ -96,6 +99,9 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
 		guardrails:                  make(map[string]*Guardrail),
 		provisionedModelThroughputs: make(map[string]*ProvisionedModelThroughput),
+		guardrailsByName:            make(map[string]string),
+		guardrailsByARN:             make(map[string]string),
+		pmtsByName:                  make(map[string]string),
 		accountID:                   accountID,
 		region:                      region,
 		mu:                          lockmetrics.New("bedrock"),
@@ -178,10 +184,8 @@ func (b *InMemoryBackend) CreateGuardrail(
 	b.mu.Lock("CreateGuardrail")
 	defer b.mu.Unlock()
 
-	for _, g := range b.guardrails {
-		if g.Name == name {
-			return nil, fmt.Errorf("%w: guardrail %s already exists", ErrAlreadyExists, name)
-		}
+	if _, exists := b.guardrailsByName[name]; exists {
+		return nil, fmt.Errorf("%w: guardrail %s already exists", ErrAlreadyExists, name)
 	}
 
 	id := b.newGuardrailID()
@@ -205,12 +209,12 @@ func (b *InMemoryBackend) CreateGuardrail(
 		UpdatedAt:               now,
 	}
 	b.guardrails[id] = g
+	b.guardrailsByName[name] = id
+	b.guardrailsByARN[guardrailARN] = id
 	cp := *g
 
 	return &cp, nil
 }
-
-// GetGuardrail returns a guardrail by ID or ARN.
 func (b *InMemoryBackend) GetGuardrail(idOrARN string) (*Guardrail, error) {
 	b.mu.RLock("GetGuardrail")
 	defer b.mu.RUnlock()
@@ -291,6 +295,8 @@ func (b *InMemoryBackend) DeleteGuardrail(idOrARN string) error {
 	}
 
 	delete(b.guardrails, g.GuardrailID)
+	delete(b.guardrailsByName, g.Name)
+	delete(b.guardrailsByARN, g.GuardrailArn)
 
 	return nil
 }
@@ -302,10 +308,8 @@ func (b *InMemoryBackend) findGuardrailByIDOrARN(idOrARN string) (*Guardrail, bo
 		return g, true
 	}
 
-	for _, g := range b.guardrails {
-		if g.GuardrailArn == idOrARN {
-			return g, true
-		}
+	if id, ok := b.guardrailsByARN[idOrARN]; ok {
+		return b.guardrails[id], true
 	}
 
 	return nil, false
@@ -348,10 +352,8 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 	b.mu.Lock("CreateProvisionedModelThroughput")
 	defer b.mu.Unlock()
 
-	for _, p := range b.provisionedModelThroughputs {
-		if p.ProvisionedModelName == name {
-			return nil, fmt.Errorf("%w: provisioned model throughput %s already exists", ErrAlreadyExists, name)
-		}
+	if _, exists := b.pmtsByName[name]; exists {
+		return nil, fmt.Errorf("%w: provisioned model throughput %s already exists", ErrAlreadyExists, name)
 	}
 
 	id := b.newProvisionedID()
@@ -377,12 +379,11 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 		Tags:                 tagsCopy,
 	}
 	b.provisionedModelThroughputs[pmtARN] = pmt
+	b.pmtsByName[name] = pmtARN
 	cp := *pmt
 
 	return &cp, nil
 }
-
-// GetProvisionedModelThroughput returns a provisioned model throughput by ID or ARN.
 func (b *InMemoryBackend) GetProvisionedModelThroughput(idOrARN string) (*ProvisionedModelThroughput, error) {
 	b.mu.RLock("GetProvisionedModelThroughput")
 	defer b.mu.RUnlock()
@@ -453,6 +454,7 @@ func (b *InMemoryBackend) DeleteProvisionedModelThroughput(idOrARN string) error
 	}
 
 	delete(b.provisionedModelThroughputs, pmt.ProvisionedModelArn)
+	delete(b.pmtsByName, pmt.ProvisionedModelName)
 
 	return nil
 }
@@ -464,10 +466,8 @@ func (b *InMemoryBackend) findPMTByIDOrARN(idOrARN string) (*ProvisionedModelThr
 		return pmt, true
 	}
 
-	for _, pmt := range b.provisionedModelThroughputs {
-		if pmt.ProvisionedModelName == idOrARN {
-			return pmt, true
-		}
+	if pmtARN, ok := b.pmtsByName[idOrARN]; ok {
+		return b.provisionedModelThroughputs[pmtARN], true
 	}
 
 	return nil, false
@@ -494,28 +494,42 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	existing, ok := b.findTagsByARNPointer(resourceARN)
-	if !ok {
-		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	if id, ok := b.guardrailsByARN[resourceARN]; ok {
+		g := b.guardrails[id]
+		tagMap := make(map[string]string, len(g.Tags))
+		for _, t := range g.Tags {
+			tagMap[t.Key] = t.Value
+		}
+		for _, t := range tags {
+			tagMap[t.Key] = t.Value
+		}
+		merged := make([]Tag, 0, len(tagMap))
+		for k, v := range tagMap {
+			merged = append(merged, Tag{Key: k, Value: v})
+		}
+		g.Tags = merged
+
+		return nil
 	}
 
-	tagMap := make(map[string]string, len(*existing))
-	for _, t := range *existing {
-		tagMap[t.Key] = t.Value
+	if pmt, ok := b.provisionedModelThroughputs[resourceARN]; ok {
+		tagMap := make(map[string]string, len(pmt.Tags))
+		for _, t := range pmt.Tags {
+			tagMap[t.Key] = t.Value
+		}
+		for _, t := range tags {
+			tagMap[t.Key] = t.Value
+		}
+		merged := make([]Tag, 0, len(tagMap))
+		for k, v := range tagMap {
+			merged = append(merged, Tag{Key: k, Value: v})
+		}
+		pmt.Tags = merged
+
+		return nil
 	}
 
-	for _, t := range tags {
-		tagMap[t.Key] = t.Value
-	}
-
-	merged := make([]Tag, 0, len(tagMap))
-	for k, v := range tagMap {
-		merged = append(merged, Tag{Key: k, Value: v})
-	}
-
-	*existing = merged
-
-	return nil
+	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
 // UntagResource removes tags from a resource identified by ARN.
@@ -523,65 +537,55 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	existing, ok := b.findTagsByARNPointer(resourceARN)
-	if !ok {
-		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
-	}
-
 	removeSet := make(map[string]bool, len(tagKeys))
 	for _, k := range tagKeys {
 		removeSet[k] = true
 	}
 
-	filtered := (*existing)[:0]
-	for _, t := range *existing {
-		if !removeSet[t.Key] {
-			filtered = append(filtered, t)
+	if id, ok := b.guardrailsByARN[resourceARN]; ok {
+		g := b.guardrails[id]
+		filtered := g.Tags[:0]
+		for _, t := range g.Tags {
+			if !removeSet[t.Key] {
+				filtered = append(filtered, t)
+			}
 		}
+		g.Tags = filtered
+
+		return nil
 	}
 
-	*existing = filtered
+	if pmt, ok := b.provisionedModelThroughputs[resourceARN]; ok {
+		filtered := pmt.Tags[:0]
+		for _, t := range pmt.Tags {
+			if !removeSet[t.Key] {
+				filtered = append(filtered, t)
+			}
+		}
+		pmt.Tags = filtered
 
-	return nil
+		return nil
+	}
+
+	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 }
 
 // findTagsByARN returns a copy of the tags for a resource by ARN.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findTagsByARN(resourceARN string) ([]Tag, bool) {
-	for _, g := range b.guardrails {
-		if g.GuardrailArn == resourceARN {
-			result := make([]Tag, len(g.Tags))
-			copy(result, g.Tags)
+	if id, ok := b.guardrailsByARN[resourceARN]; ok {
+		g := b.guardrails[id]
+		result := make([]Tag, len(g.Tags))
+		copy(result, g.Tags)
 
-			return result, true
-		}
+		return result, true
 	}
 
-	for _, pmt := range b.provisionedModelThroughputs {
-		if pmt.ProvisionedModelArn == resourceARN {
-			result := make([]Tag, len(pmt.Tags))
-			copy(result, pmt.Tags)
+	if pmt, ok := b.provisionedModelThroughputs[resourceARN]; ok {
+		result := make([]Tag, len(pmt.Tags))
+		copy(result, pmt.Tags)
 
-			return result, true
-		}
-	}
-
-	return nil, false
-}
-
-// findTagsByARNPointer returns a pointer to the tags slice for a resource by ARN.
-// Caller must hold the write lock.
-func (b *InMemoryBackend) findTagsByARNPointer(resourceARN string) (*[]Tag, bool) {
-	for _, g := range b.guardrails {
-		if g.GuardrailArn == resourceARN {
-			return &g.Tags, true
-		}
-	}
-
-	for _, pmt := range b.provisionedModelThroughputs {
-		if pmt.ProvisionedModelArn == resourceARN {
-			return &pmt.Tags, true
-		}
+		return result, true
 	}
 
 	return nil, false

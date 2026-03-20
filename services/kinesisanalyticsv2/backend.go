@@ -60,21 +60,23 @@ type Snapshot struct {
 
 // InMemoryBackend stores Kinesis Data Analytics v2 state in memory.
 type InMemoryBackend struct {
-	applications map[string]*Application // key: applicationName
-	snapshots    map[string][]*Snapshot  // key: applicationName → snapshots
-	mu           *lockmetrics.RWMutex
-	accountID    string
-	region       string
+	applications    map[string]*Application // key: applicationName
+	applicationARNs map[string]string       // application ARN → applicationName
+	snapshots       map[string][]*Snapshot  // key: applicationName → snapshots
+	mu              *lockmetrics.RWMutex
+	accountID       string
+	region          string
 }
 
 // NewInMemoryBackend creates a new in-memory Kinesis Data Analytics v2 backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		applications: make(map[string]*Application),
-		snapshots:    make(map[string][]*Snapshot),
-		mu:           lockmetrics.New("kinesisanalyticsv2"),
-		accountID:    accountID,
-		region:       region,
+		applications:    make(map[string]*Application),
+		applicationARNs: make(map[string]string),
+		snapshots:       make(map[string][]*Snapshot),
+		mu:              lockmetrics.New("kinesisanalyticsv2"),
+		accountID:       accountID,
+		region:          region,
 	}
 }
 
@@ -115,6 +117,7 @@ func (b *InMemoryBackend) CreateApplication(
 		CreatedAt:              time.Now().UTC(),
 	}
 	b.applications[name] = app
+	b.applicationARNs[appARN] = name
 
 	return app, nil
 }
@@ -187,10 +190,12 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[name]; !ok {
+	app, ok := b.applications[name]
+	if !ok {
 		return ErrNotFound
 	}
 
+	delete(b.applicationARNs, app.ApplicationARN)
 	delete(b.applications, name)
 	delete(b.snapshots, name)
 
@@ -375,12 +380,11 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error)
 	return cloneTags(app.Tags), nil
 }
 
-// findByARN finds an application by its ARN (must be called with lock held).
+// findByARN finds an application by its ARN using O(1) index lookup.
+// Must be called with lock held.
 func (b *InMemoryBackend) findByARN(resourceARN string) *Application {
-	for _, app := range b.applications {
-		if app.ApplicationARN == resourceARN {
-			return app
-		}
+	if name, ok := b.applicationARNs[resourceARN]; ok {
+		return b.applications[name]
 	}
 
 	return nil

@@ -186,9 +186,11 @@ func (b *InMemoryBackend) DeleteQueue(name string) error {
 	b.mu.Lock("DeleteQueue")
 	defer b.mu.Unlock()
 
-	if _, ok := b.queues[name]; !ok {
+	q, ok := b.queues[name]
+	if !ok {
 		return fmt.Errorf("%w: queue %s not found", ErrNotFound, name)
 	}
+	delete(b.tags, q.Arn)
 	delete(b.queues, name)
 
 	return nil
@@ -301,9 +303,11 @@ func (b *InMemoryBackend) DeleteJobTemplate(name string) error {
 	b.mu.Lock("DeleteJobTemplate")
 	defer b.mu.Unlock()
 
-	if _, ok := b.jobTemplates[name]; !ok {
+	jt, ok := b.jobTemplates[name]
+	if !ok {
 		return fmt.Errorf("%w: job template %s not found", ErrNotFound, name)
 	}
+	delete(b.tags, jt.Arn)
 	delete(b.jobTemplates, name)
 
 	return nil
@@ -417,5 +421,9 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) {
 
 	for _, k := range tagKeys {
 		delete(b.tags[resourceARN], k)
+	}
+
+	if len(b.tags[resourceARN]) == 0 {
+		delete(b.tags, resourceARN)
 	}
 }

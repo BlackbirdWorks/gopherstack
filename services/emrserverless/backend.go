@@ -102,7 +102,9 @@ type JobRun struct {
 
 // InMemoryBackend stores EMR Serverless state in memory.
 type InMemoryBackend struct {
-	applications map[string]*Application
+	applications    map[string]*Application
+	applicationARNs map[string]string    // application ARN → applicationID
+	jobRunARNs      map[string][2]string // job run ARN → {applicationID, jobRunID}
 	// jobRuns maps applicationID -> jobRunID -> JobRun.
 	jobRuns   map[string]map[string]*JobRun
 	mu        *lockmetrics.RWMutex
@@ -113,11 +115,13 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		applications: make(map[string]*Application),
-		jobRuns:      make(map[string]map[string]*JobRun),
-		accountID:    accountID,
-		region:       region,
-		mu:           lockmetrics.New("emrserverless"),
+		applications:    make(map[string]*Application),
+		applicationARNs: make(map[string]string),
+		jobRunARNs:      make(map[string][2]string),
+		jobRuns:         make(map[string]map[string]*JobRun),
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("emrserverless"),
 	}
 }
 
@@ -180,6 +184,7 @@ func (b *InMemoryBackend) CreateApplication(
 		Tags:          tagsCopy,
 	}
 	b.applications[id] = app
+	b.applicationARNs[app.Arn] = id
 
 	return cloneApplication(app), nil
 }
@@ -236,8 +241,16 @@ func (b *InMemoryBackend) DeleteApplication(id string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[id]; !ok {
+	app, ok := b.applications[id]
+	if !ok {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, id)
+	}
+
+	delete(b.applicationARNs, app.Arn)
+
+	// Clean up job run ARN index entries for this application's job runs.
+	for _, jr := range b.jobRuns[id] {
+		delete(b.jobRunARNs, jr.Arn)
 	}
 
 	delete(b.applications, id)
@@ -313,6 +326,7 @@ func (b *InMemoryBackend) StartJobRun(
 	}
 
 	b.jobRuns[applicationID][jobRunID] = jr
+	b.jobRunARNs[jr.Arn] = [2]string{applicationID, jobRunID}
 
 	return cloneJobRun(jr), nil
 }
@@ -435,21 +449,24 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	return nil
 }
 
-// findTagsByARN looks up the tags map for a resource by ARN.
+// findTagsByARN looks up the tags map for a resource by ARN using O(1) index lookups.
 // Caller must hold at least a read lock.
 func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, bool) {
-	for _, app := range b.applications {
-		if app.Arn == resourceARN {
-			return app.Tags, true
-		}
+	if id, ok := b.applicationARNs[resourceARN]; ok {
+		return b.applications[id].Tags, true
 	}
 
-	for _, runs := range b.jobRuns {
-		for _, jr := range runs {
-			if jr.Arn == resourceARN {
-				return jr.Tags, true
-			}
+	if key, ok := b.jobRunARNs[resourceARN]; ok {
+		runs, runsOK := b.jobRuns[key[0]]
+		if !runsOK {
+			return nil, false
 		}
+		jr, jrOK := runs[key[1]]
+		if !jrOK {
+			return nil, false
+		}
+
+		return jr.Tags, true
 	}
 
 	return nil, false

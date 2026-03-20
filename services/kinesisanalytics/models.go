@@ -4,15 +4,15 @@ import "time"
 
 // Application represents a Kinesis Analytics v1 application.
 type Application struct {
-	CreateTimestamp        *time.Time
-	LastUpdateTimestamp    *time.Time
-	Tags                   map[string]string
-	ApplicationName        string
-	ApplicationARN         string
-	ApplicationCode        string
-	ApplicationDescription string
-	ApplicationStatus      string
-	ApplicationVersionID   int64
+	CreateTimestamp        *time.Time        `json:"CreateTimestamp,omitempty"`
+	LastUpdateTimestamp    *time.Time        `json:"LastUpdateTimestamp,omitempty"`
+	Tags                   map[string]string `json:"Tags,omitempty"`
+	ApplicationName        string            `json:"ApplicationName"`
+	ApplicationARN         string            `json:"ApplicationARN"`
+	ApplicationCode        string            `json:"ApplicationCode,omitempty"`
+	ApplicationDescription string            `json:"ApplicationDescription,omitempty"`
+	ApplicationStatus      string            `json:"ApplicationStatus"`
+	ApplicationVersionID   int64             `json:"ApplicationVersionId"`
 }
 
 // applicationSummary is the short form returned by ListApplications.

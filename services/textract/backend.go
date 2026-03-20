@@ -33,6 +33,9 @@ type DocumentJob struct {
 	Blocks       []Block   `json:"blocks"`
 }
 
+// maxJobHistory is the maximum number of completed jobs retained in memory.
+const maxJobHistory = 10000
+
 // InMemoryBackend is the in-memory store for Textract jobs.
 type InMemoryBackend struct {
 	jobs map[string]*DocumentJob
@@ -80,6 +83,35 @@ func cloneJob(j *DocumentJob) *DocumentJob {
 	return &cp
 }
 
+// trimJobsIfNeeded removes the oldest jobs when the job count exceeds maxJobHistory.
+// Caller must hold the write lock.
+func (b *InMemoryBackend) trimJobsIfNeeded() {
+	if len(b.jobs) <= maxJobHistory {
+		return
+	}
+
+	// Collect jobs sorted by creation time (oldest first).
+	type entry struct {
+		job *DocumentJob
+		id  string
+	}
+
+	entries := make([]entry, 0, len(b.jobs))
+	for id, j := range b.jobs {
+		entries = append(entries, entry{id: id, job: j})
+	}
+
+	sort.Slice(entries, func(i, k int) bool {
+		return entries[i].job.CreationTime.Before(entries[k].job.CreationTime)
+	})
+
+	// Remove oldest entries until we are at the limit.
+	excess := len(b.jobs) - maxJobHistory
+	for i := range excess {
+		delete(b.jobs, entries[i].id)
+	}
+}
+
 // AnalyzeDocument performs a synchronous document analysis and returns synthetic blocks.
 func (b *InMemoryBackend) AnalyzeDocument(documentURI string) []Block {
 	return syntheticBlocks(documentURI)
@@ -104,6 +136,7 @@ func (b *InMemoryBackend) StartDocumentAnalysis(documentURI string) (*DocumentJo
 		Blocks:       syntheticBlocks(documentURI),
 	}
 	b.jobs[jobID] = job
+	b.trimJobsIfNeeded()
 
 	return cloneJob(job), nil
 }
@@ -135,6 +168,7 @@ func (b *InMemoryBackend) StartDocumentTextDetection(documentURI string) (*Docum
 		Blocks:       syntheticBlocks(documentURI),
 	}
 	b.jobs[jobID] = job
+	b.trimJobsIfNeeded()
 
 	return cloneJob(job), nil
 }

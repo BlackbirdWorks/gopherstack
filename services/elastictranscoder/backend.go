@@ -53,23 +53,25 @@ type Job struct {
 
 // InMemoryBackend is the in-memory store for Elastic Transcoder resources.
 type InMemoryBackend struct {
-	pipelines map[string]*Pipeline
-	presets   map[string]*Preset
-	jobs      map[string]*Job
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	pipelines       map[string]*Pipeline
+	presets         map[string]*Preset
+	jobs            map[string]*Job
+	pipelinesByName map[string]string // pipeline name → ID
+	mu              *lockmetrics.RWMutex
+	accountID       string
+	region          string
 }
 
 // NewInMemoryBackend creates a new in-memory Elastic Transcoder backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		pipelines: make(map[string]*Pipeline),
-		presets:   make(map[string]*Preset),
-		jobs:      make(map[string]*Job),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("elastictranscoder"),
+		pipelines:       make(map[string]*Pipeline),
+		presets:         make(map[string]*Preset),
+		jobs:            make(map[string]*Job),
+		pipelinesByName: make(map[string]string),
+		accountID:       accountID,
+		region:          region,
+		mu:              lockmetrics.New("elastictranscoder"),
 	}
 }
 
@@ -81,10 +83,8 @@ func (b *InMemoryBackend) CreatePipeline(name, inputBucket, outputBucket, role s
 	b.mu.Lock("CreatePipeline")
 	defer b.mu.Unlock()
 
-	for _, existing := range b.pipelines {
-		if existing.Name == name {
-			return nil, fmt.Errorf("%w: pipeline %s already exists", ErrAlreadyExists, name)
-		}
+	if _, exists := b.pipelinesByName[name]; exists {
+		return nil, fmt.Errorf("%w: pipeline %s already exists", ErrAlreadyExists, name)
 	}
 
 	id := uuid.NewString()
@@ -102,6 +102,7 @@ func (b *InMemoryBackend) CreatePipeline(name, inputBucket, outputBucket, role s
 		CreationTime: time.Now().UTC(),
 	}
 	b.pipelines[id] = p
+	b.pipelinesByName[name] = id
 	cp := *p
 
 	return &cp, nil
@@ -146,7 +147,9 @@ func (b *InMemoryBackend) UpdatePipeline(id, name, inputBucket, outputBucket, ro
 	}
 
 	if name != "" {
+		delete(b.pipelinesByName, p.Name)
 		p.Name = name
+		b.pipelinesByName[name] = id
 	}
 
 	if inputBucket != "" {
@@ -171,9 +174,11 @@ func (b *InMemoryBackend) DeletePipeline(id string) error {
 	b.mu.Lock("DeletePipeline")
 	defer b.mu.Unlock()
 
-	if _, ok := b.pipelines[id]; !ok {
+	p, ok := b.pipelines[id]
+	if !ok {
 		return fmt.Errorf("%w: pipeline %s not found", ErrNotFound, id)
 	}
+	delete(b.pipelinesByName, p.Name)
 	delete(b.pipelines, id)
 
 	return nil
