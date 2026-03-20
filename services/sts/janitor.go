@@ -58,6 +58,11 @@ func (j *Janitor) taskContext(parent context.Context) (context.Context, context.
 	return context.WithCancel(parent)
 }
 
+// SweepOnce runs a single sweep pass. Exposed for testing.
+func (j *Janitor) SweepOnce(ctx context.Context) {
+	j.sweepExpiredSessions(ctx)
+}
+
 // sweepExpiredSessions removes sessions whose Expiration is in the past.
 func (j *Janitor) sweepExpiredSessions(ctx context.Context) {
 	b := j.Backend

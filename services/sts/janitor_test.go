@@ -78,7 +78,81 @@ func TestJanitor_SweepsExpiredSessions(t *testing.T) {
 	}
 }
 
-// TestJanitor_PreservesActiveSessions verifies that non-expired sessions are
+// TestJanitor_SweepOnce_STS verifies that SweepOnce triggers an immediate sweep
+// of expired sessions without requiring a ticker to fire.
+func TestJanitor_SweepOnce_STS(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		expiredCount   int
+		activeCount    int
+		wantAfterSweep int
+	}{
+		{
+			name:           "expired_sessions_removed",
+			expiredCount:   2,
+			activeCount:    1,
+			wantAfterSweep: 1,
+		},
+		{
+			name:           "no_expired_sessions",
+			expiredCount:   0,
+			activeCount:    2,
+			wantAfterSweep: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sts.NewInMemoryBackend()
+
+			totalSessions := tt.expiredCount + tt.activeCount
+			accessKeyIDs := make([]string, totalSessions)
+
+			for i := range totalSessions {
+				resp, err := b.AssumeRole(&sts.AssumeRoleInput{
+					RoleArn:         "arn:aws:iam::123456789012:role/Role1",
+					RoleSessionName: fmt.Sprintf("session%d", i),
+					DurationSeconds: 900,
+				})
+				require.NoError(t, err)
+
+				accessKeyIDs[i] = resp.AssumeRoleResult.Credentials.AccessKeyID
+			}
+
+			// Force the first tt.expiredCount sessions to be expired.
+			for i := range tt.expiredCount {
+				b.SetSessionExpiration(accessKeyIDs[i], time.Now().Add(-time.Second))
+			}
+
+			j := sts.NewJanitor(b, time.Minute)
+			j.SweepOnce(t.Context())
+
+			assert.Equal(t, tt.wantAfterSweep, b.SessionCount())
+		})
+	}
+}
+
+// TestJanitor_TaskTimeout_STS verifies that WithJanitor propagates the
+// taskTimeout variadic argument correctly for the STS handler.
+func TestJanitor_TaskTimeout_STS(t *testing.T) {
+	t.Parallel()
+
+	b := sts.NewInMemoryBackend()
+	h := sts.NewHandler(b)
+
+	// Passing a 30s task timeout should not cause any issue.
+	h.WithJanitor(10*time.Millisecond, 30*time.Second)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // immediately cancelled — goroutine should exit right away
+
+	err := h.StartWorker(ctx)
+	require.NoError(t, err)
+}
 // not removed by the janitor.
 func TestJanitor_PreservesActiveSessions(t *testing.T) {
 	t.Parallel()

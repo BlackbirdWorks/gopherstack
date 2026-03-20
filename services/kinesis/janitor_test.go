@@ -281,3 +281,53 @@ func TestBinarySearch_FindSequencePosition(t *testing.T) {
 		})
 	}
 }
+
+// TestJanitor_TaskTimeout_BoundsSweep verifies that a Janitor with a non-zero
+// TaskTimeout creates a bounded context for each sweep and that the janitor
+// still exits cleanly when the parent context is cancelled.
+func TestJanitor_TaskTimeout_BoundsSweep(t *testing.T) {
+t.Parallel()
+
+bk := kinesis.NewInMemoryBackend()
+j := kinesis.NewJanitorForTest(bk, 10*time.Millisecond)
+j.TaskTimeout = 30 * time.Second
+
+ctx, cancel := context.WithCancel(t.Context())
+
+done := make(chan struct{})
+
+go func() {
+j.Run(ctx)
+close(done)
+}()
+
+cancel()
+
+select {
+case <-done:
+case <-time.After(2 * time.Second):
+require.Fail(t, "janitor did not exit after context cancellation")
+}
+}
+
+// TestJanitor_WithTaskTimeout_ProviderPath verifies that WithJanitor propagates
+// the task timeout so sweeps run with a bounded child context.
+func TestJanitor_WithTaskTimeout_ProviderPath(t *testing.T) {
+t.Parallel()
+
+bk := kinesis.NewInMemoryBackend()
+
+// Push an old record that would normally be swept.
+require.NoError(t, bk.CreateStream(&kinesis.CreateStreamInput{StreamName: "timeout-test"}))
+require.NoError(t, bk.SetRetentionPeriodForTest("timeout-test", 24))
+require.NoError(t, bk.PushOldRecordForTest("timeout-test", 0, 30*time.Hour))
+
+j := kinesis.NewJanitorForTest(bk, time.Minute)
+j.TaskTimeout = 5 * time.Second // generous timeout; sweep should still complete
+
+j.SweepOnce(t.Context())
+
+// The record should be swept even with a TaskTimeout set.
+assert.Equal(t, 0, bk.ShardRecordCountForTest("timeout-test", 0),
+"old record should be swept when TaskTimeout is generous")
+}

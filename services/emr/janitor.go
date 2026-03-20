@@ -71,6 +71,11 @@ func (j *Janitor) taskContext(parent context.Context) (context.Context, context.
 	return context.WithCancel(parent)
 }
 
+// SweepOnce runs a single sweep pass. Exposed for testing.
+func (j *Janitor) SweepOnce(ctx context.Context) {
+	j.sweepTerminatedClusters(ctx)
+}
+
 // sweepTerminatedClusters removes clusters that have been in the terminated
 // state longer than TerminatedTTL.
 func (j *Janitor) sweepTerminatedClusters(ctx context.Context) {

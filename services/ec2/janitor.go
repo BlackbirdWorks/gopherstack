@@ -81,6 +81,12 @@ func (j *Janitor) taskContext(parent context.Context) (context.Context, context.
 	return context.WithCancel(parent)
 }
 
+// SweepOnce runs a single sweep pass. Exposed for testing.
+func (j *Janitor) SweepOnce(ctx context.Context) {
+	j.sweepTerminatedInstances(ctx)
+	j.sweepCancelledSpotRequests(ctx)
+}
+
 // sweepTerminatedInstances removes instances that have been in the terminated
 // state longer than TerminatedTTL and cleans up their tags. As a defensive
 // measure it also removes any network interfaces still attached to swept
