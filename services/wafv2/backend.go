@@ -181,14 +181,21 @@ func (b *InMemoryBackend) DeleteWebACL(id string) error {
 	b.mu.Lock("DeleteWebACL")
 	defer b.mu.Unlock()
 
-	if w, ok := b.webACLs[id]; ok {
-		delete(b.webACLByARN, b.WebACLARN(w.Name, w.ID, w.Scope))
-		delete(b.webACLByNameScope, nameScope(w.Name, w.Scope))
-	} else {
+	w, ok := b.webACLs[id]
+	if !ok {
 		return fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, id)
 	}
 
+	delete(b.webACLByARN, b.WebACLARN(w.Name, w.ID, w.Scope))
+	delete(b.webACLByNameScope, nameScope(w.Name, w.Scope))
 	delete(b.webACLs, id)
+
+	// Cascade: remove all resource associations for this WebACL.
+	for resourceARN, assocID := range b.associations {
+		if assocID == id {
+			delete(b.associations, resourceARN)
+		}
+	}
 
 	return nil
 }

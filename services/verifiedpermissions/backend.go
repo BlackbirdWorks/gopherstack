@@ -422,3 +422,55 @@ func (b *InMemoryBackend) Reset() {
 	b.policies = make(map[string]map[string]*Policy)
 	b.policyTemplates = make(map[string]map[string]*PolicyTemplate)
 }
+
+// TagResource adds or updates tags on a policy store identified by its ARN.
+func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string) error {
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	for _, ps := range b.policyStores {
+		if ps.Arn == resourceARN {
+			if ps.Tags == nil {
+				ps.Tags = make(map[string]string, len(tags))
+			}
+
+			maps.Copy(ps.Tags, tags)
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
+}
+
+// UntagResource removes tags from a policy store identified by its ARN.
+func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	for _, ps := range b.policyStores {
+		if ps.Arn == resourceARN {
+			for _, k := range tagKeys {
+				delete(ps.Tags, k)
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
+}
+
+// ListTagsForResource returns the tags for a policy store identified by its ARN.
+func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	for _, ps := range b.policyStores {
+		if ps.Arn == resourceARN {
+			return maps.Clone(ps.Tags), nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: policy store with ARN %q not found", ErrPolicyStoreNotFound, resourceARN)
+}
