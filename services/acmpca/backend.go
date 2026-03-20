@@ -38,6 +38,7 @@ var (
 const (
 	caStatusCreating     = "CREATING"
 	caStatusActive       = "ACTIVE"
+	caStatusDisabled     = "DISABLED"
 	caStatusDeleted      = "DELETED"
 	caTypePRoot          = "ROOT"
 	caTypeSubordinate    = "SUBORDINATE"
@@ -241,6 +242,10 @@ func (b *InMemoryBackend) DeleteCertificateAuthority(caARN string) error {
 	ca, ok := b.cas[caARN]
 	if !ok {
 		return fmt.Errorf("%w: CA %s not found", ErrCANotFound, caARN)
+	}
+
+	if ca.Status != caStatusDisabled {
+		return fmt.Errorf("%w: CA must be in DISABLED state before deletion (current: %s)", ErrInvalidState, ca.Status)
 	}
 
 	ca.Status = caStatusDeleted
@@ -611,4 +616,13 @@ func splitARN(a string) []string {
 	}
 
 	return nil
+}
+
+// Reset clears all CAs and issued certificates.
+func (b *InMemoryBackend) Reset() {
+b.mu.Lock("Reset")
+defer b.mu.Unlock()
+
+b.cas = make(map[string]*CertificateAuthority)
+b.certs = make(map[string]*IssuedCertificate)
 }

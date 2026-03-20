@@ -518,3 +518,16 @@ func extractCertMetadata(certPEM string) (string, time.Time, time.Time, error) {
 
 	return domainName, cert.NotBefore.UTC(), cert.NotAfter.UTC(), nil
 }
+
+// Reset clears all certificate state and stops any pending auto-validate timers.
+func (b *InMemoryBackend) Reset() {
+b.mu.Lock("Reset")
+defer b.mu.Unlock()
+
+for _, t := range b.timers {
+t.Stop()
+}
+
+b.certs = make(map[string]*Certificate)
+b.timers = make(map[string]*time.Timer)
+}

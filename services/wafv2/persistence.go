@@ -56,13 +56,17 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 
 	b.webACLByARN = make(map[string]string, len(snap.WebACLs))
 	b.ipSetByARN = make(map[string]string, len(snap.IPSets))
+	b.webACLByNameScope = make(map[string]string, len(snap.WebACLs))
+	b.ipSetByNameScope = make(map[string]string, len(snap.IPSets))
 
 	for _, w := range snap.WebACLs {
 		b.webACLByARN[b.WebACLARN(w.Name, w.ID, w.Scope)] = w.ID
+		b.webACLByNameScope[nameScope(w.Name, w.Scope)] = w.ID
 	}
 
 	for _, s := range snap.IPSets {
 		b.ipSetByARN[b.IPSetARN(s.Name, s.ID, s.Scope)] = s.ID
+		b.ipSetByNameScope[nameScope(s.Name, s.Scope)] = s.ID
 	}
 
 	return nil

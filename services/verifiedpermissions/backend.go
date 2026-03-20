@@ -412,3 +412,13 @@ func (b *InMemoryBackend) DeletePolicyTemplate(policyStoreID, policyTemplateID s
 
 	return nil
 }
+
+// Reset clears all policy store state.
+func (b *InMemoryBackend) Reset() {
+b.mu.Lock("Reset")
+defer b.mu.Unlock()
+
+b.policyStores = make(map[string]*PolicyStore)
+b.policies = make(map[string]map[string]*Policy)
+b.policyTemplates = make(map[string]map[string]*PolicyTemplate)
+}

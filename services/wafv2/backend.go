@@ -49,10 +49,12 @@ type IPSet struct {
 
 // InMemoryBackend is an in-memory store for WAFv2 resources.
 type InMemoryBackend struct {
-	webACLs     map[string]*WebACL
-	ipSets      map[string]*IPSet
-	webACLByARN map[string]string // ARN → webACL ID
-	ipSetByARN  map[string]string // ARN → ipSet ID
+	webACLs        map[string]*WebACL
+	ipSets         map[string]*IPSet
+	webACLByARN    map[string]string // ARN → webACL ID
+	ipSetByARN     map[string]string // ARN → ipSet ID
+	webACLByNameScope map[string]string // "name:scope" → webACL ID (O(1) duplicate check)
+	ipSetByNameScope  map[string]string // "name:scope" → ipSet ID (O(1) duplicate check)
 	mu          *lockmetrics.RWMutex
 	accountID   string
 	region      string
@@ -61,13 +63,15 @@ type InMemoryBackend struct {
 // NewInMemoryBackend creates a new in-memory WAFv2 backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		webACLs:     make(map[string]*WebACL),
-		ipSets:      make(map[string]*IPSet),
-		webACLByARN: make(map[string]string),
-		ipSetByARN:  make(map[string]string),
-		accountID:   accountID,
-		region:      region,
-		mu:          lockmetrics.New("wafv2"),
+		webACLs:           make(map[string]*WebACL),
+		ipSets:            make(map[string]*IPSet),
+		webACLByARN:       make(map[string]string),
+		ipSetByARN:        make(map[string]string),
+		webACLByNameScope: make(map[string]string),
+		ipSetByNameScope:  make(map[string]string),
+		accountID:         accountID,
+		region:            region,
+		mu:                lockmetrics.New("wafv2"),
 	}
 }
 
@@ -96,6 +100,10 @@ func scopePrefix(scope string) string {
 	return "regional"
 }
 
+func nameScope(name, scope string) string {
+	return name + ":" + scope
+}
+
 // CreateWebACL creates a new WebACL.
 func (b *InMemoryBackend) CreateWebACL(
 	name, scope, description, defaultAction, visibilityConfig string,
@@ -104,10 +112,8 @@ func (b *InMemoryBackend) CreateWebACL(
 	b.mu.Lock("CreateWebACL")
 	defer b.mu.Unlock()
 
-	for _, w := range b.webACLs {
-		if w.Name == name && w.Scope == scope {
-			return nil, fmt.Errorf("%w: web ACL %q already exists in scope %s", ErrWebACLAlreadyExists, name, scope)
-		}
+	if _, exists := b.webACLByNameScope[nameScope(name, scope)]; exists {
+		return nil, fmt.Errorf("%w: web ACL %q already exists in scope %s", ErrWebACLAlreadyExists, name, scope)
 	}
 
 	id := uuid.NewString()
@@ -123,6 +129,7 @@ func (b *InMemoryBackend) CreateWebACL(
 	}
 	b.webACLs[id] = w
 	b.webACLByARN[b.WebACLARN(name, id, scope)] = id
+	b.webACLByNameScope[nameScope(name, scope)] = id
 
 	return cloneWebACL(w), nil
 }
@@ -172,6 +179,7 @@ func (b *InMemoryBackend) DeleteWebACL(id string) error {
 
 	if w, ok := b.webACLs[id]; ok {
 		delete(b.webACLByARN, b.WebACLARN(w.Name, w.ID, w.Scope))
+		delete(b.webACLByNameScope, nameScope(w.Name, w.Scope))
 	} else {
 		return fmt.Errorf("%w: web ACL %q not found", ErrWebACLNotFound, id)
 	}
@@ -208,10 +216,8 @@ func (b *InMemoryBackend) CreateIPSet(
 	b.mu.Lock("CreateIPSet")
 	defer b.mu.Unlock()
 
-	for _, s := range b.ipSets {
-		if s.Name == name && s.Scope == scope {
-			return nil, fmt.Errorf("%w: IP set %q already exists in scope %s", ErrIPSetAlreadyExists, name, scope)
-		}
+	if _, exists := b.ipSetByNameScope[nameScope(name, scope)]; exists {
+		return nil, fmt.Errorf("%w: IP set %q already exists in scope %s", ErrIPSetAlreadyExists, name, scope)
 	}
 
 	id := uuid.NewString()
@@ -227,6 +233,7 @@ func (b *InMemoryBackend) CreateIPSet(
 	}
 	b.ipSets[id] = s
 	b.ipSetByARN[b.IPSetARN(name, id, scope)] = id
+	b.ipSetByNameScope[nameScope(name, scope)] = id
 
 	return cloneIPSet(s), nil
 }
@@ -274,6 +281,7 @@ func (b *InMemoryBackend) DeleteIPSet(id string) error {
 
 	if s, ok := b.ipSets[id]; ok {
 		delete(b.ipSetByARN, b.IPSetARN(s.Name, s.ID, s.Scope))
+		delete(b.ipSetByNameScope, nameScope(s.Name, s.Scope))
 	} else {
 		return fmt.Errorf("%w: IP set %q not found", ErrIPSetNotFound, id)
 	}
@@ -405,4 +413,17 @@ func cloneTags(tags map[string]string) map[string]string {
 	}
 
 	return maps.Clone(tags)
+}
+
+// Reset clears all WAFv2 WebACL and IPSet state.
+func (b *InMemoryBackend) Reset() {
+b.mu.Lock("Reset")
+defer b.mu.Unlock()
+
+b.webACLs = make(map[string]*WebACL)
+b.ipSets = make(map[string]*IPSet)
+b.webACLByARN = make(map[string]string)
+b.ipSetByARN = make(map[string]string)
+b.webACLByNameScope = make(map[string]string)
+b.ipSetByNameScope = make(map[string]string)
 }

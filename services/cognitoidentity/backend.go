@@ -431,3 +431,14 @@ func randomAlphanumeric(n int) (string, error) {
 
 	return string(buf), nil
 }
+
+// Reset clears all identity pool, identity and role state.
+func (b *InMemoryBackend) Reset() {
+b.mu.Lock("Reset")
+defer b.mu.Unlock()
+
+b.pools = make(map[string]*IdentityPool)
+b.poolsByName = make(map[string]*IdentityPool)
+b.identities = make(map[string]*Identity)
+b.roles = make(map[string]*IdentityRoles)
+}
