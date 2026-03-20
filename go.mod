@@ -124,33 +124,35 @@ require github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.31.19
 
 require github.com/aws/aws-sdk-go-v2/service/mediaconvert v1.87.3
 
-require github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19
+require (
+	github.com/aws/aws-sdk-go-v2/service/mediastore v1.29.19
+	github.com/aws/aws-sdk-go-v2/service/mediastoredata v1.29.19
+)
 
 require (
 	github.com/aws/aws-sdk-go-v2/service/elasticsearchservice v1.39.1
-	github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.12 // indirect
-	github.com/aws/aws-sdk-go-v2/service/mq v1.34.17 // indirect
-	github.com/aws/aws-sdk-go-v2/service/mwaa v1.39.20 // indirect
-	github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1 // indirect
-	github.com/aws/aws-sdk-go-v2/service/organizations v1.50.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/pinpoint v1.39.19 // indirect
-	github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18 // indirect
-	github.com/aws/aws-sdk-go-v2/service/qldb v1.32.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/qldbsession v1.32.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ram v1.36.1 // indirect
-	github.com/aws/aws-sdk-go-v2/service/rdsdata v1.32.19 // indirect
-	github.com/aws/aws-sdk-go-v2/service/redshiftdata v1.38.6 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3tables v1.14.3 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.236.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.39.3 // indirect
-	github.com/aws/aws-sdk-go-v2/service/servicediscovery v1.39.24 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.37.3 // indirect
-	github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.36.13 // indirect
-	github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.35.19 // indirect
-	github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.71.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/xray v1.36.20 // indirect
+	github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.12
+	github.com/aws/aws-sdk-go-v2/service/mq v1.34.17
+	github.com/aws/aws-sdk-go-v2/service/mwaa v1.39.20
+	github.com/aws/aws-sdk-go-v2/service/neptune v1.44.1
+	github.com/aws/aws-sdk-go-v2/service/organizations v1.50.4
+	github.com/aws/aws-sdk-go-v2/service/pinpoint v1.39.19
+	github.com/aws/aws-sdk-go-v2/service/pipes v1.23.18
+	github.com/aws/aws-sdk-go-v2/service/qldb v1.32.2
+	github.com/aws/aws-sdk-go-v2/service/qldbsession v1.32.2
+	github.com/aws/aws-sdk-go-v2/service/ram v1.36.1
+	github.com/aws/aws-sdk-go-v2/service/rdsdata v1.32.19
+	github.com/aws/aws-sdk-go-v2/service/redshiftdata v1.38.6
+	github.com/aws/aws-sdk-go-v2/service/s3tables v1.14.3
+	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.236.0
+	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.39.3
+	github.com/aws/aws-sdk-go-v2/service/servicediscovery v1.39.24
+	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.37.3
+	github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.36.13
+	github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4
+	github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4
+	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.71.2
+	github.com/aws/aws-sdk-go-v2/service/xray v1.36.20
 )
 
 require (
@@ -225,7 +227,7 @@ require (
 	github.com/morikuni/aec v1.1.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.1.1 // indirect
+	github.com/opencontainers/image-spec v1.1.1
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
@@ -279,7 +281,7 @@ require (
 	golang.org/x/vuln v1.1.4 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
-	google.golang.org/grpc v1.79.2 // indirect
+	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gotest.tools/gotestsum v1.13.0 // indirect
