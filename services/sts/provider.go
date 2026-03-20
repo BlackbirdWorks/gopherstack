@@ -27,7 +27,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	handler := NewHandler(backend)
-	handler.WithJanitor(0)
+	handler.WithJanitor(0, ctx.JanitorTimeout)
 
 	return handler, nil
 }

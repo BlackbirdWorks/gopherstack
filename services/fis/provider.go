@@ -28,7 +28,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	handler := NewHandler(backend)
 	handler.DefaultRegion = region
 	handler.AccountID = accountID
-	handler.WithJanitor(0, 0)
+	handler.WithJanitor(0, 0, ctx.JanitorTimeout)
 
 	return handler, nil
 }

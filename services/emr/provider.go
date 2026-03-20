@@ -25,7 +25,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	}
 
 	backend := NewInMemoryBackend(accountID, region)
-	handler := NewHandler(backend).WithJanitor(0, 0)
+	handler := NewHandler(backend).WithJanitor(0, 0, ctx.JanitorTimeout)
 
 	return handler, nil
 }

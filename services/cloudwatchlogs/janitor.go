@@ -17,8 +17,9 @@ const (
 // Janitor is the CloudWatch Logs background worker that enforces retention policies
 // by evicting log events that have aged past their log group's RetentionInDays setting.
 type Janitor struct {
-	Backend  *InMemoryBackend
-	Interval time.Duration
+	Backend     *InMemoryBackend
+	Interval    time.Duration
+	TaskTimeout time.Duration
 }
 
 // NewJanitor creates a new Janitor for the given backend.
@@ -44,9 +45,21 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			j.sweepRetention(ctx)
+			taskCtx, cancel := j.taskContext(ctx)
+			j.sweepRetention(taskCtx)
+			cancel()
 		}
 	}
+}
+
+// taskContext returns a child context bounded by TaskTimeout (if non-zero).
+// The caller is responsible for calling the returned cancel function.
+func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if j.TaskTimeout > 0 {
+		return context.WithTimeout(parent, j.TaskTimeout)
+	}
+
+	return context.WithCancel(parent)
 }
 
 // SweepOnce runs a single retention sweep. Primarily intended for tests.
