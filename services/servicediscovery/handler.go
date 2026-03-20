@@ -67,6 +67,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListTagsForResource",
 		"TagResource",
 		"UntagResource",
+		"GetInstancesHealthStatus",
 	}
 }
 
@@ -236,6 +237,10 @@ func (h *Handler) dispatchInstance(ctx context.Context, op string, body []byte) 
 		return r, true, err
 	case "DiscoverInstances":
 		r, err := h.handleDiscoverInstances(ctx, body)
+
+		return r, true, err
+	case "GetInstancesHealthStatus":
+		r, err := h.handleGetInstancesHealthStatus(ctx, body)
 
 		return r, true, err
 	}
@@ -903,4 +908,54 @@ func serviceToMap(svc *Service) map[string]any {
 // Reset clears all backend state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+}
+
+// --- GetInstancesHealthStatus stub ---
+
+type getInstancesHealthStatusRequest struct {
+	MaxResults *int     `json:"MaxResults,omitempty"`
+	ServiceID  string   `json:"ServiceId"`
+	NextToken  string   `json:"NextToken,omitempty"`
+	Instances  []string `json:"Instances,omitempty"`
+}
+
+// handleGetInstancesHealthStatus returns the health status for instances in a service.
+// Since the mock does not implement a health-check protocol, every instance is
+// reported as "HEALTHY". This matches the behaviour of LocalStack's Cloud Map stub.
+func (h *Handler) handleGetInstancesHealthStatus(_ context.Context, body []byte) ([]byte, error) {
+	var req getInstancesHealthStatusRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if req.ServiceID == "" {
+		return nil, fmt.Errorf("%w: ServiceId is required", errInvalidRequest)
+	}
+
+	instances, err := h.Backend.ListInstances(req.ServiceID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build instance ID filter set if specific instances were requested.
+	filter := make(map[string]struct{}, len(req.Instances))
+	for _, id := range req.Instances {
+		filter[id] = struct{}{}
+	}
+
+	statuses := make(map[string]string, len(instances))
+
+	for _, inst := range instances {
+		if len(filter) > 0 {
+			if _, ok := filter[inst.ID]; !ok {
+				continue
+			}
+		}
+
+		statuses[inst.ID] = "HEALTHY"
+	}
+
+	return json.Marshal(map[string]any{
+		"Status": statuses,
+	})
 }

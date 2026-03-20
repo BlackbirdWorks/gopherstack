@@ -53,6 +53,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeConfigurationSettings",
 		"ListTagsForResource",
 		"UpdateTagsForResource",
+		"RestartAppServer",
+		"RebuildEnvironment",
 	}
 }
 
@@ -198,6 +200,8 @@ func (h *Handler) dispatch(action string, vals url.Values) (any, error) {
 		"DescribeEvents":                h.handleDescribeEvents,
 		"DescribeEnvironmentResources":  h.handleDescribeEnvironmentResources,
 		"DescribeConfigurationSettings": h.handleDescribeConfigurationSettings,
+		"RestartAppServer":              h.handleRestartAppServer,
+		"RebuildEnvironment":            h.handleRebuildEnvironment,
 	}
 
 	if fn, ok := handlers[action]; ok {
@@ -952,4 +956,38 @@ func parseTagList(vals url.Values, prefix string) map[string]string {
 // Reset clears all backend state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+}
+
+// --- Restart / Rebuild stubs ---
+
+// restartAppServerResponse is the XML response for RestartAppServer.
+type restartAppServerResponse struct {
+	XMLName          xml.Name         `xml:"RestartAppServerResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
+}
+
+// handleRestartAppServer signals a restart of the application servers for an environment.
+// Real AWS triggers an in-place rolling restart; the stub is a no-op that returns 200.
+func (h *Handler) handleRestartAppServer(_ url.Values) (any, error) {
+	return &restartAppServerResponse{
+		Xmlns:            ebXMLNS,
+		ResponseMetadata: responseMetadata{RequestID: "eb-restart-app-server"},
+	}, nil
+}
+
+// rebuildEnvironmentResponse is the XML response for RebuildEnvironment.
+type rebuildEnvironmentResponse struct {
+	XMLName          xml.Name         `xml:"RebuildEnvironmentResponse"`
+	Xmlns            string           `xml:"xmlns,attr"`
+	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
+}
+
+// handleRebuildEnvironment triggers a full environment rebuild.
+// Real AWS terminates and relaunches the environment; the stub is a no-op that returns 200.
+func (h *Handler) handleRebuildEnvironment(_ url.Values) (any, error) {
+	return &rebuildEnvironmentResponse{
+		Xmlns:            ebXMLNS,
+		ResponseMetadata: responseMetadata{RequestID: "eb-rebuild-environment"},
+	}, nil
 }

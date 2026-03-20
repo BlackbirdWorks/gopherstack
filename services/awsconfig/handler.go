@@ -47,6 +47,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutDeliveryChannel",
 		"DescribeDeliveryChannels",
 		"DeleteDeliveryChannel",
+		"DescribeConfigRules",
+		"GetComplianceDetailsByConfigRule",
 	}
 }
 
@@ -191,13 +193,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"PutConfigurationRecorder":       service.WrapOp(h.handlePutConfigurationRecorder),
-		"DescribeConfigurationRecorders": service.WrapOp(h.handleDescribeConfigurationRecorders),
-		"StartConfigurationRecorder":     service.WrapOp(h.handleStartConfigurationRecorder),
-		"DeleteConfigurationRecorder":    service.WrapOp(h.handleDeleteConfigurationRecorder),
-		"PutDeliveryChannel":             service.WrapOp(h.handlePutDeliveryChannel),
-		"DescribeDeliveryChannels":       service.WrapOp(h.handleDescribeDeliveryChannels),
-		"DeleteDeliveryChannel":          service.WrapOp(h.handleDeleteDeliveryChannel),
+		"PutConfigurationRecorder":         service.WrapOp(h.handlePutConfigurationRecorder),
+		"DescribeConfigurationRecorders":   service.WrapOp(h.handleDescribeConfigurationRecorders),
+		"StartConfigurationRecorder":       service.WrapOp(h.handleStartConfigurationRecorder),
+		"DeleteConfigurationRecorder":      service.WrapOp(h.handleDeleteConfigurationRecorder),
+		"PutDeliveryChannel":               service.WrapOp(h.handlePutDeliveryChannel),
+		"DescribeDeliveryChannels":         service.WrapOp(h.handleDescribeDeliveryChannels),
+		"DeleteDeliveryChannel":            service.WrapOp(h.handleDeleteDeliveryChannel),
+		"DescribeConfigRules":              service.WrapOp(h.handleDescribeConfigRules),
+		"GetComplianceDetailsByConfigRule": service.WrapOp(h.handleGetComplianceDetailsByConfigRule),
 	}
 }
 
@@ -354,4 +358,62 @@ func (h *Handler) handleDeleteConfigurationRecorder(
 	}
 
 	return &deleteConfigurationRecorderOutput{}, nil
+}
+
+// --- Config Rules stubs ---
+
+type configRule struct {
+	ConfigRuleName string `json:"ConfigRuleName"`
+	ConfigRuleArn  string `json:"ConfigRuleArn,omitempty"`
+	ConfigRuleID   string `json:"ConfigRuleId,omitempty"`
+	Description    string `json:"Description,omitempty"`
+}
+
+type describeConfigRulesInput struct {
+	NextToken       string   `json:"NextToken,omitempty"`
+	ConfigRuleNames []string `json:"ConfigRuleNames,omitempty"`
+}
+
+type describeConfigRulesOutput struct {
+	NextToken   string       `json:"NextToken,omitempty"`
+	ConfigRules []configRule `json:"ConfigRules"`
+}
+
+// handleDescribeConfigRules returns a stub empty config rules list.
+// Real AWS returns managed and custom config rules; the stub returns an empty list.
+func (h *Handler) handleDescribeConfigRules(
+	_ context.Context,
+	_ *describeConfigRulesInput,
+) (*describeConfigRulesOutput, error) {
+	return &describeConfigRulesOutput{
+		ConfigRules: []configRule{},
+	}, nil
+}
+
+type getComplianceDetailsByConfigRuleInput struct {
+	ConfigRuleName  string   `json:"ConfigRuleName"`
+	NextToken       string   `json:"NextToken,omitempty"`
+	ComplianceTypes []string `json:"ComplianceTypes,omitempty"`
+}
+
+type evaluationResult struct {
+	ComplianceType        string `json:"ComplianceType"`
+	ResultRecordedTime    string `json:"ResultRecordedTime,omitempty"`
+	ConfigRuleInvokedTime string `json:"ConfigRuleInvokedTime,omitempty"`
+}
+
+type getComplianceDetailsByConfigRuleOutput struct {
+	NextToken         string             `json:"NextToken,omitempty"`
+	EvaluationResults []evaluationResult `json:"EvaluationResults"`
+}
+
+// handleGetComplianceDetailsByConfigRule returns a stub empty compliance details list.
+// Real AWS returns evaluation results per resource; the stub returns an empty list.
+func (h *Handler) handleGetComplianceDetailsByConfigRule(
+	_ context.Context,
+	_ *getComplianceDetailsByConfigRuleInput,
+) (*getComplianceDetailsByConfigRuleOutput, error) {
+	return &getComplianceDetailsByConfigRuleOutput{
+		EvaluationResults: []evaluationResult{},
+	}, nil
 }

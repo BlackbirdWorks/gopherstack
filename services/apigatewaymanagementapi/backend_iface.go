@@ -15,4 +15,10 @@ type StorageBackend interface {
 	ListConnections() []Connection
 	// GetMessages returns all messages posted to the given connection.
 	GetMessages(connectionID string) []PostedMessage
+	// Snapshot serialises backend state to JSON for persistence.
+	Snapshot() []byte
+	// Restore loads backend state from a JSON snapshot.
+	Restore(data []byte) error
+	// Reset clears all in-memory state for test isolation.
+	Reset()
 }
