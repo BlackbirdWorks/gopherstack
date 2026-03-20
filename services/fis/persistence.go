@@ -87,3 +87,10 @@ func (h *Handler) Restore(data []byte) error {
 
 	return nil
 }
+
+// Reset implements service.Resettable by delegating to the backend.
+func (h *Handler) Reset() {
+	if mem, ok := h.Backend.(*InMemoryBackend); ok {
+		mem.Reset()
+	}
+}

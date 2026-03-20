@@ -193,6 +193,32 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	}
 }
 
+// Reset clears all in-memory state, cancelling any running experiments.
+// The safety lever is re-initialised to its default disengaged state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, exp := range b.experiments {
+		if exp.cancel != nil {
+			exp.cancel()
+		}
+	}
+
+	safetyLeverARN := arn.Build("fis", b.region, b.accountID, fmt.Sprintf("safety-lever/%s", b.accountID))
+
+	b.templates = make(map[string]*ExperimentTemplate)
+	b.experiments = make(map[string]*Experiment)
+	b.templateARNIndex = make(map[string]string)
+	b.experimentARNIndex = make(map[string]string)
+	b.safetyLever = &SafetyLever{
+		ID:    b.accountID,
+		Arn:   safetyLeverARN,
+		Tags:  make(map[string]string),
+		State: SafetyLeverState{Status: "disengaged"},
+	}
+}
+
 // SetFaultStore injects the chaos FaultStore.
 func (b *InMemoryBackend) SetFaultStore(store *chaos.FaultStore) {
 	b.mu.Lock("SetFaultStore")

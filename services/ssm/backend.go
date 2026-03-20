@@ -1198,6 +1198,10 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	for _, t := range b.tags {
+		t.Close()
+	}
+
 	b.parameters = make(map[string]Parameter)
 	b.history = make(map[string][]ParameterHistory)
 	b.tags = make(map[string]*tags.Tags)

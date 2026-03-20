@@ -390,3 +390,13 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 	return ErrResourceNotFound
 }
+
+// Reset clears all in-memory state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.networks = make(map[string]*Network)
+	b.members = make(map[string]map[string]*Member)
+	b.arnToResource = make(map[string]any)
+}

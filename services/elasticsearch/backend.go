@@ -264,3 +264,17 @@ func (b *InMemoryBackend) RemoveTags(domainARN string, keys []string) error {
 
 	return nil
 }
+
+// Reset clears all in-memory state. It closes all domain Tags to release
+// Prometheus metrics before discarding the domain map.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, d := range b.domains {
+		d.Tags.Close()
+	}
+
+	b.domains = make(map[string]*Domain)
+	b.arnIndex = make(map[string]string)
+}

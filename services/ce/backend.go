@@ -98,6 +98,16 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the region for this backend instance.
 func (b *InMemoryBackend) Region() string { return b.region }
 
+// Reset clears all in-memory state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.costCategories = make(map[string]*CostCategory)
+	b.anomalyMonitors = make(map[string]*AnomalyMonitor)
+	b.anomalySubscriptions = make(map[string]*AnomalySubscription)
+}
+
 func (b *InMemoryBackend) buildCostCategoryARN(name string) string {
 	return fmt.Sprintf("arn:aws:ce::%s:costcategory/%s", b.accountID, name)
 }

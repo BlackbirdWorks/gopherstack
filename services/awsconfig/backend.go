@@ -139,3 +139,12 @@ func (b *InMemoryBackend) DeleteConfigurationRecorder(name string) error {
 
 	return nil
 }
+
+// Reset clears all in-memory state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.recorders = make(map[string]*ConfigurationRecorder)
+	b.channels = make(map[string]*DeliveryChannel)
+}

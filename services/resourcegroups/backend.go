@@ -207,3 +207,19 @@ func (b *InMemoryBackend) GetGroup(nameOrARN string) (*Group, error) {
 
 	return &cp, nil
 }
+
+// Reset clears all in-memory state. It closes all group Tags to release
+// Prometheus metrics before discarding the groups map.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, g := range b.groups {
+		if g.Tags != nil {
+			g.Tags.Close()
+		}
+	}
+
+	b.groups = make(map[string]*Group)
+	b.arnIndex = make(map[string]string)
+}

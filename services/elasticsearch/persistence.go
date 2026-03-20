@@ -69,3 +69,8 @@ func (h *Handler) Snapshot() []byte {
 func (h *Handler) Restore(data []byte) error {
 	return h.Backend.Restore(data)
 }
+
+// Reset implements service.Resettable by delegating to the backend.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
