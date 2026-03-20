@@ -120,7 +120,7 @@ type lifecycleNoncurrentTransition struct {
 }
 
 const (
-	defaultJanitorInterval = 500 * time.Millisecond
+	defaultJanitorInterval = 5 * time.Second
 
 	// drainChunkSize is the maximum number of objects deleted per lock acquisition
 	// while draining a DeletePending bucket. Between chunks the bucket lock is
@@ -188,6 +188,16 @@ func (j *Janitor) taskContext(parent context.Context) (context.Context, context.
 	}
 
 	return context.WithCancel(parent)
+}
+
+// SweepOnce runs a single sweep pass (lifecycle + multipart cleanup). Exposed for testing.
+// Note: sweepAndDrain is intentionally excluded here because it spawns long-lived
+// drain goroutines that must outlive any per-task timeout context.
+func (j *Janitor) SweepOnce(ctx context.Context) {
+	taskCtx, cancel := j.taskContext(ctx)
+	j.sweepLifecycle(taskCtx)
+	j.cleanupDefaultMultipart(taskCtx)
+	cancel()
 }
 
 // sweepAndDrain records queue depth and spawns a dedicated goroutine per

@@ -61,6 +61,11 @@ func (j *Janitor) taskContext(parent context.Context) (context.Context, context.
 	return context.WithCancel(parent)
 }
 
+// SweepOnce runs a single sweep pass. Exposed for testing.
+func (j *Janitor) SweepOnce(ctx context.Context) {
+	j.sweepExpiredCommands(ctx)
+}
+
 // sweepExpiredCommands removes commands whose ExpiresAfter timestamp has passed,
 // together with their associated invocations.
 func (j *Janitor) sweepExpiredCommands(ctx context.Context) {
