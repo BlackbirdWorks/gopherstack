@@ -21,6 +21,9 @@ const keyIDLen = 8
 // refreshTokenLen is the byte length of the random refresh token.
 const refreshTokenLen = 32
 
+// confirmCodeLen is the length of the random confirmation code generated on SignUp.
+const confirmCodeLen = 6
+
 // tokenExpirySeconds is the lifetime in seconds for ID and access tokens.
 const tokenExpirySeconds = 3600
 
@@ -50,7 +53,16 @@ func newTokenIssuer(issuerURL string) (*tokenIssuer, error) {
 	}, nil
 }
 
-// JWKSResponse is the JSON Web Key Set response.
+// newTokenIssuerFromKey reconstructs a tokenIssuer from an existing key, keyID and issuerURL.
+// This is used to restore persisted user pool state.
+func newTokenIssuerFromKey(privateKey *rsa.PrivateKey, keyID, issuerURL string) *tokenIssuer {
+	return &tokenIssuer{
+		privateKey: privateKey,
+		keyID:      keyID,
+		issuerURL:  issuerURL,
+	}
+}
+
 type JWKSResponse struct {
 	Keys []JWK `json:"keys"`
 }
@@ -143,6 +155,27 @@ func (t *tokenIssuer) Issue(clientID, username, userSub string) (*TokenResult, e
 		RefreshToken: refreshTokenString,
 		ExpiresIn:    tokenExpirySeconds,
 	}, nil
+}
+
+// ParseAccessToken validates and parses an access token, returning its claims.
+func (t *tokenIssuer) ParseAccessToken(tokenString string) (jwt.MapClaims, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("%w: unexpected signing method", ErrInvalidToken)
+		}
+
+		return &t.privateKey.PublicKey, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidToken, err)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("%w: token claims are not valid", ErrInvalidToken)
+	}
+
+	return claims, nil
 }
 
 // jwksResponseJSON serializes JWKSResponse as JSON bytes.

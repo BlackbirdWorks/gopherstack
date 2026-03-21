@@ -56,6 +56,22 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AdminCreateUser",
 		"AdminSetUserPassword",
 		"AdminGetUser",
+		"AdminConfirmSignUp",
+		"AdminDeleteUser",
+		"ListUsers",
+		"ForgotPassword",
+		"ConfirmForgotPassword",
+		"GetUser",
+		"ChangePassword",
+		"CreateGroup",
+		"DeleteGroup",
+		"ListGroups",
+		"AdminAddUserToGroup",
+		"AdminRemoveUserFromGroup",
+		"AdminListGroupsForUser",
+		"UpdateUserAttributes",
+		"AdminUpdateUserAttributes",
+		"RevokeToken",
 	}
 }
 
@@ -151,22 +167,38 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateUserPool":         service.WrapOp(h.handleCreateUserPool),
-		"DescribeUserPool":       service.WrapOp(h.handleDescribeUserPool),
-		"ListUserPools":          service.WrapOp(h.handleListUserPools),
-		"DeleteUserPool":         service.WrapOp(h.handleDeleteUserPool),
-		"GetUserPoolMfaConfig":   service.WrapOp(h.handleGetUserPoolMfaConfig),
-		"CreateUserPoolClient":   service.WrapOp(h.handleCreateUserPoolClient),
-		"DescribeUserPoolClient": service.WrapOp(h.handleDescribeUserPoolClient),
-		"ListUserPoolClients":    service.WrapOp(h.handleListUserPoolClients),
-		"DeleteUserPoolClient":   service.WrapOp(h.handleDeleteUserPoolClient),
-		"SignUp":                 service.WrapOp(h.handleSignUp),
-		"ConfirmSignUp":          service.WrapOp(h.handleConfirmSignUp),
-		"InitiateAuth":           service.WrapOp(h.handleInitiateAuth),
-		"AdminInitiateAuth":      service.WrapOp(h.handleAdminInitiateAuth),
-		"AdminCreateUser":        service.WrapOp(h.handleAdminCreateUser),
-		"AdminSetUserPassword":   service.WrapOp(h.handleAdminSetUserPassword),
-		"AdminGetUser":           service.WrapOp(h.handleAdminGetUser),
+		"CreateUserPool":            service.WrapOp(h.handleCreateUserPool),
+		"DescribeUserPool":          service.WrapOp(h.handleDescribeUserPool),
+		"ListUserPools":             service.WrapOp(h.handleListUserPools),
+		"DeleteUserPool":            service.WrapOp(h.handleDeleteUserPool),
+		"GetUserPoolMfaConfig":      service.WrapOp(h.handleGetUserPoolMfaConfig),
+		"CreateUserPoolClient":      service.WrapOp(h.handleCreateUserPoolClient),
+		"DescribeUserPoolClient":    service.WrapOp(h.handleDescribeUserPoolClient),
+		"ListUserPoolClients":       service.WrapOp(h.handleListUserPoolClients),
+		"DeleteUserPoolClient":      service.WrapOp(h.handleDeleteUserPoolClient),
+		"SignUp":                    service.WrapOp(h.handleSignUp),
+		"ConfirmSignUp":             service.WrapOp(h.handleConfirmSignUp),
+		"InitiateAuth":              service.WrapOp(h.handleInitiateAuth),
+		"AdminInitiateAuth":         service.WrapOp(h.handleAdminInitiateAuth),
+		"AdminCreateUser":           service.WrapOp(h.handleAdminCreateUser),
+		"AdminSetUserPassword":      service.WrapOp(h.handleAdminSetUserPassword),
+		"AdminGetUser":              service.WrapOp(h.handleAdminGetUser),
+		"AdminConfirmSignUp":        service.WrapOp(h.handleAdminConfirmSignUp),
+		"AdminDeleteUser":           service.WrapOp(h.handleAdminDeleteUser),
+		"ListUsers":                 service.WrapOp(h.handleListUsers),
+		"ForgotPassword":            service.WrapOp(h.handleForgotPassword),
+		"ConfirmForgotPassword":     service.WrapOp(h.handleConfirmForgotPassword),
+		"GetUser":                   service.WrapOp(h.handleGetUser),
+		"ChangePassword":            service.WrapOp(h.handleChangePassword),
+		"CreateGroup":               service.WrapOp(h.handleCreateGroup),
+		"DeleteGroup":               service.WrapOp(h.handleDeleteGroup),
+		"ListGroups":                service.WrapOp(h.handleListGroups),
+		"AdminAddUserToGroup":       service.WrapOp(h.handleAdminAddUserToGroup),
+		"AdminRemoveUserFromGroup":  service.WrapOp(h.handleAdminRemoveUserFromGroup),
+		"AdminListGroupsForUser":    service.WrapOp(h.handleAdminListGroupsForUser),
+		"UpdateUserAttributes":      service.WrapOp(h.handleUpdateUserAttributes),
+		"AdminUpdateUserAttributes": service.WrapOp(h.handleAdminUpdateUserAttributes),
+		"RevokeToken":               service.WrapOp(h.handleRevokeToken),
 	}
 }
 
@@ -540,8 +572,9 @@ type signUpInput struct {
 }
 
 type signUpOutput struct {
-	UserSub       string `json:"UserSub"`
-	UserConfirmed bool   `json:"UserConfirmed"`
+	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+	UserSub             string            `json:"UserSub"`
+	UserConfirmed       bool              `json:"UserConfirmed"`
 }
 
 func (h *Handler) handleSignUp(_ context.Context, in *signUpInput) (*signUpOutput, error) {
@@ -552,10 +585,24 @@ func (h *Handler) handleSignUp(_ context.Context, in *signUpInput) (*signUpOutpu
 		return nil, err
 	}
 
-	return &signUpOutput{
+	out := &signUpOutput{
 		UserSub:       user.Sub,
 		UserConfirmed: user.Status == UserStatusConfirmed,
-	}, nil
+	}
+
+	// Include the confirmation code in the response to facilitate integration testing.
+	// In production Cognito the code is delivered via email/SMS; the mock returns it
+	// directly so test harnesses don't need an out-of-band code delivery mechanism.
+	if user.ConfirmCode != "" {
+		out.CodeDeliveryDetails = map[string]string{
+			"DeliveryMedium":   "EMAIL",
+			"Destination":      "mock",
+			"AttributeName":    "email",
+			"ConfirmationCode": user.ConfirmCode,
+		}
+	}
+
+	return out, nil
 }
 
 type confirmSignUpInput struct {
@@ -595,6 +642,26 @@ type authOutput struct {
 }
 
 func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOutput, error) {
+	if in.AuthFlow == "REFRESH_TOKEN_AUTH" || in.AuthFlow == "REFRESH_TOKEN" {
+		refreshToken := in.AuthParameters["REFRESH_TOKEN"]
+		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
+		if err != nil {
+			return nil, err
+		}
+
+		return &authOutput{
+			AuthenticationResult: &authResult{
+				AccessToken: tokens.AccessToken,
+				IDToken:     tokens.IDToken,
+				// AWS does not rotate the refresh token on every refresh by default;
+				// we return the new token to keep the mock consistent with rotation.
+				RefreshToken: tokens.RefreshToken,
+				TokenType:    "Bearer",
+				ExpiresIn:    tokens.ExpiresIn,
+			},
+		}, nil
+	}
+
 	username := in.AuthParameters["USERNAME"]
 	password := in.AuthParameters["PASSWORD"]
 
@@ -734,4 +801,367 @@ func mapToAttributeList(m map[string]string) []attributeType {
 	}
 
 	return out
+}
+
+type adminConfirmSignUpInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	Username   string `json:"Username"`
+}
+
+type adminConfirmSignUpOutput struct{}
+
+func (h *Handler) handleAdminConfirmSignUp(
+	_ context.Context,
+	in *adminConfirmSignUpInput,
+) (*adminConfirmSignUpOutput, error) {
+	if err := h.Backend.AdminConfirmSignUp(in.UserPoolID, in.Username); err != nil {
+		return nil, err
+	}
+
+	return &adminConfirmSignUpOutput{}, nil
+}
+
+type adminDeleteUserInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	Username   string `json:"Username"`
+}
+
+type adminDeleteUserOutput struct{}
+
+func (h *Handler) handleAdminDeleteUser(
+	_ context.Context,
+	in *adminDeleteUserInput,
+) (*adminDeleteUserOutput, error) {
+	if err := h.Backend.AdminDeleteUser(in.UserPoolID, in.Username); err != nil {
+		return nil, err
+	}
+
+	return &adminDeleteUserOutput{}, nil
+}
+
+type listUsersInput struct {
+	UserPoolID string `json:"UserPoolId"`
+}
+
+type listUsersOutput struct {
+	Users []*userSummary `json:"Users"`
+}
+
+type userSummary struct {
+	Username         string          `json:"Username"`
+	UserStatus       string          `json:"UserStatus"`
+	Attributes       []attributeType `json:"Attributes"`
+	UserCreateDate   float64         `json:"UserCreateDate"`
+	UserLastModified float64         `json:"UserLastModifiedDate"`
+	Enabled          bool            `json:"Enabled"`
+}
+
+func (h *Handler) handleListUsers(
+	_ context.Context,
+	in *listUsersInput,
+) (*listUsersOutput, error) {
+	users, err := h.Backend.ListUsers(in.UserPoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]*userSummary, 0, len(users))
+	for _, u := range users {
+		summaries = append(summaries, &userSummary{
+			Username:       u.Username,
+			UserStatus:     u.Status,
+			UserCreateDate: float64(u.CreatedAt.Unix()),
+			Attributes:     mapToAttributeList(u.Attributes),
+			Enabled:        true,
+		})
+	}
+
+	return &listUsersOutput{Users: summaries}, nil
+}
+
+type forgotPasswordInput struct {
+	ClientID string `json:"ClientId"`
+	Username string `json:"Username"`
+}
+
+type forgotPasswordOutput struct {
+	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+}
+
+func (h *Handler) handleForgotPassword(
+	_ context.Context,
+	in *forgotPasswordInput,
+) (*forgotPasswordOutput, error) {
+	code, err := h.Backend.ForgotPassword(in.ClientID, in.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	return &forgotPasswordOutput{
+		CodeDeliveryDetails: map[string]string{
+			"Destination":      "mock@example.com",
+			"DeliveryMedium":   "EMAIL",
+			"AttributeName":    "email",
+			"ConfirmationCode": code,
+		},
+	}, nil
+}
+
+type confirmForgotPasswordInput struct {
+	ClientID         string `json:"ClientId"`
+	Username         string `json:"Username"`
+	ConfirmationCode string `json:"ConfirmationCode"`
+	Password         string `json:"Password"`
+}
+
+type confirmForgotPasswordOutput struct{}
+
+func (h *Handler) handleConfirmForgotPassword(
+	_ context.Context,
+	in *confirmForgotPasswordInput,
+) (*confirmForgotPasswordOutput, error) {
+	if err := h.Backend.ConfirmForgotPassword(in.ClientID, in.Username, in.ConfirmationCode, in.Password); err != nil {
+		return nil, err
+	}
+
+	return &confirmForgotPasswordOutput{}, nil
+}
+
+type getUserInput struct {
+	AccessToken string `json:"AccessToken"`
+}
+
+type getUserOutput struct {
+	Username       string          `json:"Username"`
+	UserAttributes []attributeType `json:"UserAttributes"`
+}
+
+func (h *Handler) handleGetUser(
+	_ context.Context,
+	in *getUserInput,
+) (*getUserOutput, error) {
+	user, err := h.Backend.GetUser(in.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getUserOutput{
+		Username:       user.Username,
+		UserAttributes: mapToAttributeList(user.Attributes),
+	}, nil
+}
+
+type changePasswordInput struct {
+	AccessToken      string `json:"AccessToken"`
+	PreviousPassword string `json:"PreviousPassword"`
+	ProposedPassword string `json:"ProposedPassword"`
+}
+
+type changePasswordOutput struct{}
+
+func (h *Handler) handleChangePassword(
+	_ context.Context,
+	in *changePasswordInput,
+) (*changePasswordOutput, error) {
+	if err := h.Backend.ChangePassword(in.AccessToken, in.PreviousPassword, in.ProposedPassword); err != nil {
+		return nil, err
+	}
+
+	return &changePasswordOutput{}, nil
+}
+
+type createGroupInput struct {
+	UserPoolID  string `json:"UserPoolId"`
+	GroupName   string `json:"GroupName"`
+	Description string `json:"Description"`
+	Precedence  int32  `json:"Precedence"`
+}
+
+type createGroupOutput struct {
+	Group *groupSummary `json:"Group"`
+}
+
+type groupSummary struct {
+	GroupName    string  `json:"GroupName"`
+	UserPoolID   string  `json:"UserPoolId"`
+	Description  string  `json:"Description,omitempty"`
+	Precedence   int32   `json:"Precedence"`
+	CreationDate float64 `json:"CreationDate"`
+}
+
+func toGroupSummary(g *Group) *groupSummary {
+	return &groupSummary{
+		GroupName:    g.GroupName,
+		UserPoolID:   g.UserPoolID,
+		Description:  g.Description,
+		Precedence:   g.Precedence,
+		CreationDate: float64(g.CreatedAt.Unix()),
+	}
+}
+
+func (h *Handler) handleCreateGroup(
+	_ context.Context,
+	in *createGroupInput,
+) (*createGroupOutput, error) {
+	g, err := h.Backend.CreateGroup(in.UserPoolID, in.GroupName, in.Description, in.Precedence)
+	if err != nil {
+		return nil, err
+	}
+
+	return &createGroupOutput{Group: toGroupSummary(g)}, nil
+}
+
+type deleteGroupInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	GroupName  string `json:"GroupName"`
+}
+
+type deleteGroupOutput struct{}
+
+func (h *Handler) handleDeleteGroup(_ context.Context, in *deleteGroupInput) (*deleteGroupOutput, error) {
+	if err := h.Backend.DeleteGroup(in.UserPoolID, in.GroupName); err != nil {
+		return nil, err
+	}
+
+	return &deleteGroupOutput{}, nil
+}
+
+type listGroupsInput struct {
+	UserPoolID string `json:"UserPoolId"`
+}
+
+type listGroupsOutput struct {
+	Groups []*groupSummary `json:"Groups"`
+}
+
+func (h *Handler) handleListGroups(_ context.Context, in *listGroupsInput) (*listGroupsOutput, error) {
+	groups, err := h.Backend.ListGroups(in.UserPoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*groupSummary, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, toGroupSummary(g))
+	}
+
+	return &listGroupsOutput{Groups: out}, nil
+}
+
+type adminAddUserToGroupInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	Username   string `json:"Username"`
+	GroupName  string `json:"GroupName"`
+}
+
+type adminAddUserToGroupOutput struct{}
+
+func (h *Handler) handleAdminAddUserToGroup(
+	_ context.Context,
+	in *adminAddUserToGroupInput,
+) (*adminAddUserToGroupOutput, error) {
+	if err := h.Backend.AdminAddUserToGroup(in.UserPoolID, in.Username, in.GroupName); err != nil {
+		return nil, err
+	}
+
+	return &adminAddUserToGroupOutput{}, nil
+}
+
+type adminRemoveUserFromGroupInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	Username   string `json:"Username"`
+	GroupName  string `json:"GroupName"`
+}
+
+type adminRemoveUserFromGroupOutput struct{}
+
+func (h *Handler) handleAdminRemoveUserFromGroup(
+	_ context.Context,
+	in *adminRemoveUserFromGroupInput,
+) (*adminRemoveUserFromGroupOutput, error) {
+	if err := h.Backend.AdminRemoveUserFromGroup(in.UserPoolID, in.Username, in.GroupName); err != nil {
+		return nil, err
+	}
+
+	return &adminRemoveUserFromGroupOutput{}, nil
+}
+
+type adminListGroupsForUserInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	Username   string `json:"Username"`
+}
+
+type adminListGroupsForUserOutput struct {
+	Groups []*groupSummary `json:"Groups"`
+}
+
+func (h *Handler) handleAdminListGroupsForUser(
+	_ context.Context,
+	in *adminListGroupsForUserInput,
+) (*adminListGroupsForUserOutput, error) {
+	groups, err := h.Backend.AdminListGroupsForUser(in.UserPoolID, in.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*groupSummary, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, toGroupSummary(g))
+	}
+
+	return &adminListGroupsForUserOutput{Groups: out}, nil
+}
+
+type updateUserAttributesInput struct {
+	AccessToken    string          `json:"AccessToken"`
+	UserAttributes []attributeType `json:"UserAttributes"`
+}
+
+type updateUserAttributesOutput struct{}
+
+func (h *Handler) handleUpdateUserAttributes(
+	_ context.Context,
+	in *updateUserAttributesInput,
+) (*updateUserAttributesOutput, error) {
+	attrs := attributeListToMap(in.UserAttributes)
+	if err := h.Backend.UpdateUserAttributes(in.AccessToken, attrs); err != nil {
+		return nil, err
+	}
+
+	return &updateUserAttributesOutput{}, nil
+}
+
+type adminUpdateUserAttributesInput struct {
+	UserPoolID     string          `json:"UserPoolId"`
+	Username       string          `json:"Username"`
+	UserAttributes []attributeType `json:"UserAttributes"`
+}
+
+type adminUpdateUserAttributesOutput struct{}
+
+func (h *Handler) handleAdminUpdateUserAttributes(
+	_ context.Context,
+	in *adminUpdateUserAttributesInput,
+) (*adminUpdateUserAttributesOutput, error) {
+	attrs := attributeListToMap(in.UserAttributes)
+	if err := h.Backend.AdminUpdateUserAttributes(in.UserPoolID, in.Username, attrs); err != nil {
+		return nil, err
+	}
+
+	return &adminUpdateUserAttributesOutput{}, nil
+}
+
+type revokeTokenInput struct {
+	Token    string `json:"Token"`
+	ClientID string `json:"ClientId"`
+}
+
+type revokeTokenOutput struct{}
+
+func (h *Handler) handleRevokeToken(_ context.Context, in *revokeTokenInput) (*revokeTokenOutput, error) {
+	if err := h.Backend.RevokeToken(in.Token, in.ClientID); err != nil {
+		return nil, err
+	}
+
+	return &revokeTokenOutput{}, nil
 }

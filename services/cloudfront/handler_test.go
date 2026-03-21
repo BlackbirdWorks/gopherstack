@@ -926,3 +926,125 @@ func TestXMLResponseFormat(t *testing.T) {
 	err := xml.Unmarshal(rec.Body.Bytes(), &v)
 	require.NoError(t, err)
 }
+
+func TestCloudFront_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	d, err := b.CreateDistribution("ref1", "my dist", true, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateInvalidation(d.ID, "inv-ref1", []string{"/index.html", "/static/*"})
+	require.NoError(t, err)
+
+	_, err = b.CreateOAI("oai-ref1", "my oai")
+	require.NoError(t, err)
+
+	h := cloudfront.NewHandler(b)
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := cloudfront.NewHandler(b2)
+	require.NoError(t, h2.Restore(snap))
+
+	// Distribution is restored.
+	d2, err := b2.GetDistribution(d.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "my dist", d2.Comment)
+
+	// Invalidations are restored.
+	invs, err := b2.ListInvalidations(d.ID)
+	require.NoError(t, err)
+	assert.Len(t, invs, 1)
+
+	// ARN index is rebuilt — tag operations should work.
+	err = b2.TagResource(d2.ARN, map[string]string{"env": "test"})
+	require.NoError(t, err, "tag operation should succeed after restore (ARN index rebuilt)")
+}
+
+func TestHandler_CreateInvalidation_ListInvalidations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		callerRef     string
+		wantStatus    string
+		paths         []string
+		wantHTTP      int
+		wantListCount int
+	}{
+		{
+			name:          "single_path",
+			callerRef:     "ref-001",
+			paths:         []string{"/images/*"},
+			wantStatus:    "InProgress",
+			wantHTTP:      http.StatusCreated,
+			wantListCount: 1,
+		},
+		{
+			name:          "wildcard_root",
+			callerRef:     "ref-002",
+			paths:         []string{"/*"},
+			wantStatus:    "InProgress",
+			wantHTTP:      http.StatusCreated,
+			wantListCount: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			// Create a distribution first using the minimal helper.
+			createRec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
+				minimalDistConfig("create-ref-inv", "inv-test-dist", true))
+			require.Equal(t, http.StatusCreated, createRec.Code)
+
+			// Extract distribution ID from Location header.
+			loc := createRec.Header().Get("Location")
+			parts := strings.Split(loc, "/")
+			distID := parts[len(parts)-1]
+			require.NotEmpty(t, distID)
+
+			// Build paths XML.
+			var pathItems strings.Builder
+			for _, p := range tt.paths {
+				fmt.Fprintf(&pathItems, "<Path>%s</Path>", p)
+			}
+
+			// CreateInvalidation.
+			invXML := fmt.Sprintf(
+				`<InvalidationBatch xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/">`+
+					`<CallerReference>%s</CallerReference>`+
+					`<Paths><Quantity>%d</Quantity><Items>%s</Items></Paths>`+
+					`</InvalidationBatch>`,
+				tt.callerRef, len(tt.paths), pathItems.String())
+
+			invRec := doXML(t, h, http.MethodPost,
+				"/2020-05-31/distribution/"+distID+"/invalidation",
+				[]byte(invXML))
+			assert.Equal(t, tt.wantHTTP, invRec.Code, "CreateInvalidation status")
+
+			// Verify the response contains the expected status.
+			assert.Contains(t, invRec.Body.String(), "<Status>"+tt.wantStatus+"</Status>")
+
+			// Verify CreateTime is an ISO-8601 string (contains 'T'), not a raw integer.
+			assert.Contains(t, invRec.Body.String(), "<CreateTime>")
+			assert.Contains(t, invRec.Body.String(), "T", "CreateTime must be RFC3339 formatted")
+
+			// ListInvalidations should return the created invalidation.
+			listRec := doXML(t, h, http.MethodGet,
+				"/2020-05-31/distribution/"+distID+"/invalidation",
+				nil)
+			assert.Equal(t, http.StatusOK, listRec.Code)
+			assert.Contains(t, listRec.Body.String(), "InProgress")
+
+			// Verify the Quantity matches.
+			assert.Contains(t, listRec.Body.String(),
+				fmt.Sprintf("<Quantity>%d</Quantity>", tt.wantListCount))
+		})
+	}
+}

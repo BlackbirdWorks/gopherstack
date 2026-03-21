@@ -2,6 +2,7 @@
 package codebuild
 
 import (
+	"fmt"
 	"maps"
 	"time"
 
@@ -324,6 +325,85 @@ func (b *InMemoryBackend) StopBuild(id string) (*Build, error) {
 	build.BuildStatus = "SUCCEEDED"
 	build.EndTime = float64(time.Now().Unix())
 	build.CurrentPhase = "COMPLETED"
+
+	out := *build
+
+	return &out, nil
+}
+
+// ListBuilds returns all build IDs in the backend.
+func (b *InMemoryBackend) ListBuilds() []string {
+	b.mu.RLock("ListBuilds")
+	defer b.mu.RUnlock()
+
+	ids := make([]string, 0, len(b.builds))
+	for id := range b.builds {
+		ids = append(ids, id)
+	}
+
+	return ids
+}
+
+// BatchDeleteBuilds deletes builds by ID and returns the IDs that were deleted.
+func (b *InMemoryBackend) BatchDeleteBuilds(ids []string) []string {
+	b.mu.Lock("BatchDeleteBuilds")
+	defer b.mu.Unlock()
+
+	deleted := make([]string, 0, len(ids))
+
+	for _, id := range ids {
+		build, ok := b.builds[id]
+		if !ok {
+			continue
+		}
+
+		projectName := build.ProjectName
+		delete(b.buildARNIndex, build.Arn)
+		delete(b.builds, id)
+
+		if projectBuilds, ok2 := b.buildsByProject[projectName]; ok2 {
+			delete(projectBuilds, id)
+		}
+
+		deleted = append(deleted, id)
+	}
+
+	return deleted
+}
+
+// RetryBuild creates a new build for the same project as an existing build.
+func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
+	b.mu.Lock("RetryBuild")
+	defer b.mu.Unlock()
+
+	existing, ok := b.builds[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+
+	projectName := existing.ProjectName
+	if _, ok2 := b.projects[projectName]; !ok2 {
+		return nil, fmt.Errorf("%w: project %s not found", ErrNotFound, projectName)
+	}
+
+	buildID := randomID()
+	fullID := projectName + ":" + buildID
+	build := &Build{
+		ID:           fullID,
+		Arn:          b.buildBuildARN(projectName, buildID),
+		ProjectName:  projectName,
+		BuildStatus:  "IN_PROGRESS",
+		StartTime:    float64(time.Now().Unix()),
+		CurrentPhase: "SUBMITTED",
+	}
+	b.builds[fullID] = build
+	b.buildARNIndex[build.Arn] = fullID
+
+	if b.buildsByProject[projectName] == nil {
+		b.buildsByProject[projectName] = make(map[string]struct{})
+	}
+
+	b.buildsByProject[projectName][fullID] = struct{}{}
 
 	out := *build
 

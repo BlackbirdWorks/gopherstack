@@ -1,10 +1,10 @@
 package eks
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -108,7 +108,7 @@ func (b *InMemoryBackend) CreateCluster(name, version, roleARN string, kv map[st
 		Version:         version,
 		RoleARN:         roleARN,
 		Status:          "ACTIVE",
-		Endpoint:        fmt.Sprintf("https://%s.%s.eks.amazonaws.com", uuid.NewString()[:8], b.region),
+		Endpoint:        fmt.Sprintf("https://%s.%s.eks.amazonaws.com", stableID(name), b.region),
 		PlatformVersion: "eks.1",
 		AccountID:       b.accountID,
 		Region:          b.region,
@@ -194,6 +194,14 @@ func (b *InMemoryBackend) CreateNodegroup(
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
+	// Defensive: ensure the inner map is always initialised.
+	// Under normal operation CreateCluster always initialises it, but this
+	// guard prevents a panic if state is inconsistent (e.g. restored from a
+	// partial snapshot).
+	if b.nodegroups[clusterName] == nil {
+		b.nodegroups[clusterName] = make(map[string]*Nodegroup)
+	}
+
 	if _, ok := b.nodegroups[clusterName][nodegroupName]; ok {
 		return nil, fmt.Errorf(
 			"%w: nodegroup %s already exists in cluster %s",
@@ -207,7 +215,7 @@ func (b *InMemoryBackend) CreateNodegroup(
 		"eks",
 		b.region,
 		b.accountID,
-		"nodegroup/"+clusterName+"/"+nodegroupName+"/"+uuid.NewString()[:8],
+		"nodegroup/"+clusterName+"/"+nodegroupName+"/"+stableID(clusterName+"/"+nodegroupName),
 	)
 	t := tags.New("eks.nodegroup." + clusterName + "." + nodegroupName + ".tags")
 	if len(kv) > 0 {
@@ -309,6 +317,47 @@ func (b *InMemoryBackend) DeleteNodegroup(clusterName, nodegroupName string) (*N
 	return &cp, nil
 }
 
+// UpdateNodegroupConfig updates the scaling configuration of a node group.
+func (b *InMemoryBackend) UpdateNodegroupConfig(
+	clusterName, nodegroupName string,
+	desiredSize, minSize, maxSize *int32,
+) (*Nodegroup, error) {
+	b.mu.Lock("UpdateNodegroupConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterName]; !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	ngs, ok := b.nodegroups[clusterName]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s has no nodegroups", ErrNotFound, clusterName)
+	}
+
+	ng, ok := ngs[nodegroupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
+	}
+
+	if desiredSize != nil {
+		ng.DesiredSize = *desiredSize
+	}
+
+	if minSize != nil {
+		ng.MinSize = *minSize
+	}
+
+	if maxSize != nil {
+		ng.MaxSize = *maxSize
+	}
+
+	cp := *ng
+	cp.InstanceTypes = make([]string, len(ng.InstanceTypes))
+	copy(cp.InstanceTypes, ng.InstanceTypes)
+
+	return &cp, nil
+}
+
 // TagResource adds tags to a resource by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
 	b.mu.Lock("TagResource")
@@ -395,4 +444,15 @@ func (b *InMemoryBackend) ListAllClusters() []*Cluster {
 	}
 
 	return list
+}
+
+// stableID returns a deterministic 8-character hex identifier derived from the
+// input string using SHA-256. The identifier is stable across calls but only
+// 32 bits long, so collisions are possible at scale; it should be used only
+// for non-critical IDs such as test ARN suffixes and endpoint URL components,
+// not for strong uniqueness or cryptographic guarantees.
+func stableID(input string) string {
+	sum := sha256.Sum256([]byte(input))
+
+	return hex.EncodeToString(sum[:])[:8]
 }

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -21,6 +23,14 @@ var (
 const (
 	jobDefStatusActive   = "ACTIVE"
 	jobDefStatusInactive = "INACTIVE"
+
+	jobStatusSubmitted = "SUBMITTED"
+	jobStatusPending   = "PENDING"
+	jobStatusRunnable  = "RUNNABLE"
+	jobStatusStarting  = "STARTING"
+	jobStatusRunning   = "RUNNING"
+	jobStatusSucceeded = "SUCCEEDED"
+	jobStatusFailed    = "FAILED"
 )
 
 // ComputeEnvironment represents a Batch compute environment.
@@ -61,11 +71,28 @@ type JobDefinition struct {
 	Revision          int32             `json:"revision"`
 }
 
+// Job represents a submitted Batch job.
+type Job struct {
+	StoppedAt     *int64            `json:"stoppedAt,omitempty"`
+	Tags          map[string]string `json:"tags,omitempty"`
+	StartedAt     *int64            `json:"startedAt,omitempty"`
+	JobID         string            `json:"jobId"`
+	JobARN        string            `json:"jobArn"`
+	JobName       string            `json:"jobName"`
+	JobQueue      string            `json:"jobQueue"`
+	JobDefinition string            `json:"jobDefinition"`
+	Status        string            `json:"status"`
+	StatusReason  string            `json:"statusReason,omitempty"`
+	CreatedAt     int64             `json:"createdAt"`
+}
+
 // InMemoryBackend stores AWS Batch state in memory.
 type InMemoryBackend struct {
 	computeEnvironments map[string]*ComputeEnvironment
 	jobQueues           map[string]*JobQueue
 	jobDefinitions      map[string]*JobDefinition
+	jobs                map[string]*Job     // job ID → Job
+	jobsByQueue         map[string][]string // queue ARN/name → []jobID
 	jobDefRevisions     map[string]int32
 	mu                  *lockmetrics.RWMutex
 	accountID           string
@@ -78,6 +105,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		computeEnvironments: make(map[string]*ComputeEnvironment),
 		jobQueues:           make(map[string]*JobQueue),
 		jobDefinitions:      make(map[string]*JobDefinition),
+		jobs:                make(map[string]*Job),
+		jobsByQueue:         make(map[string][]string),
 		jobDefRevisions:     make(map[string]int32),
 		accountID:           accountID,
 		region:              region,
@@ -300,7 +329,7 @@ func (b *InMemoryBackend) UpdateJobQueue(nameOrARN string, priority *int32, stat
 	return &cp, nil
 }
 
-// DeleteJobQueue removes a job queue.
+// DeleteJobQueue removes a job queue and all associated jobs.
 func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 	b.mu.Lock("DeleteJobQueue")
 	defer b.mu.Unlock()
@@ -310,7 +339,15 @@ func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 		return fmt.Errorf("%w: job queue %s not found", ErrNotFound, nameOrARN)
 	}
 
-	delete(b.jobQueues, jq.JobQueueName)
+	queueName := jq.JobQueueName
+
+	// Clean up all jobs associated with this queue to prevent orphaned entries.
+	for _, jobID := range b.jobsByQueue[queueName] {
+		delete(b.jobs, jobID)
+	}
+
+	delete(b.jobsByQueue, queueName)
+	delete(b.jobQueues, queueName)
 
 	return nil
 }
@@ -491,6 +528,12 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, 
 		return jd.Tags, true
 	}
 
+	for _, j := range b.jobs {
+		if j.JobARN == resourceARN {
+			return j.Tags, true
+		}
+	}
+
 	return nil, false
 }
 
@@ -515,5 +558,141 @@ func (b *InMemoryBackend) initTagsByARN(resourceARN string) {
 
 	if jd, ok := b.jobDefinitions[resourceARN]; ok {
 		jd.Tags = make(map[string]string)
+
+		return
 	}
+
+	for _, j := range b.jobs {
+		if j.JobARN == resourceARN {
+			j.Tags = make(map[string]string)
+
+			return
+		}
+	}
+}
+
+// SubmitJob submits a new job to the specified queue.
+func (b *InMemoryBackend) SubmitJob(name, queue, jobDefinition string, tags map[string]string) (*Job, error) {
+	b.mu.Lock("SubmitJob")
+	defer b.mu.Unlock()
+
+	jq, ok := b.lookupJQByNameOrARN(queue)
+	if !ok {
+		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
+	}
+
+	tagsCopy := make(map[string]string, len(tags))
+	maps.Copy(tagsCopy, tags)
+
+	now := time.Now().UnixMilli()
+	jobID := uuid.NewString()
+	jobARN := arn.Build("batch", b.region, b.accountID, "job/"+jobID)
+
+	j := &Job{
+		JobID:   jobID,
+		JobARN:  jobARN,
+		JobName: name,
+		// Always store the canonical queue name for consistency.
+		JobQueue:      jq.JobQueueName,
+		JobDefinition: jobDefinition,
+		Status:        jobStatusSubmitted,
+		CreatedAt:     now,
+		Tags:          tagsCopy,
+	}
+	b.jobs[jobID] = j
+	b.jobsByQueue[jq.JobQueueName] = append(b.jobsByQueue[jq.JobQueueName], jobID)
+
+	cp := *j
+	cp.Tags = maps.Clone(j.Tags)
+
+	return &cp, nil
+}
+
+// ListJobs returns job summaries for a queue, optionally filtered by status.
+func (b *InMemoryBackend) ListJobs(queue, status string) ([]*Job, error) {
+	b.mu.RLock("ListJobs")
+	defer b.mu.RUnlock()
+
+	jq, ok := b.lookupJQByNameOrARN(queue)
+	if !ok {
+		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
+	}
+
+	ids := b.jobsByQueue[jq.JobQueueName]
+	out := make([]*Job, 0, len(ids))
+
+	for _, id := range ids {
+		j, ok2 := b.jobs[id]
+		if !ok2 {
+			continue
+		}
+
+		if status != "" && j.Status != status {
+			continue
+		}
+
+		cp := *j
+		cp.Tags = maps.Clone(j.Tags)
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+// DescribeJobs returns full job details for the given job IDs.
+func (b *InMemoryBackend) DescribeJobs(jobIDs []string) []*Job {
+	b.mu.RLock("DescribeJobs")
+	defer b.mu.RUnlock()
+
+	out := make([]*Job, 0, len(jobIDs))
+
+	for _, id := range jobIDs {
+		j, ok := b.jobs[id]
+		if !ok {
+			continue
+		}
+
+		cp := *j
+		cp.Tags = maps.Clone(j.Tags)
+		out = append(out, &cp)
+	}
+
+	return out
+}
+
+// TerminateJob marks a job as FAILED with the given reason.
+func (b *InMemoryBackend) TerminateJob(jobID, reason string) error {
+	b.mu.Lock("TerminateJob")
+	defer b.mu.Unlock()
+
+	j, ok := b.jobs[jobID]
+	if !ok {
+		return fmt.Errorf("%w: job %s not found", ErrNotFound, jobID)
+	}
+
+	now := time.Now().UnixMilli()
+	j.Status = jobStatusFailed
+	j.StatusReason = reason
+	j.StoppedAt = &now
+
+	return nil
+}
+
+// CancelJob marks a pending/runnable job as FAILED with the given reason.
+// For already-running jobs it behaves the same as TerminateJob (mock simplification).
+func (b *InMemoryBackend) CancelJob(jobID, reason string) error {
+	b.mu.Lock("CancelJob")
+	defer b.mu.Unlock()
+
+	j, ok := b.jobs[jobID]
+	if !ok {
+		return fmt.Errorf("%w: job %s not found", ErrNotFound, jobID)
+	}
+
+	now := time.Now().UnixMilli()
+	j.Status = jobStatusFailed
+	j.StatusReason = reason
+	j.StoppedAt = &now
+
+	return nil
 }

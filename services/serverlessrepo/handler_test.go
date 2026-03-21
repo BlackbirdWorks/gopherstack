@@ -410,3 +410,30 @@ func TestHandler_UnknownOperation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestServerlessRepoPersistence(t *testing.T) {
+	t.Parallel()
+
+	b := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateApplication("app1", "desc1", "author1", "", "1.0.0", nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateApplication("app2", "desc2", "author2", "", "2.0.0", nil)
+	require.NoError(t, err)
+
+	// Snapshot
+	h := serverlessrepo.NewHandler(b)
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	// Restore into a fresh backend
+	b2 := serverlessrepo.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := serverlessrepo.NewHandler(b2)
+	require.NoError(t, h2.Restore(snap))
+
+	apps := b2.ListApplications()
+	require.Len(t, apps, 2)
+	assert.Equal(t, "app1", apps[0].Name)
+	assert.Equal(t, "app2", apps[1].Name)
+}
