@@ -118,6 +118,9 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 	if shardCount > maxShardCount {
 		shardCount = maxShardCount
 	}
+	if shardCount < 0 {
+		shardCount = defaultShardCount
+	}
 
 	maxHashKey := new(big.Int).Sub(
 		new(big.Int).Lsh(big.NewInt(1), maxHashKeyBits),

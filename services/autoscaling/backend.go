@@ -174,6 +174,11 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		desired = input.MinSize
 	}
 
+	const maxDesiredCapacity = 100
+	if desired > maxDesiredCapacity {
+		desired = maxDesiredCapacity
+	}
+
 	healthCheckType := input.HealthCheckType
 	if healthCheckType == "" {
 		healthCheckType = "EC2"

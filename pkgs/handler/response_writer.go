@@ -32,6 +32,10 @@ func (w *ResponseWriter) Write(b []byte) (int, error) {
 		w.WriteHeader(http.StatusOK)
 	}
 
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	}
+
 	return w.ResponseWriter.Write(b)
 }
 
