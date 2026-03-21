@@ -196,7 +196,8 @@ func (b *InMemoryBackend) DeleteReplicationInstance(arnOrID string) error {
 	defer b.mu.Unlock()
 
 	// Try by identifier first.
-	if _, ok := b.replicationInstances[arnOrID]; ok {
+	if ri, ok := b.replicationInstances[arnOrID]; ok {
+		ri.Tags.Close()
 		delete(b.replicationInstances, arnOrID)
 
 		return nil
@@ -204,6 +205,7 @@ func (b *InMemoryBackend) DeleteReplicationInstance(arnOrID string) error {
 	// Try by ARN.
 	for id, ri := range b.replicationInstances {
 		if ri.ReplicationInstanceArn == arnOrID {
+			ri.Tags.Close()
 			delete(b.replicationInstances, id)
 
 			return nil
@@ -295,6 +297,7 @@ func (b *InMemoryBackend) DeleteEndpoint(arnOrID string) (*Endpoint, error) {
 	// Try by identifier first.
 	if ep, ok := b.endpoints[arnOrID]; ok {
 		cp := *ep
+		ep.Tags.Close()
 		delete(b.endpoints, arnOrID)
 
 		return &cp, nil
@@ -303,6 +306,7 @@ func (b *InMemoryBackend) DeleteEndpoint(arnOrID string) (*Endpoint, error) {
 	for id, ep := range b.endpoints {
 		if ep.EndpointArn == arnOrID {
 			cp := *ep
+			ep.Tags.Close()
 			delete(b.endpoints, id)
 
 			return &cp, nil
@@ -429,6 +433,7 @@ func (b *InMemoryBackend) DeleteReplicationTask(arnOrID string) (*ReplicationTas
 	// Try by identifier first.
 	if rt, ok := b.replicationTasks[arnOrID]; ok {
 		cp := *rt
+		rt.Tags.Close()
 		delete(b.replicationTasks, arnOrID)
 
 		return &cp, nil
@@ -437,6 +442,7 @@ func (b *InMemoryBackend) DeleteReplicationTask(arnOrID string) (*ReplicationTas
 	for id, rt := range b.replicationTasks {
 		if rt.ReplicationTaskArn == arnOrID {
 			cp := *rt
+			rt.Tags.Close()
 			delete(b.replicationTasks, id)
 
 			return &cp, nil

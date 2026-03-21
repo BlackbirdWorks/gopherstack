@@ -145,6 +145,7 @@ func (b *InMemoryBackend) DeleteDomain(name string) (*Domain, error) {
 	}
 	cp := *d
 	delete(b.domains, name)
+	d.Tags.Close()
 
 	return &cp, nil
 }
@@ -249,6 +250,7 @@ func (b *InMemoryBackend) DeleteRepository(domainName, repoName string) (*Reposi
 	}
 	cp := *r
 	delete(b.repositories, key)
+	r.Tags.Close()
 
 	return &cp, nil
 }

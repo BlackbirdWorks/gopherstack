@@ -198,9 +198,11 @@ func (b *InMemoryBackend) DeleteRestAPI(restAPIID string) error {
 	b.mu.Lock("DeleteRestAPI")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[restAPIID]; !ok {
+	d, ok := b.apis[restAPIID]
+	if !ok {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
+	d.api.Tags.Close()
 	delete(b.apis, restAPIID)
 
 	return nil

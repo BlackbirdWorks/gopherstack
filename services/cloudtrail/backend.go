@@ -248,12 +248,16 @@ func (b *InMemoryBackend) DeleteTrail(nameOrARN string) error {
 	defer b.mu.Unlock()
 
 	if t, ok := b.trails[nameOrARN]; ok {
+		t.Tags.Close()
 		delete(b.trailsByARN, t.TrailARN)
 		delete(b.trails, nameOrARN)
 
 		return nil
 	}
 	if name, ok := b.trailsByARN[nameOrARN]; ok {
+		if t, ok := b.trails[name]; ok {
+			t.Tags.Close()
+		}
 		delete(b.trailsByARN, nameOrARN)
 		delete(b.trails, name)
 

@@ -118,6 +118,7 @@ func (b *InMemoryBackend) DeleteRepository(name string) (*Repository, error) {
 	}
 	cp := *r
 	delete(b.repositories, name)
+	r.Tags.Close()
 
 	return &cp, nil
 }
