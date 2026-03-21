@@ -1697,6 +1697,10 @@ type multipartAssemblyResult struct {
 	isCompressed   bool
 }
 
+// s3MinPartSizeBytes is the minimum size for all parts except the last in a multipart upload.
+// AWS enforces a 5 MiB minimum for intermediate parts, matching real S3 behavior.
+const s3MinPartSizeBytes = 5 * 1024 * 1024
+
 // assembleMultipartData reads all parts under the per-upload read lock, assembles
 // the combined payload, compresses it, and returns the assembled result.
 func (b *InMemoryBackend) assembleMultipartData(
@@ -1706,7 +1710,8 @@ func (b *InMemoryBackend) assembleMultipartData(
 	var data []byte
 
 	upload.mu.RLock("CompleteMultipartUpload")
-	for _, part := range input.MultipartUpload.Parts {
+	parts := input.MultipartUpload.Parts
+	for i, part := range parts {
 		pNum := *part.PartNumber
 		storedPart, ok := upload.Parts[pNum]
 		if !ok {
@@ -1718,6 +1723,12 @@ func (b *InMemoryBackend) assembleMultipartData(
 			upload.mu.RUnlock()
 
 			return multipartAssemblyResult{}, ErrInvalidPart
+		}
+		// Enforce 5 MiB minimum for all parts except the last, matching real AWS behavior.
+		if i < len(parts)-1 && storedPart.Size < s3MinPartSizeBytes {
+			upload.mu.RUnlock()
+
+			return multipartAssemblyResult{}, ErrEntityTooSmall
 		}
 		data = append(data, storedPart.Data...)
 	}

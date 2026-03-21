@@ -38,6 +38,7 @@ var (
 	ErrNoSuchTagSet           = errors.New("NoSuchTagSet")
 	ErrBadChecksum            = errors.New("BadDigest")
 	ErrDeleteMarker           = errors.New("DeleteMarker")
+	ErrEntityTooSmall         = errors.New("EntityTooSmall")
 )
 
 type s3ErrorInfo struct {
@@ -111,6 +112,11 @@ func coreErrorTable() []s3ErrorEntry {
 			"MethodNotAllowed",
 			"The specified method is not allowed against this resource.",
 			http.StatusMethodNotAllowed,
+		}},
+		{ErrEntityTooSmall, s3ErrorInfo{
+			"EntityTooSmall",
+			"Your proposed upload is smaller than the minimum allowed size.",
+			http.StatusBadRequest,
 		}},
 	}
 }

@@ -46,10 +46,11 @@ type StorageBackend interface {
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	queues    map[string]*Queue
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
+	queues         map[string]*Queue
+	snsUnsubscribe func()
+	mu             *lockmetrics.RWMutex
+	accountID      string
+	region         string
 }
 
 const sqsDefaultMaxResults = 1000
@@ -1177,9 +1178,16 @@ func (b *InMemoryBackend) DeleteMessagesLocal(queueURL string, receiptHandles []
 
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
+// Any active SNS subscription listener is detached to prevent stale listeners
+// from accumulating in the emitter when the backend is reused across tests.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	if b.snsUnsubscribe != nil {
+		b.snsUnsubscribe()
+		b.snsUnsubscribe = nil
+	}
 
 	b.queues = make(map[string]*Queue)
 }
