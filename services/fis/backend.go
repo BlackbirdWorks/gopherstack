@@ -400,7 +400,11 @@ func (b *InMemoryBackend) StartExperiment(
 	}
 
 	if experimentCount >= maxExperiments {
-		return nil, fmt.Errorf("%w: experiment count would exceed the limit of %d", ErrTooManyExperiments, maxExperiments)
+		return nil, fmt.Errorf(
+			"%w: experiment count would exceed the limit of %d",
+			ErrTooManyExperiments,
+			maxExperiments,
+		)
 	}
 
 	if !ok {

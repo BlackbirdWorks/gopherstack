@@ -51,15 +51,15 @@ type MemberSummary struct {
 
 // Node represents a peer node within a Managed Blockchain member.
 type Node struct {
-	CreationDate         *time.Time        `json:"creationDate"`
-	Tags                 map[string]string `json:"tags"`
-	Arn                  string            `json:"arn"`
-	AvailabilityZone     string            `json:"availabilityZone"`
-	ID                   string            `json:"id"`
-	InstanceType         string            `json:"instanceType"`
-	MemberID             string            `json:"memberID"`
-	NetworkID            string            `json:"networkID"`
-	Status               string            `json:"status"`
+	CreationDate     *time.Time        `json:"creationDate"`
+	Tags             map[string]string `json:"tags"`
+	Arn              string            `json:"arn"`
+	AvailabilityZone string            `json:"availabilityZone"`
+	ID               string            `json:"id"`
+	InstanceType     string            `json:"instanceType"`
+	MemberID         string            `json:"memberID"`
+	NetworkID        string            `json:"networkID"`
+	Status           string            `json:"status"`
 }
 
 // NodeSummary is the short form returned by ListNodes.

@@ -17,6 +17,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+const pathEncryptionConfig = "/EncryptionConfig"
+
 var (
 	errUnknownPath    = errors.New("unknown path")
 	errInvalidRequest = errors.New("invalid request")
@@ -37,7 +39,7 @@ var xrayPaths = map[string]bool{ //nolint:gochecknoglobals // package-level rout
 	"/GetSamplingRules":   true,
 	"/UpdateSamplingRule": true,
 	"/DeleteSamplingRule": true,
-	"/EncryptionConfig":   true,
+	pathEncryptionConfig:  true,
 }
 
 // pathToOperation maps X-Ray REST API paths to operation names.
@@ -55,7 +57,7 @@ var pathToOperation = map[string]string{ //nolint:gochecknoglobals // package-le
 	"/GetSamplingRules":   "GetSamplingRules",
 	"/UpdateSamplingRule": "UpdateSamplingRule",
 	"/DeleteSamplingRule": "DeleteSamplingRule",
-	"/EncryptionConfig":   "GetEncryptionConfig", // default; overridden by method
+	pathEncryptionConfig:  "GetEncryptionConfig", // default; overridden by method
 }
 
 // Handler is the Echo HTTP handler for AWS X-Ray operations.
@@ -128,7 +130,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		}
 
 		// /EncryptionConfig accepts both GET (GetEncryptionConfig) and POST (PutEncryptionConfig).
-		if path == "/EncryptionConfig" {
+		if path == pathEncryptionConfig {
 			return c.Request().Method == http.MethodGet || c.Request().Method == http.MethodPost
 		}
 
@@ -143,7 +145,7 @@ func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 func (h *Handler) ExtractOperation(c *echo.Context) string {
 	path := c.Request().URL.Path
 
-	if path == "/EncryptionConfig" {
+	if path == pathEncryptionConfig {
 		if c.Request().Method == http.MethodGet {
 			return "GetEncryptionConfig"
 		}
@@ -193,7 +195,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		}
 
 		// /EncryptionConfig is special: GET → GetEncryptionConfig (no body), POST → PutEncryptionConfig
-		if path == "/EncryptionConfig" {
+		if path == pathEncryptionConfig {
 			if c.Request().Method == http.MethodGet {
 				return h.handleGetEncryptionConfig(c)
 			}
@@ -220,39 +222,35 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	}
 }
 
+// xrayHandlerFn is the type for X-Ray path handler functions.
+type xrayHandlerFn func(*Handler, context.Context, []byte) ([]byte, error)
+
+// dispatchTable maps X-Ray paths to their handler functions (POST operations).
+// This table-driven approach keeps the dispatch cyclomatic complexity at O(1).
+var dispatchTable = map[string]xrayHandlerFn{ //nolint:gochecknoglobals // package-level dispatch table
+	"/TraceSegments":      (*Handler).handlePutTraceSegments,
+	"/TelemetryRecords":   (*Handler).handlePutTelemetryRecords,
+	"/TraceSummaries":     (*Handler).handleGetTraceSummaries,
+	"/Traces":             (*Handler).handleBatchGetTraces,
+	"/CreateGroup":        (*Handler).handleCreateGroup,
+	"/GetGroup":           (*Handler).handleGetGroup,
+	"/Groups":             (*Handler).handleGetGroups,
+	"/UpdateGroup":        (*Handler).handleUpdateGroup,
+	"/DeleteGroup":        (*Handler).handleDeleteGroup,
+	"/CreateSamplingRule": (*Handler).handleCreateSamplingRule,
+	"/GetSamplingRules":   (*Handler).handleGetSamplingRules,
+	"/UpdateSamplingRule": (*Handler).handleUpdateSamplingRule,
+	"/DeleteSamplingRule": (*Handler).handleDeleteSamplingRule,
+	pathEncryptionConfig:  (*Handler).handlePutEncryptionConfig,
+}
+
 func (h *Handler) dispatch(ctx context.Context, path string, body []byte) ([]byte, error) {
-	switch path {
-	case "/TraceSegments":
-		return h.handlePutTraceSegments(ctx, body)
-	case "/TelemetryRecords":
-		return h.handlePutTelemetryRecords(ctx, body)
-	case "/TraceSummaries":
-		return h.handleGetTraceSummaries(ctx, body)
-	case "/Traces":
-		return h.handleBatchGetTraces(ctx, body)
-	case "/CreateGroup":
-		return h.handleCreateGroup(ctx, body)
-	case "/GetGroup":
-		return h.handleGetGroup(ctx, body)
-	case "/Groups":
-		return h.handleGetGroups(ctx, body)
-	case "/UpdateGroup":
-		return h.handleUpdateGroup(ctx, body)
-	case "/DeleteGroup":
-		return h.handleDeleteGroup(ctx, body)
-	case "/CreateSamplingRule":
-		return h.handleCreateSamplingRule(ctx, body)
-	case "/GetSamplingRules":
-		return h.handleGetSamplingRules(ctx, body)
-	case "/UpdateSamplingRule":
-		return h.handleUpdateSamplingRule(ctx, body)
-	case "/DeleteSamplingRule":
-		return h.handleDeleteSamplingRule(ctx, body)
-	case "/EncryptionConfig":
-		return h.handlePutEncryptionConfig(ctx, body)
-	default:
+	fn, ok := dispatchTable[path]
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownPath, path)
 	}
+
+	return fn(h, ctx, body)
 }
 
 func (h *Handler) handleError(c *echo.Context, _ string, err error) error {

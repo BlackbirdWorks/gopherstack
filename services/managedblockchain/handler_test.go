@@ -617,33 +617,33 @@ func TestHandler_UnknownPath(t *testing.T) {
 	}
 }
 
-func createTestNetwork(t *testing.T, h *managedblockchain.Handler) (networkID, memberID string) {
-t.Helper()
+func createTestNetwork(t *testing.T, h *managedblockchain.Handler) (string, string) {
+	t.Helper()
 
-rec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
-"Name":             "test-net",
-"MemberConfiguration": map[string]any{"Name": "member-1"},
-})
-require.Equal(t, http.StatusOK, rec.Code)
+	rec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
+		"Name":                "test-net",
+		"MemberConfiguration": map[string]any{"Name": "member-1"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
 
-var out struct {
-NetworkID string `json:"NetworkId"`
-MemberID  string `json:"MemberId"`
-}
-require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	var out struct {
+		NetworkID string `json:"NetworkId"`
+		MemberID  string `json:"MemberId"`
+	}
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
 
-return out.NetworkID, out.MemberID
+	return out.NetworkID, out.MemberID
 }
 
 func TestHandler_CreateNode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
 		body       map[string]any
+		name       string
 		networkID  string
-		wantStatus int
 		wantKey    string
+		wantStatus int
 	}{
 		{
 			name: "success",
@@ -687,123 +687,123 @@ func TestHandler_CreateNode(t *testing.T) {
 }
 
 func TestHandler_GetNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name       string
-wantStatus int
-}{
-{
-name:       "success",
-wantStatus: http.StatusOK,
-},
-}
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "success",
+			wantStatus: http.StatusOK,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-netID, memID := createTestNetwork(t, h)
-nodePath := fmt.Sprintf("/networks/%s/members/%s/nodes", netID, memID)
+			h := newTestHandler(t)
+			netID, memID := createTestNetwork(t, h)
+			nodePath := fmt.Sprintf("/networks/%s/members/%s/nodes", netID, memID)
 
-createRec := doRequest(t, h, http.MethodPost, nodePath, map[string]any{
-"NodeConfiguration": map[string]any{
-"InstanceType":     "bc.t3.small",
-"AvailabilityZone": "us-east-1a",
-},
-})
-require.Equal(t, http.StatusOK, createRec.Code)
+			createRec := doRequest(t, h, http.MethodPost, nodePath, map[string]any{
+				"NodeConfiguration": map[string]any{
+					"InstanceType":     "bc.t3.small",
+					"AvailabilityZone": "us-east-1a",
+				},
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
 
-var createOut struct {
-NodeID string `json:"NodeId"`
-}
-require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			var createOut struct {
+				NodeID string `json:"NodeId"`
+			}
+			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
 
-getPath := fmt.Sprintf("%s/%s", nodePath, createOut.NodeID)
-rec := doRequest(t, h, http.MethodGet, getPath, nil)
-assert.Equal(t, tt.wantStatus, rec.Code)
-assert.Contains(t, rec.Body.String(), "Node")
-})
-}
+			getPath := fmt.Sprintf("%s/%s", nodePath, createOut.NodeID)
+			rec := doRequest(t, h, http.MethodGet, getPath, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Contains(t, rec.Body.String(), "Node")
+		})
+	}
 }
 
 func TestHandler_ListNodes(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name      string
-nodeCount int
-wantLen   int
-}{
-{name: "empty", nodeCount: 0, wantLen: 0},
-{name: "two_nodes", nodeCount: 2, wantLen: 2},
-}
+	tests := []struct {
+		name      string
+		nodeCount int
+		wantLen   int
+	}{
+		{name: "empty", nodeCount: 0, wantLen: 0},
+		{name: "two_nodes", nodeCount: 2, wantLen: 2},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-netID, memID := createTestNetwork(t, h)
-nodePath := fmt.Sprintf("/networks/%s/members/%s/nodes", netID, memID)
+			h := newTestHandler(t)
+			netID, memID := createTestNetwork(t, h)
+			nodePath := fmt.Sprintf("/networks/%s/members/%s/nodes", netID, memID)
 
-for i := 0; i < tt.nodeCount; i++ {
-rec := doRequest(t, h, http.MethodPost, nodePath, map[string]any{
-"NodeConfiguration": map[string]any{
-"InstanceType": "bc.t3.small",
-},
-})
-require.Equal(t, http.StatusOK, rec.Code)
-}
+			for range tt.nodeCount {
+				rec := doRequest(t, h, http.MethodPost, nodePath, map[string]any{
+					"NodeConfiguration": map[string]any{
+						"InstanceType": "bc.t3.small",
+					},
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
 
-listRec := doRequest(t, h, http.MethodGet, nodePath, nil)
-require.Equal(t, http.StatusOK, listRec.Code)
+			listRec := doRequest(t, h, http.MethodGet, nodePath, nil)
+			require.Equal(t, http.StatusOK, listRec.Code)
 
-var out struct {
-Nodes []map[string]any `json:"Nodes"`
-}
-require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
-assert.Len(t, out.Nodes, tt.wantLen)
-})
-}
+			var out struct {
+				Nodes []map[string]any `json:"Nodes"`
+			}
+			require.NoError(t, json.NewDecoder(listRec.Body).Decode(&out))
+			assert.Len(t, out.Nodes, tt.wantLen)
+		})
+	}
 }
 
 func TestHandler_DeleteNode(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name       string
-wantStatus int
-}{
-{name: "success", wantStatus: http.StatusNoContent},
-}
+	tests := []struct {
+		name       string
+		wantStatus int
+	}{
+		{name: "success", wantStatus: http.StatusNoContent},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-netID, memID := createTestNetwork(t, h)
-nodePath := fmt.Sprintf("/networks/%s/members/%s/nodes", netID, memID)
+			h := newTestHandler(t)
+			netID, memID := createTestNetwork(t, h)
+			nodePath := fmt.Sprintf("/networks/%s/members/%s/nodes", netID, memID)
 
-createRec := doRequest(t, h, http.MethodPost, nodePath, map[string]any{
-"NodeConfiguration": map[string]any{"InstanceType": "bc.t3.small"},
-})
-require.Equal(t, http.StatusOK, createRec.Code)
+			createRec := doRequest(t, h, http.MethodPost, nodePath, map[string]any{
+				"NodeConfiguration": map[string]any{"InstanceType": "bc.t3.small"},
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
 
-var createOut struct {
-NodeID string `json:"NodeId"`
-}
-require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+			var createOut struct {
+				NodeID string `json:"NodeId"`
+			}
+			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
 
-delPath := fmt.Sprintf("%s/%s", nodePath, createOut.NodeID)
-rec := doRequest(t, h, http.MethodDelete, delPath, nil)
-assert.Equal(t, tt.wantStatus, rec.Code)
+			delPath := fmt.Sprintf("%s/%s", nodePath, createOut.NodeID)
+			rec := doRequest(t, h, http.MethodDelete, delPath, nil)
+			assert.Equal(t, tt.wantStatus, rec.Code)
 
-// Confirm node is gone.
-getRec := doRequest(t, h, http.MethodGet, delPath, nil)
-assert.Equal(t, http.StatusNotFound, getRec.Code)
-})
-}
+			// Confirm node is gone.
+			getRec := doRequest(t, h, http.MethodGet, delPath, nil)
+			assert.Equal(t, http.StatusNotFound, getRec.Code)
+		})
+	}
 }

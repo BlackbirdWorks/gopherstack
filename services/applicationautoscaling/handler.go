@@ -246,7 +246,7 @@ func (h *Handler) handleDescribeScalableTargets(
 
 type putScalingPolicyInput struct {
 	TargetTrackingScalingPolicyConfiguration map[string]any `json:"TargetTrackingScalingPolicyConfiguration,omitempty"`
-	StepScalingPolicyConfiguration          map[string]any `json:"StepScalingPolicyConfiguration,omitempty"`
+	StepScalingPolicyConfiguration           map[string]any `json:"StepScalingPolicyConfiguration,omitempty"`
 	ServiceNamespace                         string         `json:"ServiceNamespace"`
 	ResourceID                               string         `json:"ResourceId"`
 	ScalableDimension                        string         `json:"ScalableDimension"`

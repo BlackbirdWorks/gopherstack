@@ -409,9 +409,9 @@ func (h *Handler) handleUpdateGroup(_ context.Context, in *updateGroupInput) (*u
 }
 
 type updateGroupQueryInput struct {
+	ResourceQuery *ResourceQuery `json:"ResourceQuery"`
 	Group         string         `json:"Group"`
 	GroupName     string         `json:"GroupName"`
-	ResourceQuery *ResourceQuery `json:"ResourceQuery"`
 }
 
 func (g *updateGroupQueryInput) resolvedName() string {

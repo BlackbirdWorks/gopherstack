@@ -1332,37 +1332,37 @@ func TestFISHandler_ListExperimentResolvedTargets_NotFound(t *testing.T) {
 }
 
 func TestFISHandler_StartExperiment_TooManyExperiments(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name       string
-startCount int
-wantStatus int
-}{
-{
-name:       "below_limit_succeeds",
-startCount: 1,
-wantStatus: http.StatusCreated,
-},
-}
+	tests := []struct {
+		name       string
+		startCount int
+		wantStatus int
+	}{
+		{
+			name:       "below_limit_succeeds",
+			startCount: 1,
+			wantStatus: http.StatusCreated,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestHandler(t)
-templateID := createTestTemplate(t, h)
+			h := newTestHandler(t)
+			templateID := createTestTemplate(t, h)
 
-startBody := map[string]any{
-"experimentTemplateId": templateID,
-}
+			startBody := map[string]any{
+				"experimentTemplateId": templateID,
+			}
 
-var rec *httptest.ResponseRecorder
-for i := 0; i < tt.startCount; i++ {
-rec = doRequest(t, h, http.MethodPost, "/experiments", startBody)
-}
+			var rec *httptest.ResponseRecorder
+			for range tt.startCount {
+				rec = doRequest(t, h, http.MethodPost, "/experiments", startBody)
+			}
 
-assert.Equal(t, tt.wantStatus, rec.Code)
-})
-}
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }

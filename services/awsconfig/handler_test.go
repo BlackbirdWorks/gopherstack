@@ -528,78 +528,78 @@ func TestAWSConfigHandler_DescribeConfigRulesAndCompliance(t *testing.T) {
 }
 
 func TestAWSConfigHandler_DescribeConfigurationRecorderStatus(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-setup            func(t *testing.T, h *awsconfig.Handler)
-name             string
-wantCode         int
-wantRecordingLen int
-wantRecording    bool
-}{
-{
-name:             "empty_returns_empty_list",
-wantCode:         http.StatusOK,
-wantRecordingLen: 0,
-},
-{
-name: "pending_recorder_is_not_recording",
-setup: func(t *testing.T, h *awsconfig.Handler) {
-t.Helper()
-doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
-"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": "arn:aws:iam::123:role/r"},
-})
-},
-wantCode:         http.StatusOK,
-wantRecordingLen: 1,
-wantRecording:    false,
-},
-{
-name: "active_recorder_is_recording",
-setup: func(t *testing.T, h *awsconfig.Handler) {
-t.Helper()
-doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
-"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": "arn:aws:iam::123:role/r"},
-})
-doAWSConfigRequest(t, h, "PutDeliveryChannel", map[string]any{
-"DeliveryChannel": map[string]any{"name": "default", "s3BucketName": "my-bucket"},
-})
-doAWSConfigRequest(t, h, "StartConfigurationRecorder", map[string]any{
-"ConfigurationRecorderName": "default",
-})
-},
-wantCode:         http.StatusOK,
-wantRecordingLen: 1,
-wantRecording:    true,
-},
-}
+	tests := []struct {
+		setup            func(t *testing.T, h *awsconfig.Handler)
+		name             string
+		wantCode         int
+		wantRecordingLen int
+		wantRecording    bool
+	}{
+		{
+			name:             "empty_returns_empty_list",
+			wantCode:         http.StatusOK,
+			wantRecordingLen: 0,
+		},
+		{
+			name: "pending_recorder_is_not_recording",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
+					"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": "arn:aws:iam::123:role/r"},
+				})
+			},
+			wantCode:         http.StatusOK,
+			wantRecordingLen: 1,
+			wantRecording:    false,
+		},
+		{
+			name: "active_recorder_is_recording",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
+					"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": "arn:aws:iam::123:role/r"},
+				})
+				doAWSConfigRequest(t, h, "PutDeliveryChannel", map[string]any{
+					"DeliveryChannel": map[string]any{"name": "default", "s3BucketName": "my-bucket"},
+				})
+				doAWSConfigRequest(t, h, "StartConfigurationRecorder", map[string]any{
+					"ConfigurationRecorderName": "default",
+				})
+			},
+			wantCode:         http.StatusOK,
+			wantRecordingLen: 1,
+			wantRecording:    true,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := newTestAWSConfigHandler(t)
-if tt.setup != nil {
-tt.setup(t, h)
-}
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
 
-rec := doAWSConfigRequest(t, h, "DescribeConfigurationRecorderStatus", map[string]any{})
+			rec := doAWSConfigRequest(t, h, "DescribeConfigurationRecorderStatus", map[string]any{})
 
-assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Equal(t, tt.wantCode, rec.Code)
 
-var out struct {
-ConfigurationRecordersStatus []struct {
-Name      string `json:"name"`
-Recording bool   `json:"recording"`
-} `json:"ConfigurationRecordersStatus"`
-}
+			var out struct {
+				ConfigurationRecordersStatus []struct {
+					Name      string `json:"name"`
+					Recording bool   `json:"recording"`
+				} `json:"ConfigurationRecordersStatus"`
+			}
 
-require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-assert.Len(t, out.ConfigurationRecordersStatus, tt.wantRecordingLen)
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Len(t, out.ConfigurationRecordersStatus, tt.wantRecordingLen)
 
-if tt.wantRecordingLen > 0 {
-assert.Equal(t, tt.wantRecording, out.ConfigurationRecordersStatus[0].Recording)
-}
-})
-}
+			if tt.wantRecordingLen > 0 {
+				assert.Equal(t, tt.wantRecording, out.ConfigurationRecordersStatus[0].Recording)
+			}
+		})
+	}
 }

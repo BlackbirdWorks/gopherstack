@@ -61,7 +61,10 @@ type StorageBackend interface {
 	GetMember(networkID, memberID string) (*Member, error)
 	ListMembers(networkID string) ([]*Member, error)
 	DeleteMember(networkID, memberID string) error
-	CreateNode(region, accountID, networkID, memberID, instanceType, availabilityZone string, tags map[string]string) (*Node, error)
+	CreateNode(
+		region, accountID, networkID, memberID, instanceType, availabilityZone string,
+		tags map[string]string,
+	) (*Node, error)
 	GetNode(networkID, memberID, nodeID string) (*Node, error)
 	ListNodes(networkID, memberID string) ([]*Node, error)
 	DeleteNode(networkID, memberID, nodeID string) error
@@ -73,9 +76,9 @@ type StorageBackend interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	networks      map[string]*Network
-	members       map[string]map[string]*Member                    // networkID → memberID → Member
-	nodes         map[string]map[string]map[string]*Node           // networkID → memberID → nodeID → Node
-	arnToResource map[string]any                                    // ARN → *Network, *Member, or *Node
+	members       map[string]map[string]*Member          // networkID → memberID → Member
+	nodes         map[string]map[string]map[string]*Node // networkID → memberID → nodeID → Node
+	arnToResource map[string]any                         // ARN → *Network, *Member, or *Node
 	mu            sync.RWMutex
 }
 
