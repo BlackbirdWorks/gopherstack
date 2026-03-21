@@ -98,6 +98,30 @@ func (h *S3Handler) routeBucketDelete(
 	case r.URL.Query().Has("tagging"):
 		h.deleteBucketTagging(ctx, w, r, bucket)
 	default:
+		h.routeBucketDeleteExtra(ctx, w, r, bucket)
+	}
+}
+
+func (h *S3Handler) routeBucketDeleteExtra(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	switch {
+	case r.URL.Query().Has("analytics"):
+		h.deleteBucketAnalyticsConfiguration(ctx, w, r, bucket)
+	case r.URL.Query().Has("intelligent-tiering"):
+		h.deleteBucketIntelligentTieringConfiguration(ctx, w, r, bucket)
+	case r.URL.Query().Has("inventory"):
+		h.deleteBucketInventoryConfiguration(ctx, w, r, bucket)
+	case r.URL.Query().Has("metadataConfiguration"):
+		h.deleteBucketMetadataConfiguration(ctx, w, r, bucket)
+	case r.URL.Query().Has("metadataTableConfiguration"):
+		h.deleteBucketMetadataTableConfiguration(ctx, w, r, bucket)
+	case r.URL.Query().Has("metrics"):
+		h.deleteBucketMetricsConfiguration(ctx, w, r, bucket)
+	default:
 		h.deleteBucket(ctx, w, r, bucket)
 	}
 }
@@ -127,6 +151,10 @@ func (h *S3Handler) routeBucketPut(
 		h.putBucketLifecycleConfiguration(ctx, w, r, bucket)
 	case q.Has("tagging"):
 		h.putBucketTagging(ctx, w, r, bucket)
+	case q.Has("metadataConfiguration"):
+		h.createBucketMetadataConfiguration(ctx, w, r, bucket)
+	case q.Has("metadataTableConfiguration"):
+		h.createBucketMetadataTableConfiguration(ctx, w, r, bucket)
 	default:
 		h.routeBucketPutExtra(ctx, w, r, bucket)
 	}
@@ -227,11 +255,39 @@ func (h *S3Handler) routeBucketGet(
 		return
 	}
 
+	if h.routeBucketGetExtra(ctx, w, r, bucket) {
+		return
+	}
+
 	if h.routeBucketGetStubs(ctx, w, r) {
 		return
 	}
 
 	h.routeBucketGetOrList(ctx, w, r, bucket)
+}
+
+// routeBucketGetExtra handles newer bucket GET sub-resources.
+// Returns true if the request was handled.
+func (h *S3Handler) routeBucketGetExtra(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) bool {
+	q := r.URL.Query()
+
+	switch {
+	case q.Has("metadataConfiguration"):
+		h.getBucketMetadataConfiguration(ctx, w, r, bucket)
+	case q.Has("metadataTableConfiguration"):
+		h.getBucketMetadataTableConfiguration(ctx, w, r, bucket)
+	case q.Has("session"):
+		h.createSession(ctx, w, r, bucket)
+	default:
+		return false
+	}
+
+	return true
 }
 
 // routeBucketGetOrList handles ACL, versioning, listing, and other bucket GET requests.
@@ -1600,4 +1656,185 @@ func findFirstIndexAfterMarker(objects []types.Object, marker string) int {
 	}
 
 	return len(objects)
+}
+
+func (h *S3Handler) deleteBucketAnalyticsConfiguration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "DeleteBucketAnalyticsConfiguration")
+	if err := h.Backend.DeleteBucketAnalyticsConfiguration(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) deleteBucketIntelligentTieringConfiguration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "DeleteBucketIntelligentTieringConfiguration")
+	if err := h.Backend.DeleteBucketIntelligentTieringConfiguration(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) deleteBucketInventoryConfiguration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "DeleteBucketInventoryConfiguration")
+	if err := h.Backend.DeleteBucketInventoryConfiguration(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) deleteBucketMetricsConfiguration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "DeleteBucketMetricsConfiguration")
+	if err := h.Backend.DeleteBucketMetricsConfiguration(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) createBucketMetadataConfiguration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "CreateBucketMetadataConfiguration")
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	if err = h.Backend.CreateBucketMetadataConfiguration(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) getBucketMetadataConfiguration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "GetBucketMetadataConfiguration")
+	configXML, err := h.Backend.GetBucketMetadataConfiguration(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(configXML))
+}
+
+func (h *S3Handler) deleteBucketMetadataConfiguration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "DeleteBucketMetadataConfiguration")
+	if err := h.Backend.DeleteBucketMetadataConfiguration(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) createBucketMetadataTableConfiguration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "CreateBucketMetadataTableConfiguration")
+	body, err := httputils.ReadBody(r)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	if err = h.Backend.CreateBucketMetadataTableConfiguration(ctx, bucket, string(body)); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *S3Handler) getBucketMetadataTableConfiguration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "GetBucketMetadataTableConfiguration")
+	configXML, err := h.Backend.GetBucketMetadataTableConfiguration(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(configXML))
+}
+
+func (h *S3Handler) deleteBucketMetadataTableConfiguration(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "DeleteBucketMetadataTableConfiguration")
+	if err := h.Backend.DeleteBucketMetadataTableConfiguration(ctx, bucket); err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *S3Handler) createSession(ctx context.Context, w http.ResponseWriter, r *http.Request, bucket string) {
+	h.setOperation(ctx, "CreateSession")
+	sessionXML, err := h.Backend.CreateSession(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(sessionXML))
 }

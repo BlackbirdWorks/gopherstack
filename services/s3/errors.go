@@ -35,6 +35,8 @@ var (
 	ErrNoPublicAccessBlock    = errors.New("NoSuchPublicAccessBlockConfiguration")
 	ErrNoOwnershipControls    = errors.New("OwnershipControlsNotFoundError")
 	ErrNoReplicationConfig    = errors.New("ReplicationConfigurationNotFoundError")
+	ErrNoMetadataConfig       = errors.New("NoSuchConfiguration")
+	ErrNoMetadataTableConfig  = errors.New("NoSuchConfiguration")
 	ErrNoSuchTagSet           = errors.New("NoSuchTagSet")
 	ErrBadChecksum            = errors.New("BadDigest")
 	ErrDeleteMarker           = errors.New("DeleteMarker")
@@ -166,6 +168,16 @@ func configErrorTable() []s3ErrorEntry {
 		{ErrNoReplicationConfig, s3ErrorInfo{
 			"ReplicationConfigurationNotFoundError",
 			"The replication configuration was not found",
+			http.StatusNotFound,
+		}},
+		{ErrNoMetadataConfig, s3ErrorInfo{
+			"NoSuchConfiguration",
+			"The metadata configuration does not exist",
+			http.StatusNotFound,
+		}},
+		{ErrNoMetadataTableConfig, s3ErrorInfo{
+			"NoSuchConfiguration",
+			"The metadata table configuration does not exist",
 			http.StatusNotFound,
 		}},
 		{ErrNoSuchTagSet, s3ErrorInfo{

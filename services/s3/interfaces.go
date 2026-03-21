@@ -164,4 +164,32 @@ type StorageBackend interface {
 		ctx context.Context,
 		bucketName string,
 	) (region string, lifecycleXML string, tags []types.Tag, err error)
+
+	// Analytics
+	DeleteBucketAnalyticsConfiguration(ctx context.Context, bucket string) error
+
+	// Intelligent Tiering
+	DeleteBucketIntelligentTieringConfiguration(ctx context.Context, bucket string) error
+
+	// Inventory
+	DeleteBucketInventoryConfiguration(ctx context.Context, bucket string) error
+
+	// Lifecycle (legacy alias)
+	DeleteBucketLifecycle(ctx context.Context, bucket string) error
+
+	// Metadata Configuration
+	CreateBucketMetadataConfiguration(ctx context.Context, bucket, configXML string) error
+	GetBucketMetadataConfiguration(ctx context.Context, bucket string) (string, error)
+	DeleteBucketMetadataConfiguration(ctx context.Context, bucket string) error
+
+	// Metadata Table Configuration
+	CreateBucketMetadataTableConfiguration(ctx context.Context, bucket, configXML string) error
+	GetBucketMetadataTableConfiguration(ctx context.Context, bucket string) (string, error)
+	DeleteBucketMetadataTableConfiguration(ctx context.Context, bucket string) error
+
+	// Metrics
+	DeleteBucketMetricsConfiguration(ctx context.Context, bucket string) error
+
+	// Session
+	CreateSession(ctx context.Context, bucket string) (string, error)
 }

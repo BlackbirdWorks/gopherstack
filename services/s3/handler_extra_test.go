@@ -2249,3 +2249,566 @@ func TestHandler_ServeWebsite(t *testing.T) {
 		})
 	}
 }
+
+// TestS3_BucketAnalyticsConfig verifies delete bucket analytics configuration.
+func TestS3_BucketAnalyticsConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup      func(t *testing.T, handler *s3.S3Handler, bucket string)
+		name       string
+		method     string
+		path       string
+		bucket     string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name:       "DeleteBucketAnalyticsConfiguration succeeds",
+			method:     http.MethodDelete,
+			bucket:     "analytics-bucket",
+			path:       "/analytics-bucket?analytics",
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "DeleteBucketAnalyticsConfiguration on missing bucket returns 404",
+			method:     http.MethodDelete,
+			bucket:     "",
+			path:       "/no-such-bucket?analytics",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchBucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			if tt.bucket != "" {
+				mustCreateBucket(t, backend, tt.bucket)
+			}
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestS3_BucketIntelligentTieringConfig verifies delete bucket Intelligent-Tiering configuration.
+func TestS3_BucketIntelligentTieringConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		bucket     string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name:       "DeleteBucketIntelligentTieringConfiguration succeeds",
+			method:     http.MethodDelete,
+			bucket:     "it-bucket",
+			path:       "/it-bucket?intelligent-tiering",
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "DeleteBucketIntelligentTieringConfiguration on missing bucket returns 404",
+			method:     http.MethodDelete,
+			bucket:     "",
+			path:       "/no-such-bucket?intelligent-tiering",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchBucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			if tt.bucket != "" {
+				mustCreateBucket(t, backend, tt.bucket)
+			}
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestS3_BucketInventoryConfig verifies delete bucket inventory configuration.
+func TestS3_BucketInventoryConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		bucket     string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name:       "DeleteBucketInventoryConfiguration succeeds",
+			method:     http.MethodDelete,
+			bucket:     "inventory-bucket",
+			path:       "/inventory-bucket?inventory",
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "DeleteBucketInventoryConfiguration on missing bucket returns 404",
+			method:     http.MethodDelete,
+			bucket:     "",
+			path:       "/no-such-bucket?inventory",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchBucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			if tt.bucket != "" {
+				mustCreateBucket(t, backend, tt.bucket)
+			}
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestS3_DeleteBucketLifecycle verifies the legacy DeleteBucketLifecycle alias.
+func TestS3_DeleteBucketLifecycle(t *testing.T) {
+	t.Parallel()
+
+	lifecycleXML := `<LifecycleConfiguration><Rule><ID>rule1</ID>` +
+		`<Status>Enabled</Status><Expiration><Days>7</Days></Expiration></Rule></LifecycleConfiguration>`
+
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend)
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{
+			name:   "DeleteBucketLifecycle clears lifecycle config",
+			method: http.MethodDelete,
+			path:   "/lifecycle-bucket?lifecycle",
+			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "lifecycle-bucket")
+				req := httptest.NewRequest(
+					http.MethodPut,
+					"/lifecycle-bucket?lifecycle",
+					strings.NewReader(lifecycleXML),
+				)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				require.Equal(t, http.StatusNoContent, rec.Code)
+			},
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "DeleteBucketLifecycle on missing bucket returns 404",
+			method:     http.MethodDelete,
+			path:       "/no-such-bucket?lifecycle",
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, handler, backend)
+			}
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+// TestS3_BucketMetadataConfig verifies create/get/delete bucket metadata configuration.
+func TestS3_BucketMetadataConfig(t *testing.T) {
+	t.Parallel()
+
+	metadataXML := `<MetadataConfiguration>` +
+		`<DestinationBucket>arn:aws:s3:::my-dest</DestinationBucket>` +
+		`</MetadataConfiguration>`
+
+	tests := []struct {
+		setup      func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend)
+		name       string
+		method     string
+		path       string
+		body       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name:   "CreateBucketMetadataConfiguration stores config",
+			method: http.MethodPut,
+			path:   "/metadata-bucket?metadataConfiguration",
+			body:   metadataXML,
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "metadata-bucket")
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "GetBucketMetadataConfiguration returns stored config",
+			method: http.MethodGet,
+			path:   "/metadata-bucket?metadataConfiguration",
+			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "metadata-bucket")
+				req := httptest.NewRequest(
+					http.MethodPut,
+					"/metadata-bucket?metadataConfiguration",
+					strings.NewReader(metadataXML),
+				)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "my-dest",
+		},
+		{
+			name:   "GetBucketMetadataConfiguration returns 404 when not set",
+			method: http.MethodGet,
+			path:   "/metadata-bucket?metadataConfiguration",
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "metadata-bucket")
+			},
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchConfiguration",
+		},
+		{
+			name:   "DeleteBucketMetadataConfiguration clears config",
+			method: http.MethodDelete,
+			path:   "/metadata-bucket?metadataConfiguration",
+			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "metadata-bucket")
+				req := httptest.NewRequest(
+					http.MethodPut,
+					"/metadata-bucket?metadataConfiguration",
+					strings.NewReader(metadataXML),
+				)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "CreateBucketMetadataConfiguration on missing bucket returns 404",
+			method:     http.MethodPut,
+			path:       "/no-such-bucket?metadataConfiguration",
+			body:       metadataXML,
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchBucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, handler, backend)
+			}
+
+			var body *strings.Reader
+			if tt.body != "" {
+				body = strings.NewReader(tt.body)
+			} else {
+				body = strings.NewReader("")
+			}
+
+			req := httptest.NewRequest(tt.method, tt.path, body)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestS3_BucketMetadataTableConfig verifies create/get/delete bucket metadata table configuration.
+func TestS3_BucketMetadataTableConfig(t *testing.T) {
+	t.Parallel()
+
+	metadataTableXML := `<MetadataTableConfiguration><S3TablesDestination>` +
+		`<TableBucketArn>arn:aws:s3tables:::bucket/my-table</TableBucketArn>` +
+		`</S3TablesDestination></MetadataTableConfiguration>`
+
+	tests := []struct {
+		setup      func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend)
+		name       string
+		method     string
+		path       string
+		body       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name:   "CreateBucketMetadataTableConfiguration stores config",
+			method: http.MethodPut,
+			path:   "/mt-bucket?metadataTableConfiguration",
+			body:   metadataTableXML,
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "mt-bucket")
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "GetBucketMetadataTableConfiguration returns stored config",
+			method: http.MethodGet,
+			path:   "/mt-bucket?metadataTableConfiguration",
+			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "mt-bucket")
+				req := httptest.NewRequest(
+					http.MethodPut,
+					"/mt-bucket?metadataTableConfiguration",
+					strings.NewReader(metadataTableXML),
+				)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "my-table",
+		},
+		{
+			name:   "GetBucketMetadataTableConfiguration returns 404 when not set",
+			method: http.MethodGet,
+			path:   "/mt-bucket?metadataTableConfiguration",
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "mt-bucket")
+			},
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchConfiguration",
+		},
+		{
+			name:   "DeleteBucketMetadataTableConfiguration clears config",
+			method: http.MethodDelete,
+			path:   "/mt-bucket?metadataTableConfiguration",
+			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "mt-bucket")
+				req := httptest.NewRequest(
+					http.MethodPut,
+					"/mt-bucket?metadataTableConfiguration",
+					strings.NewReader(metadataTableXML),
+				)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "CreateBucketMetadataTableConfiguration on missing bucket returns 404",
+			method:     http.MethodPut,
+			path:       "/no-such-bucket?metadataTableConfiguration",
+			body:       metadataTableXML,
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchBucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, handler, backend)
+			}
+
+			var body *strings.Reader
+			if tt.body != "" {
+				body = strings.NewReader(tt.body)
+			} else {
+				body = strings.NewReader("")
+			}
+
+			req := httptest.NewRequest(tt.method, tt.path, body)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestS3_BucketMetricsConfig verifies delete bucket metrics configuration.
+func TestS3_BucketMetricsConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		bucket     string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name:       "DeleteBucketMetricsConfiguration succeeds",
+			method:     http.MethodDelete,
+			bucket:     "metrics-bucket",
+			path:       "/metrics-bucket?metrics",
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "DeleteBucketMetricsConfiguration on missing bucket returns 404",
+			method:     http.MethodDelete,
+			bucket:     "",
+			path:       "/no-such-bucket?metrics",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchBucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			if tt.bucket != "" {
+				mustCreateBucket(t, backend, tt.bucket)
+			}
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestS3_CreateSession verifies the CreateSession operation.
+func TestS3_CreateSession(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		bucket     string
+		path       string
+		wantBody   string
+		wantStatus int
+	}{
+		{
+			name:       "CreateSession returns mock credentials",
+			bucket:     "session-bucket",
+			path:       "/session-bucket?session",
+			wantStatus: http.StatusOK,
+			wantBody:   "gopherstack-mock-session-token",
+		},
+		{
+			name:       "CreateSession on missing bucket returns 404",
+			bucket:     "",
+			path:       "/no-such-bucket?session",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "NoSuchBucket",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			if tt.bucket != "" {
+				mustCreateBucket(t, backend, tt.bucket)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantBody != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// TestS3_NewOperations_SupportedOperations verifies all 10 new operations appear in GetSupportedOperations.
+func TestS3_NewOperations_SupportedOperations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want string
+	}{
+		{name: "includes CreateBucketMetadataConfiguration", want: "CreateBucketMetadataConfiguration"},
+		{name: "includes GetBucketMetadataConfiguration", want: "GetBucketMetadataConfiguration"},
+		{name: "includes DeleteBucketMetadataConfiguration", want: "DeleteBucketMetadataConfiguration"},
+		{name: "includes CreateBucketMetadataTableConfiguration", want: "CreateBucketMetadataTableConfiguration"},
+		{name: "includes GetBucketMetadataTableConfiguration", want: "GetBucketMetadataTableConfiguration"},
+		{name: "includes DeleteBucketMetadataTableConfiguration", want: "DeleteBucketMetadataTableConfiguration"},
+		{name: "includes CreateSession", want: "CreateSession"},
+		{name: "includes DeleteBucketAnalyticsConfiguration", want: "DeleteBucketAnalyticsConfiguration"},
+		{
+			name: "includes DeleteBucketIntelligentTieringConfiguration",
+			want: "DeleteBucketIntelligentTieringConfiguration",
+		},
+		{name: "includes DeleteBucketInventoryConfiguration", want: "DeleteBucketInventoryConfiguration"},
+		{name: "includes DeleteBucketLifecycle", want: "DeleteBucketLifecycle"},
+		{name: "includes DeleteBucketMetricsConfiguration", want: "DeleteBucketMetricsConfiguration"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, _ := newTestHandler(t)
+			ops := handler.GetSupportedOperations()
+			assert.Contains(t, ops, tt.want)
+		})
+	}
+}

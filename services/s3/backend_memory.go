@@ -2730,6 +2730,220 @@ func (b *InMemoryBackend) DeleteBucketTagging(_ context.Context, bucketName stri
 	return nil
 }
 
+// DeleteBucketAnalyticsConfiguration clears the analytics configuration for a bucket.
+func (b *InMemoryBackend) DeleteBucketAnalyticsConfiguration(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketAnalyticsConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketAnalyticsConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.AnalyticsConfig = ""
+
+	return nil
+}
+
+// DeleteBucketIntelligentTieringConfiguration clears the Intelligent-Tiering configuration for a bucket.
+func (b *InMemoryBackend) DeleteBucketIntelligentTieringConfiguration(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketIntelligentTieringConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketIntelligentTieringConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.IntelligentTieringConfig = ""
+
+	return nil
+}
+
+// DeleteBucketInventoryConfiguration clears the inventory configuration for a bucket.
+func (b *InMemoryBackend) DeleteBucketInventoryConfiguration(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketInventoryConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketInventoryConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.InventoryConfig = ""
+
+	return nil
+}
+
+// DeleteBucketLifecycle clears the lifecycle configuration for a bucket.
+// This is the legacy alias for DeleteBucketLifecycleConfiguration.
+func (b *InMemoryBackend) DeleteBucketLifecycle(ctx context.Context, bucketName string) error {
+	return b.DeleteBucketLifecycleConfiguration(ctx, bucketName)
+}
+
+// CreateBucketMetadataConfiguration stores the metadata configuration for a bucket.
+func (b *InMemoryBackend) CreateBucketMetadataConfiguration(_ context.Context, bucketName, configXML string) error {
+	b.mu.RLock("CreateBucketMetadataConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("CreateBucketMetadataConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.MetadataConfig = configXML
+
+	return nil
+}
+
+// GetBucketMetadataConfiguration returns the metadata configuration for a bucket.
+func (b *InMemoryBackend) GetBucketMetadataConfiguration(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketMetadataConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketMetadataConfiguration")
+	defer bucket.mu.RUnlock()
+
+	if bucket.MetadataConfig == "" {
+		return "", ErrNoMetadataConfig
+	}
+
+	return bucket.MetadataConfig, nil
+}
+
+// DeleteBucketMetadataConfiguration clears the metadata configuration for a bucket.
+func (b *InMemoryBackend) DeleteBucketMetadataConfiguration(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketMetadataConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketMetadataConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.MetadataConfig = ""
+
+	return nil
+}
+
+// CreateBucketMetadataTableConfiguration stores the metadata table configuration for a bucket.
+func (b *InMemoryBackend) CreateBucketMetadataTableConfiguration(
+	_ context.Context,
+	bucketName, configXML string,
+) error {
+	b.mu.RLock("CreateBucketMetadataTableConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("CreateBucketMetadataTableConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.MetadataTableConfig = configXML
+
+	return nil
+}
+
+// GetBucketMetadataTableConfiguration returns the metadata table configuration for a bucket.
+func (b *InMemoryBackend) GetBucketMetadataTableConfiguration(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketMetadataTableConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketMetadataTableConfiguration")
+	defer bucket.mu.RUnlock()
+
+	if bucket.MetadataTableConfig == "" {
+		return "", ErrNoMetadataTableConfig
+	}
+
+	return bucket.MetadataTableConfig, nil
+}
+
+// DeleteBucketMetadataTableConfiguration clears the metadata table configuration for a bucket.
+func (b *InMemoryBackend) DeleteBucketMetadataTableConfiguration(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketMetadataTableConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketMetadataTableConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.MetadataTableConfig = ""
+
+	return nil
+}
+
+// DeleteBucketMetricsConfiguration clears the metrics configuration for a bucket.
+func (b *InMemoryBackend) DeleteBucketMetricsConfiguration(_ context.Context, bucketName string) error {
+	b.mu.RLock("DeleteBucketMetricsConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("DeleteBucketMetricsConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.MetricsConfig = ""
+
+	return nil
+}
+
+// CreateSession returns a stub session response for a bucket (S3 Express One Zone).
+func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("CreateSession")
+	_, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	const sessionXML = `<CreateSessionResponse xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
+		`<Credentials>` +
+		`<SessionToken>gopherstack-mock-session-token</SessionToken>` +
+		`<SecretAccessKey>gopherstack-mock-secret</SecretAccessKey>` +
+		`<AccessKeyId>gopherstack-mock-access-key</AccessKeyId>` +
+		`<Expiration>2099-01-01T00:00:00Z</Expiration>` +
+		`</Credentials></CreateSessionResponse>`
+
+	return sessionXML, nil
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {

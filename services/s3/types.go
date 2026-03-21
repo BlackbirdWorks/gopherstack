@@ -14,25 +14,31 @@ const NullVersion = "null"
 
 // StoredBucket represents an S3 bucket in memory.
 type StoredBucket struct {
-	CreationDate            time.Time                `json:"creationDate"`
-	Objects                 map[string]*StoredObject `json:"objects,omitempty"`
-	mu                      *lockmetrics.RWMutex
-	WebsiteConfig           string                       `json:"websiteConfig,omitempty"`
-	PublicAccessBlockConfig string                       `json:"publicAccessBlockConfig,omitempty"`
-	LifecycleConfig         string                       `json:"lifecycleConfig,omitempty"`
-	NotificationConfig      string                       `json:"notificationConfig,omitempty"`
-	ObjectLockConfig        string                       `json:"objectLockConfig,omitempty"`
-	Policy                  string                       `json:"policy,omitempty"`
-	EncryptionConfig        string                       `json:"encryptionConfig,omitempty"`
-	CORSConfig              string                       `json:"corsConfig,omitempty"`
-	OwnershipControlsConfig string                       `json:"ownershipControlsConfig,omitempty"`
-	LoggingConfig           string                       `json:"loggingConfig,omitempty"`
-	ReplicationConfig       string                       `json:"replicationConfig,omitempty"`
-	Versioning              types.BucketVersioningStatus `json:"versioning,omitempty"`
-	Name                    string                       `json:"name"`
-	ACL                     string                       `json:"acl,omitempty"`
-	Tags                    []types.Tag                  `json:"tags,omitempty"`
-	DeletePending           bool                         `json:"deletePending,omitempty"`
+	CreationDate             time.Time                `json:"creationDate"`
+	Objects                  map[string]*StoredObject `json:"objects,omitempty"`
+	mu                       *lockmetrics.RWMutex
+	WebsiteConfig            string                       `json:"websiteConfig,omitempty"`
+	PublicAccessBlockConfig  string                       `json:"publicAccessBlockConfig,omitempty"`
+	LifecycleConfig          string                       `json:"lifecycleConfig,omitempty"`
+	NotificationConfig       string                       `json:"notificationConfig,omitempty"`
+	ObjectLockConfig         string                       `json:"objectLockConfig,omitempty"`
+	Policy                   string                       `json:"policy,omitempty"`
+	EncryptionConfig         string                       `json:"encryptionConfig,omitempty"`
+	CORSConfig               string                       `json:"corsConfig,omitempty"`
+	OwnershipControlsConfig  string                       `json:"ownershipControlsConfig,omitempty"`
+	LoggingConfig            string                       `json:"loggingConfig,omitempty"`
+	ReplicationConfig        string                       `json:"replicationConfig,omitempty"`
+	AnalyticsConfig          string                       `json:"analyticsConfig,omitempty"`
+	IntelligentTieringConfig string                       `json:"intelligentTieringConfig,omitempty"`
+	InventoryConfig          string                       `json:"inventoryConfig,omitempty"`
+	MetadataConfig           string                       `json:"metadataConfig,omitempty"`
+	MetadataTableConfig      string                       `json:"metadataTableConfig,omitempty"`
+	MetricsConfig            string                       `json:"metricsConfig,omitempty"`
+	Versioning               types.BucketVersioningStatus `json:"versioning,omitempty"`
+	Name                     string                       `json:"name"`
+	ACL                      string                       `json:"acl,omitempty"`
+	Tags                     []types.Tag                  `json:"tags,omitempty"`
+	DeletePending            bool                         `json:"deletePending,omitempty"`
 }
 
 // StoredObject represents an S3 object with its version history.
