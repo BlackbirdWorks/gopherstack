@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -290,13 +291,29 @@ func (h *S3Handler) routeBucketGetExtra(
 	case q.Has("session"):
 		h.createSession(ctx, w, r, bucket)
 	case q.Has("analytics"):
-		h.getBucketAnalyticsConfiguration(ctx, w, r, bucket)
+		if q.Has("id") {
+			h.getBucketAnalyticsConfiguration(ctx, w, r, bucket)
+		} else {
+			h.listBucketAnalyticsConfigurations(ctx, w, r, bucket)
+		}
 	case q.Has("intelligent-tiering"):
-		h.getBucketIntelligentTieringConfiguration(ctx, w, r, bucket)
+		if q.Has("id") {
+			h.getBucketIntelligentTieringConfiguration(ctx, w, r, bucket)
+		} else {
+			h.listBucketIntelligentTieringConfigurations(ctx, w, r, bucket)
+		}
 	case q.Has("inventory"):
-		h.getBucketInventoryConfiguration(ctx, w, r, bucket)
+		if q.Has("id") {
+			h.getBucketInventoryConfiguration(ctx, w, r, bucket)
+		} else {
+			h.listBucketInventoryConfigurations(ctx, w, r, bucket)
+		}
 	case q.Has("metrics"):
-		h.getBucketMetricsConfiguration(ctx, w, r, bucket)
+		if q.Has("id") {
+			h.getBucketMetricsConfiguration(ctx, w, r, bucket)
+		} else {
+			h.listBucketMetricsConfigurations(ctx, w, r, bucket)
+		}
 	default:
 		return false
 	}
@@ -1670,7 +1687,13 @@ func (h *S3Handler) deleteBucketAnalyticsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "DeleteBucketAnalyticsConfiguration")
-	if err := h.Backend.DeleteBucketAnalyticsConfiguration(ctx, bucket); err != nil {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
+	if err := h.Backend.DeleteBucketAnalyticsConfiguration(ctx, bucket, id); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -1685,7 +1708,13 @@ func (h *S3Handler) deleteBucketIntelligentTieringConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "DeleteBucketIntelligentTieringConfiguration")
-	if err := h.Backend.DeleteBucketIntelligentTieringConfiguration(ctx, bucket); err != nil {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
+	if err := h.Backend.DeleteBucketIntelligentTieringConfiguration(ctx, bucket, id); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -1700,7 +1729,13 @@ func (h *S3Handler) deleteBucketInventoryConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "DeleteBucketInventoryConfiguration")
-	if err := h.Backend.DeleteBucketInventoryConfiguration(ctx, bucket); err != nil {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
+	if err := h.Backend.DeleteBucketInventoryConfiguration(ctx, bucket, id); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -1715,7 +1750,13 @@ func (h *S3Handler) deleteBucketMetricsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "DeleteBucketMetricsConfiguration")
-	if err := h.Backend.DeleteBucketMetricsConfiguration(ctx, bucket); err != nil {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
+	if err := h.Backend.DeleteBucketMetricsConfiguration(ctx, bucket, id); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -1851,13 +1892,19 @@ func (h *S3Handler) putBucketAnalyticsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "PutBucketAnalyticsConfiguration")
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
 	}
-	if err = h.Backend.PutBucketAnalyticsConfiguration(ctx, bucket, string(body)); err != nil {
+	if err = h.Backend.PutBucketAnalyticsConfiguration(ctx, bucket, id, string(body)); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -1872,7 +1919,13 @@ func (h *S3Handler) getBucketAnalyticsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "GetBucketAnalyticsConfiguration")
-	configXML, err := h.Backend.GetBucketAnalyticsConfiguration(ctx, bucket)
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
+	configXML, err := h.Backend.GetBucketAnalyticsConfiguration(ctx, bucket, id)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -1883,6 +1936,22 @@ func (h *S3Handler) getBucketAnalyticsConfiguration(
 	_, _ = w.Write([]byte(configXML))
 }
 
+func (h *S3Handler) listBucketAnalyticsConfigurations(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "ListBucketAnalyticsConfigurations")
+	configs, err := h.Backend.ListBucketAnalyticsConfigurations(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	writeConfigListXML(w, "ListBucketAnalyticsConfigurationResult", "AnalyticsConfiguration", configs)
+}
+
 func (h *S3Handler) putBucketIntelligentTieringConfiguration(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -1890,13 +1959,19 @@ func (h *S3Handler) putBucketIntelligentTieringConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "PutBucketIntelligentTieringConfiguration")
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
 	}
-	if err = h.Backend.PutBucketIntelligentTieringConfiguration(ctx, bucket, string(body)); err != nil {
+	if err = h.Backend.PutBucketIntelligentTieringConfiguration(ctx, bucket, id, string(body)); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -1911,7 +1986,13 @@ func (h *S3Handler) getBucketIntelligentTieringConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "GetBucketIntelligentTieringConfiguration")
-	configXML, err := h.Backend.GetBucketIntelligentTieringConfiguration(ctx, bucket)
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
+	configXML, err := h.Backend.GetBucketIntelligentTieringConfiguration(ctx, bucket, id)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -1922,6 +2003,27 @@ func (h *S3Handler) getBucketIntelligentTieringConfiguration(
 	_, _ = w.Write([]byte(configXML))
 }
 
+func (h *S3Handler) listBucketIntelligentTieringConfigurations(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "ListBucketIntelligentTieringConfigurations")
+	configs, err := h.Backend.ListBucketIntelligentTieringConfigurations(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	writeConfigListXML(
+		w,
+		"ListBucketIntelligentTieringConfigurationsResult",
+		"IntelligentTieringConfiguration",
+		configs,
+	)
+}
+
 func (h *S3Handler) putBucketInventoryConfiguration(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -1929,13 +2031,19 @@ func (h *S3Handler) putBucketInventoryConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "PutBucketInventoryConfiguration")
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
 	}
-	if err = h.Backend.PutBucketInventoryConfiguration(ctx, bucket, string(body)); err != nil {
+	if err = h.Backend.PutBucketInventoryConfiguration(ctx, bucket, id, string(body)); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -1950,7 +2058,13 @@ func (h *S3Handler) getBucketInventoryConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "GetBucketInventoryConfiguration")
-	configXML, err := h.Backend.GetBucketInventoryConfiguration(ctx, bucket)
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
+	configXML, err := h.Backend.GetBucketInventoryConfiguration(ctx, bucket, id)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -1961,6 +2075,22 @@ func (h *S3Handler) getBucketInventoryConfiguration(
 	_, _ = w.Write([]byte(configXML))
 }
 
+func (h *S3Handler) listBucketInventoryConfigurations(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "ListBucketInventoryConfigurations")
+	configs, err := h.Backend.ListBucketInventoryConfigurations(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	writeConfigListXML(w, "ListInventoryConfigurationsResult", "InventoryConfiguration", configs)
+}
+
 func (h *S3Handler) putBucketMetricsConfiguration(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -1968,13 +2098,19 @@ func (h *S3Handler) putBucketMetricsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "PutBucketMetricsConfiguration")
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
 	body, err := httputils.ReadBody(r)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
 	}
-	if err = h.Backend.PutBucketMetricsConfiguration(ctx, bucket, string(body)); err != nil {
+	if err = h.Backend.PutBucketMetricsConfiguration(ctx, bucket, id, string(body)); err != nil {
 		WriteError(ctx, w, r, err)
 
 		return
@@ -1989,7 +2125,13 @@ func (h *S3Handler) getBucketMetricsConfiguration(
 	bucket string,
 ) {
 	h.setOperation(ctx, "GetBucketMetricsConfiguration")
-	configXML, err := h.Backend.GetBucketMetricsConfiguration(ctx, bucket)
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		WriteError(ctx, w, r, fmt.Errorf("%w: id query parameter is required", ErrInvalidArgument))
+
+		return
+	}
+	configXML, err := h.Backend.GetBucketMetricsConfiguration(ctx, bucket, id)
 	if err != nil {
 		WriteError(ctx, w, r, err)
 
@@ -1998,4 +2140,47 @@ func (h *S3Handler) getBucketMetricsConfiguration(
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(configXML))
+}
+
+func (h *S3Handler) listBucketMetricsConfigurations(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	bucket string,
+) {
+	h.setOperation(ctx, "ListBucketMetricsConfigurations")
+	configs, err := h.Backend.ListBucketMetricsConfigurations(ctx, bucket)
+	if err != nil {
+		WriteError(ctx, w, r, err)
+
+		return
+	}
+	writeConfigListXML(w, "ListMetricsConfigurationsResult", "MetricsConfiguration", configs)
+}
+
+// writeConfigListXML writes a generic XML list response containing zero or more config elements.
+// Each element in configs is emitted verbatim inside a wrapper named elementTag.
+func writeConfigListXML(w http.ResponseWriter, rootTag, elementTag string, configs []string) {
+	var sb strings.Builder
+	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
+	sb.WriteString(`<`)
+	sb.WriteString(rootTag)
+	sb.WriteString(` xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
+	sb.WriteString(`<IsTruncated>false</IsTruncated>`)
+	for _, cfg := range configs {
+		sb.WriteString(`<`)
+		sb.WriteString(elementTag)
+		sb.WriteString(`>`)
+		sb.WriteString(cfg)
+		sb.WriteString(`</`)
+		sb.WriteString(elementTag)
+		sb.WriteString(`>`)
+	}
+	sb.WriteString(`</`)
+	sb.WriteString(rootTag)
+	sb.WriteString(`>`)
+
+	w.Header().Set("Content-Type", "application/xml")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(sb.String()))
 }

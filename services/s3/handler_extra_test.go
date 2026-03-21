@@ -2250,7 +2250,7 @@ func TestHandler_ServeWebsite(t *testing.T) {
 	}
 }
 
-// TestS3_BucketAnalyticsConfig verifies put/get/delete bucket analytics configuration.
+// TestS3_BucketAnalyticsConfig verifies put/get/list/delete bucket analytics configuration.
 func TestS3_BucketAnalyticsConfig(t *testing.T) {
 	t.Parallel()
 
@@ -2269,7 +2269,7 @@ func TestS3_BucketAnalyticsConfig(t *testing.T) {
 		{
 			name:   "PutBucketAnalyticsConfiguration stores config",
 			method: http.MethodPut,
-			path:   "/analytics-bucket?analytics",
+			path:   "/analytics-bucket?analytics&id=test-analytics",
 			body:   analyticsXML,
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
@@ -2278,14 +2278,26 @@ func TestS3_BucketAnalyticsConfig(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name:   "PutBucketAnalyticsConfiguration missing id returns 400",
+			method: http.MethodPut,
+			path:   "/analytics-bucket?analytics",
+			body:   analyticsXML,
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "analytics-bucket")
+			},
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "InvalidArgument",
+		},
+		{
 			name:   "GetBucketAnalyticsConfiguration returns stored config",
 			method: http.MethodGet,
-			path:   "/analytics-bucket?analytics",
+			path:   "/analytics-bucket?analytics&id=test-analytics",
 			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "analytics-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut, "/analytics-bucket?analytics", strings.NewReader(analyticsXML),
+					http.MethodPut, "/analytics-bucket?analytics&id=test-analytics", strings.NewReader(analyticsXML),
 				)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
@@ -2297,7 +2309,7 @@ func TestS3_BucketAnalyticsConfig(t *testing.T) {
 		{
 			name:   "GetBucketAnalyticsConfiguration returns 404 when not set",
 			method: http.MethodGet,
-			path:   "/analytics-bucket?analytics",
+			path:   "/analytics-bucket?analytics&id=nonexistent",
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "analytics-bucket")
@@ -2306,9 +2318,37 @@ func TestS3_BucketAnalyticsConfig(t *testing.T) {
 			wantBody:   "NoSuchConfiguration",
 		},
 		{
+			name:   "ListBucketAnalyticsConfigurations returns empty list",
+			method: http.MethodGet,
+			path:   "/analytics-bucket?analytics",
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "analytics-bucket")
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "IsTruncated",
+		},
+		{
+			name:   "ListBucketAnalyticsConfigurations returns stored configs",
+			method: http.MethodGet,
+			path:   "/analytics-bucket?analytics",
+			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "analytics-bucket")
+				req := httptest.NewRequest(
+					http.MethodPut, "/analytics-bucket?analytics&id=cfg1", strings.NewReader(analyticsXML),
+				)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "AnalyticsConfiguration",
+		},
+		{
 			name:   "DeleteBucketAnalyticsConfiguration succeeds",
 			method: http.MethodDelete,
-			path:   "/analytics-bucket?analytics",
+			path:   "/analytics-bucket?analytics&id=test-analytics",
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "analytics-bucket")
@@ -2316,9 +2356,20 @@ func TestS3_BucketAnalyticsConfig(t *testing.T) {
 			wantStatus: http.StatusNoContent,
 		},
 		{
+			name:   "DeleteBucketAnalyticsConfiguration missing id returns 400",
+			method: http.MethodDelete,
+			path:   "/analytics-bucket?analytics",
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "analytics-bucket")
+			},
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "InvalidArgument",
+		},
+		{
 			name:       "DeleteBucketAnalyticsConfiguration on missing bucket returns 404",
 			method:     http.MethodDelete,
-			path:       "/no-such-bucket?analytics",
+			path:       "/no-such-bucket?analytics&id=test",
 			wantStatus: http.StatusNotFound,
 			wantBody:   "NoSuchBucket",
 		},
@@ -2351,7 +2402,7 @@ func TestS3_BucketAnalyticsConfig(t *testing.T) {
 	}
 }
 
-// TestS3_BucketIntelligentTieringConfig verifies put/get/delete bucket Intelligent-Tiering configuration.
+// TestS3_BucketIntelligentTieringConfig verifies put/get/list/delete bucket Intelligent-Tiering configuration.
 func TestS3_BucketIntelligentTieringConfig(t *testing.T) {
 	t.Parallel()
 
@@ -2370,7 +2421,7 @@ func TestS3_BucketIntelligentTieringConfig(t *testing.T) {
 		{
 			name:   "PutBucketIntelligentTieringConfiguration stores config",
 			method: http.MethodPut,
-			path:   "/it-bucket?intelligent-tiering",
+			path:   "/it-bucket?intelligent-tiering&id=tier-config",
 			body:   tieringXML,
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
@@ -2379,14 +2430,26 @@ func TestS3_BucketIntelligentTieringConfig(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name:   "PutBucketIntelligentTieringConfiguration missing id returns 400",
+			method: http.MethodPut,
+			path:   "/it-bucket?intelligent-tiering",
+			body:   tieringXML,
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "it-bucket")
+			},
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "InvalidArgument",
+		},
+		{
 			name:   "GetBucketIntelligentTieringConfiguration returns stored config",
 			method: http.MethodGet,
-			path:   "/it-bucket?intelligent-tiering",
+			path:   "/it-bucket?intelligent-tiering&id=tier-config",
 			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "it-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut, "/it-bucket?intelligent-tiering", strings.NewReader(tieringXML),
+					http.MethodPut, "/it-bucket?intelligent-tiering&id=tier-config", strings.NewReader(tieringXML),
 				)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
@@ -2398,7 +2461,7 @@ func TestS3_BucketIntelligentTieringConfig(t *testing.T) {
 		{
 			name:   "GetBucketIntelligentTieringConfiguration returns 404 when not set",
 			method: http.MethodGet,
-			path:   "/it-bucket?intelligent-tiering",
+			path:   "/it-bucket?intelligent-tiering&id=nonexistent",
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "it-bucket")
@@ -2407,9 +2470,20 @@ func TestS3_BucketIntelligentTieringConfig(t *testing.T) {
 			wantBody:   "NoSuchConfiguration",
 		},
 		{
+			name:   "ListBucketIntelligentTieringConfigurations returns empty list",
+			method: http.MethodGet,
+			path:   "/it-bucket?intelligent-tiering",
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "it-bucket")
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "IsTruncated",
+		},
+		{
 			name:   "DeleteBucketIntelligentTieringConfiguration succeeds",
 			method: http.MethodDelete,
-			path:   "/it-bucket?intelligent-tiering",
+			path:   "/it-bucket?intelligent-tiering&id=tier-config",
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "it-bucket")
@@ -2419,7 +2493,7 @@ func TestS3_BucketIntelligentTieringConfig(t *testing.T) {
 		{
 			name:       "DeleteBucketIntelligentTieringConfiguration on missing bucket returns 404",
 			method:     http.MethodDelete,
-			path:       "/no-such-bucket?intelligent-tiering",
+			path:       "/no-such-bucket?intelligent-tiering&id=test",
 			wantStatus: http.StatusNotFound,
 			wantBody:   "NoSuchBucket",
 		},
@@ -2452,7 +2526,7 @@ func TestS3_BucketIntelligentTieringConfig(t *testing.T) {
 	}
 }
 
-// TestS3_BucketInventoryConfig verifies put/get/delete bucket inventory configuration.
+// TestS3_BucketInventoryConfig verifies put/get/list/delete bucket inventory configuration.
 func TestS3_BucketInventoryConfig(t *testing.T) {
 	t.Parallel()
 
@@ -2471,7 +2545,7 @@ func TestS3_BucketInventoryConfig(t *testing.T) {
 		{
 			name:   "PutBucketInventoryConfiguration stores config",
 			method: http.MethodPut,
-			path:   "/inventory-bucket?inventory",
+			path:   "/inventory-bucket?inventory&id=inv-config",
 			body:   inventoryXML,
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
@@ -2480,14 +2554,26 @@ func TestS3_BucketInventoryConfig(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name:   "PutBucketInventoryConfiguration missing id returns 400",
+			method: http.MethodPut,
+			path:   "/inventory-bucket?inventory",
+			body:   inventoryXML,
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "inventory-bucket")
+			},
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "InvalidArgument",
+		},
+		{
 			name:   "GetBucketInventoryConfiguration returns stored config",
 			method: http.MethodGet,
-			path:   "/inventory-bucket?inventory",
+			path:   "/inventory-bucket?inventory&id=inv-config",
 			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "inventory-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut, "/inventory-bucket?inventory", strings.NewReader(inventoryXML),
+					http.MethodPut, "/inventory-bucket?inventory&id=inv-config", strings.NewReader(inventoryXML),
 				)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
@@ -2499,7 +2585,7 @@ func TestS3_BucketInventoryConfig(t *testing.T) {
 		{
 			name:   "GetBucketInventoryConfiguration returns 404 when not set",
 			method: http.MethodGet,
-			path:   "/inventory-bucket?inventory",
+			path:   "/inventory-bucket?inventory&id=nonexistent",
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "inventory-bucket")
@@ -2508,9 +2594,26 @@ func TestS3_BucketInventoryConfig(t *testing.T) {
 			wantBody:   "NoSuchConfiguration",
 		},
 		{
+			name:   "ListBucketInventoryConfigurations returns stored configs",
+			method: http.MethodGet,
+			path:   "/inventory-bucket?inventory",
+			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "inventory-bucket")
+				req := httptest.NewRequest(
+					http.MethodPut, "/inventory-bucket?inventory&id=cfg1", strings.NewReader(inventoryXML),
+				)
+				rec := httptest.NewRecorder()
+				serveS3Handler(handler, rec, req)
+				require.Equal(t, http.StatusOK, rec.Code)
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "InventoryConfiguration",
+		},
+		{
 			name:   "DeleteBucketInventoryConfiguration succeeds",
 			method: http.MethodDelete,
-			path:   "/inventory-bucket?inventory",
+			path:   "/inventory-bucket?inventory&id=inv-config",
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "inventory-bucket")
@@ -2520,7 +2623,7 @@ func TestS3_BucketInventoryConfig(t *testing.T) {
 		{
 			name:       "DeleteBucketInventoryConfiguration on missing bucket returns 404",
 			method:     http.MethodDelete,
-			path:       "/no-such-bucket?inventory",
+			path:       "/no-such-bucket?inventory&id=test",
 			wantStatus: http.StatusNotFound,
 			wantBody:   "NoSuchBucket",
 		},
@@ -2836,7 +2939,7 @@ func TestS3_BucketMetadataTableConfig(t *testing.T) {
 	}
 }
 
-// TestS3_BucketMetricsConfig verifies put/get/delete bucket metrics configuration.
+// TestS3_BucketMetricsConfig verifies put/get/list/delete bucket metrics configuration.
 func TestS3_BucketMetricsConfig(t *testing.T) {
 	t.Parallel()
 
@@ -2855,7 +2958,7 @@ func TestS3_BucketMetricsConfig(t *testing.T) {
 		{
 			name:   "PutBucketMetricsConfiguration stores config",
 			method: http.MethodPut,
-			path:   "/metrics-bucket?metrics",
+			path:   "/metrics-bucket?metrics&id=metrics-config",
 			body:   metricsXML,
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
@@ -2864,14 +2967,26 @@ func TestS3_BucketMetricsConfig(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name:   "PutBucketMetricsConfiguration missing id returns 400",
+			method: http.MethodPut,
+			path:   "/metrics-bucket?metrics",
+			body:   metricsXML,
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "metrics-bucket")
+			},
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "InvalidArgument",
+		},
+		{
 			name:   "GetBucketMetricsConfiguration returns stored config",
 			method: http.MethodGet,
-			path:   "/metrics-bucket?metrics",
+			path:   "/metrics-bucket?metrics&id=metrics-config",
 			setup: func(t *testing.T, handler *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "metrics-bucket")
 				req := httptest.NewRequest(
-					http.MethodPut, "/metrics-bucket?metrics", strings.NewReader(metricsXML),
+					http.MethodPut, "/metrics-bucket?metrics&id=metrics-config", strings.NewReader(metricsXML),
 				)
 				rec := httptest.NewRecorder()
 				serveS3Handler(handler, rec, req)
@@ -2883,7 +2998,7 @@ func TestS3_BucketMetricsConfig(t *testing.T) {
 		{
 			name:   "GetBucketMetricsConfiguration returns 404 when not set",
 			method: http.MethodGet,
-			path:   "/metrics-bucket?metrics",
+			path:   "/metrics-bucket?metrics&id=nonexistent",
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "metrics-bucket")
@@ -2892,9 +3007,20 @@ func TestS3_BucketMetricsConfig(t *testing.T) {
 			wantBody:   "NoSuchConfiguration",
 		},
 		{
+			name:   "ListBucketMetricsConfigurations returns empty list",
+			method: http.MethodGet,
+			path:   "/metrics-bucket?metrics",
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "metrics-bucket")
+			},
+			wantStatus: http.StatusOK,
+			wantBody:   "IsTruncated",
+		},
+		{
 			name:   "DeleteBucketMetricsConfiguration succeeds",
 			method: http.MethodDelete,
-			path:   "/metrics-bucket?metrics",
+			path:   "/metrics-bucket?metrics&id=metrics-config",
 			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
 				t.Helper()
 				mustCreateBucket(t, backend, "metrics-bucket")
@@ -2902,9 +3028,20 @@ func TestS3_BucketMetricsConfig(t *testing.T) {
 			wantStatus: http.StatusNoContent,
 		},
 		{
+			name:   "DeleteBucketMetricsConfiguration missing id returns 400",
+			method: http.MethodDelete,
+			path:   "/metrics-bucket?metrics",
+			setup: func(t *testing.T, _ *s3.S3Handler, backend *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, backend, "metrics-bucket")
+			},
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "InvalidArgument",
+		},
+		{
 			name:       "DeleteBucketMetricsConfiguration on missing bucket returns 404",
 			method:     http.MethodDelete,
-			path:       "/no-such-bucket?metrics",
+			path:       "/no-such-bucket?metrics&id=test",
 			wantStatus: http.StatusNotFound,
 			wantBody:   "NoSuchBucket",
 		},
@@ -2984,7 +3121,7 @@ func TestS3_CreateSession(t *testing.T) {
 	}
 }
 
-// TestS3_NewOperations_SupportedOperations verifies all 20 new operations appear in GetSupportedOperations.
+// TestS3_NewOperations_SupportedOperations verifies all 24 new operations appear in GetSupportedOperations.
 func TestS3_NewOperations_SupportedOperations(t *testing.T) {
 	t.Parallel()
 
@@ -3002,19 +3139,26 @@ func TestS3_NewOperations_SupportedOperations(t *testing.T) {
 		{name: "includes PutBucketAnalyticsConfiguration", want: "PutBucketAnalyticsConfiguration"},
 		{name: "includes GetBucketAnalyticsConfiguration", want: "GetBucketAnalyticsConfiguration"},
 		{name: "includes DeleteBucketAnalyticsConfiguration", want: "DeleteBucketAnalyticsConfiguration"},
+		{name: "includes ListBucketAnalyticsConfigurations", want: "ListBucketAnalyticsConfigurations"},
 		{name: "includes PutBucketIntelligentTieringConfiguration", want: "PutBucketIntelligentTieringConfiguration"},
 		{name: "includes GetBucketIntelligentTieringConfiguration", want: "GetBucketIntelligentTieringConfiguration"},
 		{
 			name: "includes DeleteBucketIntelligentTieringConfiguration",
 			want: "DeleteBucketIntelligentTieringConfiguration",
 		},
+		{
+			name: "includes ListBucketIntelligentTieringConfigurations",
+			want: "ListBucketIntelligentTieringConfigurations",
+		},
 		{name: "includes PutBucketInventoryConfiguration", want: "PutBucketInventoryConfiguration"},
 		{name: "includes GetBucketInventoryConfiguration", want: "GetBucketInventoryConfiguration"},
 		{name: "includes DeleteBucketInventoryConfiguration", want: "DeleteBucketInventoryConfiguration"},
+		{name: "includes ListBucketInventoryConfigurations", want: "ListBucketInventoryConfigurations"},
 		{name: "includes DeleteBucketLifecycle", want: "DeleteBucketLifecycle"},
 		{name: "includes PutBucketMetricsConfiguration", want: "PutBucketMetricsConfiguration"},
 		{name: "includes GetBucketMetricsConfiguration", want: "GetBucketMetricsConfiguration"},
 		{name: "includes DeleteBucketMetricsConfiguration", want: "DeleteBucketMetricsConfiguration"},
+		{name: "includes ListBucketMetricsConfigurations", want: "ListBucketMetricsConfigurations"},
 	}
 
 	for _, tt := range tests {
