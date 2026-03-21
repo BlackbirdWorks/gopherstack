@@ -3,6 +3,7 @@ package apigatewaymanagementapi_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -377,4 +378,25 @@ func TestBackend_GetMessages(t *testing.T) {
 	assert.Len(t, msgs, 2)
 	assert.Equal(t, []byte("first"), msgs[0].Data)
 	assert.Equal(t, []byte("second"), msgs[1].Data)
+}
+
+func TestBackend_PostToConnection_MessageCap(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewaymanagementapi.NewInMemoryBackend()
+
+	_, err := b.CreateConnection("capped", "1.2.3.4", "ua")
+	require.NoError(t, err)
+
+	total := apigatewaymanagementapi.MaxMessagesPerConnection + 10
+	for i := range total {
+		require.NoError(t, b.PostToConnection("capped", fmt.Appendf(nil, "msg-%d", i)))
+	}
+
+	msgs := b.GetMessages("capped")
+	assert.Len(t, msgs, apigatewaymanagementapi.MaxMessagesPerConnection)
+	// The oldest messages should have been dropped; the last message should be the most recent.
+	assert.Equal(t, fmt.Appendf(nil, "msg-%d", total-1), msgs[len(msgs)-1].Data)
+	// The first retained message should be message #10 (the 11th posted).
+	assert.Equal(t, []byte("msg-10"), msgs[0].Data)
 }

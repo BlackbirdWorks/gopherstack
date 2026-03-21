@@ -26,41 +26,49 @@ var (
 
 // Group represents an X-Ray group used to filter trace data.
 type Group struct {
-	CreatedAt        time.Time
-	GroupARN         string
-	GroupName        string
-	FilterExpression string
+	CreatedAt        time.Time `json:"createdAt"`
+	GroupARN         string    `json:"groupARN"`
+	GroupName        string    `json:"groupName"`
+	FilterExpression string    `json:"filterExpression"`
 }
 
 // SamplingRule represents an X-Ray sampling rule that controls the rate of data collection.
 type SamplingRule struct {
-	CreatedAt     time.Time
-	RuleARN       string
-	RuleName      string
-	ResourceARN   string
-	ServiceName   string
-	ServiceType   string
-	Host          string
-	HTTPMethod    string
-	URLPath       string
-	FixedRate     float64
-	Priority      int32
-	ReservoirSize int32
+	CreatedAt     time.Time `json:"createdAt"`
+	RuleARN       string    `json:"ruleARN"`
+	RuleName      string    `json:"ruleName"`
+	ResourceARN   string    `json:"resourceARN"`
+	ServiceName   string    `json:"serviceName"`
+	ServiceType   string    `json:"serviceType"`
+	Host          string    `json:"host"`
+	HTTPMethod    string    `json:"httpMethod"`
+	URLPath       string    `json:"urlPath"`
+	FixedRate     float64   `json:"fixedRate"`
+	Priority      int32     `json:"priority"`
+	ReservoirSize int32     `json:"reservoirSize"`
 }
 
 // Trace represents a collected X-Ray trace with its constituent segments.
 type Trace struct {
-	StartTime time.Time
-	TraceID   string
-	Segments  []string
+	StartTime time.Time `json:"startTime"`
+	TraceID   string    `json:"traceID"`
+	Segments  []string  `json:"segments"`
+}
+
+// EncryptionConfig represents X-Ray encryption configuration.
+type EncryptionConfig struct {
+	KeyID  string `json:"KeyId,omitempty"`
+	Status string `json:"Status"`
+	Type   string `json:"Type"`
 }
 
 // InMemoryBackend is the in-memory store for X-Ray resources.
 type InMemoryBackend struct {
-	groups        map[string]*Group
-	samplingRules map[string]*SamplingRule
-	traces        map[string]*Trace
-	mu            *lockmetrics.RWMutex
+	groups           map[string]*Group
+	samplingRules    map[string]*SamplingRule
+	traces           map[string]*Trace
+	encryptionConfig *EncryptionConfig
+	mu               *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -70,6 +78,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 		samplingRules: make(map[string]*SamplingRule),
 		traces:        make(map[string]*Trace),
 		mu:            lockmetrics.New("xray"),
+		encryptionConfig: &EncryptionConfig{
+			Type:   "NONE",
+			Status: "ACTIVE",
+		},
 	}
 }
 
@@ -340,6 +352,44 @@ func (b *InMemoryBackend) GetTrace(traceID string) *Trace {
 	cp := *t
 	cp.Segments = make([]string, len(t.Segments))
 	copy(cp.Segments, t.Segments)
+
+	return &cp
+}
+
+// Reset clears all backend state, resetting to an empty store.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.groups = make(map[string]*Group)
+	b.samplingRules = make(map[string]*SamplingRule)
+	b.traces = make(map[string]*Trace)
+	b.encryptionConfig = &EncryptionConfig{Type: "NONE", Status: "ACTIVE"}
+}
+
+// GetEncryptionConfig returns the current X-Ray encryption configuration.
+func (b *InMemoryBackend) GetEncryptionConfig() *EncryptionConfig {
+	b.mu.RLock("GetEncryptionConfig")
+	defer b.mu.RUnlock()
+
+	cp := *b.encryptionConfig
+
+	return &cp
+}
+
+// PutEncryptionConfig updates the X-Ray encryption configuration.
+// encType must be one of "NONE" or "KMS". keyID is only used when encType is "KMS".
+func (b *InMemoryBackend) PutEncryptionConfig(encType, keyID string) *EncryptionConfig {
+	b.mu.Lock("PutEncryptionConfig")
+	defer b.mu.Unlock()
+
+	b.encryptionConfig = &EncryptionConfig{
+		Type:   encType,
+		KeyID:  keyID,
+		Status: "ACTIVE",
+	}
+
+	cp := *b.encryptionConfig
 
 	return &cp
 }

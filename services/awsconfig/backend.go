@@ -13,6 +13,8 @@ var (
 	ErrNotFound = awserr.New("NoSuchConfigurationRecorder", awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("MaxNumberOfConfigurationRecordersExceededException", awserr.ErrAlreadyExists)
+	// ErrNoDeliveryChannel is returned when starting a recorder with no delivery channel configured.
+	ErrNoDeliveryChannel = awserr.New("NoAvailableDeliveryChannelException", awserr.ErrInvalidParameter)
 )
 
 // ConfigurationRecorder represents an AWS Config configuration recorder.
@@ -78,6 +80,10 @@ func (b *InMemoryBackend) StartConfigurationRecorder(name string) error {
 		return fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 
+	if len(b.channels) == 0 {
+		return fmt.Errorf("%w: no delivery channel configured", ErrNoDeliveryChannel)
+	}
+
 	r.Status = "ACTIVE"
 
 	return nil
@@ -132,4 +138,35 @@ func (b *InMemoryBackend) DeleteConfigurationRecorder(name string) error {
 	delete(b.recorders, name)
 
 	return nil
+}
+
+// ConfigurationRecorderStatus represents the recording status of a recorder.
+type ConfigurationRecorderStatus struct {
+	Name      string `json:"name"`
+	Recording bool   `json:"recording"`
+}
+
+// DescribeConfigurationRecorderStatus returns the recording status of all recorders.
+func (b *InMemoryBackend) DescribeConfigurationRecorderStatus() []ConfigurationRecorderStatus {
+	b.mu.RLock("DescribeConfigurationRecorderStatus")
+	defer b.mu.RUnlock()
+
+	out := make([]ConfigurationRecorderStatus, 0, len(b.recorders))
+	for _, r := range b.recorders {
+		out = append(out, ConfigurationRecorderStatus{
+			Name:      r.Name,
+			Recording: r.Status == "ACTIVE",
+		})
+	}
+
+	return out
+}
+
+// Reset clears all in-memory state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.recorders = make(map[string]*ConfigurationRecorder)
+	b.channels = make(map[string]*DeliveryChannel)
 }

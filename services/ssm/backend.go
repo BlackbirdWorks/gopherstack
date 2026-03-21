@@ -320,6 +320,7 @@ func (b *InMemoryBackend) DeleteParameter(input *DeleteParameterInput) (*DeleteP
 
 	delete(b.parameters, input.Name)
 	delete(b.history, input.Name)
+	b.tags[input.Name].Close()
 	delete(b.tags, input.Name)
 
 	return &DeleteParameterOutput{}, nil
@@ -339,6 +340,7 @@ func (b *InMemoryBackend) DeleteParameters(input *DeleteParametersInput) (*Delet
 		if _, exists := b.parameters[name]; exists {
 			delete(b.parameters, name)
 			delete(b.history, name)
+			b.tags[name].Close()
 			delete(b.tags, name)
 			output.DeletedParameters = append(output.DeletedParameters, name)
 		} else {
@@ -1195,6 +1197,10 @@ func (b *InMemoryBackend) ListCommandInvocations(
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	for _, t := range b.tags {
+		t.Close()
+	}
 
 	b.parameters = make(map[string]Parameter)
 	b.history = make(map[string][]ParameterHistory)

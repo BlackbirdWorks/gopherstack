@@ -62,6 +62,7 @@ func TestAWSConfigBackend_StartConfigurationRecorder(t *testing.T) {
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
 				require.NoError(t, b.PutConfigurationRecorder("default", "arn:aws:iam::000000000000:role/config"))
+				require.NoError(t, b.PutDeliveryChannel("default", "my-bucket", ""))
 			},
 			wantStatus: "ACTIVE",
 		},

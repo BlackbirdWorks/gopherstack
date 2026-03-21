@@ -46,9 +46,20 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.Groups = make(map[string]*Group)
 	}
 
+	// Close existing Tags to release Prometheus metrics before replacing state.
+	for _, g := range b.groups {
+		g.Tags.Close()
+	}
+
 	b.groups = snap.Groups
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+
+	// Rebuild ARN index.
+	b.arnIndex = make(map[string]string, len(b.groups))
+	for name, g := range b.groups {
+		b.arnIndex[g.ARN] = name
+	}
 
 	return nil
 }
@@ -61,4 +72,9 @@ func (h *Handler) Snapshot() []byte {
 // Restore implements persistence.Persistable by delegating to the backend.
 func (h *Handler) Restore(data []byte) error {
 	return h.Backend.Restore(data)
+}
+
+// Reset implements service.Resettable by delegating to the backend.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
 }

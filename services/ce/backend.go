@@ -21,56 +21,56 @@ var (
 
 // CostCategory represents an in-memory AWS Cost Explorer cost category.
 type CostCategory struct {
-	CreationDate     time.Time
-	Tags             map[string]string
-	ARN              string
-	Name             string
-	RuleVersion      string
-	DefaultValue     string
-	EffectiveStart   string
-	Rules            []CostCategoryRule
-	SplitChargeRules []SplitChargeRule
+	CreationDate     time.Time          `json:"creationDate"`
+	Tags             map[string]string  `json:"tags"`
+	ARN              string             `json:"arn"`
+	Name             string             `json:"name"`
+	RuleVersion      string             `json:"ruleVersion"`
+	DefaultValue     string             `json:"defaultValue"`
+	EffectiveStart   string             `json:"effectiveStart"`
+	Rules            []CostCategoryRule `json:"rules"`
+	SplitChargeRules []SplitChargeRule  `json:"splitChargeRules"`
 }
 
 // CostCategoryRule represents a single cost category rule.
 type CostCategoryRule struct {
-	Value string
+	Value string `json:"value"`
 }
 
 // SplitChargeRule represents a cost category split charge rule.
 type SplitChargeRule struct {
-	Source  string
-	Method  string
-	Targets []string
+	Source  string   `json:"source"`
+	Method  string   `json:"method"`
+	Targets []string `json:"targets"`
 }
 
 // AnomalyMonitor represents an in-memory AWS CE anomaly monitor.
 type AnomalyMonitor struct {
-	CreationDate     time.Time
-	Tags             map[string]string
-	MonitorARN       string
-	MonitorName      string
-	MonitorType      string
-	MonitorDimension string
+	CreationDate     time.Time         `json:"creationDate"`
+	Tags             map[string]string `json:"tags"`
+	MonitorARN       string            `json:"monitorARN"`
+	MonitorName      string            `json:"monitorName"`
+	MonitorType      string            `json:"monitorType"`
+	MonitorDimension string            `json:"monitorDimension"`
 }
 
 // AnomalySubscription represents an in-memory AWS CE anomaly subscription.
 type AnomalySubscription struct {
-	CreationDate     time.Time
-	Tags             map[string]string
-	SubscriptionARN  string
-	SubscriptionName string
-	Frequency        string
-	MonitorARNList   []string
-	Subscribers      []Subscriber
-	Threshold        float64
+	CreationDate     time.Time         `json:"creationDate"`
+	Tags             map[string]string `json:"tags"`
+	SubscriptionARN  string            `json:"subscriptionARN"`
+	SubscriptionName string            `json:"subscriptionName"`
+	Frequency        string            `json:"frequency"`
+	MonitorARNList   []string          `json:"monitorARNList"`
+	Subscribers      []Subscriber      `json:"subscribers"`
+	Threshold        float64           `json:"threshold"`
 }
 
 // Subscriber represents a CE anomaly subscription notification target.
 type Subscriber struct {
-	Address string
-	Type    string
-	Status  string
+	Address string `json:"address"`
+	Type    string `json:"type"`
+	Status  string `json:"status"`
 }
 
 // InMemoryBackend is a thread-safe in-memory store for Cost Explorer resources.
@@ -97,6 +97,16 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 
 // Region returns the region for this backend instance.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// Reset clears all in-memory state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.costCategories = make(map[string]*CostCategory)
+	b.anomalyMonitors = make(map[string]*AnomalyMonitor)
+	b.anomalySubscriptions = make(map[string]*AnomalySubscription)
+}
 
 func (b *InMemoryBackend) buildCostCategoryARN(name string) string {
 	return fmt.Sprintf("arn:aws:ce::%s:costcategory/%s", b.accountID, name)
@@ -133,12 +143,15 @@ func (b *InMemoryBackend) CreateCostCategoryDefinition(
 	tagsCopy := make(map[string]string, len(resourceTags))
 	maps.Copy(tagsCopy, resourceTags)
 
+	rulesCopy := make([]CostCategoryRule, len(rules))
+	copy(rulesCopy, rules)
+
 	cat := &CostCategory{
 		ARN:            catARN,
 		Name:           name,
 		RuleVersion:    ruleVersion,
 		DefaultValue:   defaultValue,
-		Rules:          rules,
+		Rules:          rulesCopy,
 		EffectiveStart: effectiveStart(),
 		CreationDate:   time.Now().UTC(),
 		Tags:           tagsCopy,
@@ -146,6 +159,8 @@ func (b *InMemoryBackend) CreateCostCategoryDefinition(
 	b.costCategories[catARN] = cat
 
 	out := *cat
+	out.Rules = make([]CostCategoryRule, len(cat.Rules))
+	copy(out.Rules, cat.Rules)
 
 	return &out, nil
 }
@@ -212,11 +227,30 @@ func (b *InMemoryBackend) UpdateCostCategoryDefinition(
 
 	cat.RuleVersion = ruleVersion
 	cat.DefaultValue = defaultValue
-	cat.Rules = rules
-	cat.SplitChargeRules = splitChargeRules
+	// Deep-copy both slices so the caller cannot alias backend-owned state.
+	rulesCopy := make([]CostCategoryRule, len(rules))
+	copy(rulesCopy, rules)
+	cat.Rules = rulesCopy
+
+	splitCopy := make([]SplitChargeRule, len(splitChargeRules))
+	for i, s := range splitChargeRules {
+		sc := s
+		if s.Targets != nil {
+			sc.Targets = make([]string, len(s.Targets))
+			copy(sc.Targets, s.Targets)
+		}
+
+		splitCopy[i] = sc
+	}
+
+	cat.SplitChargeRules = splitCopy
 	cat.EffectiveStart = effectiveStart()
 
 	out := *cat
+	out.Rules = make([]CostCategoryRule, len(cat.Rules))
+	copy(out.Rules, cat.Rules)
+	out.SplitChargeRules = make([]SplitChargeRule, len(cat.SplitChargeRules))
+	copy(out.SplitChargeRules, cat.SplitChargeRules)
 
 	return &out, nil
 }

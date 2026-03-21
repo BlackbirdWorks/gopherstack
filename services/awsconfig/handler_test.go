@@ -143,6 +143,12 @@ func TestAWSConfigHandler_StartConfigurationRecorder(t *testing.T) {
 						"roleARN": "arn:aws:iam::000000000000:role/config",
 					},
 				})
+				doAWSConfigRequest(t, h, "PutDeliveryChannel", map[string]any{
+					"DeliveryChannel": map[string]any{
+						"name":         "default",
+						"s3BucketName": "my-bucket",
+					},
+				})
 			},
 			body:     map[string]any{"ConfigurationRecorderName": "default"},
 			wantCode: http.StatusOK,
@@ -464,4 +470,136 @@ func TestAWSConfigProvider_Init(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, svc)
 	assert.Equal(t, "AWSConfig", svc.Name())
+}
+
+func TestAWSConfigHandler_DescribeConfigRulesAndCompliance(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body      any
+		name      string
+		action    string
+		wantField string
+		wantCode  int
+	}{
+		{
+			name:      "describe_config_rules_empty",
+			action:    "DescribeConfigRules",
+			body:      map[string]any{},
+			wantCode:  http.StatusOK,
+			wantField: "ConfigRules",
+		},
+		{
+			name:      "describe_config_rules_with_names",
+			action:    "DescribeConfigRules",
+			body:      map[string]any{"ConfigRuleNames": []string{"my-rule"}},
+			wantCode:  http.StatusOK,
+			wantField: "ConfigRules",
+		},
+		{
+			name:      "get_compliance_details_empty",
+			action:    "GetComplianceDetailsByConfigRule",
+			body:      map[string]any{"ConfigRuleName": "my-rule"},
+			wantCode:  http.StatusOK,
+			wantField: "EvaluationResults",
+		},
+		{
+			name:      "get_compliance_details_no_name",
+			action:    "GetComplianceDetailsByConfigRule",
+			body:      map[string]any{},
+			wantCode:  http.StatusOK,
+			wantField: "EvaluationResults",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, tt.action, tt.body)
+			require.Equal(t, tt.wantCode, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.NotNil(t, out[tt.wantField])
+		})
+	}
+}
+
+func TestAWSConfigHandler_DescribeConfigurationRecorderStatus(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup            func(t *testing.T, h *awsconfig.Handler)
+		name             string
+		wantCode         int
+		wantRecordingLen int
+		wantRecording    bool
+	}{
+		{
+			name:             "empty_returns_empty_list",
+			wantCode:         http.StatusOK,
+			wantRecordingLen: 0,
+		},
+		{
+			name: "pending_recorder_is_not_recording",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
+					"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": "arn:aws:iam::123:role/r"},
+				})
+			},
+			wantCode:         http.StatusOK,
+			wantRecordingLen: 1,
+			wantRecording:    false,
+		},
+		{
+			name: "active_recorder_is_recording",
+			setup: func(t *testing.T, h *awsconfig.Handler) {
+				t.Helper()
+				doAWSConfigRequest(t, h, "PutConfigurationRecorder", map[string]any{
+					"ConfigurationRecorder": map[string]any{"name": "default", "roleARN": "arn:aws:iam::123:role/r"},
+				})
+				doAWSConfigRequest(t, h, "PutDeliveryChannel", map[string]any{
+					"DeliveryChannel": map[string]any{"name": "default", "s3BucketName": "my-bucket"},
+				})
+				doAWSConfigRequest(t, h, "StartConfigurationRecorder", map[string]any{
+					"ConfigurationRecorderName": "default",
+				})
+			},
+			wantCode:         http.StatusOK,
+			wantRecordingLen: 1,
+			wantRecording:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doAWSConfigRequest(t, h, "DescribeConfigurationRecorderStatus", map[string]any{})
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			var out struct {
+				ConfigurationRecordersStatus []struct {
+					Name      string `json:"name"`
+					Recording bool   `json:"recording"`
+				} `json:"ConfigurationRecordersStatus"`
+			}
+
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.Len(t, out.ConfigurationRecordersStatus, tt.wantRecordingLen)
+
+			if tt.wantRecordingLen > 0 {
+				assert.Equal(t, tt.wantRecording, out.ConfigurationRecordersStatus[0].Recording)
+			}
+		})
+	}
 }

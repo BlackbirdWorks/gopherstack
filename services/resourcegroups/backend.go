@@ -37,6 +37,7 @@ type Group struct {
 // InMemoryBackend is the in-memory store for Resource Groups.
 type InMemoryBackend struct {
 	groups    map[string]*Group
+	arnIndex  map[string]string // ARN → group name
 	mu        *lockmetrics.RWMutex
 	accountID string
 	region    string
@@ -46,6 +47,7 @@ type InMemoryBackend struct {
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		groups:    make(map[string]*Group),
+		arnIndex:  make(map[string]string),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("resourcegroups"),
@@ -83,6 +85,7 @@ func (b *InMemoryBackend) CreateGroup(
 
 	g := &Group{Name: name, ARN: groupARN, Description: description, Tags: backendTags, ResourceQuery: resourceQuery}
 	b.groups[name] = g
+	b.arnIndex[groupARN] = name
 
 	cp := *g
 
@@ -103,21 +106,24 @@ func (b *InMemoryBackend) DeleteGroup(nameOrARN string) error {
 		return fmt.Errorf("%w: group %s not found", ErrNotFound, name)
 	}
 
+	g := b.groups[name]
+	delete(b.arnIndex, g.ARN)
+	g.Tags.Close()
 	delete(b.groups, name)
 
 	return nil
 }
 
 // ListGroups returns all resource groups.
-// The Tags field in each returned Group points to the backend-owned Tags
-// collection; callers should treat it as read-only.
 func (b *InMemoryBackend) ListGroups() []Group {
 	b.mu.RLock("ListGroups")
 	defer b.mu.RUnlock()
 
 	out := make([]Group, 0, len(b.groups))
 	for _, g := range b.groups {
-		out = append(out, *g)
+		cp := *g
+		cp.Tags = nil
+		out = append(out, cp)
 	}
 
 	return out
@@ -170,13 +176,12 @@ func (b *InMemoryBackend) RemoveTagsByARN(resourceARN string, keys []string) err
 
 // findByARN looks up a group by its ARN (must be called under a lock).
 func (b *InMemoryBackend) findByARN(resourceARN string) *Group {
-	for _, g := range b.groups {
-		if g.ARN == resourceARN {
-			return g
-		}
+	name, ok := b.arnIndex[resourceARN]
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return b.groups[name]
 }
 
 // GetGroup returns a resource group by name or ARN.
@@ -201,4 +206,62 @@ func (b *InMemoryBackend) GetGroup(nameOrARN string) (*Group, error) {
 	cp := *g
 
 	return &cp, nil
+}
+
+// UpdateGroup updates the description of a resource group identified by name or ARN.
+func (b *InMemoryBackend) UpdateGroup(nameOrARN, description string) (*Group, error) {
+	b.mu.Lock("UpdateGroup")
+	defer b.mu.Unlock()
+
+	name := nameOrARN
+	if idx := strings.LastIndex(nameOrARN, "group/"); idx >= 0 {
+		name = nameOrARN[idx+len("group/"):]
+	}
+
+	g, ok := b.groups[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	g.Description = description
+	cp := *g
+
+	return &cp, nil
+}
+
+// UpdateGroupQuery updates the resource query of a resource group identified by name or ARN.
+func (b *InMemoryBackend) UpdateGroupQuery(nameOrARN string, query *ResourceQuery) (*Group, error) {
+	b.mu.Lock("UpdateGroupQuery")
+	defer b.mu.Unlock()
+
+	name := nameOrARN
+	if idx := strings.LastIndex(nameOrARN, "group/"); idx >= 0 {
+		name = nameOrARN[idx+len("group/"):]
+	}
+
+	g, ok := b.groups[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	g.ResourceQuery = query
+	cp := *g
+
+	return &cp, nil
+}
+
+// Reset clears all in-memory state. It closes all group Tags to release
+// Prometheus metrics before discarding the groups map.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, g := range b.groups {
+		if g.Tags != nil {
+			g.Tags.Close()
+		}
+	}
+
+	b.groups = make(map[string]*Group)
+	b.arnIndex = make(map[string]string)
 }

@@ -731,3 +731,107 @@ func TestResourceGroupsHandler_SnapshotRestore(t *testing.T) {
 	rec := doResourceGroupsRequest(t, h2, "GetGroup", map[string]any{"GroupName": "persist-group"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestResourceGroupsHandler_UpdateGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(t *testing.T, h *resourcegroups.Handler)
+		body        map[string]any
+		name        string
+		wantContain string
+		wantCode    int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{
+					"Name": "my-group", "Description": "old",
+				})
+			},
+			body:        map[string]any{"GroupName": "my-group", "Description": "new-desc"},
+			wantCode:    http.StatusOK,
+			wantContain: "new-desc",
+		},
+		{
+			name:     "not_found",
+			body:     map[string]any{"GroupName": "missing"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doResourceGroupsRequest(t, h, "UpdateGroup", tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantContain != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContain)
+			}
+		})
+	}
+}
+
+func TestResourceGroupsHandler_UpdateGroupQuery(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(t *testing.T, h *resourcegroups.Handler)
+		body        map[string]any
+		name        string
+		wantContain string
+		wantCode    int
+	}{
+		{
+			name: "success",
+			setup: func(t *testing.T, h *resourcegroups.Handler) {
+				t.Helper()
+				doResourceGroupsRequest(t, h, "CreateGroup", map[string]any{
+					"Name": "q-group",
+					"ResourceQuery": map[string]any{
+						"Type": "TAG_FILTERS_1_0", "Query": "old-query",
+					},
+				})
+			},
+			body: map[string]any{
+				"GroupName": "q-group",
+				"ResourceQuery": map[string]any{
+					"Type": "TAG_FILTERS_1_0", "Query": "new-query",
+				},
+			},
+			wantCode:    http.StatusOK,
+			wantContain: "new-query",
+		},
+		{
+			name:     "not_found",
+			body:     map[string]any{"GroupName": "no-such"},
+			wantCode: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestResourceGroupsHandler(t)
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rec := doResourceGroupsRequest(t, h, "UpdateGroupQuery", tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			if tt.wantContain != "" {
+				assert.Contains(t, rec.Body.String(), tt.wantContain)
+			}
+		})
+	}
+}

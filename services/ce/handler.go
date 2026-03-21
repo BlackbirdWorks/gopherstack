@@ -54,6 +54,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetAnomalySubscriptions",
 		"UpdateAnomalySubscription",
 		"GetCostAndUsage",
+		"GetCostForecast",
+		"GetUsageForecast",
 		"GetDimensionValues",
 		"GetTags",
 		"ListTagsForResource",
@@ -122,6 +124,8 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"GetAnomalySubscriptions":        service.WrapOp(h.handleGetAnomalySubscriptions),
 		"UpdateAnomalySubscription":      service.WrapOp(h.handleUpdateAnomalySubscription),
 		"GetCostAndUsage":                service.WrapOp(h.handleGetCostAndUsage),
+		"GetCostForecast":                service.WrapOp(h.handleGetCostForecast),
+		"GetUsageForecast":               service.WrapOp(h.handleGetUsageForecast),
 		"GetDimensionValues":             service.WrapOp(h.handleGetDimensionValues),
 		"GetTags":                        service.WrapOp(h.handleGetTags),
 		"ListTagsForResource":            service.WrapOp(h.handleListTagsForResource),
@@ -831,4 +835,57 @@ func (h *Handler) handleUntagResource(_ context.Context, in *untagResourceInput)
 	}
 
 	return &untagResourceOutput{}, nil
+}
+
+// --- Forecast stubs ---
+
+type getCostForecastInput struct {
+	TimePeriod  map[string]string `json:"TimePeriod"`
+	Granularity string            `json:"Granularity"`
+	Metric      string            `json:"Metric"`
+}
+
+type forecastResult struct {
+	MeanValue                    string `json:"MeanValue"`
+	PredictionIntervalLowerBound string `json:"PredictionIntervalLowerBound,omitempty"`
+	PredictionIntervalUpperBound string `json:"PredictionIntervalUpperBound,omitempty"`
+}
+
+type getCostForecastOutput struct {
+	Total                 *forecastResult `json:"Total,omitempty"`
+	ForecastResultsByTime []any           `json:"ForecastResultsByTime"`
+}
+
+// handleGetCostForecast returns a stub forecast response.
+// Real AWS returns predicted cost totals; the stub returns an empty forecast list.
+func (h *Handler) handleGetCostForecast(
+	_ context.Context,
+	_ *getCostForecastInput,
+) (*getCostForecastOutput, error) {
+	return &getCostForecastOutput{
+		Total:                 &forecastResult{MeanValue: "0"},
+		ForecastResultsByTime: []any{},
+	}, nil
+}
+
+type getUsageForecastInput struct {
+	TimePeriod  map[string]string `json:"TimePeriod"`
+	Granularity string            `json:"Granularity"`
+	Metric      string            `json:"Metric"`
+}
+
+type getUsageForecastOutput struct {
+	Total                 *forecastResult `json:"Total,omitempty"`
+	ForecastResultsByTime []any           `json:"ForecastResultsByTime"`
+}
+
+// handleGetUsageForecast returns a stub usage forecast response.
+func (h *Handler) handleGetUsageForecast(
+	_ context.Context,
+	_ *getUsageForecastInput,
+) (*getUsageForecastOutput, error) {
+	return &getUsageForecastOutput{
+		Total:                 &forecastResult{MeanValue: "0"},
+		ForecastResultsByTime: []any{},
+	}, nil
 }

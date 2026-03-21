@@ -44,6 +44,9 @@ var ErrSafetyLeverNotFound = errors.New("SafetyLeverNotFound")
 // ErrSafetyLeverEngaged is returned when StartExperiment is blocked by an engaged safety lever.
 var ErrSafetyLeverEngaged = errors.New("SafetyLeverEngaged")
 
+// ErrTooManyExperiments is returned when the experiment count would exceed the cap.
+var ErrTooManyExperiments = errors.New("ServiceQuotaExceededException")
+
 // ----------------------------------------
 // Status constants
 // ----------------------------------------
@@ -70,6 +73,9 @@ const (
 // ----------------------------------------
 
 const idChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// maxExperiments is the maximum number of experiments that can exist concurrently.
+const maxExperiments = 1000
 
 // generateID creates a random ID with the given prefix followed by 22 alphanumeric characters.
 func generateID(prefix string) string {
@@ -160,14 +166,16 @@ type StorageBackend interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	templates       map[string]*ExperimentTemplate
-	experiments     map[string]*Experiment
-	faultStore      *chaos.FaultStore
-	safetyLever     *SafetyLever
-	mu              *lockmetrics.RWMutex
-	accountID       string
-	region          string
-	actionProviders []service.FISActionProvider
+	templates          map[string]*ExperimentTemplate
+	experiments        map[string]*Experiment
+	templateARNIndex   map[string]string // ARN → template ID
+	experimentARNIndex map[string]string // ARN → experiment ID
+	faultStore         *chaos.FaultStore
+	safetyLever        *SafetyLever
+	mu                 *lockmetrics.RWMutex
+	accountID          string
+	region             string
+	actionProviders    []service.FISActionProvider
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -175,17 +183,45 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	safetyLeverARN := arn.Build("fis", region, accountID, fmt.Sprintf("safety-lever/%s", accountID))
 
 	return &InMemoryBackend{
-		templates:   make(map[string]*ExperimentTemplate),
-		experiments: make(map[string]*Experiment),
-		accountID:   accountID,
-		region:      region,
-		mu:          lockmetrics.New("fis"),
+		templates:          make(map[string]*ExperimentTemplate),
+		experiments:        make(map[string]*Experiment),
+		templateARNIndex:   make(map[string]string),
+		experimentARNIndex: make(map[string]string),
+		accountID:          accountID,
+		region:             region,
+		mu:                 lockmetrics.New("fis"),
 		safetyLever: &SafetyLever{
 			ID:    accountID,
 			Arn:   safetyLeverARN,
 			Tags:  make(map[string]string),
 			State: SafetyLeverState{Status: "disengaged"},
 		},
+	}
+}
+
+// Reset clears all in-memory state, cancelling any running experiments.
+// The safety lever is re-initialised to its default disengaged state.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, exp := range b.experiments {
+		if exp.cancel != nil {
+			exp.cancel()
+		}
+	}
+
+	safetyLeverARN := arn.Build("fis", b.region, b.accountID, fmt.Sprintf("safety-lever/%s", b.accountID))
+
+	b.templates = make(map[string]*ExperimentTemplate)
+	b.experiments = make(map[string]*Experiment)
+	b.templateARNIndex = make(map[string]string)
+	b.experimentARNIndex = make(map[string]string)
+	b.safetyLever = &SafetyLever{
+		ID:    b.accountID,
+		Arn:   safetyLeverARN,
+		Tags:  make(map[string]string),
+		State: SafetyLeverState{Status: "disengaged"},
 	}
 }
 
@@ -246,6 +282,7 @@ func (b *InMemoryBackend) CreateExperimentTemplate(
 	defer b.mu.Unlock()
 
 	b.templates[id] = tpl
+	b.templateARNIndex[arnStr] = id
 
 	return tpl, nil
 }
@@ -323,6 +360,7 @@ func (b *InMemoryBackend) DeleteExperimentTemplate(id string) error {
 		return fmt.Errorf("%w: %s", ErrTemplateNotFound, id)
 	}
 
+	delete(b.templateARNIndex, b.templates[id].Arn)
 	delete(b.templates, id)
 
 	return nil
@@ -354,10 +392,19 @@ func (b *InMemoryBackend) StartExperiment(
 	b.mu.RLock("StartExperiment")
 	tpl, ok := b.templates[input.ExperimentTemplateID]
 	leverEngaged := b.safetyLever != nil && b.safetyLever.State.Status == "engaged"
+	experimentCount := len(b.experiments)
 	b.mu.RUnlock()
 
 	if leverEngaged {
 		return nil, fmt.Errorf("%w: safety lever is engaged", ErrSafetyLeverEngaged)
+	}
+
+	if experimentCount >= maxExperiments {
+		return nil, fmt.Errorf(
+			"%w: experiment count would exceed the limit of %d",
+			ErrTooManyExperiments,
+			maxExperiments,
+		)
 	}
 
 	if !ok {
@@ -367,7 +414,36 @@ func (b *InMemoryBackend) StartExperiment(
 	id := generateID("EXP")
 	arnStr := arn.Build("fis", region, accountID, fmt.Sprintf("experiment/%s", id))
 
-	// Build resolved targets from template (simplified: copy ARNs directly).
+	// expCtx uses context.Background() as parent — NOT the HTTP request context — so the
+	// experiment goroutine is NOT cancelled when the HTTP response is sent.
+
+	expCtx, cancel := context.WithCancel(context.Background())
+	exp := buildExperimentFromTemplate(id, arnStr, tpl, input.Tags, cancel)
+
+	// Clone the template BEFORE passing to the goroutine so template updates don't race.
+	tplForRun := cloneTemplate(tpl)
+
+	b.mu.Lock("StartExperiment")
+	b.experiments[id] = exp
+	b.experimentARNIndex[arnStr] = id
+	// Take the snapshot while holding the lock, before launching the goroutine,
+	// so the background goroutine cannot mutate exp while we're reading it.
+	snapshot := cloneExperiment(exp)
+	b.mu.Unlock()
+
+	// Run the experiment lifecycle in the background.
+	go b.runExperiment(expCtx, id, tplForRun)
+
+	return snapshot, nil
+}
+
+// buildExperimentFromTemplate constructs a new Experiment from a template and input tags.
+func buildExperimentFromTemplate(
+	id, arnStr string,
+	tpl *ExperimentTemplate,
+	inputTags map[string]string,
+	cancel context.CancelFunc,
+) *Experiment {
 	targets := make(map[string]ExperimentTarget, len(tpl.Targets))
 	for name, t := range tpl.Targets {
 		targets[name] = ExperimentTarget{
@@ -377,7 +453,6 @@ func (b *InMemoryBackend) StartExperiment(
 		}
 	}
 
-	// Build action state.
 	actions := make(map[string]ExperimentAction, len(tpl.Actions))
 	for name, a := range tpl.Actions {
 		actions[name] = ExperimentAction{
@@ -388,34 +463,13 @@ func (b *InMemoryBackend) StartExperiment(
 		}
 	}
 
-	// Copy stop conditions.
 	stopConditions := make([]ExperimentStopCondition, len(tpl.StopConditions))
 	for i, sc := range tpl.StopConditions {
 		stopConditions[i] = ExperimentStopCondition(sc)
 	}
 
-	// Copy log configuration.
-	var logConfig *ExperimentLogConfiguration
-	if tpl.LogConfiguration != nil {
-		logConfig = &ExperimentLogConfiguration{
-			LogSchemaVersion: tpl.LogConfiguration.LogSchemaVersion,
-		}
+	logConfig := copyLogConfiguration(tpl.LogConfiguration)
 
-		if tpl.LogConfiguration.CloudWatchLogsConfiguration != nil {
-			logConfig.CloudWatchLogsConfiguration = &ExperimentCloudWatchLogsConfiguration{
-				LogGroupArn: tpl.LogConfiguration.CloudWatchLogsConfiguration.LogGroupArn,
-			}
-		}
-
-		if tpl.LogConfiguration.S3Configuration != nil {
-			logConfig.S3Configuration = &ExperimentS3Configuration{
-				BucketName: tpl.LogConfiguration.S3Configuration.BucketName,
-				Prefix:     tpl.LogConfiguration.S3Configuration.Prefix,
-			}
-		}
-	}
-
-	// Copy experiment options.
 	var expOptions *ExperimentExperimentOptions
 	if tpl.ExperimentOptions != nil {
 		expOptions = &ExperimentExperimentOptions{
@@ -426,11 +480,9 @@ func (b *InMemoryBackend) StartExperiment(
 
 	// expCtx uses context.Background() as parent — NOT the HTTP request context — so the
 	// experiment goroutine is NOT cancelled when the HTTP response is sent.
-	// The cancel function is stored on exp and called by StopExperiment or on graceful shutdown.
-	//nolint:gosec // cancel stored in exp.cancel and called by StopExperiment
-	expCtx, cancel := context.WithCancel(context.Background())
+	// cancel is passed in from StartExperiment and stored on the returned experiment.
 
-	exp := &Experiment{
+	return &Experiment{
 		ID:                   id,
 		Arn:                  arnStr,
 		ExperimentTemplateID: tpl.ID,
@@ -441,25 +493,34 @@ func (b *InMemoryBackend) StartExperiment(
 		StopConditions:       stopConditions,
 		LogConfiguration:     logConfig,
 		ExperimentOptions:    expOptions,
-		Tags:                 copyStringMap(input.Tags),
+		Tags:                 copyStringMap(inputTags),
 		StartTime:            time.Now(),
 		cancel:               cancel,
 	}
+}
 
-	// Clone the template BEFORE passing to the goroutine so template updates don't race.
-	tplForRun := cloneTemplate(tpl)
+// copyLogConfiguration deep-copies a template log configuration into its experiment equivalent.
+func copyLogConfiguration(tplLog *ExperimentTemplateLogConfiguration) *ExperimentLogConfiguration {
+	if tplLog == nil {
+		return nil
+	}
 
-	b.mu.Lock("StartExperiment")
-	b.experiments[id] = exp
-	// Take the snapshot while holding the lock, before launching the goroutine,
-	// so the background goroutine cannot mutate exp while we're reading it.
-	snapshot := cloneExperiment(exp)
-	b.mu.Unlock()
+	lc := &ExperimentLogConfiguration{LogSchemaVersion: tplLog.LogSchemaVersion}
 
-	// Run the experiment lifecycle in the background.
-	go b.runExperiment(expCtx, id, tplForRun)
+	if tplLog.CloudWatchLogsConfiguration != nil {
+		lc.CloudWatchLogsConfiguration = &ExperimentCloudWatchLogsConfiguration{
+			LogGroupArn: tplLog.CloudWatchLogsConfiguration.LogGroupArn,
+		}
+	}
 
-	return snapshot, nil
+	if tplLog.S3Configuration != nil {
+		lc.S3Configuration = &ExperimentS3Configuration{
+			BucketName: tplLog.S3Configuration.BucketName,
+			Prefix:     tplLog.S3Configuration.Prefix,
+		}
+	}
+
+	return lc
 }
 
 // GetExperiment retrieves an experiment by ID.
@@ -695,16 +756,18 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	// Check templates.
-	for _, tpl := range b.templates {
-		if tpl.Arn == resourceARN {
+	if b.safetyLever != nil && b.safetyLever.Arn == resourceARN {
+		return copyStringMap(b.safetyLever.Tags), nil
+	}
+
+	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
+		if tpl := b.templates[tplID]; tpl != nil {
 			return copyStringMap(tpl.Tags), nil
 		}
 	}
 
-	// Check experiments.
-	for _, exp := range b.experiments {
-		if exp.Arn == resourceARN {
+	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
+		if exp := b.experiments[expID]; exp != nil {
 			return copyStringMap(exp.Tags), nil
 		}
 	}
@@ -717,9 +780,18 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	// Check templates.
-	for _, tpl := range b.templates {
-		if tpl.Arn == resourceARN {
+	if b.safetyLever != nil && b.safetyLever.Arn == resourceARN {
+		if b.safetyLever.Tags == nil {
+			b.safetyLever.Tags = make(map[string]string)
+		}
+
+		maps.Copy(b.safetyLever.Tags, tags)
+
+		return nil
+	}
+
+	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
+		if tpl := b.templates[tplID]; tpl != nil {
 			if tpl.Tags == nil {
 				tpl.Tags = make(map[string]string)
 			}
@@ -730,9 +802,8 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		}
 	}
 
-	// Check experiments.
-	for _, exp := range b.experiments {
-		if exp.Arn == resourceARN {
+	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
+		if exp := b.experiments[expID]; exp != nil {
 			if exp.Tags == nil {
 				exp.Tags = make(map[string]string)
 			}
@@ -751,9 +822,16 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	// Check templates.
-	for _, tpl := range b.templates {
-		if tpl.Arn == resourceARN {
+	if b.safetyLever != nil && b.safetyLever.Arn == resourceARN {
+		for _, k := range keys {
+			delete(b.safetyLever.Tags, k)
+		}
+
+		return nil
+	}
+
+	if tplID, ok := b.templateARNIndex[resourceARN]; ok {
+		if tpl := b.templates[tplID]; tpl != nil {
 			for _, k := range keys {
 				delete(tpl.Tags, k)
 			}
@@ -762,9 +840,8 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 		}
 	}
 
-	// Check experiments.
-	for _, exp := range b.experiments {
-		if exp.Arn == resourceARN {
+	if expID, ok := b.experimentARNIndex[resourceARN]; ok {
+		if exp := b.experiments[expID]; exp != nil {
 			for _, k := range keys {
 				delete(exp.Tags, k)
 			}
