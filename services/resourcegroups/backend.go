@@ -208,6 +208,48 @@ func (b *InMemoryBackend) GetGroup(nameOrARN string) (*Group, error) {
 	return &cp, nil
 }
 
+// UpdateGroup updates the description of a resource group identified by name or ARN.
+func (b *InMemoryBackend) UpdateGroup(nameOrARN, description string) (*Group, error) {
+	b.mu.Lock("UpdateGroup")
+	defer b.mu.Unlock()
+
+	name := nameOrARN
+	if idx := strings.LastIndex(nameOrARN, "group/"); idx >= 0 {
+		name = nameOrARN[idx+len("group/"):]
+	}
+
+	g, ok := b.groups[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	g.Description = description
+	cp := *g
+
+	return &cp, nil
+}
+
+// UpdateGroupQuery updates the resource query of a resource group identified by name or ARN.
+func (b *InMemoryBackend) UpdateGroupQuery(nameOrARN string, query *ResourceQuery) (*Group, error) {
+	b.mu.Lock("UpdateGroupQuery")
+	defer b.mu.Unlock()
+
+	name := nameOrARN
+	if idx := strings.LastIndex(nameOrARN, "group/"); idx >= 0 {
+		name = nameOrARN[idx+len("group/"):]
+	}
+
+	g, ok := b.groups[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	g.ResourceQuery = query
+	cp := *g
+
+	return &cp, nil
+}
+
 // Reset clears all in-memory state. It closes all group Tags to release
 // Prometheus metrics before discarding the groups map.
 func (b *InMemoryBackend) Reset() {

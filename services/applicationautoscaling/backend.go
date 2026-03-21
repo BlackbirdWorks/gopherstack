@@ -162,8 +162,18 @@ func (b *InMemoryBackend) DescribeScalableTargets(serviceNamespace string) []*Sc
 }
 
 // PutScalingPolicy upserts a scaling policy (update if policyName matches for resource, create otherwise).
+// cloneScalingPolicy returns a deep copy of p with config maps cloned.
+func cloneScalingPolicy(p *ScalingPolicy) *ScalingPolicy {
+	cp := *p
+	cp.TargetTrackingConfig = maps.Clone(p.TargetTrackingConfig)
+	cp.StepScalingConfig = maps.Clone(p.StepScalingConfig)
+
+	return &cp
+}
+
 func (b *InMemoryBackend) PutScalingPolicy(
 	serviceNamespace, resourceID, scalableDimension, policyName, policyType string,
+	targetTrackingConfig, stepScalingConfig map[string]any,
 ) (*ScalingPolicy, error) {
 	b.mu.Lock("PutScalingPolicy")
 	defer b.mu.Unlock()
@@ -173,9 +183,12 @@ func (b *InMemoryBackend) PutScalingPolicy(
 			p.ResourceID == resourceID &&
 			p.ScalableDimension == scalableDimension &&
 			p.PolicyName == policyName {
-			cp := *p
+			// Update config in place and return a deep copy.
+			p.TargetTrackingConfig = maps.Clone(targetTrackingConfig)
+			p.StepScalingConfig = maps.Clone(stepScalingConfig)
+			cp := cloneScalingPolicy(p)
 
-			return &cp, nil
+			return cp, nil
 		}
 	}
 
@@ -183,17 +196,19 @@ func (b *InMemoryBackend) PutScalingPolicy(
 		fmt.Sprintf("scalingPolicy:%s:resource/%s/%s/policyName/%s",
 			uuid.NewString(), serviceNamespace, resourceID, policyName))
 	p := &ScalingPolicy{
-		ServiceNamespace:  serviceNamespace,
-		ResourceID:        resourceID,
-		ScalableDimension: scalableDimension,
-		PolicyName:        policyName,
-		PolicyType:        policyType,
-		ARN:               policyARN,
+		ServiceNamespace:     serviceNamespace,
+		ResourceID:           resourceID,
+		ScalableDimension:    scalableDimension,
+		PolicyName:           policyName,
+		PolicyType:           policyType,
+		ARN:                  policyARN,
+		TargetTrackingConfig: maps.Clone(targetTrackingConfig),
+		StepScalingConfig:    maps.Clone(stepScalingConfig),
 	}
 	b.scalingPolicies[policyARN] = p
-	cp := *p
+	cp := cloneScalingPolicy(p)
 
-	return &cp, nil
+	return cp, nil
 }
 
 // DeleteScalingPolicy removes a scaling policy by ARN.
@@ -227,8 +242,8 @@ func (b *InMemoryBackend) DescribeScalingPolicies(serviceNamespace string) []*Sc
 		if serviceNamespace != "" && p.ServiceNamespace != serviceNamespace {
 			continue
 		}
-		cp := *p
-		list = append(list, &cp)
+
+		list = append(list, cloneScalingPolicy(p))
 	}
 
 	return list

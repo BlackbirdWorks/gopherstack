@@ -245,11 +245,13 @@ func (h *Handler) handleDescribeScalableTargets(
 }
 
 type putScalingPolicyInput struct {
-	ServiceNamespace  string `json:"ServiceNamespace"`
-	ResourceID        string `json:"ResourceId"`
-	ScalableDimension string `json:"ScalableDimension"`
-	PolicyName        string `json:"PolicyName"`
-	PolicyType        string `json:"PolicyType"`
+	TargetTrackingScalingPolicyConfiguration map[string]any `json:"TargetTrackingScalingPolicyConfiguration,omitempty"`
+	StepScalingPolicyConfiguration          map[string]any `json:"StepScalingPolicyConfiguration,omitempty"`
+	ServiceNamespace                         string         `json:"ServiceNamespace"`
+	ResourceID                               string         `json:"ResourceId"`
+	ScalableDimension                        string         `json:"ScalableDimension"`
+	PolicyName                               string         `json:"PolicyName"`
+	PolicyType                               string         `json:"PolicyType"`
 }
 
 type putScalingPolicyOutput struct {
@@ -263,6 +265,8 @@ func (h *Handler) handlePutScalingPolicy(
 	p, err := h.Backend.PutScalingPolicy(
 		in.ServiceNamespace, in.ResourceID, in.ScalableDimension,
 		in.PolicyName, in.PolicyType,
+		in.TargetTrackingScalingPolicyConfiguration,
+		in.StepScalingPolicyConfiguration,
 	)
 	if err != nil {
 		return nil, err

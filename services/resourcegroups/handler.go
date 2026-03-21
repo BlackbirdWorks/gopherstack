@@ -48,6 +48,8 @@ var rgRESTPathOps = map[string]string{ //nolint:gochecknoglobals // lookup table
 	"/groups-list":             "ListGroups",
 	"/get-group-query":         "GetGroupQuery",
 	"/get-group-configuration": "GetGroupConfiguration",
+	"/update-group":            "UpdateGroup",
+	"/update-group-query":      "UpdateGroupQuery",
 }
 
 type groupNameInput struct {
@@ -89,6 +91,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetGroup",
 		"GetGroupQuery",
 		"GetGroupConfiguration",
+		"UpdateGroup",
+		"UpdateGroupQuery",
 		"GetTags",
 		"Tag",
 		"Untag",
@@ -238,6 +242,8 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"GetGroup":              service.WrapOp(h.handleGetGroup),
 		"GetGroupQuery":         service.WrapOp(h.handleGetGroupQuery),
 		"GetGroupConfiguration": service.WrapOp(h.handleGetGroupConfiguration),
+		"UpdateGroup":           service.WrapOp(h.handleUpdateGroup),
+		"UpdateGroupQuery":      service.WrapOp(h.handleUpdateGroupQuery),
 	}
 }
 
@@ -372,6 +378,66 @@ func (h *Handler) handleGetGroupConfiguration(
 	return &getGroupConfigurationOutput{GroupConfiguration: &groupConfigurationOutput{
 		GroupName:     g.Name,
 		Configuration: []json.RawMessage{},
+	}}, nil
+}
+
+type updateGroupInput struct {
+	Group       string `json:"Group"`
+	GroupName   string `json:"GroupName"`
+	Description string `json:"Description"`
+}
+
+func (g *updateGroupInput) resolvedName() string {
+	if g.GroupName != "" {
+		return g.GroupName
+	}
+
+	return g.Group
+}
+
+type updateGroupOutput struct {
+	Group *Group `json:"Group"`
+}
+
+func (h *Handler) handleUpdateGroup(_ context.Context, in *updateGroupInput) (*updateGroupOutput, error) {
+	g, err := h.Backend.UpdateGroup(in.resolvedName(), in.Description)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateGroupOutput{Group: g}, nil
+}
+
+type updateGroupQueryInput struct {
+	Group         string         `json:"Group"`
+	GroupName     string         `json:"GroupName"`
+	ResourceQuery *ResourceQuery `json:"ResourceQuery"`
+}
+
+func (g *updateGroupQueryInput) resolvedName() string {
+	if g.GroupName != "" {
+		return g.GroupName
+	}
+
+	return g.Group
+}
+
+type updateGroupQueryOutput struct {
+	GroupQuery *groupQueryOutput `json:"GroupQuery"`
+}
+
+func (h *Handler) handleUpdateGroupQuery(
+	_ context.Context,
+	in *updateGroupQueryInput,
+) (*updateGroupQueryOutput, error) {
+	g, err := h.Backend.UpdateGroupQuery(in.resolvedName(), in.ResourceQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updateGroupQueryOutput{GroupQuery: &groupQueryOutput{
+		GroupName:     g.Name,
+		ResourceQuery: g.ResourceQuery,
 	}}, nil
 }
 

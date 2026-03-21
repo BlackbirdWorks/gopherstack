@@ -617,3 +617,68 @@ func TestHandler_ForecastStubs(t *testing.T) {
 		})
 	}
 }
+
+func TestCEHandler_UpdateCostCategoryDefinition_DeepCopy(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+name              string
+initialRules      []map[string]any
+updatedRules      []map[string]any
+wantRulesAfterGet int
+}{
+{
+name:              "rules_are_deep_copied_on_update",
+initialRules:      []map[string]any{{"value": "old"}},
+updatedRules:      []map[string]any{{"value": "new"}, {"value": "extra"}},
+wantRulesAfterGet: 2,
+},
+{
+name:              "empty_rules_on_update",
+initialRules:      []map[string]any{{"value": "initial"}},
+updatedRules:      []map[string]any{},
+wantRulesAfterGet: 0,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+
+createRec := doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+"Name":        "test-cat",
+"RuleVersion": "CostCategoryExpression.v1",
+"Rules":       tt.initialRules,
+})
+require.Equal(t, http.StatusOK, createRec.Code)
+
+var createOut struct {
+CostCategoryArn string `json:"CostCategoryArn"`
+}
+require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+
+updateRec := doRequest(t, h, "UpdateCostCategoryDefinition", map[string]any{
+"CostCategoryArn": createOut.CostCategoryArn,
+"RuleVersion":     "CostCategoryExpression.v1",
+"Rules":           tt.updatedRules,
+})
+require.Equal(t, http.StatusOK, updateRec.Code)
+
+describeRec := doRequest(t, h, "DescribeCostCategoryDefinition", map[string]any{
+"CostCategoryArn": createOut.CostCategoryArn,
+})
+require.Equal(t, http.StatusOK, describeRec.Code)
+
+var describeOut struct {
+CostCategory struct {
+Rules []map[string]any `json:"rules"`
+} `json:"CostCategory"`
+}
+
+require.NoError(t, json.NewDecoder(describeRec.Body).Decode(&describeOut))
+assert.Len(t, describeOut.CostCategory.Rules, tt.wantRulesAfterGet)
+})
+}
+}

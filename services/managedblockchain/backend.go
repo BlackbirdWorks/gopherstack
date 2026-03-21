@@ -32,6 +32,8 @@ var (
 	ErrMissingMemberName = errors.New("Name is required for member configuration")
 	// ErrMissingNetworkID is returned when the network ID is missing from a path.
 	ErrMissingNetworkID = errors.New("networkId is required")
+	// ErrNodeNotFound is returned when a node does not exist.
+	ErrNodeNotFound = awserr.New("ResourceNotFoundException: node not found", awserr.ErrNotFound)
 )
 
 const (
@@ -39,6 +41,8 @@ const (
 	networkStatusAvailable = "AVAILABLE"
 	// memberStatusAvailable is the status for a ready member.
 	memberStatusAvailable = "AVAILABLE"
+	// nodeStatusAvailable is the status for a ready node.
+	nodeStatusAvailable = "AVAILABLE"
 	// defaultFramework is the default framework for new networks.
 	defaultFramework = "HYPERLEDGER_FABRIC"
 	// defaultFrameworkVersion is the default framework version.
@@ -57,6 +61,10 @@ type StorageBackend interface {
 	GetMember(networkID, memberID string) (*Member, error)
 	ListMembers(networkID string) ([]*Member, error)
 	DeleteMember(networkID, memberID string) error
+	CreateNode(region, accountID, networkID, memberID, instanceType, availabilityZone string, tags map[string]string) (*Node, error)
+	GetNode(networkID, memberID, nodeID string) (*Node, error)
+	ListNodes(networkID, memberID string) ([]*Node, error)
+	DeleteNode(networkID, memberID, nodeID string) error
 	ListTagsForResource(resourceARN string) (map[string]string, error)
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error
@@ -65,8 +73,9 @@ type StorageBackend interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	networks      map[string]*Network
-	members       map[string]map[string]*Member // networkID → memberID → Member
-	arnToResource map[string]any                // ARN → *Network or *Member
+	members       map[string]map[string]*Member                    // networkID → memberID → Member
+	nodes         map[string]map[string]map[string]*Node           // networkID → memberID → nodeID → Node
+	arnToResource map[string]any                                    // ARN → *Network, *Member, or *Node
 	mu            sync.RWMutex
 }
 
@@ -75,6 +84,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
 		networks:      make(map[string]*Network),
 		members:       make(map[string]map[string]*Member),
+		nodes:         make(map[string]map[string]map[string]*Node),
 		arnToResource: make(map[string]any),
 	}
 }
@@ -87,6 +97,11 @@ func networkARN(region, accountID, networkID string) string {
 // memberARN builds the ARN for a Managed Blockchain member.
 func memberARN(region, accountID, memberID string) string {
 	return arn.Build("managedblockchain", region, accountID, fmt.Sprintf("members/%s", memberID))
+}
+
+// nodeARN builds the ARN for a Managed Blockchain node.
+func nodeARN(region, accountID, nodeID string) string {
+	return arn.Build("managedblockchain", region, accountID, fmt.Sprintf("nodes/%s", nodeID))
 }
 
 // CreateNetwork creates a new Managed Blockchain network and its first member.
@@ -398,5 +413,136 @@ func (b *InMemoryBackend) Reset() {
 
 	b.networks = make(map[string]*Network)
 	b.members = make(map[string]map[string]*Member)
+	b.nodes = make(map[string]map[string]map[string]*Node)
 	b.arnToResource = make(map[string]any)
+}
+
+// cloneNode returns a deep copy of n with the Tags map cloned.
+func cloneNode(n *Node) *Node {
+	cp := *n
+	cp.Tags = maps.Clone(n.Tags)
+
+	return &cp
+}
+
+// CreateNode creates a new peer node within a member.
+func (b *InMemoryBackend) CreateNode(
+	region, accountID, networkID, memberID, instanceType, availabilityZone string,
+	tags map[string]string,
+) (*Node, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.networks[networkID]; !exists {
+		return nil, ErrNetworkNotFound
+	}
+
+	if _, ok := b.members[networkID]; !ok {
+		return nil, ErrMemberNotFound
+	}
+
+	if _, ok := b.members[networkID][memberID]; !ok {
+		return nil, ErrMemberNotFound
+	}
+
+	now := time.Now().UTC()
+	nodeID := uuid.NewString()
+
+	t := make(map[string]string)
+	maps.Copy(t, tags)
+
+	node := &Node{
+		ID:               nodeID,
+		Arn:              nodeARN(region, accountID, nodeID),
+		NetworkID:        networkID,
+		MemberID:         memberID,
+		InstanceType:     instanceType,
+		AvailabilityZone: availabilityZone,
+		Status:           nodeStatusAvailable,
+		CreationDate:     &now,
+		Tags:             t,
+	}
+
+	if b.nodes[networkID] == nil {
+		b.nodes[networkID] = make(map[string]map[string]*Node)
+	}
+
+	if b.nodes[networkID][memberID] == nil {
+		b.nodes[networkID][memberID] = make(map[string]*Node)
+	}
+
+	b.nodes[networkID][memberID][nodeID] = node
+	b.arnToResource[node.Arn] = node
+
+	return cloneNode(node), nil
+}
+
+// GetNode returns a node by network ID, member ID, and node ID.
+func (b *InMemoryBackend) GetNode(networkID, memberID, nodeID string) (*Node, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, exists := b.networks[networkID]; !exists {
+		return nil, ErrNetworkNotFound
+	}
+
+	if b.nodes[networkID] == nil || b.nodes[networkID][memberID] == nil {
+		return nil, ErrNodeNotFound
+	}
+
+	node, ok := b.nodes[networkID][memberID][nodeID]
+	if !ok {
+		return nil, ErrNodeNotFound
+	}
+
+	return cloneNode(node), nil
+}
+
+// ListNodes returns all nodes for a member sorted by ID.
+func (b *InMemoryBackend) ListNodes(networkID, memberID string) ([]*Node, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if _, exists := b.networks[networkID]; !exists {
+		return nil, ErrNetworkNotFound
+	}
+
+	if b.nodes[networkID] == nil || b.nodes[networkID][memberID] == nil {
+		return []*Node{}, nil
+	}
+
+	all := make([]*Node, 0, len(b.nodes[networkID][memberID]))
+	for _, n := range b.nodes[networkID][memberID] {
+		all = append(all, cloneNode(n))
+	}
+
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].ID < all[j].ID
+	})
+
+	return all, nil
+}
+
+// DeleteNode removes a node from a member.
+func (b *InMemoryBackend) DeleteNode(networkID, memberID, nodeID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.networks[networkID]; !exists {
+		return ErrNetworkNotFound
+	}
+
+	if b.nodes[networkID] == nil || b.nodes[networkID][memberID] == nil {
+		return ErrNodeNotFound
+	}
+
+	node, ok := b.nodes[networkID][memberID][nodeID]
+	if !ok {
+		return ErrNodeNotFound
+	}
+
+	delete(b.arnToResource, node.Arn)
+	delete(b.nodes[networkID][memberID], nodeID)
+
+	return nil
 }

@@ -140,6 +140,28 @@ func (b *InMemoryBackend) DeleteConfigurationRecorder(name string) error {
 	return nil
 }
 
+// ConfigurationRecorderStatus represents the recording status of a recorder.
+type ConfigurationRecorderStatus struct {
+	Name      string `json:"name"`
+	Recording bool   `json:"recording"`
+}
+
+// DescribeConfigurationRecorderStatus returns the recording status of all recorders.
+func (b *InMemoryBackend) DescribeConfigurationRecorderStatus() []ConfigurationRecorderStatus {
+	b.mu.RLock("DescribeConfigurationRecorderStatus")
+	defer b.mu.RUnlock()
+
+	out := make([]ConfigurationRecorderStatus, 0, len(b.recorders))
+	for _, r := range b.recorders {
+		out = append(out, ConfigurationRecorderStatus{
+			Name:      r.Name,
+			Recording: r.Status == "ACTIVE",
+		})
+	}
+
+	return out
+}
+
 // Reset clears all in-memory state.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")

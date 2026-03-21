@@ -37,6 +37,7 @@ var xrayPaths = map[string]bool{ //nolint:gochecknoglobals // package-level rout
 	"/GetSamplingRules":   true,
 	"/UpdateSamplingRule": true,
 	"/DeleteSamplingRule": true,
+	"/EncryptionConfig":   true,
 }
 
 // pathToOperation maps X-Ray REST API paths to operation names.
@@ -54,6 +55,7 @@ var pathToOperation = map[string]string{ //nolint:gochecknoglobals // package-le
 	"/GetSamplingRules":   "GetSamplingRules",
 	"/UpdateSamplingRule": "UpdateSamplingRule",
 	"/DeleteSamplingRule": "DeleteSamplingRule",
+	"/EncryptionConfig":   "GetEncryptionConfig", // default; overridden by method
 }
 
 // Handler is the Echo HTTP handler for AWS X-Ray operations.
@@ -102,6 +104,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetSamplingRules",
 		"UpdateSamplingRule",
 		"DeleteSamplingRule",
+		"GetEncryptionConfig",
+		"PutEncryptionConfig",
 	}
 }
 
@@ -115,14 +119,20 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
 // RouteMatcher returns a function that matches X-Ray REST API requests.
-// X-Ray uses POST with specific well-known paths.
+// X-Ray uses POST with specific well-known paths, except /EncryptionConfig which also accepts GET.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		if c.Request().Method != http.MethodPost {
+		path := c.Request().URL.Path
+		if !xrayPaths[path] {
 			return false
 		}
 
-		return xrayPaths[c.Request().URL.Path]
+		// /EncryptionConfig accepts both GET (GetEncryptionConfig) and POST (PutEncryptionConfig).
+		if path == "/EncryptionConfig" {
+			return c.Request().Method == http.MethodGet || c.Request().Method == http.MethodPost
+		}
+
+		return c.Request().Method == http.MethodPost
 	}
 }
 
@@ -131,7 +141,17 @@ func (h *Handler) MatchPriority() int { return service.PriorityPathVersioned }
 
 // ExtractOperation extracts the X-Ray operation name from the request path.
 func (h *Handler) ExtractOperation(c *echo.Context) string {
-	op, ok := pathToOperation[c.Request().URL.Path]
+	path := c.Request().URL.Path
+
+	if path == "/EncryptionConfig" {
+		if c.Request().Method == http.MethodGet {
+			return "GetEncryptionConfig"
+		}
+
+		return "PutEncryptionConfig"
+	}
+
+	op, ok := pathToOperation[path]
 	if !ok {
 		return "Unknown"
 	}
@@ -172,6 +192,13 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.String(http.StatusNotFound, "not found")
 		}
 
+		// /EncryptionConfig is special: GET → GetEncryptionConfig (no body), POST → PutEncryptionConfig
+		if path == "/EncryptionConfig" {
+			if c.Request().Method == http.MethodGet {
+				return h.handleGetEncryptionConfig(c)
+			}
+		}
+
 		body, err := httputils.ReadBody(c.Request())
 		if err != nil {
 			log.ErrorContext(ctx, "failed to read request body", "error", err)
@@ -179,7 +206,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			return c.String(http.StatusInternalServerError, "internal server error")
 		}
 
-		op := pathToOperation[path]
+		op := h.ExtractOperation(c)
 		log.DebugContext(ctx, "xray request", "operation", op, "path", path)
 
 		resp, dispatchErr := h.dispatch(ctx, path, body)
@@ -221,6 +248,8 @@ func (h *Handler) dispatch(ctx context.Context, path string, body []byte) ([]byt
 		return h.handleUpdateSamplingRule(ctx, body)
 	case "/DeleteSamplingRule":
 		return h.handleDeleteSamplingRule(ctx, body)
+	case "/EncryptionConfig":
+		return h.handlePutEncryptionConfig(ctx, body)
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownPath, path)
 	}
@@ -708,4 +737,38 @@ func (h *Handler) handleBatchGetTraces(_ context.Context, body []byte) ([]byte, 
 // Reset clears all backend state.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+}
+
+// --- Encryption config operations ---
+
+type putEncryptionConfigInput struct {
+	KeyID string `json:"KeyId,omitempty"`
+	Type  string `json:"Type"`
+}
+
+func (h *Handler) handleGetEncryptionConfig(c *echo.Context) error {
+	cfg := h.Backend.GetEncryptionConfig()
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"EncryptionConfig": cfg,
+	})
+}
+
+func (h *Handler) handlePutEncryptionConfig(_ context.Context, body []byte) ([]byte, error) {
+	var in putEncryptionConfigInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.Type == "" {
+		in.Type = "NONE"
+	}
+
+	cfg := h.Backend.PutEncryptionConfig(in.Type, in.KeyID)
+
+	return json.Marshal(map[string]any{
+		"EncryptionConfig": cfg,
+	})
 }

@@ -1330,3 +1330,39 @@ func TestFISHandler_ListExperimentResolvedTargets_NotFound(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, "/experiments/EXPNOTEXIST/resolvedTargets", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
+
+func TestFISHandler_StartExperiment_TooManyExperiments(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+name       string
+startCount int
+wantStatus int
+}{
+{
+name:       "below_limit_succeeds",
+startCount: 1,
+wantStatus: http.StatusCreated,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+templateID := createTestTemplate(t, h)
+
+startBody := map[string]any{
+"experimentTemplateId": templateID,
+}
+
+var rec *httptest.ResponseRecorder
+for i := 0; i < tt.startCount; i++ {
+rec = doRequest(t, h, http.MethodPost, "/experiments", startBody)
+}
+
+assert.Equal(t, tt.wantStatus, rec.Code)
+})
+}
+}

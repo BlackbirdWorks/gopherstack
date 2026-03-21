@@ -42,6 +42,7 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"PutConfigurationRecorder",
 		"DescribeConfigurationRecorders",
+		"DescribeConfigurationRecorderStatus",
 		"StartConfigurationRecorder",
 		"DeleteConfigurationRecorder",
 		"PutDeliveryChannel",
@@ -193,15 +194,16 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"PutConfigurationRecorder":         service.WrapOp(h.handlePutConfigurationRecorder),
-		"DescribeConfigurationRecorders":   service.WrapOp(h.handleDescribeConfigurationRecorders),
-		"StartConfigurationRecorder":       service.WrapOp(h.handleStartConfigurationRecorder),
-		"DeleteConfigurationRecorder":      service.WrapOp(h.handleDeleteConfigurationRecorder),
-		"PutDeliveryChannel":               service.WrapOp(h.handlePutDeliveryChannel),
-		"DescribeDeliveryChannels":         service.WrapOp(h.handleDescribeDeliveryChannels),
-		"DeleteDeliveryChannel":            service.WrapOp(h.handleDeleteDeliveryChannel),
-		"DescribeConfigRules":              service.WrapOp(h.handleDescribeConfigRules),
-		"GetComplianceDetailsByConfigRule": service.WrapOp(h.handleGetComplianceDetailsByConfigRule),
+		"PutConfigurationRecorder":            service.WrapOp(h.handlePutConfigurationRecorder),
+		"DescribeConfigurationRecorders":      service.WrapOp(h.handleDescribeConfigurationRecorders),
+		"DescribeConfigurationRecorderStatus": service.WrapOp(h.handleDescribeConfigurationRecorderStatus),
+		"StartConfigurationRecorder":          service.WrapOp(h.handleStartConfigurationRecorder),
+		"DeleteConfigurationRecorder":         service.WrapOp(h.handleDeleteConfigurationRecorder),
+		"PutDeliveryChannel":                  service.WrapOp(h.handlePutDeliveryChannel),
+		"DescribeDeliveryChannels":            service.WrapOp(h.handleDescribeDeliveryChannels),
+		"DeleteDeliveryChannel":               service.WrapOp(h.handleDeleteDeliveryChannel),
+		"DescribeConfigRules":                 service.WrapOp(h.handleDescribeConfigRules),
+		"GetComplianceDetailsByConfigRule":    service.WrapOp(h.handleGetComplianceDetailsByConfigRule),
 	}
 }
 
@@ -358,6 +360,25 @@ func (h *Handler) handleDeleteConfigurationRecorder(
 	}
 
 	return &deleteConfigurationRecorderOutput{}, nil
+}
+
+// --- Config Recorder Status ---
+
+type describeConfigurationRecorderStatusInput struct {
+	ConfigurationRecorderNames []string `json:"ConfigurationRecorderNames,omitempty"`
+}
+
+type describeConfigurationRecorderStatusOutput struct {
+	ConfigurationRecordersStatus []ConfigurationRecorderStatus `json:"ConfigurationRecordersStatus"`
+}
+
+func (h *Handler) handleDescribeConfigurationRecorderStatus(
+	_ context.Context,
+	_ *describeConfigurationRecorderStatusInput,
+) (*describeConfigurationRecorderStatusOutput, error) {
+	statuses := h.Backend.DescribeConfigurationRecorderStatus()
+
+	return &describeConfigurationRecorderStatusOutput{ConfigurationRecordersStatus: statuses}, nil
 }
 
 // --- Config Rules stubs ---

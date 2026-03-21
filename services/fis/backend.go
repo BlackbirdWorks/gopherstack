@@ -44,6 +44,9 @@ var ErrSafetyLeverNotFound = errors.New("SafetyLeverNotFound")
 // ErrSafetyLeverEngaged is returned when StartExperiment is blocked by an engaged safety lever.
 var ErrSafetyLeverEngaged = errors.New("SafetyLeverEngaged")
 
+// ErrTooManyExperiments is returned when the experiment count would exceed the cap.
+var ErrTooManyExperiments = errors.New("ServiceQuotaExceededException")
+
 // ----------------------------------------
 // Status constants
 // ----------------------------------------
@@ -70,6 +73,9 @@ const (
 // ----------------------------------------
 
 const idChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// maxExperiments is the maximum number of experiments that can exist concurrently.
+const maxExperiments = 1000
 
 // generateID creates a random ID with the given prefix followed by 22 alphanumeric characters.
 func generateID(prefix string) string {
@@ -386,10 +392,15 @@ func (b *InMemoryBackend) StartExperiment(
 	b.mu.RLock("StartExperiment")
 	tpl, ok := b.templates[input.ExperimentTemplateID]
 	leverEngaged := b.safetyLever != nil && b.safetyLever.State.Status == "engaged"
+	experimentCount := len(b.experiments)
 	b.mu.RUnlock()
 
 	if leverEngaged {
 		return nil, fmt.Errorf("%w: safety lever is engaged", ErrSafetyLeverEngaged)
+	}
+
+	if experimentCount >= maxExperiments {
+		return nil, fmt.Errorf("%w: experiment count would exceed the limit of %d", ErrTooManyExperiments, maxExperiments)
 	}
 
 	if !ok {

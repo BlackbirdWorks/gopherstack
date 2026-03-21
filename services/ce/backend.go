@@ -143,12 +143,15 @@ func (b *InMemoryBackend) CreateCostCategoryDefinition(
 	tagsCopy := make(map[string]string, len(resourceTags))
 	maps.Copy(tagsCopy, resourceTags)
 
+	rulesCopy := make([]CostCategoryRule, len(rules))
+	copy(rulesCopy, rules)
+
 	cat := &CostCategory{
 		ARN:            catARN,
 		Name:           name,
 		RuleVersion:    ruleVersion,
 		DefaultValue:   defaultValue,
-		Rules:          rules,
+		Rules:          rulesCopy,
 		EffectiveStart: effectiveStart(),
 		CreationDate:   time.Now().UTC(),
 		Tags:           tagsCopy,
@@ -156,6 +159,8 @@ func (b *InMemoryBackend) CreateCostCategoryDefinition(
 	b.costCategories[catARN] = cat
 
 	out := *cat
+	out.Rules = make([]CostCategoryRule, len(cat.Rules))
+	copy(out.Rules, cat.Rules)
 
 	return &out, nil
 }
@@ -222,11 +227,30 @@ func (b *InMemoryBackend) UpdateCostCategoryDefinition(
 
 	cat.RuleVersion = ruleVersion
 	cat.DefaultValue = defaultValue
-	cat.Rules = rules
-	cat.SplitChargeRules = splitChargeRules
+	// Deep-copy both slices so the caller cannot alias backend-owned state.
+	rulesCopy := make([]CostCategoryRule, len(rules))
+	copy(rulesCopy, rules)
+	cat.Rules = rulesCopy
+
+	splitCopy := make([]SplitChargeRule, len(splitChargeRules))
+	for i, s := range splitChargeRules {
+		sc := s
+		if s.Targets != nil {
+			sc.Targets = make([]string, len(s.Targets))
+			copy(sc.Targets, s.Targets)
+		}
+
+		splitCopy[i] = sc
+	}
+
+	cat.SplitChargeRules = splitCopy
 	cat.EffectiveStart = effectiveStart()
 
 	out := *cat
+	out.Rules = make([]CostCategoryRule, len(cat.Rules))
+	copy(out.Rules, cat.Rules)
+	out.SplitChargeRules = make([]SplitChargeRule, len(cat.SplitChargeRules))
+	copy(out.SplitChargeRules, cat.SplitChargeRules)
 
 	return &out, nil
 }

@@ -55,12 +55,20 @@ type Trace struct {
 	Segments  []string  `json:"segments"`
 }
 
+// EncryptionConfig represents X-Ray encryption configuration.
+type EncryptionConfig struct {
+	KeyID  string `json:"KeyId,omitempty"`
+	Status string `json:"Status"`
+	Type   string `json:"Type"`
+}
+
 // InMemoryBackend is the in-memory store for X-Ray resources.
 type InMemoryBackend struct {
-	groups        map[string]*Group
-	samplingRules map[string]*SamplingRule
-	traces        map[string]*Trace
-	mu            *lockmetrics.RWMutex
+	groups           map[string]*Group
+	samplingRules    map[string]*SamplingRule
+	traces           map[string]*Trace
+	encryptionConfig *EncryptionConfig
+	mu               *lockmetrics.RWMutex
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -70,6 +78,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 		samplingRules: make(map[string]*SamplingRule),
 		traces:        make(map[string]*Trace),
 		mu:            lockmetrics.New("xray"),
+		encryptionConfig: &EncryptionConfig{
+			Type:   "NONE",
+			Status: "ACTIVE",
+		},
 	}
 }
 
@@ -352,4 +364,32 @@ func (b *InMemoryBackend) Reset() {
 	b.groups = make(map[string]*Group)
 	b.samplingRules = make(map[string]*SamplingRule)
 	b.traces = make(map[string]*Trace)
+	b.encryptionConfig = &EncryptionConfig{Type: "NONE", Status: "ACTIVE"}
+}
+
+// GetEncryptionConfig returns the current X-Ray encryption configuration.
+func (b *InMemoryBackend) GetEncryptionConfig() *EncryptionConfig {
+	b.mu.RLock("GetEncryptionConfig")
+	defer b.mu.RUnlock()
+
+	cp := *b.encryptionConfig
+
+	return &cp
+}
+
+// PutEncryptionConfig updates the X-Ray encryption configuration.
+// encType must be one of "NONE" or "KMS". keyID is only used when encType is "KMS".
+func (b *InMemoryBackend) PutEncryptionConfig(encType, keyID string) *EncryptionConfig {
+	b.mu.Lock("PutEncryptionConfig")
+	defer b.mu.Unlock()
+
+	b.encryptionConfig = &EncryptionConfig{
+		Type:   encType,
+		KeyID:  keyID,
+		Status: "ACTIVE",
+	}
+
+	cp := *b.encryptionConfig
+
+	return &cp
 }

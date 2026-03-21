@@ -790,3 +790,90 @@ func TestXRay_Handler_Reset(t *testing.T) {
 		})
 	}
 }
+
+func doXrayGETRequest(t *testing.T, h *xray.Handler, path string) *httptest.ResponseRecorder {
+t.Helper()
+
+e := echo.New()
+req := httptest.NewRequest(http.MethodGet, path, nil)
+req.RequestURI = path
+
+rec := httptest.NewRecorder()
+c := e.NewContext(req, rec)
+c.SetRequest(req)
+
+err := h.Handler()(c)
+require.NoError(t, err)
+
+return rec
+}
+
+func TestHandler_GetEncryptionConfig(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+name        string
+wantCode    int
+wantContain string
+}{
+{
+name:        "default_is_none",
+wantCode:    http.StatusOK,
+wantContain: `"NONE"`,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+rec := doXrayGETRequest(t, h, "/EncryptionConfig")
+
+assert.Equal(t, tt.wantCode, rec.Code)
+assert.Contains(t, rec.Body.String(), tt.wantContain)
+})
+}
+}
+
+func TestHandler_PutEncryptionConfig(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+name        string
+body        map[string]any
+wantCode    int
+wantContain string
+}{
+{
+name:        "set_kms_type",
+body:        map[string]any{"Type": "KMS", "KeyId": "arn:aws:kms:us-east-1:123:key/abc"},
+wantCode:    http.StatusOK,
+wantContain: "KMS",
+},
+{
+name:        "reset_to_none",
+body:        map[string]any{"Type": "NONE"},
+wantCode:    http.StatusOK,
+wantContain: `"NONE"`,
+},
+{
+name:        "empty_body_defaults_to_none",
+body:        map[string]any{},
+wantCode:    http.StatusOK,
+wantContain: `"NONE"`,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := newTestHandler(t)
+rec := doXrayRequest(t, h, "/EncryptionConfig", tt.body)
+
+assert.Equal(t, tt.wantCode, rec.Code)
+assert.Contains(t, rec.Body.String(), tt.wantContain)
+})
+}
+}
