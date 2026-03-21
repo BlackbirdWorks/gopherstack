@@ -20,6 +20,11 @@ const (
 	statusPending      = "PENDING"
 	launchTypeFargate  = "FARGATE"
 	defaultCluster     = "default"
+
+	// maxTaskDefinitionRevisions is the maximum number of revisions retained per
+	// task definition family. Older INACTIVE revisions beyond this cap are
+	// removed to prevent unbounded memory growth.
+	maxTaskDefinitionRevisions = 100
 )
 
 var (
@@ -359,7 +364,13 @@ func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInp
 	defer b.mu.Unlock()
 
 	revisions := b.taskDefinitions[input.Family]
-	revision := len(revisions) + 1
+
+	// Determine the next revision number based on the last stored revision
+	// so trimming the cap does not desync the counter.
+	revision := 1
+	if len(revisions) > 0 {
+		revision = revisions[len(revisions)-1].Revision + 1
+	}
 
 	td := &TaskDefinition{
 		RegisteredAt: time.Now(),
@@ -377,7 +388,16 @@ func (b *InMemoryBackend) RegisterTaskDefinition(input RegisterTaskDefinitionInp
 		Revision:             revision,
 	}
 
-	b.taskDefinitions[input.Family] = append(revisions, td)
+	revisions = append(revisions, td)
+
+	// Enforce the revision cap: if we exceed maxTaskDefinitionRevisions, trim
+	// the oldest entries to prevent unbounded memory growth.
+	if len(revisions) > maxTaskDefinitionRevisions {
+		excess := len(revisions) - maxTaskDefinitionRevisions
+		revisions = revisions[excess:]
+	}
+
+	b.taskDefinitions[input.Family] = revisions
 
 	cp := *td
 

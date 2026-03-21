@@ -1,10 +1,10 @@
 package eks
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
@@ -108,7 +108,7 @@ func (b *InMemoryBackend) CreateCluster(name, version, roleARN string, kv map[st
 		Version:         version,
 		RoleARN:         roleARN,
 		Status:          "ACTIVE",
-		Endpoint:        fmt.Sprintf("https://%s.%s.eks.amazonaws.com", uuid.NewString()[:8], b.region),
+		Endpoint:        fmt.Sprintf("https://%s.%s.eks.amazonaws.com", stableID(name), b.region),
 		PlatformVersion: "eks.1",
 		AccountID:       b.accountID,
 		Region:          b.region,
@@ -207,7 +207,7 @@ func (b *InMemoryBackend) CreateNodegroup(
 		"eks",
 		b.region,
 		b.accountID,
-		"nodegroup/"+clusterName+"/"+nodegroupName+"/"+uuid.NewString()[:8],
+		"nodegroup/"+clusterName+"/"+nodegroupName+"/"+stableID(clusterName+"/"+nodegroupName),
 	)
 	t := tags.New("eks.nodegroup." + clusterName + "." + nodegroupName + ".tags")
 	if len(kv) > 0 {
@@ -395,4 +395,13 @@ func (b *InMemoryBackend) ListAllClusters() []*Cluster {
 	}
 
 	return list
+}
+
+// stableID returns a stable 8-character hex identifier derived from the input
+// string using SHA-256. This produces a deterministic, collision-resistant ID
+// suitable for use in ARNs and endpoint URLs where idempotency is required.
+func stableID(input string) string {
+	sum := sha256.Sum256([]byte(input))
+
+	return hex.EncodeToString(sum[:])[:8]
 }

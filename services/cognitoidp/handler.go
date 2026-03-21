@@ -56,6 +56,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AdminCreateUser",
 		"AdminSetUserPassword",
 		"AdminGetUser",
+		"RevokeToken",
 	}
 }
 
@@ -167,6 +168,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"AdminCreateUser":        service.WrapOp(h.handleAdminCreateUser),
 		"AdminSetUserPassword":   service.WrapOp(h.handleAdminSetUserPassword),
 		"AdminGetUser":           service.WrapOp(h.handleAdminGetUser),
+		"RevokeToken":            service.WrapOp(h.handleRevokeToken),
 	}
 }
 
@@ -595,6 +597,26 @@ type authOutput struct {
 }
 
 func (h *Handler) handleInitiateAuth(_ context.Context, in *authInput) (*authOutput, error) {
+	if in.AuthFlow == "REFRESH_TOKEN_AUTH" || in.AuthFlow == "REFRESH_TOKEN" {
+		refreshToken := in.AuthParameters["REFRESH_TOKEN"]
+		tokens, err := h.Backend.InitiateAuthRefreshToken(in.ClientID, refreshToken)
+		if err != nil {
+			return nil, err
+		}
+
+		return &authOutput{
+			AuthenticationResult: &authResult{
+				AccessToken: tokens.AccessToken,
+				IDToken:     tokens.IDToken,
+				// AWS does not rotate the refresh token on every refresh by default;
+				// we return the new token to keep the mock consistent with rotation.
+				RefreshToken: tokens.RefreshToken,
+				TokenType:    "Bearer",
+				ExpiresIn:    tokens.ExpiresIn,
+			},
+		}, nil
+	}
+
 	username := in.AuthParameters["USERNAME"]
 	password := in.AuthParameters["PASSWORD"]
 
@@ -734,4 +756,19 @@ func mapToAttributeList(m map[string]string) []attributeType {
 	}
 
 	return out
+}
+
+type revokeTokenInput struct {
+	Token    string `json:"Token"`
+	ClientID string `json:"ClientId"`
+}
+
+type revokeTokenOutput struct{}
+
+func (h *Handler) handleRevokeToken(_ context.Context, in *revokeTokenInput) (*revokeTokenOutput, error) {
+	if err := h.Backend.RevokeToken(in.Token, in.ClientID); err != nil {
+		return nil, err
+	}
+
+	return &revokeTokenOutput{}, nil
 }

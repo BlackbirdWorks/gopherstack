@@ -72,22 +72,32 @@ type InMemoryBackend struct {
 	poolsByName map[string]*UserPool
 	clients     map[string]*UserPoolClient
 	users       map[string]map[string]*User
-	accountID   string
-	region      string
-	endpoint    string
+	// refreshTokens maps refresh token → poolID/username for REFRESH_TOKEN_AUTH flow.
+	refreshTokens map[string]*refreshTokenEntry
+	accountID     string
+	region        string
+	endpoint      string
+}
+
+// refreshTokenEntry holds the pool/user context for a refresh token.
+type refreshTokenEntry struct {
+	PoolID   string
+	ClientID string
+	Username string
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
 func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 	return &InMemoryBackend{
-		mu:          lockmetrics.New("cognitoidp"),
-		pools:       make(map[string]*UserPool),
-		poolsByName: make(map[string]*UserPool),
-		clients:     make(map[string]*UserPoolClient),
-		users:       make(map[string]map[string]*User),
-		accountID:   accountID,
-		region:      region,
-		endpoint:    endpoint,
+		mu:            lockmetrics.New("cognitoidp"),
+		pools:         make(map[string]*UserPool),
+		poolsByName:   make(map[string]*UserPool),
+		clients:       make(map[string]*UserPoolClient),
+		users:         make(map[string]map[string]*User),
+		refreshTokens: make(map[string]*refreshTokenEntry),
+		accountID:     accountID,
+		region:        region,
+		endpoint:      endpoint,
 	}
 }
 
@@ -302,7 +312,7 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 	return &cp, nil
 }
 
-// ConfirmSignUp confirms a user's registration. In this mock, any non-empty code is accepted.
+// ConfirmSignUp confirms a user's registration by validating the confirmation code.
 func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode string) error {
 	b.mu.Lock("ConfirmSignUp")
 	defer b.mu.Unlock()
@@ -326,7 +336,12 @@ func (b *InMemoryBackend) ConfirmSignUp(clientID, username, confirmationCode str
 		return fmt.Errorf("%w: confirmation code is required", ErrCodeMismatch)
 	}
 
+	if user.ConfirmCode != "" && confirmationCode != user.ConfirmCode {
+		return fmt.Errorf("%w: invalid confirmation code", ErrCodeMismatch)
+	}
+
 	user.Status = UserStatusConfirmed
+	user.ConfirmCode = ""
 
 	return nil
 }
@@ -517,7 +532,10 @@ func (b *InMemoryBackend) authenticate(
 	user *User,
 	password string,
 ) (*TokenResult, error) {
-	if authFlow != "USER_PASSWORD_AUTH" {
+	switch authFlow {
+	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "USER_SRP_AUTH":
+		// fall through to password validation
+	default:
 		return nil, fmt.Errorf("%w: unsupported auth flow %q", ErrInvalidUserPoolConfig, authFlow)
 	}
 
@@ -534,7 +552,75 @@ func (b *InMemoryBackend) authenticate(
 		return nil, fmt.Errorf("issuing tokens: %w", err)
 	}
 
+	// Store the refresh token so REFRESH_TOKEN_AUTH can validate it.
+	b.refreshTokens[tokens.RefreshToken] = &refreshTokenEntry{
+		PoolID:   pool.ID,
+		ClientID: clientID,
+		Username: user.Username,
+	}
+
 	return tokens, nil
+}
+
+// InitiateAuthRefreshToken exchanges a valid refresh token for new ID/Access tokens.
+func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string) (*TokenResult, error) {
+	b.mu.Lock("InitiateAuthRefreshToken")
+	defer b.mu.Unlock()
+
+	entry, ok := b.refreshTokens[refreshToken]
+	if !ok {
+		return nil, fmt.Errorf("%w: refresh token not found or expired", ErrNotAuthorized)
+	}
+
+	if entry.ClientID != clientID {
+		return nil, fmt.Errorf("%w: refresh token was issued for a different client", ErrNotAuthorized)
+	}
+
+	pool, ok := b.pools[entry.PoolID]
+	if !ok {
+		return nil, fmt.Errorf("%w: user pool %q not found", ErrUserPoolNotFound, entry.PoolID)
+	}
+
+	poolUsers, ok := b.users[entry.PoolID]
+	if !ok {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
+	}
+
+	user, ok := poolUsers[entry.Username]
+	if !ok {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, entry.Username)
+	}
+
+	tokens, err := pool.issuer.Issue(clientID, user.Username, user.Sub)
+	if err != nil {
+		return nil, fmt.Errorf("issuing tokens: %w", err)
+	}
+
+	// Rotate the refresh token: invalidate old, store new.
+	delete(b.refreshTokens, refreshToken)
+	b.refreshTokens[tokens.RefreshToken] = entry
+
+	return tokens, nil
+}
+
+// RevokeToken revokes a refresh token, preventing further use.
+func (b *InMemoryBackend) RevokeToken(token, clientID string) error {
+	b.mu.Lock("RevokeToken")
+	defer b.mu.Unlock()
+
+	entry, ok := b.refreshTokens[token]
+	if !ok {
+		// AWS Cognito silently succeeds when revoking an already-revoked/unknown token.
+		return nil
+	}
+
+	if entry.ClientID != clientID {
+		return fmt.Errorf("%w: token was issued for a different client", ErrNotAuthorized)
+	}
+
+	delete(b.refreshTokens, token)
+
+	return nil
 }
 
 // randomAlphanumeric returns a random alphanumeric string of length n.

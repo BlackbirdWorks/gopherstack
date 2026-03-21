@@ -20,14 +20,14 @@ var (
 
 // Application represents an AWS Serverless Application Repository application.
 type Application struct {
-	CreationTime    time.Time
-	Tags            map[string]string
-	ApplicationID   string
-	Name            string
-	Description     string
-	Author          string
-	SourceCodeURL   string
-	SemanticVersion string
+	CreationTime    time.Time         `json:"creationTime"`
+	Tags            map[string]string `json:"tags,omitempty"`
+	ApplicationID   string            `json:"applicationId"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description,omitempty"`
+	Author          string            `json:"author,omitempty"`
+	SourceCodeURL   string            `json:"sourceCodeUrl,omitempty"`
+	SemanticVersion string            `json:"semanticVersion,omitempty"`
 }
 
 // cloneApplication returns a deep copy of a, including its Tags map.

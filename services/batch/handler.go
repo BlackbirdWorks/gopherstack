@@ -580,36 +580,89 @@ func (h *Handler) handleDeregisterJobDefinition(
 	return &emptyOutput{}, nil
 }
 
-// --- Stub handlers for job operations ---
+// --- Job operation handlers ---
 
 type listJobsInput struct {
-	JobQueue string `json:"jobQueue"`
+	JobQueue  string `json:"jobQueue"`
+	JobStatus string `json:"jobStatus"`
+}
+
+type jobSummary struct {
+	JobID   string `json:"jobId"`
+	JobName string `json:"jobName"`
+	Status  string `json:"status"`
 }
 
 type listJobsOutput struct {
-	JobSummaryList []any `json:"jobSummaryList"`
+	JobSummaryList []jobSummary `json:"jobSummaryList"`
 }
 
-func (h *Handler) handleListJobs(_ context.Context, _ *listJobsInput) (*listJobsOutput, error) {
-	return &listJobsOutput{JobSummaryList: []any{}}, nil
+func (h *Handler) handleListJobs(_ context.Context, in *listJobsInput) (*listJobsOutput, error) {
+	jobs, err := h.Backend.ListJobs(in.JobQueue, in.JobStatus)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]jobSummary, 0, len(jobs))
+	for _, j := range jobs {
+		summaries = append(summaries, jobSummary{
+			JobID:   j.JobID,
+			JobName: j.JobName,
+			Status:  j.Status,
+		})
+	}
+
+	return &listJobsOutput{JobSummaryList: summaries}, nil
 }
 
 type describeJobsInput struct {
 	Jobs []string `json:"jobs"`
 }
 
-type describeJobsOutput struct {
-	Jobs []any `json:"jobs"`
+type jobDetail struct {
+	StoppedAt     *int64            `json:"stoppedAt,omitempty"`
+	StartedAt     *int64            `json:"startedAt,omitempty"`
+	Tags          map[string]string `json:"tags,omitempty"`
+	JobID         string            `json:"jobId"`
+	JobName       string            `json:"jobName"`
+	JobQueue      string            `json:"jobQueue"`
+	JobDefinition string            `json:"jobDefinition"`
+	Status        string            `json:"status"`
+	StatusReason  string            `json:"statusReason,omitempty"`
+	CreatedAt     int64             `json:"createdAt"`
 }
 
-func (h *Handler) handleDescribeJobs(_ context.Context, _ *describeJobsInput) (*describeJobsOutput, error) {
-	return &describeJobsOutput{Jobs: []any{}}, nil
+type describeJobsOutput struct {
+	Jobs []jobDetail `json:"jobs"`
+}
+
+func (h *Handler) handleDescribeJobs(_ context.Context, in *describeJobsInput) (*describeJobsOutput, error) {
+	jobs := h.Backend.DescribeJobs(in.Jobs)
+
+	details := make([]jobDetail, 0, len(jobs))
+	for _, j := range jobs {
+		details = append(details, jobDetail{
+			JobID:         j.JobID,
+			JobName:       j.JobName,
+			JobQueue:      j.JobQueue,
+			JobDefinition: j.JobDefinition,
+			Status:        j.Status,
+			StatusReason:  j.StatusReason,
+			CreatedAt:     j.CreatedAt,
+			StartedAt:     j.StartedAt,
+			StoppedAt:     j.StoppedAt,
+			Tags:          j.Tags,
+		})
+	}
+
+	return &describeJobsOutput{Jobs: details}, nil
 }
 
 type submitJobInput struct {
-	JobName       string `json:"jobName"`
-	JobQueue      string `json:"jobQueue"`
-	JobDefinition string `json:"jobDefinition"`
+	Tags          map[string]string `json:"tags"`
+	JobName       string            `json:"jobName"`
+	JobQueue      string            `json:"jobQueue"`
+	JobDefinition string            `json:"jobDefinition"`
 }
 
 type submitJobOutput struct {
@@ -618,9 +671,14 @@ type submitJobOutput struct {
 }
 
 func (h *Handler) handleSubmitJob(_ context.Context, in *submitJobInput) (*submitJobOutput, error) {
+	j, err := h.Backend.SubmitJob(in.JobName, in.JobQueue, in.JobDefinition, in.Tags)
+	if err != nil {
+		return nil, err
+	}
+
 	return &submitJobOutput{
-		JobID:   "00000000-0000-0000-0000-000000000000",
-		JobName: in.JobName,
+		JobID:   j.JobID,
+		JobName: j.JobName,
 	}, nil
 }
 
@@ -629,7 +687,11 @@ type terminateJobInput struct {
 	Reason string `json:"reason"`
 }
 
-func (h *Handler) handleTerminateJob(_ context.Context, _ *terminateJobInput) (*emptyOutput, error) {
+func (h *Handler) handleTerminateJob(_ context.Context, in *terminateJobInput) (*emptyOutput, error) {
+	if err := h.Backend.TerminateJob(in.JobID, in.Reason); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, nil
 }
 
@@ -638,7 +700,11 @@ type cancelJobInput struct {
 	Reason string `json:"reason"`
 }
 
-func (h *Handler) handleCancelJob(_ context.Context, _ *cancelJobInput) (*emptyOutput, error) {
+func (h *Handler) handleCancelJob(_ context.Context, in *cancelJobInput) (*emptyOutput, error) {
+	if err := h.Backend.CancelJob(in.JobID, in.Reason); err != nil {
+		return nil, err
+	}
+
 	return &emptyOutput{}, nil
 }
 

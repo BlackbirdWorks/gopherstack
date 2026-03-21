@@ -663,31 +663,78 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	return xmlResp(c, http.StatusOK, `<?xml version="1.0" encoding="UTF-8"?>`+string(out))
 }
 
-// --- Invalidation stubs ---
+// --- Invalidation handlers ---
+
+type invalidationBatchXML struct {
+	XMLName         xml.Name        `xml:"InvalidationBatch"`
+	CallerReference string          `xml:"CallerReference"`
+	Paths           invalidPathsXML `xml:"Paths"`
+}
+
+type invalidPathsXML struct {
+	Items    []string `xml:"Items>Path"`
+	Quantity int      `xml:"Quantity"`
+}
 
 func (h *Handler) handleCreateInvalidation(c *echo.Context, distID string) error {
-	id := generateID()
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusInternalServerError, cfErrorXML("InternalFailure", err.Error()))
+	}
+
+	var batch invalidationBatchXML
+	if len(body) > 0 {
+		if xmlErr := xml.Unmarshal(body, &batch); xmlErr != nil {
+			return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", xmlErr.Error()))
+		}
+	}
+
+	inv, backendErr := h.Backend.CreateInvalidation(distID, batch.CallerReference, batch.Paths.Items)
+	if backendErr != nil {
+		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchDistribution", backendErr.Error()))
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<Invalidation xmlns="%s">`+
 		`<Id>%s</Id>`+
-		`<Status>InProgress</Status>`+
-		`<CreateTime>2024-01-01T00:00:00Z</CreateTime>`+
+		`<Status>%s</Status>`+
+		`<CreateTime>%d</CreateTime>`+
 		`</Invalidation>`,
-		cfNS, id)
+		cfNS, inv.ID, inv.Status, inv.CreateTime)
 
-	c.Response().Header().Set("Location", cfPathPrefix+"distribution/"+distID+"/invalidation/"+id)
+	c.Response().Header().Set("Location", cfPathPrefix+"distribution/"+distID+"/invalidation/"+inv.ID)
 
 	return xmlResp(c, http.StatusCreated, resp)
 }
 
-func (h *Handler) handleListInvalidations(c *echo.Context, _ string) error {
+func (h *Handler) handleListInvalidations(c *echo.Context, distID string) error {
+	invs, err := h.Backend.ListInvalidations(distID)
+	if err != nil {
+		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchDistribution", err.Error()))
+	}
+
+	quantity := len(invs)
+	var sb strings.Builder
+
+	for _, inv := range invs {
+		fmt.Fprintf(&sb,
+			`<InvalidationSummary>`+
+				`<Id>%s</Id>`+
+				`<Status>%s</Status>`+
+				`<CreateTime>%d</CreateTime>`+
+				`</InvalidationSummary>`,
+			inv.ID, inv.Status, inv.CreateTime,
+		)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<InvalidationList xmlns="%s">`+
 		`<IsTruncated>false</IsTruncated>`+
-		`<MaxItems>100</MaxItems>`+
-		`<Quantity>0</Quantity>`+
+		`<MaxItems>%d</MaxItems>`+
+		`<Quantity>%d</Quantity>`+
+		`<Items>%s</Items>`+
 		`</InvalidationList>`,
-		cfNS)
+		cfNS, maxItems, quantity, sb.String())
 
 	return xmlResp(c, http.StatusOK, resp)
 }
