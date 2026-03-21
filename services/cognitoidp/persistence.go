@@ -38,13 +38,15 @@ type userSnapshot struct {
 }
 
 type backendSnapshot struct {
-	Pools         map[string]*userPoolSnapshot        `json:"pools"`
-	Clients       map[string]*UserPoolClient          `json:"clients"`
-	Users         map[string]map[string]*userSnapshot `json:"users"`
-	RefreshTokens map[string]*refreshTokenEntry       `json:"refreshTokens,omitempty"`
-	AccountID     string                              `json:"accountId"`
-	Region        string                              `json:"region"`
-	Endpoint      string                              `json:"endpoint"`
+	Pools         map[string]*userPoolSnapshot                    `json:"pools"`
+	Clients       map[string]*UserPoolClient                      `json:"clients"`
+	Users         map[string]map[string]*userSnapshot             `json:"users"`
+	RefreshTokens map[string]*refreshTokenEntry                   `json:"refreshTokens,omitempty"`
+	Groups        map[string]map[string]*Group                    `json:"groups,omitempty"`
+	GroupMembers  map[string]map[string]map[string]struct{}       `json:"groupMembers,omitempty"`
+	AccountID     string                                          `json:"accountId"`
+	Region        string                                          `json:"region"`
+	Endpoint      string                                          `json:"endpoint"`
 }
 
 func marshalRSAKey(key *rsa.PrivateKey) (string, error) {
@@ -131,6 +133,8 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		Clients:       b.clients,
 		Users:         userSnaps,
 		RefreshTokens: b.refreshTokens,
+		Groups:        b.groups,
+		GroupMembers:  b.groupMembers,
 		AccountID:     b.accountID,
 		Region:        b.region,
 		Endpoint:      b.endpoint,
@@ -201,6 +205,14 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 		snap.RefreshTokens = make(map[string]*refreshTokenEntry)
 	}
 
+	if snap.Groups == nil {
+		snap.Groups = make(map[string]map[string]*Group)
+	}
+
+	if snap.GroupMembers == nil {
+		snap.GroupMembers = make(map[string]map[string]map[string]struct{})
+	}
+
 	b.mu.Lock("Restore")
 	defer b.mu.Unlock()
 
@@ -209,6 +221,8 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.users = users
 	b.clients = snap.Clients
 	b.refreshTokens = snap.RefreshTokens
+	b.groups = snap.Groups
+	b.groupMembers = snap.GroupMembers
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 	b.endpoint = snap.Endpoint

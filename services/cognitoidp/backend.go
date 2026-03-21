@@ -65,6 +65,15 @@ type User struct {
 	ConfirmCode  string
 }
 
+// Group represents a Cognito User Pool group.
+type Group struct {
+	GroupName   string    `json:"groupName"`
+	UserPoolID  string    `json:"userPoolId"`
+	Description string    `json:"description,omitempty"`
+	Precedence  int32     `json:"precedence"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
 // InMemoryBackend is the in-memory store for Cognito IDP resources.
 type InMemoryBackend struct {
 	mu          *lockmetrics.RWMutex
@@ -74,9 +83,13 @@ type InMemoryBackend struct {
 	users       map[string]map[string]*User
 	// refreshTokens maps refresh token → poolID/username for REFRESH_TOKEN_AUTH flow.
 	refreshTokens map[string]*refreshTokenEntry
-	accountID     string
-	region        string
-	endpoint      string
+	// groups maps poolID → groupName → Group
+	groups map[string]map[string]*Group
+	// groupMembers maps poolID → groupName → set of usernames
+	groupMembers map[string]map[string]map[string]struct{}
+	accountID    string
+	region       string
+	endpoint     string
 }
 
 // refreshTokenEntry holds the pool/user context for a refresh token.
@@ -95,6 +108,8 @@ func NewInMemoryBackend(accountID, region, endpoint string) *InMemoryBackend {
 		clients:       make(map[string]*UserPoolClient),
 		users:         make(map[string]map[string]*User),
 		refreshTokens: make(map[string]*refreshTokenEntry),
+		groups:        make(map[string]map[string]*Group),
+		groupMembers:  make(map[string]map[string]map[string]struct{}),
 		accountID:     accountID,
 		region:        region,
 		endpoint:      endpoint,
@@ -172,6 +187,10 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 	maps.DeleteFunc(b.refreshTokens, func(_ string, entry *refreshTokenEntry) bool {
 		return entry.PoolID == userPoolID
 	})
+
+	// Clean up groups and group memberships for this pool.
+	delete(b.groups, userPoolID)
+	delete(b.groupMembers, userPoolID)
 
 	return nil
 }
@@ -827,6 +846,201 @@ func (b *InMemoryBackend) RevokeToken(token, clientID string) error {
 	}
 
 	delete(b.refreshTokens, token)
+
+	return nil
+}
+
+// CreateGroup creates a group in a user pool.
+func (b *InMemoryBackend) CreateGroup(userPoolID, groupName, description string, precedence int32) (*Group, error) {
+	b.mu.Lock("CreateGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if b.groups[userPoolID] == nil {
+		b.groups[userPoolID] = make(map[string]*Group)
+	}
+
+	if _, exists := b.groups[userPoolID][groupName]; exists {
+		return nil, fmt.Errorf("%w: group %q already exists in pool %q", ErrAlreadyExists, groupName, userPoolID)
+	}
+
+	g := &Group{
+		GroupName:   groupName,
+		UserPoolID:  userPoolID,
+		Description: description,
+		Precedence:  precedence,
+		CreatedAt:   time.Now().UTC(),
+	}
+	b.groups[userPoolID][groupName] = g
+
+	cp := *g
+
+	return &cp, nil
+}
+
+// DeleteGroup removes a group from a user pool.
+func (b *InMemoryBackend) DeleteGroup(userPoolID, groupName string) error {
+	b.mu.Lock("DeleteGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.groups[userPoolID][groupName]; !ok {
+		return fmt.Errorf("%w: group %q not found in pool %q", ErrGroupNotFound, groupName, userPoolID)
+	}
+
+	delete(b.groups[userPoolID], groupName)
+
+	if b.groupMembers[userPoolID] != nil {
+		delete(b.groupMembers[userPoolID], groupName)
+	}
+
+	return nil
+}
+
+// ListGroups returns all groups in a user pool.
+func (b *InMemoryBackend) ListGroups(userPoolID string) ([]*Group, error) {
+	b.mu.RLock("ListGroups")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	poolGroups := b.groups[userPoolID]
+	out := make([]*Group, 0, len(poolGroups))
+
+	for _, g := range poolGroups {
+		cp := *g
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+// AdminAddUserToGroup adds a user to a group.
+func (b *InMemoryBackend) AdminAddUserToGroup(userPoolID, username, groupName string) error {
+	b.mu.Lock("AdminAddUserToGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.groups[userPoolID][groupName]; !ok {
+		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	poolUsers := b.users[userPoolID]
+	if _, ok := poolUsers[username]; !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	if b.groupMembers[userPoolID] == nil {
+		b.groupMembers[userPoolID] = make(map[string]map[string]struct{})
+	}
+
+	if b.groupMembers[userPoolID][groupName] == nil {
+		b.groupMembers[userPoolID][groupName] = make(map[string]struct{})
+	}
+
+	b.groupMembers[userPoolID][groupName][username] = struct{}{}
+
+	return nil
+}
+
+// AdminRemoveUserFromGroup removes a user from a group.
+func (b *InMemoryBackend) AdminRemoveUserFromGroup(userPoolID, username, groupName string) error {
+	b.mu.Lock("AdminRemoveUserFromGroup")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.groups[userPoolID][groupName]; !ok {
+		return fmt.Errorf("%w: group %q not found", ErrGroupNotFound, groupName)
+	}
+
+	if b.groupMembers[userPoolID] != nil && b.groupMembers[userPoolID][groupName] != nil {
+		delete(b.groupMembers[userPoolID][groupName], username)
+	}
+
+	return nil
+}
+
+// AdminListGroupsForUser returns the groups a user belongs to.
+func (b *InMemoryBackend) AdminListGroupsForUser(userPoolID, username string) ([]*Group, error) {
+	b.mu.RLock("AdminListGroupsForUser")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	if _, ok := b.users[userPoolID][username]; !ok {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	out := make([]*Group, 0)
+
+	for groupName, members := range b.groupMembers[userPoolID] {
+		if _, isMember := members[username]; !isMember {
+			continue
+		}
+
+		if g, ok := b.groups[userPoolID][groupName]; ok {
+			cp := *g
+			out = append(out, &cp)
+		}
+	}
+
+	return out, nil
+}
+
+// UpdateUserAttributes updates the attributes of an authenticated user.
+func (b *InMemoryBackend) UpdateUserAttributes(accessToken string, attributes map[string]string) error {
+	b.mu.Lock("UpdateUserAttributes")
+	defer b.mu.Unlock()
+
+	u, err := b.findUserByAccessTokenLocked(accessToken)
+	if err != nil {
+		return err
+	}
+
+	if u.Attributes == nil {
+		u.Attributes = make(map[string]string)
+	}
+
+	maps.Copy(u.Attributes, attributes)
+
+	return nil
+}
+
+// AdminUpdateUserAttributes updates attributes for a user in a pool.
+func (b *InMemoryBackend) AdminUpdateUserAttributes(userPoolID, username string, attributes map[string]string) error {
+	b.mu.Lock("AdminUpdateUserAttributes")
+	defer b.mu.Unlock()
+
+	if _, ok := b.pools[userPoolID]; !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	u, ok := b.users[userPoolID][username]
+	if !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	if u.Attributes == nil {
+		u.Attributes = make(map[string]string)
+	}
+
+	maps.Copy(u.Attributes, attributes)
 
 	return nil
 }

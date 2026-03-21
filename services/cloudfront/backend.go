@@ -365,6 +365,27 @@ func (b *InMemoryBackend) ListInvalidations(distributionID string) ([]*Invalidat
 	return out, nil
 }
 
+// GetInvalidation returns a specific invalidation by distribution ID and invalidation ID.
+func (b *InMemoryBackend) GetInvalidation(distributionID, invalidationID string) (*Invalidation, error) {
+	b.mu.RLock("GetInvalidation")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.distributions[distributionID]; !ok {
+		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
+	}
+
+	for _, inv := range b.invalidations[distributionID] {
+		if inv.ID == invalidationID {
+			cp := *inv
+			cp.Paths = append([]string(nil), inv.Paths...)
+
+			return &cp, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: invalidation %s not found", ErrNotFound, invalidationID)
+}
+
 func (b *InMemoryBackend) copyDistribution(d *Distribution) *Distribution {
 	cp := *d
 	rawCopy := make([]byte, len(d.RawConfig))

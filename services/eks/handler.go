@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -44,6 +46,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DescribeNodegroup",
 		"ListNodegroups",
 		"DeleteNodegroup",
+		"UpdateNodegroupConfig",
 		"TagResource",
 		"UntagResource",
 		"ListTagsForResource",
@@ -167,6 +170,8 @@ func parseEKSPath(method, rawPath string) eksRoute {
 		return eksRoute{operation: "DescribeNodegroup", clusterName: clusterName, nodegroupName: nodegroupName}
 	case http.MethodDelete:
 		return eksRoute{operation: "DeleteNodegroup", clusterName: clusterName, nodegroupName: nodegroupName}
+	case http.MethodPost:
+		return eksRoute{operation: "UpdateNodegroupConfig", clusterName: clusterName, nodegroupName: nodegroupName}
 	}
 
 	return eksRoute{operation: "Unknown"}
@@ -228,6 +233,8 @@ func (h *Handler) dispatch(c *echo.Context, route eksRoute, body []byte) error {
 		return h.handleListNodegroups(c, route.clusterName)
 	case "DeleteNodegroup":
 		return h.handleDeleteNodegroup(c, route.clusterName, route.nodegroupName)
+	case "UpdateNodegroupConfig":
+		return h.handleUpdateNodegroupConfig(c, route.clusterName, route.nodegroupName, body)
 	case "TagResource":
 		return h.handleTagResource(c, route.resourceARN, body)
 	case "UntagResource":
@@ -486,4 +493,48 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 	return c.JSON(http.StatusOK, map[string]any{
 		"tags": t,
 	})
+}
+
+type updateNodegroupConfigInput struct {
+ScalingConfig *struct {
+DesiredSize *int32 `json:"desiredSize,omitempty"`
+MinSize     *int32 `json:"minSize,omitempty"`
+MaxSize     *int32 `json:"maxSize,omitempty"`
+} `json:"scalingConfig,omitempty"`
+}
+
+func (h *Handler) handleUpdateNodegroupConfig(
+c *echo.Context,
+clusterName, nodegroupName string,
+body []byte,
+) error {
+var in updateNodegroupConfigInput
+if len(body) > 0 {
+if err := json.Unmarshal(body, &in); err != nil {
+return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
+}
+}
+
+var desiredSize, minSize, maxSize *int32
+if in.ScalingConfig != nil {
+desiredSize = in.ScalingConfig.DesiredSize
+minSize = in.ScalingConfig.MinSize
+maxSize = in.ScalingConfig.MaxSize
+}
+
+ng, err := h.Backend.UpdateNodegroupConfig(clusterName, nodegroupName, desiredSize, minSize, maxSize)
+if err != nil {
+return h.handleError(c, err)
+}
+
+return c.JSON(http.StatusOK, map[string]any{
+"update": map[string]any{
+"id":            uuid.NewString()[:8],
+"status":        "InProgress",
+"type":          "ConfigUpdate",
+"createdAt":     float64(time.Now().Unix()),
+"clusterName":   clusterName,
+"nodegroupName": ng.NodegroupName,
+},
+})
 }

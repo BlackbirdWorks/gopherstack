@@ -317,6 +317,47 @@ func (b *InMemoryBackend) DeleteNodegroup(clusterName, nodegroupName string) (*N
 	return &cp, nil
 }
 
+// UpdateNodegroupConfig updates the scaling configuration of a node group.
+func (b *InMemoryBackend) UpdateNodegroupConfig(
+	clusterName, nodegroupName string,
+	desiredSize, minSize, maxSize *int32,
+) (*Nodegroup, error) {
+	b.mu.Lock("UpdateNodegroupConfig")
+	defer b.mu.Unlock()
+
+	if _, ok := b.clusters[clusterName]; !ok {
+		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
+	}
+
+	ngs, ok := b.nodegroups[clusterName]
+	if !ok {
+		return nil, fmt.Errorf("%w: cluster %s has no nodegroups", ErrNotFound, clusterName)
+	}
+
+	ng, ok := ngs[nodegroupName]
+	if !ok {
+		return nil, fmt.Errorf("%w: nodegroup %s not found in cluster %s", ErrNotFound, nodegroupName, clusterName)
+	}
+
+	if desiredSize != nil {
+		ng.DesiredSize = *desiredSize
+	}
+
+	if minSize != nil {
+		ng.MinSize = *minSize
+	}
+
+	if maxSize != nil {
+		ng.MaxSize = *maxSize
+	}
+
+	cp := *ng
+	cp.InstanceTypes = make([]string, len(ng.InstanceTypes))
+	copy(cp.InstanceTypes, ng.InstanceTypes)
+
+	return &cp, nil
+}
+
 // TagResource adds tags to a resource by ARN.
 func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) error {
 	b.mu.Lock("TagResource")
