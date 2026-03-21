@@ -31,9 +31,9 @@ type snsEnvelope struct {
 // Delivery is synchronous and best-effort: per-message errors are silently dropped
 // so that a missing queue does not block other subscribers.
 //
-// The returned unsubscribe function is stored on the backend so that Reset()
-// can detach the listener when the backend is reused (e.g. in tests) to prevent
-// stale listeners accumulating in the emitter.
+// If SubscribeToSNS has been called before, the previous subscription is replaced
+// by unsubscribing the old listener before registering the new one, preventing
+// stale listeners from accumulating in the emitter on repeated calls.
 func (b *InMemoryBackend) SubscribeToSNS(emitter events.EventEmitter[*events.SNSPublishedEvent]) {
 	unsubscribe := emitter.Subscribe(func(_ context.Context, ev *events.SNSPublishedEvent) error {
 		for _, sub := range ev.Subscriptions {
@@ -44,6 +44,9 @@ func (b *InMemoryBackend) SubscribeToSNS(emitter events.EventEmitter[*events.SNS
 	})
 
 	b.mu.Lock("SubscribeToSNS")
+	if b.snsUnsubscribe != nil {
+		b.snsUnsubscribe()
+	}
 	b.snsUnsubscribe = unsubscribe
 	b.mu.Unlock()
 }

@@ -1176,18 +1176,14 @@ func (b *InMemoryBackend) DeleteMessagesLocal(queueURL string, receiptHandles []
 	return nil
 }
 
-// Reset clears all in-memory state from the backend. It is used by the
+// Reset clears all in-memory queue state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
-// Any active SNS subscription listener is detached to prevent stale listeners
-// from accumulating in the emitter when the backend is reused across tests.
+// The active SNS subscription listener is kept intact so that SNS→SQS delivery
+// continues to work after a reset (wireSNSToSQS is only wired at startup and is
+// not re-run after reset).
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
-
-	if b.snsUnsubscribe != nil {
-		b.snsUnsubscribe()
-		b.snsUnsubscribe = nil
-	}
 
 	b.queues = make(map[string]*Queue)
 }

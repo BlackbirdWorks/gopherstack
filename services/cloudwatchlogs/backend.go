@@ -138,7 +138,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 // NewInMemoryBackendWithContext creates a new InMemoryBackend with the given parent context,
 // account ID, and region. Subscription delivery goroutines are bounded by svcCtx so that
 // they are cancelled on server shutdown.
-// If svcCtx is nil, context.Background() is used.
+// If svcCtx is nil, [context.Background] is used.
 func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
 	if svcCtx == nil {
 		svcCtx = context.Background()
