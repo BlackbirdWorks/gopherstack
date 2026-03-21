@@ -56,6 +56,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AdminCreateUser",
 		"AdminSetUserPassword",
 		"AdminGetUser",
+		"AdminConfirmSignUp",
 		"RevokeToken",
 	}
 }
@@ -168,6 +169,7 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"AdminCreateUser":        service.WrapOp(h.handleAdminCreateUser),
 		"AdminSetUserPassword":   service.WrapOp(h.handleAdminSetUserPassword),
 		"AdminGetUser":           service.WrapOp(h.handleAdminGetUser),
+		"AdminConfirmSignUp":     service.WrapOp(h.handleAdminConfirmSignUp),
 		"RevokeToken":            service.WrapOp(h.handleRevokeToken),
 	}
 }
@@ -771,6 +773,24 @@ func mapToAttributeList(m map[string]string) []attributeType {
 	}
 
 	return out
+}
+
+type adminConfirmSignUpInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	Username   string `json:"Username"`
+}
+
+type adminConfirmSignUpOutput struct{}
+
+func (h *Handler) handleAdminConfirmSignUp(
+	_ context.Context,
+	in *adminConfirmSignUpInput,
+) (*adminConfirmSignUpOutput, error) {
+	if err := h.Backend.AdminConfirmSignUp(in.UserPoolID, in.Username); err != nil {
+		return nil, err
+	}
+
+	return &adminConfirmSignUpOutput{}, nil
 }
 
 type revokeTokenInput struct {

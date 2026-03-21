@@ -63,11 +63,11 @@ type OriginAccessIdentity struct {
 
 // Invalidation represents a CloudFront cache invalidation.
 type Invalidation struct {
-	ID         string   `json:"id"`
-	Status     string   `json:"status"`
-	CallerRef  string   `json:"callerRef,omitempty"`
-	Paths      []string `json:"paths,omitempty"`
-	CreateTime int64    `json:"createTime"`
+	CreateTime time.Time `json:"createTime"`
+	ID         string    `json:"id"`
+	Status     string    `json:"status"`
+	CallerRef  string    `json:"callerRef,omitempty"`
+	Paths      []string  `json:"paths,omitempty"`
 }
 
 // InMemoryBackend stores CloudFront resources in memory.
@@ -333,7 +333,7 @@ func (b *InMemoryBackend) CreateInvalidation(
 	inv := &Invalidation{
 		ID:         generateID(),
 		Status:     "InProgress",
-		CreateTime: time.Now().UnixMilli(),
+		CreateTime: time.Now().UTC(),
 		Paths:      append([]string(nil), paths...),
 		CallerRef:  callerRef,
 	}

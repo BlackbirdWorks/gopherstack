@@ -1356,3 +1356,68 @@ func TestHandler_SubmitJob_JobARNPresent(t *testing.T) {
 	assert.NotEmpty(t, job["jobArn"], "job ARN should be set")
 	assert.Equal(t, "q-arn", job["jobQueue"], "jobQueue should be canonical queue name")
 }
+
+func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Create compute environment.
+	ce, err := b.CreateComputeEnvironment("test-ce", "MANAGED", "ENABLED", nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, ce.ComputeEnvironmentArn)
+
+	// Create job queue.
+	ceOrder := []batch.ComputeEnvironmentOrder{
+		{ComputeEnvironment: ce.ComputeEnvironmentArn, Order: 1},
+	}
+	jq, err := b.CreateJobQueue("test-jq", 10, "ENABLED", ceOrder, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, jq.JobQueueArn)
+
+	// Register job definition.
+	jd, err := b.RegisterJobDefinition("test-jd", "container", nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, jd.JobDefinitionArn)
+
+	// Submit a job.
+	job, err := b.SubmitJob("test-job", jq.JobQueueName, jd.JobDefinitionArn, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, job.JobID)
+
+	// Snapshot and restore.
+	h := batch.NewHandler(b)
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := batch.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := batch.NewHandler(b2)
+	require.NoError(t, h2.Restore(snap))
+
+	// Compute environment is restored.
+	ces := b2.DescribeComputeEnvironments([]string{"test-ce"})
+	require.Len(t, ces, 1)
+	assert.Equal(t, "test-ce", ces[0].ComputeEnvironmentName)
+
+	// Job queue is restored.
+	jqs := b2.DescribeJobQueues([]string{"test-jq"})
+	require.Len(t, jqs, 1)
+	assert.Equal(t, "test-jq", jqs[0].JobQueueName)
+
+	// Job definition is restored.
+	jds := b2.DescribeJobDefinitions([]string{"test-jd"})
+	require.NotEmpty(t, jds)
+	assert.Equal(t, "test-jd", jds[0].JobDefinitionName)
+
+	// Submitted job is restored.
+	jobs := b2.DescribeJobs([]string{job.JobID})
+	require.Len(t, jobs, 1)
+	assert.Equal(t, "test-job", jobs[0].JobName)
+	assert.Equal(t, jq.JobQueueName, jobs[0].JobQueue)
+
+	// jobsByQueue index is rebuilt — ListJobs must return the submitted job.
+	listed, err := b2.ListJobs(jq.JobQueueName, "")
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, job.JobID, listed[0].JobID)
+}

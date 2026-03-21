@@ -405,9 +405,11 @@ func (b *InMemoryBackend) ListAllClusters() []*Cluster {
 	return list
 }
 
-// stableID returns a stable 8-character hex identifier derived from the input
-// string using SHA-256. This produces a deterministic, collision-resistant ID
-// suitable for use in ARNs and endpoint URLs where idempotency is required.
+// stableID returns a deterministic 8-character hex identifier derived from the
+// input string using SHA-256. The identifier is stable across calls but only
+// 32 bits long, so collisions are possible at scale; it should be used only
+// for non-critical IDs such as test ARN suffixes and endpoint URL components,
+// not for strong uniqueness or cryptographic guarantees.
 func stableID(input string) string {
 	sum := sha256.Sum256([]byte(input))
 

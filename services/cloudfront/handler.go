@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -698,9 +699,9 @@ func (h *Handler) handleCreateInvalidation(c *echo.Context, distID string) error
 		`<Invalidation xmlns="%s">`+
 		`<Id>%s</Id>`+
 		`<Status>%s</Status>`+
-		`<CreateTime>%d</CreateTime>`+
+		`<CreateTime>%s</CreateTime>`+
 		`</Invalidation>`,
-		cfNS, inv.ID, inv.Status, inv.CreateTime)
+		cfNS, inv.ID, inv.Status, inv.CreateTime.Format(time.RFC3339))
 
 	c.Response().Header().Set("Location", cfPathPrefix+"distribution/"+distID+"/invalidation/"+inv.ID)
 
@@ -721,9 +722,9 @@ func (h *Handler) handleListInvalidations(c *echo.Context, distID string) error 
 			`<InvalidationSummary>`+
 				`<Id>%s</Id>`+
 				`<Status>%s</Status>`+
-				`<CreateTime>%d</CreateTime>`+
+				`<CreateTime>%s</CreateTime>`+
 				`</InvalidationSummary>`,
-			inv.ID, inv.Status, inv.CreateTime,
+			inv.ID, inv.Status, inv.CreateTime.Format(time.RFC3339),
 		)
 	}
 

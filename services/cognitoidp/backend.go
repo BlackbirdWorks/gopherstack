@@ -476,6 +476,28 @@ func (b *InMemoryBackend) AdminSetUserPassword(userPoolID, username, password st
 	return nil
 }
 
+// AdminConfirmSignUp confirms a user's registration without requiring a confirmation code.
+// This is an admin operation that bypasses the normal confirmation flow.
+func (b *InMemoryBackend) AdminConfirmSignUp(userPoolID, username string) error {
+	b.mu.Lock("AdminConfirmSignUp")
+	defer b.mu.Unlock()
+
+	poolUsers, ok := b.users[userPoolID]
+	if !ok {
+		return fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	user, ok := poolUsers[username]
+	if !ok {
+		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	user.Status = UserStatusConfirmed
+	user.ConfirmCode = ""
+
+	return nil
+}
+
 // AdminGetUser returns a user from a pool by username.
 func (b *InMemoryBackend) AdminGetUser(userPoolID, username string) (*User, error) {
 	b.mu.RLock("AdminGetUser")
