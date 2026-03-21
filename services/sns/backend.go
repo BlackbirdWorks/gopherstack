@@ -573,7 +573,7 @@ func (b *InMemoryBackend) Publish(
 			b.deliveryWg.Go(func() {
 				b.workerSem <- struct{}{} // wait for a delivery slot
 				defer func() { <-b.workerSem }()
-				deliverHTTP(d.endpoint, d.body, client)
+				deliverHTTP(b.svcCtx, d.endpoint, d.body, client)
 			})
 		}
 	}
@@ -746,8 +746,9 @@ func (b *InMemoryBackend) sortedSubscriptions() []Subscription {
 // using the provided client. Errors are intentionally ignored: delivery is
 // fire-and-forget for HTTP/HTTPS subscriptions. Response bodies are capped at
 // maxDeliveryResponseBytes to prevent unbounded memory growth.
-func deliverHTTP(endpoint, body string, client *http.Client) {
-	ctx, cancel := context.WithTimeout(context.Background(), snsHTTPTimeout)
+// The parent context is used so that service shutdown propagates to in-flight deliveries.
+func deliverHTTP(parent context.Context, endpoint, body string, client *http.Client) {
+	ctx, cancel := context.WithTimeout(parent, snsHTTPTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(

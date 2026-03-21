@@ -1,6 +1,9 @@
 package s3
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // Exported wrappers for internal functions used in tests.
 
@@ -39,4 +42,14 @@ func (b *InMemoryBackend) TagsForBucket(bucket string) int {
 	}
 
 	return count
+}
+
+// GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the timeout.
+func (h *S3Handler) GetJanitorTaskTimeout() time.Duration {
+if h.janitor == nil {
+return 0
+}
+
+return h.janitor.TaskTimeout
 }

@@ -194,14 +194,28 @@ func (b *InMemoryBackend) DeleteGraphqlAPI(apiID string) error {
 	b.mu.Lock("DeleteGraphqlApi")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[apiID]; !ok {
+	api, ok := b.apis[apiID]
+	if !ok {
 		return fmt.Errorf("%w: api %s not found", ErrNotFound, apiID)
 	}
+
+	// Snapshot data sources before deletion so we can release their tag resources.
+	dss := b.datasources[apiID]
 
 	delete(b.apis, apiID)
 	delete(b.schemas, apiID)
 	delete(b.datasources, apiID)
 	delete(b.resolvers, apiID)
+
+	if api.Tags != nil {
+		api.Tags.Close()
+	}
+
+	for _, ds := range dss {
+		if ds != nil && ds.Tags != nil {
+			ds.Tags.Close()
+		}
+	}
 
 	return nil
 }
@@ -366,7 +380,12 @@ func (b *InMemoryBackend) DeleteDataSource(apiID, name string) error {
 		return fmt.Errorf("%w: datasource %s not found", ErrNotFound, name)
 	}
 
+	ds := dss[name]
 	delete(dss, name)
+
+	if ds.Tags != nil {
+		ds.Tags.Close()
+	}
 
 	return nil
 }

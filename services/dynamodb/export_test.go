@@ -236,3 +236,13 @@ func (c *ExpressionCache) HasEntry(key string) bool { return c.has(key) }
 func (c *ExpressionCache) PutAt(key string, value any, expiresAt time.Time) {
 	c.putAt(key, value, expiresAt)
 }
+
+// GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the timeout.
+func (h *DynamoDBHandler) GetJanitorTaskTimeout() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.TaskTimeout
+}

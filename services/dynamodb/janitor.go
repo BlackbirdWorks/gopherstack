@@ -94,6 +94,11 @@ func (j *Janitor) runOnce(ctx context.Context) {
 	j.runTableCleaner(ctx)
 }
 
+// SweepOnce runs a single full sweep pass. Exposed for testing.
+func (j *Janitor) SweepOnce(ctx context.Context) {
+	j.runOnce(ctx)
+}
+
 // runTableCleaner records the current queue depth and finalises all pending deletions.
 func (j *Janitor) runTableCleaner(ctx context.Context) {
 	db := j.Backend
