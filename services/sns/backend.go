@@ -114,6 +114,7 @@ type InMemoryBackend struct {
 	topicTags            map[string]*svcTags.Tags
 	platformApplications map[string]*PlatformApplication
 	httpClient           *http.Client
+	svcCtx               context.Context
 	workerSem            chan struct{}
 	mu                   *lockmetrics.RWMutex
 	accountID            string
@@ -128,7 +129,20 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given account ID and region.
+// Use [NewInMemoryBackendWithContext] to bind it to a parent service context instead.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend bound to the given parent
+// context. The context is used when emitting SNS publish events (e.g. to SQS delivery)
+// so that event delivery is cancelled if the service is shut down.
+// If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
 	return &InMemoryBackend{
 		topics:               make(map[string]*Topic),
 		subscriptions:        make(map[string]*Subscription),
@@ -137,6 +151,7 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		platformEndpoints:    make(map[string]*PlatformEndpoint),
 		accountID:            accountID,
 		region:               region,
+		svcCtx:               svcCtx,
 		mu:                   lockmetrics.New("sns"),
 		httpClient:           &http.Client{Timeout: snsHTTPTimeout},
 		workerSem:            make(chan struct{}, snsMaxConcurrentDeliveries),
@@ -573,7 +588,7 @@ func (b *InMemoryBackend) Publish(
 			}
 		}
 
-		_ = emitter.Emit(context.Background(), &events.SNSPublishedEvent{
+		_ = emitter.Emit(b.svcCtx, &events.SNSPublishedEvent{
 			TopicARN:      topicArn,
 			MessageID:     messageID,
 			Message:       message,
