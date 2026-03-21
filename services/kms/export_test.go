@@ -31,4 +31,3 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 
 	return h.janitor.TaskTimeout
 }
-
