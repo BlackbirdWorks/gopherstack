@@ -4,6 +4,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// ConfigProvider is a private interface to extract Athena configuration
+// from the abstract AppContext Config.
+type ConfigProvider interface {
+	GetAthenaSettings() Settings
+}
+
 // Provider implements service.Provider for the Athena service.
 type Provider struct{}
 
@@ -14,9 +20,17 @@ func (p *Provider) Name() string { return "Athena" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	settings := Settings{
+		JanitorInterval: defaultAthenaJanitorInterval,
+		ExecutionTTL:    defaultAthenaExecutionTTL,
+	}
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetAthenaSettings()
+	}
+
 	backend := NewInMemoryBackend()
 	handler := NewHandler(backend)
-	handler.WithJanitor(0, 0, ctx.JanitorTimeout)
+	handler.WithJanitor(settings.JanitorInterval, settings.ExecutionTTL, ctx.JanitorTimeout)
 
 	return handler, nil
 }

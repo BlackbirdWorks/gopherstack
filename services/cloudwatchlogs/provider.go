@@ -5,6 +5,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// ConfigProvider is a private interface to extract CloudWatch Logs configuration
+// from the abstract AppContext Config.
+type ConfigProvider interface {
+	GetCloudWatchLogsSettings() Settings
+}
+
 // Provider implements service.Provider for the CloudWatch Logs service.
 type Provider struct{}
 
@@ -24,7 +30,12 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend = NewInMemoryBackendWithContext(ctx.JanitorCtx, config.DefaultAccountID, config.DefaultRegion)
 	}
 
-	handler := NewHandler(backend).WithJanitor(0, ctx.JanitorTimeout)
+	settings := Settings{JanitorInterval: defaultJanitorInterval}
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetCloudWatchLogsSettings()
+	}
+
+	handler := NewHandler(backend).WithJanitor(settings.JanitorInterval, ctx.JanitorTimeout)
 
 	return handler, nil
 }

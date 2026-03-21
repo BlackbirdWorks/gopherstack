@@ -1,0 +1,10 @@
+package kms
+
+import "time"
+
+// Settings holds service-level configuration for the KMS backend.
+// Fields are picked up by the Kong CLI parser when this struct is embedded
+// in the root CLI command.
+type Settings struct {
+	JanitorInterval time.Duration `env:"KMS_JANITOR_INTERVAL" default:"1m" help:"Janitor tick interval for sweeping pending-deletion KMS keys."` //nolint:lll // config struct tags are intentionally verbose
+}

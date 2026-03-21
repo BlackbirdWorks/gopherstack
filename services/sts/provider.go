@@ -5,6 +5,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// ConfigProvider is a private interface to extract STS configuration
+// from the abstract AppContext Config.
+type ConfigProvider interface {
+	GetSTSSettings() Settings
+}
+
 // Provider implements service.Provider for the STS service.
 type Provider struct{}
 
@@ -26,8 +32,13 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		backend = NewInMemoryBackend()
 	}
 
+	settings := Settings{JanitorInterval: defaultSTSJanitorInterval}
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetSTSSettings()
+	}
+
 	handler := NewHandler(backend)
-	handler.WithJanitor(0, ctx.JanitorTimeout)
+	handler.WithJanitor(settings.JanitorInterval, ctx.JanitorTimeout)
 
 	return handler, nil
 }

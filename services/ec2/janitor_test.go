@@ -101,7 +101,7 @@ func TestJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 
 	const wantTimeout = 30 * time.Second
 
-	h.WithJanitor(time.Minute, time.Hour, wantTimeout)
+	h.WithJanitor(time.Minute, time.Hour, 6*time.Hour, wantTimeout)
 
 	// A pre-cancelled context ensures the janitor exits immediately.
 	ctx, cancel := context.WithCancel(t.Context())

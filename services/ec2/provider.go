@@ -5,6 +5,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// ConfigProvider is a private interface to extract EC2 configuration
+// from the abstract AppContext Config.
+type ConfigProvider interface {
+	GetEC2Settings() Settings
+}
+
 // Provider implements service.Provider for the EC2 service.
 type Provider struct{}
 
@@ -25,12 +31,21 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		region = cfg.Region
 	}
 
+	settings := Settings{
+		JanitorInterval:  defaultJanitorInterval,
+		TerminatedTTL:    defaultTerminatedTTL,
+		CancelledSpotTTL: defaultCancelledSpotTTL,
+	}
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetEC2Settings()
+	}
+
 	backend := NewInMemoryBackend(accountID, region)
 	handler := NewHandler(backend)
 	handler.AccountID = accountID
 	handler.Region = region
 
-	handler.WithJanitor(0, 0, ctx.JanitorTimeout)
+	handler.WithJanitor(settings.JanitorInterval, settings.TerminatedTTL, settings.CancelledSpotTTL, ctx.JanitorTimeout)
 
 	return handler, nil
 }

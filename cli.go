@@ -190,15 +190,13 @@ const (
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
 type CLI struct {
-	SSM                           struct{}            `embed:"" prefix:"ssm-"`
 	SecretsManager                struct{}            `embed:"" prefix:"secretsmanager-"`
-	KMS                           struct{}            `embed:"" prefix:"kms-"`
 	SQS                           sqsbackend.Settings `embed:"" prefix:"sqs-"`
 	SNS                           struct{}            `embed:"" prefix:"sns-"`
-	STS                           struct{}            `embed:"" prefix:"sts-"`
 	IAM                           struct{}            `embed:"" prefix:"iam-"`
-	kinesisHandler                service.Registerable
-	elasticacheHandler            service.Registerable
+	kinesisanalyticsHandler       service.Registerable
+	stepFunctionsHandler          service.Registerable
+	glueHandler                   service.Registerable
 	secretsManagerHandler         service.Registerable
 	ddbHandler                    service.Registerable
 	s3Handler                     service.Registerable
@@ -211,7 +209,7 @@ type CLI struct {
 	eventBridgeHandler            service.Registerable
 	apiGatewayHandler             service.Registerable
 	cloudWatchLogsHandler         service.Registerable
-	stepFunctionsHandler          service.Registerable
+	iotanalyticsHandler           service.Registerable
 	cloudWatchHandler             service.Registerable
 	cloudFormationHandler         service.Registerable
 	kmsHandler                    service.Registerable
@@ -222,7 +220,7 @@ type CLI struct {
 	elasticsearchHandler          service.Registerable
 	openSearchHandler             service.Registerable
 	acmHandler                    service.Registerable
-	acmpcaHandler                 service.Registerable
+	kafkaHandler                  service.Registerable
 	redshiftHandler               service.Registerable
 	rdsHandler                    service.Registerable
 	awsconfigHandler              service.Registerable
@@ -280,11 +278,11 @@ type CLI struct {
 	emrHandler                    service.Registerable
 	glacierHandler                service.Registerable
 	iotwirelessHandler            service.Registerable
-	kinesisanalyticsHandler       service.Registerable
+	kinesisHandler                service.Registerable
 	lakeformationHandler          service.Registerable
-	glueHandler                   service.Registerable
-	iotanalyticsHandler           service.Registerable
-	kafkaHandler                  service.Registerable
+	elasticacheHandler            service.Registerable
+	s3tablesHandler               service.Registerable
+	acmpcaHandler                 service.Registerable
 	kinesisanalyticsv2Handler     service.Registerable
 	managedblockchainHandler      service.Registerable
 	mediaconvertHandler           service.Registerable
@@ -315,8 +313,8 @@ type CLI struct {
 	verifiedPermissionsHandler    service.Registerable
 	wafv2Handler                  service.Registerable
 	xrayHandler                   service.Registerable
-	s3tablesHandler               service.Registerable
-	faultStore                    *chaos.FaultStore
+	iotClient                     *iotsdk.Client
+	codeDeployClient              *codedeploysdk.Client
 	snsClient                     *sns.Client
 	kmsClient                     *kms.Client
 	iamClient                     *iam.Client
@@ -331,31 +329,44 @@ type CLI struct {
 	amplifyClient                 *amplifysdk.Client
 	ecsClient                     *ecs.Client
 	eksClient                     *ekssdk.Client
-	iotClient                     *iotsdk.Client
-	codeDeployClient              *codedeploysdk.Client
+	faultStore                    *chaos.FaultStore
 	codePipelineSDKClient         *codepipelinesdk.Client
-	AccountID                     string                 `                                  name:"account-id"           env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`                                                            //nolint:lll // config struct tags are intentionally verbose
-	Port                          string                 `                                  name:"port"                 env:"PORT"                    default:"8000"         help:"HTTP server port."`                                                                            //nolint:lll // config struct tags are intentionally verbose
-	ElastiCacheEngine             string                 `                                  name:"elasticache-engine"   env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                              //nolint:lll // config struct tags are intentionally verbose
-	ElasticsearchEngine           string                 `                                  name:"elasticsearch-engine" env:"ELASTICSEARCH_ENGINE"    default:"stub"         help:"Elasticsearch engine mode: stub (API-only) or docker."`                                        //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine              string                 `                                  name:"opensearch-engine"    env:"OPENSEARCH_ENGINE"       default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`                                           //nolint:lll // config struct tags are intentionally verbose
-	Region                        string                 `                                  name:"region"               env:"REGION"                  default:"us-east-1"    help:"AWS region."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	LogLevel                      string                 `                                  name:"log-level"            env:"LOG_LEVEL"               default:"info"         help:"Log level (debug|info|warn|error)."`                                                           //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr                 string                 `                                  name:"dns-addr"             env:"DNS_ADDR"                default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                             //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP                  string                 `                                  name:"dns-resolve-ip"       env:"DNS_RESOLVE_IP"          default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`                                                   //nolint:lll // config struct tags are intentionally verbose
-	DataDir                       string                 `                                  name:"data-dir"             env:"GOPHERSTACK_DATA_DIR"    default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."` //nolint:lll // config struct tags are intentionally verbose
-	S3                            s3backend.Settings     `embed:"" prefix:"s3-"`
-	InitScripts                   []string               `                                  name:"init-script"          env:"INIT_SCRIPTS"                                   help:"Shell scripts to run on startup (may be specified multiple times)."` //nolint:lll // config struct tags are intentionally verbose
-	Lambda                        lambdabackend.Settings `embed:"" prefix:"lambda-"`
-	DynamoDB                      ddbbackend.Settings    `embed:"" prefix:"dynamodb-"`
-	PortRangeStart                int                    `                                  name:"port-range-start"     env:"PORT_RANGE_START"        default:"10000"        help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd                  int                    `                                  name:"port-range-end"       env:"PORT_RANGE_END"          default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout             time.Duration          `                                  name:"init-timeout"         env:"INIT_TIMEOUT"            default:"30s"          help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	Demo                          bool                   `                                  name:"demo"                 env:"DEMO"                    default:"false"        help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
-	Persist                       bool                   `                                  name:"persist"              env:"PERSIST"                 default:"false"        help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	EnforceIAM                    bool                   `                                  name:"enforce-iam"          env:"GOPHERSTACK_ENFORCE_IAM" default:"false"        help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	LatencyMs                     int                    `                                  name:"latency-ms"           env:"LATENCY_MS"              default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
-	JanitorTimeout                time.Duration          `                                  name:"janitor-timeout"      env:"JANITOR_TIMEOUT"         default:"30s"          help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
+	LogLevel                      string                    `                                  name:"log-level"            env:"LOG_LEVEL"               default:"info"         help:"Log level (debug|info|warn|error)."`
+	DataDir                       string                    `                                  name:"data-dir"             env:"GOPHERSTACK_DATA_DIR"    default:""             help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`
+	Port                          string                    `                                  name:"port"                 env:"PORT"                    default:"8000"         help:"HTTP server port."`
+	ElastiCacheEngine             string                    `                                  name:"elasticache-engine"   env:"ELASTICACHE_ENGINE"      default:"embedded"     help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`
+	ElasticsearchEngine           string                    `                                  name:"elasticsearch-engine" env:"ELASTICSEARCH_ENGINE"    default:"stub"         help:"Elasticsearch engine mode: stub (API-only) or docker."`
+	DNSListenAddr                 string                    `                                  name:"dns-addr"             env:"DNS_ADDR"                default:""             help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`
+	AccountID                     string                    `                                  name:"account-id"           env:"ACCOUNT_ID"              default:"000000000000" help:"Mock AWS account ID used in ARNs."`
+	Region                        string                    `                                  name:"region"               env:"REGION"                  default:"us-east-1"    help:"AWS region."`
+	OpenSearchEngine              string                    `                                  name:"opensearch-engine"    env:"OPENSEARCH_ENGINE"       default:"stub"         help:"OpenSearch engine mode: stub (API-only) or docker."`
+	DNSResolveIP                  string                    `                                  name:"dns-resolve-ip"       env:"DNS_RESOLVE_IP"          default:"127.0.0.1"    help:"IP address synthetic hostnames resolve to."`
+	InitScripts                   []string                  `                                  name:"init-script"          env:"INIT_SCRIPTS"                                   help:"Shell scripts to run on startup (may be specified multiple times)."`
+	S3                            s3backend.Settings        `embed:"" prefix:"s3-"`
+	Lambda                        lambdabackend.Settings    `embed:"" prefix:"lambda-"`
+	DynamoDB                      ddbbackend.Settings       `embed:"" prefix:"dynamodb-"`
+	EC2                           ec2backend.Settings       `embed:"" prefix:"ec2-"`
+	XRay                          xraybackend.Settings      `embed:"" prefix:"xray-"`
+	Athena                        athenabackend.Settings    `embed:"" prefix:"athena-"`
+	Batch                         batchbackend.Settings     `embed:"" prefix:"batch-"`
+	Backup                        backupbackend.Settings    `embed:"" prefix:"backup-"`
+	FIS                           fisbackend.Settings       `embed:"" prefix:"fis-"`
+	EMR                           emrbackend.Settings       `embed:"" prefix:"emr-"`
+	CodeBuild                     codebuildbackend.Settings `embed:"" prefix:"codebuild-"`
+	SES                           sesbackend.Settings       `embed:"" prefix:"ses-"`
+	PortRangeEnd                  int                       `                                  name:"port-range-end"       env:"PORT_RANGE_END"          default:"10100"        help:"End (exclusive) of the port range for resource endpoints."`
+	STS                           stsbackend.Settings       `embed:"" prefix:"sts-"`
+	Kinesis                       kinesisbackend.Settings   `embed:"" prefix:"kinesis-"`
+	KMS                           kmsbackend.Settings       `embed:"" prefix:"kms-"`
+	SSM                           ssmbackend.Settings       `embed:"" prefix:"ssm-"`
+	PortRangeStart                int                       `                                  name:"port-range-start"     env:"PORT_RANGE_START"        default:"10000"        help:"Start of the port range for resource endpoints."`
+	CloudWatchLogs                cwlogsbackend.Settings    `embed:"" prefix:"cloudwatchlogs-"`
+	InitScriptTimeout             time.Duration             `                                  name:"init-timeout"         env:"INIT_TIMEOUT"            default:"30s"          help:"Per-script timeout for init hooks."`
+	JanitorTimeout                time.Duration             `                                  name:"janitor-timeout"      env:"JANITOR_TIMEOUT"         default:"30s"          help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."`
+	LatencyMs                     int                       `                                  name:"latency-ms"           env:"LATENCY_MS"              default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`
+	EnforceIAM                    bool                      `                                  name:"enforce-iam"          env:"GOPHERSTACK_ENFORCE_IAM" default:"false"        help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`
+	Persist                       bool                      `                                  name:"persist"              env:"PERSIST"                 default:"false"        help:"Enable snapshot-based persistence across restarts."`
+	Demo                          bool                      `                                  name:"demo"                 env:"DEMO"                    default:"false"        help:"Load demo data on startup."`
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -419,6 +430,76 @@ func (c *CLI) GetEndpoint() string {
 // GetLambdaSettings returns Lambda settings (lambda.SettingsProvider).
 func (c *CLI) GetLambdaSettings() lambdabackend.Settings {
 	return c.Lambda
+}
+
+// GetAthenaSettings returns Athena settings (athena.ConfigProvider).
+func (c *CLI) GetAthenaSettings() athenabackend.Settings {
+	return c.Athena
+}
+
+// GetBackupSettings returns Backup settings (backup.ConfigProvider).
+func (c *CLI) GetBackupSettings() backupbackend.Settings {
+	return c.Backup
+}
+
+// GetBatchSettings returns Batch settings (batch.ConfigProvider).
+func (c *CLI) GetBatchSettings() batchbackend.Settings {
+	return c.Batch
+}
+
+// GetCloudWatchLogsSettings returns CloudWatch Logs settings (cloudwatchlogs.ConfigProvider).
+func (c *CLI) GetCloudWatchLogsSettings() cwlogsbackend.Settings {
+	return c.CloudWatchLogs
+}
+
+// GetCodeBuildSettings returns CodeBuild settings (codebuild.ConfigProvider).
+func (c *CLI) GetCodeBuildSettings() codebuildbackend.Settings {
+	return c.CodeBuild
+}
+
+// GetEC2Settings returns EC2 settings (ec2.ConfigProvider).
+func (c *CLI) GetEC2Settings() ec2backend.Settings {
+	return c.EC2
+}
+
+// GetEMRSettings returns EMR settings (emr.ConfigProvider).
+func (c *CLI) GetEMRSettings() emrbackend.Settings {
+	return c.EMR
+}
+
+// GetFISSettings returns FIS settings (fis.ConfigProvider).
+func (c *CLI) GetFISSettings() fisbackend.Settings {
+	return c.FIS
+}
+
+// GetKinesisSettings returns Kinesis settings (kinesis.ConfigProvider).
+func (c *CLI) GetKinesisSettings() kinesisbackend.Settings {
+	return c.Kinesis
+}
+
+// GetKMSSettings returns KMS settings (kms.ConfigProvider).
+func (c *CLI) GetKMSSettings() kmsbackend.Settings {
+	return c.KMS
+}
+
+// GetSESSettings returns SES settings (ses.ConfigProvider).
+func (c *CLI) GetSESSettings() sesbackend.Settings {
+	return c.SES
+}
+
+// GetSSMSettings returns SSM settings (ssm.ConfigProvider).
+func (c *CLI) GetSSMSettings() ssmbackend.Settings {
+	return c.SSM
+}
+
+// GetSTSSettings returns STS settings (sts.ConfigProvider).
+func (c *CLI) GetSTSSettings() stsbackend.Settings {
+	return c.STS
+}
+
+// GetXRaySettings returns X-Ray settings (xray.ConfigProvider).
+func (c *CLI) GetXRaySettings() xraybackend.Settings {
+	return c.XRay
 }
 
 // GetDynamoDBClient returns the SDK client for DynamoDB (dashboard.AWSSDKProvider).
