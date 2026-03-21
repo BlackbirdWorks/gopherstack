@@ -40,7 +40,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	handler := NewHandler(backend)
 	handler.DefaultRegion = region
 	handler.AccountID = accountID
-	handler.WithJanitor(settings.JanitorInterval, 0, ctx.JanitorTimeout)
+	handler.WithJanitor(settings.JanitorInterval, settings.ExperimentTTL, ctx.JanitorTimeout)
 
 	return handler, nil
 }

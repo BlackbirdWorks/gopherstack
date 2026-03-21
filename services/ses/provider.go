@@ -28,7 +28,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = cp.GetSESSettings()
 	}
 
-	backend := NewInMemoryBackend()
+	backend := NewInMemoryBackend().WithEmailTTL(settings.EmailTTL)
 	handler := NewHandler(backend)
 	handler.WithJanitor(settings.JanitorInterval, ctx.JanitorTimeout)
 

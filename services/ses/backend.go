@@ -81,6 +81,16 @@ func NewInMemoryBackend() *InMemoryBackend {
 	}
 }
 
+// WithEmailTTL sets the TTL for stored sent emails and returns the backend for chaining.
+// Zero falls back to the default TTL.
+func (b *InMemoryBackend) WithEmailTTL(ttl time.Duration) *InMemoryBackend {
+	if ttl > 0 {
+		b.emailTTL = ttl
+	}
+
+	return b
+}
+
 // Reset clears all in-memory state, restoring the backend to its initial empty state.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")

@@ -42,7 +42,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	handler.AccountID = accountID
 	handler.Region = region
 
-	handler.WithJanitor(settings.JanitorInterval, 0, ctx.JanitorTimeout)
+	handler.WithJanitor(settings.JanitorInterval, settings.TerminatedTTL, settings.CancelledSpotTTL, ctx.JanitorTimeout)
 
 	return handler, nil
 }
