@@ -255,7 +255,7 @@ func (b *InMemoryBackend) DeleteTrail(nameOrARN string) error {
 		return nil
 	}
 	if name, ok := b.trailsByARN[nameOrARN]; ok {
-		if t, ok := b.trails[name]; ok {
+		if t, exists := b.trails[name]; exists {
 			t.Tags.Close()
 		}
 		delete(b.trailsByARN, nameOrARN)

@@ -160,10 +160,15 @@ func (b *InMemoryBackend) DeleteApp(appID string) error {
 	b.mu.Lock("DeleteApp")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apps[appID]; !ok {
+	app, ok := b.apps[appID]
+	if !ok {
 		return fmt.Errorf("%w: app %s not found", ErrNotFound, appID)
 	}
 
+	app.Tags.Close()
+	for _, branch := range b.branches[appID] {
+		branch.Tags.Close()
+	}
 	delete(b.apps, appID)
 	delete(b.branches, appID)
 
@@ -272,6 +277,7 @@ func (b *InMemoryBackend) DeleteBranch(appID, branchName string) error {
 		return fmt.Errorf("%w: branch %s not found for app %s", ErrNotFound, branchName, appID)
 	}
 
+	branches[branchName].Tags.Close()
 	delete(branches, branchName)
 
 	return nil
