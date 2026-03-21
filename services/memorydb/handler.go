@@ -738,8 +738,12 @@ func toClusterObject(c *Cluster) clusterObject {
 func buildShards(clusterName string, numShards int32) []shardObject {
 	const totalSlots = 16384
 
+	const maxShards = 256
 	if numShards <= 0 {
 		numShards = 1
+	}
+	if numShards > maxShards {
+		numShards = maxShards
 	}
 
 	shards := make([]shardObject, numShards)

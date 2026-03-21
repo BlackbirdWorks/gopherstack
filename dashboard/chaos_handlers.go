@@ -3,6 +3,7 @@ package dashboard
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -266,7 +267,7 @@ func renderEffectsIndicator(latency, jitter int) string {
 	dotCls := `w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse`
 
 	return fmt.Sprintf(`<span class="%s"><span class="%s"></span>%s</span>`,
-		activeCls, dotCls, label)
+		activeCls, dotCls, html.EscapeString(label))
 }
 
 // toRuleDisplayList converts fault rules to display models.
