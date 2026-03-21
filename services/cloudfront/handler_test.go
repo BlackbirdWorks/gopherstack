@@ -926,3 +926,39 @@ func TestXMLResponseFormat(t *testing.T) {
 	err := xml.Unmarshal(rec.Body.Bytes(), &v)
 	require.NoError(t, err)
 }
+
+func TestCloudFront_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	d, err := b.CreateDistribution("ref1", "my dist", true, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateInvalidation(d.ID, "inv-ref1", []string{"/index.html", "/static/*"})
+	require.NoError(t, err)
+
+	_, err = b.CreateOAI("oai-ref1", "my oai")
+	require.NoError(t, err)
+
+	h := cloudfront.NewHandler(b)
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := cloudfront.NewHandler(b2)
+	require.NoError(t, h2.Restore(snap))
+
+	// Distribution is restored.
+	d2, err := b2.GetDistribution(d.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "my dist", d2.Comment)
+
+	// Invalidations are restored.
+	invs, err := b2.ListInvalidations(d.ID)
+	require.NoError(t, err)
+	assert.Len(t, invs, 1)
+
+	// ARN index is rebuilt — tag operations should work.
+	err = b2.TagResource(d2.ARN, map[string]string{"env": "test"})
+	require.NoError(t, err, "tag operation should succeed after restore (ARN index rebuilt)")
+}

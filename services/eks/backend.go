@@ -194,6 +194,14 @@ func (b *InMemoryBackend) CreateNodegroup(
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
+	// Defensive: ensure the inner map is always initialised.
+	// Under normal operation CreateCluster always initialises it, but this
+	// guard prevents a panic if state is inconsistent (e.g. restored from a
+	// partial snapshot).
+	if b.nodegroups[clusterName] == nil {
+		b.nodegroups[clusterName] = make(map[string]*Nodegroup)
+	}
+
 	if _, ok := b.nodegroups[clusterName][nodegroupName]; ok {
 		return nil, fmt.Errorf(
 			"%w: nodegroup %s already exists in cluster %s",

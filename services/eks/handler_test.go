@@ -633,3 +633,42 @@ func TestEKSRouteMatcher(t *testing.T) {
 		})
 	}
 }
+
+func TestEKS_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateCluster(
+		"cluster1",
+		"1.30",
+		"arn:aws:iam::000000000000:role/eks-role",
+		map[string]string{"env": "test"},
+	)
+	require.NoError(t, err)
+
+	_, err = b.CreateNodegroup(
+		"cluster1", "ng1", "arn:aws:iam::000000000000:role/ng-role",
+		"AL2_x86_64", "ON_DEMAND", "1.30",
+		[]string{"t3.medium"}, 2, 1, 5, map[string]string{"team": "platform"},
+	)
+	require.NoError(t, err)
+
+	h := eks.NewHandler(b)
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := eks.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := eks.NewHandler(b2)
+	require.NoError(t, h2.Restore(snap))
+
+	c, err := b2.DescribeCluster("cluster1")
+	require.NoError(t, err)
+	assert.Equal(t, "cluster1", c.Name)
+	assert.Equal(t, "test", c.Tags.Clone()["env"])
+
+	names, err := b2.ListNodegroups("cluster1")
+	require.NoError(t, err)
+	require.Len(t, names, 1)
+	assert.Equal(t, "ng1", names[0])
+}

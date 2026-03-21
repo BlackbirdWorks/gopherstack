@@ -21,6 +21,9 @@ const keyIDLen = 8
 // refreshTokenLen is the byte length of the random refresh token.
 const refreshTokenLen = 32
 
+// confirmCodeLen is the length of the random confirmation code generated on SignUp.
+const confirmCodeLen = 6
+
 // tokenExpirySeconds is the lifetime in seconds for ID and access tokens.
 const tokenExpirySeconds = 3600
 
@@ -50,7 +53,16 @@ func newTokenIssuer(issuerURL string) (*tokenIssuer, error) {
 	}, nil
 }
 
-// JWKSResponse is the JSON Web Key Set response.
+// newTokenIssuerFromKey reconstructs a tokenIssuer from an existing key, keyID and issuerURL.
+// This is used to restore persisted user pool state.
+func newTokenIssuerFromKey(privateKey *rsa.PrivateKey, keyID, issuerURL string) *tokenIssuer {
+	return &tokenIssuer{
+		privateKey: privateKey,
+		keyID:      keyID,
+		issuerURL:  issuerURL,
+	}
+}
+
 type JWKSResponse struct {
 	Keys []JWK `json:"keys"`
 }

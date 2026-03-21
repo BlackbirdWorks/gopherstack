@@ -624,6 +624,7 @@ type jobDetail struct {
 	StartedAt     *int64            `json:"startedAt,omitempty"`
 	Tags          map[string]string `json:"tags,omitempty"`
 	JobID         string            `json:"jobId"`
+	JobARN        string            `json:"jobArn,omitempty"`
 	JobName       string            `json:"jobName"`
 	JobQueue      string            `json:"jobQueue"`
 	JobDefinition string            `json:"jobDefinition"`
@@ -643,6 +644,7 @@ func (h *Handler) handleDescribeJobs(_ context.Context, in *describeJobsInput) (
 	for _, j := range jobs {
 		details = append(details, jobDetail{
 			JobID:         j.JobID,
+			JobARN:        j.JobARN,
 			JobName:       j.JobName,
 			JobQueue:      j.JobQueue,
 			JobDefinition: j.JobDefinition,

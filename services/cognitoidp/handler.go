@@ -542,8 +542,9 @@ type signUpInput struct {
 }
 
 type signUpOutput struct {
-	UserSub       string `json:"UserSub"`
-	UserConfirmed bool   `json:"UserConfirmed"`
+	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+	UserSub             string            `json:"UserSub"`
+	UserConfirmed       bool              `json:"UserConfirmed"`
 }
 
 func (h *Handler) handleSignUp(_ context.Context, in *signUpInput) (*signUpOutput, error) {
@@ -554,10 +555,24 @@ func (h *Handler) handleSignUp(_ context.Context, in *signUpInput) (*signUpOutpu
 		return nil, err
 	}
 
-	return &signUpOutput{
+	out := &signUpOutput{
 		UserSub:       user.Sub,
 		UserConfirmed: user.Status == UserStatusConfirmed,
-	}, nil
+	}
+
+	// Include the confirmation code in the response to facilitate integration testing.
+	// In production Cognito the code is delivered via email/SMS; the mock returns it
+	// directly so test harnesses don't need an out-of-band code delivery mechanism.
+	if user.ConfirmCode != "" {
+		out.CodeDeliveryDetails = map[string]string{
+			"DeliveryMedium":   "EMAIL",
+			"Destination":      "mock",
+			"AttributeName":    "email",
+			"ConfirmationCode": user.ConfirmCode,
+		}
+	}
+
+	return out, nil
 }
 
 type confirmSignUpInput struct {

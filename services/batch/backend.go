@@ -77,6 +77,7 @@ type Job struct {
 	Tags          map[string]string `json:"tags,omitempty"`
 	StartedAt     *int64            `json:"startedAt,omitempty"`
 	JobID         string            `json:"jobId"`
+	JobARN        string            `json:"jobArn"`
 	JobName       string            `json:"jobName"`
 	JobQueue      string            `json:"jobQueue"`
 	JobDefinition string            `json:"jobDefinition"`
@@ -328,7 +329,7 @@ func (b *InMemoryBackend) UpdateJobQueue(nameOrARN string, priority *int32, stat
 	return &cp, nil
 }
 
-// DeleteJobQueue removes a job queue.
+// DeleteJobQueue removes a job queue and all associated jobs.
 func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 	b.mu.Lock("DeleteJobQueue")
 	defer b.mu.Unlock()
@@ -338,7 +339,15 @@ func (b *InMemoryBackend) DeleteJobQueue(nameOrARN string) error {
 		return fmt.Errorf("%w: job queue %s not found", ErrNotFound, nameOrARN)
 	}
 
-	delete(b.jobQueues, jq.JobQueueName)
+	queueName := jq.JobQueueName
+
+	// Clean up all jobs associated with this queue to prevent orphaned entries.
+	for _, jobID := range b.jobsByQueue[queueName] {
+		delete(b.jobs, jobID)
+	}
+
+	delete(b.jobsByQueue, queueName)
+	delete(b.jobQueues, queueName)
 
 	return nil
 }
@@ -519,6 +528,12 @@ func (b *InMemoryBackend) findTagsByARN(resourceARN string) (map[string]string, 
 		return jd.Tags, true
 	}
 
+	for _, j := range b.jobs {
+		if j.JobARN == resourceARN {
+			return j.Tags, true
+		}
+	}
+
 	return nil, false
 }
 
@@ -543,6 +558,16 @@ func (b *InMemoryBackend) initTagsByARN(resourceARN string) {
 
 	if jd, ok := b.jobDefinitions[resourceARN]; ok {
 		jd.Tags = make(map[string]string)
+
+		return
+	}
+
+	for _, j := range b.jobs {
+		if j.JobARN == resourceARN {
+			j.Tags = make(map[string]string)
+
+			return
+		}
 	}
 }
 
@@ -551,7 +576,8 @@ func (b *InMemoryBackend) SubmitJob(name, queue, jobDefinition string, tags map[
 	b.mu.Lock("SubmitJob")
 	defer b.mu.Unlock()
 
-	if _, ok := b.lookupJQByNameOrARN(queue); !ok {
+	jq, ok := b.lookupJQByNameOrARN(queue)
+	if !ok {
 		return nil, fmt.Errorf("%w: job queue %s not found", ErrNotFound, queue)
 	}
 
@@ -560,24 +586,21 @@ func (b *InMemoryBackend) SubmitJob(name, queue, jobDefinition string, tags map[
 
 	now := time.Now().UnixMilli()
 	jobID := uuid.NewString()
+	jobARN := arn.Build("batch", b.region, b.accountID, "job/"+jobID)
+
 	j := &Job{
-		JobID:         jobID,
-		JobName:       name,
-		JobQueue:      queue,
+		JobID:   jobID,
+		JobARN:  jobARN,
+		JobName: name,
+		// Always store the canonical queue name for consistency.
+		JobQueue:      jq.JobQueueName,
 		JobDefinition: jobDefinition,
 		Status:        jobStatusSubmitted,
 		CreatedAt:     now,
 		Tags:          tagsCopy,
 	}
 	b.jobs[jobID] = j
-
-	// Track by queue name (normalise to canonical name if found by ARN).
-	queueKey := queue
-	if jq, ok := b.lookupJQByNameOrARN(queue); ok {
-		queueKey = jq.JobQueueName
-	}
-
-	b.jobsByQueue[queueKey] = append(b.jobsByQueue[queueKey], jobID)
+	b.jobsByQueue[jq.JobQueueName] = append(b.jobsByQueue[jq.JobQueueName], jobID)
 
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)

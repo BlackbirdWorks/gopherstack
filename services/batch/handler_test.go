@@ -1258,3 +1258,101 @@ func TestHandler_DeregisterJobDefinition_ByNameRevision(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+func TestHandler_DeleteJobQueue_CleansUpJobs(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create compute environment and job queue.
+	rec := post(t, h, "/v1/createcomputeenvironment", map[string]any{
+		"computeEnvironmentName": "env1",
+		"type":                   "MANAGED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/createjobqueue", map[string]any{
+		"jobQueueName": "q1",
+		"priority":     1,
+		"computeEnvironmentOrder": []map[string]any{
+			{"order": 1, "computeEnvironment": "env1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Submit a job.
+	rec = post(t, h, "/v1/submitjob", map[string]any{
+		"jobName":       "job1",
+		"jobQueue":      "q1",
+		"jobDefinition": "jd1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var submitResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitResp))
+	jobID := submitResp["jobId"].(string)
+
+	// Delete the queue — should also clean up associated jobs.
+	rec = post(t, h, "/v1/deletejobqueue", map[string]any{
+		"jobQueue": "q1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// The job should no longer be found.
+	rec = post(t, h, "/v1/describejobs", map[string]any{
+		"jobs": []string{jobID},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	jobs := descResp["jobs"].([]any)
+	assert.Empty(t, jobs, "jobs should have been cleaned up when queue was deleted")
+}
+
+func TestHandler_SubmitJob_JobARNPresent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/createcomputeenvironment", map[string]any{
+		"computeEnvironmentName": "env-arn",
+		"type":                   "MANAGED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/createjobqueue", map[string]any{
+		"jobQueueName": "q-arn",
+		"priority":     1,
+		"computeEnvironmentOrder": []map[string]any{
+			{"order": 1, "computeEnvironment": "env-arn"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/submitjob", map[string]any{
+		"jobName":       "my-job",
+		"jobQueue":      "q-arn",
+		"jobDefinition": "jd1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var submitResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitResp))
+	jobID := submitResp["jobId"].(string)
+
+	// DescribeJobs should return the job ARN.
+	rec = post(t, h, "/v1/describejobs", map[string]any{
+		"jobs": []string{jobID},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	jobs := descResp["jobs"].([]any)
+	require.Len(t, jobs, 1)
+
+	job := jobs[0].(map[string]any)
+	assert.NotEmpty(t, job["jobArn"], "job ARN should be set")
+	assert.Equal(t, "q-arn", job["jobQueue"], "jobQueue should be canonical queue name")
+}

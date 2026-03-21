@@ -39,35 +39,35 @@ func generateID() string {
 
 // Distribution represents a CloudFront distribution.
 type Distribution struct {
-	Tags            map[string]string
-	ID              string
-	ARN             string
-	DomainName      string
-	Status          string
-	ETag            string
-	CallerReference string
-	Comment         string
-	RawConfig       []byte // raw DistributionConfig XML from request
-	Enabled         bool
+	Tags            map[string]string `json:"tags,omitempty"`
+	ID              string            `json:"id"`
+	ARN             string            `json:"arn"`
+	DomainName      string            `json:"domainName"`
+	Status          string            `json:"status"`
+	ETag            string            `json:"eTag"`
+	CallerReference string            `json:"callerReference"`
+	Comment         string            `json:"comment,omitempty"`
+	RawConfig       []byte            `json:"rawConfig,omitempty"` // raw DistributionConfig XML from request
+	Enabled         bool              `json:"enabled"`
 }
 
 // OriginAccessIdentity represents a CloudFront Origin Access Identity.
 type OriginAccessIdentity struct {
-	ID                string
-	ARN               string
-	S3CanonicalUserID string
-	ETag              string
-	CallerReference   string
-	Comment           string
+	ID                string `json:"id"`
+	ARN               string `json:"arn"`
+	S3CanonicalUserID string `json:"s3CanonicalUserId"`
+	ETag              string `json:"eTag"`
+	CallerReference   string `json:"callerReference"`
+	Comment           string `json:"comment,omitempty"`
 }
 
 // Invalidation represents a CloudFront cache invalidation.
 type Invalidation struct {
-	ID         string
-	Status     string
-	CallerRef  string
-	Paths      []string
-	CreateTime int64
+	ID         string   `json:"id"`
+	Status     string   `json:"status"`
+	CallerRef  string   `json:"callerRef,omitempty"`
+	Paths      []string `json:"paths,omitempty"`
+	CreateTime int64    `json:"createTime"`
 }
 
 // InMemoryBackend stores CloudFront resources in memory.
@@ -273,7 +273,12 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	maps.Copy(b.distributions[id].Tags, kv)
+	d := b.distributions[id]
+	if d.Tags == nil {
+		d.Tags = make(map[string]string, len(kv))
+	}
+
+	maps.Copy(d.Tags, kv)
 
 	return nil
 }

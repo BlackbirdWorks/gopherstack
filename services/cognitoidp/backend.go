@@ -47,10 +47,10 @@ type UserPool struct {
 
 // UserPoolClient represents an app client registered to a user pool.
 type UserPoolClient struct {
-	CreatedAt  time.Time
-	ClientID   string
-	ClientName string
-	UserPoolID string
+	CreatedAt  time.Time `json:"createdAt"`
+	ClientID   string    `json:"clientId"`
+	ClientName string    `json:"clientName"`
+	UserPoolID string    `json:"userPoolId"`
 }
 
 // User represents a Cognito user within a pool.
@@ -81,9 +81,9 @@ type InMemoryBackend struct {
 
 // refreshTokenEntry holds the pool/user context for a refresh token.
 type refreshTokenEntry struct {
-	PoolID   string
-	ClientID string
-	Username string
+	PoolID   string `json:"poolId"`
+	ClientID string `json:"clientId"`
+	Username string `json:"username"`
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -168,6 +168,11 @@ func (b *InMemoryBackend) DeleteUserPool(userPoolID string) error {
 		return client.UserPoolID == userPoolID
 	})
 
+	// Clean up any refresh tokens issued for users in this pool to prevent leaks.
+	maps.DeleteFunc(b.refreshTokens, func(_ string, entry *refreshTokenEntry) bool {
+		return entry.PoolID == userPoolID
+	})
+
 	return nil
 }
 
@@ -187,6 +192,11 @@ func (b *InMemoryBackend) DeleteUserPoolClient(userPoolID, clientID string) erro
 	}
 
 	delete(b.clients, clientID)
+
+	// Clean up any refresh tokens issued by this client to prevent leaks.
+	maps.DeleteFunc(b.refreshTokens, func(_ string, entry *refreshTokenEntry) bool {
+		return entry.ClientID == clientID
+	})
 
 	return nil
 }
@@ -303,6 +313,8 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 		Status:       UserStatusUnconfirmed,
 		Attributes:   attrs,
 		CreatedAt:    time.Now(),
+		// Generate a confirmation code (simulates the code sent via email/SMS).
+		ConfirmCode: randomAlphanumeric(confirmCodeLen),
 	}
 
 	poolUsers[username] = user
