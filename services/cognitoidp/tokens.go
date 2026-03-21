@@ -157,6 +157,27 @@ func (t *tokenIssuer) Issue(clientID, username, userSub string) (*TokenResult, e
 	}, nil
 }
 
+// ParseAccessToken validates and parses an access token, returning its claims.
+func (t *tokenIssuer) ParseAccessToken(tokenString string) (jwt.MapClaims, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("%w: unexpected signing method", ErrInvalidToken)
+		}
+
+		return &t.privateKey.PublicKey, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidToken, err)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
+		return nil, fmt.Errorf("%w: token claims are not valid", ErrInvalidToken)
+	}
+
+	return claims, nil
+}
+
 // jwksResponseJSON serializes JWKSResponse as JSON bytes.
 func jwksResponseJSON(r JWKSResponse) ([]byte, error) {
 	return json.Marshal(r)

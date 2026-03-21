@@ -45,4 +45,7 @@ var (
 
 	// ErrInvalidUserPoolConfig is returned when the user pool configuration is invalid.
 	ErrInvalidUserPoolConfig = awserr.New("InvalidUserPoolConfigurationException", awserr.ErrInvalidParameter)
+
+	// ErrInvalidToken is returned when a JWT token is structurally invalid or has unexpected claims.
+	ErrInvalidToken = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
 )

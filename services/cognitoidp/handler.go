@@ -57,6 +57,12 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AdminSetUserPassword",
 		"AdminGetUser",
 		"AdminConfirmSignUp",
+		"AdminDeleteUser",
+		"ListUsers",
+		"ForgotPassword",
+		"ConfirmForgotPassword",
+		"GetUser",
+		"ChangePassword",
 		"RevokeToken",
 	}
 }
@@ -170,6 +176,12 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"AdminSetUserPassword":   service.WrapOp(h.handleAdminSetUserPassword),
 		"AdminGetUser":           service.WrapOp(h.handleAdminGetUser),
 		"AdminConfirmSignUp":     service.WrapOp(h.handleAdminConfirmSignUp),
+		"AdminDeleteUser":        service.WrapOp(h.handleAdminDeleteUser),
+		"ListUsers":              service.WrapOp(h.handleListUsers),
+		"ForgotPassword":         service.WrapOp(h.handleForgotPassword),
+		"ConfirmForgotPassword":  service.WrapOp(h.handleConfirmForgotPassword),
+		"GetUser":                service.WrapOp(h.handleGetUser),
+		"ChangePassword":         service.WrapOp(h.handleChangePassword),
 		"RevokeToken":            service.WrapOp(h.handleRevokeToken),
 	}
 }
@@ -791,6 +803,155 @@ func (h *Handler) handleAdminConfirmSignUp(
 	}
 
 	return &adminConfirmSignUpOutput{}, nil
+}
+
+type adminDeleteUserInput struct {
+	UserPoolID string `json:"UserPoolId"`
+	Username   string `json:"Username"`
+}
+
+type adminDeleteUserOutput struct{}
+
+func (h *Handler) handleAdminDeleteUser(
+	_ context.Context,
+	in *adminDeleteUserInput,
+) (*adminDeleteUserOutput, error) {
+	if err := h.Backend.AdminDeleteUser(in.UserPoolID, in.Username); err != nil {
+		return nil, err
+	}
+
+	return &adminDeleteUserOutput{}, nil
+}
+
+type listUsersInput struct {
+	UserPoolID string `json:"UserPoolId"`
+}
+
+type listUsersOutput struct {
+	Users []*userSummary `json:"Users"`
+}
+
+type userSummary struct {
+	Username         string          `json:"Username"`
+	UserStatus       string          `json:"UserStatus"`
+	Attributes       []attributeType `json:"Attributes"`
+	UserCreateDate   float64         `json:"UserCreateDate"`
+	UserLastModified float64         `json:"UserLastModifiedDate"`
+	Enabled          bool            `json:"Enabled"`
+}
+
+func (h *Handler) handleListUsers(
+	_ context.Context,
+	in *listUsersInput,
+) (*listUsersOutput, error) {
+	users, err := h.Backend.ListUsers(in.UserPoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]*userSummary, 0, len(users))
+	for _, u := range users {
+		summaries = append(summaries, &userSummary{
+			Username:       u.Username,
+			UserStatus:     u.Status,
+			UserCreateDate: float64(u.CreatedAt.Unix()),
+			Attributes:     mapToAttributeList(u.Attributes),
+			Enabled:        true,
+		})
+	}
+
+	return &listUsersOutput{Users: summaries}, nil
+}
+
+type forgotPasswordInput struct {
+	ClientID string `json:"ClientId"`
+	Username string `json:"Username"`
+}
+
+type forgotPasswordOutput struct {
+	CodeDeliveryDetails map[string]string `json:"CodeDeliveryDetails,omitempty"`
+}
+
+func (h *Handler) handleForgotPassword(
+	_ context.Context,
+	in *forgotPasswordInput,
+) (*forgotPasswordOutput, error) {
+	code, err := h.Backend.ForgotPassword(in.ClientID, in.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	return &forgotPasswordOutput{
+		CodeDeliveryDetails: map[string]string{
+			"Destination":      "mock@example.com",
+			"DeliveryMedium":   "EMAIL",
+			"AttributeName":    "email",
+			"ConfirmationCode": code,
+		},
+	}, nil
+}
+
+type confirmForgotPasswordInput struct {
+	ClientID         string `json:"ClientId"`
+	Username         string `json:"Username"`
+	ConfirmationCode string `json:"ConfirmationCode"`
+	Password         string `json:"Password"`
+}
+
+type confirmForgotPasswordOutput struct{}
+
+func (h *Handler) handleConfirmForgotPassword(
+	_ context.Context,
+	in *confirmForgotPasswordInput,
+) (*confirmForgotPasswordOutput, error) {
+	if err := h.Backend.ConfirmForgotPassword(in.ClientID, in.Username, in.ConfirmationCode, in.Password); err != nil {
+		return nil, err
+	}
+
+	return &confirmForgotPasswordOutput{}, nil
+}
+
+type getUserInput struct {
+	AccessToken string `json:"AccessToken"`
+}
+
+type getUserOutput struct {
+	Username       string          `json:"Username"`
+	UserAttributes []attributeType `json:"UserAttributes"`
+}
+
+func (h *Handler) handleGetUser(
+	_ context.Context,
+	in *getUserInput,
+) (*getUserOutput, error) {
+	user, err := h.Backend.GetUser(in.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getUserOutput{
+		Username:       user.Username,
+		UserAttributes: mapToAttributeList(user.Attributes),
+	}, nil
+}
+
+type changePasswordInput struct {
+	AccessToken      string `json:"AccessToken"`
+	PreviousPassword string `json:"PreviousPassword"`
+	ProposedPassword string `json:"ProposedPassword"`
+}
+
+type changePasswordOutput struct{}
+
+func (h *Handler) handleChangePassword(
+	_ context.Context,
+	in *changePasswordInput,
+) (*changePasswordOutput, error) {
+	if err := h.Backend.ChangePassword(in.AccessToken, in.PreviousPassword, in.ProposedPassword); err != nil {
+		return nil, err
+	}
+
+	return &changePasswordOutput{}, nil
 }
 
 type revokeTokenInput struct {

@@ -69,6 +69,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		"StartBuild",
 		"BatchGetBuilds",
 		"StopBuild",
+		"RetryBuild",
+		"BatchDeleteBuilds",
+		"ListBuilds",
 		"ListBuildsForProject",
 		"ListTagsForResource",
 		"TagResource",
@@ -130,6 +133,9 @@ func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 		"StartBuild":           service.WrapOp(h.handleStartBuild),
 		"BatchGetBuilds":       service.WrapOp(h.handleBatchGetBuilds),
 		"StopBuild":            service.WrapOp(h.handleStopBuild),
+		"RetryBuild":           service.WrapOp(h.handleRetryBuild),
+		"BatchDeleteBuilds":    service.WrapOp(h.handleBatchDeleteBuilds),
+		"ListBuilds":           service.WrapOp(h.handleListBuilds),
 		"ListBuildsForProject": service.WrapOp(h.handleListBuildsForProject),
 		"ListTagsForResource":  service.WrapOp(h.handleListTagsForResource),
 		"TagResource":          service.WrapOp(h.handleTagResource),
@@ -399,7 +405,62 @@ func (h *Handler) handleListBuildsForProject(
 	return &listBuildsForProjectOutput{IDs: ids}, nil
 }
 
-// --- Tagging operations ---
+// --- Build lifecycle operations ---
+
+type listBuildsInput struct{}
+
+type listBuildsOutput struct {
+	IDs []string `json:"ids"`
+}
+
+func (h *Handler) handleListBuilds(_ context.Context, _ *listBuildsInput) (*listBuildsOutput, error) {
+	return &listBuildsOutput{IDs: h.Backend.ListBuilds()}, nil
+}
+
+type batchDeleteBuildsInput struct {
+	IDs []string `json:"ids"`
+}
+
+type batchDeleteBuildsOutput struct {
+	BuildsDeleted []string `json:"buildsDeleted"`
+}
+
+func (h *Handler) handleBatchDeleteBuilds(
+	_ context.Context,
+	in *batchDeleteBuildsInput,
+) (*batchDeleteBuildsOutput, error) {
+	if len(in.IDs) == 0 {
+		return &batchDeleteBuildsOutput{BuildsDeleted: []string{}}, nil
+	}
+
+	deleted := h.Backend.BatchDeleteBuilds(in.IDs)
+
+	return &batchDeleteBuildsOutput{BuildsDeleted: deleted}, nil
+}
+
+type retryBuildInput struct {
+	ID string `json:"id"`
+}
+
+type retryBuildOutput struct {
+	Build *Build `json:"build"`
+}
+
+func (h *Handler) handleRetryBuild(
+	_ context.Context,
+	in *retryBuildInput,
+) (*retryBuildOutput, error) {
+	if in.ID == "" {
+		return nil, fmt.Errorf("%w: id is required", errInvalidRequest)
+	}
+
+	build, err := h.Backend.RetryBuild(in.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &retryBuildOutput{Build: build}, nil
+}
 
 type listTagsForResourceInput struct {
 	ResourceArn string `json:"resourceArn"`
