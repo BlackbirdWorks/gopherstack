@@ -327,7 +327,7 @@ func (b *InMemoryBackend) CreateInvalidation(
 
 	inv := &Invalidation{
 		ID:         generateID(),
-		Status:     "Completed",
+		Status:     "InProgress",
 		CreateTime: time.Now().UnixMilli(),
 		Paths:      append([]string(nil), paths...),
 		CallerRef:  callerRef,
