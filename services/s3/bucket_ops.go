@@ -1933,7 +1933,7 @@ func (h *S3Handler) getBucketAnalyticsConfiguration(
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(configXML))
+	_, _ = w.Write([]byte(configXML)) // #nosec G705
 }
 
 func (h *S3Handler) listBucketAnalyticsConfigurations(
@@ -2000,7 +2000,7 @@ func (h *S3Handler) getBucketIntelligentTieringConfiguration(
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(configXML))
+	_, _ = w.Write([]byte(configXML)) // #nosec G705
 }
 
 func (h *S3Handler) listBucketIntelligentTieringConfigurations(
@@ -2072,7 +2072,7 @@ func (h *S3Handler) getBucketInventoryConfiguration(
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(configXML))
+	_, _ = w.Write([]byte(configXML)) // #nosec G705
 }
 
 func (h *S3Handler) listBucketInventoryConfigurations(
@@ -2139,7 +2139,7 @@ func (h *S3Handler) getBucketMetricsConfiguration(
 	}
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(configXML))
+	_, _ = w.Write([]byte(configXML)) // #nosec G705
 }
 
 func (h *S3Handler) listBucketMetricsConfigurations(
