@@ -892,7 +892,7 @@ func (e *Evaluator) addToStringSet(path []PathElement, curMap map[string]any, se
 	}
 
 	existing, _ := curMap[setKey].([]string)
-	if len(existing) > math.MaxInt-len(addSlice) {
+	if len(addSlice) > math.MaxInt-len(existing) {
 		return ErrSetSizeOverflow
 	}
 	merged := make([]string, len(existing)+len(addSlice))
@@ -926,7 +926,7 @@ func (e *Evaluator) addToBinarySet(path []PathElement, curMap map[string]any, to
 	}
 
 	existing, _ := curMap["BS"].([][]byte)
-	if len(existing) > math.MaxInt-len(addSlice) {
+	if len(addSlice) > math.MaxInt-len(existing) {
 		return ErrSetSizeOverflow
 	}
 	merged := make([][]byte, len(existing)+len(addSlice))

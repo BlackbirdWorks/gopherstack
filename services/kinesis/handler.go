@@ -1195,9 +1195,9 @@ func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
 	headerLen := len(hdrBytes)
 	payloadLen := len(payload)
 	// prelude (12 bytes) + headers + payload + message CRC (4 bytes)
-	// Check for overflow when calculating totalLen
-	if headerLen > math.MaxInt32-eventStreamPreludeLen-payloadLen-eventStreamMsgCRCLen {
-		return nil // Should not happen with valid AWS event stream data
+	// Guard against integer overflow when calculating totalLen.
+	if payloadLen < 0 || headerLen > math.MaxInt32-eventStreamPreludeLen-payloadLen-eventStreamMsgCRCLen {
+		return nil
 	}
 	totalLen := eventStreamPreludeLen + headerLen + payloadLen + eventStreamMsgCRCLen
 

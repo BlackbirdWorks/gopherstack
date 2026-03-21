@@ -300,8 +300,9 @@ func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
 	headerLen := len(hdrBytes)
 	payloadLen := len(payload)
 
-	// Guard against integer overflow: payloadLen must fit within the remaining frame space.
-	if headerLen > math.MaxInt32-eventStreamPreludeLen-payloadLen-eventStreamMsgCRCLen {
+	// Prelude (12 bytes) + headers + payload + message CRC (4 bytes).
+	// Guard against integer overflow when calculating totalLen.
+	if payloadLen < 0 || headerLen > math.MaxInt32-eventStreamPreludeLen-payloadLen-eventStreamMsgCRCLen {
 		return nil
 	}
 
