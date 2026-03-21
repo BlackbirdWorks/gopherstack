@@ -248,86 +248,86 @@ func TestInMemoryBackend_DocumentVersionCap(t *testing.T) {
 // TestSSMJanitor_TaskTimeout_WithJanitor verifies that WithJanitor propagates
 // the variadic taskTimeout into the janitor's TaskTimeout field.
 func TestSSMJanitor_TaskTimeout_WithJanitor(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name        string
-taskTimeout time.Duration
-want        time.Duration
-}{
-{
-name:        "no_timeout_zero",
-taskTimeout: 0,
-want:        0,
-},
-{
-name:        "with_30s_timeout",
-taskTimeout: 30 * time.Second,
-want:        30 * time.Second,
-},
-}
+	tests := []struct {
+		name        string
+		taskTimeout time.Duration
+		want        time.Duration
+	}{
+		{
+			name:        "no_timeout_zero",
+			taskTimeout: 0,
+			want:        0,
+		},
+		{
+			name:        "with_30s_timeout",
+			taskTimeout: 30 * time.Second,
+			want:        30 * time.Second,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := ssm.NewInMemoryBackend()
-h := ssm.NewHandler(b).WithJanitor(time.Minute, tt.taskTimeout)
+			b := ssm.NewInMemoryBackend()
+			h := ssm.NewHandler(b).WithJanitor(time.Minute, tt.taskTimeout)
 
-assert.Equal(t, tt.want, h.GetJanitorTaskTimeout())
-})
-}
+			assert.Equal(t, tt.want, h.GetJanitorTaskTimeout())
+		})
+	}
 }
 
 // TestSSMJanitor_SweepOnce_EvictsExpiredCommands verifies that SweepOnce removes
 // expired commands without requiring the janitor loop to run.
 func TestSSMJanitor_SweepOnce_EvictsExpiredCommands(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name           string
-expiredCount   int
-unexpiredCount int
-}{
-{
-name:           "single_expired",
-expiredCount:   1,
-unexpiredCount: 0,
-},
-{
-name:           "mixed_expired_and_alive",
-expiredCount:   2,
-unexpiredCount: 1,
-},
-}
+	tests := []struct {
+		name           string
+		expiredCount   int
+		unexpiredCount int
+	}{
+		{
+			name:           "single_expired",
+			expiredCount:   1,
+			unexpiredCount: 0,
+		},
+		{
+			name:           "mixed_expired_and_alive",
+			expiredCount:   2,
+			unexpiredCount: 1,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-b := ssm.NewInMemoryBackend()
+			b := ssm.NewInMemoryBackend()
 
-for range tt.expiredCount {
-out, err := b.SendCommand(&ssm.SendCommandInput{
-DocumentName: "AWS-RunShellScript",
-InstanceIDs:  []string{"i-1111"},
-})
-require.NoError(t, err)
-b.SetCommandExpiresAfter(out.Command.CommandID, float64(time.Now().Add(-time.Second).Unix()))
-}
+			for range tt.expiredCount {
+				out, err := b.SendCommand(&ssm.SendCommandInput{
+					DocumentName: "AWS-RunShellScript",
+					InstanceIDs:  []string{"i-1111"},
+				})
+				require.NoError(t, err)
+				b.SetCommandExpiresAfter(out.Command.CommandID, float64(time.Now().Add(-time.Second).Unix()))
+			}
 
-for range tt.unexpiredCount {
-_, err := b.SendCommand(&ssm.SendCommandInput{
-DocumentName: "AWS-RunShellScript",
-InstanceIDs:  []string{"i-2222"},
-})
-require.NoError(t, err)
-}
+			for range tt.unexpiredCount {
+				_, err := b.SendCommand(&ssm.SendCommandInput{
+					DocumentName: "AWS-RunShellScript",
+					InstanceIDs:  []string{"i-2222"},
+				})
+				require.NoError(t, err)
+			}
 
-j := ssm.NewJanitor(b, time.Minute)
-j.SweepOnce(t.Context())
+			j := ssm.NewJanitor(b, time.Minute)
+			j.SweepOnce(t.Context())
 
-assert.Equal(t, tt.unexpiredCount, b.CommandCount())
-})
-}
+			assert.Equal(t, tt.unexpiredCount, b.CommandCount())
+		})
+	}
 }

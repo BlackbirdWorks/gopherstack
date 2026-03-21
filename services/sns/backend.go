@@ -222,6 +222,19 @@ func (b *InMemoryBackend) DeleteTopic(topicArn string) error {
 
 	delete(b.topics, topicArn)
 
+	// Close topic tags to prevent resource leak.
+	if t := b.topicTags[topicArn]; t != nil {
+		t.Close()
+		delete(b.topicTags, topicArn)
+	}
+
+	// Remove any orphaned subscriptions for this topic.
+	for subArn, sub := range b.subscriptions {
+		if sub.TopicArn == topicArn {
+			delete(b.subscriptions, subArn)
+		}
+	}
+
 	return nil
 }
 
@@ -1182,6 +1195,13 @@ func (b *InMemoryBackend) WaitDeliveries() {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	// Close all topic tag stores to prevent resource leaks.
+	for _, t := range b.topicTags {
+		if t != nil {
+			t.Close()
+		}
+	}
 
 	b.topics = make(map[string]*Topic)
 	b.subscriptions = make(map[string]*Subscription)

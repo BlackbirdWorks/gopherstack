@@ -1140,5 +1140,12 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	// Close all REST API tag stores to prevent resource leaks.
+	for _, d := range b.apis {
+		if d.api.Tags != nil {
+			d.api.Tags.Close()
+		}
+	}
+
 	b.apis = make(map[string]*apiData)
 }
