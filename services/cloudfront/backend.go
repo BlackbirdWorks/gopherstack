@@ -5,6 +5,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -38,45 +39,58 @@ func generateID() string {
 
 // Distribution represents a CloudFront distribution.
 type Distribution struct {
-	Tags            map[string]string
-	ID              string
-	ARN             string
-	DomainName      string
-	Status          string
-	ETag            string
-	CallerReference string
-	Comment         string
-	RawConfig       []byte // raw DistributionConfig XML from request
-	Enabled         bool
+	Tags            map[string]string `json:"tags,omitempty"`
+	ID              string            `json:"id"`
+	ARN             string            `json:"arn"`
+	DomainName      string            `json:"domainName"`
+	Status          string            `json:"status"`
+	ETag            string            `json:"eTag"`
+	CallerReference string            `json:"callerReference"`
+	Comment         string            `json:"comment,omitempty"`
+	RawConfig       []byte            `json:"rawConfig,omitempty"` // raw DistributionConfig XML from request
+	Enabled         bool              `json:"enabled"`
 }
 
 // OriginAccessIdentity represents a CloudFront Origin Access Identity.
 type OriginAccessIdentity struct {
-	ID                string
-	ARN               string
-	S3CanonicalUserID string
-	ETag              string
-	CallerReference   string
-	Comment           string
+	ID                string `json:"id"`
+	ARN               string `json:"arn"`
+	S3CanonicalUserID string `json:"s3CanonicalUserId"`
+	ETag              string `json:"eTag"`
+	CallerReference   string `json:"callerReference"`
+	Comment           string `json:"comment,omitempty"`
+}
+
+// Invalidation represents a CloudFront cache invalidation.
+type Invalidation struct {
+	CreateTime time.Time `json:"createTime"`
+	ID         string    `json:"id"`
+	Status     string    `json:"status"`
+	CallerRef  string    `json:"callerRef,omitempty"`
+	Paths      []string  `json:"paths,omitempty"`
 }
 
 // InMemoryBackend stores CloudFront resources in memory.
 type InMemoryBackend struct {
-	distributions map[string]*Distribution
-	oais          map[string]*OriginAccessIdentity
-	mu            *lockmetrics.RWMutex
-	accountID     string
-	region        string
+	distributions    map[string]*Distribution
+	distributionARNs map[string]string          // ARN → distribution ID (O(1) tag lookups)
+	invalidations    map[string][]*Invalidation // distribution ID → []Invalidation
+	oais             map[string]*OriginAccessIdentity
+	mu               *lockmetrics.RWMutex
+	accountID        string
+	region           string
 }
 
 // NewInMemoryBackend creates a new in-memory CloudFront backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
-		distributions: make(map[string]*Distribution),
-		oais:          make(map[string]*OriginAccessIdentity),
-		mu:            lockmetrics.New("cloudfront"),
-		accountID:     accountID,
-		region:        region,
+		distributions:    make(map[string]*Distribution),
+		distributionARNs: make(map[string]string),
+		invalidations:    make(map[string][]*Invalidation),
+		oais:             make(map[string]*OriginAccessIdentity),
+		mu:               lockmetrics.New("cloudfront"),
+		accountID:        accountID,
+		region:           region,
 	}
 }
 
@@ -117,6 +131,7 @@ func (b *InMemoryBackend) CreateDistribution(
 		Tags:            make(map[string]string),
 	}
 	b.distributions[id] = d
+	b.distributionARNs[d.ARN] = id
 	cp := b.copyDistribution(d)
 
 	return cp, nil
@@ -166,7 +181,10 @@ func (b *InMemoryBackend) DeleteDistribution(id string) error {
 	if _, ok := b.distributions[id]; !ok {
 		return fmt.Errorf("%w: distribution %s not found", ErrNotFound, id)
 	}
+	distributionARN := b.distributionARN(id)
+	delete(b.distributionARNs, distributionARN)
 	delete(b.distributions, id)
+	delete(b.invalidations, id)
 
 	return nil
 }
@@ -250,15 +268,19 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, d := range b.distributions {
-		if d.ARN == resourceARN {
-			maps.Copy(d.Tags, kv)
-
-			return nil
-		}
+	id, ok := b.distributionARNs[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	d := b.distributions[id]
+	if d.Tags == nil {
+		d.Tags = make(map[string]string, len(kv))
+	}
+
+	maps.Copy(d.Tags, kv)
+
+	return nil
 }
 
 // UntagResource removes tags from a resource by ARN.
@@ -266,17 +288,17 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, d := range b.distributions {
-		if d.ARN == resourceARN {
-			for _, k := range keys {
-				delete(d.Tags, k)
-			}
-
-			return nil
-		}
+	id, ok := b.distributionARNs[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	d := b.distributions[id]
+	for _, k := range keys {
+		delete(d.Tags, k)
+	}
+
+	return nil
 }
 
 // ListTags returns the tags for a resource by ARN.
@@ -284,16 +306,84 @@ func (b *InMemoryBackend) ListTags(resourceARN string) (map[string]string, error
 	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()
 
-	for _, d := range b.distributions {
-		if d.ARN == resourceARN {
-			cp := make(map[string]string, len(d.Tags))
-			maps.Copy(cp, d.Tags)
+	id, ok := b.distributionARNs[resourceARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	}
 
-			return cp, nil
+	d := b.distributions[id]
+	cp := make(map[string]string, len(d.Tags))
+	maps.Copy(cp, d.Tags)
+
+	return cp, nil
+}
+
+// CreateInvalidation creates a new cache invalidation for the given distribution.
+func (b *InMemoryBackend) CreateInvalidation(
+	distributionID, callerRef string,
+	paths []string,
+) (*Invalidation, error) {
+	b.mu.Lock("CreateInvalidation")
+	defer b.mu.Unlock()
+
+	if _, ok := b.distributions[distributionID]; !ok {
+		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
+	}
+
+	inv := &Invalidation{
+		ID:         generateID(),
+		Status:     "InProgress",
+		CreateTime: time.Now().UTC(),
+		Paths:      append([]string(nil), paths...),
+		CallerRef:  callerRef,
+	}
+	b.invalidations[distributionID] = append(b.invalidations[distributionID], inv)
+	cp := *inv
+	cp.Paths = append([]string(nil), inv.Paths...)
+
+	return &cp, nil
+}
+
+// ListInvalidations returns all invalidations for a distribution.
+func (b *InMemoryBackend) ListInvalidations(distributionID string) ([]*Invalidation, error) {
+	b.mu.RLock("ListInvalidations")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.distributions[distributionID]; !ok {
+		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
+	}
+
+	src := b.invalidations[distributionID]
+	out := make([]*Invalidation, 0, len(src))
+
+	for _, inv := range src {
+		cp := *inv
+		cp.Paths = append([]string(nil), inv.Paths...)
+		out = append(out, &cp)
+	}
+
+	return out, nil
+}
+
+// GetInvalidation returns a specific invalidation by distribution ID and invalidation ID.
+func (b *InMemoryBackend) GetInvalidation(distributionID, invalidationID string) (*Invalidation, error) {
+	b.mu.RLock("GetInvalidation")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.distributions[distributionID]; !ok {
+		return nil, fmt.Errorf("%w: distribution %s not found", ErrNotFound, distributionID)
+	}
+
+	for _, inv := range b.invalidations[distributionID] {
+		if inv.ID == invalidationID {
+			cp := *inv
+			cp.Paths = append([]string(nil), inv.Paths...)
+
+			return &cp, nil
 		}
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	return nil, fmt.Errorf("%w: invalidation %s not found", ErrNotFound, invalidationID)
 }
 
 func (b *InMemoryBackend) copyDistribution(d *Distribution) *Distribution {

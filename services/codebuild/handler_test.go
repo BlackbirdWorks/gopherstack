@@ -955,7 +955,7 @@ func TestHandler_ChaosOperations(t *testing.T) {
 	}{
 		{
 			name:    "returns all supported operations",
-			wantLen: 12,
+			wantLen: 15,
 			wantOps: []string{"CreateProject", "BatchGetProjects", "StartBuild", "StopBuild"},
 		},
 	}
@@ -1226,4 +1226,210 @@ func TestProvider(t *testing.T) {
 			assert.NotNil(t, svc)
 		})
 	}
+}
+
+func TestHandler_BatchDeleteBuilds(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		buildIDs    []string
+		wantDeleted int
+		wantHTTP    int
+	}{
+		{
+			name:        "delete_existing_build",
+			wantDeleted: 1,
+			wantHTTP:    http.StatusOK,
+		},
+		{
+			name:        "delete_missing_build",
+			buildIDs:    []string{"nonexistent:abc123"},
+			wantDeleted: 0,
+			wantHTTP:    http.StatusOK,
+		},
+		{
+			name:        "delete_empty_list",
+			buildIDs:    []string{},
+			wantDeleted: 0,
+			wantHTTP:    http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			// Create a project and start a build.
+			doRequest(t, h, "CreateProject", map[string]any{
+				"name":      "my-project",
+				"source":    map[string]string{"type": "NO_SOURCE"},
+				"artifacts": map[string]string{"type": "NO_ARTIFACTS"},
+				"environment": map[string]string{
+					"type":        "LINUX_CONTAINER",
+					"image":       "aws/codebuild/standard:5.0",
+					"computeType": "BUILD_GENERAL1_SMALL",
+				},
+				"serviceRole": "arn:aws:iam::000000000000:role/codebuild",
+			})
+
+			var buildID string
+			if tt.buildIDs == nil {
+				// Start a build and capture the ID.
+				startRec := doRequest(t, h, "StartBuild", map[string]any{
+					"projectName": "my-project",
+				})
+				var startResp map[string]any
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+				build := startResp["build"].(map[string]any)
+				buildID = build["id"].(string)
+				tt.buildIDs = []string{buildID}
+			}
+
+			rec := doRequest(t, h, "BatchDeleteBuilds", map[string]any{
+				"ids": tt.buildIDs,
+			})
+			assert.Equal(t, tt.wantHTTP, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			deleted := resp["buildsDeleted"].([]any)
+			assert.Len(t, deleted, tt.wantDeleted)
+		})
+	}
+}
+
+func TestHandler_ListBuilds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create project and start 2 builds.
+	doRequest(t, h, "CreateProject", map[string]any{
+		"name":      "proj",
+		"source":    map[string]string{"type": "NO_SOURCE"},
+		"artifacts": map[string]string{"type": "NO_ARTIFACTS"},
+		"environment": map[string]string{
+			"type":        "LINUX_CONTAINER",
+			"image":       "aws/codebuild/standard:5.0",
+			"computeType": "BUILD_GENERAL1_SMALL",
+		},
+		"serviceRole": "arn:aws:iam::000000000000:role/codebuild",
+	})
+	doRequest(t, h, "StartBuild", map[string]any{"projectName": "proj"})
+	doRequest(t, h, "StartBuild", map[string]any{"projectName": "proj"})
+
+	rec := doRequest(t, h, "ListBuilds", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	ids := resp["ids"].([]any)
+	assert.Len(t, ids, 2)
+}
+
+func TestHandler_RetryBuild(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		id       string
+		wantHTTP int
+	}{
+		{
+			name:     "retry_existing",
+			wantHTTP: http.StatusOK,
+		},
+		{
+			name:     "retry_missing",
+			id:       "nonexistent:abc",
+			wantHTTP: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			doRequest(t, h, "CreateProject", map[string]any{
+				"name":      "proj",
+				"source":    map[string]string{"type": "NO_SOURCE"},
+				"artifacts": map[string]string{"type": "NO_ARTIFACTS"},
+				"environment": map[string]string{
+					"type":        "LINUX_CONTAINER",
+					"image":       "aws/codebuild/standard:5.0",
+					"computeType": "BUILD_GENERAL1_SMALL",
+				},
+				"serviceRole": "arn:aws:iam::000000000000:role/codebuild",
+			})
+
+			id := tt.id
+			if id == "" {
+				startRec := doRequest(t, h, "StartBuild", map[string]any{"projectName": "proj"})
+				var startResp map[string]any
+				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startResp))
+				build := startResp["build"].(map[string]any)
+				id = build["id"].(string)
+			}
+
+			rec := doRequest(t, h, "RetryBuild", map[string]any{"id": id})
+			assert.Equal(t, tt.wantHTTP, rec.Code)
+		})
+	}
+}
+
+func TestCodeBuild_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Create a project and start a build.
+	_, err := b.CreateProject(
+		"snap-proj",
+		"",
+		codebuild.ProjectSource{Type: "NO_SOURCE"},
+		codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"},
+		codebuild.ProjectEnvironment{
+			Type:        "LINUX_CONTAINER",
+			Image:       "aws/codebuild/standard:5.0",
+			ComputeType: "BUILD_GENERAL1_SMALL",
+		},
+		"arn:aws:iam::000000000000:role/codebuild",
+		nil,
+	)
+	require.NoError(t, err)
+
+	build, err := b.StartBuild("snap-proj")
+	require.NoError(t, err)
+	require.NotEmpty(t, build.ID)
+
+	// Snapshot and restore.
+	h := codebuild.NewHandler(b)
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := codebuild.NewHandler(b2)
+	require.NoError(t, h2.Restore(snap))
+
+	// Project is restored.
+	projs := b2.ListProjects()
+	require.Len(t, projs, 1)
+	assert.Equal(t, "snap-proj", projs[0])
+
+	// Build is restored.
+	builds, notFound := b2.BatchGetBuilds([]string{build.ID})
+	assert.Empty(t, notFound)
+	require.Len(t, builds, 1)
+	assert.Equal(t, "snap-proj", builds[0].ProjectName)
+
+	// ListBuildsForProject uses the project index.
+	ids, err := b2.ListBuildsForProject("snap-proj")
+	require.NoError(t, err)
+	require.Len(t, ids, 1)
+	assert.Equal(t, build.ID, ids[0])
 }

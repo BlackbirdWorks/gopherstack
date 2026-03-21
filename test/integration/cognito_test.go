@@ -181,13 +181,14 @@ func TestIntegration_CognitoIDP_SignUpConfirmAuth(t *testing.T) {
 	assert.False(t, signupOut.UserConfirmed, "user should be unconfirmed after SignUp")
 	assert.NotEmpty(t, aws.ToString(signupOut.UserSub), "UserSub should not be empty")
 
-	// ConfirmSignUp confirms the user (any non-empty code is accepted by the mock).
-	_, err = client.ConfirmSignUp(ctx, &cognitoidpsdk.ConfirmSignUpInput{
-		ClientId:         aws.String(appClientID),
-		Username:         aws.String("newuser@example.com"),
-		ConfirmationCode: aws.String("123456"),
+	// ConfirmSignUp confirms the user using AdminConfirmSignUp which does not
+	// require the delivery code — used here to exercise the self-service auth
+	// flow without needing out-of-band code delivery in integration tests.
+	_, err = client.AdminConfirmSignUp(ctx, &cognitoidpsdk.AdminConfirmSignUpInput{
+		UserPoolId: aws.String(poolID),
+		Username:   aws.String("newuser@example.com"),
 	})
-	require.NoError(t, err, "ConfirmSignUp failed")
+	require.NoError(t, err, "AdminConfirmSignUp failed")
 
 	// InitiateAuth authenticates the confirmed user.
 	authOut, err := client.InitiateAuth(ctx, &cognitoidpsdk.InitiateAuthInput{

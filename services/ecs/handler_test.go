@@ -1872,3 +1872,41 @@ func TestECS_ListTasks_TokenChaining(t *testing.T) {
 		assert.False(t, seen[a.(string)], "duplicate task ARN in page 2: %s", a)
 	}
 }
+
+func TestECS_TaskDefinitionRevisionCap(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Register 105 revisions (beyond the cap of 100).
+	for range 105 {
+		rec := doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
+			"family": "capped-family",
+			"containerDefinitions": []map[string]any{
+				{"name": "app", "image": "app:latest"},
+			},
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	// The latest revision should be 105.
+	rec := doECSRequest(t, h, "DescribeTaskDefinition", map[string]any{"taskDefinition": "capped-family"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	td := resp["taskDefinition"].(map[string]any)
+	latestRev := int(td["revision"].(float64))
+	assert.Equal(t, 105, latestRev, "latest revision should be 105")
+
+	// Listing all revisions should not exceed the cap.
+	listRec := doECSRequest(t, h, "ListTaskDefinitions", map[string]any{"familyPrefix": "capped-family"})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+
+	arns := listResp["taskDefinitionArns"].([]any)
+	assert.LessOrEqual(t, len(arns), 100, "stored revisions should not exceed the cap")
+}

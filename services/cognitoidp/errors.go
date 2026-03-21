@@ -45,4 +45,13 @@ var (
 
 	// ErrInvalidUserPoolConfig is returned when the user pool configuration is invalid.
 	ErrInvalidUserPoolConfig = awserr.New("InvalidUserPoolConfigurationException", awserr.ErrInvalidParameter)
+
+	// ErrInvalidToken is returned when a JWT token is structurally invalid or has unexpected claims.
+	ErrInvalidToken = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
+
+	// ErrGroupNotFound is returned when a user pool group does not exist.
+	ErrGroupNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+
+	// ErrAlreadyExists is returned when a resource with the same identifier already exists.
+	ErrAlreadyExists = awserr.New("GroupExistsException", awserr.ErrAlreadyExists)
 )

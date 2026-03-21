@@ -355,14 +355,14 @@ func TestHandler_ConfirmSignUp(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup    func(h *cognitoidp.Handler) (clientID, username string)
+		// setup returns clientID, username and the confirm code (may be empty for "any" codes).
+		setup    func(h *cognitoidp.Handler) (clientID, username, confirmCode string)
 		name     string
-		code     string
 		wantCode int
 	}{
 		{
 			name: "success",
-			setup: func(h *cognitoidp.Handler) (string, string) {
+			setup: func(h *cognitoidp.Handler) (string, string, string) {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var poolResp map[string]map[string]any
 				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
@@ -383,14 +383,21 @@ func TestHandler_ConfirmSignUp(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, signupRec.Code)
 
-				return clientID, "newuser"
+				// Extract confirm code from the CodeDeliveryDetails in the SignUp response.
+				var signupResp map[string]any
+				_ = json.Unmarshal(signupRec.Body.Bytes(), &signupResp)
+				code := ""
+				if details, ok := signupResp["CodeDeliveryDetails"].(map[string]any); ok {
+					code, _ = details["ConfirmationCode"].(string)
+				}
+
+				return clientID, "newuser", code
 			},
-			code:     "123456",
 			wantCode: http.StatusOK,
 		},
 		{
 			name: "user_not_found",
-			setup: func(h *cognitoidp.Handler) (string, string) {
+			setup: func(h *cognitoidp.Handler) (string, string, string) {
 				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
 				var poolResp map[string]map[string]any
 				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
@@ -403,9 +410,8 @@ func TestHandler_ConfirmSignUp(t *testing.T) {
 				var clientResp map[string]map[string]any
 				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
 
-				return clientResp["UserPoolClient"]["ClientId"].(string), "nobody"
+				return clientResp["UserPoolClient"]["ClientId"].(string), "nobody", "123456"
 			},
-			code:     "123456",
 			wantCode: http.StatusBadRequest,
 		},
 	}
@@ -415,12 +421,12 @@ func TestHandler_ConfirmSignUp(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			clientID, username := tt.setup(h)
+			clientID, username, confirmCode := tt.setup(h)
 
 			rec := doCognitoRequest(t, h, "ConfirmSignUp", map[string]any{
 				"ClientId":         clientID,
 				"Username":         username,
-				"ConfirmationCode": tt.code,
+				"ConfirmationCode": confirmCode,
 			})
 			assert.Equal(t, tt.wantCode, rec.Code)
 		})
@@ -460,10 +466,18 @@ func TestHandler_InitiateAuth(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, signupRec.Code)
 
+				// Extract the confirmation code from the SignUp response.
+				var signupResp map[string]any
+				_ = json.Unmarshal(signupRec.Body.Bytes(), &signupResp)
+				code := ""
+				if details, ok := signupResp["CodeDeliveryDetails"].(map[string]any); ok {
+					code, _ = details["ConfirmationCode"].(string)
+				}
+
 				confirmRec := doCognitoRequest(t, h, "ConfirmSignUp", map[string]any{
 					"ClientId":         clientID,
 					"Username":         "authuser",
-					"ConfirmationCode": "123456",
+					"ConfirmationCode": code,
 				})
 				require.Equal(t, http.StatusOK, confirmRec.Code)
 
@@ -496,10 +510,18 @@ func TestHandler_InitiateAuth(t *testing.T) {
 				})
 				require.Equal(t, http.StatusOK, signupRec.Code)
 
+				// Extract the confirmation code from the SignUp response.
+				var signupResp map[string]any
+				_ = json.Unmarshal(signupRec.Body.Bytes(), &signupResp)
+				code := ""
+				if details, ok := signupResp["CodeDeliveryDetails"].(map[string]any); ok {
+					code, _ = details["ConfirmationCode"].(string)
+				}
+
 				confirmRec := doCognitoRequest(t, h, "ConfirmSignUp", map[string]any{
 					"ClientId":         clientID,
 					"Username":         "authuser2",
-					"ConfirmationCode": "123456",
+					"ConfirmationCode": code,
 				})
 				require.Equal(t, http.StatusOK, confirmRec.Code)
 
@@ -1067,4 +1089,595 @@ func TestHandler_UnmarshalTypeError(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "InvalidParameterException")
+}
+
+func TestCognitoIDP_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := cognitoidp.NewInMemoryBackend("000000000000", "us-east-1", "http://localhost:8000")
+
+	pool, err := b.CreateUserPool("my-pool")
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClient(pool.ID, "my-client")
+	require.NoError(t, err)
+
+	// Use AdminCreateUser to create a confirmed user without going through SignUp.
+	_, err = b.AdminCreateUser(pool.ID, "alice", "Password123!", map[string]string{"email": "alice@example.com"})
+	require.NoError(t, err)
+
+	require.NoError(t, b.AdminSetUserPassword(pool.ID, "alice", "Password123!", true))
+
+	_ = client
+
+	h := cognitoidp.NewHandler(b, "us-east-1")
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := cognitoidp.NewInMemoryBackend("000000000000", "us-east-1", "http://localhost:8000")
+	h2 := cognitoidp.NewHandler(b2, "us-east-1")
+	require.NoError(t, h2.Restore(snap))
+
+	pools := b2.ListUserPools()
+	require.Len(t, pools, 1)
+	assert.Equal(t, "my-pool", pools[0].Name)
+
+	clients, err := b2.ListUserPoolClients(pool.ID)
+	require.NoError(t, err)
+	require.Len(t, clients, 1)
+	assert.Equal(t, "my-client", clients[0].ClientName)
+}
+
+func TestCognitoIDP_DeleteUserPool_CleansRefreshTokens(t *testing.T) {
+	t.Parallel()
+
+	b := cognitoidp.NewInMemoryBackend("000000000000", "us-east-1", "http://localhost:8000")
+
+	pool, err := b.CreateUserPool("my-pool")
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClient(pool.ID, "my-client")
+	require.NoError(t, err)
+
+	u, err := b.SignUp(client.ClientID, "alice", "Password123!", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.ConfirmSignUp(client.ClientID, "alice", u.ConfirmCode))
+
+	tokens, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "alice", "Password123!")
+	require.NoError(t, err)
+	require.NotEmpty(t, tokens.RefreshToken)
+
+	// Deleting the pool should clean up the refresh token.
+	require.NoError(t, b.DeleteUserPool(pool.ID))
+
+	// Attempting to use the refresh token should fail now (token cleaned up).
+	_, err = b.InitiateAuthRefreshToken(client.ClientID, tokens.RefreshToken)
+	require.Error(t, err, "refresh token should have been cleaned up on pool deletion")
+}
+
+func TestCognitoIDP_DeleteUserPoolClient_CleansRefreshTokens(t *testing.T) {
+	t.Parallel()
+
+	b := cognitoidp.NewInMemoryBackend("000000000000", "us-east-1", "http://localhost:8000")
+
+	pool, err := b.CreateUserPool("my-pool")
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClient(pool.ID, "my-client")
+	require.NoError(t, err)
+
+	u, err := b.SignUp(client.ClientID, "bob", "Password456!", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, b.ConfirmSignUp(client.ClientID, "bob", u.ConfirmCode))
+
+	tokens, err := b.InitiateAuth(client.ClientID, "USER_PASSWORD_AUTH", "bob", "Password456!")
+	require.NoError(t, err)
+	require.NotEmpty(t, tokens.RefreshToken)
+
+	// Deleting the client should clean up the refresh token.
+	require.NoError(t, b.DeleteUserPoolClient(pool.ID, client.ClientID))
+
+	// Attempting to use the refresh token should fail now (token cleaned up).
+	_, err = b.InitiateAuthRefreshToken(client.ClientID, tokens.RefreshToken)
+	require.Error(t, err, "refresh token should have been cleaned up on client deletion")
+}
+
+func TestHandler_RefreshTokenAuth(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup    func(h *cognitoidp.Handler) (clientID, refreshToken string)
+		name     string
+		wantCode int
+	}{
+		{
+			name: "valid_refresh_token_rotates",
+			setup: func(h *cognitoidp.Handler) (string, string) {
+				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p"})
+				var poolResp map[string]map[string]any
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				poolID := poolResp["UserPool"]["Id"].(string)
+
+				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+					"UserPoolId": poolID,
+					"ClientName": "c",
+				})
+				var clientResp map[string]map[string]any
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				clientID := clientResp["UserPoolClient"]["ClientId"].(string)
+
+				// Admin-create a confirmed user.
+				doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+					"UserPoolId":        poolID,
+					"Username":          "refreshuser",
+					"TemporaryPassword": "TempPass123!",
+				})
+				doCognitoRequest(t, h, "AdminSetUserPassword", map[string]any{
+					"UserPoolId": poolID,
+					"Username":   "refreshuser",
+					"Password":   "PermPass456!",
+					"Permanent":  true,
+				})
+
+				// Authenticate to get a refresh token.
+				authRec := doCognitoRequest(t, h, "AdminInitiateAuth", map[string]any{
+					"UserPoolId": poolID,
+					"ClientId":   clientID,
+					"AuthFlow":   "USER_PASSWORD_AUTH",
+					"AuthParameters": map[string]string{
+						"USERNAME": "refreshuser",
+						"PASSWORD": "PermPass456!",
+					},
+				})
+				var authResp map[string]map[string]any
+				_ = json.Unmarshal(authRec.Body.Bytes(), &authResp)
+				rt := authResp["AuthenticationResult"]["RefreshToken"].(string)
+
+				return clientID, rt
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "invalid_refresh_token_rejected",
+			setup: func(h *cognitoidp.Handler) (string, string) {
+				poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "p2"})
+				var poolResp map[string]map[string]any
+				_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+				poolID := poolResp["UserPool"]["Id"].(string)
+
+				clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+					"UserPoolId": poolID,
+					"ClientName": "c2",
+				})
+				var clientResp map[string]map[string]any
+				_ = json.Unmarshal(clientRec.Body.Bytes(), &clientResp)
+				clientID := clientResp["UserPoolClient"]["ClientId"].(string)
+
+				return clientID, "totally-invalid-refresh-token"
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			clientID, refreshToken := tt.setup(h)
+
+			rec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+				"ClientId": clientID,
+				"AuthFlow": "REFRESH_TOKEN_AUTH",
+				"AuthParameters": map[string]string{
+					"REFRESH_TOKEN": refreshToken,
+				},
+			})
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantCode == http.StatusOK {
+				var resp map[string]map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.NotEmpty(t, resp["AuthenticationResult"]["AccessToken"])
+				assert.NotEmpty(t, resp["AuthenticationResult"]["IdToken"])
+				// After rotation the old token is gone; new one must differ.
+				newRT, _ := resp["AuthenticationResult"]["RefreshToken"].(string)
+				assert.NotEqual(t, refreshToken, newRT, "refresh token must rotate on exchange")
+			}
+		})
+	}
+}
+
+func TestHandler_RevokeToken(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Set up pool, client and confirmed user.
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "revoke-pool"})
+	var poolResp map[string]map[string]any
+	_ = json.Unmarshal(poolRec.Body.Bytes(), &poolResp)
+	poolID := poolRec.Body.String()
+	_ = poolID
+
+	var poolData map[string]map[string]any
+	_ = json.Unmarshal(poolRec.Body.Bytes(), &poolData)
+	pID := poolData["UserPool"]["Id"].(string)
+
+	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+		"UserPoolId": pID,
+		"ClientName": "revoke-client",
+	})
+	var clientData map[string]map[string]any
+	_ = json.Unmarshal(clientRec.Body.Bytes(), &clientData)
+	clientID := clientData["UserPoolClient"]["ClientId"].(string)
+
+	doCognitoRequest(t, h, "AdminCreateUser", map[string]any{
+		"UserPoolId":        pID,
+		"Username":          "revokeuser",
+		"TemporaryPassword": "TempPass123!",
+	})
+	doCognitoRequest(t, h, "AdminSetUserPassword", map[string]any{
+		"UserPoolId": pID,
+		"Username":   "revokeuser",
+		"Password":   "PermPass456!",
+		"Permanent":  true,
+	})
+
+	// Authenticate to get tokens.
+	authRec := doCognitoRequest(t, h, "AdminInitiateAuth", map[string]any{
+		"UserPoolId": pID,
+		"ClientId":   clientID,
+		"AuthFlow":   "USER_PASSWORD_AUTH",
+		"AuthParameters": map[string]string{
+			"USERNAME": "revokeuser",
+			"PASSWORD": "PermPass456!",
+		},
+	})
+	require.Equal(t, http.StatusOK, authRec.Code)
+
+	var authData map[string]map[string]any
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authData))
+	refreshToken := authData["AuthenticationResult"]["RefreshToken"].(string)
+
+	// RevokeToken should succeed (200).
+	rec := doCognitoRequest(t, h, "RevokeToken", map[string]any{
+		"ClientId": clientID,
+		"Token":    refreshToken,
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// After revocation, using the refresh token must fail.
+	rec2 := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+		"ClientId": clientID,
+		"AuthFlow": "REFRESH_TOKEN_AUTH",
+		"AuthParameters": map[string]string{
+			"REFRESH_TOKEN": refreshToken,
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+
+	// Revoking an already-revoked (unknown) token is a no-op (200 per AWS docs).
+	rec3 := doCognitoRequest(t, h, "RevokeToken", map[string]any{
+		"ClientId": clientID,
+		"Token":    refreshToken,
+	})
+	assert.Equal(t, http.StatusOK, rec3.Code)
+}
+
+func TestHandler_AdminConfirmSignUp(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "admin-confirm-pool"})
+	var poolData map[string]map[string]any
+	_ = json.Unmarshal(poolRec.Body.Bytes(), &poolData)
+	poolID := poolData["UserPool"]["Id"].(string)
+
+	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+		"UserPoolId": poolID,
+		"ClientName": "c",
+	})
+	var clientData map[string]map[string]any
+	_ = json.Unmarshal(clientRec.Body.Bytes(), &clientData)
+	clientID := clientData["UserPoolClient"]["ClientId"].(string)
+
+	signupRec := doCognitoRequest(t, h, "SignUp", map[string]any{
+		"ClientId": clientID,
+		"Username": "confuser",
+		"Password": "Password123!",
+	})
+	require.Equal(t, http.StatusOK, signupRec.Code)
+
+	// AdminConfirmSignUp should work without a confirmation code.
+	rec := doCognitoRequest(t, h, "AdminConfirmSignUp", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "confuser",
+	})
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// After admin confirm, InitiateAuth should succeed.
+	authRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+		"ClientId": clientID,
+		"AuthFlow": "USER_PASSWORD_AUTH",
+		"AuthParameters": map[string]string{
+			"USERNAME": "confuser",
+			"PASSWORD": "Password123!",
+		},
+	})
+	assert.Equal(t, http.StatusOK, authRec.Code)
+}
+
+func TestHandler_ListUsers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		wantCount int
+		wantHTTP  int
+	}{
+		{
+			name:      "empty_pool",
+			wantCount: 0,
+			wantHTTP:  http.StatusOK,
+		},
+		{
+			name:      "pool_with_user",
+			wantCount: 1,
+			wantHTTP:  http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "test-pool"})
+			var poolResp map[string]any
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+			clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+				"UserPoolId": poolID,
+				"ClientName": "test-client",
+			})
+			var clientResp map[string]any
+			require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+			clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
+
+			if tt.wantCount > 0 {
+				doCognitoRequest(t, h, "SignUp", map[string]any{
+					"ClientId": clientID,
+					"Username": "testuser",
+					"Password": "Password123!",
+				})
+			}
+
+			rec := doCognitoRequest(t, h, "ListUsers", map[string]any{
+				"UserPoolId": poolID,
+			})
+			assert.Equal(t, tt.wantHTTP, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			users := resp["Users"].([]any)
+			assert.Len(t, users, tt.wantCount)
+		})
+	}
+}
+
+func TestHandler_AdminDeleteUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		username string
+		wantHTTP int
+	}{
+		{
+			name:     "delete_existing",
+			username: "deleteuser",
+			wantHTTP: http.StatusOK,
+		},
+		{
+			name:     "delete_missing",
+			username: "nonexistent",
+			wantHTTP: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "test-pool"})
+			var poolResp map[string]any
+			require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+			poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+			clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+				"UserPoolId": poolID,
+				"ClientName": "test-client",
+			})
+			var clientResp map[string]any
+			require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+			clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
+
+			// Create the user to delete in the first case.
+			doCognitoRequest(t, h, "SignUp", map[string]any{
+				"ClientId": clientID,
+				"Username": "deleteuser",
+				"Password": "Password123!",
+			})
+
+			rec := doCognitoRequest(t, h, "AdminDeleteUser", map[string]any{
+				"UserPoolId": poolID,
+				"Username":   tt.username,
+			})
+			assert.Equal(t, tt.wantHTTP, rec.Code)
+		})
+	}
+}
+
+func TestHandler_ForgotPasswordConfirmForgotPassword(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "fp-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+		"UserPoolId": poolID,
+		"ClientName": "fp-client",
+	})
+	var clientResp map[string]any
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
+
+	doCognitoRequest(t, h, "SignUp", map[string]any{
+		"ClientId": clientID,
+		"Username": "fpuser",
+		"Password": "OldPass123!",
+	})
+	doCognitoRequest(t, h, "AdminConfirmSignUp", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "fpuser",
+	})
+
+	// ForgotPassword — returns code in CodeDeliveryDetails.
+	fpRec := doCognitoRequest(t, h, "ForgotPassword", map[string]any{
+		"ClientId": clientID,
+		"Username": "fpuser",
+	})
+	assert.Equal(t, http.StatusOK, fpRec.Code)
+
+	var fpResp map[string]any
+	require.NoError(t, json.Unmarshal(fpRec.Body.Bytes(), &fpResp))
+	details := fpResp["CodeDeliveryDetails"].(map[string]any)
+	code := details["ConfirmationCode"].(string)
+	require.NotEmpty(t, code)
+
+	// ConfirmForgotPassword with wrong code must fail.
+	wrongRec := doCognitoRequest(t, h, "ConfirmForgotPassword", map[string]any{
+		"ClientId":         clientID,
+		"Username":         "fpuser",
+		"ConfirmationCode": "WRONGCODE",
+		"Password":         "NewPass123!",
+	})
+	assert.Equal(t, http.StatusBadRequest, wrongRec.Code)
+
+	// ConfirmForgotPassword with correct code must succeed.
+	okRec := doCognitoRequest(t, h, "ConfirmForgotPassword", map[string]any{
+		"ClientId":         clientID,
+		"Username":         "fpuser",
+		"ConfirmationCode": code,
+		"Password":         "NewPass123!",
+	})
+	assert.Equal(t, http.StatusOK, okRec.Code)
+
+	// User can now authenticate with the new password.
+	authRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+		"AuthFlow": "USER_PASSWORD_AUTH",
+		"ClientId": clientID,
+		"AuthParameters": map[string]any{
+			"USERNAME": "fpuser",
+			"PASSWORD": "NewPass123!",
+		},
+	})
+	assert.Equal(t, http.StatusOK, authRec.Code)
+}
+
+func TestHandler_GetUser_ChangePassword(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	poolRec := doCognitoRequest(t, h, "CreateUserPool", map[string]any{"PoolName": "gu-pool"})
+	var poolResp map[string]any
+	require.NoError(t, json.Unmarshal(poolRec.Body.Bytes(), &poolResp))
+	poolID := poolResp["UserPool"].(map[string]any)["Id"].(string)
+
+	clientRec := doCognitoRequest(t, h, "CreateUserPoolClient", map[string]any{
+		"UserPoolId": poolID,
+		"ClientName": "gu-client",
+	})
+	var clientResp map[string]any
+	require.NoError(t, json.Unmarshal(clientRec.Body.Bytes(), &clientResp))
+	clientID := clientResp["UserPoolClient"].(map[string]any)["ClientId"].(string)
+
+	doCognitoRequest(t, h, "SignUp", map[string]any{
+		"ClientId": clientID,
+		"Username": "guuser",
+		"Password": "OldPass123!",
+		"UserAttributes": []map[string]any{
+			{"Name": "email", "Value": "test@example.com"},
+		},
+	})
+	doCognitoRequest(t, h, "AdminConfirmSignUp", map[string]any{
+		"UserPoolId": poolID,
+		"Username":   "guuser",
+	})
+
+	// Authenticate to get access token.
+	authRec := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+		"AuthFlow": "USER_PASSWORD_AUTH",
+		"ClientId": clientID,
+		"AuthParameters": map[string]any{
+			"USERNAME": "guuser",
+			"PASSWORD": "OldPass123!",
+		},
+	})
+	assert.Equal(t, http.StatusOK, authRec.Code)
+
+	var authResp map[string]any
+	require.NoError(t, json.Unmarshal(authRec.Body.Bytes(), &authResp))
+	authResult := authResp["AuthenticationResult"].(map[string]any)
+	accessToken := authResult["AccessToken"].(string)
+
+	// GetUser with valid token.
+	guRec := doCognitoRequest(t, h, "GetUser", map[string]any{
+		"AccessToken": accessToken,
+	})
+	assert.Equal(t, http.StatusOK, guRec.Code)
+
+	var guResp map[string]any
+	require.NoError(t, json.Unmarshal(guRec.Body.Bytes(), &guResp))
+	assert.Equal(t, "guuser", guResp["Username"])
+
+	// ChangePassword with wrong old password must fail.
+	wrongPwRec := doCognitoRequest(t, h, "ChangePassword", map[string]any{
+		"AccessToken":      accessToken,
+		"PreviousPassword": "WrongPass!",
+		"ProposedPassword": "NewPass123!",
+	})
+	assert.Equal(t, http.StatusBadRequest, wrongPwRec.Code)
+
+	// ChangePassword with correct old password must succeed.
+	changePwRec := doCognitoRequest(t, h, "ChangePassword", map[string]any{
+		"AccessToken":      accessToken,
+		"PreviousPassword": "OldPass123!",
+		"ProposedPassword": "NewPass123!",
+	})
+	assert.Equal(t, http.StatusOK, changePwRec.Code)
+
+	// User can authenticate with new password.
+	authRec2 := doCognitoRequest(t, h, "InitiateAuth", map[string]any{
+		"AuthFlow": "USER_PASSWORD_AUTH",
+		"ClientId": clientID,
+		"AuthParameters": map[string]any{
+			"USERNAME": "guuser",
+			"PASSWORD": "NewPass123!",
+		},
+	})
+	assert.Equal(t, http.StatusOK, authRec2.Code)
 }

@@ -865,60 +865,145 @@ func TestHandler_Tags_OnJobDefinition(t *testing.T) {
 
 // --- Stub operation tests ---
 
-func TestHandler_StubOperations(t *testing.T) {
+func TestHandler_JobOperations(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		body       any
-		name       string
-		path       string
-		wantStatus int
-	}{
-		{
-			name:       "list_jobs",
-			path:       "/v1/listjobs",
-			body:       map[string]any{"jobQueue": "my-queue"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "describe_jobs",
-			path:       "/v1/describejobs",
-			body:       map[string]any{"jobs": []string{"job-id-1"}},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name: "submit_job",
-			path: "/v1/submitjob",
-			body: map[string]any{
-				"jobName":       "my-job",
-				"jobQueue":      "my-queue",
-				"jobDefinition": "my-jd",
+	// Helper: set up a handler with a queue pre-created.
+	newHandlerWithQueue := func(t *testing.T, queueName string) *batch.Handler {
+		t.Helper()
+
+		h := newTestHandler(t)
+		ceBody := map[string]any{
+			"computeEnvironmentName": "ce1",
+			"type":                   "MANAGED",
+			"state":                  "ENABLED",
+		}
+		rec := post(t, h, "/v1/createcomputeenvironment", ceBody)
+		require.Equal(t, http.StatusOK, rec.Code, "create compute environment")
+
+		jqBody := map[string]any{
+			"jobQueueName": queueName,
+			"priority":     1,
+			"state":        "ENABLED",
+			"computeEnvironmentOrder": []map[string]any{
+				{"computeEnvironment": "ce1", "order": 1},
 			},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "terminate_job",
-			path:       "/v1/terminatejob",
-			body:       map[string]any{"jobId": "job-id-1", "reason": "testing"},
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "cancel_job",
-			path:       "/v1/canceljob",
-			body:       map[string]any{"jobId": "job-id-1", "reason": "testing"},
-			wantStatus: http.StatusOK,
-		},
+		}
+		rec = post(t, h, "/v1/createjobqueue", jqBody)
+		require.Equal(t, http.StatusOK, rec.Code, "create job queue")
+
+		return h
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("submit_list_describe_terminate", func(t *testing.T) {
+		t.Parallel()
 
-			h := newTestHandler(t)
-			rec := post(t, h, tt.path, tt.body)
-			assert.Equal(t, tt.wantStatus, rec.Code)
+		h := newHandlerWithQueue(t, "my-queue")
+
+		// SubmitJob succeeds when queue exists.
+		submitRec := post(t, h, "/v1/submitjob", map[string]any{
+			"jobName":       "my-job",
+			"jobQueue":      "my-queue",
+			"jobDefinition": "my-jd:1",
 		})
-	}
+		require.Equal(t, http.StatusOK, submitRec.Code)
+
+		var submitOut map[string]any
+		mustUnmarshal(t, submitRec, &submitOut)
+		jobID, _ := submitOut["jobId"].(string)
+		require.NotEmpty(t, jobID)
+
+		// ListJobs returns the submitted job.
+		listRec := post(t, h, "/v1/listjobs", map[string]any{"jobQueue": "my-queue"})
+		require.Equal(t, http.StatusOK, listRec.Code)
+
+		var listOut map[string]any
+		mustUnmarshal(t, listRec, &listOut)
+		summaries, _ := listOut["jobSummaryList"].([]any)
+		assert.Len(t, summaries, 1)
+
+		// DescribeJobs returns the full job detail.
+		describeRec := post(t, h, "/v1/describejobs", map[string]any{"jobs": []string{jobID}})
+		require.Equal(t, http.StatusOK, describeRec.Code)
+
+		var describeOut map[string]any
+		mustUnmarshal(t, describeRec, &describeOut)
+		jobs, _ := describeOut["jobs"].([]any)
+		assert.Len(t, jobs, 1)
+
+		// TerminateJob marks the job FAILED.
+		termRec := post(t, h, "/v1/terminatejob", map[string]any{"jobId": jobID, "reason": "test"})
+		require.Equal(t, http.StatusOK, termRec.Code)
+	})
+
+	t.Run("cancel_job", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHandlerWithQueue(t, "q2")
+
+		submitRec := post(t, h, "/v1/submitjob", map[string]any{
+			"jobName":       "j",
+			"jobQueue":      "q2",
+			"jobDefinition": "jd:1",
+		})
+		require.Equal(t, http.StatusOK, submitRec.Code)
+
+		var submitOut map[string]any
+		mustUnmarshal(t, submitRec, &submitOut)
+		jobID, _ := submitOut["jobId"].(string)
+
+		cancelRec := post(t, h, "/v1/canceljob", map[string]any{"jobId": jobID, "reason": "cancelled"})
+		require.Equal(t, http.StatusOK, cancelRec.Code)
+	})
+
+	t.Run("describe_jobs_returns_empty_for_unknown", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := post(t, h, "/v1/describejobs", map[string]any{"jobs": []string{"unknown-id"}})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out map[string]any
+		mustUnmarshal(t, rec, &out)
+		jobs, _ := out["jobs"].([]any)
+		assert.Empty(t, jobs)
+	})
+
+	t.Run("list_jobs_missing_queue_returns_error", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := post(t, h, "/v1/listjobs", map[string]any{"jobQueue": "nonexistent"})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("submit_job_missing_queue_returns_error", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := post(t, h, "/v1/submitjob", map[string]any{
+			"jobName":       "j",
+			"jobQueue":      "nonexistent",
+			"jobDefinition": "jd:1",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("terminate_job_missing_returns_error", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := post(t, h, "/v1/terminatejob", map[string]any{"jobId": "nonexistent", "reason": "x"})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("cancel_job_missing_returns_error", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := post(t, h, "/v1/canceljob", map[string]any{"jobId": "nonexistent", "reason": "x"})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
 }
 
 func TestHandler_MethodNotAllowed(t *testing.T) {
@@ -1172,4 +1257,167 @@ func TestHandler_DeregisterJobDefinition_ByNameRevision(t *testing.T) {
 		"jobDefinition": "namerev-jd:1",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestHandler_DeleteJobQueue_CleansUpJobs(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	// Create compute environment and job queue.
+	rec := post(t, h, "/v1/createcomputeenvironment", map[string]any{
+		"computeEnvironmentName": "env1",
+		"type":                   "MANAGED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/createjobqueue", map[string]any{
+		"jobQueueName": "q1",
+		"priority":     1,
+		"computeEnvironmentOrder": []map[string]any{
+			{"order": 1, "computeEnvironment": "env1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// Submit a job.
+	rec = post(t, h, "/v1/submitjob", map[string]any{
+		"jobName":       "job1",
+		"jobQueue":      "q1",
+		"jobDefinition": "jd1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var submitResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitResp))
+	jobID := submitResp["jobId"].(string)
+
+	// Delete the queue — should also clean up associated jobs.
+	rec = post(t, h, "/v1/deletejobqueue", map[string]any{
+		"jobQueue": "q1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	// The job should no longer be found.
+	rec = post(t, h, "/v1/describejobs", map[string]any{
+		"jobs": []string{jobID},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	jobs := descResp["jobs"].([]any)
+	assert.Empty(t, jobs, "jobs should have been cleaned up when queue was deleted")
+}
+
+func TestHandler_SubmitJob_JobARNPresent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := post(t, h, "/v1/createcomputeenvironment", map[string]any{
+		"computeEnvironmentName": "env-arn",
+		"type":                   "MANAGED",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/createjobqueue", map[string]any{
+		"jobQueueName": "q-arn",
+		"priority":     1,
+		"computeEnvironmentOrder": []map[string]any{
+			{"order": 1, "computeEnvironment": "env-arn"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = post(t, h, "/v1/submitjob", map[string]any{
+		"jobName":       "my-job",
+		"jobQueue":      "q-arn",
+		"jobDefinition": "jd1",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var submitResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &submitResp))
+	jobID := submitResp["jobId"].(string)
+
+	// DescribeJobs should return the job ARN.
+	rec = post(t, h, "/v1/describejobs", map[string]any{
+		"jobs": []string{jobID},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	jobs := descResp["jobs"].([]any)
+	require.Len(t, jobs, 1)
+
+	job := jobs[0].(map[string]any)
+	assert.NotEmpty(t, job["jobArn"], "job ARN should be set")
+	assert.Equal(t, "q-arn", job["jobQueue"], "jobQueue should be canonical queue name")
+}
+
+func TestBatch_PersistenceSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
+
+	// Create compute environment.
+	ce, err := b.CreateComputeEnvironment("test-ce", "MANAGED", "ENABLED", nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, ce.ComputeEnvironmentArn)
+
+	// Create job queue.
+	ceOrder := []batch.ComputeEnvironmentOrder{
+		{ComputeEnvironment: ce.ComputeEnvironmentArn, Order: 1},
+	}
+	jq, err := b.CreateJobQueue("test-jq", 10, "ENABLED", ceOrder, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, jq.JobQueueArn)
+
+	// Register job definition.
+	jd, err := b.RegisterJobDefinition("test-jd", "container", nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, jd.JobDefinitionArn)
+
+	// Submit a job.
+	job, err := b.SubmitJob("test-job", jq.JobQueueName, jd.JobDefinitionArn, nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, job.JobID)
+
+	// Snapshot and restore.
+	h := batch.NewHandler(b)
+	snap := h.Snapshot()
+	require.NotEmpty(t, snap)
+
+	b2 := batch.NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := batch.NewHandler(b2)
+	require.NoError(t, h2.Restore(snap))
+
+	// Compute environment is restored.
+	ces := b2.DescribeComputeEnvironments([]string{"test-ce"})
+	require.Len(t, ces, 1)
+	assert.Equal(t, "test-ce", ces[0].ComputeEnvironmentName)
+
+	// Job queue is restored.
+	jqs := b2.DescribeJobQueues([]string{"test-jq"})
+	require.Len(t, jqs, 1)
+	assert.Equal(t, "test-jq", jqs[0].JobQueueName)
+
+	// Job definition is restored.
+	jds := b2.DescribeJobDefinitions([]string{"test-jd"})
+	require.NotEmpty(t, jds)
+	assert.Equal(t, "test-jd", jds[0].JobDefinitionName)
+
+	// Submitted job is restored.
+	jobs := b2.DescribeJobs([]string{job.JobID})
+	require.Len(t, jobs, 1)
+	assert.Equal(t, "test-job", jobs[0].JobName)
+	assert.Equal(t, jq.JobQueueName, jobs[0].JobQueue)
+
+	// jobsByQueue index is rebuilt — ListJobs must return the submitted job.
+	listed, err := b2.ListJobs(jq.JobQueueName, "")
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, job.JobID, listed[0].JobID)
 }

@@ -355,12 +355,14 @@ func TestInMemoryBackend_ConfirmSignUp(t *testing.T) {
 			setup: func(b *cognitoidp.InMemoryBackend) string {
 				pool, _ := b.CreateUserPool("p")
 				client, _ := b.CreateUserPoolClient(pool.ID, "c")
-				_, _ = b.SignUp(client.ClientID, "bob", "Password123!", nil)
+				u, _ := b.SignUp(client.ClientID, "bob", "Password123!", nil)
+
+				_ = b.ConfirmSignUp(client.ClientID, "bob", u.ConfirmCode)
 
 				return client.ClientID
 			},
 			username:         "bob",
-			confirmationCode: "123456",
+			confirmationCode: "irrelevant-the-setup-already-confirmed",
 		},
 		{
 			name: "user_not_found",
@@ -428,8 +430,8 @@ func TestInMemoryBackend_InitiateAuth(t *testing.T) {
 			setup: func(b *cognitoidp.InMemoryBackend) (string, string, string) {
 				pool, _ := b.CreateUserPool("p")
 				client, _ := b.CreateUserPoolClient(pool.ID, "c")
-				_, _ = b.SignUp(client.ClientID, "dave", "Password123!", nil)
-				_ = b.ConfirmSignUp(client.ClientID, "dave", "code")
+				u, _ := b.SignUp(client.ClientID, "dave", "Password123!", nil)
+				_ = b.ConfirmSignUp(client.ClientID, "dave", u.ConfirmCode)
 
 				return client.ClientID, "dave", "Password123!"
 			},
@@ -440,8 +442,8 @@ func TestInMemoryBackend_InitiateAuth(t *testing.T) {
 			setup: func(b *cognitoidp.InMemoryBackend) (string, string, string) {
 				pool, _ := b.CreateUserPool("p")
 				client, _ := b.CreateUserPoolClient(pool.ID, "c")
-				_, _ = b.SignUp(client.ClientID, "dave", "Password123!", nil)
-				_ = b.ConfirmSignUp(client.ClientID, "dave", "code")
+				u, _ := b.SignUp(client.ClientID, "dave", "Password123!", nil)
+				_ = b.ConfirmSignUp(client.ClientID, "dave", u.ConfirmCode)
 
 				return client.ClientID, "dave", "WrongPassword!"
 			},
@@ -467,8 +469,8 @@ func TestInMemoryBackend_InitiateAuth(t *testing.T) {
 			setup: func(b *cognitoidp.InMemoryBackend) (string, string, string) {
 				pool, _ := b.CreateUserPool("p")
 				client, _ := b.CreateUserPoolClient(pool.ID, "c")
-				_, _ = b.SignUp(client.ClientID, "frank", "Password123!", nil)
-				_ = b.ConfirmSignUp(client.ClientID, "frank", "code")
+				u, _ := b.SignUp(client.ClientID, "frank", "Password123!", nil)
+				_ = b.ConfirmSignUp(client.ClientID, "frank", u.ConfirmCode)
 
 				return client.ClientID, "frank", "Password123!"
 			},
