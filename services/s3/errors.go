@@ -18,29 +18,33 @@ var (
 	ErrBucketNotEmpty          = errors.New(
 		"BucketNotEmpty: The bucket you tried to delete is not empty",
 	)
-	ErrNotImplemented         = errors.New("NotImplemented")
-	ErrMethodNotAllowed       = errors.New("MethodNotAllowed")
-	ErrInvalidArgument        = errors.New("InvalidArgument")
-	ErrNoSuchUpload           = awserr.New("NoSuchUpload", awserr.ErrNotFound)
-	ErrInvalidPart            = errors.New("InvalidPart")
-	ErrNoCompressor           = errors.New("data is compressed but no compressor available")
-	ErrNoBucketPolicy         = errors.New("NoSuchBucketPolicy")
-	ErrNoCORSConfig           = errors.New("NoSuchCORSConfiguration")
-	ErrNoLifecycleConfig      = errors.New("NoSuchLifecycleConfiguration")
-	ErrNoObjectLockConfig     = errors.New("ObjectLockConfigurationNotFoundError")
-	ErrNoWebsiteConfig        = errors.New("NoSuchWebsiteConfiguration")
-	ErrNoEncryptionConfig     = errors.New("ServerSideEncryptionConfigurationNotFoundError")
-	ErrObjectLocked           = errors.New("AccessDenied")
-	ErrNoSuchObjectLockConfig = awserr.New("NoSuchObjectLockConfiguration", awserr.ErrNotFound)
-	ErrNoPublicAccessBlock    = errors.New("NoSuchPublicAccessBlockConfiguration")
-	ErrNoOwnershipControls    = errors.New("OwnershipControlsNotFoundError")
-	ErrNoReplicationConfig    = errors.New("ReplicationConfigurationNotFoundError")
-	ErrNoMetadataConfig       = errors.New("NoSuchConfiguration")
-	ErrNoMetadataTableConfig  = errors.New("NoSuchConfiguration")
-	ErrNoSuchTagSet           = errors.New("NoSuchTagSet")
-	ErrBadChecksum            = errors.New("BadDigest")
-	ErrDeleteMarker           = errors.New("DeleteMarker")
-	ErrEntityTooSmall         = errors.New("EntityTooSmall")
+	ErrNotImplemented             = errors.New("NotImplemented")
+	ErrMethodNotAllowed           = errors.New("MethodNotAllowed")
+	ErrInvalidArgument            = errors.New("InvalidArgument")
+	ErrNoSuchUpload               = awserr.New("NoSuchUpload", awserr.ErrNotFound)
+	ErrInvalidPart                = errors.New("InvalidPart")
+	ErrNoCompressor               = errors.New("data is compressed but no compressor available")
+	ErrNoBucketPolicy             = errors.New("NoSuchBucketPolicy")
+	ErrNoCORSConfig               = errors.New("NoSuchCORSConfiguration")
+	ErrNoLifecycleConfig          = errors.New("NoSuchLifecycleConfiguration")
+	ErrNoObjectLockConfig         = errors.New("ObjectLockConfigurationNotFoundError")
+	ErrNoWebsiteConfig            = errors.New("NoSuchWebsiteConfiguration")
+	ErrNoEncryptionConfig         = errors.New("ServerSideEncryptionConfigurationNotFoundError")
+	ErrObjectLocked               = errors.New("AccessDenied")
+	ErrNoSuchObjectLockConfig     = awserr.New("NoSuchObjectLockConfiguration", awserr.ErrNotFound)
+	ErrNoPublicAccessBlock        = errors.New("NoSuchPublicAccessBlockConfiguration")
+	ErrNoOwnershipControls        = errors.New("OwnershipControlsNotFoundError")
+	ErrNoReplicationConfig        = errors.New("ReplicationConfigurationNotFoundError")
+	ErrNoAnalyticsConfig          = errors.New("NoSuchConfiguration")
+	ErrNoInventoryConfig          = errors.New("NoSuchConfiguration")
+	ErrNoMetricsConfig            = errors.New("NoSuchConfiguration")
+	ErrNoIntelligentTieringConfig = errors.New("NoSuchConfiguration")
+	ErrNoMetadataConfig           = errors.New("NoSuchConfiguration")
+	ErrNoMetadataTableConfig      = errors.New("NoSuchConfiguration")
+	ErrNoSuchTagSet               = errors.New("NoSuchTagSet")
+	ErrBadChecksum                = errors.New("BadDigest")
+	ErrDeleteMarker               = errors.New("DeleteMarker")
+	ErrEntityTooSmall             = errors.New("EntityTooSmall")
 )
 
 type s3ErrorInfo struct {
@@ -168,6 +172,26 @@ func configErrorTable() []s3ErrorEntry {
 		{ErrNoReplicationConfig, s3ErrorInfo{
 			"ReplicationConfigurationNotFoundError",
 			"The replication configuration was not found",
+			http.StatusNotFound,
+		}},
+		{ErrNoAnalyticsConfig, s3ErrorInfo{
+			"NoSuchConfiguration",
+			"The analytics configuration does not exist",
+			http.StatusNotFound,
+		}},
+		{ErrNoInventoryConfig, s3ErrorInfo{
+			"NoSuchConfiguration",
+			"The inventory configuration does not exist",
+			http.StatusNotFound,
+		}},
+		{ErrNoMetricsConfig, s3ErrorInfo{
+			"NoSuchConfiguration",
+			"The metrics configuration does not exist",
+			http.StatusNotFound,
+		}},
+		{ErrNoIntelligentTieringConfig, s3ErrorInfo{
+			"NoSuchConfiguration",
+			"The intelligent-tiering configuration does not exist",
 			http.StatusNotFound,
 		}},
 		{ErrNoMetadataConfig, s3ErrorInfo{

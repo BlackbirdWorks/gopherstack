@@ -2784,6 +2784,164 @@ func (b *InMemoryBackend) DeleteBucketInventoryConfiguration(_ context.Context, 
 	return nil
 }
 
+// PutBucketAnalyticsConfiguration stores the analytics configuration for a bucket.
+func (b *InMemoryBackend) PutBucketAnalyticsConfiguration(_ context.Context, bucketName, configXML string) error {
+	b.mu.RLock("PutBucketAnalyticsConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketAnalyticsConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.AnalyticsConfig = configXML
+
+	return nil
+}
+
+// GetBucketAnalyticsConfiguration returns the analytics configuration for a bucket.
+func (b *InMemoryBackend) GetBucketAnalyticsConfiguration(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketAnalyticsConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketAnalyticsConfiguration")
+	defer bucket.mu.RUnlock()
+
+	if bucket.AnalyticsConfig == "" {
+		return "", ErrNoAnalyticsConfig
+	}
+
+	return bucket.AnalyticsConfig, nil
+}
+
+// PutBucketIntelligentTieringConfiguration stores the Intelligent-Tiering configuration for a bucket.
+func (b *InMemoryBackend) PutBucketIntelligentTieringConfiguration(
+	_ context.Context,
+	bucketName, configXML string,
+) error {
+	b.mu.RLock("PutBucketIntelligentTieringConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketIntelligentTieringConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.IntelligentTieringConfig = configXML
+
+	return nil
+}
+
+// GetBucketIntelligentTieringConfiguration returns the Intelligent-Tiering configuration for a bucket.
+func (b *InMemoryBackend) GetBucketIntelligentTieringConfiguration(
+	_ context.Context,
+	bucketName string,
+) (string, error) {
+	b.mu.RLock("GetBucketIntelligentTieringConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketIntelligentTieringConfiguration")
+	defer bucket.mu.RUnlock()
+
+	if bucket.IntelligentTieringConfig == "" {
+		return "", ErrNoIntelligentTieringConfig
+	}
+
+	return bucket.IntelligentTieringConfig, nil
+}
+
+// PutBucketInventoryConfiguration stores the inventory configuration for a bucket.
+func (b *InMemoryBackend) PutBucketInventoryConfiguration(_ context.Context, bucketName, configXML string) error {
+	b.mu.RLock("PutBucketInventoryConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketInventoryConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.InventoryConfig = configXML
+
+	return nil
+}
+
+// GetBucketInventoryConfiguration returns the inventory configuration for a bucket.
+func (b *InMemoryBackend) GetBucketInventoryConfiguration(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketInventoryConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketInventoryConfiguration")
+	defer bucket.mu.RUnlock()
+
+	if bucket.InventoryConfig == "" {
+		return "", ErrNoInventoryConfig
+	}
+
+	return bucket.InventoryConfig, nil
+}
+
+// PutBucketMetricsConfiguration stores the metrics configuration for a bucket.
+func (b *InMemoryBackend) PutBucketMetricsConfiguration(_ context.Context, bucketName, configXML string) error {
+	b.mu.RLock("PutBucketMetricsConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return err
+	}
+
+	bucket.mu.Lock("PutBucketMetricsConfiguration")
+	defer bucket.mu.Unlock()
+
+	bucket.MetricsConfig = configXML
+
+	return nil
+}
+
+// GetBucketMetricsConfiguration returns the metrics configuration for a bucket.
+func (b *InMemoryBackend) GetBucketMetricsConfiguration(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketMetricsConfiguration")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketMetricsConfiguration")
+	defer bucket.mu.RUnlock()
+
+	if bucket.MetricsConfig == "" {
+		return "", ErrNoMetricsConfig
+	}
+
+	return bucket.MetricsConfig, nil
+}
+
 // DeleteBucketLifecycle clears the lifecycle configuration for a bucket.
 // This is the legacy alias for DeleteBucketLifecycleConfiguration.
 func (b *InMemoryBackend) DeleteBucketLifecycle(ctx context.Context, bucketName string) error {

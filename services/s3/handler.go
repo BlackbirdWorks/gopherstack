@@ -207,10 +207,18 @@ func (h *S3Handler) GetSupportedOperations() []string {
 		"GetBucketMetadataTableConfiguration",
 		"DeleteBucketMetadataTableConfiguration",
 		"CreateSession",
+		"PutBucketAnalyticsConfiguration",
+		"GetBucketAnalyticsConfiguration",
 		"DeleteBucketAnalyticsConfiguration",
+		"PutBucketIntelligentTieringConfiguration",
+		"GetBucketIntelligentTieringConfiguration",
 		"DeleteBucketIntelligentTieringConfiguration",
+		"PutBucketInventoryConfiguration",
+		"GetBucketInventoryConfiguration",
 		"DeleteBucketInventoryConfiguration",
 		"DeleteBucketLifecycle",
+		"PutBucketMetricsConfiguration",
+		"GetBucketMetricsConfiguration",
 		"DeleteBucketMetricsConfiguration",
 	}
 }
