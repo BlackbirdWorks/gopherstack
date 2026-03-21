@@ -1,5 +1,7 @@
 package ssm
 
+import "time"
+
 // Exported wrappers for internal state used in tests.
 
 // MaxHistoryCap exposes the history cap constant for test assertions.
@@ -59,4 +61,14 @@ func (b *InMemoryBackend) DocumentVersionCount(name string) int {
 	defer b.mu.RUnlock()
 
 	return len(b.documentVersions[name])
+}
+
+// GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the timeout.
+func (h *Handler) GetJanitorTaskTimeout() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.TaskTimeout
 }

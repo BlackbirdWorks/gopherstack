@@ -27,7 +27,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	backend := NewInMemoryBackend(accountID, region)
 	handler := NewHandler(backend)
 	// Zero values trigger defaults: 1-minute sweep interval, 24-hour INACTIVE TTL.
-	handler.WithJanitor(0, 0)
+	handler.WithJanitor(0, 0, ctx.JanitorTimeout)
 
 	return handler, nil
 }

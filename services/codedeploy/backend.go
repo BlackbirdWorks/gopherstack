@@ -175,8 +175,14 @@ func (b *InMemoryBackend) DeleteApplication(name string) error {
 	b.mu.Lock("DeleteApplication")
 	defer b.mu.Unlock()
 
-	if _, ok := b.applications[name]; !ok {
+	app, ok := b.applications[name]
+	if !ok {
 		return fmt.Errorf("%w: application %s not found", ErrNotFound, name)
+	}
+
+	app.Tags.Close()
+	for _, dg := range b.deploymentGroups[name] {
+		dg.Tags.Close()
 	}
 
 	delete(b.applications, name)
@@ -314,10 +320,12 @@ func (b *InMemoryBackend) DeleteDeploymentGroup(appName, dgName string) error {
 		return fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
 	}
 
-	if _, exists := dgs[dgName]; !exists {
+	dg, exists := dgs[dgName]
+	if !exists {
 		return fmt.Errorf("%w: deployment group %s not found", ErrDeploymentGroupNotFound, dgName)
 	}
 
+	dg.Tags.Close()
 	delete(dgs, dgName)
 
 	return nil

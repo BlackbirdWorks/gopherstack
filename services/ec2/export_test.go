@@ -15,6 +15,12 @@ func (j *Janitor) SweepCancelledSpotRequestsForTest(ctx context.Context) {
 	j.sweepCancelledSpotRequests(ctx)
 }
 
+// GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the timeout.
+func (h *Handler) GetJanitorTaskTimeout() time.Duration {
+	return h.janitor.TaskTimeout
+}
+
 // SetInstanceTerminatedAtForTest sets the TerminatedAt field on an instance for testing.
 // This allows tests to back-date the termination time to trigger immediate sweeping.
 func (b *InMemoryBackend) SetInstanceTerminatedAtForTest(id string, t time.Time) {

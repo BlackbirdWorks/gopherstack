@@ -127,12 +127,24 @@ type InMemoryBackend struct {
 
 // NewInMemoryBackend creates a new InMemoryBackend with default configuration.
 func NewInMemoryBackend() *InMemoryBackend {
-	return NewInMemoryBackendWithConfig(config.DefaultAccountID, config.DefaultRegion)
+	return NewInMemoryBackendWithContext(context.Background(), config.DefaultAccountID, config.DefaultRegion)
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with given account and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
-	ctx, cancel := context.WithCancel(context.Background())
+	return NewInMemoryBackendWithContext(context.Background(), accountID, region)
+}
+
+// NewInMemoryBackendWithContext creates a new InMemoryBackend with the given parent context,
+// account ID, and region. Subscription delivery goroutines are bounded by svcCtx so that
+// they are cancelled on server shutdown.
+// If svcCtx is nil, [context.Background] is used.
+func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region string) *InMemoryBackend {
+	if svcCtx == nil {
+		svcCtx = context.Background()
+	}
+
+	ctx, cancel := context.WithCancel(svcCtx)
 
 	return &InMemoryBackend{
 		accountID:           accountID,

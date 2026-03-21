@@ -63,3 +63,13 @@ func (b *InMemoryBackend) GetEmailTTL() time.Duration {
 
 	return b.emailTTL
 }
+
+// GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the timeout.
+func (h *Handler) GetJanitorTaskTimeout() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.TaskTimeout
+}

@@ -198,9 +198,11 @@ func (b *InMemoryBackend) DeleteRestAPI(restAPIID string) error {
 	b.mu.Lock("DeleteRestAPI")
 	defer b.mu.Unlock()
 
-	if _, ok := b.apis[restAPIID]; !ok {
+	d, ok := b.apis[restAPIID]
+	if !ok {
 		return fmt.Errorf("%w: REST API %s not found", ErrRestAPINotFound, restAPIID)
 	}
+	d.api.Tags.Close()
 	delete(b.apis, restAPIID)
 
 	return nil
@@ -1137,6 +1139,13 @@ func parsePosition(position string) int {
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
+
+	// Close all REST API tag stores to prevent resource leaks.
+	for _, d := range b.apis {
+		if d.api.Tags != nil {
+			d.api.Tags.Close()
+		}
+	}
 
 	b.apis = make(map[string]*apiData)
 }

@@ -1,0 +1,120 @@
+package xray_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/xray"
+)
+
+// TestXRayJanitor_TaskTimeout_WithJanitor verifies that WithJanitor propagates
+// the variadic taskTimeout into the janitor's TaskTimeout field.
+func TestXRayJanitor_TaskTimeout_WithJanitor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		taskTimeout time.Duration
+		want        time.Duration
+	}{
+		{
+			name:        "no_timeout_zero",
+			taskTimeout: 0,
+			want:        0,
+		},
+		{
+			name:        "with_30s_timeout",
+			taskTimeout: 30 * time.Second,
+			want:        30 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := xray.NewHandler(xray.NewInMemoryBackend())
+			h.WithJanitor(time.Minute, 0, tt.taskTimeout)
+
+			assert.Equal(t, tt.want, h.GetJanitorTaskTimeout())
+		})
+	}
+}
+
+// TestXRayJanitor_SweepOnce_EvictsExpiredTraces verifies that SweepOnce removes
+// traces older than TraceTTL.
+func TestXRayJanitor_SweepOnce_EvictsExpiredTraces(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		traceTTL      time.Duration
+		traceAge      time.Duration
+		expectEvicted bool
+	}{
+		{
+			name:          "old_trace_evicted",
+			traceTTL:      time.Minute,
+			traceAge:      2 * time.Minute,
+			expectEvicted: true,
+		},
+		{
+			name:          "fresh_trace_kept",
+			traceTTL:      time.Minute,
+			traceAge:      10 * time.Second,
+			expectEvicted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := xray.NewInMemoryBackend()
+
+			startTime := time.Now().Add(-tt.traceAge)
+			traceID := b.PutTraceForTest(startTime)
+
+			j := xray.NewJanitor(b, time.Minute, tt.traceTTL)
+			j.SweepOnce(t.Context())
+
+			exists := b.TraceExistsForTest(traceID)
+			if tt.expectEvicted {
+				assert.False(t, exists, "expected trace to be evicted")
+			} else {
+				assert.True(t, exists, "expected trace to still exist")
+			}
+		})
+	}
+}
+
+// TestXRayJanitor_Run_ExitsOnCancel verifies that the janitor goroutine exits
+// promptly when the parent context is cancelled.
+func TestXRayJanitor_Run_ExitsOnCancel(t *testing.T) {
+	t.Parallel()
+
+	b := xray.NewInMemoryBackend()
+	j := xray.NewJanitor(b, 10*time.Millisecond, 0)
+	j.TaskTimeout = 30 * time.Second
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan struct{})
+
+	go func() {
+		j.Run(ctx)
+		close(done)
+	}()
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "janitor did not exit after context cancellation")
+	}
+}

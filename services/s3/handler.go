@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	s3SDK "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
@@ -87,14 +88,18 @@ func NewHandler(backend StorageBackend) *S3Handler {
 }
 
 // WithJanitor attaches a background janitor to the handler.
-func (h *S3Handler) WithJanitor(settings Settings) *S3Handler {
+func (h *S3Handler) WithJanitor(settings Settings, taskTimeout ...time.Duration) *S3Handler {
 	h.DefaultRegion = settings.DefaultRegion
 	if h.DefaultRegion == "" {
 		h.DefaultRegion = config.DefaultRegion
 	}
 	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
 		memBackend.SetDefaultRegion(h.DefaultRegion)
-		h.janitor = NewJanitor(memBackend, settings)
+		j := NewJanitor(memBackend, settings)
+		if len(taskTimeout) > 0 {
+			j.TaskTimeout = taskTimeout[0]
+		}
+		h.janitor = j
 	}
 
 	return h

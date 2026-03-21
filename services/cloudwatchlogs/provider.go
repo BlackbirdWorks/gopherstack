@@ -19,12 +19,12 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	if cp, ok := ctx.Config.(config.Provider); ok {
 		cfg := cp.GetGlobalConfig()
-		backend = NewInMemoryBackendWithConfig(cfg.AccountID, cfg.Region)
+		backend = NewInMemoryBackendWithContext(ctx.JanitorCtx, cfg.AccountID, cfg.Region)
 	} else {
-		backend = NewInMemoryBackend()
+		backend = NewInMemoryBackendWithContext(ctx.JanitorCtx, config.DefaultAccountID, config.DefaultRegion)
 	}
 
-	handler := NewHandler(backend).WithJanitor(0)
+	handler := NewHandler(backend).WithJanitor(0, ctx.JanitorTimeout)
 
 	return handler, nil
 }

@@ -34,7 +34,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	backend := NewInMemoryBackend(&GzipCompressor{}).
 		WithCompressionMinBytes(settings.CompressionMinBytes)
-	handler := NewHandler(backend).WithJanitor(settings)
+	handler := NewHandler(backend).WithJanitor(settings, ctx.JanitorTimeout)
 	handler.Endpoint = endpoint
 
 	return handler, nil

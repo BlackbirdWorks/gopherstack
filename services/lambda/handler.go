@@ -166,6 +166,18 @@ func (h *Handler) removeTags(resourceID string, keys []string) {
 	}
 }
 
+// deleteTags removes the tags entry for a resource and releases its resources.
+func (h *Handler) deleteTags(resourceID string) {
+	h.tagsMu.Lock("deleteTags")
+	t := h.tags[resourceID]
+	delete(h.tags, resourceID)
+	h.tagsMu.Unlock()
+
+	if t != nil {
+		t.Close()
+	}
+}
+
 func (h *Handler) getTags(resourceID string) map[string]string {
 	h.tagsMu.RLock("getTags")
 	t := h.tags[resourceID]
@@ -1120,6 +1132,9 @@ func (h *Handler) handleDeleteFunction(c *echo.Context, name string) error {
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())
 	}
+
+	// Release the tags entry for this function's ARN.
+	h.deleteTags(buildARN(h.DefaultRegion, h.AccountID, name))
 
 	return c.NoContent(http.StatusNoContent)
 }
@@ -2319,4 +2334,16 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	// Close and clear the handler-level tag store.
+	h.tagsMu.Lock("Reset")
+	defer h.tagsMu.Unlock()
+
+	for _, t := range h.tags {
+		if t != nil {
+			t.Close()
+		}
+	}
+
+	h.tags = make(map[string]*tags.Tags)
 }

@@ -24,9 +24,10 @@ func isTerminalJob(state string) bool {
 // Janitor is the Backup background worker that evicts completed backup jobs
 // after a configurable TTL to prevent unbounded growth of in-memory state.
 type Janitor struct {
-	Backend  *InMemoryBackend
-	Interval time.Duration
-	JobTTL   time.Duration
+	Backend     *InMemoryBackend
+	Interval    time.Duration
+	JobTTL      time.Duration
+	TaskTimeout time.Duration
 }
 
 // NewJanitor creates a new Backup Janitor for the given backend.
@@ -57,9 +58,21 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			j.sweepCompletedJobs(ctx)
+			taskCtx, cancel := j.taskContext(ctx)
+			j.sweepCompletedJobs(taskCtx)
+			cancel()
 		}
 	}
+}
+
+// taskContext returns a child context bounded by TaskTimeout (if non-zero).
+// The caller is responsible for calling the returned cancel function.
+func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if j.TaskTimeout > 0 {
+		return context.WithTimeout(parent, j.TaskTimeout)
+	}
+
+	return context.WithCancel(parent)
 }
 
 // SweepOnce runs a single sweep pass. Exposed for testing.

@@ -78,9 +78,13 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // WithJanitor attaches a background key-deletion janitor to the handler.
 // If the backend is not an *InMemoryBackend, this is a no-op.
-func (h *Handler) WithJanitor(interval time.Duration) *Handler {
+func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Duration) *Handler {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
-		h.janitor = NewJanitor(mem, interval)
+		j := NewJanitor(mem, interval)
+		if len(taskTimeout) > 0 {
+			j.TaskTimeout = taskTimeout[0]
+		}
+		h.janitor = j
 	}
 
 	return h
@@ -730,4 +734,16 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	// Close and clear the handler-level tag store.
+	h.tagsMu.Lock("Reset")
+	defer h.tagsMu.Unlock()
+
+	for _, t := range h.tags {
+		if t != nil {
+			t.Close()
+		}
+	}
+
+	h.tags = make(map[string]*tags.Tags)
 }

@@ -1706,7 +1706,8 @@ func (b *InMemoryBackend) assembleMultipartData(
 	var data []byte
 
 	upload.mu.RLock("CompleteMultipartUpload")
-	for _, part := range input.MultipartUpload.Parts {
+	parts := input.MultipartUpload.Parts
+	for _, part := range parts {
 		pNum := *part.PartNumber
 		storedPart, ok := upload.Parts[pNum]
 		if !ok {

@@ -116,6 +116,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) (*Cluster, error) {
 	}
 
 	cp := *cluster
+	cluster.Tags.Close()
 	delete(b.clusters, id)
 
 	if b.dnsRegistrar != nil {

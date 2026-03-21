@@ -52,9 +52,15 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // WithJanitor attaches a background janitor to the handler.
 // The janitor periodically evicts expired sessions. interval=0 uses the default.
-func (h *Handler) WithJanitor(interval time.Duration) *Handler {
+// The optional taskTimeout bounds each sweep; 0 means no per-task timeout.
+func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Duration) *Handler {
 	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
-		h.janitor = NewJanitor(memBackend, interval)
+		j := NewJanitor(memBackend, interval)
+		if len(taskTimeout) > 0 {
+			j.TaskTimeout = taskTimeout[0]
+		}
+
+		h.janitor = j
 	}
 
 	return h

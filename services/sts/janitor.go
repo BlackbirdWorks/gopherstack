@@ -13,8 +13,9 @@ const defaultSTSJanitorInterval = 30 * time.Second
 // Janitor is the STS background worker that evicts expired sessions to prevent
 // unbounded growth of the sessions map under sustained load.
 type Janitor struct {
-	Backend  *InMemoryBackend
-	Interval time.Duration
+	Backend     *InMemoryBackend
+	Interval    time.Duration
+	TaskTimeout time.Duration
 }
 
 // NewJanitor creates a new STS Janitor for the given backend.
@@ -40,9 +41,26 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			j.sweepExpiredSessions(ctx)
+			taskCtx, cancel := j.taskContext(ctx)
+			j.sweepExpiredSessions(taskCtx)
+			cancel()
 		}
 	}
+}
+
+// taskContext returns a child context bounded by TaskTimeout (if non-zero).
+// The caller is responsible for calling the returned cancel function.
+func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if j.TaskTimeout > 0 {
+		return context.WithTimeout(parent, j.TaskTimeout)
+	}
+
+	return context.WithCancel(parent)
+}
+
+// SweepOnce runs a single sweep pass. Exposed for testing.
+func (j *Janitor) SweepOnce(ctx context.Context) {
+	j.sweepExpiredSessions(ctx)
 }
 
 // sweepExpiredSessions removes sessions whose Expiration is in the past.

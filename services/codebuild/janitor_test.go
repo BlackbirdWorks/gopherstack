@@ -221,3 +221,42 @@ func TestCodeBuildJanitor_RunContext(t *testing.T) {
 		require.FailNow(t, "janitor did not stop after context cancellation")
 	}
 }
+
+// TestCodeBuildJanitor_TaskTimeout_WithJanitor verifies that WithJanitor propagates
+// the variadic taskTimeout parameter to the janitor's TaskTimeout field.
+func TestCodeBuildJanitor_TaskTimeout_WithJanitor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		taskTimeout time.Duration
+		want        time.Duration
+	}{
+		{
+			name:        "zero_timeout",
+			taskTimeout: 0,
+			want:        0,
+		},
+		{
+			name:        "30s_timeout",
+			taskTimeout: 30 * time.Second,
+			want:        30 * time.Second,
+		},
+		{
+			name:        "1min_timeout",
+			taskTimeout: time.Minute,
+			want:        time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := codebuild.NewHandler(codebuild.NewInMemoryBackend("000000000000", "us-east-1"))
+			h.WithJanitor(time.Minute, 24*time.Hour, tt.taskTimeout)
+
+			assert.Equal(t, tt.want, h.GetJanitorTaskTimeout())
+		})
+	}
+}

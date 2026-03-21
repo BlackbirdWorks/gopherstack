@@ -159,8 +159,23 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, name)
 	}
 	cp := *c
+
+	// Collect nodegroups for cleanup before removal.
+	ngs := b.nodegroups[name]
 	delete(b.clusters, name)
 	delete(b.nodegroups, name)
+
+	// Release tag resources outside the map but still inside the lock since
+	// Tags.Close only unregisters Prometheus labels (cheap and non-blocking).
+	if c.Tags != nil {
+		c.Tags.Close()
+	}
+
+	for _, ng := range ngs {
+		if ng.Tags != nil {
+			ng.Tags.Close()
+		}
+	}
 
 	return &cp, nil
 }
@@ -286,6 +301,10 @@ func (b *InMemoryBackend) DeleteNodegroup(clusterName, nodegroupName string) (*N
 	cp.InstanceTypes = make([]string, len(ng.InstanceTypes))
 	copy(cp.InstanceTypes, ng.InstanceTypes)
 	delete(b.nodegroups[clusterName], nodegroupName)
+
+	if ng.Tags != nil {
+		ng.Tags.Close()
+	}
 
 	return &cp, nil
 }

@@ -35,9 +35,13 @@ func NewHandler(backend StorageBackend) *Handler {
 
 // WithJanitor attaches a background janitor to the handler.
 // The janitor periodically evicts expired commands. interval=0 uses the default.
-func (h *Handler) WithJanitor(interval time.Duration) *Handler {
+func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Duration) *Handler {
 	if memBackend, ok := h.Backend.(*InMemoryBackend); ok {
-		h.janitor = NewJanitor(memBackend, interval)
+		j := NewJanitor(memBackend, interval)
+		if len(taskTimeout) > 0 {
+			j.TaskTimeout = taskTimeout[0]
+		}
+		h.janitor = j
 	}
 
 	return h

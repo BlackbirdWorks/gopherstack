@@ -23,6 +23,7 @@ type Janitor struct {
 	Backend       *InMemoryBackend
 	Interval      time.Duration
 	TerminatedTTL time.Duration
+	TaskTimeout   time.Duration
 }
 
 // NewJanitor creates a new EMR Janitor for the given backend.
@@ -53,9 +54,26 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			j.sweepTerminatedClusters(ctx)
+			taskCtx, cancel := j.taskContext(ctx)
+			j.sweepTerminatedClusters(taskCtx)
+			cancel()
 		}
 	}
+}
+
+// taskContext returns a child context bounded by TaskTimeout (if non-zero).
+// The caller is responsible for calling the returned cancel function.
+func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if j.TaskTimeout > 0 {
+		return context.WithTimeout(parent, j.TaskTimeout)
+	}
+
+	return context.WithCancel(parent)
+}
+
+// SweepOnce runs a single sweep pass. Exposed for testing.
+func (j *Janitor) SweepOnce(ctx context.Context) {
+	j.sweepTerminatedClusters(ctx)
 }
 
 // sweepTerminatedClusters removes clusters that have been in the terminated

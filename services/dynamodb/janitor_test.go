@@ -155,3 +155,88 @@ func TestJanitor_RunOnce_CleansPendingDeletions(t *testing.T) {
 		})
 	}
 }
+
+// TestDDBJanitor_TaskTimeout_WithJanitor verifies that WithJanitor propagates
+// the variadic taskTimeout into the janitor's TaskTimeout field.
+func TestDDBJanitor_TaskTimeout_WithJanitor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		taskTimeout time.Duration
+		want        time.Duration
+	}{
+		{
+			name:        "no_timeout_zero",
+			taskTimeout: 0,
+			want:        0,
+		},
+		{
+			name:        "with_30s_timeout",
+			taskTimeout: 30 * time.Second,
+			want:        30 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			h := dynamodb.NewHandler(db)
+			h.WithJanitor(dynamodb.Settings{}, tt.taskTimeout)
+
+			assert.Equal(t, tt.want, h.GetJanitorTaskTimeout())
+		})
+	}
+}
+
+// TestDDBJanitor_SweepOnce_EvictsPendingDeletion verifies SweepOnce removes
+// tables pending deletion without running the janitor loop.
+func TestDDBJanitor_SweepOnce_EvictsPendingDeletion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		deleteOne string
+		tables    []string
+		wantLen   int
+	}{
+		{
+			name:      "single_table_deleted",
+			tables:    []string{"sweep-table"},
+			deleteOne: "sweep-table",
+			wantLen:   0,
+		},
+		{
+			name:      "one_of_two_tables_deleted",
+			tables:    []string{"keep-table", "gone-table"},
+			deleteOne: "gone-table",
+			wantLen:   1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			for _, tbl := range tt.tables {
+				createTable(t, db, tbl)
+			}
+
+			_, err := db.DeleteTable(t.Context(), &dynamodb_sdk.DeleteTableInput{
+				TableName: aws.String(tt.deleteOne),
+			})
+			require.NoError(t, err)
+
+			j := dynamodb.NewJanitor(db, dynamodb.Settings{JanitorInterval: time.Minute})
+			j.SweepOnce(t.Context())
+
+			out, err := db.ListTables(t.Context(), &dynamodb_sdk.ListTablesInput{})
+			require.NoError(t, err)
+
+			assert.Len(t, out.TableNames, tt.wantLen)
+		})
+	}
+}

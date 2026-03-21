@@ -30,14 +30,25 @@ type snsEnvelope struct {
 //
 // Delivery is synchronous and best-effort: per-message errors are silently dropped
 // so that a missing queue does not block other subscribers.
+//
+// If SubscribeToSNS has been called before, the previous subscription is replaced
+// by unsubscribing the old listener before registering the new one, preventing
+// stale listeners from accumulating in the emitter on repeated calls.
 func (b *InMemoryBackend) SubscribeToSNS(emitter events.EventEmitter[*events.SNSPublishedEvent]) {
-	emitter.Subscribe(func(_ context.Context, ev *events.SNSPublishedEvent) error {
+	unsubscribe := emitter.Subscribe(func(_ context.Context, ev *events.SNSPublishedEvent) error {
 		for _, sub := range ev.Subscriptions {
 			b.deliverSNSSubscription(ev, sub)
 		}
 
 		return nil
 	})
+
+	b.mu.Lock("SubscribeToSNS")
+	if b.snsUnsubscribe != nil {
+		b.snsUnsubscribe()
+	}
+	b.snsUnsubscribe = unsubscribe
+	b.mu.Unlock()
 }
 
 // deliverSNSSubscription delivers a single SNS published event to an SQS subscription.

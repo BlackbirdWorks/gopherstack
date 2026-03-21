@@ -1,5 +1,7 @@
 package cloudwatchlogs
 
+import "time"
+
 // MaxEventsPerStream exposes the per-stream event cap for use in tests.
 const MaxEventsPerStream = maxEventsPerStream
 
@@ -18,4 +20,14 @@ func (h *Handler) SetTagsForTest(resourceID string, kv map[string]string) {
 // Used in persistence tests to verify tags after restore.
 func (h *Handler) GetTagsForTest(resourceID string) map[string]string {
 	return h.getTags(resourceID)
+}
+
+// GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the timeout.
+func (h *Handler) GetJanitorTaskTimeout() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.TaskTimeout
 }

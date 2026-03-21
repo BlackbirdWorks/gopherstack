@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	"github.com/labstack/echo/v5"
@@ -78,14 +79,20 @@ func NewHandler(backend StorageBackend) *DynamoDBHandler {
 }
 
 // WithJanitor attaches a background janitor to the handler.
-func (h *DynamoDBHandler) WithJanitor(settings Settings) *DynamoDBHandler {
+// The optional janitorTimeout parameter bounds each individual janitor task;
+// zero (or omitted) disables per-task timeouts.
+func (h *DynamoDBHandler) WithJanitor(settings Settings, janitorTimeout ...time.Duration) *DynamoDBHandler {
 	h.DefaultRegion = settings.DefaultRegion
 	if h.DefaultRegion == "" {
 		h.DefaultRegion = config.DefaultRegion
 	}
 	if memBackend, ok := h.Backend.(*InMemoryDB); ok {
 		memBackend.SetDefaultRegion(h.DefaultRegion)
-		h.janitor = NewJanitor(memBackend, settings)
+		j := NewJanitor(memBackend, settings)
+		if len(janitorTimeout) > 0 {
+			j.TaskTimeout = janitorTimeout[0]
+		}
+		h.janitor = j
 	}
 
 	return h

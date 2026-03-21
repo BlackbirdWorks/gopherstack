@@ -17,8 +17,9 @@ const (
 // Janitor is the SES background worker that evicts emails older than the
 // configured TTL to prevent unbounded memory and persistence growth.
 type Janitor struct {
-	Backend  *InMemoryBackend
-	Interval time.Duration
+	Backend     *InMemoryBackend
+	Interval    time.Duration
+	TaskTimeout time.Duration
 }
 
 // NewJanitor creates a new SES Janitor for the given backend.
@@ -44,9 +45,21 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			j.sweepExpiredEmails(ctx)
+			taskCtx, cancel := j.taskContext(ctx)
+			j.sweepExpiredEmails(taskCtx)
+			cancel()
 		}
 	}
+}
+
+// taskContext returns a child context bounded by TaskTimeout (if non-zero).
+// The caller is responsible for calling the returned cancel function.
+func (j *Janitor) taskContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if j.TaskTimeout > 0 {
+		return context.WithTimeout(parent, j.TaskTimeout)
+	}
+
+	return context.WithCancel(parent)
 }
 
 // SweepOnce executes a single TTL sweep. Exposed for testing.

@@ -93,6 +93,79 @@ func TestEMR_Handler_WithJanitor_StartWorker(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestEMR_Handler_WithJanitor_TaskTimeout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		taskTimeout time.Duration
+	}{
+		{name: "no_task_timeout", taskTimeout: 0},
+		{name: "with_task_timeout", taskTimeout: 30 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := emr.NewInMemoryBackend(testAccountID, testRegion)
+			h := emr.NewHandler(b).WithJanitor(10*time.Millisecond, 50*time.Millisecond, tt.taskTimeout)
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			require.NoError(t, h.StartWorker(ctx))
+		})
+	}
+}
+
+func TestEMR_Janitor_SweepOnce(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		clusterOld bool
+		wantSwept  bool
+	}{
+		{name: "old_terminated_cluster_swept", clusterOld: true, wantSwept: true},
+		{name: "recent_terminated_cluster_kept", clusterOld: false, wantSwept: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := emr.NewInMemoryBackend(testAccountID, testRegion)
+			cluster, err := b.RunJobFlow("sweep-once-test", "emr-6.0.0", nil, nil)
+			require.NoError(t, err)
+
+			require.NoError(t, b.TerminateJobFlows([]string{cluster.ID}))
+
+			ttl := 24 * time.Hour
+			if tt.clusterOld {
+				ttl = time.Millisecond // effectively expired immediately
+			}
+
+			j := emr.NewJanitor(b, time.Minute, ttl)
+
+			if tt.clusterOld {
+				// Give the TTL time to expire.
+				time.Sleep(5 * time.Millisecond)
+			}
+
+			j.SweepOnce(t.Context())
+
+			_, err = b.DescribeCluster(cluster.ID)
+
+			if tt.wantSwept {
+				require.Error(t, err, "cluster should have been swept")
+			} else {
+				require.NoError(t, err, "cluster should still exist")
+			}
+		})
+	}
+}
+
 func TestEMR_Handler_StartWorker_NoJanitor(t *testing.T) {
 	t.Parallel()
 

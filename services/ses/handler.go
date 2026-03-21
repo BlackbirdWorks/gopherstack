@@ -41,8 +41,14 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 // WithJanitor attaches a background janitor to the handler.
 // The janitor periodically evicts emails older than the backend TTL.
 // interval=0 uses the default interval.
-func (h *Handler) WithJanitor(interval time.Duration) *Handler {
-	h.janitor = NewJanitor(h.Backend, interval)
+// The optional taskTimeout bounds each sweep; 0 means no per-task timeout.
+func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Duration) *Handler {
+	j := NewJanitor(h.Backend, interval)
+	if len(taskTimeout) > 0 {
+		j.TaskTimeout = taskTimeout[0]
+	}
+
+	h.janitor = j
 
 	return h
 }

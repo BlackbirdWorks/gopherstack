@@ -433,6 +433,7 @@ func (b *InMemoryBackend) DeleteCluster(id string) error {
 	if c.mini != nil {
 		c.mini.Close()
 	}
+	c.Tags.Close()
 	delete(b.clusters, id)
 	b.appendEventLocked(id, "cache-cluster", "cluster deleted")
 
@@ -613,9 +614,11 @@ func (b *InMemoryBackend) DeleteReplicationGroup(id string) error {
 	b.mu.Lock("DeleteReplicationGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.replicationGroups[id]; !exists {
+	rg, exists := b.replicationGroups[id]
+	if !exists {
 		return ErrReplicationGroupNotFound
 	}
+	rg.Tags.Close()
 	delete(b.replicationGroups, id)
 	b.appendEventLocked(id, "replication-group", "replication group deleted")
 
@@ -814,6 +817,7 @@ func (b *InMemoryBackend) DeleteParameterGroup(name string) error {
 		return ErrParameterGroupDefaultNotModifiable
 	}
 
+	pg.Tags.Close()
 	delete(b.parameterGroups, name)
 
 	return nil
@@ -949,10 +953,12 @@ func (b *InMemoryBackend) DeleteSubnetGroup(name string) error {
 	b.mu.Lock("DeleteSubnetGroup")
 	defer b.mu.Unlock()
 
-	if _, exists := b.subnetGroups[name]; !exists {
+	sg, exists := b.subnetGroups[name]
+	if !exists {
 		return ErrSubnetGroupNotFound
 	}
 
+	sg.Tags.Close()
 	delete(b.subnetGroups, name)
 
 	return nil
@@ -1069,6 +1075,7 @@ func (b *InMemoryBackend) DeleteSnapshot(snapshotName string) (*CacheSnapshot, e
 	}
 
 	cp := *snap
+	snap.Tags.Close()
 	delete(b.snapshots, snapshotName)
 
 	return &cp, nil
