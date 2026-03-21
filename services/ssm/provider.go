@@ -4,6 +4,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// ConfigProvider is a private interface to extract SSM configuration
+// from the abstract AppContext Config.
+type ConfigProvider interface {
+	GetSSMSettings() Settings
+}
+
 // Provider implements service.Provider for the SSM Parameter Store service.
 type Provider struct{}
 
@@ -16,8 +22,14 @@ func (p *Provider) Name() string {
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
+	var settings Settings
+
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetSSMSettings()
+	}
+
 	backend := NewInMemoryBackend()
-	handler := NewHandler(backend).WithJanitor(0, ctx.JanitorTimeout)
+	handler := NewHandler(backend).WithJanitor(settings.JanitorInterval, ctx.JanitorTimeout)
 
 	return handler, nil
 }
