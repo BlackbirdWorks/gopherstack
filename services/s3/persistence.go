@@ -147,19 +147,40 @@ func normalizeSnapshot(snap *backendSnapshot) {
 func reinitBucketMutexes(buckets map[string]map[string]*StoredBucket) {
 	for _, regionBuckets := range buckets {
 		for _, bucket := range regionBuckets {
-			if bucket.mu == nil {
-				bucket.mu = lockmetrics.New("s3-bucket")
-			}
+			reinitSingleBucket(bucket)
+		}
+	}
+}
 
-			if bucket.Objects == nil {
-				bucket.Objects = make(map[string]*StoredObject)
-			}
+// reinitSingleBucket reinitialises one bucket's mutex, nil maps, and per-object mutexes.
+func reinitSingleBucket(bucket *StoredBucket) {
+	if bucket.mu == nil {
+		bucket.mu = lockmetrics.New("s3-bucket")
+	}
 
-			for _, obj := range bucket.Objects {
-				if obj.mu == nil {
-					obj.mu = lockmetrics.New("s3-object")
-				}
-			}
+	if bucket.Objects == nil {
+		bucket.Objects = make(map[string]*StoredObject)
+	}
+
+	if bucket.AnalyticsConfigs == nil {
+		bucket.AnalyticsConfigs = make(map[string]string)
+	}
+
+	if bucket.IntelligentTieringConfigs == nil {
+		bucket.IntelligentTieringConfigs = make(map[string]string)
+	}
+
+	if bucket.InventoryConfigs == nil {
+		bucket.InventoryConfigs = make(map[string]string)
+	}
+
+	if bucket.MetricsConfigs == nil {
+		bucket.MetricsConfigs = make(map[string]string)
+	}
+
+	for _, obj := range bucket.Objects {
+		if obj.mu == nil {
+			obj.mu = lockmetrics.New("s3-object")
 		}
 	}
 }

@@ -164,4 +164,44 @@ type StorageBackend interface {
 		ctx context.Context,
 		bucketName string,
 	) (region string, lifecycleXML string, tags []types.Tag, err error)
+
+	// Analytics (supports multiple configs per bucket via id)
+	PutBucketAnalyticsConfiguration(ctx context.Context, bucket, id, configXML string) error
+	GetBucketAnalyticsConfiguration(ctx context.Context, bucket, id string) (string, error)
+	DeleteBucketAnalyticsConfiguration(ctx context.Context, bucket, id string) error
+	ListBucketAnalyticsConfigurations(ctx context.Context, bucket string) ([]string, error)
+
+	// Intelligent Tiering (supports multiple configs per bucket via id)
+	PutBucketIntelligentTieringConfiguration(ctx context.Context, bucket, id, configXML string) error
+	GetBucketIntelligentTieringConfiguration(ctx context.Context, bucket, id string) (string, error)
+	DeleteBucketIntelligentTieringConfiguration(ctx context.Context, bucket, id string) error
+	ListBucketIntelligentTieringConfigurations(ctx context.Context, bucket string) ([]string, error)
+
+	// Inventory (supports multiple configs per bucket via id)
+	PutBucketInventoryConfiguration(ctx context.Context, bucket, id, configXML string) error
+	GetBucketInventoryConfiguration(ctx context.Context, bucket, id string) (string, error)
+	DeleteBucketInventoryConfiguration(ctx context.Context, bucket, id string) error
+	ListBucketInventoryConfigurations(ctx context.Context, bucket string) ([]string, error)
+
+	// Lifecycle (legacy alias)
+	DeleteBucketLifecycle(ctx context.Context, bucket string) error
+
+	// Metadata Configuration
+	CreateBucketMetadataConfiguration(ctx context.Context, bucket, configXML string) error
+	GetBucketMetadataConfiguration(ctx context.Context, bucket string) (string, error)
+	DeleteBucketMetadataConfiguration(ctx context.Context, bucket string) error
+
+	// Metadata Table Configuration
+	CreateBucketMetadataTableConfiguration(ctx context.Context, bucket, configXML string) error
+	GetBucketMetadataTableConfiguration(ctx context.Context, bucket string) (string, error)
+	DeleteBucketMetadataTableConfiguration(ctx context.Context, bucket string) error
+
+	// Metrics (supports multiple configs per bucket via id)
+	PutBucketMetricsConfiguration(ctx context.Context, bucket, id, configXML string) error
+	GetBucketMetricsConfiguration(ctx context.Context, bucket, id string) (string, error)
+	DeleteBucketMetricsConfiguration(ctx context.Context, bucket, id string) error
+	ListBucketMetricsConfigurations(ctx context.Context, bucket string) ([]string, error)
+
+	// Session
+	CreateSession(ctx context.Context, bucket string) (string, error)
 }
