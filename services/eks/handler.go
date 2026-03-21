@@ -84,9 +84,36 @@ type eksRoute struct {
 	operation     string
 }
 
+// parseNodegroupRoute returns the route for /clusters/{name}/node-groups[/{ng}] paths.
+func parseNodegroupRoute(method, clusterName string, parts []string) eksRoute {
+	const nodeGroupPathParts = 2
+
+	if len(parts) == nodeGroupPathParts {
+		switch method {
+		case http.MethodPost:
+			return eksRoute{operation: "CreateNodegroup", clusterName: clusterName}
+		case http.MethodGet:
+			return eksRoute{operation: "ListNodegroups", clusterName: clusterName}
+		}
+
+		return eksRoute{operation: "Unknown"}
+	}
+
+	nodegroupName := parts[2]
+
+	switch method {
+	case http.MethodGet:
+		return eksRoute{operation: "DescribeNodegroup", clusterName: clusterName, nodegroupName: nodegroupName}
+	case http.MethodDelete:
+		return eksRoute{operation: "DeleteNodegroup", clusterName: clusterName, nodegroupName: nodegroupName}
+	case http.MethodPost:
+		return eksRoute{operation: "UpdateNodegroupConfig", clusterName: clusterName, nodegroupName: nodegroupName}
+	}
+
+	return eksRoute{operation: "Unknown"}
+}
+
 // parseEKSPath maps HTTP method + path to an operation name and resource identifiers.
-//
-//nolint:cyclop // path parsing requires many cases
 func parseEKSPath(method, rawPath string) eksRoute {
 	path, _ := url.PathUnescape(rawPath)
 
@@ -150,31 +177,7 @@ func parseEKSPath(method, rawPath string) eksRoute {
 		return eksRoute{operation: "Unknown"}
 	}
 
-	const nodeGroupPathParts = 2
-
-	if len(parts) == nodeGroupPathParts {
-		switch method {
-		case http.MethodPost:
-			return eksRoute{operation: "CreateNodegroup", clusterName: clusterName}
-		case http.MethodGet:
-			return eksRoute{operation: "ListNodegroups", clusterName: clusterName}
-		}
-
-		return eksRoute{operation: "Unknown"}
-	}
-
-	// /clusters/{name}/node-groups/{nodegroupName}
-	nodegroupName := parts[2]
-	switch method {
-	case http.MethodGet:
-		return eksRoute{operation: "DescribeNodegroup", clusterName: clusterName, nodegroupName: nodegroupName}
-	case http.MethodDelete:
-		return eksRoute{operation: "DeleteNodegroup", clusterName: clusterName, nodegroupName: nodegroupName}
-	case http.MethodPost:
-		return eksRoute{operation: "UpdateNodegroupConfig", clusterName: clusterName, nodegroupName: nodegroupName}
-	}
-
-	return eksRoute{operation: "Unknown"}
+	return parseNodegroupRoute(method, clusterName, parts)
 }
 
 // ExtractOperation extracts the EKS operation name from the REST path.
@@ -496,45 +499,45 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string)
 }
 
 type updateNodegroupConfigInput struct {
-ScalingConfig *struct {
-DesiredSize *int32 `json:"desiredSize,omitempty"`
-MinSize     *int32 `json:"minSize,omitempty"`
-MaxSize     *int32 `json:"maxSize,omitempty"`
-} `json:"scalingConfig,omitempty"`
+	ScalingConfig *struct {
+		DesiredSize *int32 `json:"desiredSize,omitempty"`
+		MinSize     *int32 `json:"minSize,omitempty"`
+		MaxSize     *int32 `json:"maxSize,omitempty"`
+	} `json:"scalingConfig,omitempty"`
 }
 
 func (h *Handler) handleUpdateNodegroupConfig(
-c *echo.Context,
-clusterName, nodegroupName string,
-body []byte,
+	c *echo.Context,
+	clusterName, nodegroupName string,
+	body []byte,
 ) error {
-var in updateNodegroupConfigInput
-if len(body) > 0 {
-if err := json.Unmarshal(body, &in); err != nil {
-return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
-}
-}
+	var in updateNodegroupConfigInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &in); err != nil {
+			return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
+		}
+	}
 
-var desiredSize, minSize, maxSize *int32
-if in.ScalingConfig != nil {
-desiredSize = in.ScalingConfig.DesiredSize
-minSize = in.ScalingConfig.MinSize
-maxSize = in.ScalingConfig.MaxSize
-}
+	var desiredSize, minSize, maxSize *int32
+	if in.ScalingConfig != nil {
+		desiredSize = in.ScalingConfig.DesiredSize
+		minSize = in.ScalingConfig.MinSize
+		maxSize = in.ScalingConfig.MaxSize
+	}
 
-ng, err := h.Backend.UpdateNodegroupConfig(clusterName, nodegroupName, desiredSize, minSize, maxSize)
-if err != nil {
-return h.handleError(c, err)
-}
+	ng, err := h.Backend.UpdateNodegroupConfig(clusterName, nodegroupName, desiredSize, minSize, maxSize)
+	if err != nil {
+		return h.handleError(c, err)
+	}
 
-return c.JSON(http.StatusOK, map[string]any{
-"update": map[string]any{
-"id":            uuid.NewString()[:8],
-"status":        "InProgress",
-"type":          "ConfigUpdate",
-"createdAt":     float64(time.Now().Unix()),
-"clusterName":   clusterName,
-"nodegroupName": ng.NodegroupName,
-},
-})
+	return c.JSON(http.StatusOK, map[string]any{
+		"update": map[string]any{
+			"id":            uuid.NewString()[:8],
+			"status":        "InProgress",
+			"type":          "ConfigUpdate",
+			"createdAt":     float64(time.Now().Unix()),
+			"clusterName":   clusterName,
+			"nodegroupName": ng.NodegroupName,
+		},
+	})
 }

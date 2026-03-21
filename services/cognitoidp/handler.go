@@ -167,23 +167,23 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) dispatchTable() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"CreateUserPool":         service.WrapOp(h.handleCreateUserPool),
-		"DescribeUserPool":       service.WrapOp(h.handleDescribeUserPool),
-		"ListUserPools":          service.WrapOp(h.handleListUserPools),
-		"DeleteUserPool":         service.WrapOp(h.handleDeleteUserPool),
-		"GetUserPoolMfaConfig":   service.WrapOp(h.handleGetUserPoolMfaConfig),
-		"CreateUserPoolClient":   service.WrapOp(h.handleCreateUserPoolClient),
-		"DescribeUserPoolClient": service.WrapOp(h.handleDescribeUserPoolClient),
-		"ListUserPoolClients":    service.WrapOp(h.handleListUserPoolClients),
-		"DeleteUserPoolClient":   service.WrapOp(h.handleDeleteUserPoolClient),
-		"SignUp":                 service.WrapOp(h.handleSignUp),
-		"ConfirmSignUp":          service.WrapOp(h.handleConfirmSignUp),
-		"InitiateAuth":           service.WrapOp(h.handleInitiateAuth),
-		"AdminInitiateAuth":      service.WrapOp(h.handleAdminInitiateAuth),
-		"AdminCreateUser":        service.WrapOp(h.handleAdminCreateUser),
-		"AdminSetUserPassword":   service.WrapOp(h.handleAdminSetUserPassword),
-		"AdminGetUser":           service.WrapOp(h.handleAdminGetUser),
-		"AdminConfirmSignUp":     service.WrapOp(h.handleAdminConfirmSignUp),
+		"CreateUserPool":            service.WrapOp(h.handleCreateUserPool),
+		"DescribeUserPool":          service.WrapOp(h.handleDescribeUserPool),
+		"ListUserPools":             service.WrapOp(h.handleListUserPools),
+		"DeleteUserPool":            service.WrapOp(h.handleDeleteUserPool),
+		"GetUserPoolMfaConfig":      service.WrapOp(h.handleGetUserPoolMfaConfig),
+		"CreateUserPoolClient":      service.WrapOp(h.handleCreateUserPoolClient),
+		"DescribeUserPoolClient":    service.WrapOp(h.handleDescribeUserPoolClient),
+		"ListUserPoolClients":       service.WrapOp(h.handleListUserPoolClients),
+		"DeleteUserPoolClient":      service.WrapOp(h.handleDeleteUserPoolClient),
+		"SignUp":                    service.WrapOp(h.handleSignUp),
+		"ConfirmSignUp":             service.WrapOp(h.handleConfirmSignUp),
+		"InitiateAuth":              service.WrapOp(h.handleInitiateAuth),
+		"AdminInitiateAuth":         service.WrapOp(h.handleAdminInitiateAuth),
+		"AdminCreateUser":           service.WrapOp(h.handleAdminCreateUser),
+		"AdminSetUserPassword":      service.WrapOp(h.handleAdminSetUserPassword),
+		"AdminGetUser":              service.WrapOp(h.handleAdminGetUser),
+		"AdminConfirmSignUp":        service.WrapOp(h.handleAdminConfirmSignUp),
 		"AdminDeleteUser":           service.WrapOp(h.handleAdminDeleteUser),
 		"ListUsers":                 service.WrapOp(h.handleListUsers),
 		"ForgotPassword":            service.WrapOp(h.handleForgotPassword),
@@ -982,10 +982,10 @@ type createGroupOutput struct {
 }
 
 type groupSummary struct {
-	GroupName   string  `json:"GroupName"`
-	UserPoolID  string  `json:"UserPoolId"`
-	Description string  `json:"Description,omitempty"`
-	Precedence  int32   `json:"Precedence"`
+	GroupName    string  `json:"GroupName"`
+	UserPoolID   string  `json:"UserPoolId"`
+	Description  string  `json:"Description,omitempty"`
+	Precedence   int32   `json:"Precedence"`
 	CreationDate float64 `json:"CreationDate"`
 }
 

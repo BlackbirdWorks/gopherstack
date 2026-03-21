@@ -38,15 +38,15 @@ type userSnapshot struct {
 }
 
 type backendSnapshot struct {
-	Pools         map[string]*userPoolSnapshot                    `json:"pools"`
-	Clients       map[string]*UserPoolClient                      `json:"clients"`
-	Users         map[string]map[string]*userSnapshot             `json:"users"`
-	RefreshTokens map[string]*refreshTokenEntry                   `json:"refreshTokens,omitempty"`
-	Groups        map[string]map[string]*Group                    `json:"groups,omitempty"`
-	GroupMembers  map[string]map[string]map[string]struct{}       `json:"groupMembers,omitempty"`
-	AccountID     string                                          `json:"accountId"`
-	Region        string                                          `json:"region"`
-	Endpoint      string                                          `json:"endpoint"`
+	Pools         map[string]*userPoolSnapshot              `json:"pools"`
+	Clients       map[string]*UserPoolClient                `json:"clients"`
+	Users         map[string]map[string]*userSnapshot       `json:"users"`
+	RefreshTokens map[string]*refreshTokenEntry             `json:"refreshTokens,omitempty"`
+	Groups        map[string]map[string]*Group              `json:"groups,omitempty"`
+	GroupMembers  map[string]map[string]map[string]struct{} `json:"groupMembers,omitempty"`
+	AccountID     string                                    `json:"accountId"`
+	Region        string                                    `json:"region"`
+	Endpoint      string                                    `json:"endpoint"`
 }
 
 func marshalRSAKey(key *rsa.PrivateKey) (string, error) {
