@@ -1185,5 +1185,12 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
+	// Close all queue tag stores to prevent resource leaks.
+	for _, q := range b.queues {
+		if q.Tags != nil {
+			q.Tags.Close()
+		}
+	}
+
 	b.queues = make(map[string]*Queue)
 }

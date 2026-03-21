@@ -2334,4 +2334,16 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+
+	// Close and clear the handler-level tag store.
+	h.tagsMu.Lock("Reset")
+	defer h.tagsMu.Unlock()
+
+	for _, t := range h.tags {
+		if t != nil {
+			t.Close()
+		}
+	}
+
+	h.tags = make(map[string]*tags.Tags)
 }
