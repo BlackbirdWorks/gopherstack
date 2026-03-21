@@ -58,6 +58,7 @@ type InMemoryBackend struct {
 	scalableTargets  map[string]*ScalableTarget
 	scalingPolicies  map[string]*ScalingPolicy
 	scheduledActions map[string]*ScheduledAction
+	targetARNIndex   map[string]string // ARN → scalableTargetKey
 	mu               *lockmetrics.RWMutex
 	accountID        string
 	region           string
@@ -69,6 +70,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		scalableTargets:  make(map[string]*ScalableTarget),
 		scalingPolicies:  make(map[string]*ScalingPolicy),
 		scheduledActions: make(map[string]*ScheduledAction),
+		targetARNIndex:   make(map[string]string),
 		accountID:        accountID,
 		region:           region,
 		mu:               lockmetrics.New("applicationautoscaling"),
@@ -116,6 +118,7 @@ func (b *InMemoryBackend) RegisterScalableTarget(
 		Tags:              make(map[string]string),
 	}
 	b.scalableTargets[key] = t
+	b.targetARNIndex[targetARN] = key
 	cp := *t
 
 	return &cp, nil
@@ -127,9 +130,13 @@ func (b *InMemoryBackend) DeregisterScalableTarget(serviceNamespace, resourceID,
 	defer b.mu.Unlock()
 
 	key := scalableTargetKey(serviceNamespace, resourceID, scalableDimension)
-	if _, ok := b.scalableTargets[key]; !ok {
+
+	t, ok := b.scalableTargets[key]
+	if !ok {
 		return fmt.Errorf("%w: scalable target %s not found", ErrNotFound, key)
 	}
+
+	delete(b.targetARNIndex, t.ARN)
 	delete(b.scalableTargets, key)
 
 	return nil
@@ -146,6 +153,7 @@ func (b *InMemoryBackend) DescribeScalableTargets(serviceNamespace string) []*Sc
 			continue
 		}
 		cp := *t
+		cp.Tags = maps.Clone(t.Tags)
 
 		list = append(list, &cp)
 	}
@@ -154,8 +162,18 @@ func (b *InMemoryBackend) DescribeScalableTargets(serviceNamespace string) []*Sc
 }
 
 // PutScalingPolicy upserts a scaling policy (update if policyName matches for resource, create otherwise).
+// cloneScalingPolicy returns a deep copy of p with config maps cloned.
+func cloneScalingPolicy(p *ScalingPolicy) *ScalingPolicy {
+	cp := *p
+	cp.TargetTrackingConfig = maps.Clone(p.TargetTrackingConfig)
+	cp.StepScalingConfig = maps.Clone(p.StepScalingConfig)
+
+	return &cp
+}
+
 func (b *InMemoryBackend) PutScalingPolicy(
 	serviceNamespace, resourceID, scalableDimension, policyName, policyType string,
+	targetTrackingConfig, stepScalingConfig map[string]any,
 ) (*ScalingPolicy, error) {
 	b.mu.Lock("PutScalingPolicy")
 	defer b.mu.Unlock()
@@ -165,9 +183,12 @@ func (b *InMemoryBackend) PutScalingPolicy(
 			p.ResourceID == resourceID &&
 			p.ScalableDimension == scalableDimension &&
 			p.PolicyName == policyName {
-			cp := *p
+			// Update config in place and return a deep copy.
+			p.TargetTrackingConfig = maps.Clone(targetTrackingConfig)
+			p.StepScalingConfig = maps.Clone(stepScalingConfig)
+			cp := cloneScalingPolicy(p)
 
-			return &cp, nil
+			return cp, nil
 		}
 	}
 
@@ -175,17 +196,19 @@ func (b *InMemoryBackend) PutScalingPolicy(
 		fmt.Sprintf("scalingPolicy:%s:resource/%s/%s/policyName/%s",
 			uuid.NewString(), serviceNamespace, resourceID, policyName))
 	p := &ScalingPolicy{
-		ServiceNamespace:  serviceNamespace,
-		ResourceID:        resourceID,
-		ScalableDimension: scalableDimension,
-		PolicyName:        policyName,
-		PolicyType:        policyType,
-		ARN:               policyARN,
+		ServiceNamespace:     serviceNamespace,
+		ResourceID:           resourceID,
+		ScalableDimension:    scalableDimension,
+		PolicyName:           policyName,
+		PolicyType:           policyType,
+		ARN:                  policyARN,
+		TargetTrackingConfig: maps.Clone(targetTrackingConfig),
+		StepScalingConfig:    maps.Clone(stepScalingConfig),
 	}
 	b.scalingPolicies[policyARN] = p
-	cp := *p
+	cp := cloneScalingPolicy(p)
 
-	return &cp, nil
+	return cp, nil
 }
 
 // DeleteScalingPolicy removes a scaling policy by ARN.
@@ -219,8 +242,8 @@ func (b *InMemoryBackend) DescribeScalingPolicies(serviceNamespace string) []*Sc
 		if serviceNamespace != "" && p.ServiceNamespace != serviceNamespace {
 			continue
 		}
-		cp := *p
-		list = append(list, &cp)
+
+		list = append(list, cloneScalingPolicy(p))
 	}
 
 	return list
@@ -305,18 +328,20 @@ func (b *InMemoryBackend) TagResource(resourceARN string, kv map[string]string) 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	for _, t := range b.scalableTargets {
-		if t.ARN == resourceARN {
-			if t.Tags == nil {
-				t.Tags = make(map[string]string)
-			}
-			maps.Copy(t.Tags, kv)
-
-			return nil
-		}
+	key, ok := b.targetARNIndex[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	t := b.scalableTargets[key]
+
+	if t.Tags == nil {
+		t.Tags = make(map[string]string)
+	}
+
+	maps.Copy(t.Tags, kv)
+
+	return nil
 }
 
 // ListTagsForResource returns tags for a scalable target identified by its ARN.
@@ -324,16 +349,16 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	for _, t := range b.scalableTargets {
-		if t.ARN == resourceARN {
-			out := make(map[string]string, len(t.Tags))
-			maps.Copy(out, t.Tags)
-
-			return out, nil
-		}
+	key, ok := b.targetARNIndex[resourceARN]
+	if !ok {
+		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	t := b.scalableTargets[key]
+	out := make(map[string]string, len(t.Tags))
+	maps.Copy(out, t.Tags)
+
+	return out, nil
 }
 
 // UntagResource removes tags from a scalable target identified by its ARN.
@@ -341,15 +366,27 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
-	for _, t := range b.scalableTargets {
-		if t.ARN == resourceARN {
-			for _, k := range tagKeys {
-				delete(t.Tags, k)
-			}
-
-			return nil
-		}
+	key, ok := b.targetARNIndex[resourceARN]
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	t := b.scalableTargets[key]
+
+	for _, k := range tagKeys {
+		delete(t.Tags, k)
+	}
+
+	return nil
+}
+
+// Reset clears all backend state, resetting to an empty store.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.scalableTargets = make(map[string]*ScalableTarget)
+	b.scalingPolicies = make(map[string]*ScalingPolicy)
+	b.scheduledActions = make(map[string]*ScheduledAction)
+	b.targetARNIndex = make(map[string]string)
 }

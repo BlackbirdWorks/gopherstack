@@ -45,6 +45,10 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetMember",
 		"ListMembers",
 		"DeleteMember",
+		"CreateNode",
+		"GetNode",
+		"ListNodes",
+		"DeleteNode",
 		"TagResource",
 		"UntagResource",
 		"ListTagsForResource",
@@ -123,7 +127,7 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 const (
 	// maxPathParts is the maximum number of segments to split when parsing paths.
-	maxPathParts = 5
+	maxPathParts = 7
 
 	// networkIDSegment is the index of the network ID in the path parts.
 	networkIDSegment = 2
@@ -133,16 +137,20 @@ const (
 //
 // Supported path shapes:
 //
-//	POST   /networks                                    → CreateNetwork, ""
-//	GET    /networks                                    → ListNetworks, ""
-//	GET    /networks/{networkId}                        → GetNetwork, networkId
-//	POST   /networks/{networkId}/members                → CreateMember, networkId
-//	GET    /networks/{networkId}/members                → ListMembers, networkId
-//	GET    /networks/{networkId}/members/{memberId}     → GetMember, networkId/memberId
-//	DELETE /networks/{networkId}/members/{memberId}     → DeleteMember, networkId/memberId
-//	GET    /tags/{resourceArn}                          → ListTagsForResource, arn
-//	POST   /tags/{resourceArn}                          → TagResource, arn
-//	DELETE /tags/{resourceArn}                          → UntagResource, arn
+//	POST   /networks                                                               → CreateNetwork, ""
+//	GET    /networks                                                               → ListNetworks, ""
+//	GET    /networks/{networkId}                                                   → GetNetwork, networkId
+//	POST   /networks/{networkId}/members                                           → CreateMember, networkId
+//	GET    /networks/{networkId}/members                                           → ListMembers, networkId
+//	GET    /networks/{networkId}/members/{memberId}                                → GetMember, networkId/memberId
+//	DELETE /networks/{networkId}/members/{memberId}                                → DeleteMember, networkId/memberId
+//	POST   /networks/{networkId}/members/{memberId}/nodes                         → CreateNode, networkId/memberId
+//	GET    /networks/{networkId}/members/{memberId}/nodes                         → ListNodes, networkId/memberId
+//	GET    /networks/{networkId}/members/{memberId}/nodes/{nodeId}                → GetNode, networkId/memberId/nodeId
+//	DELETE /networks/{networkId}/members/{memberId}/nodes/{nodeId}                → DeleteNode, networkId/memberId/nodeId
+//	GET    /tags/{resourceArn}                                                     → ListTagsForResource, arn
+//	POST   /tags/{resourceArn}                                                     → TagResource, arn
+//	DELETE /tags/{resourceArn}                                                     → UntagResource, arn
 func parsePath(method, path string) (string, string) {
 	trimmed := strings.TrimPrefix(path, "/")
 	parts := strings.SplitN(trimmed, "/", maxPathParts)
@@ -230,9 +238,15 @@ func parseMembersPath(method string, parts []string, networkID string) (string, 
 		return "", ""
 	}
 
-	// /networks/{networkId}/members/{memberId}
+	// /networks/{networkId}/members/{memberId}[/nodes[/{nodeId}]]
 	if len(parts) >= 4 && parts[3] != "" {
 		memberID := parts[3]
+
+		// /networks/{networkId}/members/{memberId}/nodes[/{nodeId}]
+		if len(parts) >= 5 && parts[4] == "nodes" {
+			return parseNodesPath(method, parts, networkID, memberID)
+		}
+
 		resource := networkID + "/" + memberID
 
 		switch method {
@@ -240,6 +254,38 @@ func parseMembersPath(method string, parts []string, networkID string) (string, 
 			return "GetMember", resource
 		case http.MethodDelete:
 			return "DeleteMember", resource
+		}
+	}
+
+	return "", ""
+}
+
+// parseNodesPath handles routing for /networks/{networkId}/members/{memberId}/nodes/... paths.
+func parseNodesPath(method string, parts []string, networkID, memberID string) (string, string) {
+	resource := networkID + "/" + memberID
+
+	// /networks/{networkId}/members/{memberId}/nodes
+	if len(parts) == 5 || (len(parts) == 6 && parts[5] == "") {
+		switch method {
+		case http.MethodPost:
+			return "CreateNode", resource
+		case http.MethodGet:
+			return "ListNodes", resource
+		}
+
+		return "", ""
+	}
+
+	// /networks/{networkId}/members/{memberId}/nodes/{nodeId}
+	if len(parts) >= 6 && parts[5] != "" {
+		nodeID := parts[5]
+		nodeResource := resource + "/" + nodeID
+
+		switch method {
+		case http.MethodGet:
+			return "GetNode", nodeResource
+		case http.MethodDelete:
+			return "DeleteNode", nodeResource
 		}
 	}
 
@@ -265,6 +311,14 @@ func (h *Handler) dispatch(c *echo.Context, op, resource string, body []byte, qu
 		return h.handleListMembers(c, resource)
 	case "DeleteMember":
 		return h.handleDeleteMember(c, resource)
+	case "CreateNode":
+		return h.handleCreateNode(c, resource, body)
+	case "GetNode":
+		return h.handleGetNode(c, resource)
+	case "ListNodes":
+		return h.handleListNodes(c, resource)
+	case "DeleteNode":
+		return h.handleDeleteNode(c, resource)
 	case "ListTagsForResource":
 		return h.handleListTagsForResource(c, resource)
 	case "TagResource":
@@ -416,6 +470,79 @@ func (h *Handler) handleDeleteMember(c *echo.Context, resource string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+func (h *Handler) handleCreateNode(c *echo.Context, resource string, body []byte) error {
+	networkID, memberID, ok := splitResource(resource)
+	if !ok {
+		return writeError(c, http.StatusBadRequest, "invalid resource path")
+	}
+
+	var req createNodeRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "invalid request body")
+	}
+
+	node, err := h.Backend.CreateNode(
+		h.DefaultRegion,
+		h.AccountID,
+		networkID,
+		memberID,
+		req.NodeConfiguration.InstanceType,
+		req.NodeConfiguration.AvailabilityZone,
+		nil,
+	)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, createNodeResponse{NodeID: node.ID})
+}
+
+func (h *Handler) handleGetNode(c *echo.Context, resource string) error {
+	networkID, memberID, nodeID, ok := splitThreePart(resource)
+	if !ok {
+		return writeError(c, http.StatusBadRequest, "invalid resource path")
+	}
+
+	node, err := h.Backend.GetNode(networkID, memberID, nodeID)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, getNodeResponse{Node: toNodeObject(node)})
+}
+
+func (h *Handler) handleListNodes(c *echo.Context, resource string) error {
+	networkID, memberID, ok := splitResource(resource)
+	if !ok {
+		return writeError(c, http.StatusBadRequest, "invalid resource path")
+	}
+
+	nodes, err := h.Backend.ListNodes(networkID, memberID)
+	if err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	summaries := make([]nodeSummaryObject, 0, len(nodes))
+	for _, n := range nodes {
+		summaries = append(summaries, toNodeSummaryObject(n))
+	}
+
+	return c.JSON(http.StatusOK, listNodesResponse{Nodes: summaries})
+}
+
+func (h *Handler) handleDeleteNode(c *echo.Context, resource string) error {
+	networkID, memberID, nodeID, ok := splitThreePart(resource)
+	if !ok {
+		return writeError(c, http.StatusBadRequest, "invalid resource path")
+	}
+
+	if err := h.Backend.DeleteNode(networkID, memberID, nodeID); err != nil {
+		return h.writeBackendError(c, err)
+	}
+
+	return c.NoContent(http.StatusNoContent)
+}
+
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceARN string) error {
 	decoded, err := url.PathUnescape(resourceARN)
 	if err != nil {
@@ -491,6 +618,21 @@ func splitResource(resource string) (string, string, bool) {
 	return resource[:idx], resource[idx+1:], true
 }
 
+// splitThreePart splits a "a/b/c" resource string into its three parts.
+func splitThreePart(resource string) (string, string, string, bool) {
+	first, rest, ok := strings.Cut(resource, "/")
+	if !ok || rest == "" {
+		return "", "", "", false
+	}
+
+	second, third, ok := strings.Cut(rest, "/")
+	if !ok || third == "" {
+		return "", "", "", false
+	}
+
+	return first, second, third, true
+}
+
 // toNetworkObject converts a Network to its JSON representation.
 func toNetworkObject(n *Network) networkObject {
 	return networkObject{
@@ -543,5 +685,31 @@ func toMemberSummaryObject(m *Member) memberSummaryObject {
 		Description:  m.Description,
 		Status:       m.Status,
 		CreationDate: m.CreationDate,
+	}
+}
+
+// toNodeObject converts a Node to its JSON representation.
+func toNodeObject(n *Node) nodeObject {
+	return nodeObject{
+		ID:               n.ID,
+		Arn:              n.Arn,
+		InstanceType:     n.InstanceType,
+		AvailabilityZone: n.AvailabilityZone,
+		MemberID:         n.MemberID,
+		NetworkID:        n.NetworkID,
+		Status:           n.Status,
+		CreationDate:     n.CreationDate,
+		Tags:             n.Tags,
+	}
+}
+
+// toNodeSummaryObject converts a Node to its summary JSON representation.
+func toNodeSummaryObject(n *Node) nodeSummaryObject {
+	return nodeSummaryObject{
+		ID:           n.ID,
+		Arn:          n.Arn,
+		InstanceType: n.InstanceType,
+		Status:       n.Status,
+		CreationDate: n.CreationDate,
 	}
 }

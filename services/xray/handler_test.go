@@ -3,6 +3,7 @@ package xray_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -740,4 +741,139 @@ func TestHandler_PutTraceSegments_Unprocessed(t *testing.T) {
 	unprocessed, ok := resp["UnprocessedTraceSegments"].([]any)
 	require.True(t, ok)
 	assert.Len(t, unprocessed, 1)
+}
+
+func TestXRay_Handler_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		createGroups int
+		wantAfter    int
+	}{
+		{
+			name:         "reset clears all groups",
+			createGroups: 2,
+			wantAfter:    0,
+		},
+		{
+			name:         "reset on empty backend is a no-op",
+			createGroups: 0,
+			wantAfter:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for i := range tt.createGroups {
+				rec := doXrayRequest(t, h, "/CreateGroup", map[string]any{
+					"GroupName":        fmt.Sprintf("group-%d", i),
+					"FilterExpression": "service(id(name: \"test\"))",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			h.Reset()
+
+			rec := doXrayRequest(t, h, "/Groups", map[string]any{})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				Groups []any `json:"Groups"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out.Groups, tt.wantAfter)
+		})
+	}
+}
+
+func doXrayGETRequest(t *testing.T, h *xray.Handler, path string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.RequestURI = path
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetRequest(req)
+
+	err := h.Handler()(c)
+	require.NoError(t, err)
+
+	return rec
+}
+
+func TestHandler_GetEncryptionConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		wantContain string
+		wantCode    int
+	}{
+		{
+			name:        "default_is_none",
+			wantCode:    http.StatusOK,
+			wantContain: `"NONE"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doXrayGETRequest(t, h, "/EncryptionConfig")
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantContain)
+		})
+	}
+}
+
+func TestHandler_PutEncryptionConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body        map[string]any
+		name        string
+		wantContain string
+		wantCode    int
+	}{
+		{
+			name:        "set_kms_type",
+			body:        map[string]any{"Type": "KMS", "KeyId": "arn:aws:kms:us-east-1:123:key/abc"},
+			wantCode:    http.StatusOK,
+			wantContain: "KMS",
+		},
+		{
+			name:        "reset_to_none",
+			body:        map[string]any{"Type": "NONE"},
+			wantCode:    http.StatusOK,
+			wantContain: `"NONE"`,
+		},
+		{
+			name:        "empty_body_defaults_to_none",
+			body:        map[string]any{},
+			wantCode:    http.StatusOK,
+			wantContain: `"NONE"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doXrayRequest(t, h, "/EncryptionConfig", tt.body)
+
+			assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Contains(t, rec.Body.String(), tt.wantContain)
+		})
+	}
 }

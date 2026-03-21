@@ -7,7 +7,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 )
 
-const maxPayloadBytes = 128 * 1024
+const (
+	maxPayloadBytes          = 128 * 1024
+	maxMessagesPerConnection = 1000
+)
 
 // InMemoryBackend implements the StorageBackend for API Gateway Management API.
 type InMemoryBackend struct {
@@ -67,6 +70,14 @@ func (b *InMemoryBackend) PostToConnection(connectionID string, data []byte) err
 		ConnectionID: connectionID,
 		Data:         data,
 	})
+
+	if len(b.messages[connectionID]) > maxMessagesPerConnection {
+		old := b.messages[connectionID]
+		start := len(old) - maxMessagesPerConnection
+		fresh := make([]PostedMessage, maxMessagesPerConnection)
+		copy(fresh, old[start:])
+		b.messages[connectionID] = fresh
+	}
 
 	return nil
 }

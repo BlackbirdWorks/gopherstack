@@ -54,13 +54,15 @@ type StorageBackend interface {
 	AddTagsToVault(accountID, region, vaultName string, tags map[string]string) error
 	ListTagsForVault(accountID, region, vaultName string) (map[string]string, error)
 	RemoveTagsFromVault(accountID, region, vaultName string, tagKeys []string) error
+
+	Reset()
 }
 
 // vaultKey uniquely identifies a vault within an account and region.
 type vaultKey struct {
-	AccountID string
-	Region    string
-	VaultName string
+	AccountID string `json:"accountID"`
+	Region    string `json:"region"`
+	VaultName string `json:"vaultName"`
 }
 
 // InMemoryBackend is the in-memory backend for Glacier.
@@ -78,6 +80,22 @@ func NewInMemoryBackend() *InMemoryBackend {
 		archives: make(map[vaultKey]map[string]*Archive),
 		jobs:     make(map[vaultKey]map[string]*Job),
 	}
+}
+
+// cloneVault returns a deep copy of the vault with Tags and NotificationEvents cloned.
+func cloneVault(v *Vault) *Vault {
+	cp := *v
+	cp.Tags = maps.Clone(v.Tags)
+	cp.NotificationEvents = append([]string(nil), v.NotificationEvents...)
+
+	return &cp
+}
+
+// cloneJob returns a shallow copy of a Job.
+func cloneJob(j *Job) *Job {
+	cp := *j
+
+	return &cp
 }
 
 // generateID creates a random ID of the given length.
@@ -144,7 +162,7 @@ func (b *InMemoryBackend) DescribeVault(accountID, region, vaultName string) (*V
 		return nil, ErrVaultNotFound
 	}
 
-	return v, nil
+	return cloneVault(v), nil
 }
 
 // DeleteVault deletes a vault.
@@ -174,7 +192,7 @@ func (b *InMemoryBackend) ListVaults(accountID, region string) []*Vault {
 
 	for k, v := range b.vaults {
 		if k.AccountID == accountID && k.Region == region {
-			result = append(result, v)
+			result = append(result, cloneVault(v))
 		}
 	}
 
@@ -288,7 +306,7 @@ func (b *InMemoryBackend) DescribeJob(accountID, region, vaultName, jobID string
 		return nil, ErrJobNotFound
 	}
 
-	return j, nil
+	return cloneJob(j), nil
 }
 
 // ListJobs returns all jobs for the given vault.
@@ -301,7 +319,7 @@ func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) []*Job {
 	result := make([]*Job, 0, len(b.jobs[key]))
 
 	for _, j := range b.jobs[key] {
-		result = append(result, j)
+		result = append(result, cloneJob(j))
 	}
 
 	return result
@@ -464,4 +482,14 @@ func (b *InMemoryBackend) RemoveTagsFromVault(accountID, region, vaultName strin
 	}
 
 	return nil
+}
+
+// Reset clears all backend state, resetting to an empty store.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.vaults = make(map[vaultKey]*Vault)
+	b.archives = make(map[vaultKey]map[string]*Archive)
+	b.jobs = make(map[vaultKey]map[string]*Job)
 }

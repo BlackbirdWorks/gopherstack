@@ -14,73 +14,73 @@ import (
 
 // ExperimentTemplate is the in-memory representation of a FIS experiment template.
 type ExperimentTemplate struct {
-	CreationTime      time.Time
-	LastUpdateTime    time.Time
-	Tags              map[string]string
-	Targets           map[string]ExperimentTemplateTarget
-	Actions           map[string]ExperimentTemplateAction
-	LogConfiguration  *ExperimentTemplateLogConfiguration
-	ExperimentOptions *ExperimentTemplateExperimentOptions
-	ID                string
-	Arn               string
-	Description       string
-	RoleArn           string
-	StopConditions    []ExperimentTemplateStopCondition
+	CreationTime      time.Time                            `json:"creationTime"`
+	LastUpdateTime    time.Time                            `json:"lastUpdateTime"`
+	Tags              map[string]string                    `json:"tags"`
+	Targets           map[string]ExperimentTemplateTarget  `json:"targets"`
+	Actions           map[string]ExperimentTemplateAction  `json:"actions"`
+	LogConfiguration  *ExperimentTemplateLogConfiguration  `json:"logConfiguration"`
+	ExperimentOptions *ExperimentTemplateExperimentOptions `json:"experimentOptions"`
+	ID                string                               `json:"id"`
+	Arn               string                               `json:"arn"`
+	Description       string                               `json:"description"`
+	RoleArn           string                               `json:"roleArn"`
+	StopConditions    []ExperimentTemplateStopCondition    `json:"stopConditions"`
 }
 
 // ExperimentTemplateTarget defines how resources are selected for a fault action.
 type ExperimentTemplateTarget struct {
-	ResourceTags  map[string]string
-	Parameters    map[string]string
-	ResourceType  string
-	SelectionMode string
-	ResourceArns  []string
-	Filters       []ExperimentTemplateTargetFilter
+	ResourceTags  map[string]string                `json:"resourceTags"`
+	Parameters    map[string]string                `json:"parameters"`
+	ResourceType  string                           `json:"resourceType"`
+	SelectionMode string                           `json:"selectionMode"`
+	ResourceArns  []string                         `json:"resourceArns"`
+	Filters       []ExperimentTemplateTargetFilter `json:"filters"`
 }
 
 // ExperimentTemplateTargetFilter narrows the set of matching resources.
 type ExperimentTemplateTargetFilter struct {
-	Path   string
-	Values []string
+	Path   string   `json:"path"`
+	Values []string `json:"values"`
 }
 
 // ExperimentTemplateAction describes a fault action within a template.
 type ExperimentTemplateAction struct {
-	Parameters  map[string]string
-	Targets     map[string]string
-	ActionID    string
-	Description string
-	StartAfter  []string
+	Parameters  map[string]string `json:"parameters"`
+	Targets     map[string]string `json:"targets"`
+	ActionID    string            `json:"actionID"`
+	Description string            `json:"description"`
+	StartAfter  []string          `json:"startAfter"`
 }
 
 // ExperimentTemplateStopCondition defines when an experiment should automatically stop.
 type ExperimentTemplateStopCondition struct {
-	Source string
-	Value  string
+	Source string `json:"source"`
+	Value  string `json:"value"`
 }
 
 // ExperimentTemplateLogConfiguration specifies where experiment logs are sent.
 type ExperimentTemplateLogConfiguration struct {
-	CloudWatchLogsConfiguration *ExperimentTemplateCloudWatchLogsConfiguration
-	S3Configuration             *ExperimentTemplateS3Configuration
-	LogSchemaVersion            int
+	CloudWatchLogsConfiguration *ExperimentTemplateCloudWatchLogsConfiguration `json:"cloudWatchLogsConfiguration"`
+	S3Configuration             *ExperimentTemplateS3Configuration             `json:"s3Configuration"`
+	LogSchemaVersion            int                                            `json:"logSchemaVersion"`
 }
 
 // ExperimentTemplateCloudWatchLogsConfiguration holds the CloudWatch log group ARN.
 type ExperimentTemplateCloudWatchLogsConfiguration struct {
-	LogGroupArn string
+	LogGroupArn string `json:"logGroupArn"`
 }
 
 // ExperimentTemplateS3Configuration holds the S3 bucket for experiment logs.
 type ExperimentTemplateS3Configuration struct {
-	BucketName string
-	Prefix     string
+	BucketName string `json:"bucketName"`
+	Prefix     string `json:"prefix"`
 }
 
 // ExperimentTemplateExperimentOptions controls account and target resolution behaviour.
 type ExperimentTemplateExperimentOptions struct {
-	AccountTargeting          string
-	EmptyTargetResolutionMode string
+	AccountTargeting          string `json:"accountTargeting"`
+	EmptyTargetResolutionMode string `json:"emptyTargetResolutionMode"`
 }
 
 // ----------------------------------------
@@ -89,79 +89,79 @@ type ExperimentTemplateExperimentOptions struct {
 
 // Experiment is the in-memory representation of a running FIS experiment.
 type Experiment struct {
-	StartTime            time.Time
-	ExperimentOptions    *ExperimentExperimentOptions
-	Targets              map[string]ExperimentTarget
-	Actions              map[string]ExperimentAction
-	LogConfiguration     *ExperimentLogConfiguration
-	Tags                 map[string]string
-	EndTime              *time.Time
-	cancel               context.CancelFunc
-	Status               ExperimentStatus
-	ExperimentTemplateID string
-	RoleArn              string
-	ID                   string
-	Arn                  string
-	StopConditions       []ExperimentStopCondition
+	StartTime            time.Time                    `json:"startTime"`
+	ExperimentOptions    *ExperimentExperimentOptions `json:"experimentOptions"`
+	Targets              map[string]ExperimentTarget  `json:"targets"`
+	Actions              map[string]ExperimentAction  `json:"actions"`
+	LogConfiguration     *ExperimentLogConfiguration  `json:"logConfiguration"`
+	Tags                 map[string]string            `json:"tags"`
+	EndTime              *time.Time                   `json:"endTime"`
+	cancel               context.CancelFunc           `json:"-"`
+	Status               ExperimentStatus             `json:"status"`
+	ExperimentTemplateID string                       `json:"experimentTemplateID"`
+	RoleArn              string                       `json:"roleArn"`
+	ID                   string                       `json:"id"`
+	Arn                  string                       `json:"arn"`
+	StopConditions       []ExperimentStopCondition    `json:"stopConditions"`
 }
 
 // ExperimentStatus holds the status string and an optional human-readable reason.
 type ExperimentStatus struct {
-	Status string
-	Reason string
+	Status string `json:"status"`
+	Reason string `json:"reason"`
 }
 
 // ExperimentTarget holds resolved resource ARNs for a target group.
 type ExperimentTarget struct {
-	Parameters   map[string]string
-	ResourceType string
-	ResourceArns []string
+	Parameters   map[string]string `json:"parameters"`
+	ResourceType string            `json:"resourceType"`
+	ResourceArns []string          `json:"resourceArns"`
 }
 
 // ExperimentAction tracks the state of an individual experiment action.
 type ExperimentAction struct {
-	Parameters map[string]string
-	Targets    map[string]string
-	StartTime  *time.Time
-	EndTime    *time.Time
-	Status     ExperimentActionStatus
-	ActionID   string
+	Parameters map[string]string      `json:"parameters"`
+	Targets    map[string]string      `json:"targets"`
+	StartTime  *time.Time             `json:"startTime"`
+	EndTime    *time.Time             `json:"endTime"`
+	Status     ExperimentActionStatus `json:"status"`
+	ActionID   string                 `json:"actionID"`
 }
 
 // ExperimentActionStatus holds the status and reason for a single action.
 type ExperimentActionStatus struct {
-	Status string
-	Reason string
+	Status string `json:"status"`
+	Reason string `json:"reason"`
 }
 
 // ExperimentStopCondition mirrors ExperimentTemplateStopCondition for running experiments.
 type ExperimentStopCondition struct {
-	Source string
-	Value  string
+	Source string `json:"source"`
+	Value  string `json:"value"`
 }
 
 // ExperimentLogConfiguration holds resolved log configuration for an experiment.
 type ExperimentLogConfiguration struct {
-	CloudWatchLogsConfiguration *ExperimentCloudWatchLogsConfiguration
-	S3Configuration             *ExperimentS3Configuration
-	LogSchemaVersion            int
+	CloudWatchLogsConfiguration *ExperimentCloudWatchLogsConfiguration `json:"cloudWatchLogsConfiguration"`
+	S3Configuration             *ExperimentS3Configuration             `json:"s3Configuration"`
+	LogSchemaVersion            int                                    `json:"logSchemaVersion"`
 }
 
 // ExperimentCloudWatchLogsConfiguration holds the CloudWatch log group ARN.
 type ExperimentCloudWatchLogsConfiguration struct {
-	LogGroupArn string
+	LogGroupArn string `json:"logGroupArn"`
 }
 
 // ExperimentS3Configuration holds the S3 bucket for experiment logs.
 type ExperimentS3Configuration struct {
-	BucketName string
-	Prefix     string
+	BucketName string `json:"bucketName"`
+	Prefix     string `json:"prefix"`
 }
 
 // ExperimentExperimentOptions controls account and target resolution behaviour.
 type ExperimentExperimentOptions struct {
-	AccountTargeting          string
-	EmptyTargetResolutionMode string
+	AccountTargeting          string `json:"accountTargeting"`
+	EmptyTargetResolutionMode string `json:"emptyTargetResolutionMode"`
 }
 
 // ----------------------------------------
@@ -504,16 +504,16 @@ type listExperimentResolvedTargetsResponseDTO struct {
 
 // SafetyLever is the model for the FIS account-level safety lever.
 type SafetyLever struct {
-	Tags  map[string]string
-	State SafetyLeverState
-	ID    string
-	Arn   string
+	Tags  map[string]string `json:"tags"`
+	State SafetyLeverState  `json:"state"`
+	ID    string            `json:"id"`
+	Arn   string            `json:"arn"`
 }
 
 // SafetyLeverState holds the status and optional human-readable reason.
 type SafetyLeverState struct {
-	Reason string
-	Status string // "disengaged" | "engaged"
+	Reason string `json:"reason"`
+	Status string `json:"status"` // "disengaged" | "engaged"
 }
 
 // safetyLeverResponseDTO is the outer envelope for safety lever responses.

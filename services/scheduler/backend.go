@@ -194,3 +194,19 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 
 	return b.schedules[name].Tags.Clone(), nil
 }
+
+// Reset clears all in-memory state. It closes all schedule Tags to release
+// Prometheus metrics before discarding the schedules map.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	for _, s := range b.schedules {
+		if s.Tags != nil {
+			s.Tags.Close()
+		}
+	}
+
+	b.schedules = make(map[string]*Schedule)
+	b.scheduleARNIndex = make(map[string]string)
+}

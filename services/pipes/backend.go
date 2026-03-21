@@ -271,3 +271,12 @@ func mergeTags(existing, incoming map[string]string) map[string]string {
 
 	return result
 }
+
+// Reset clears all backend state, resetting to an empty store.
+func (b *InMemoryBackend) Reset() {
+	b.mu.Lock("Reset")
+	defer b.mu.Unlock()
+
+	b.pipes = make(map[string]*Pipe)
+	b.pipeARNIndex = make(map[string]string)
+}

@@ -64,6 +64,12 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 
+	b.targetARNIndex = make(map[string]string, len(b.scalableTargets))
+
+	for key, t := range b.scalableTargets {
+		b.targetARNIndex[t.ARN] = key
+	}
+
 	return nil
 }
 

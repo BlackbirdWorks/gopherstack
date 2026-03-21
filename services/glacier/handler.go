@@ -844,3 +844,8 @@ func (h *Handler) writeBackendError(c *echo.Context, err error) error {
 
 	return h.writeError(c, http.StatusInternalServerError, "ServiceUnavailableException", err.Error())
 }
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}

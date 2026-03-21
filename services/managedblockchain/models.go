@@ -4,49 +4,71 @@ import "time"
 
 // Network represents an Amazon Managed Blockchain network.
 type Network struct {
-	CreationDate     *time.Time
-	Tags             map[string]string
-	Arn              string
-	Description      string
-	Framework        string
-	FrameworkVersion string
-	ID               string
-	Name             string
-	Status           string
+	CreationDate     *time.Time        `json:"creationDate"`
+	Tags             map[string]string `json:"tags"`
+	Arn              string            `json:"arn"`
+	Description      string            `json:"description"`
+	Framework        string            `json:"framework"`
+	FrameworkVersion string            `json:"frameworkVersion"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Status           string            `json:"status"`
 }
 
 // NetworkSummary is the short form returned by ListNetworks.
 type NetworkSummary struct {
-	CreationDate     *time.Time
-	Arn              string
-	Description      string
-	Framework        string
-	FrameworkVersion string
-	ID               string
-	Name             string
-	Status           string
+	CreationDate     *time.Time `json:"creationDate"`
+	Arn              string     `json:"arn"`
+	Description      string     `json:"description"`
+	Framework        string     `json:"framework"`
+	FrameworkVersion string     `json:"frameworkVersion"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	Status           string     `json:"status"`
 }
 
 // Member represents a member within a Managed Blockchain network.
 type Member struct {
-	CreationDate *time.Time
-	Tags         map[string]string
-	Arn          string
-	Description  string
-	ID           string
-	Name         string
-	NetworkID    string
-	Status       string
+	CreationDate *time.Time        `json:"creationDate"`
+	Tags         map[string]string `json:"tags"`
+	Arn          string            `json:"arn"`
+	Description  string            `json:"description"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	NetworkID    string            `json:"networkID"`
+	Status       string            `json:"status"`
 }
 
 // MemberSummary is the short form returned by ListMembers.
 type MemberSummary struct {
-	CreationDate *time.Time
-	Arn          string
-	Description  string
-	ID           string
-	Name         string
-	Status       string
+	CreationDate *time.Time `json:"creationDate"`
+	Arn          string     `json:"arn"`
+	Description  string     `json:"description"`
+	ID           string     `json:"id"`
+	Name         string     `json:"name"`
+	Status       string     `json:"status"`
+}
+
+// Node represents a peer node within a Managed Blockchain member.
+type Node struct {
+	CreationDate     *time.Time        `json:"creationDate"`
+	Tags             map[string]string `json:"tags"`
+	Arn              string            `json:"arn"`
+	AvailabilityZone string            `json:"availabilityZone"`
+	ID               string            `json:"id"`
+	InstanceType     string            `json:"instanceType"`
+	MemberID         string            `json:"memberID"`
+	NetworkID        string            `json:"networkID"`
+	Status           string            `json:"status"`
+}
+
+// NodeSummary is the short form returned by ListNodes.
+type NodeSummary struct {
+	CreationDate *time.Time `json:"creationDate"`
+	Arn          string     `json:"arn"`
+	ID           string     `json:"id"`
+	InstanceType string     `json:"instanceType"`
+	Status       string     `json:"status"`
 }
 
 // -- Request / Response bodies ------------------------------------------------
@@ -167,4 +189,54 @@ type tagResourceRequest struct {
 // errorResponse is the standard error response body.
 type errorResponse struct {
 	Message string `json:"message"`
+}
+
+// nodeConfiguration holds the configuration for a node.
+type nodeConfiguration struct {
+	AvailabilityZone string `json:"AvailabilityZone"`
+	InstanceType     string `json:"InstanceType"`
+}
+
+// createNodeRequest is the request body for POST /networks/{networkId}/members/{memberId}/nodes.
+type createNodeRequest struct {
+	ClientRequestToken string            `json:"ClientRequestToken"`
+	NodeConfiguration  nodeConfiguration `json:"NodeConfiguration"`
+}
+
+// createNodeResponse is the response body for POST /networks/{networkId}/members/{memberId}/nodes.
+type createNodeResponse struct {
+	NodeID string `json:"NodeId"`
+}
+
+// nodeObject is the JSON representation of a node for GetNode.
+type nodeObject struct {
+	CreationDate     *time.Time        `json:"CreationDate,omitempty"`
+	Tags             map[string]string `json:"Tags,omitempty"`
+	Arn              string            `json:"Arn"`
+	AvailabilityZone string            `json:"AvailabilityZone,omitempty"`
+	ID               string            `json:"Id"`
+	InstanceType     string            `json:"InstanceType"`
+	MemberID         string            `json:"MemberId"`
+	NetworkID        string            `json:"NetworkId"`
+	Status           string            `json:"Status"`
+}
+
+// getNodeResponse is the response body for GET /networks/{networkId}/members/{memberId}/nodes/{nodeId}.
+type getNodeResponse struct {
+	Node nodeObject `json:"Node"`
+}
+
+// nodeSummaryObject is the JSON representation of a node summary.
+type nodeSummaryObject struct {
+	CreationDate *time.Time `json:"CreationDate,omitempty"`
+	Arn          string     `json:"Arn"`
+	ID           string     `json:"Id"`
+	InstanceType string     `json:"InstanceType"`
+	Status       string     `json:"Status"`
+}
+
+// listNodesResponse is the response body for GET /networks/{networkId}/members/{memberId}/nodes.
+type listNodesResponse struct {
+	NextToken *string             `json:"NextToken,omitempty"`
+	Nodes     []nodeSummaryObject `json:"Nodes"`
 }

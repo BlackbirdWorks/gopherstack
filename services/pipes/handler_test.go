@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/labstack/echo/v5"
@@ -476,6 +477,55 @@ func TestHandler_UntagResource(t *testing.T) {
 
 			rec := doPipesRequest(t, h, http.MethodDelete, "/tags/"+arn+tt.tagKeys, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
+func TestPipes_Handler_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		createPipes int
+		wantAfter   int
+	}{
+		{
+			name:        "reset clears all pipes",
+			createPipes: 2,
+			wantAfter:   0,
+		},
+		{
+			name:        "reset on empty backend is a no-op",
+			createPipes: 0,
+			wantAfter:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for i := range tt.createPipes {
+				rec := doPipesRequest(t, h, http.MethodPost, "/v1/pipes/pipe-"+strconv.Itoa(i), map[string]any{
+					"RoleArn": "arn:aws:iam::000000000000:role/test",
+					"Source":  "arn:aws:sqs:us-east-1:000000000000:source",
+					"Target":  "arn:aws:lambda:us-east-1:000000000000:function:target",
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			h.Reset()
+
+			rec := doPipesRequest(t, h, http.MethodGet, "/v1/pipes", nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out struct {
+				Pipes []any `json:"Pipes"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.Len(t, out.Pipes, tt.wantAfter)
 		})
 	}
 }

@@ -129,6 +129,25 @@ func (b *InMemoryBackend) ExperimentCount() int {
 	return len(b.experiments)
 }
 
+// InjectTemplate inserts a pre-built experiment template directly into the store.
+// Used only in tests.
+func (b *InMemoryBackend) InjectTemplate(tpl *ExperimentTemplate) {
+	b.mu.Lock("InjectTemplate")
+	defer b.mu.Unlock()
+
+	b.templates[tpl.ID] = tpl
+	b.templateARNIndex[tpl.Arn] = tpl.ID
+}
+
+// TemplateCount returns the number of experiment templates stored.
+// Used only in tests.
+func (b *InMemoryBackend) TemplateCount() int {
+	b.mu.RLock("TemplateCount")
+	defer b.mu.RUnlock()
+
+	return len(b.templates)
+}
+
 // InjectCancel injects a cancel function for an experiment, simulating the one
 // stored when StartExperiment creates a background goroutine.
 // Used only in tests.

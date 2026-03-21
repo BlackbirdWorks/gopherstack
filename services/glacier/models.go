@@ -4,41 +4,41 @@ import "time"
 
 // Vault stores all metadata and state for a single Glacier vault.
 type Vault struct {
-	Tags                 map[string]string
-	AccessPolicy         string
-	NotificationSNSTopic string
-	VaultARN             string
-	VaultName            string
-	CreationDate         string
-	LastInventoryDate    string
-	NotificationEvents   []string
-	NumberOfArchives     int64
-	SizeInBytes          int64
+	Tags                 map[string]string `json:"tags,omitempty"`
+	AccessPolicy         string            `json:"accessPolicy,omitempty"`
+	NotificationSNSTopic string            `json:"notificationSNSTopic,omitempty"`
+	VaultARN             string            `json:"vaultARN"`
+	VaultName            string            `json:"vaultName"`
+	CreationDate         string            `json:"creationDate"`
+	LastInventoryDate    string            `json:"lastInventoryDate,omitempty"`
+	NotificationEvents   []string          `json:"notificationEvents,omitempty"`
+	NumberOfArchives     int64             `json:"numberOfArchives"`
+	SizeInBytes          int64             `json:"sizeInBytes"`
 }
 
 // Archive stores metadata for a single archive uploaded to a vault.
 type Archive struct {
-	ArchiveID      string
-	Description    string
-	CreationDate   string
-	SHA256TreeHash string
-	Size           int64
+	ArchiveID      string `json:"archiveID"`
+	Description    string `json:"description,omitempty"`
+	CreationDate   string `json:"creationDate"`
+	SHA256TreeHash string `json:"sha256TreeHash,omitempty"`
+	Size           int64  `json:"size"`
 }
 
 // Job stores state for a single Glacier retrieval or inventory job.
 type Job struct {
-	VaultARN       string
-	VaultName      string
-	JobID          string
-	JobDescription string
-	Action         string
-	ArchiveID      string
-	StatusCode     string
-	StatusMessage  string
-	CreationDate   string
-	CompletionDate string
-	Tier           string
-	Completed      bool
+	VaultARN       string `json:"vaultARN"`
+	VaultName      string `json:"vaultName"`
+	JobID          string `json:"jobID"`
+	JobDescription string `json:"jobDescription,omitempty"`
+	Action         string `json:"action"`
+	ArchiveID      string `json:"archiveID,omitempty"`
+	StatusCode     string `json:"statusCode"`
+	StatusMessage  string `json:"statusMessage,omitempty"`
+	CreationDate   string `json:"creationDate"`
+	CompletionDate string `json:"completionDate,omitempty"`
+	Tier           string `json:"tier,omitempty"`
+	Completed      bool   `json:"completed"`
 }
 
 // vaultNotificationConfig holds the SNS configuration for a vault.

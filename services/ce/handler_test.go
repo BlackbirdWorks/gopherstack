@@ -571,3 +571,114 @@ func TestHandler_UnknownAction(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestHandler_ForecastStubs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   any
+		name   string
+		action string
+	}{
+		{
+			name:   "get_cost_forecast",
+			action: "GetCostForecast",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-02-01", "End": "2024-03-01"},
+				"Granularity": "MONTHLY",
+				"Metric":      "BLENDED_COST",
+			},
+		},
+		{
+			name:   "get_usage_forecast",
+			action: "GetUsageForecast",
+			body: map[string]any{
+				"TimePeriod":  map[string]string{"Start": "2024-02-01", "End": "2024-03-01"},
+				"Granularity": "MONTHLY",
+				"Metric":      "USAGE_QUANTITY",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.action, tt.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+			assert.NotNil(t, out["Total"])
+			forecastResults, ok := out["ForecastResultsByTime"].([]any)
+			require.True(t, ok)
+			assert.Empty(t, forecastResults)
+		})
+	}
+}
+
+func TestCEHandler_UpdateCostCategoryDefinition_DeepCopy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		initialRules      []map[string]any
+		updatedRules      []map[string]any
+		wantRulesAfterGet int
+	}{
+		{
+			name:              "rules_are_deep_copied_on_update",
+			initialRules:      []map[string]any{{"value": "old"}},
+			updatedRules:      []map[string]any{{"value": "new"}, {"value": "extra"}},
+			wantRulesAfterGet: 2,
+		},
+		{
+			name:              "empty_rules_on_update",
+			initialRules:      []map[string]any{{"value": "initial"}},
+			updatedRules:      []map[string]any{},
+			wantRulesAfterGet: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			createRec := doRequest(t, h, "CreateCostCategoryDefinition", map[string]any{
+				"Name":        "test-cat",
+				"RuleVersion": "CostCategoryExpression.v1",
+				"Rules":       tt.initialRules,
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createOut struct {
+				CostCategoryArn string `json:"CostCategoryArn"`
+			}
+			require.NoError(t, json.NewDecoder(createRec.Body).Decode(&createOut))
+
+			updateRec := doRequest(t, h, "UpdateCostCategoryDefinition", map[string]any{
+				"CostCategoryArn": createOut.CostCategoryArn,
+				"RuleVersion":     "CostCategoryExpression.v1",
+				"Rules":           tt.updatedRules,
+			})
+			require.Equal(t, http.StatusOK, updateRec.Code)
+
+			describeRec := doRequest(t, h, "DescribeCostCategoryDefinition", map[string]any{
+				"CostCategoryArn": createOut.CostCategoryArn,
+			})
+			require.Equal(t, http.StatusOK, describeRec.Code)
+
+			var describeOut struct {
+				CostCategory struct {
+					Rules []map[string]any `json:"rules"`
+				} `json:"CostCategory"`
+			}
+
+			require.NoError(t, json.NewDecoder(describeRec.Body).Decode(&describeOut))
+			assert.Len(t, describeOut.CostCategory.Rules, tt.wantRulesAfterGet)
+		})
+	}
+}

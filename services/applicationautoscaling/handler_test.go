@@ -3,6 +3,7 @@ package applicationautoscaling_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -792,4 +793,57 @@ func TestPersistence_SnapshotRestore(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	targets := resp["ScalableTargets"].([]any)
 	assert.Len(t, targets, 1)
+}
+
+func TestApplicationAutoScaling_Handler_Reset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		createTargets int
+		wantAfter     int
+	}{
+		{
+			name:          "reset clears all scalable targets",
+			createTargets: 2,
+			wantAfter:     0,
+		},
+		{
+			name:          "reset on empty backend is a no-op",
+			createTargets: 0,
+			wantAfter:     0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			for i := range tt.createTargets {
+				rec := doRequest(t, h, "RegisterScalableTarget", map[string]any{
+					"ServiceNamespace":  "ecs",
+					"ResourceId":        fmt.Sprintf("service/cluster/svc-%d", i),
+					"ScalableDimension": "ecs:service:DesiredCount",
+					"MinCapacity":       1,
+					"MaxCapacity":       10,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+			}
+
+			h.Reset()
+
+			rec := doRequest(t, h, "DescribeScalableTargets", map[string]any{
+				"ServiceNamespace": "ecs",
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			targets, _ := out["ScalableTargets"].([]any)
+			assert.Len(t, targets, tt.wantAfter)
+		})
+	}
 }

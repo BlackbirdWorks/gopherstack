@@ -534,3 +534,8 @@ func extractTagsARN(path string) (string, error) {
 
 	return decoded, nil
 }
+
+// Reset clears all backend state.
+func (h *Handler) Reset() {
+	h.Backend.Reset()
+}
