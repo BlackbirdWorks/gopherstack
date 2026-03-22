@@ -2,6 +2,12 @@ package backup
 
 import "time"
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultBackupJanitorInterval
+
+// DefaultJobTTL exposes the package default job TTL for testing.
+const DefaultJobTTL = defaultBackupJobTTL
+
 // JobCount returns the number of backup jobs stored in the backend.
 // Used only in tests.
 func (b *InMemoryBackend) JobCount() int {
@@ -33,6 +39,16 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	return h.janitor.TaskTimeout
 }
 
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.Interval
+}
+
 // GetJanitorJobTTL returns the JobTTL configured on the handler's janitor.
 // Used in tests to verify WithJanitor correctly propagates the TTL.
 func (h *Handler) GetJanitorJobTTL() time.Duration {
@@ -42,3 +58,4 @@ func (h *Handler) GetJanitorJobTTL() time.Duration {
 
 	return h.janitor.JobTTL
 }
+

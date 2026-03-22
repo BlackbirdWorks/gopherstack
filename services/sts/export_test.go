@@ -27,3 +27,9 @@ func (b *InMemoryBackend) SetSessionExpiration(accessKeyID string, exp time.Time
 func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	return h.janitor.TaskTimeout
 }
+
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	return h.janitor.Interval
+}

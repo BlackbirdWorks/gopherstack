@@ -5,6 +5,15 @@ import (
 	"time"
 )
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultBatchJanitorInterval
+
+// DefaultInactiveJobDefTTL exposes the package default inactive job def TTL for testing.
+const DefaultInactiveJobDefTTL = defaultBatchInactiveJobDefTTL
+
+// DefaultCompletedJobTTL exposes the package default completed job TTL for testing.
+const DefaultCompletedJobTTL = defaultBatchCompletedJobTTL
+
 // JobDefinitionCount returns the number of job definitions stored in the backend.
 // Used only in tests.
 func (b *InMemoryBackend) JobDefinitionCount() int {
@@ -85,6 +94,16 @@ func (h *Handler) GetJanitorCompletedJobTTL() time.Duration {
 	}
 
 	return h.janitor.CompletedJobTTL
+}
+
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.Interval
 }
 
 // SetJobStoppedAtForTest sets a job's status and StoppedAt timestamp for testing.

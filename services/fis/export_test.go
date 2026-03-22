@@ -170,6 +170,16 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	return h.janitor.TaskTimeout
 }
 
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.Interval
+}
+
 // GetJanitorExperimentTTL returns the ExperimentTTL configured on the handler's janitor.
 // Used in tests to verify WithJanitor correctly propagates the TTL.
 func (h *Handler) GetJanitorExperimentTTL() time.Duration {
