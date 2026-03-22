@@ -15,7 +15,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := s3control.NewInMemoryBackend("000000000000", "us-east-1")
+	backend := s3control.NewInMemoryBackend()
 	h := s3control.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &s3controlsdk.Client{}, h.GetSupportedOperations(), []string{
 		"AssociateAccessGrantsIdentityCenter",

@@ -15,7 +15,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := managedblockchain.NewInMemoryBackend("000000000000", "us-east-1")
+	backend := managedblockchain.NewInMemoryBackend()
 	h := managedblockchain.NewHandler(backend)
 	sdkcheck.CheckCompleteness(t, &managedblockchainsdk.Client{}, h.GetSupportedOperations(), []string{
 		"CreateAccessor",

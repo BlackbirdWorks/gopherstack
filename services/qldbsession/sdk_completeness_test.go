@@ -3,7 +3,7 @@ package qldbsession_test
 import (
 	"testing"
 
-	qldbsessionsdk "github.com/aws/aws-sdk-go-v2/service/qldbsession"
+	qldbsessionsdk "github.com/aws/aws-sdk-go-v2/service/qldbsession" //nolint:staticcheck // AWS has deprecated this service; gopherstack still supports it
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/qldbsession"
 )

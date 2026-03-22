@@ -68,7 +68,7 @@ func TestSDKCompleteness(t *testing.T) {
 		"CopyFpgaImage",
 		"CopyImage",
 		"CopySnapshot",
-		"CopySnapshot_test",
+		"CopySnapshot",
 		"CopyVolumes",
 		"CreateCapacityManagerDataExport",
 		"CreateCapacityReservation",

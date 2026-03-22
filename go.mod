@@ -130,7 +130,9 @@ require (
 )
 
 require (
+	github.com/aws/aws-sdk-go-v2/service/apigatewaymanagementapi v1.29.13
 	github.com/aws/aws-sdk-go-v2/service/elasticsearchservice v1.39.1
+	github.com/aws/aws-sdk-go-v2/service/iotdataplane v1.32.20
 	github.com/aws/aws-sdk-go-v2/service/memorydb v1.33.12
 	github.com/aws/aws-sdk-go-v2/service/mq v1.34.17
 	github.com/aws/aws-sdk-go-v2/service/mwaa v1.39.20
@@ -146,9 +148,15 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3tables v1.14.3
 	github.com/aws/aws-sdk-go-v2/service/sagemaker v1.236.0
 	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.39.3
+	github.com/aws/aws-sdk-go-v2/service/serverlessapplicationrepository v1.30.11
 	github.com/aws/aws-sdk-go-v2/service/servicediscovery v1.39.24
+	github.com/aws/aws-sdk-go-v2/service/sesv2 v1.60.1
+	github.com/aws/aws-sdk-go-v2/service/shield v1.34.20
 	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.37.3
+	github.com/aws/aws-sdk-go-v2/service/textract v1.40.19
 	github.com/aws/aws-sdk-go-v2/service/timestreamquery v1.36.13
+	github.com/aws/aws-sdk-go-v2/service/timestreamwrite v1.35.19
+	github.com/aws/aws-sdk-go-v2/service/transcribe v1.54.3
 	github.com/aws/aws-sdk-go-v2/service/transfer v1.69.4
 	github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.71.2

@@ -20,6 +20,9 @@ import (
 // The test fails if a method exists on the SDK client that is not accounted for
 // in either list, which normally happens when the upstream SDK adds a new
 // operation that gopherstack has not yet been updated to handle.
+//
+// The "Options" method, which exists on every AWS SDK v2 Client but is not an
+// API operation, is always excluded from the check.
 func CheckCompleteness(t *testing.T, sdkClientPtr any, supportedOps []string, notImplemented []string) {
 	t.Helper()
 
@@ -33,12 +36,14 @@ func CheckCompleteness(t *testing.T, sdkClientPtr any, supportedOps []string, no
 		supportedSet[op] = true
 	}
 
-	sdkType := reflect.TypeOf(sdkClientPtr)
-
 	var unaccounted []string
 
-	for i := range sdkType.NumMethod() {
-		name := sdkType.Method(i).Name
+	for m := range reflect.TypeOf(sdkClientPtr).Methods() {
+		name := m.Name
+		// "Options" is a client configuration accessor, not an API operation.
+		if name == "Options" {
+			continue
+		}
 		if !supportedSet[name] && !notImplSet[name] {
 			unaccounted = append(unaccounted, name)
 		}
