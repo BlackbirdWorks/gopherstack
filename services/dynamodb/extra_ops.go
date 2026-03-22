@@ -3,6 +3,8 @@ package dynamodb
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -288,10 +290,11 @@ func (db *InMemoryDB) DescribeLimits(
 
 // DescribeEndpoints returns hardcoded regional DynamoDB endpoint information.
 func (db *InMemoryDB) DescribeEndpoints(
-	_ context.Context,
+	ctx context.Context,
 	_ *dynamodb.DescribeEndpointsInput,
 ) (*dynamodb.DescribeEndpointsOutput, error) {
-	address := fmt.Sprintf("dynamodb.%s.amazonaws.com", db.defaultRegion)
+	region := getRegionFromContext(ctx, db)
+	address := fmt.Sprintf("dynamodb.%s.amazonaws.com", region)
 	cachePeriod := endpointCachePeriodMinutes
 
 	return &dynamodb.DescribeEndpointsOutput{
@@ -337,14 +340,181 @@ func (db *InMemoryDB) DescribeContributorInsights(
 	return out, nil
 }
 
+// --- EnableKinesisStreamingDestination ---
+
+// EnableKinesisStreamingDestination adds a Kinesis streaming destination to a table.
+func (db *InMemoryDB) EnableKinesisStreamingDestination(
+	ctx context.Context,
+	input *dynamodb.EnableKinesisStreamingDestinationInput,
+) (*dynamodb.EnableKinesisStreamingDestinationOutput, error) {
+	if input.TableName == nil || *input.TableName == "" {
+		return nil, NewValidationException("TableName is required")
+	}
+
+	if input.StreamArn == nil || *input.StreamArn == "" {
+		return nil, NewValidationException("StreamArn is required")
+	}
+
+	table, err := db.getTable(ctx, *input.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	streamARN := *input.StreamArn
+	tableName := *input.TableName
+
+	table.mu.Lock("EnableKinesisStreamingDestination")
+
+	// Idempotent: only add if not already present.
+	alreadyExists := slices.Contains(table.KinesisDestinations, streamARN)
+
+	if !alreadyExists {
+		table.KinesisDestinations = append(table.KinesisDestinations, streamARN)
+	}
+
+	table.mu.Unlock()
+
+	status := types.DestinationStatusEnabling
+
+	return &dynamodb.EnableKinesisStreamingDestinationOutput{
+		TableName:         &tableName,
+		StreamArn:         &streamARN,
+		DestinationStatus: status,
+	}, nil
+}
+
+// --- ListGlobalTables ---
+
+// ListGlobalTables returns global tables, optionally filtered by region, with pagination support.
+func (db *InMemoryDB) ListGlobalTables(
+	_ context.Context,
+	input *dynamodb.ListGlobalTablesInput,
+) (*dynamodb.ListGlobalTablesOutput, error) {
+	db.mu.RLock("ListGlobalTables")
+	defer db.mu.RUnlock()
+
+	regionFilter := ""
+	if input.RegionName != nil {
+		regionFilter = *input.RegionName
+	}
+
+	startName := ""
+	if input.ExclusiveStartGlobalTableName != nil {
+		startName = *input.ExclusiveStartGlobalTableName
+	}
+
+	// Collect and sort names for deterministic pagination.
+	names := make([]string, 0, len(db.GlobalTables))
+	for name := range db.GlobalTables {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	// Apply start cursor.
+	startIdx := 0
+
+	if startName != "" {
+		for i, name := range names {
+			if name > startName {
+				startIdx = i
+
+				break
+			}
+		}
+	}
+
+	names = names[startIdx:]
+
+	// Apply region filter.
+	filtered := make([]types.GlobalTable, 0, len(names))
+
+	for _, name := range names {
+		gt := db.GlobalTables[name]
+
+		if regionFilter != "" {
+			matched := slices.Contains(gt.ReplicationGroup, regionFilter)
+
+			if !matched {
+				continue
+			}
+		}
+
+		replicas := make([]types.Replica, 0, len(gt.ReplicationGroup))
+		for _, region := range gt.ReplicationGroup {
+			r := region
+			replicas = append(replicas, types.Replica{RegionName: &r})
+		}
+
+		n := name
+		filtered = append(filtered, types.GlobalTable{
+			GlobalTableName:  &n,
+			ReplicationGroup: replicas,
+		})
+	}
+
+	// Apply limit.
+	var lastEvaluated *string
+
+	if input.Limit != nil && int(*input.Limit) < len(filtered) {
+		limit := int(*input.Limit)
+		lastTableName := *filtered[limit-1].GlobalTableName
+		lastEvaluated = &lastTableName
+		filtered = filtered[:limit]
+	}
+
+	return &dynamodb.ListGlobalTablesOutput{
+		GlobalTables:                 filtered,
+		LastEvaluatedGlobalTableName: lastEvaluated,
+	}, nil
+}
+
+// --- GetResourcePolicy ---
+
+// GetResourcePolicy is a stub that returns an empty policy.
+// The in-memory backend does not track resource policies.
+func (db *InMemoryDB) GetResourcePolicy(
+	_ context.Context,
+	input *dynamodb.GetResourcePolicyInput,
+) (*dynamodb.GetResourcePolicyOutput, error) {
+	if input == nil || input.ResourceArn == nil || *input.ResourceArn == "" {
+		return nil, NewValidationException("ResourceArn is required")
+	}
+
+	return &dynamodb.GetResourcePolicyOutput{}, nil
+}
+
+// --- PutResourcePolicy ---
+
+// PutResourcePolicy is a stub that accepts any policy document.
+// The in-memory backend does not enforce or store resource policies.
+func (db *InMemoryDB) PutResourcePolicy(
+	_ context.Context,
+	input *dynamodb.PutResourcePolicyInput,
+) (*dynamodb.PutResourcePolicyOutput, error) {
+	if input == nil || input.ResourceArn == nil || *input.ResourceArn == "" {
+		return nil, NewValidationException("ResourceArn is required")
+	}
+
+	if input.Policy == nil || *input.Policy == "" {
+		return nil, NewValidationException("Policy is required")
+	}
+
+	return &dynamodb.PutResourcePolicyOutput{}, nil
+}
+
 // --- DeleteResourcePolicy ---
 
 // DeleteResourcePolicy is a stub that returns an empty revision ID.
 // The in-memory backend does not track resource policies.
 func (db *InMemoryDB) DeleteResourcePolicy(
 	_ context.Context,
-	_ *dynamodb.DeleteResourcePolicyInput,
+	input *dynamodb.DeleteResourcePolicyInput,
 ) (*dynamodb.DeleteResourcePolicyOutput, error) {
+	if input == nil || input.ResourceArn == nil || *input.ResourceArn == "" {
+		return nil, NewValidationException("ResourceArn is required")
+	}
+
 	return &dynamodb.DeleteResourcePolicyOutput{}, nil
 }
 

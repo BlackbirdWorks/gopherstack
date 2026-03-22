@@ -252,13 +252,16 @@ func (h *DynamoDBHandler) GetJanitorTaskTimeout() time.Duration {
 func (db *InMemoryDB) AddKinesisDestination(tableName, streamARN string) {
 	db.mu.RLock("AddKinesisDestination")
 	regionTables, regionExists := db.Tables[db.defaultRegion]
-	db.mu.RUnlock()
 
-	if !regionExists {
-		return
+	var table *Table
+	var tableExists bool
+
+	if regionExists {
+		table, tableExists = regionTables[tableName]
 	}
 
-	table, tableExists := regionTables[tableName]
+	db.mu.RUnlock()
+
 	if !tableExists {
 		return
 	}

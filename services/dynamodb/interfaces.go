@@ -78,8 +78,16 @@ type StorageBackend interface {
 		context.Context,
 		*dynamodb.DescribeGlobalTableSettingsInput,
 	) (*dynamodb.DescribeGlobalTableSettingsOutput, error)
+	ListGlobalTables(
+		context.Context,
+		*dynamodb.ListGlobalTablesInput,
+	) (*dynamodb.ListGlobalTablesOutput, error)
 
 	// Kinesis Streaming Operations
+	EnableKinesisStreamingDestination(
+		context.Context,
+		*dynamodb.EnableKinesisStreamingDestinationInput,
+	) (*dynamodb.EnableKinesisStreamingDestinationOutput, error)
 	DescribeKinesisStreamingDestination(
 		context.Context,
 		*dynamodb.DescribeKinesisStreamingDestinationInput,
@@ -88,6 +96,20 @@ type StorageBackend interface {
 		context.Context,
 		*dynamodb.DisableKinesisStreamingDestinationInput,
 	) (*dynamodb.DisableKinesisStreamingDestinationOutput, error)
+
+	// Resource Policy Operations
+	GetResourcePolicy(
+		context.Context,
+		*dynamodb.GetResourcePolicyInput,
+	) (*dynamodb.GetResourcePolicyOutput, error)
+	PutResourcePolicy(
+		context.Context,
+		*dynamodb.PutResourcePolicyInput,
+	) (*dynamodb.PutResourcePolicyOutput, error)
+	DeleteResourcePolicy(
+		context.Context,
+		*dynamodb.DeleteResourcePolicyInput,
+	) (*dynamodb.DeleteResourcePolicyOutput, error)
 
 	// Miscellaneous Operations
 	DescribeLimits(
@@ -102,10 +124,6 @@ type StorageBackend interface {
 		context.Context,
 		*dynamodb.DescribeContributorInsightsInput,
 	) (*dynamodb.DescribeContributorInsightsOutput, error)
-	DeleteResourcePolicy(
-		context.Context,
-		*dynamodb.DeleteResourcePolicyInput,
-	) (*dynamodb.DeleteResourcePolicyOutput, error)
 	DescribeImport(
 		context.Context,
 		*dynamodb.DescribeImportInput,
