@@ -1,0 +1,44 @@
+package memorydb_test
+
+import (
+	"testing"
+
+	memorydbsdk "github.com/aws/aws-sdk-go-v2/service/memorydb"
+	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
+	"github.com/blackbirdworks/gopherstack/services/memorydb"
+)
+
+// TestSDKCompleteness verifies that every operation exposed by the AWS SDK v2
+// memorydb client is either listed in GetSupportedOperations() or explicitly
+// acknowledged in the notImplemented slice.  The test fails when the upstream
+// SDK adds a new operation that gopherstack has not yet handled.
+func TestSDKCompleteness(t *testing.T) {
+	t.Parallel()
+
+	backend := memorydb.NewInMemoryBackend()
+	h := memorydb.NewHandler(backend)
+	sdkcheck.CheckCompleteness(t, &memorydbsdk.Client{}, h.GetSupportedOperations(), []string{
+		"BatchUpdateCluster",
+		"CopySnapshot",
+		"CreateMultiRegionCluster",
+		"CreateSnapshot",
+		"DeleteMultiRegionCluster",
+		"DeleteSnapshot",
+		"DescribeEngineVersions",
+		"DescribeEvents",
+		"DescribeMultiRegionClusters",
+		"DescribeMultiRegionParameterGroups",
+		"DescribeMultiRegionParameters",
+		"DescribeParameters",
+		"DescribeReservedNodes",
+		"DescribeReservedNodesOfferings",
+		"DescribeServiceUpdates",
+		"DescribeSnapshots",
+		"FailoverShard",
+		"ListAllowedMultiRegionClusterUpdates",
+		"ListAllowedNodeTypeUpdates",
+		"PurchaseReservedNodesOffering",
+		"ResetParameterGroup",
+		"UpdateMultiRegionCluster",
+	})
+}

@@ -1,0 +1,101 @@
+package apigatewayv2_test
+
+import (
+	"testing"
+
+	apigatewayv2sdk "github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
+	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
+	"github.com/blackbirdworks/gopherstack/services/apigatewayv2"
+)
+
+// TestSDKCompleteness verifies that every operation exposed by the AWS SDK v2
+// apigatewayv2 client is either listed in GetSupportedOperations() or explicitly
+// acknowledged in the notImplemented slice.  The test fails when the upstream
+// SDK adds a new operation that gopherstack has not yet handled.
+func TestSDKCompleteness(t *testing.T) {
+	t.Parallel()
+
+	backend := apigatewayv2.NewInMemoryBackend()
+	h := apigatewayv2.NewHandler(backend)
+	sdkcheck.CheckCompleteness(t, &apigatewayv2sdk.Client{}, h.GetSupportedOperations(), []string{
+		"CreateApi",
+		"CreateApiMapping",
+		"CreateDomainName",
+		"CreateIntegrationResponse",
+		"CreateModel",
+		"CreatePortal",
+		"CreatePortalProduct",
+		"CreateProductPage",
+		"CreateProductRestEndpointPage",
+		"CreateRouteResponse",
+		"CreateRoutingRule",
+		"CreateVpcLink",
+		"DeleteAccessLogSettings",
+		"DeleteApi",
+		"DeleteApiMapping",
+		"DeleteCorsConfiguration",
+		"DeleteDomainName",
+		"DeleteIntegrationResponse",
+		"DeleteModel",
+		"DeletePortal",
+		"DeletePortalProduct",
+		"DeletePortalProductSharingPolicy",
+		"DeleteProductPage",
+		"DeleteProductRestEndpointPage",
+		"DeleteRouteRequestParameter",
+		"DeleteRouteResponse",
+		"DeleteRouteSettings",
+		"DeleteRoutingRule",
+		"DeleteVpcLink",
+		"DisablePortal",
+		"ExportApi",
+		"GetApi",
+		"GetApiMapping",
+		"GetApiMappings",
+		"GetApis",
+		"GetDomainName",
+		"GetDomainNames",
+		"GetIntegrationResponse",
+		"GetIntegrationResponses",
+		"GetModel",
+		"GetModelTemplate",
+		"GetModels",
+		"GetPortal",
+		"GetPortalProduct",
+		"GetPortalProductSharingPolicy",
+		"GetProductPage",
+		"GetProductRestEndpointPage",
+		"GetRouteResponse",
+		"GetRouteResponses",
+		"GetRoutingRule",
+		"GetTags",
+		"GetVpcLink",
+		"GetVpcLinks",
+		"ImportApi",
+		"ListPortalProducts",
+		"ListPortals",
+		"ListProductPages",
+		"ListProductRestEndpointPages",
+		"ListRoutingRules",
+		"PreviewPortal",
+		"PublishPortal",
+		"PutPortalProductSharingPolicy",
+		"PutRoutingRule",
+		"ReimportApi",
+		"ResetAuthorizersCache",
+		"TagResource",
+		"UntagResource",
+		"UpdateApi",
+		"UpdateApiMapping",
+		"UpdateDeployment",
+		"UpdateDomainName",
+		"UpdateIntegrationResponse",
+		"UpdateModel",
+		"UpdatePortal",
+		"UpdatePortalProduct",
+		"UpdateProductPage",
+		"UpdateProductRestEndpointPage",
+		"UpdateRouteResponse",
+		"UpdateVpcLink",
+	})
+}
