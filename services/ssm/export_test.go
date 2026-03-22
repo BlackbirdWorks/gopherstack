@@ -92,8 +92,8 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 // GetCommandExpirySecs returns the commandExpirySecs configured on the backend.
 // Used in tests to verify WithCommandTTL correctly propagates the TTL.
 func (b *InMemoryBackend) GetCommandExpirySecs() float64 {
-b.mu.RLock("GetCommandExpirySecs")
-defer b.mu.RUnlock()
+	b.mu.RLock("GetCommandExpirySecs")
+	defer b.mu.RUnlock()
 
-return b.commandExpirySecs
+	return b.commandExpirySecs
 }

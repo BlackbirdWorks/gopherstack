@@ -90,16 +90,15 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 // GetEmailTTL returns the email TTL configured on the handler's backend.
 // Used in provider tests to verify that the TTL is passed through correctly.
 func (h *Handler) GetEmailTTL() time.Duration {
-return h.Backend.GetEmailTTL()
+	return h.Backend.GetEmailTTL()
 }
 
 // BackdateEmailForTest sets the Timestamp of the email at index i to the given time.
 // Used in janitor sweep tests to simulate aged emails.
 func (b *InMemoryBackend) BackdateEmailForTest(i int, ts time.Time) {
-b.mu.Lock("BackdateEmailForTest")
-defer b.mu.Unlock()
+	b.mu.Lock("BackdateEmailForTest")
+	defer b.mu.Unlock()
 
-b.emails[i].Timestamp = ts
-b.emailsByID[b.emails[i].MessageID] = b.emails[i]
+	b.emails[i].Timestamp = ts
+	b.emailsByID[b.emails[i].MessageID] = b.emails[i]
 }
-

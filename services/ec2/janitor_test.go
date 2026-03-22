@@ -142,33 +142,33 @@ func TestJanitor_Run_Cancel_WithTaskTimeout(t *testing.T) {
 // TestEC2Janitor_DefaultInterval verifies that a zero interval in WithJanitor
 // results in the default interval being used.
 func TestEC2Janitor_DefaultInterval(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name     string
-interval time.Duration
-want     time.Duration
-}{
-{
-name:     "zero_uses_default",
-interval: 0,
-want:     ec2.DefaultJanitorInterval,
-},
-{
-name:     "custom_interval_propagated",
-interval: 5 * time.Minute,
-want:     5 * time.Minute,
-},
-}
+	tests := []struct {
+		name     string
+		interval time.Duration
+		want     time.Duration
+	}{
+		{
+			name:     "zero_uses_default",
+			interval: 0,
+			want:     ec2.DefaultJanitorInterval,
+		},
+		{
+			name:     "custom_interval_propagated",
+			interval: 5 * time.Minute,
+			want:     5 * time.Minute,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := ec2.NewHandler(ec2.NewInMemoryBackend("123456789012", "us-east-1"))
-h.WithJanitor(tt.interval, 0, 0)
+			h := ec2.NewHandler(ec2.NewInMemoryBackend("123456789012", "us-east-1"))
+			h.WithJanitor(tt.interval, 0, 0)
 
-assert.Equal(t, tt.want, h.GetJanitorInterval())
-})
-}
+			assert.Equal(t, tt.want, h.GetJanitorInterval())
+		})
+	}
 }

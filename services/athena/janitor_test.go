@@ -190,33 +190,33 @@ func TestAthenaJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 // TestAthenaJanitor_DefaultInterval verifies that a zero interval in WithJanitor
 // results in the default interval being used.
 func TestAthenaJanitor_DefaultInterval(t *testing.T) {
-t.Parallel()
+	t.Parallel()
 
-tests := []struct {
-name     string
-interval time.Duration
-want     time.Duration
-}{
-{
-name:     "zero_uses_default",
-interval: 0,
-want:     athena.DefaultJanitorInterval,
-},
-{
-name:     "custom_interval_propagated",
-interval: 5 * time.Minute,
-want:     5 * time.Minute,
-},
-}
+	tests := []struct {
+		name     string
+		interval time.Duration
+		want     time.Duration
+	}{
+		{
+			name:     "zero_uses_default",
+			interval: 0,
+			want:     athena.DefaultJanitorInterval,
+		},
+		{
+			name:     "custom_interval_propagated",
+			interval: 5 * time.Minute,
+			want:     5 * time.Minute,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-t.Parallel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-h := athena.NewHandler(athena.NewInMemoryBackend())
-h.WithJanitor(tt.interval, 0)
+			h := athena.NewHandler(athena.NewInMemoryBackend())
+			h.WithJanitor(tt.interval, 0)
 
-assert.Equal(t, tt.want, h.GetJanitorInterval())
-})
-}
+			assert.Equal(t, tt.want, h.GetJanitorInterval())
+		})
+	}
 }

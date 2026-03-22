@@ -168,15 +168,15 @@ type StorageBackend interface {
 // InMemoryBackend implements StorageBackend using a concurrency-safe map.
 type InMemoryBackend struct {
 	parameters          map[string]Parameter
-	history             map[string][]ParameterHistory // Stores all versions of each parameter
-	tags                map[string]*tags.Tags         // paramName -> tags
+	history             map[string][]ParameterHistory
+	tags                map[string]*tags.Tags
 	documents           map[string]Document
-	documentVersions    map[string][]DocumentVersion // docName -> ordered versions
-	documentPermissions map[string][]string          // docName -> account IDs
+	documentVersions    map[string][]DocumentVersion
+	documentPermissions map[string][]string
 	commands            map[string]Command
-	commandInvocations  map[string][]CommandInvocation // commandId -> invocations
-	commandExpirySecs   float64
+	commandInvocations  map[string][]CommandInvocation
 	mu                  *lockmetrics.RWMutex
+	commandExpirySecs   float64
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
