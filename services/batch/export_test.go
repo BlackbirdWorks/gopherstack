@@ -66,3 +66,39 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 
 	return h.janitor.TaskTimeout
 }
+
+// GetJanitorInactiveJobDefTTL returns the InactiveJobDefTTL on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the TTL.
+func (h *Handler) GetJanitorInactiveJobDefTTL() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.InactiveJobDefTTL
+}
+
+// GetJanitorCompletedJobTTL returns the CompletedJobTTL on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the TTL.
+func (h *Handler) GetJanitorCompletedJobTTL() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.CompletedJobTTL
+}
+
+// SetJobStoppedAtForTest sets a job's status and StoppedAt timestamp for testing.
+// Used to simulate a job that stopped at a specific time for TTL sweep tests.
+func (b *InMemoryBackend) SetJobStoppedAtForTest(jobID, status string, stoppedAt time.Time) {
+	b.mu.Lock("SetJobStoppedAtForTest")
+	defer b.mu.Unlock()
+
+	j, ok := b.jobs[jobID]
+	if !ok {
+		return
+	}
+
+	j.Status = status
+	ms := stoppedAt.UnixMilli()
+	j.StoppedAt = &ms
+}

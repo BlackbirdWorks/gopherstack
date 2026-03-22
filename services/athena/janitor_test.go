@@ -143,3 +143,46 @@ func TestJanitor_RunContext(t *testing.T) {
 		require.FailNow(t, "janitor did not stop after context cancellation")
 	}
 }
+
+// TestAthenaJanitor_TaskTimeout_WithJanitor verifies that WithJanitor propagates
+// the executionTTL and optional taskTimeout variadic into the janitor's fields.
+func TestAthenaJanitor_TaskTimeout_WithJanitor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		executionTTL time.Duration
+		taskTimeout  time.Duration
+		wantTTL      time.Duration
+		wantTimeout  time.Duration
+	}{
+		{
+			name:         "custom_ttl_and_timeout",
+			executionTTL: 12 * time.Hour,
+			taskTimeout:  30 * time.Second,
+			wantTTL:      12 * time.Hour,
+			wantTimeout:  30 * time.Second,
+		},
+		{
+			name:         "zero_ttl_uses_default",
+			executionTTL: 0,
+			taskTimeout:  0,
+			wantTTL:      24 * time.Hour,
+			wantTimeout:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := athena.NewInMemoryBackend()
+			h := athena.NewHandler(b)
+
+			h.WithJanitor(time.Minute, tt.executionTTL, tt.taskTimeout)
+
+			assert.Equal(t, tt.wantTTL, h.GetJanitorExecutionTTL())
+			assert.Equal(t, tt.wantTimeout, h.GetJanitorTaskTimeout())
+		})
+	}
+}

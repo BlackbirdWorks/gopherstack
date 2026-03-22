@@ -17,24 +17,40 @@ func TestBatchJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		taskTimeout time.Duration
-		want        time.Duration
+		name              string
+		inactiveJobDefTTL time.Duration
+		completedJobTTL   time.Duration
+		taskTimeout       time.Duration
+		wantJobDefTTL     time.Duration
+		wantCompletedTTL  time.Duration
+		wantTimeout       time.Duration
 	}{
 		{
-			name:        "zero_timeout",
-			taskTimeout: 0,
-			want:        0,
+			name:              "zero_timeout",
+			inactiveJobDefTTL: time.Hour,
+			completedJobTTL:   12 * time.Hour,
+			taskTimeout:       0,
+			wantJobDefTTL:     time.Hour,
+			wantCompletedTTL:  12 * time.Hour,
+			wantTimeout:       0,
 		},
 		{
-			name:        "30s_timeout",
-			taskTimeout: 30 * time.Second,
-			want:        30 * time.Second,
+			name:              "30s_timeout",
+			inactiveJobDefTTL: 24 * time.Hour,
+			completedJobTTL:   24 * time.Hour,
+			taskTimeout:       30 * time.Second,
+			wantJobDefTTL:     24 * time.Hour,
+			wantCompletedTTL:  24 * time.Hour,
+			wantTimeout:       30 * time.Second,
 		},
 		{
-			name:        "1min_timeout",
-			taskTimeout: time.Minute,
-			want:        time.Minute,
+			name:              "zero_ttls_use_defaults",
+			inactiveJobDefTTL: 0,
+			completedJobTTL:   0,
+			taskTimeout:       0,
+			wantJobDefTTL:     24 * time.Hour,
+			wantCompletedTTL:  24 * time.Hour,
+			wantTimeout:       0,
 		},
 	}
 
@@ -43,9 +59,11 @@ func TestBatchJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 			t.Parallel()
 
 			h := batch.NewHandler(batch.NewInMemoryBackend("000000000000", "us-east-1"))
-			h.WithJanitor(time.Minute, time.Hour, tt.taskTimeout)
+			h.WithJanitor(time.Minute, tt.inactiveJobDefTTL, tt.completedJobTTL, tt.taskTimeout)
 
-			assert.Equal(t, tt.want, h.GetJanitorTaskTimeout())
+			assert.Equal(t, tt.wantJobDefTTL, h.GetJanitorInactiveJobDefTTL())
+			assert.Equal(t, tt.wantCompletedTTL, h.GetJanitorCompletedJobTTL())
+			assert.Equal(t, tt.wantTimeout, h.GetJanitorTaskTimeout())
 		})
 	}
 }
@@ -56,7 +74,7 @@ func TestBatchJanitor_Run_ExitsOnCancel(t *testing.T) {
 	t.Parallel()
 
 	b := batch.NewInMemoryBackend("000000000000", "us-east-1")
-	j := batch.NewJanitor(b, 10*time.Millisecond, time.Hour)
+	j := batch.NewJanitor(b, 10*time.Millisecond, time.Hour, time.Hour)
 	j.TaskTimeout = 30 * time.Second
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -92,7 +110,7 @@ func TestBatchJanitor_SweepOnce_WithTaskTimeout(t *testing.T) {
 	// Set DeregisteredAt in the past so it will be swept.
 	b.SetJobDefinitionDeregisteredAt("sweep-timeout-test:1", time.Now().Add(-25*time.Hour))
 
-	j := batch.NewJanitor(b, time.Minute, 24*time.Hour)
+	j := batch.NewJanitor(b, time.Minute, 24*time.Hour, 24*time.Hour)
 	j.TaskTimeout = 30 * time.Second
 
 	require.Equal(t, 1, b.JobDefinitionCount())
@@ -100,4 +118,79 @@ func TestBatchJanitor_SweepOnce_WithTaskTimeout(t *testing.T) {
 	j.SweepOnce(t.Context())
 
 	assert.Equal(t, 0, b.JobDefinitionCount())
+}
+
+// TestBatchJanitor_SweepCompletedJobs verifies that the janitor sweeps
+// completed and failed jobs past their CompletedJobTTL.
+func TestBatchJanitor_SweepCompletedJobs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		status      string
+		stoppedAge  time.Duration // how old StoppedAt is (positive = past)
+		ttl         time.Duration
+		wantEvicted bool
+	}{
+		{
+			name:        "evict_succeeded_past_ttl",
+			status:      "SUCCEEDED",
+			stoppedAge:  25 * time.Hour,
+			ttl:         24 * time.Hour,
+			wantEvicted: true,
+		},
+		{
+			name:        "evict_failed_past_ttl",
+			status:      "FAILED",
+			stoppedAge:  25 * time.Hour,
+			ttl:         24 * time.Hour,
+			wantEvicted: true,
+		},
+		{
+			name:        "keep_succeeded_within_ttl",
+			status:      "SUCCEEDED",
+			stoppedAge:  1 * time.Hour,
+			ttl:         24 * time.Hour,
+			wantEvicted: false,
+		},
+		{
+			name:        "keep_running_job",
+			status:      "RUNNING",
+			stoppedAge:  25 * time.Hour,
+			ttl:         24 * time.Hour,
+			wantEvicted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := batch.NewInMemoryBackend("000000000000", "us-east-1")
+
+			queue, err := b.CreateJobQueue("test-queue", 1, "ENABLED", nil, nil)
+			require.NoError(t, err)
+
+			_, err = b.RegisterJobDefinition("test-jd", "container", nil)
+			require.NoError(t, err)
+
+			job, err := b.SubmitJob("test-job", queue.JobQueueName, "test-jd:1", nil)
+			require.NoError(t, err)
+
+			// Set the job status and a back-dated StoppedAt.
+			b.SetJobStoppedAtForTest(job.JobID, tt.status, time.Now().Add(-tt.stoppedAge))
+
+			j := batch.NewJanitor(b, time.Minute, 24*time.Hour, tt.ttl)
+			j.SweepOnce(t.Context())
+
+			jobs, err := b.ListJobs(queue.JobQueueName, tt.status)
+			require.NoError(t, err)
+
+			if tt.wantEvicted {
+				assert.Empty(t, jobs, "job should have been evicted")
+			} else {
+				assert.NotEmpty(t, jobs, "job should not have been evicted")
+			}
+		})
+	}
 }

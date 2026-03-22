@@ -12,6 +12,16 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	return h.janitor.TaskTimeout
 }
 
+// GetJanitorTraceTTL returns the TraceTTL configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the TTL.
+func (h *Handler) GetJanitorTraceTTL() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.TraceTTL
+}
+
 // PutTraceForTest inserts a trace with the given start time and returns its trace ID.
 // Used to set up test state without going through the PutTraceSegments API.
 func (b *InMemoryBackend) PutTraceForTest(startTime time.Time) string {

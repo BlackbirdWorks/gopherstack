@@ -18,18 +18,31 @@ func TestXRayJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		traceTTL    time.Duration
 		taskTimeout time.Duration
-		want        time.Duration
+		wantTTL     time.Duration
+		wantTimeout time.Duration
 	}{
 		{
 			name:        "no_timeout_zero",
+			traceTTL:    30 * time.Minute,
 			taskTimeout: 0,
-			want:        0,
+			wantTTL:     30 * time.Minute,
+			wantTimeout: 0,
 		},
 		{
-			name:        "with_30s_timeout",
+			name:        "custom_ttl_and_timeout",
+			traceTTL:    time.Hour,
 			taskTimeout: 30 * time.Second,
-			want:        30 * time.Second,
+			wantTTL:     time.Hour,
+			wantTimeout: 30 * time.Second,
+		},
+		{
+			name:        "zero_ttl_uses_default",
+			traceTTL:    0,
+			taskTimeout: 0,
+			wantTTL:     30 * time.Minute,
+			wantTimeout: 0,
 		},
 	}
 
@@ -38,9 +51,10 @@ func TestXRayJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 			t.Parallel()
 
 			h := xray.NewHandler(xray.NewInMemoryBackend())
-			h.WithJanitor(time.Minute, 0, tt.taskTimeout)
+			h.WithJanitor(time.Minute, tt.traceTTL, tt.taskTimeout)
 
-			assert.Equal(t, tt.want, h.GetJanitorTaskTimeout())
+			assert.Equal(t, tt.wantTTL, h.GetJanitorTraceTTL())
+			assert.Equal(t, tt.wantTimeout, h.GetJanitorTaskTimeout())
 		})
 	}
 }

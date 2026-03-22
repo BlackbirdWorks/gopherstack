@@ -21,6 +21,18 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	return h.janitor.TaskTimeout
 }
 
+// GetJanitorTerminatedTTL returns the TerminatedTTL configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the TTL.
+func (h *Handler) GetJanitorTerminatedTTL() time.Duration {
+	return h.janitor.TerminatedTTL
+}
+
+// GetJanitorCancelledSpotTTL returns the CancelledSpotTTL on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the TTL.
+func (h *Handler) GetJanitorCancelledSpotTTL() time.Duration {
+	return h.janitor.CancelledSpotTTL
+}
+
 // SetInstanceTerminatedAtForTest sets the TerminatedAt field on an instance for testing.
 // This allows tests to back-date the termination time to trigger immediate sweeping.
 func (b *InMemoryBackend) SetInstanceTerminatedAtForTest(id string, t time.Time) {
