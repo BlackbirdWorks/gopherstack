@@ -246,3 +246,24 @@ func (h *DynamoDBHandler) GetJanitorTaskTimeout() time.Duration {
 
 	return h.janitor.TaskTimeout
 }
+
+// AddKinesisDestination adds a Kinesis stream ARN to the given table's destination list.
+// Used in tests to pre-populate Kinesis destinations without going through the HTTP API.
+func (db *InMemoryDB) AddKinesisDestination(tableName, streamARN string) {
+	db.mu.RLock("AddKinesisDestination")
+	regionTables, regionExists := db.Tables[db.defaultRegion]
+	db.mu.RUnlock()
+
+	if !regionExists {
+		return
+	}
+
+	table, tableExists := regionTables[tableName]
+	if !tableExists {
+		return
+	}
+
+	table.mu.Lock("AddKinesisDestination")
+	table.KinesisDestinations = append(table.KinesisDestinations, streamARN)
+	table.mu.Unlock()
+}

@@ -21,15 +21,25 @@ const txnTokenTTL = 10 * time.Minute
 // removed by the janitor so the token can be reused.
 const txnPendingTTL = 5 * time.Minute
 
+// StoredGlobalTable holds the metadata for a DynamoDB global table.
+type StoredGlobalTable struct {
+	CreationDateTime time.Time `json:"CreationDateTime"`
+	GlobalTableName  string    `json:"GlobalTableName"`
+	GlobalTableArn   string    `json:"GlobalTableArn"`
+	// ReplicationGroup is the list of region names in the global table.
+	ReplicationGroup []string `json:"ReplicationGroup"`
+}
+
 // InMemoryDB stores tables and items organized by region.
 type InMemoryDB struct {
 	Tables               map[string]map[string]*Table
 	deletingTables       map[string]map[string]*Table
-	Backups              map[string]*Backup   // backupARN → Backup
-	txnTokens            map[string]time.Time // committed idempotency tokens → expiry time
-	txnPending           map[string]time.Time // in-progress idempotency tokens → start time
-	streamARNIndex       map[string]*Table    // streamARN → Table (reverse index)
-	fisReplicationPaused map[string]time.Time // keyed by table ARN; value is expiry (zero = no expiry)
+	Backups              map[string]*Backup            // backupARN → Backup
+	GlobalTables         map[string]*StoredGlobalTable // globalTableName → StoredGlobalTable
+	txnTokens            map[string]time.Time          // committed idempotency tokens → expiry time
+	txnPending           map[string]time.Time          // in-progress idempotency tokens → start time
+	streamARNIndex       map[string]*Table             // streamARN → Table (reverse index)
+	fisReplicationPaused map[string]time.Time          // keyed by table ARN; value is expiry (zero = no expiry)
 	exprCache            *ExpressionCache
 	throttler            *Throttler
 	mu                   *lockmetrics.RWMutex
@@ -94,15 +104,16 @@ type Table struct {
 	TableID                   string                                  `json:"TableID"`
 	TableClass                string                                  `json:"TableClass,omitempty"`
 	Items                     []map[string]any                        `json:"Items"`
-	AttributeDefinitions      []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	KinesisDestinations       []string                                `json:"KinesisDestinations,omitempty"`
 	Replicas                  []models.ReplicaDescription             `json:"Replicas,omitempty"`
 	GlobalSecondaryIndexes    []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
 	StreamRecords             []models.StreamRecord                   `json:"StreamRecords,omitempty"`
 	KeySchema                 []models.KeySchemaElement               `json:"KeySchema"`
 	LocalSecondaryIndexes     []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	AttributeDefinitions      []models.AttributeDefinition            `json:"AttributeDefinitions"`
 	ProvisionedThroughput     models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
+	StreamHead                int                                     `json:"StreamHead,omitempty"`
 	streamSeq                 int64
-	StreamHead                int  `json:"StreamHead,omitempty"`
 	PITREnabled               bool `json:"PITREnabled,omitempty"`
 	StreamsEnabled            bool `json:"StreamsEnabled"`
 	DeletionProtectionEnabled bool `json:"DeletionProtectionEnabled"`
@@ -115,6 +126,7 @@ func NewInMemoryDB() *InMemoryDB {
 		Tables:               make(map[string]map[string]*Table),
 		deletingTables:       make(map[string]map[string]*Table),
 		Backups:              make(map[string]*Backup),
+		GlobalTables:         make(map[string]*StoredGlobalTable),
 		txnTokens:            make(map[string]time.Time),
 		txnPending:           make(map[string]time.Time),
 		streamARNIndex:       make(map[string]*Table),
@@ -457,6 +469,7 @@ func (db *InMemoryDB) Reset() {
 	db.deletingTables = make(map[string]map[string]*Table)
 	db.streamARNIndex = make(map[string]*Table)
 	db.Backups = make(map[string]*Backup)
+	db.GlobalTables = make(map[string]*StoredGlobalTable)
 	db.txnTokens = make(map[string]time.Time)
 	db.txnPending = make(map[string]time.Time)
 	db.fisReplicationPaused = make(map[string]time.Time)
