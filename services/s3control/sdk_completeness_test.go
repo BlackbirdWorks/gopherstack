@@ -1,0 +1,116 @@
+package s3control_test
+
+import (
+	"testing"
+
+	s3controlsdk "github.com/aws/aws-sdk-go-v2/service/s3control"
+	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
+	"github.com/blackbirdworks/gopherstack/services/s3control"
+)
+
+// TestSDKCompleteness verifies that every operation exposed by the AWS SDK v2
+// s3control client is either listed in GetSupportedOperations() or explicitly
+// acknowledged in the notImplemented slice.  The test fails when the upstream
+// SDK adds a new operation that gopherstack has not yet handled.
+func TestSDKCompleteness(t *testing.T) {
+	t.Parallel()
+
+	backend := s3control.NewInMemoryBackend()
+	h := s3control.NewHandler(backend)
+	sdkcheck.CheckCompleteness(t, &s3controlsdk.Client{}, h.GetSupportedOperations(), []string{
+		"AssociateAccessGrantsIdentityCenter",
+		"CreateAccessGrant",
+		"CreateAccessGrantsInstance",
+		"CreateAccessGrantsLocation",
+		"CreateAccessPoint",
+		"CreateAccessPointForObjectLambda",
+		"CreateBucket",
+		"CreateJob",
+		"CreateMultiRegionAccessPoint",
+		"CreateStorageLensGroup",
+		"DeleteAccessGrant",
+		"DeleteAccessGrantsInstance",
+		"DeleteAccessGrantsInstanceResourcePolicy",
+		"DeleteAccessGrantsLocation",
+		"DeleteAccessPoint",
+		"DeleteAccessPointForObjectLambda",
+		"DeleteAccessPointPolicy",
+		"DeleteAccessPointPolicyForObjectLambda",
+		"DeleteAccessPointScope",
+		"DeleteBucket",
+		"DeleteBucketLifecycleConfiguration",
+		"DeleteBucketPolicy",
+		"DeleteBucketReplication",
+		"DeleteBucketTagging",
+		"DeleteJobTagging",
+		"DeleteMultiRegionAccessPoint",
+		"DeleteStorageLensConfiguration",
+		"DeleteStorageLensConfigurationTagging",
+		"DeleteStorageLensGroup",
+		"DescribeJob",
+		"DescribeMultiRegionAccessPointOperation",
+		"DissociateAccessGrantsIdentityCenter",
+		"GetAccessGrant",
+		"GetAccessGrantsInstance",
+		"GetAccessGrantsInstanceForPrefix",
+		"GetAccessGrantsInstanceResourcePolicy",
+		"GetAccessGrantsLocation",
+		"GetAccessPoint",
+		"GetAccessPointConfigurationForObjectLambda",
+		"GetAccessPointForObjectLambda",
+		"GetAccessPointPolicy",
+		"GetAccessPointPolicyForObjectLambda",
+		"GetAccessPointPolicyStatus",
+		"GetAccessPointPolicyStatusForObjectLambda",
+		"GetAccessPointScope",
+		"GetBucket",
+		"GetBucketLifecycleConfiguration",
+		"GetBucketPolicy",
+		"GetBucketReplication",
+		"GetBucketTagging",
+		"GetBucketVersioning",
+		"GetDataAccess",
+		"GetJobTagging",
+		"GetMultiRegionAccessPoint",
+		"GetMultiRegionAccessPointPolicy",
+		"GetMultiRegionAccessPointPolicyStatus",
+		"GetMultiRegionAccessPointRoutes",
+		"GetStorageLensConfiguration",
+		"GetStorageLensConfigurationTagging",
+		"GetStorageLensGroup",
+		"ListAccessGrants",
+		"ListAccessGrantsInstances",
+		"ListAccessGrantsLocations",
+		"ListAccessPoints",
+		"ListAccessPointsForDirectoryBuckets",
+		"ListAccessPointsForObjectLambda",
+		"ListCallerAccessGrants",
+		"ListJobs",
+		"ListMultiRegionAccessPoints",
+		"ListRegionalBuckets",
+		"ListStorageLensConfigurations",
+		"ListStorageLensGroups",
+		"ListTagsForResource",
+		"PutAccessGrantsInstanceResourcePolicy",
+		"PutAccessPointConfigurationForObjectLambda",
+		"PutAccessPointPolicy",
+		"PutAccessPointPolicyForObjectLambda",
+		"PutAccessPointScope",
+		"PutBucketLifecycleConfiguration",
+		"PutBucketPolicy",
+		"PutBucketReplication",
+		"PutBucketTagging",
+		"PutBucketVersioning",
+		"PutJobTagging",
+		"PutMultiRegionAccessPointPolicy",
+		"PutStorageLensConfiguration",
+		"PutStorageLensConfigurationTagging",
+		"SubmitMultiRegionAccessPointRoutes",
+		"TagResource",
+		"UntagResource",
+		"UpdateAccessGrantsLocation",
+		"UpdateJobPriority",
+		"UpdateJobStatus",
+		"UpdateStorageLensGroup",
+	})
+}

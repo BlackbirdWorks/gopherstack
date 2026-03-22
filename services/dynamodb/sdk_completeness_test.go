@@ -1,0 +1,30 @@
+package dynamodb_test
+
+import (
+	"testing"
+
+	dynamodbsdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
+	"github.com/blackbirdworks/gopherstack/services/dynamodb"
+)
+
+// TestSDKCompleteness verifies that every operation exposed by the AWS SDK v2
+// dynamodb client is either listed in GetSupportedOperations() or explicitly
+// acknowledged in the notImplemented slice.  The test fails when the upstream
+// SDK adds a new operation that gopherstack has not yet handled.
+func TestSDKCompleteness(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	h := dynamodb.NewHandler(backend)
+	sdkcheck.CheckCompleteness(t, &dynamodbsdk.Client{}, h.GetSupportedOperations(), []string{
+		"ExecuteTransaction",
+		"ImportTable",
+		"ListContributorInsights",
+		"ListImports",
+		"UpdateContributorInsights",
+		"UpdateGlobalTableSettings",
+		"UpdateKinesisStreamingDestination",
+		"UpdateTableReplicaAutoScaling",
+	})
+}

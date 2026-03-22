@@ -1,0 +1,81 @@
+package transfer_test
+
+import (
+	"testing"
+
+	transfersdk "github.com/aws/aws-sdk-go-v2/service/transfer"
+	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
+	"github.com/blackbirdworks/gopherstack/services/transfer"
+)
+
+// TestSDKCompleteness verifies that every operation exposed by the AWS SDK v2
+// transfer client is either listed in GetSupportedOperations() or explicitly
+// acknowledged in the notImplemented slice.  The test fails when the upstream
+// SDK adds a new operation that gopherstack has not yet handled.
+func TestSDKCompleteness(t *testing.T) {
+	t.Parallel()
+
+	backend := transfer.NewInMemoryBackend("000000000000", "us-east-1")
+	h := transfer.NewHandler(backend)
+	sdkcheck.CheckCompleteness(t, &transfersdk.Client{}, h.GetSupportedOperations(), []string{
+		"CreateAccess",
+		"CreateAgreement",
+		"CreateConnector",
+		"CreateProfile",
+		"CreateWebApp",
+		"CreateWorkflow",
+		"DeleteAccess",
+		"DeleteAgreement",
+		"DeleteCertificate",
+		"DeleteConnector",
+		"DeleteHostKey",
+		"DeleteProfile",
+		"DeleteSshPublicKey",
+		"DeleteWebApp",
+		"DeleteWebAppCustomization",
+		"DeleteWorkflow",
+		"DescribeAccess",
+		"DescribeAgreement",
+		"DescribeCertificate",
+		"DescribeConnector",
+		"DescribeExecution",
+		"DescribeHostKey",
+		"DescribeProfile",
+		"DescribeSecurityPolicy",
+		"DescribeWebApp",
+		"DescribeWebAppCustomization",
+		"DescribeWorkflow",
+		"ImportCertificate",
+		"ImportHostKey",
+		"ImportSshPublicKey",
+		"ListAccesses",
+		"ListAgreements",
+		"ListCertificates",
+		"ListConnectors",
+		"ListExecutions",
+		"ListFileTransferResults",
+		"ListHostKeys",
+		"ListProfiles",
+		"ListSecurityPolicies",
+		"ListTagsForResource",
+		"ListWebApps",
+		"ListWorkflows",
+		"SendWorkflowStepState",
+		"StartDirectoryListing",
+		"StartFileTransfer",
+		"StartRemoteDelete",
+		"StartRemoteMove",
+		"TagResource",
+		"TestConnection",
+		"TestIdentityProvider",
+		"UntagResource",
+		"UpdateAccess",
+		"UpdateAgreement",
+		"UpdateCertificate",
+		"UpdateConnector",
+		"UpdateHostKey",
+		"UpdateProfile",
+		"UpdateWebApp",
+		"UpdateWebAppCustomization",
+	})
+}

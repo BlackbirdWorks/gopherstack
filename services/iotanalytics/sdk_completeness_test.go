@@ -1,0 +1,33 @@
+package iotanalytics_test
+
+import (
+	"testing"
+
+	iotanalyticssdk "github.com/aws/aws-sdk-go-v2/service/iotanalytics" //nolint:staticcheck // AWS has deprecated this service; gopherstack still supports it
+	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
+	"github.com/blackbirdworks/gopherstack/services/iotanalytics"
+)
+
+// TestSDKCompleteness verifies that every operation exposed by the AWS SDK v2
+// iotanalytics client is either listed in GetSupportedOperations() or explicitly
+// acknowledged in the notImplemented slice.  The test fails when the upstream
+// SDK adds a new operation that gopherstack has not yet handled.
+func TestSDKCompleteness(t *testing.T) {
+	t.Parallel()
+
+	backend := iotanalytics.NewInMemoryBackend()
+	h := iotanalytics.NewHandler(backend)
+	sdkcheck.CheckCompleteness(t, &iotanalyticssdk.Client{}, h.GetSupportedOperations(), []string{
+		"BatchPutMessage",
+		"CancelPipelineReprocessing",
+		"CreateDatasetContent",
+		"DeleteDatasetContent",
+		"DescribeLoggingOptions",
+		"GetDatasetContent",
+		"ListDatasetContents",
+		"PutLoggingOptions",
+		"RunPipelineActivity",
+		"SampleChannelData",
+		"StartPipelineReprocessing",
+	})
+}
