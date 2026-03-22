@@ -25,4 +25,3 @@ func (h *Handler) GetJanitorInterval() time.Duration {
 func (h *Handler) GetJanitorTerminatedTTL() time.Duration {
 	return h.janitor.TerminatedTTL
 }
-

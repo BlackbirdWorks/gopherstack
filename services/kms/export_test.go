@@ -2,6 +2,9 @@ package kms
 
 import "time"
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultKMSJanitorInterval
+
 // SetTags exposes setTags for testing.
 func (h *Handler) SetTags(resourceID string, kv map[string]string) { h.setTags(resourceID, kv) }
 

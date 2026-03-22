@@ -2,6 +2,9 @@ package sts
 
 import "time"
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultSTSJanitorInterval
+
 // SessionCount returns the number of sessions currently stored in the backend.
 // Used in tests to verify janitor eviction.
 func (b *InMemoryBackend) SessionCount() int {

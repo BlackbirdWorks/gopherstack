@@ -112,3 +112,37 @@ func TestSESBackend_Reset_PreservesConfiguredEmailTTL(t *testing.T) {
 		})
 	}
 }
+
+// TestSESJanitor_DefaultInterval verifies that a zero interval in WithJanitor
+// results in the default interval being used.
+func TestSESJanitor_DefaultInterval(t *testing.T) {
+t.Parallel()
+
+tests := []struct {
+name     string
+interval time.Duration
+want     time.Duration
+}{
+{
+name:     "zero_uses_default",
+interval: 0,
+want:     ses.DefaultJanitorInterval,
+},
+{
+name:     "custom_interval_propagated",
+interval: 5 * time.Minute,
+want:     5 * time.Minute,
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+t.Parallel()
+
+h := ses.NewHandler(ses.NewInMemoryBackend())
+h.WithJanitor(tt.interval)
+
+assert.Equal(t, tt.want, h.GetJanitorInterval())
+})
+}
+}

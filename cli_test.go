@@ -69,6 +69,7 @@ func TestCLI_Defaults(t *testing.T) {
 	assert.Equal(t, time.Minute, cli.SES.JanitorInterval)
 	assert.Equal(t, 24*time.Hour, cli.SES.EmailTTL)
 	assert.Equal(t, 30*time.Second, cli.SSM.JanitorInterval)
+	assert.Equal(t, time.Hour, cli.SSM.CommandTTL)
 	assert.Equal(t, 30*time.Second, cli.STS.JanitorInterval)
 	assert.Equal(t, time.Minute, cli.XRay.JanitorInterval)
 	assert.Equal(t, 30*time.Minute, cli.XRay.TraceTTL)
@@ -106,6 +107,7 @@ func TestCLI_JanitorTTLEnvVars(t *testing.T) {
 		"EMR_TERMINATED_TTL":         "9h",
 		"FIS_EXPERIMENT_TTL":         "10h",
 		"SES_EMAIL_TTL":              "11h",
+		"SSM_COMMAND_TTL":            "2h",
 		"XRAY_TRACE_TTL":             "12h",
 	})
 
@@ -119,6 +121,7 @@ func TestCLI_JanitorTTLEnvVars(t *testing.T) {
 	assert.Equal(t, 9*time.Hour, cli.EMR.TerminatedTTL)
 	assert.Equal(t, 10*time.Hour, cli.FIS.ExperimentTTL)
 	assert.Equal(t, 11*time.Hour, cli.SES.EmailTTL)
+	assert.Equal(t, 2*time.Hour, cli.SSM.CommandTTL)
 	assert.Equal(t, 12*time.Hour, cli.XRay.TraceTTL)
 }
 

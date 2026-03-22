@@ -4,6 +4,12 @@ import "time"
 
 // Exported wrappers for internal state used in tests.
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultSSMJanitorInterval
+
+// DefaultCommandExpirySecs exposes the package default command expiry seconds for testing.
+const DefaultCommandExpirySecs = defaultCommandExpirySecs
+
 // MaxHistoryCap exposes the history cap constant for test assertions.
 const MaxHistoryCap = maxHistoryCap
 
@@ -81,4 +87,13 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	}
 
 	return h.janitor.TaskTimeout
+}
+
+// GetCommandExpirySecs returns the commandExpirySecs configured on the backend.
+// Used in tests to verify WithCommandTTL correctly propagates the TTL.
+func (b *InMemoryBackend) GetCommandExpirySecs() float64 {
+b.mu.RLock("GetCommandExpirySecs")
+defer b.mu.RUnlock()
+
+return b.commandExpirySecs
 }

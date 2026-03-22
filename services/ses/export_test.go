@@ -2,6 +2,9 @@ package ses
 
 import "time"
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultSESJanitorInterval
+
 // MaxRetainedEmails exposes the email retention cap for testing.
 const MaxRetainedEmails = maxRetainedEmails
 

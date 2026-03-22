@@ -28,7 +28,7 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		settings = cp.GetSSMSettings()
 	}
 
-	backend := NewInMemoryBackend()
+	backend := NewInMemoryBackend().WithCommandTTL(settings.CommandTTL)
 	handler := NewHandler(backend).WithJanitor(settings.JanitorInterval, ctx.JanitorTimeout)
 
 	return handler, nil

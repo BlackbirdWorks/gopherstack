@@ -58,4 +58,3 @@ func (h *Handler) GetJanitorJobTTL() time.Duration {
 
 	return h.janitor.JobTTL
 }
-
