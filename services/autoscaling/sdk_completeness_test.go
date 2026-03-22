@@ -35,7 +35,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"DeleteWarmPool",
 		"DescribeAccountLimits",
 		"DescribeAdjustmentTypes",
-		"DescribeAutoScalingGroups",
 		"DescribeAutoScalingInstances",
 		"DescribeAutoScalingNotificationTypes",
 		"DescribeInstanceRefreshes",

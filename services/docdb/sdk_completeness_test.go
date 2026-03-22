@@ -22,8 +22,6 @@ func TestSDKCompleteness(t *testing.T) {
 		"ApplyPendingMaintenanceAction",
 		"CopyDBClusterParameterGroup",
 		"CopyDBClusterSnapshot",
-		"CopyDBClusterSnapshot",
-		"CreateDBCluster",
 		"CreateEventSubscription",
 		"CreateGlobalCluster",
 		"DeleteEventSubscription",
