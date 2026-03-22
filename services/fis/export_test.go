@@ -13,6 +13,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultFISJanitorInterval
+
+// DefaultExperimentTTL exposes the package default experiment TTL for testing.
+const DefaultExperimentTTL = defaultFISExperimentTTL
+
 // ExportedInMemoryBackend exposes the InMemoryBackend for tests.
 type ExportedInMemoryBackend = InMemoryBackend
 

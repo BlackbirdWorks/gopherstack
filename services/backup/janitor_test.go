@@ -277,7 +277,7 @@ for _, tt := range tests {
 t.Run(tt.name, func(t *testing.T) {
 t.Parallel()
 
-h := backup.NewHandler(backup.NewInMemoryBackend())
+h := backup.NewHandler(backup.NewInMemoryBackend("123456789012", "us-east-1"))
 h.WithJanitor(tt.interval, 0)
 
 assert.Equal(t, tt.want, h.GetJanitorInterval())
