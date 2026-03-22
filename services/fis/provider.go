@@ -5,6 +5,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// ConfigProvider is a private interface to extract FIS configuration
+// from the abstract AppContext Config.
+type ConfigProvider interface {
+	GetFISSettings() Settings
+}
+
 // Provider implements service.Provider for the FIS service.
 type Provider struct{}
 
@@ -24,11 +30,17 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		region = cfg.Region
 	}
 
+	var settings Settings
+
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetFISSettings()
+	}
+
 	backend := NewInMemoryBackend(accountID, region)
 	handler := NewHandler(backend)
 	handler.DefaultRegion = region
 	handler.AccountID = accountID
-	handler.WithJanitor(0, 0, ctx.JanitorTimeout)
+	handler.WithJanitor(settings.JanitorInterval, settings.ExperimentTTL, ctx.JanitorTimeout)
 
 	return handler, nil
 }

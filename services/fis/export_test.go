@@ -13,6 +13,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultFISJanitorInterval
+
+// DefaultExperimentTTL exposes the package default experiment TTL for testing.
+const DefaultExperimentTTL = defaultFISExperimentTTL
+
 // ExportedInMemoryBackend exposes the InMemoryBackend for tests.
 type ExportedInMemoryBackend = InMemoryBackend
 
@@ -168,4 +174,24 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	}
 
 	return h.janitor.TaskTimeout
+}
+
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.Interval
+}
+
+// GetJanitorExperimentTTL returns the ExperimentTTL configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the TTL.
+func (h *Handler) GetJanitorExperimentTTL() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.ExperimentTTL
 }

@@ -158,3 +158,80 @@ func TestFISJanitor_RunContext(t *testing.T) {
 		require.FailNow(t, "janitor did not stop after context cancellation")
 	}
 }
+
+// TestFISJanitor_TaskTimeout_WithJanitor verifies that WithJanitor propagates
+// the experimentTTL and optional taskTimeout variadic into the janitor's fields.
+func TestFISJanitor_TaskTimeout_WithJanitor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		experimentTTL time.Duration
+		taskTimeout   time.Duration
+		wantTTL       time.Duration
+		wantTimeout   time.Duration
+	}{
+		{
+			name:          "custom_ttl_and_timeout",
+			experimentTTL: 12 * time.Hour,
+			taskTimeout:   30 * time.Second,
+			wantTTL:       12 * time.Hour,
+			wantTimeout:   30 * time.Second,
+		},
+		{
+			name:          "zero_ttl_uses_default",
+			experimentTTL: 0,
+			taskTimeout:   0,
+			wantTTL:       24 * time.Hour,
+			wantTimeout:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := fis.NewTestBackend()
+			h := fis.NewHandler(b)
+
+			h.WithJanitor(time.Minute, tt.experimentTTL, tt.taskTimeout)
+
+			assert.Equal(t, tt.wantTTL, h.GetJanitorExperimentTTL())
+			assert.Equal(t, tt.wantTimeout, h.GetJanitorTaskTimeout())
+		})
+	}
+}
+
+// TestFISJanitor_DefaultInterval verifies that a zero interval in WithJanitor
+// results in the default interval being used.
+func TestFISJanitor_DefaultInterval(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		interval time.Duration
+		want     time.Duration
+	}{
+		{
+			name:     "zero_uses_default",
+			interval: 0,
+			want:     fis.DefaultJanitorInterval,
+		},
+		{
+			name:     "custom_interval_propagated",
+			interval: 5 * time.Minute,
+			want:     5 * time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := fis.NewHandler(fis.NewInMemoryBackend("123456789012", "us-east-1"))
+			h.WithJanitor(tt.interval, 0)
+
+			assert.Equal(t, tt.want, h.GetJanitorInterval())
+		})
+	}
+}

@@ -40,9 +40,12 @@ func NewHandler(backend Backend) *Handler {
 // WithJanitor attaches a background janitor to the handler.
 // If the backend is not an *InMemoryBackend, this is a no-op.
 // The optional taskTimeout bounds each sweep; 0 means no per-task timeout.
-func (h *Handler) WithJanitor(interval, terminatedTTL time.Duration, taskTimeout ...time.Duration) *Handler {
+func (h *Handler) WithJanitor(
+	interval, terminatedTTL, cancelledSpotTTL time.Duration,
+	taskTimeout ...time.Duration,
+) *Handler {
 	if mem, ok := h.Backend.(*InMemoryBackend); ok {
-		j := NewJanitor(mem, interval, terminatedTTL, 0)
+		j := NewJanitor(mem, interval, terminatedTTL, cancelledSpotTTL)
 		if len(taskTimeout) > 0 {
 			j.TaskTimeout = taskTimeout[0]
 		}

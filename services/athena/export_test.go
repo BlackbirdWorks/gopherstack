@@ -2,6 +2,12 @@ package athena
 
 import "time"
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultAthenaJanitorInterval
+
+// DefaultExecutionTTL exposes the package default execution TTL for testing.
+const DefaultExecutionTTL = defaultAthenaExecutionTTL
+
 // SetQueryExecutionState overrides a query execution's state and completion time.
 // If completionDelay is negative the completion time is set to now plus the delay (i.e. in the past).
 // Used only in tests.
@@ -36,4 +42,24 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	}
 
 	return h.janitor.TaskTimeout
+}
+
+// GetJanitorExecutionTTL returns the ExecutionTTL configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the TTL.
+func (h *Handler) GetJanitorExecutionTTL() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.ExecutionTTL
+}
+
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.Interval
 }

@@ -60,28 +60,43 @@ type EmailTemplate struct {
 // InMemoryBackend is an in-memory store for SES emails, verified identities,
 // email templates, and configuration sets.
 type InMemoryBackend struct {
-	identities map[string]bool
-	emailsByID map[string]Email
-	templates  map[string]EmailTemplate
-	configSets map[string]struct{}
-	mu         *lockmetrics.RWMutex
-	emails     []Email
-	emailTTL   time.Duration
+	identities         map[string]bool
+	emailsByID         map[string]Email
+	templates          map[string]EmailTemplate
+	configSets         map[string]struct{}
+	mu                 *lockmetrics.RWMutex
+	emails             []Email
+	emailTTL           time.Duration
+	configuredEmailTTL time.Duration
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend with the default email TTL.
 func NewInMemoryBackend() *InMemoryBackend {
 	return &InMemoryBackend{
-		identities: make(map[string]bool),
-		emailsByID: make(map[string]Email),
-		templates:  make(map[string]EmailTemplate),
-		configSets: make(map[string]struct{}),
-		emailTTL:   defaultEmailTTL,
-		mu:         lockmetrics.New("ses"),
+		identities:         make(map[string]bool),
+		emailsByID:         make(map[string]Email),
+		templates:          make(map[string]EmailTemplate),
+		configSets:         make(map[string]struct{}),
+		emailTTL:           defaultEmailTTL,
+		configuredEmailTTL: defaultEmailTTL,
+		mu:                 lockmetrics.New("ses"),
 	}
 }
 
+// WithEmailTTL sets the TTL for stored sent emails and returns the backend for chaining.
+// Zero falls back to the default TTL.
+// The configured TTL is preserved across Reset() calls.
+func (b *InMemoryBackend) WithEmailTTL(ttl time.Duration) *InMemoryBackend {
+	if ttl > 0 {
+		b.emailTTL = ttl
+		b.configuredEmailTTL = ttl
+	}
+
+	return b
+}
+
 // Reset clears all in-memory state, restoring the backend to its initial empty state.
+// The configured email TTL (set via WithEmailTTL) is preserved.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
@@ -91,7 +106,7 @@ func (b *InMemoryBackend) Reset() {
 	b.emailsByID = make(map[string]Email)
 	b.templates = make(map[string]EmailTemplate)
 	b.configSets = make(map[string]struct{})
-	b.emailTTL = defaultEmailTTL
+	b.emailTTL = b.configuredEmailTTL
 }
 
 // ttl returns the current email TTL under a read lock.

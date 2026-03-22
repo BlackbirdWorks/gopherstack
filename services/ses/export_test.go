@@ -2,6 +2,9 @@ package ses
 
 import "time"
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultSESJanitorInterval
+
 // MaxRetainedEmails exposes the email retention cap for testing.
 const MaxRetainedEmails = maxRetainedEmails
 
@@ -64,6 +67,16 @@ func (b *InMemoryBackend) GetEmailTTL() time.Duration {
 	return b.emailTTL
 }
 
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.Interval
+}
+
 // GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.
 // Used in tests to verify WithJanitor correctly propagates the timeout.
 func (h *Handler) GetJanitorTaskTimeout() time.Duration {
@@ -72,4 +85,20 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	}
 
 	return h.janitor.TaskTimeout
+}
+
+// GetEmailTTL returns the email TTL configured on the handler's backend.
+// Used in provider tests to verify that the TTL is passed through correctly.
+func (h *Handler) GetEmailTTL() time.Duration {
+	return h.Backend.GetEmailTTL()
+}
+
+// BackdateEmailForTest sets the Timestamp of the email at index i to the given time.
+// Used in janitor sweep tests to simulate aged emails.
+func (b *InMemoryBackend) BackdateEmailForTest(i int, ts time.Time) {
+	b.mu.Lock("BackdateEmailForTest")
+	defer b.mu.Unlock()
+
+	b.emails[i].Timestamp = ts
+	b.emailsByID[b.emails[i].MessageID] = b.emails[i]
 }

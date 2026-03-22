@@ -2,6 +2,12 @@ package codebuild
 
 import "time"
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultCodeBuildJanitorInterval
+
+// DefaultBuildTTL exposes the package default build TTL for testing.
+const DefaultBuildTTL = defaultCodeBuildBuildTTL
+
 // BuildCount returns the number of builds stored in the backend.
 // Used only in tests.
 func (b *InMemoryBackend) BuildCount() int {
@@ -56,4 +62,24 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	}
 
 	return h.janitor.TaskTimeout
+}
+
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.Interval
+}
+
+// GetJanitorBuildTTL returns the BuildTTL configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the TTL.
+func (h *Handler) GetJanitorBuildTTL() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.BuildTTL
 }

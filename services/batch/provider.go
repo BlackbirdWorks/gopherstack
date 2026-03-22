@@ -5,6 +5,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// ConfigProvider is a private interface to extract Batch configuration
+// from the abstract AppContext Config.
+type ConfigProvider interface {
+	GetBatchSettings() Settings
+}
+
 // Provider implements service.Provider for Batch.
 type Provider struct{}
 
@@ -24,10 +30,20 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		region = cfg.Region
 	}
 
+	var settings Settings
+
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetBatchSettings()
+	}
+
 	backend := NewInMemoryBackend(accountID, region)
 	handler := NewHandler(backend)
-	// Zero values trigger defaults: 1-minute sweep interval, 24-hour INACTIVE TTL.
-	handler.WithJanitor(0, 0, ctx.JanitorTimeout)
+	handler.WithJanitor(
+		settings.JanitorInterval,
+		settings.InactiveJobDefTTL,
+		settings.CompletedJobTTL,
+		ctx.JanitorTimeout,
+	)
 
 	return handler, nil
 }

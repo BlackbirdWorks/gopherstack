@@ -106,3 +106,37 @@ func TestCloudWatchLogsJanitor_SweepOnce_WithTaskTimeout(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, events, "old events should have been swept")
 }
+
+// TestCloudWatchLogsJanitor_DefaultInterval verifies that a zero interval in WithJanitor
+// results in the default interval being used.
+func TestCloudWatchLogsJanitor_DefaultInterval(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		interval time.Duration
+		want     time.Duration
+	}{
+		{
+			name:     "zero_uses_default",
+			interval: 0,
+			want:     cloudwatchlogs.DefaultJanitorInterval,
+		},
+		{
+			name:     "custom_interval_propagated",
+			interval: 5 * time.Minute,
+			want:     5 * time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := cloudwatchlogs.NewHandler(cloudwatchlogs.NewInMemoryBackend())
+			h.WithJanitor(tt.interval)
+
+			assert.Equal(t, tt.want, h.GetJanitorInterval())
+		})
+	}
+}

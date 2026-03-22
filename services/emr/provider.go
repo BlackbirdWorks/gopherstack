@@ -5,6 +5,12 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
+// ConfigProvider is a private interface to extract EMR configuration
+// from the abstract AppContext Config.
+type ConfigProvider interface {
+	GetEMRSettings() Settings
+}
+
 // Provider implements service.Provider for EMR.
 type Provider struct{}
 
@@ -24,8 +30,14 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		region = cfg.Region
 	}
 
+	var settings Settings
+
+	if cp, ok := ctx.Config.(ConfigProvider); ok {
+		settings = cp.GetEMRSettings()
+	}
+
 	backend := NewInMemoryBackend(accountID, region)
-	handler := NewHandler(backend).WithJanitor(0, 0, ctx.JanitorTimeout)
+	handler := NewHandler(backend).WithJanitor(settings.JanitorInterval, settings.TerminatedTTL, ctx.JanitorTimeout)
 
 	return handler, nil
 }

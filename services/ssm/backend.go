@@ -36,7 +36,9 @@ const (
 	SecureStringType  = "SecureString"
 	mockKMSKeyStr     = "gopherstack-mock-kms-key-32byte!"
 	maxHistoryResults = 50
-	commandExpirySecs = 3600
+	// defaultCommandExpirySecs is the default TTL for SSM commands in seconds (1 hour).
+	// AWS SSM commands expire after 1 hour by default.
+	defaultCommandExpirySecs = 3600
 	// maxHistoryCap is the maximum number of history entries retained per parameter.
 	// Older entries beyond this cap are evicted to prevent unbounded growth.
 	maxHistoryCap = 100
@@ -166,14 +168,15 @@ type StorageBackend interface {
 // InMemoryBackend implements StorageBackend using a concurrency-safe map.
 type InMemoryBackend struct {
 	parameters          map[string]Parameter
-	history             map[string][]ParameterHistory // Stores all versions of each parameter
-	tags                map[string]*tags.Tags         // paramName -> tags
+	history             map[string][]ParameterHistory
+	tags                map[string]*tags.Tags
 	documents           map[string]Document
-	documentVersions    map[string][]DocumentVersion // docName -> ordered versions
-	documentPermissions map[string][]string          // docName -> account IDs
+	documentVersions    map[string][]DocumentVersion
+	documentPermissions map[string][]string
 	commands            map[string]Command
-	commandInvocations  map[string][]CommandInvocation // commandId -> invocations
+	commandInvocations  map[string][]CommandInvocation
 	mu                  *lockmetrics.RWMutex
+	commandExpirySecs   float64
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend.
@@ -187,10 +190,21 @@ func NewInMemoryBackend() *InMemoryBackend {
 		documentPermissions: make(map[string][]string),
 		commands:            make(map[string]Command),
 		commandInvocations:  make(map[string][]CommandInvocation),
+		commandExpirySecs:   defaultCommandExpirySecs,
 		mu:                  lockmetrics.New("ssm"),
 	}
 
 	b.registerDefaultDocuments()
+
+	return b
+}
+
+// WithCommandTTL sets the TTL used for the ExpiresAfter field on new commands.
+// A zero or negative value falls back to the default (3600 seconds / 1 hour).
+func (b *InMemoryBackend) WithCommandTTL(d time.Duration) *InMemoryBackend {
+	if d > 0 {
+		b.commandExpirySecs = d.Seconds()
+	}
 
 	return b
 }
@@ -1046,7 +1060,7 @@ func (b *InMemoryBackend) SendCommand(input *SendCommandInput) (*SendCommandOutp
 		Parameters:        input.Parameters,
 		Status:            "Success",
 		RequestedDateTime: now,
-		ExpiresAfter:      now + commandExpirySecs,
+		ExpiresAfter:      now + b.commandExpirySecs,
 		InstanceIDs:       input.InstanceIDs,
 		Targets:           input.Targets,
 		Comment:           input.Comment,

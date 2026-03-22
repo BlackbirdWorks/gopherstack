@@ -18,18 +18,31 @@ func TestXRayJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 
 	tests := []struct {
 		name        string
+		traceTTL    time.Duration
 		taskTimeout time.Duration
-		want        time.Duration
+		wantTTL     time.Duration
+		wantTimeout time.Duration
 	}{
 		{
 			name:        "no_timeout_zero",
+			traceTTL:    30 * time.Minute,
 			taskTimeout: 0,
-			want:        0,
+			wantTTL:     30 * time.Minute,
+			wantTimeout: 0,
 		},
 		{
-			name:        "with_30s_timeout",
+			name:        "custom_ttl_and_timeout",
+			traceTTL:    time.Hour,
 			taskTimeout: 30 * time.Second,
-			want:        30 * time.Second,
+			wantTTL:     time.Hour,
+			wantTimeout: 30 * time.Second,
+		},
+		{
+			name:        "zero_ttl_uses_default",
+			traceTTL:    0,
+			taskTimeout: 0,
+			wantTTL:     30 * time.Minute,
+			wantTimeout: 0,
 		},
 	}
 
@@ -38,9 +51,10 @@ func TestXRayJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 			t.Parallel()
 
 			h := xray.NewHandler(xray.NewInMemoryBackend())
-			h.WithJanitor(time.Minute, 0, tt.taskTimeout)
+			h.WithJanitor(time.Minute, tt.traceTTL, tt.taskTimeout)
 
-			assert.Equal(t, tt.want, h.GetJanitorTaskTimeout())
+			assert.Equal(t, tt.wantTTL, h.GetJanitorTraceTTL())
+			assert.Equal(t, tt.wantTimeout, h.GetJanitorTaskTimeout())
 		})
 	}
 }
@@ -116,5 +130,39 @@ func TestXRayJanitor_Run_ExitsOnCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		require.Fail(t, "janitor did not exit after context cancellation")
+	}
+}
+
+// TestXRayJanitor_DefaultInterval verifies that a zero interval in WithJanitor
+// results in the default interval being used.
+func TestXRayJanitor_DefaultInterval(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		interval time.Duration
+		want     time.Duration
+	}{
+		{
+			name:     "zero_uses_default",
+			interval: 0,
+			want:     xray.DefaultJanitorInterval,
+		},
+		{
+			name:     "custom_interval_propagated",
+			interval: 5 * time.Minute,
+			want:     5 * time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := xray.NewHandler(xray.NewInMemoryBackend())
+			h.WithJanitor(tt.interval, 0)
+
+			assert.Equal(t, tt.want, h.GetJanitorInterval())
+		})
 	}
 }

@@ -2,6 +2,12 @@ package xray
 
 import "time"
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultXRayJanitorInterval
+
+// DefaultTraceTTL exposes the package default trace TTL for testing.
+const DefaultTraceTTL = defaultXRayTraceTTL
+
 // GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.
 // Used in tests to verify WithJanitor correctly propagates the timeout.
 func (h *Handler) GetJanitorTaskTimeout() time.Duration {
@@ -10,6 +16,26 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	}
 
 	return h.janitor.TaskTimeout
+}
+
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.Interval
+}
+
+// GetJanitorTraceTTL returns the TraceTTL configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the TTL.
+func (h *Handler) GetJanitorTraceTTL() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.TraceTTL
 }
 
 // PutTraceForTest inserts a trace with the given start time and returns its trace ID.

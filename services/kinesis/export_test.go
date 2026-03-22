@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultJanitorInterval
+
 // ParseThrottlePercentageForTest exposes parseThrottlePercentage for unit tests.
 func ParseThrottlePercentageForTest(s string) float64 {
 	return parseThrottlePercentage(s)
@@ -117,4 +120,24 @@ func (b *InMemoryBackend) PushOldRecordForTest(streamName string, shardIdx int, 
 	shard.Records.push(rec)
 
 	return nil
+}
+
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.Interval
+}
+
+// GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the timeout.
+func (h *Handler) GetJanitorTaskTimeout() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.TaskTimeout
 }

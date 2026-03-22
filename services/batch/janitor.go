@@ -11,24 +11,29 @@ import (
 const (
 	defaultBatchJanitorInterval   = time.Minute
 	defaultBatchInactiveJobDefTTL = 24 * time.Hour
+	defaultBatchCompletedJobTTL   = 24 * time.Hour
 
 	batchWorkerServiceName         = "batch"
 	inactiveJobDefSweeperComponent = "InactiveJobDefinitionSweeper"
+	completedJobSweeperComponent   = "CompletedJobSweeper"
 )
 
 // Janitor is the Batch background worker that evicts INACTIVE job definitions
 // after a configurable TTL to prevent unbounded growth of in-memory state.
 // This matches AWS behavior where deregistered definitions eventually disappear.
+// It also evicts completed and failed jobs after a configurable TTL, matching
+// the AWS Batch job history retention behavior.
 type Janitor struct {
 	Backend           *InMemoryBackend
 	Interval          time.Duration
 	InactiveJobDefTTL time.Duration
+	CompletedJobTTL   time.Duration
 	TaskTimeout       time.Duration
 }
 
 // NewJanitor creates a new Batch Janitor for the given backend.
-// Zero values for interval or inactiveJobDefTTL fall back to defaults.
-func NewJanitor(backend *InMemoryBackend, interval, inactiveJobDefTTL time.Duration) *Janitor {
+// Zero values for interval, inactiveJobDefTTL, or completedJobTTL fall back to defaults.
+func NewJanitor(backend *InMemoryBackend, interval, inactiveJobDefTTL, completedJobTTL time.Duration) *Janitor {
 	if interval == 0 {
 		interval = defaultBatchJanitorInterval
 	}
@@ -37,10 +42,15 @@ func NewJanitor(backend *InMemoryBackend, interval, inactiveJobDefTTL time.Durat
 		inactiveJobDefTTL = defaultBatchInactiveJobDefTTL
 	}
 
+	if completedJobTTL == 0 {
+		completedJobTTL = defaultBatchCompletedJobTTL
+	}
+
 	return &Janitor{
 		Backend:           backend,
 		Interval:          interval,
 		InactiveJobDefTTL: inactiveJobDefTTL,
+		CompletedJobTTL:   completedJobTTL,
 	}
 }
 
@@ -56,6 +66,7 @@ func (j *Janitor) Run(ctx context.Context) {
 		case <-ticker.C:
 			taskCtx, cancel := j.taskContext(ctx)
 			j.sweepInactiveJobDefinitions(taskCtx)
+			j.sweepCompletedJobs(taskCtx)
 			cancel()
 		}
 	}
@@ -74,6 +85,7 @@ func (j *Janitor) taskContext(parent context.Context) (context.Context, context.
 // SweepOnce runs a single sweep pass. Exposed for testing.
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.sweepInactiveJobDefinitions(ctx)
+	j.sweepCompletedJobs(ctx)
 }
 
 // sweepInactiveJobDefinitions removes job definitions that have been in INACTIVE
@@ -122,4 +134,49 @@ func (j *Janitor) sweepInactiveJobDefinitions(ctx context.Context) {
 	telemetry.RecordWorkerItems(batchWorkerServiceName, inactiveJobDefSweeperComponent, count)
 
 	logger.Load(ctx).InfoContext(ctx, "Batch janitor: INACTIVE job definitions evicted", "count", count)
+}
+
+// sweepCompletedJobs removes completed or failed Batch jobs whose StoppedAt
+// timestamp is older than CompletedJobTTL. This mirrors AWS Batch behavior where
+// job history is retained for a limited period before automatic removal.
+func (j *Janitor) sweepCompletedJobs(ctx context.Context) {
+	cutoffMs := time.Now().Add(-j.CompletedJobTTL).UnixMilli()
+
+	j.Backend.mu.Lock("BatchJanitorCompletedJobs")
+
+	var swept []string
+
+	for id, job := range j.Backend.jobs {
+		if !isTerminalJobStatus(job.Status) {
+			continue
+		}
+
+		if job.StoppedAt == nil {
+			continue
+		}
+
+		if *job.StoppedAt < cutoffMs {
+			swept = append(swept, id)
+			delete(j.Backend.jobs, id)
+		}
+	}
+
+	j.Backend.mu.Unlock()
+
+	count := len(swept)
+
+	telemetry.RecordWorkerTask(batchWorkerServiceName, completedJobSweeperComponent, "success")
+
+	if count == 0 {
+		return
+	}
+
+	telemetry.RecordWorkerItems(batchWorkerServiceName, completedJobSweeperComponent, count)
+
+	logger.Load(ctx).InfoContext(ctx, "Batch janitor: completed jobs evicted", "count", count)
+}
+
+// isTerminalJobStatus reports whether the given job status is terminal.
+func isTerminalJobStatus(status string) bool {
+	return status == jobStatusSucceeded || status == jobStatusFailed
 }

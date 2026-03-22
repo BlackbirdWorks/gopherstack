@@ -5,6 +5,15 @@ import (
 	"time"
 )
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultJanitorInterval
+
+// DefaultTerminatedTTL exposes the package default terminated instance TTL for testing.
+const DefaultTerminatedTTL = defaultTerminatedTTL
+
+// DefaultCancelledSpotTTL exposes the package default cancelled spot request TTL for testing.
+const DefaultCancelledSpotTTL = defaultCancelledSpotTTL
+
 // SweepTerminatedInstancesForTest exposes sweepTerminatedInstances for unit tests.
 func (j *Janitor) SweepTerminatedInstancesForTest(ctx context.Context) {
 	j.sweepTerminatedInstances(ctx)
@@ -19,6 +28,24 @@ func (j *Janitor) SweepCancelledSpotRequestsForTest(ctx context.Context) {
 // Used in tests to verify WithJanitor correctly propagates the timeout.
 func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	return h.janitor.TaskTimeout
+}
+
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	return h.janitor.Interval
+}
+
+// GetJanitorTerminatedTTL returns the TerminatedTTL configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the TTL.
+func (h *Handler) GetJanitorTerminatedTTL() time.Duration {
+	return h.janitor.TerminatedTTL
+}
+
+// GetJanitorCancelledSpotTTL returns the CancelledSpotTTL on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the TTL.
+func (h *Handler) GetJanitorCancelledSpotTTL() time.Duration {
+	return h.janitor.CancelledSpotTTL
 }
 
 // SetInstanceTerminatedAtForTest sets the TerminatedAt field on an instance for testing.

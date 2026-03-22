@@ -136,6 +136,49 @@ func TestBackupJanitor_RunContext(t *testing.T) {
 	}
 }
 
+// TestBackupJanitor_TaskTimeout_WithJanitor verifies that WithJanitor propagates
+// the jobTTL and optional taskTimeout variadic into the janitor's fields.
+func TestBackupJanitor_TaskTimeout_WithJanitor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		jobTTL      time.Duration
+		taskTimeout time.Duration
+		wantTTL     time.Duration
+		wantTimeout time.Duration
+	}{
+		{
+			name:        "custom_ttl_and_timeout",
+			jobTTL:      12 * time.Hour,
+			taskTimeout: 30 * time.Second,
+			wantTTL:     12 * time.Hour,
+			wantTimeout: 30 * time.Second,
+		},
+		{
+			name:        "zero_ttl_uses_default",
+			jobTTL:      0,
+			taskTimeout: 0,
+			wantTTL:     24 * time.Hour,
+			wantTimeout: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackupBackend(t)
+			h := backup.NewHandler(b)
+
+			h.WithJanitor(time.Minute, tt.jobTTL, tt.taskTimeout)
+
+			assert.Equal(t, tt.wantTTL, h.GetJanitorJobTTL())
+			assert.Equal(t, tt.wantTimeout, h.GetJanitorTaskTimeout())
+		})
+	}
+}
+
 // TestBackupPlanIDIndex verifies that plan operations by plan ID are O(1)
 // via the planIDIndex and that the index is cleaned up on delete.
 func TestBackupPlanIDIndex(t *testing.T) {
@@ -204,6 +247,40 @@ func TestBackupPlanIDIndex(t *testing.T) {
 
 			b := newBackupBackend(t)
 			tt.run(t, b)
+		})
+	}
+}
+
+// TestBackupJanitor_DefaultInterval verifies that a zero interval in WithJanitor
+// results in the default interval being used.
+func TestBackupJanitor_DefaultInterval(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		interval time.Duration
+		want     time.Duration
+	}{
+		{
+			name:     "zero_uses_default",
+			interval: 0,
+			want:     backup.DefaultJanitorInterval,
+		},
+		{
+			name:     "custom_interval_propagated",
+			interval: 5 * time.Minute,
+			want:     5 * time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := backup.NewHandler(backup.NewInMemoryBackend("123456789012", "us-east-1"))
+			h.WithJanitor(tt.interval, 0)
+
+			assert.Equal(t, tt.want, h.GetJanitorInterval())
 		})
 	}
 }

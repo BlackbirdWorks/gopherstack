@@ -141,7 +141,7 @@ func TestBatchJanitor_SweepInactiveJobDefinitions(t *testing.T) {
 			}
 			// keep_active_definition: leave the definition as ACTIVE (no deregister).
 
-			janitor := batch.NewJanitor(backend, time.Hour, tt.ttl)
+			janitor := batch.NewJanitor(backend, time.Hour, tt.ttl, 24*time.Hour)
 			janitor.SweepOnce(t.Context())
 
 			defs := backend.DescribeJobDefinitions([]string{jd.JobDefinitionName})
@@ -168,7 +168,7 @@ func TestBatchJanitor_RunContext(t *testing.T) {
 	t.Parallel()
 
 	backend := batch.NewInMemoryBackend("123456789012", "us-east-1")
-	janitor := batch.NewJanitor(backend, 10*time.Millisecond, time.Hour)
+	janitor := batch.NewJanitor(backend, 10*time.Millisecond, time.Hour, time.Hour)
 
 	ctx, cancel := context.WithCancel(t.Context())
 

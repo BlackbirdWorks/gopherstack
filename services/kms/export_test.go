@@ -2,6 +2,9 @@ package kms
 
 import "time"
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultKMSJanitorInterval
+
 // SetTags exposes setTags for testing.
 func (h *Handler) SetTags(resourceID string, kv map[string]string) { h.setTags(resourceID, kv) }
 
@@ -20,6 +23,16 @@ func (b *InMemoryBackend) SetDeletionDateForTest(keyID string, t time.Time) {
 	if key, ok := b.keys[keyID]; ok {
 		key.DeletionDate = UnixTimeFloat(t)
 	}
+}
+
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.Interval
 }
 
 // GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.

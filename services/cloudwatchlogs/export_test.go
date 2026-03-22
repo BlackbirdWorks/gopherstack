@@ -2,6 +2,9 @@ package cloudwatchlogs
 
 import "time"
 
+// DefaultJanitorInterval exposes the package default janitor interval for testing.
+const DefaultJanitorInterval = defaultJanitorInterval
+
 // MaxEventsPerStream exposes the per-stream event cap for use in tests.
 const MaxEventsPerStream = maxEventsPerStream
 
@@ -30,4 +33,14 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	}
 
 	return h.janitor.TaskTimeout
+}
+
+// GetJanitorInterval returns the Interval configured on the handler's janitor.
+// Used in tests to verify WithJanitor correctly propagates the interval.
+func (h *Handler) GetJanitorInterval() time.Duration {
+	if h.janitor == nil {
+		return 0
+	}
+
+	return h.janitor.Interval
 }

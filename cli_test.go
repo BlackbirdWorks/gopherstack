@@ -47,6 +47,32 @@ func TestCLI_Defaults(t *testing.T) {
 	assert.False(t, cli.Demo)
 	assert.Equal(t, 500*time.Millisecond, cli.DynamoDB.JanitorInterval)
 	assert.Equal(t, 500*time.Millisecond, cli.S3.JanitorInterval)
+	assert.Equal(t, time.Minute, cli.Athena.JanitorInterval)
+	assert.Equal(t, 24*time.Hour, cli.Athena.ExecutionTTL)
+	assert.Equal(t, time.Minute, cli.Backup.JanitorInterval)
+	assert.Equal(t, 24*time.Hour, cli.Backup.JobTTL)
+	assert.Equal(t, time.Minute, cli.Batch.JanitorInterval)
+	assert.Equal(t, 24*time.Hour, cli.Batch.InactiveJobDefTTL)
+	assert.Equal(t, 24*time.Hour, cli.Batch.CompletedJobTTL)
+	assert.Equal(t, time.Minute, cli.CloudWatchLogs.JanitorInterval)
+	assert.Equal(t, time.Minute, cli.CodeBuild.JanitorInterval)
+	assert.Equal(t, 24*time.Hour, cli.CodeBuild.BuildTTL)
+	assert.Equal(t, time.Minute, cli.EC2.JanitorInterval)
+	assert.Equal(t, time.Hour, cli.EC2.TerminatedTTL)
+	assert.Equal(t, 6*time.Hour, cli.EC2.CancelledSpotTTL)
+	assert.Equal(t, time.Minute, cli.EMR.JanitorInterval)
+	assert.Equal(t, time.Hour, cli.EMR.TerminatedTTL)
+	assert.Equal(t, time.Minute, cli.FIS.JanitorInterval)
+	assert.Equal(t, 24*time.Hour, cli.FIS.ExperimentTTL)
+	assert.Equal(t, time.Minute, cli.Kinesis.JanitorInterval)
+	assert.Equal(t, time.Minute, cli.KMS.JanitorInterval)
+	assert.Equal(t, time.Minute, cli.SES.JanitorInterval)
+	assert.Equal(t, 24*time.Hour, cli.SES.EmailTTL)
+	assert.Equal(t, 30*time.Second, cli.SSM.JanitorInterval)
+	assert.Equal(t, time.Hour, cli.SSM.CommandTTL)
+	assert.Equal(t, 30*time.Second, cli.STS.JanitorInterval)
+	assert.Equal(t, time.Minute, cli.XRay.JanitorInterval)
+	assert.Equal(t, 30*time.Minute, cli.XRay.TraceTTL)
 }
 
 //nolint:paralleltest // uses t.Setenv which disallows t.Parallel
@@ -66,6 +92,72 @@ func TestCLI_EnvVarsOverrideDefaults(t *testing.T) {
 	assert.True(t, cli.Demo)
 	assert.Equal(t, 2*time.Second, cli.DynamoDB.JanitorInterval)
 	assert.Equal(t, time.Second, cli.S3.JanitorInterval)
+}
+
+//nolint:paralleltest // uses t.Setenv which disallows t.Parallel
+func TestCLI_JanitorTTLEnvVars(t *testing.T) {
+	cli := parseCLI(t, map[string]string{
+		"ATHENA_EXECUTION_TTL":       "2h",
+		"BACKUP_JOB_TTL":             "3h",
+		"BATCH_INACTIVE_JOB_DEF_TTL": "4h",
+		"BATCH_COMPLETED_JOB_TTL":    "5h",
+		"CODEBUILD_BUILD_TTL":        "6h",
+		"EC2_TERMINATED_TTL":         "7h",
+		"EC2_CANCELLED_SPOT_TTL":     "8h",
+		"EMR_TERMINATED_TTL":         "9h",
+		"FIS_EXPERIMENT_TTL":         "10h",
+		"SES_EMAIL_TTL":              "11h",
+		"SSM_COMMAND_TTL":            "2h",
+		"XRAY_TRACE_TTL":             "12h",
+	})
+
+	assert.Equal(t, 2*time.Hour, cli.Athena.ExecutionTTL)
+	assert.Equal(t, 3*time.Hour, cli.Backup.JobTTL)
+	assert.Equal(t, 4*time.Hour, cli.Batch.InactiveJobDefTTL)
+	assert.Equal(t, 5*time.Hour, cli.Batch.CompletedJobTTL)
+	assert.Equal(t, 6*time.Hour, cli.CodeBuild.BuildTTL)
+	assert.Equal(t, 7*time.Hour, cli.EC2.TerminatedTTL)
+	assert.Equal(t, 8*time.Hour, cli.EC2.CancelledSpotTTL)
+	assert.Equal(t, 9*time.Hour, cli.EMR.TerminatedTTL)
+	assert.Equal(t, 10*time.Hour, cli.FIS.ExperimentTTL)
+	assert.Equal(t, 11*time.Hour, cli.SES.EmailTTL)
+	assert.Equal(t, 2*time.Hour, cli.SSM.CommandTTL)
+	assert.Equal(t, 12*time.Hour, cli.XRay.TraceTTL)
+}
+
+//nolint:paralleltest // uses t.Setenv which disallows t.Parallel
+func TestCLI_JanitorIntervalEnvVars(t *testing.T) {
+	cli := parseCLI(t, map[string]string{
+		"ATHENA_JANITOR_INTERVAL":         "2m",
+		"BACKUP_JANITOR_INTERVAL":         "3m",
+		"BATCH_JANITOR_INTERVAL":          "4m",
+		"CLOUDWATCHLOGS_JANITOR_INTERVAL": "5m",
+		"CODEBUILD_JANITOR_INTERVAL":      "6m",
+		"EC2_JANITOR_INTERVAL":            "7m",
+		"EMR_JANITOR_INTERVAL":            "8m",
+		"FIS_JANITOR_INTERVAL":            "9m",
+		"KINESIS_JANITOR_INTERVAL":        "10m",
+		"KMS_JANITOR_INTERVAL":            "11m",
+		"SES_JANITOR_INTERVAL":            "12m",
+		"SSM_JANITOR_INTERVAL":            "13m",
+		"STS_JANITOR_INTERVAL":            "14m",
+		"XRAY_JANITOR_INTERVAL":           "15m",
+	})
+
+	assert.Equal(t, 2*time.Minute, cli.Athena.JanitorInterval)
+	assert.Equal(t, 3*time.Minute, cli.Backup.JanitorInterval)
+	assert.Equal(t, 4*time.Minute, cli.Batch.JanitorInterval)
+	assert.Equal(t, 5*time.Minute, cli.CloudWatchLogs.JanitorInterval)
+	assert.Equal(t, 6*time.Minute, cli.CodeBuild.JanitorInterval)
+	assert.Equal(t, 7*time.Minute, cli.EC2.JanitorInterval)
+	assert.Equal(t, 8*time.Minute, cli.EMR.JanitorInterval)
+	assert.Equal(t, 9*time.Minute, cli.FIS.JanitorInterval)
+	assert.Equal(t, 10*time.Minute, cli.Kinesis.JanitorInterval)
+	assert.Equal(t, 11*time.Minute, cli.KMS.JanitorInterval)
+	assert.Equal(t, 12*time.Minute, cli.SES.JanitorInterval)
+	assert.Equal(t, 13*time.Minute, cli.SSM.JanitorInterval)
+	assert.Equal(t, 14*time.Minute, cli.STS.JanitorInterval)
+	assert.Equal(t, 15*time.Minute, cli.XRay.JanitorInterval)
 }
 
 func TestCLI_BuildLogger(t *testing.T) {
