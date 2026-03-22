@@ -82,6 +82,10 @@ type StorageBackend interface {
 		context.Context,
 		*dynamodb.ListGlobalTablesInput,
 	) (*dynamodb.ListGlobalTablesOutput, error)
+	UpdateGlobalTable(
+		context.Context,
+		*dynamodb.UpdateGlobalTableInput,
+	) (*dynamodb.UpdateGlobalTableOutput, error)
 
 	// Kinesis Streaming Operations
 	EnableKinesisStreamingDestination(

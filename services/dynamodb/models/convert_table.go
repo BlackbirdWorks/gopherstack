@@ -48,6 +48,8 @@ func ToSDKCreateTableInput(input *CreateTableInput) *dynamodb.CreateTableInput {
 		LocalSecondaryIndexes:  ToSDKLocalSecondaryIndexes(input.LocalSecondaryIndexes),
 		ProvisionedThroughput:  pt,
 		StreamSpecification:    ss,
+		BillingMode:            types.BillingMode(input.BillingMode),
+		TableClass:             types.TableClass(input.TableClass),
 	}
 }
 
@@ -295,6 +297,13 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 		Replicas:               replicas,
 		LatestStreamArn:        ptrconv.String(td.LatestStreamArn),
 		LatestStreamLabel:      ptrconv.String(td.LatestStreamLabel),
+		GlobalTableVersion:     ptrconv.String(td.GlobalTableVersion),
+	}
+
+	if td.BillingModeSummary != nil {
+		out.BillingModeSummary = &BillingModeSummaryDescription{
+			BillingMode: string(td.BillingModeSummary.BillingMode),
+		}
 	}
 
 	if td.StreamSpecification != nil {

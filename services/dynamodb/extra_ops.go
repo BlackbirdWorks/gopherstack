@@ -520,6 +520,190 @@ func (db *InMemoryDB) ListGlobalTables(
 	}, nil
 }
 
+// --- UpdateGlobalTable ---
+
+// UpdateGlobalTable adds or removes replica regions for an existing global table.
+// Create actions physically create a new Table entry in the target region (cloning the source schema).
+// Delete actions remove the Table entry from the target region.
+func (db *InMemoryDB) UpdateGlobalTable(
+	_ context.Context,
+	input *dynamodb.UpdateGlobalTableInput,
+) (*dynamodb.UpdateGlobalTableOutput, error) {
+	if input.GlobalTableName == nil || *input.GlobalTableName == "" {
+		return nil, NewValidationException("GlobalTableName is required")
+	}
+
+	if len(input.ReplicaUpdates) == 0 {
+		return nil, NewValidationException("ReplicaUpdates must contain at least one update")
+	}
+
+	name := *input.GlobalTableName
+
+	db.mu.Lock("UpdateGlobalTable")
+	defer db.mu.Unlock()
+
+	gt, exists := db.GlobalTables[name]
+	if !exists {
+		return nil, &Error{
+			Type:    "com.amazonaws.dynamodb.v20120810#GlobalTableNotFoundException",
+			Message: fmt.Sprintf("Global table with name %s not found", name),
+		}
+	}
+
+	source := db.findSourceTableLocked(name, gt.ReplicationGroup)
+
+	for _, update := range input.ReplicaUpdates {
+		if err := db.applyGlobalTableReplicaUpdate(name, gt, update, source); err != nil {
+			return nil, err
+		}
+	}
+
+	// Rebuild per-replica Replicas field.
+	db.rebuildGlobalTableReplicasLocked(name, gt.ReplicationGroup)
+
+	sdkReplicas := buildSDKReplicaDescriptions(gt.ReplicationGroup)
+
+	return &dynamodb.UpdateGlobalTableOutput{
+		GlobalTableDescription: &types.GlobalTableDescription{
+			GlobalTableName:   &name,
+			GlobalTableArn:    &gt.GlobalTableArn,
+			GlobalTableStatus: types.GlobalTableStatusActive,
+			CreationDateTime:  &gt.CreationDateTime,
+			ReplicationGroup:  sdkReplicas,
+		},
+	}, nil
+}
+
+// findSourceTableLocked returns the first existing Table for the given name across regions.
+// Must be called with db.mu held for reading.
+func (db *InMemoryDB) findSourceTableLocked(name string, regions []string) *Table {
+	for _, region := range regions {
+		regionTables, ok := db.Tables[region]
+		if !ok {
+			continue
+		}
+
+		if t, tableExists := regionTables[name]; tableExists {
+			return t
+		}
+	}
+
+	return nil
+}
+
+// applyGlobalTableReplicaUpdate processes a single Create or Delete replica update.
+// Must be called with db.mu held for writing.
+func (db *InMemoryDB) applyGlobalTableReplicaUpdate(
+	name string,
+	gt *StoredGlobalTable,
+	update types.ReplicaUpdate,
+	source *Table,
+) error {
+	switch {
+	case update.Create != nil:
+		return db.applyGlobalTableReplicaCreate(name, gt, derefOrEmpty(update.Create.RegionName), source)
+	case update.Delete != nil:
+		return db.applyGlobalTableReplicaDelete(name, gt, derefOrEmpty(update.Delete.RegionName))
+	}
+
+	return nil
+}
+
+// applyGlobalTableReplicaCreate adds a new region to a global table.
+// Must be called with db.mu held for writing.
+func (db *InMemoryDB) applyGlobalTableReplicaCreate(
+	name string,
+	gt *StoredGlobalTable,
+	regionName string,
+	source *Table,
+) error {
+	if regionName == "" {
+		return NewValidationException("RegionName is required for Create action")
+	}
+
+	if !slices.Contains(gt.ReplicationGroup, regionName) {
+		gt.ReplicationGroup = append(gt.ReplicationGroup, regionName)
+	}
+
+	if _, ok := db.Tables[regionName]; !ok {
+		db.Tables[regionName] = make(map[string]*Table)
+	}
+
+	if _, tableExists := db.Tables[regionName][name]; !tableExists {
+		replica := db.buildReplicaTableLocked(name, regionName, source)
+		replica.GlobalTableName = name
+		db.Tables[regionName][name] = replica
+	} else {
+		db.Tables[regionName][name].GlobalTableName = name
+	}
+
+	return nil
+}
+
+// applyGlobalTableReplicaDelete removes a region from a global table.
+// Must be called with db.mu held for writing.
+func (db *InMemoryDB) applyGlobalTableReplicaDelete(
+	name string,
+	gt *StoredGlobalTable,
+	regionName string,
+) error {
+	if regionName == "" {
+		return NewValidationException("RegionName is required for Delete action")
+	}
+
+	remaining := make([]string, 0, len(gt.ReplicationGroup))
+	for _, r := range gt.ReplicationGroup {
+		if r != regionName {
+			remaining = append(remaining, r)
+		}
+	}
+
+	gt.ReplicationGroup = remaining
+
+	if regionTables, ok := db.Tables[regionName]; ok {
+		delete(regionTables, name)
+	}
+
+	return nil
+}
+
+// rebuildGlobalTableReplicasLocked refreshes the Replicas field on every regional Table entry.
+// Must be called with db.mu held for writing.
+func (db *InMemoryDB) rebuildGlobalTableReplicasLocked(name string, regions []string) {
+	allReplicas := buildAllReplicas(regions)
+	for _, region := range regions {
+		regionTables, ok := db.Tables[region]
+		if !ok {
+			continue
+		}
+
+		if t, tableExists := regionTables[name]; tableExists {
+			t.Replicas = buildReplicasExcluding(allReplicas, region)
+		}
+	}
+}
+
+// buildReplicaTableLocked creates or returns a Table for a new global table region.
+// Must be called with db.mu held (write).
+func (db *InMemoryDB) buildReplicaTableLocked(name, region string, source *Table) *Table {
+	if source != nil {
+		return cloneTableSchema(source, name, region, db.accountID)
+	}
+
+	t := &Table{
+		Name:             name,
+		Status:           "ACTIVE",
+		Items:            make([]map[string]any, 0),
+		TableID:          uuid.New().String(),
+		CreationDateTime: time.Now(),
+		TableArn:         arn.Build("dynamodb", region, db.accountID, "table/"+name),
+	}
+	t.mu = newTableMutex(name)
+	t.initializeIndexes()
+
+	return t
+}
+
 // sortedGlobalTableNames returns sorted global table names starting after startName.
 func sortedGlobalTableNames(tables map[string]*StoredGlobalTable, startName string) []string {
 	names := make([]string, 0, len(tables))

@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -89,15 +90,13 @@ const (
 )
 
 type Table struct {
-	CreationDateTime time.Time `json:"CreationDateTime"`
-	pkIndex          map[string]int
-	pkskIndex        map[string]map[string]int
-	mu               *lockmetrics.RWMutex
-	activateTimer    *time.Timer
-	Tags             *tags.Tags `json:"Tags,omitempty"`
-	Name             string     `json:"Name"`
-	// GlobalTableName is the name of the global table this replica belongs to.
-	// Empty if the table is not part of a global table.
+	CreationDateTime          time.Time `json:"CreationDateTime"`
+	pkIndex                   map[string]int
+	pkskIndex                 map[string]map[string]int
+	mu                        *lockmetrics.RWMutex
+	activateTimer             *time.Timer
+	Tags                      *tags.Tags                              `json:"Tags,omitempty"`
+	TableClass                string                                  `json:"TableClass,omitempty"`
 	GlobalTableName           string                                  `json:"GlobalTableName,omitempty"`
 	TTLAttribute              string                                  `json:"TTLAttribute,omitempty"`
 	StreamViewType            string                                  `json:"StreamViewType,omitempty"`
@@ -105,18 +104,19 @@ type Table struct {
 	TableArn                  string                                  `json:"TableArn"`
 	Status                    string                                  `json:"Status"`
 	TableID                   string                                  `json:"TableID"`
-	TableClass                string                                  `json:"TableClass,omitempty"`
-	Items                     []map[string]any                        `json:"Items"`
-	KinesisDestinations       []string                                `json:"KinesisDestinations,omitempty"`
+	Name                      string                                  `json:"Name"`
+	BillingMode               string                                  `json:"BillingMode,omitempty"`
 	Replicas                  []models.ReplicaDescription             `json:"Replicas,omitempty"`
+	Items                     []map[string]any                        `json:"Items"`
 	GlobalSecondaryIndexes    []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
 	StreamRecords             []models.StreamRecord                   `json:"StreamRecords,omitempty"`
 	KeySchema                 []models.KeySchemaElement               `json:"KeySchema"`
 	LocalSecondaryIndexes     []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
 	AttributeDefinitions      []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	KinesisDestinations       []string                                `json:"KinesisDestinations,omitempty"`
 	ProvisionedThroughput     models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
-	StreamHead                int                                     `json:"StreamHead,omitempty"`
 	streamSeq                 int64
+	StreamHead                int  `json:"StreamHead,omitempty"`
 	PITREnabled               bool `json:"PITREnabled,omitempty"`
 	StreamsEnabled            bool `json:"StreamsEnabled"`
 	DeletionProtectionEnabled bool `json:"DeletionProtectionEnabled"`
@@ -480,4 +480,18 @@ func (db *InMemoryDB) Reset() {
 		db.exprCache.Close()
 	}
 	db.exprCache = NewExpressionCache(exprCacheSize)
+}
+
+// regionFromARN extracts the region from a DynamoDB table ARN.
+// ARN format: arn:aws:dynamodb:<region>:<account>:table/<name>
+// Returns the default region if the ARN is empty or cannot be parsed.
+func (db *InMemoryDB) regionFromARN(tableARN string) string {
+	// arn:aws:dynamodb:us-east-1:123456789012:table/MyTable
+	// split by ":" gives ["arn", "aws", "dynamodb", "<region>", ...]
+	parts := strings.Split(tableARN, ":")
+	if len(parts) >= 4 && parts[3] != "" {
+		return parts[3]
+	}
+
+	return db.defaultRegion
 }

@@ -39,6 +39,8 @@ type CreateTableInput struct {
 	ProvisionedThroughput  any                    `json:"ProvisionedThroughput"`
 	StreamSpecification    any                    `json:"StreamSpecification,omitempty"`
 	TableName              string                 `json:"TableName"`
+	BillingMode            string                 `json:"BillingMode,omitempty"`
+	TableClass             string                 `json:"TableClass,omitempty"`
 	KeySchema              []KeySchemaElement     `json:"KeySchema"`
 	AttributeDefinitions   []AttributeDefinition  `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes []GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
@@ -68,18 +70,25 @@ type DescribeTableOutput struct {
 type TableDescription struct {
 	ProvisionedThroughput  *ProvisionedThroughputDescription `json:"ProvisionedThroughput,omitempty"`
 	StreamSpecification    *StreamSpecificationInput         `json:"StreamSpecification,omitempty"`
+	BillingModeSummary     *BillingModeSummaryDescription    `json:"BillingModeSummary,omitempty"`
 	TableName              string                            `json:"TableName"`
 	TableStatus            string                            `json:"TableStatus"`
 	TableArn               string                            `json:"TableArn,omitempty"`
 	TableID                string                            `json:"TableId,omitempty"`
 	LatestStreamArn        string                            `json:"LatestStreamArn,omitempty"`
 	LatestStreamLabel      string                            `json:"LatestStreamLabel,omitempty"`
+	GlobalTableVersion     string                            `json:"GlobalTableVersion,omitempty"`
 	KeySchema              []KeySchemaElement                `json:"KeySchema"`
 	AttributeDefinitions   []AttributeDefinition             `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes  []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
 	Replicas               []ReplicaDescription              `json:"Replicas,omitempty"`
 	ItemCount              int                               `json:"ItemCount"`
+}
+
+// BillingModeSummaryDescription describes the billing mode of a DynamoDB table.
+type BillingModeSummaryDescription struct {
+	BillingMode string `json:"BillingMode,omitempty"`
 }
 
 type ProvisionedThroughputDescription struct {

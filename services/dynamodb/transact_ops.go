@@ -45,6 +45,34 @@ func (db *InMemoryDB) TransactWriteItems(
 	defer cleanupToken()
 
 	tableNames := db.transactTableNames(input.TransactItems)
+	region := getRegionFromContext(ctx, db)
+
+	payloads, applyErr := db.executeTransactWrite(ctx, tableNames, token, region, input)
+	if applyErr != nil {
+		return nil, applyErr
+	}
+
+	for _, p := range payloads {
+		db.replicateItemMutation(p.tableName, p.globalTableName, p.region, p.item, p.op)
+	}
+
+	out = &dynamodb.TransactWriteItemsOutput{
+		ConsumedCapacity: transactWriteConsumedCapacity(input.ReturnConsumedCapacity, input.TransactItems),
+	}
+
+	return out, nil
+}
+
+// executeTransactWrite locks tables, validates conditions, applies writes, records the
+// idempotency token, and returns replication payloads. All table locks are released
+// before this function returns, so callers can safely apply cross-region replication.
+func (db *InMemoryDB) executeTransactWrite(
+	ctx context.Context,
+	tableNames []string,
+	token string,
+	region string,
+	input *dynamodb.TransactWriteItemsInput,
+) ([]transactReplicationPayload, error) {
 	tables, lockErr := db.lockTablesWrite(ctx, tableNames)
 	if lockErr != nil {
 		return nil, lockErr
@@ -55,7 +83,7 @@ func (db *InMemoryDB) TransactWriteItems(
 		}
 	}()
 
-	// Phase 1: Check conditions
+	// Phase 1: Check conditions.
 	reasons := make([]CancellationReason, len(input.TransactItems))
 	for i := range reasons {
 		reasons[i] = CancellationReason{Code: "None"}
@@ -73,8 +101,8 @@ func (db *InMemoryDB) TransactWriteItems(
 	}
 
 	// Phase 2: Apply writes with rollback on failure.
-	if applyErr := db.applyTransactItems(ctx, tables, input.TransactItems); applyErr != nil {
-		return nil, applyErr
+	if writeErr := db.applyTransactItems(ctx, tables, input.TransactItems); writeErr != nil {
+		return nil, writeErr
 	}
 
 	// Record token as committed only after all writes have been applied.
@@ -84,11 +112,88 @@ func (db *InMemoryDB) TransactWriteItems(
 		db.mu.Unlock()
 	}
 
-	out = &dynamodb.TransactWriteItemsOutput{
-		ConsumedCapacity: transactWriteConsumedCapacity(input.ReturnConsumedCapacity, input.TransactItems),
+	return db.collectTransactReplicationPayloads(tables, region, input.TransactItems), nil
+}
+
+// transactReplicationPayload holds the data needed to replicate a single committed
+// transactional write to global table replica regions.
+type transactReplicationPayload struct {
+	tableName       string
+	globalTableName string
+	region          string
+	item            map[string]any
+	op              string
+}
+
+// collectTransactReplicationPayloads collects per-item replication payloads from committed
+// transactional writes. Must be called while the table write locks are held.
+func (db *InMemoryDB) collectTransactReplicationPayloads(
+	tables map[string]*Table,
+	currentRegion string,
+	items []types.TransactWriteItem,
+) []transactReplicationPayload {
+	var payloads []transactReplicationPayload
+
+	for _, ti := range items {
+		switch {
+		case ti.Put != nil:
+			tableName := aws.ToString(ti.Put.TableName)
+			table, ok := tables[tableName]
+			if !ok || table.GlobalTableName == "" {
+				continue
+			}
+
+			wireItem := models.FromSDKItem(ti.Put.Item)
+			payloads = append(payloads, transactReplicationPayload{
+				tableName:       tableName,
+				globalTableName: table.GlobalTableName,
+				region:          currentRegion,
+				item:            deepCopyItem(wireItem),
+				op:              "PUT",
+			})
+
+		case ti.Delete != nil:
+			tableName := aws.ToString(ti.Delete.TableName)
+			table, ok := tables[tableName]
+			if !ok || table.GlobalTableName == "" {
+				continue
+			}
+
+			wireKey := models.FromSDKItem(ti.Delete.Key)
+			payloads = append(payloads, transactReplicationPayload{
+				tableName:       tableName,
+				globalTableName: table.GlobalTableName,
+				region:          currentRegion,
+				item:            deepCopyItem(wireKey),
+				op:              "DELETE",
+			})
+
+		case ti.Update != nil:
+			tableName := aws.ToString(ti.Update.TableName)
+			table, ok := tables[tableName]
+			if !ok || table.GlobalTableName == "" {
+				continue
+			}
+
+			wireKey := models.FromSDKItem(ti.Update.Key)
+			pkDef, skDef := getPKAndSK(table.KeySchema)
+			finalItem := db.lookupItem(table, wireKey, pkDef.AttributeName, skDef.AttributeName)
+
+			if finalItem == nil {
+				continue
+			}
+
+			payloads = append(payloads, transactReplicationPayload{
+				tableName:       tableName,
+				globalTableName: table.GlobalTableName,
+				region:          currentRegion,
+				item:            deepCopyItem(finalItem),
+				op:              "PUT",
+			})
+		}
 	}
 
-	return out, nil
+	return payloads
 }
 
 // checkTransactToken checks idempotency token state.

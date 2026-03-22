@@ -157,6 +157,7 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		"TransactWriteItems",
 		"UntagResource",
 		"UpdateContinuousBackups",
+		"UpdateGlobalTable",
 		"UpdateItem",
 		"UpdateTable",
 		"UpdateTimeToLive",
@@ -379,6 +380,7 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		"DescribeGlobalTable",
 		"DescribeGlobalTableSettings",
 		"ListGlobalTables",
+		"UpdateGlobalTable",
 		"EnableKinesisStreamingDestination",
 		"DescribeKinesisStreamingDestination",
 		"DisableKinesisStreamingDestination",
@@ -1018,6 +1020,26 @@ type createGlobalTableOutput struct {
 	GlobalTableDescription globalTableDescriptionWire `json:"GlobalTableDescription"`
 }
 
+// updateGlobalTableReplicaActionWire wraps a Create or Delete action for a single region.
+type updateGlobalTableReplicaActionWire struct {
+	RegionName string `json:"RegionName,omitempty"`
+}
+
+// updateGlobalTableReplicaUpdateWire represents a single Create or Delete replica action.
+type updateGlobalTableReplicaUpdateWire struct {
+	Create *updateGlobalTableReplicaActionWire `json:"Create,omitempty"`
+	Delete *updateGlobalTableReplicaActionWire `json:"Delete,omitempty"`
+}
+
+type updateGlobalTableInput struct {
+	GlobalTableName string                               `json:"GlobalTableName"`
+	ReplicaUpdates  []updateGlobalTableReplicaUpdateWire `json:"ReplicaUpdates"`
+}
+
+type updateGlobalTableOutput struct {
+	GlobalTableDescription globalTableDescriptionWire `json:"GlobalTableDescription"`
+}
+
 type describeGlobalTableInput struct {
 	GlobalTableName string `json:"GlobalTableName"`
 }
@@ -1170,6 +1192,7 @@ func (h *DynamoDBHandler) dispatchExtraOps(
 		"DescribeGlobalTable":                 func() (any, error) { return h.handleDescribeGlobalTable(ctx, body) },
 		"DescribeGlobalTableSettings":         func() (any, error) { return h.handleDescribeGlobalTableSettings(ctx, body) },
 		"ListGlobalTables":                    func() (any, error) { return h.handleListGlobalTables(ctx, body) },
+		"UpdateGlobalTable":                   func() (any, error) { return h.handleUpdateGlobalTable(ctx, body) },
 		"EnableKinesisStreamingDestination":   enableKinesis,
 		"DescribeKinesisStreamingDestination": describeKinesis,
 		"DisableKinesisStreamingDestination":  disableKinesis,
@@ -1497,6 +1520,40 @@ func (h *DynamoDBHandler) handleListGlobalTables(ctx context.Context, body []byt
 	}
 
 	return wire, nil
+}
+
+func (h *DynamoDBHandler) handleUpdateGlobalTable(ctx context.Context, body []byte) (any, error) {
+	var req updateGlobalTableInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	updates := make([]types.ReplicaUpdate, 0, len(req.ReplicaUpdates))
+	for _, u := range req.ReplicaUpdates {
+		var update types.ReplicaUpdate
+		if u.Create != nil {
+			regionName := u.Create.RegionName
+			update.Create = &types.CreateReplicaAction{RegionName: &regionName}
+		} else if u.Delete != nil {
+			regionName := u.Delete.RegionName
+			update.Delete = &types.DeleteReplicaAction{RegionName: &regionName}
+		}
+
+		updates = append(updates, update)
+	}
+
+	out, err := h.Backend.UpdateGlobalTable(ctx, &sdkDDB.UpdateGlobalTableInput{
+		GlobalTableName: &req.GlobalTableName,
+		ReplicaUpdates:  updates,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	d := out.GlobalTableDescription
+	wire := buildGlobalTableDescriptionWire(d)
+
+	return &updateGlobalTableOutput{GlobalTableDescription: wire}, nil
 }
 
 func (h *DynamoDBHandler) handleEnableKinesisStreamingDestination(

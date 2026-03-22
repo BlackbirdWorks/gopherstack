@@ -256,6 +256,30 @@ func (db *InMemoryDB) BatchWriteItem(
 		}
 	}
 
+	// Propagate writes to global table replicas after all table locks have been released.
+	for _, tableName := range tableNames {
+		table := tables[tableName]
+		table.mu.RLock("BatchWriteItem.replication")
+		gtName := table.GlobalTableName
+		table.mu.RUnlock()
+
+		if gtName == "" {
+			continue
+		}
+
+		for _, req := range toProcess[tableName] {
+			switch {
+			case req.PutRequest != nil:
+				wireItem := models.FromSDKItem(req.PutRequest.Item)
+				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireItem), "PUT")
+			case req.DeleteRequest != nil:
+				wireKey := models.FromSDKItem(req.DeleteRequest.Key)
+				// Use a copy of the key to identify and delete from replicas.
+				db.replicateItemMutation(tableName, gtName, region, deepCopyItem(wireKey), "DELETE")
+			}
+		}
+	}
+
 	return &dynamodb.BatchWriteItemOutput{
 		UnprocessedItems: unprocessedItems,
 		ConsumedCapacity: batchWriteConsumedCapacity(input.ReturnConsumedCapacity, toProcess),
