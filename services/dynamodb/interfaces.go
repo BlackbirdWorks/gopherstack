@@ -64,4 +64,72 @@ type StorageBackend interface {
 		context.Context,
 		*dynamodb.TransactGetItemsInput,
 	) (*dynamodb.TransactGetItemsOutput, error)
+
+	// Global Table Operations
+	CreateGlobalTable(
+		context.Context,
+		*dynamodb.CreateGlobalTableInput,
+	) (*dynamodb.CreateGlobalTableOutput, error)
+	DescribeGlobalTable(
+		context.Context,
+		*dynamodb.DescribeGlobalTableInput,
+	) (*dynamodb.DescribeGlobalTableOutput, error)
+	DescribeGlobalTableSettings(
+		context.Context,
+		*dynamodb.DescribeGlobalTableSettingsInput,
+	) (*dynamodb.DescribeGlobalTableSettingsOutput, error)
+	ListGlobalTables(
+		context.Context,
+		*dynamodb.ListGlobalTablesInput,
+	) (*dynamodb.ListGlobalTablesOutput, error)
+	UpdateGlobalTable(
+		context.Context,
+		*dynamodb.UpdateGlobalTableInput,
+	) (*dynamodb.UpdateGlobalTableOutput, error)
+
+	// Kinesis Streaming Operations
+	EnableKinesisStreamingDestination(
+		context.Context,
+		*dynamodb.EnableKinesisStreamingDestinationInput,
+	) (*dynamodb.EnableKinesisStreamingDestinationOutput, error)
+	DescribeKinesisStreamingDestination(
+		context.Context,
+		*dynamodb.DescribeKinesisStreamingDestinationInput,
+	) (*dynamodb.DescribeKinesisStreamingDestinationOutput, error)
+	DisableKinesisStreamingDestination(
+		context.Context,
+		*dynamodb.DisableKinesisStreamingDestinationInput,
+	) (*dynamodb.DisableKinesisStreamingDestinationOutput, error)
+
+	// Resource Policy Operations
+	GetResourcePolicy(
+		context.Context,
+		*dynamodb.GetResourcePolicyInput,
+	) (*dynamodb.GetResourcePolicyOutput, error)
+	PutResourcePolicy(
+		context.Context,
+		*dynamodb.PutResourcePolicyInput,
+	) (*dynamodb.PutResourcePolicyOutput, error)
+	DeleteResourcePolicy(
+		context.Context,
+		*dynamodb.DeleteResourcePolicyInput,
+	) (*dynamodb.DeleteResourcePolicyOutput, error)
+
+	// Miscellaneous Operations
+	DescribeLimits(
+		context.Context,
+		*dynamodb.DescribeLimitsInput,
+	) (*dynamodb.DescribeLimitsOutput, error)
+	DescribeEndpoints(
+		context.Context,
+		*dynamodb.DescribeEndpointsInput,
+	) (*dynamodb.DescribeEndpointsOutput, error)
+	DescribeContributorInsights(
+		context.Context,
+		*dynamodb.DescribeContributorInsightsInput,
+	) (*dynamodb.DescribeContributorInsightsOutput, error)
+	DescribeImport(
+		context.Context,
+		*dynamodb.DescribeImportInput,
+	) (*dynamodb.DescribeImportOutput, error)
 }

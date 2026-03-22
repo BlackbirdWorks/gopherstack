@@ -246,3 +246,82 @@ func (h *DynamoDBHandler) GetJanitorTaskTimeout() time.Duration {
 
 	return h.janitor.TaskTimeout
 }
+
+// AddKinesisDestination adds a Kinesis stream ARN to the given table's destination list.
+// Used in tests to pre-populate Kinesis destinations without going through the HTTP API.
+func (db *InMemoryDB) AddKinesisDestination(tableName, streamARN string) {
+	db.mu.RLock("AddKinesisDestination")
+	regionTables, regionExists := db.Tables[db.defaultRegion]
+
+	var table *Table
+	var tableExists bool
+
+	if regionExists {
+		table, tableExists = regionTables[tableName]
+	}
+
+	db.mu.RUnlock()
+
+	if !tableExists {
+		return
+	}
+
+	table.mu.Lock("AddKinesisDestination")
+	table.KinesisDestinations = append(table.KinesisDestinations, streamARN)
+	table.mu.Unlock()
+}
+
+// TableExistsInRegion reports whether a table with the given name exists in the given region.
+// Used in tests to verify that CreateGlobalTable creates replica tables.
+func (db *InMemoryDB) TableExistsInRegion(region, tableName string) bool {
+	db.mu.RLock("TableExistsInRegion")
+	defer db.mu.RUnlock()
+
+	regionTables, ok := db.Tables[region]
+	if !ok {
+		return false
+	}
+
+	_, exists := regionTables[tableName]
+
+	return exists
+}
+
+// GetTableGlobalTableName returns the GlobalTableName field of the named table
+// in the backend's default region. Returns "" if the table is not part of a global table.
+func (db *InMemoryDB) GetTableGlobalTableName(tableName string) string {
+	db.mu.RLock("GetTableGlobalTableName")
+	regionTables, ok := db.Tables[db.defaultRegion]
+
+	var table *Table
+	if ok {
+		table = regionTables[tableName]
+	}
+
+	db.mu.RUnlock()
+
+	if table == nil {
+		return ""
+	}
+
+	table.mu.RLock("GetTableGlobalTableName-field")
+	defer table.mu.RUnlock()
+
+	return table.GlobalTableName
+}
+
+// GetItems returns a deep-copied snapshot of the table's Items slice under the table's read lock.
+// Used in tests to inspect item state without triggering the full query path.
+// Deep copying ensures the returned slice is safe to read concurrently with ongoing mutations.
+func (t *Table) GetItems() []map[string]any {
+	t.mu.RLock("GetItems")
+	defer t.mu.RUnlock()
+
+	snapshot := make([]map[string]any, len(t.Items))
+
+	for i, item := range t.Items {
+		snapshot[i] = deepCopyItem(item)
+	}
+
+	return snapshot
+}

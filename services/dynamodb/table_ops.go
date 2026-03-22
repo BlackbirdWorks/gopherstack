@@ -157,6 +157,12 @@ func newTableFromCreateInput(tableName string, input *dynamodb.CreateTableInput)
 	}
 	t.DeletionProtectionEnabled = aws.ToBool(input.DeletionProtectionEnabled)
 
+	if input.BillingMode == types.BillingModePayPerRequest {
+		t.BillingMode = string(types.BillingModePayPerRequest)
+	} else {
+		t.BillingMode = string(types.BillingModeProvisioned)
+	}
+
 	t.initializeIndexes()
 
 	return t
@@ -314,6 +320,12 @@ func (db *InMemoryDB) DeleteTable(
 	db.deletingTables[region][tableName] = table
 	db.throttler.DeleteTable(throttleKey(region, tableName))
 
+	// Remove the deleted table's region from its global table's ReplicationGroup.
+	// If no replicas remain, remove the global table entry entirely.
+	if table.GlobalTableName != "" {
+		db.removeGlobalTableReplicaLocked(table.GlobalTableName, region)
+	}
+
 	// Remove from stream ARN reverse index.
 	if table.StreamARN != "" {
 		delete(db.streamARNIndex, table.StreamARN)
@@ -358,6 +370,29 @@ func (db *InMemoryDB) DeleteTable(
 			ItemCount:              &itemCount,
 		},
 	}, nil
+}
+
+// removeGlobalTableReplicaLocked removes a region from a global table's ReplicationGroup.
+// If no replicas remain after removal, the global table entry itself is deleted.
+// Must be called with db.mu held for writing.
+func (db *InMemoryDB) removeGlobalTableReplicaLocked(globalTableName, region string) {
+	gt, gtExists := db.GlobalTables[globalTableName]
+	if !gtExists {
+		return
+	}
+
+	remaining := make([]string, 0, len(gt.ReplicationGroup))
+	for _, r := range gt.ReplicationGroup {
+		if r != region {
+			remaining = append(remaining, r)
+		}
+	}
+
+	if len(remaining) == 0 {
+		delete(db.GlobalTables, globalTableName)
+	} else {
+		gt.ReplicationGroup = remaining
+	}
 }
 
 func buildGSIDescriptions(
@@ -447,6 +482,8 @@ type tableSnapshot struct {
 	streamARN                 string
 	streamViewType            string
 	tableClass                string
+	globalTableName           string
+	billingMode               string
 	replicaList               []models.ReplicaDescription
 	lsiList                   []models.LocalSecondaryIndex
 	keySchema                 []models.KeySchemaElement
@@ -481,6 +518,8 @@ func snapshotTable(table *Table) tableSnapshot {
 		streamViewType:            table.StreamViewType,
 		deletionProtectionEnabled: table.DeletionProtectionEnabled,
 		tableClass:                table.TableClass,
+		globalTableName:           table.GlobalTableName,
+		billingMode:               table.BillingMode,
 	}
 	copy(s.keySchema, table.KeySchema)
 	copy(s.attrDefs, table.AttributeDefinitions)
@@ -507,22 +546,42 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 
 	tableSizeBytes := s.itemSizeBytes
 
+	billingMode := types.BillingModeProvisioned
+	if s.billingMode == string(types.BillingModePayPerRequest) {
+		billingMode = types.BillingModePayPerRequest
+	}
+
 	td := &types.TableDescription{
-		TableName:              tableName,
-		TableStatus:            s.tableStatus,
-		KeySchema:              models.ToSDKKeySchema(s.keySchema),
-		AttributeDefinitions:   models.ToSDKAttributeDefinitions(s.attrDefs),
-		GlobalSecondaryIndexes: models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs),
-		LocalSecondaryIndexes:  models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs),
-		Replicas:               toSDKReplicaDescriptions(s.replicaList),
-		ItemCount:              &s.itemCount,
-		TableSizeBytes:         &tableSizeBytes,
-		BillingModeSummary:     &types.BillingModeSummary{BillingMode: types.BillingModeProvisioned},
-		ProvisionedThroughput: &types.ProvisionedThroughputDescription{
+		TableName:                 tableName,
+		TableStatus:               s.tableStatus,
+		KeySchema:                 models.ToSDKKeySchema(s.keySchema),
+		AttributeDefinitions:      models.ToSDKAttributeDefinitions(s.attrDefs),
+		GlobalSecondaryIndexes:    models.ToSDKGlobalSecondaryIndexDescriptions(gsiDescs),
+		LocalSecondaryIndexes:     models.ToSDKLocalSecondaryIndexDescriptions(lsiDescs),
+		Replicas:                  toSDKReplicaDescriptions(s.replicaList),
+		ItemCount:                 &s.itemCount,
+		TableSizeBytes:            &tableSizeBytes,
+		BillingModeSummary:        &types.BillingModeSummary{BillingMode: billingMode},
+		DeletionProtectionEnabled: &s.deletionProtectionEnabled,
+	}
+
+	// Only populate ProvisionedThroughput for PROVISIONED billing mode.
+	if billingMode == types.BillingModeProvisioned {
+		td.ProvisionedThroughput = &types.ProvisionedThroughputDescription{
 			ReadCapacityUnits:  &rcu,
 			WriteCapacityUnits: &wcu,
-		},
-		DeletionProtectionEnabled: &s.deletionProtectionEnabled,
+		}
+	}
+
+	// Populate GlobalTableVersion for tables that are part of a global table.
+	// AWS uses "2019.11.21" for Global Tables v2 (the version created by CreateGlobalTable v2 /
+	// UpdateTable.ReplicaUpdates) and "2017.11.29" for the legacy API.
+	// Our CreateGlobalTable follows the v1 API model; we use the v2 version for tables
+	// promoted via UpdateTable.ReplicaUpdates (applyReplicaCreate). Either way, if the
+	// table has replicas or is part of a global table, return the version string.
+	if s.globalTableName != "" || len(s.replicaList) > 0 {
+		gtv := "2019.11.21"
+		td.GlobalTableVersion = &gtv
 	}
 
 	if s.tableClass != "" {
@@ -622,6 +681,12 @@ func (db *InMemoryDB) UpdateTable(
 		return nil, updateErr
 	}
 
+	// For Global Tables v2: create physical Table entries for each new replica region.
+	// This must run outside table.mu (to avoid lock inversion with db.mu).
+	if len(input.ReplicaUpdates) > 0 {
+		db.applyReplicaTableEntries(tableName, region, table, input.ReplicaUpdates)
+	}
+
 	// Update throttler outside table.mu: SetTableCapacity takes its own internal
 	// lock, so calling it inside the table lock would unnecessarily extend the
 	// critical section and increase contention with concurrent reads/writes.
@@ -643,8 +708,76 @@ func (db *InMemoryDB) UpdateTable(
 	return out, nil
 }
 
-// applyReplicaUpdates processes Global Tables v2 replica create/delete actions.
-// Replicas are metadata-only: no actual cross-region sync is performed.
+// applyReplicaTableEntries creates or removes physical Table entries for Global Tables v2
+// replica operations triggered by UpdateTable.ReplicaUpdates.
+// Must be called after the table lock has been released.
+func (db *InMemoryDB) applyReplicaTableEntries(
+	tableName string,
+	currentRegion string,
+	source *Table,
+	updates []types.ReplicationGroupUpdate,
+) {
+	db.mu.Lock("UpdateTable.replicaEntries")
+	defer db.mu.Unlock()
+
+	// Ensure the source table is marked as a global table.
+	source.mu.RLock("UpdateTable.replicaEntries.read")
+	existingGTName := source.GlobalTableName
+	source.mu.RUnlock()
+
+	if existingGTName == "" {
+		source.mu.Lock("UpdateTable.replicaEntries.setGT")
+		source.GlobalTableName = tableName
+		source.mu.Unlock()
+	}
+
+	for _, u := range updates {
+		db.applyOneReplicaTableEntry(tableName, currentRegion, source, u)
+	}
+}
+
+// applyOneReplicaTableEntry handles a single Create or Delete ReplicationGroupUpdate.
+// Must be called with db.mu held for writing.
+func (db *InMemoryDB) applyOneReplicaTableEntry(
+	tableName string,
+	currentRegion string,
+	source *Table,
+	update types.ReplicationGroupUpdate,
+) {
+	switch {
+	case update.Create != nil:
+		regionName := aws.ToString(update.Create.RegionName)
+		if regionName == "" || regionName == currentRegion {
+			return
+		}
+
+		if _, ok := db.Tables[regionName]; !ok {
+			db.Tables[regionName] = make(map[string]*Table)
+		}
+
+		if _, exists := db.Tables[regionName][tableName]; !exists {
+			replica := cloneTableSchema(source, tableName, regionName, db.accountID)
+			replica.GlobalTableName = tableName
+			db.Tables[regionName][tableName] = replica
+		} else {
+			db.Tables[regionName][tableName].GlobalTableName = tableName
+		}
+
+	case update.Delete != nil:
+		regionName := aws.ToString(update.Delete.RegionName)
+		if regionName == "" || regionName == currentRegion {
+			return
+		}
+
+		if regionTables, ok := db.Tables[regionName]; ok {
+			delete(regionTables, tableName)
+		}
+	}
+}
+
+// applyReplicaUpdates processes Global Tables v2 replica create/delete actions
+// and updates the Replicas metadata list on the table.
+// Physical Table entries for new regions are created separately by applyReplicaTableEntries.
 // Returns an error if any update has an empty RegionName.
 func applyReplicaUpdates(table *Table, updates []types.ReplicationGroupUpdate) error {
 	for _, u := range updates {

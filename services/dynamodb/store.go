@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -21,15 +22,25 @@ const txnTokenTTL = 10 * time.Minute
 // removed by the janitor so the token can be reused.
 const txnPendingTTL = 5 * time.Minute
 
+// StoredGlobalTable holds the metadata for a DynamoDB global table.
+type StoredGlobalTable struct {
+	CreationDateTime time.Time `json:"CreationDateTime"`
+	GlobalTableName  string    `json:"GlobalTableName"`
+	GlobalTableArn   string    `json:"GlobalTableArn"`
+	// ReplicationGroup is the list of region names in the global table.
+	ReplicationGroup []string `json:"ReplicationGroup"`
+}
+
 // InMemoryDB stores tables and items organized by region.
 type InMemoryDB struct {
 	Tables               map[string]map[string]*Table
 	deletingTables       map[string]map[string]*Table
-	Backups              map[string]*Backup   // backupARN → Backup
-	txnTokens            map[string]time.Time // committed idempotency tokens → expiry time
-	txnPending           map[string]time.Time // in-progress idempotency tokens → start time
-	streamARNIndex       map[string]*Table    // streamARN → Table (reverse index)
-	fisReplicationPaused map[string]time.Time // keyed by table ARN; value is expiry (zero = no expiry)
+	Backups              map[string]*Backup            // backupARN → Backup
+	GlobalTables         map[string]*StoredGlobalTable // globalTableName → StoredGlobalTable
+	txnTokens            map[string]time.Time          // committed idempotency tokens → expiry time
+	txnPending           map[string]time.Time          // in-progress idempotency tokens → start time
+	streamARNIndex       map[string]*Table             // streamARN → Table (reverse index)
+	fisReplicationPaused map[string]time.Time          // keyed by table ARN; value is expiry (zero = no expiry)
 	exprCache            *ExpressionCache
 	throttler            *Throttler
 	mu                   *lockmetrics.RWMutex
@@ -85,21 +96,24 @@ type Table struct {
 	mu                        *lockmetrics.RWMutex
 	activateTimer             *time.Timer
 	Tags                      *tags.Tags                              `json:"Tags,omitempty"`
-	Name                      string                                  `json:"Name"`
+	TableClass                string                                  `json:"TableClass,omitempty"`
+	GlobalTableName           string                                  `json:"GlobalTableName,omitempty"`
 	TTLAttribute              string                                  `json:"TTLAttribute,omitempty"`
 	StreamViewType            string                                  `json:"StreamViewType,omitempty"`
 	StreamARN                 string                                  `json:"StreamARN,omitempty"`
 	TableArn                  string                                  `json:"TableArn"`
 	Status                    string                                  `json:"Status"`
 	TableID                   string                                  `json:"TableID"`
-	TableClass                string                                  `json:"TableClass,omitempty"`
-	Items                     []map[string]any                        `json:"Items"`
-	AttributeDefinitions      []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	Name                      string                                  `json:"Name"`
+	BillingMode               string                                  `json:"BillingMode,omitempty"`
 	Replicas                  []models.ReplicaDescription             `json:"Replicas,omitempty"`
+	Items                     []map[string]any                        `json:"Items"`
 	GlobalSecondaryIndexes    []models.GlobalSecondaryIndex           `json:"GlobalSecondaryIndexes,omitempty"`
 	StreamRecords             []models.StreamRecord                   `json:"StreamRecords,omitempty"`
 	KeySchema                 []models.KeySchemaElement               `json:"KeySchema"`
 	LocalSecondaryIndexes     []models.LocalSecondaryIndex            `json:"LocalSecondaryIndexes,omitempty"`
+	AttributeDefinitions      []models.AttributeDefinition            `json:"AttributeDefinitions"`
+	KinesisDestinations       []string                                `json:"KinesisDestinations,omitempty"`
 	ProvisionedThroughput     models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`
 	streamSeq                 int64
 	StreamHead                int  `json:"StreamHead,omitempty"`
@@ -115,6 +129,7 @@ func NewInMemoryDB() *InMemoryDB {
 		Tables:               make(map[string]map[string]*Table),
 		deletingTables:       make(map[string]map[string]*Table),
 		Backups:              make(map[string]*Backup),
+		GlobalTables:         make(map[string]*StoredGlobalTable),
 		txnTokens:            make(map[string]time.Time),
 		txnPending:           make(map[string]time.Time),
 		streamARNIndex:       make(map[string]*Table),
@@ -457,6 +472,7 @@ func (db *InMemoryDB) Reset() {
 	db.deletingTables = make(map[string]map[string]*Table)
 	db.streamARNIndex = make(map[string]*Table)
 	db.Backups = make(map[string]*Backup)
+	db.GlobalTables = make(map[string]*StoredGlobalTable)
 	db.txnTokens = make(map[string]time.Time)
 	db.txnPending = make(map[string]time.Time)
 	db.fisReplicationPaused = make(map[string]time.Time)
@@ -464,4 +480,18 @@ func (db *InMemoryDB) Reset() {
 		db.exprCache.Close()
 	}
 	db.exprCache = NewExpressionCache(exprCacheSize)
+}
+
+// regionFromARN extracts the region from a DynamoDB table ARN.
+// ARN format: arn:aws:dynamodb:<region>:<account>:table/<name>
+// Returns the default region if the ARN is empty or cannot be parsed.
+func (db *InMemoryDB) regionFromARN(tableARN string) string {
+	// arn:aws:dynamodb:us-east-1:123456789012:table/MyTable
+	// split by ":" gives ["arn", "aws", "dynamodb", "<region>", ...]
+	parts := strings.Split(tableARN, ":")
+	if len(parts) >= 4 && parts[3] != "" {
+		return parts[3]
+	}
+
+	return db.defaultRegion
 }

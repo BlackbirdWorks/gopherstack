@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
 	"github.com/labstack/echo/v5"
 
@@ -110,26 +112,42 @@ func (h *DynamoDBHandler) StartWorker(ctx context.Context) error {
 // GetSupportedOperations returns a sorted list of supported DynamoDB operations.
 func (h *DynamoDBHandler) GetSupportedOperations() []string {
 	return []string{
+		"BatchExecuteStatement",
 		"BatchGetItem",
 		"BatchWriteItem",
 		"CreateBackup",
+		"CreateGlobalTable",
 		"CreateTable",
 		"DeleteBackup",
 		"DeleteItem",
+		"DeleteResourcePolicy",
 		"DeleteTable",
 		"DescribeBackup",
+		"DescribeContributorInsights",
 		"DescribeContinuousBackups",
+		"DescribeEndpoints",
 		"DescribeExport",
+		"DescribeGlobalTable",
+		"DescribeGlobalTableSettings",
+		"DescribeImport",
+		"DescribeKinesisStreamingDestination",
+		"DescribeLimits",
 		"DescribeTable",
 		"DescribeTableReplicaAutoScaling",
 		"DescribeTimeToLive",
+		"DisableKinesisStreamingDestination",
+		"EnableKinesisStreamingDestination",
+		"ExecuteStatement",
 		"ExportTableToPointInTime",
 		"GetItem",
+		"GetResourcePolicy",
 		"ListBackups",
 		"ListExports",
+		"ListGlobalTables",
 		"ListTables",
 		"ListTagsOfResource",
 		"PutItem",
+		"PutResourcePolicy",
 		"Query",
 		"RestoreTableFromBackup",
 		"RestoreTableToPointInTime",
@@ -138,9 +156,8 @@ func (h *DynamoDBHandler) GetSupportedOperations() []string {
 		"TransactGetItems",
 		"TransactWriteItems",
 		"UntagResource",
-		"BatchExecuteStatement",
-		"ExecuteStatement",
 		"UpdateContinuousBackups",
+		"UpdateGlobalTable",
 		"UpdateItem",
 		"UpdateTable",
 		"UpdateTimeToLive",
@@ -359,6 +376,22 @@ func (h *DynamoDBHandler) dispatch(ctx context.Context, action string, body []by
 		return h.describeExport(ctx, body)
 	case "ListExports":
 		return &listExportsOutput{ExportSummaries: []exportDescriptionFields{}}, nil
+	case "CreateGlobalTable",
+		"DescribeGlobalTable",
+		"DescribeGlobalTableSettings",
+		"ListGlobalTables",
+		"UpdateGlobalTable",
+		"EnableKinesisStreamingDestination",
+		"DescribeKinesisStreamingDestination",
+		"DisableKinesisStreamingDestination",
+		"DescribeLimits",
+		"DescribeEndpoints",
+		"DescribeContributorInsights",
+		"DeleteResourcePolicy",
+		"GetResourcePolicy",
+		"PutResourcePolicy",
+		"DescribeImport":
+		return h.dispatchExtraOps(ctx, action, body)
 	default:
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
@@ -962,4 +995,657 @@ func (h *DynamoDBHandler) Reset() {
 	if db, ok := h.Backend.(*InMemoryDB); ok {
 		db.Reset()
 	}
+}
+
+// --- Wire types for the 10 new operations ---
+
+type globalTableReplicaWire struct {
+	RegionName string `json:"RegionName"`
+}
+
+type globalTableDescriptionWire struct {
+	CreationDateTime  string                   `json:"CreationDateTime,omitempty"`
+	GlobalTableArn    string                   `json:"GlobalTableArn,omitempty"`
+	GlobalTableName   string                   `json:"GlobalTableName,omitempty"`
+	GlobalTableStatus string                   `json:"GlobalTableStatus,omitempty"`
+	ReplicationGroup  []globalTableReplicaWire `json:"ReplicationGroup,omitempty"`
+}
+
+type createGlobalTableInput struct {
+	GlobalTableName  string                   `json:"GlobalTableName"`
+	ReplicationGroup []globalTableReplicaWire `json:"ReplicationGroup"`
+}
+
+type createGlobalTableOutput struct {
+	GlobalTableDescription globalTableDescriptionWire `json:"GlobalTableDescription"`
+}
+
+// updateGlobalTableReplicaActionWire wraps a Create or Delete action for a single region.
+type updateGlobalTableReplicaActionWire struct {
+	RegionName string `json:"RegionName,omitempty"`
+}
+
+// updateGlobalTableReplicaUpdateWire represents a single Create or Delete replica action.
+type updateGlobalTableReplicaUpdateWire struct {
+	Create *updateGlobalTableReplicaActionWire `json:"Create,omitempty"`
+	Delete *updateGlobalTableReplicaActionWire `json:"Delete,omitempty"`
+}
+
+type updateGlobalTableInput struct {
+	GlobalTableName string                               `json:"GlobalTableName"`
+	ReplicaUpdates  []updateGlobalTableReplicaUpdateWire `json:"ReplicaUpdates"`
+}
+
+type updateGlobalTableOutput struct {
+	GlobalTableDescription globalTableDescriptionWire `json:"GlobalTableDescription"`
+}
+
+type describeGlobalTableInput struct {
+	GlobalTableName string `json:"GlobalTableName"`
+}
+
+type describeGlobalTableOutput struct {
+	GlobalTableDescription globalTableDescriptionWire `json:"GlobalTableDescription"`
+}
+
+type describeGlobalTableSettingsInput struct {
+	GlobalTableName string `json:"GlobalTableName"`
+}
+
+type replicaSettingsWire struct {
+	RegionName                           string `json:"RegionName"`
+	ReplicaStatus                        string `json:"ReplicaStatus,omitempty"`
+	ReplicaProvisionedReadCapacityUnits  int64  `json:"ReplicaProvisionedReadCapacityUnits,omitempty"`
+	ReplicaProvisionedWriteCapacityUnits int64  `json:"ReplicaProvisionedWriteCapacityUnits,omitempty"`
+}
+
+type describeGlobalTableSettingsOutput struct {
+	GlobalTableName string                `json:"GlobalTableName,omitempty"`
+	ReplicaSettings []replicaSettingsWire `json:"ReplicaSettings,omitempty"`
+}
+
+type describeKinesisInput struct {
+	TableName string `json:"TableName"`
+}
+
+type kinesisDestinationWire struct {
+	StreamArn         string `json:"StreamArn,omitempty"`
+	DestinationStatus string `json:"DestinationStatus,omitempty"`
+}
+
+type describeKinesisOutput struct {
+	TableName                     string                   `json:"TableName,omitempty"`
+	KinesisDataStreamDestinations []kinesisDestinationWire `json:"KinesisDataStreamDestinations"`
+}
+
+type disableKinesisInput struct {
+	TableName string `json:"TableName"`
+	StreamArn string `json:"StreamArn"`
+}
+
+type disableKinesisOutput struct {
+	TableName         string `json:"TableName,omitempty"`
+	StreamArn         string `json:"StreamArn,omitempty"`
+	DestinationStatus string `json:"DestinationStatus,omitempty"`
+}
+
+type describeLimitsOutput struct {
+	AccountMaxReadCapacityUnits  int64 `json:"AccountMaxReadCapacityUnits"`
+	AccountMaxWriteCapacityUnits int64 `json:"AccountMaxWriteCapacityUnits"`
+	TableMaxReadCapacityUnits    int64 `json:"TableMaxReadCapacityUnits"`
+	TableMaxWriteCapacityUnits   int64 `json:"TableMaxWriteCapacityUnits"`
+}
+
+type endpointWire struct {
+	Address              string `json:"Address"`
+	CachePeriodInMinutes int64  `json:"CachePeriodInMinutes"`
+}
+
+type describeEndpointsOutput struct {
+	Endpoints []endpointWire `json:"Endpoints"`
+}
+
+type describeContributorInsightsInput struct {
+	TableName string `json:"TableName"`
+	IndexName string `json:"IndexName,omitempty"`
+}
+
+type describeContributorInsightsOutput struct {
+	TableName                   string   `json:"TableName,omitempty"`
+	IndexName                   string   `json:"IndexName,omitempty"`
+	ContributorInsightsStatus   string   `json:"ContributorInsightsStatus,omitempty"`
+	ContributorInsightsRuleList []string `json:"ContributorInsightsRuleList"`
+}
+
+type resourcePolicyInput struct {
+	ResourceArn string `json:"ResourceArn"`
+	Policy      string `json:"Policy,omitempty"`
+}
+
+type resourcePolicyOutput struct {
+	RevisionID string `json:"RevisionId,omitempty"`
+}
+
+type globalTableWire struct {
+	GlobalTableName  string                   `json:"GlobalTableName,omitempty"`
+	ReplicationGroup []globalTableReplicaWire `json:"ReplicationGroup,omitempty"`
+}
+
+type listGlobalTablesInput struct {
+	ExclusiveStartGlobalTableName string `json:"ExclusiveStartGlobalTableName,omitempty"`
+	RegionName                    string `json:"RegionName,omitempty"`
+	Limit                         int32  `json:"Limit,omitempty"`
+}
+
+type listGlobalTablesOutput struct {
+	LastEvaluatedGlobalTableName string            `json:"LastEvaluatedGlobalTableName,omitempty"`
+	GlobalTables                 []globalTableWire `json:"GlobalTables"`
+}
+
+type enableKinesisInput struct {
+	TableName string `json:"TableName"`
+	StreamArn string `json:"StreamArn"`
+}
+
+type enableKinesisOutput struct {
+	TableName         string `json:"TableName,omitempty"`
+	StreamArn         string `json:"StreamArn,omitempty"`
+	DestinationStatus string `json:"DestinationStatus,omitempty"`
+}
+
+type deleteResourcePolicyInput struct {
+	ResourceArn string `json:"ResourceArn"`
+}
+
+type deleteResourcePolicyOutput struct {
+	RevisionID string `json:"RevisionId,omitempty"`
+}
+
+type describeImportInput struct {
+	ImportArn string `json:"ImportArn"`
+}
+
+type importTableDescriptionWire struct {
+	ImportArn    string `json:"ImportArn,omitempty"`
+	ImportStatus string `json:"ImportStatus,omitempty"`
+}
+
+type describeImportOutput struct {
+	ImportTableDescription importTableDescriptionWire `json:"ImportTableDescription"`
+}
+
+// dispatchExtraOps routes the extended DynamoDB operations to their handlers
+// using a per-action dispatch map to keep complexity low.
+func (h *DynamoDBHandler) dispatchExtraOps(
+	ctx context.Context,
+	action string,
+	body []byte,
+) (any, error) {
+	type handlerFn func() (any, error)
+
+	enableKinesis := func() (any, error) { return h.handleEnableKinesisStreamingDestination(ctx, body) }
+	describeKinesis := func() (any, error) { return h.handleDescribeKinesisStreamingDestination(ctx, body) }
+	disableKinesis := func() (any, error) { return h.handleDisableKinesisStreamingDestination(ctx, body) }
+
+	handlers := map[string]handlerFn{
+		"CreateGlobalTable":                   func() (any, error) { return h.handleCreateGlobalTable(ctx, body) },
+		"DescribeGlobalTable":                 func() (any, error) { return h.handleDescribeGlobalTable(ctx, body) },
+		"DescribeGlobalTableSettings":         func() (any, error) { return h.handleDescribeGlobalTableSettings(ctx, body) },
+		"ListGlobalTables":                    func() (any, error) { return h.handleListGlobalTables(ctx, body) },
+		"UpdateGlobalTable":                   func() (any, error) { return h.handleUpdateGlobalTable(ctx, body) },
+		"EnableKinesisStreamingDestination":   enableKinesis,
+		"DescribeKinesisStreamingDestination": describeKinesis,
+		"DisableKinesisStreamingDestination":  disableKinesis,
+		"DescribeLimits":                      func() (any, error) { return h.handleDescribeLimits(ctx) },
+		"DescribeEndpoints":                   func() (any, error) { return h.handleDescribeEndpoints(ctx) },
+		"DescribeContributorInsights":         func() (any, error) { return h.handleDescribeContributorInsights(ctx, body) },
+		"GetResourcePolicy":                   func() (any, error) { return h.handleGetResourcePolicy(ctx, body) },
+		"PutResourcePolicy":                   func() (any, error) { return h.handlePutResourcePolicy(ctx, body) },
+		"DeleteResourcePolicy":                func() (any, error) { return h.handleDeleteResourcePolicy(ctx, body) },
+		"DescribeImport":                      func() (any, error) { return h.handleDescribeImport(ctx, body) },
+	}
+
+	fn, ok := handlers[action]
+	if !ok {
+		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
+	}
+
+	return fn()
+}
+
+func (h *DynamoDBHandler) handleCreateGlobalTable(ctx context.Context, body []byte) (any, error) {
+	var req createGlobalTableInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	replicas := make([]types.Replica, 0, len(req.ReplicationGroup))
+
+	for _, r := range req.ReplicationGroup {
+		regionName := r.RegionName
+		replicas = append(replicas, types.Replica{RegionName: &regionName})
+	}
+
+	out, err := h.Backend.CreateGlobalTable(ctx, &sdkDDB.CreateGlobalTableInput{
+		GlobalTableName:  &req.GlobalTableName,
+		ReplicationGroup: replicas,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	d := out.GlobalTableDescription
+	wire := buildGlobalTableDescriptionWire(d)
+
+	return &createGlobalTableOutput{GlobalTableDescription: wire}, nil
+}
+
+func (h *DynamoDBHandler) handleDescribeGlobalTable(ctx context.Context, body []byte) (any, error) {
+	var req describeGlobalTableInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := h.Backend.DescribeGlobalTable(ctx, &sdkDDB.DescribeGlobalTableInput{
+		GlobalTableName: &req.GlobalTableName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	wire := buildGlobalTableDescriptionWire(out.GlobalTableDescription)
+
+	return &describeGlobalTableOutput{GlobalTableDescription: wire}, nil
+}
+
+func (h *DynamoDBHandler) handleDescribeGlobalTableSettings(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
+	var req describeGlobalTableSettingsInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := h.Backend.DescribeGlobalTableSettings(ctx, &sdkDDB.DescribeGlobalTableSettingsInput{
+		GlobalTableName: &req.GlobalTableName,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	replicaSettings := make([]replicaSettingsWire, 0, len(out.ReplicaSettings))
+	for _, rs := range out.ReplicaSettings {
+		w := replicaSettingsWire{
+			RegionName:    derefStr(rs.RegionName),
+			ReplicaStatus: string(rs.ReplicaStatus),
+		}
+		if rs.ReplicaProvisionedReadCapacityUnits != nil {
+			w.ReplicaProvisionedReadCapacityUnits = *rs.ReplicaProvisionedReadCapacityUnits
+		}
+
+		if rs.ReplicaProvisionedWriteCapacityUnits != nil {
+			w.ReplicaProvisionedWriteCapacityUnits = *rs.ReplicaProvisionedWriteCapacityUnits
+		}
+
+		replicaSettings = append(replicaSettings, w)
+	}
+
+	return &describeGlobalTableSettingsOutput{
+		GlobalTableName: derefStr(out.GlobalTableName),
+		ReplicaSettings: replicaSettings,
+	}, nil
+}
+
+func (h *DynamoDBHandler) handleDescribeKinesisStreamingDestination(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
+	var req describeKinesisInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := h.Backend.DescribeKinesisStreamingDestination(
+		ctx,
+		&sdkDDB.DescribeKinesisStreamingDestinationInput{TableName: &req.TableName},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	destinations := make([]kinesisDestinationWire, 0, len(out.KinesisDataStreamDestinations))
+	for _, d := range out.KinesisDataStreamDestinations {
+		destinations = append(destinations, kinesisDestinationWire{
+			StreamArn:         derefStr(d.StreamArn),
+			DestinationStatus: string(d.DestinationStatus),
+		})
+	}
+
+	return &describeKinesisOutput{
+		TableName:                     derefStr(out.TableName),
+		KinesisDataStreamDestinations: destinations,
+	}, nil
+}
+
+func (h *DynamoDBHandler) handleDisableKinesisStreamingDestination(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
+	var req disableKinesisInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := h.Backend.DisableKinesisStreamingDestination(
+		ctx,
+		&sdkDDB.DisableKinesisStreamingDestinationInput{
+			TableName: &req.TableName,
+			StreamArn: &req.StreamArn,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &disableKinesisOutput{
+		TableName:         derefStr(out.TableName),
+		StreamArn:         derefStr(out.StreamArn),
+		DestinationStatus: string(out.DestinationStatus),
+	}, nil
+}
+
+func (h *DynamoDBHandler) handleDescribeLimits(ctx context.Context) (any, error) {
+	out, err := h.Backend.DescribeLimits(ctx, &sdkDDB.DescribeLimitsInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	var accountRCU, accountWCU, tableRCU, tableWCU int64
+
+	if out.AccountMaxReadCapacityUnits != nil {
+		accountRCU = *out.AccountMaxReadCapacityUnits
+	}
+
+	if out.AccountMaxWriteCapacityUnits != nil {
+		accountWCU = *out.AccountMaxWriteCapacityUnits
+	}
+
+	if out.TableMaxReadCapacityUnits != nil {
+		tableRCU = *out.TableMaxReadCapacityUnits
+	}
+
+	if out.TableMaxWriteCapacityUnits != nil {
+		tableWCU = *out.TableMaxWriteCapacityUnits
+	}
+
+	return &describeLimitsOutput{
+		AccountMaxReadCapacityUnits:  accountRCU,
+		AccountMaxWriteCapacityUnits: accountWCU,
+		TableMaxReadCapacityUnits:    tableRCU,
+		TableMaxWriteCapacityUnits:   tableWCU,
+	}, nil
+}
+
+func (h *DynamoDBHandler) handleDescribeEndpoints(ctx context.Context) (any, error) {
+	out, err := h.Backend.DescribeEndpoints(ctx, &sdkDDB.DescribeEndpointsInput{})
+	if err != nil {
+		return nil, err
+	}
+
+	endpoints := make([]endpointWire, 0, len(out.Endpoints))
+	for _, e := range out.Endpoints {
+		endpoints = append(endpoints, endpointWire{
+			Address:              derefStr(e.Address),
+			CachePeriodInMinutes: e.CachePeriodInMinutes,
+		})
+	}
+
+	return &describeEndpointsOutput{Endpoints: endpoints}, nil
+}
+
+func (h *DynamoDBHandler) handleDescribeContributorInsights(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
+	var req describeContributorInsightsInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	input := &sdkDDB.DescribeContributorInsightsInput{TableName: &req.TableName}
+	if req.IndexName != "" {
+		input.IndexName = &req.IndexName
+	}
+
+	out, err := h.Backend.DescribeContributorInsights(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	wire := &describeContributorInsightsOutput{
+		TableName:                   derefStr(out.TableName),
+		ContributorInsightsStatus:   string(out.ContributorInsightsStatus),
+		ContributorInsightsRuleList: out.ContributorInsightsRuleList,
+	}
+
+	if out.IndexName != nil {
+		wire.IndexName = *out.IndexName
+	}
+
+	return wire, nil
+}
+
+func (h *DynamoDBHandler) handleDeleteResourcePolicy(ctx context.Context, body []byte) (any, error) {
+	var req deleteResourcePolicyInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	_, err := h.Backend.DeleteResourcePolicy(ctx, &sdkDDB.DeleteResourcePolicyInput{
+		ResourceArn: &req.ResourceArn,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &deleteResourcePolicyOutput{}, nil
+}
+
+func (h *DynamoDBHandler) handleDescribeImport(ctx context.Context, body []byte) (any, error) {
+	var req describeImportInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := h.Backend.DescribeImport(ctx, &sdkDDB.DescribeImportInput{
+		ImportArn: &req.ImportArn,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	d := out.ImportTableDescription
+
+	return &describeImportOutput{
+		ImportTableDescription: importTableDescriptionWire{
+			ImportArn:    derefStr(d.ImportArn),
+			ImportStatus: string(d.ImportStatus),
+		},
+	}, nil
+}
+
+func (h *DynamoDBHandler) handleListGlobalTables(ctx context.Context, body []byte) (any, error) {
+	var req listGlobalTablesInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, err
+		}
+	}
+
+	sdkInput := &sdkDDB.ListGlobalTablesInput{}
+	if req.ExclusiveStartGlobalTableName != "" {
+		sdkInput.ExclusiveStartGlobalTableName = &req.ExclusiveStartGlobalTableName
+	}
+
+	if req.RegionName != "" {
+		sdkInput.RegionName = &req.RegionName
+	}
+
+	if req.Limit > 0 {
+		sdkInput.Limit = &req.Limit
+	}
+
+	out, err := h.Backend.ListGlobalTables(ctx, sdkInput)
+	if err != nil {
+		return nil, err
+	}
+
+	tables := make([]globalTableWire, 0, len(out.GlobalTables))
+	for _, gt := range out.GlobalTables {
+		replicas := make([]globalTableReplicaWire, 0, len(gt.ReplicationGroup))
+		for _, r := range gt.ReplicationGroup {
+			replicas = append(replicas, globalTableReplicaWire{RegionName: derefStr(r.RegionName)})
+		}
+
+		tables = append(tables, globalTableWire{
+			GlobalTableName:  derefStr(gt.GlobalTableName),
+			ReplicationGroup: replicas,
+		})
+	}
+
+	wire := &listGlobalTablesOutput{GlobalTables: tables}
+	if out.LastEvaluatedGlobalTableName != nil {
+		wire.LastEvaluatedGlobalTableName = *out.LastEvaluatedGlobalTableName
+	}
+
+	return wire, nil
+}
+
+func (h *DynamoDBHandler) handleUpdateGlobalTable(ctx context.Context, body []byte) (any, error) {
+	var req updateGlobalTableInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	updates := make([]types.ReplicaUpdate, 0, len(req.ReplicaUpdates))
+	for _, u := range req.ReplicaUpdates {
+		var update types.ReplicaUpdate
+		if u.Create != nil {
+			regionName := u.Create.RegionName
+			update.Create = &types.CreateReplicaAction{RegionName: &regionName}
+		} else if u.Delete != nil {
+			regionName := u.Delete.RegionName
+			update.Delete = &types.DeleteReplicaAction{RegionName: &regionName}
+		}
+
+		updates = append(updates, update)
+	}
+
+	out, err := h.Backend.UpdateGlobalTable(ctx, &sdkDDB.UpdateGlobalTableInput{
+		GlobalTableName: &req.GlobalTableName,
+		ReplicaUpdates:  updates,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	d := out.GlobalTableDescription
+	wire := buildGlobalTableDescriptionWire(d)
+
+	return &updateGlobalTableOutput{GlobalTableDescription: wire}, nil
+}
+
+func (h *DynamoDBHandler) handleEnableKinesisStreamingDestination(
+	ctx context.Context,
+	body []byte,
+) (any, error) {
+	var req enableKinesisInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	out, err := h.Backend.EnableKinesisStreamingDestination(
+		ctx,
+		&sdkDDB.EnableKinesisStreamingDestinationInput{
+			TableName: &req.TableName,
+			StreamArn: &req.StreamArn,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &enableKinesisOutput{
+		TableName:         derefStr(out.TableName),
+		StreamArn:         derefStr(out.StreamArn),
+		DestinationStatus: string(out.DestinationStatus),
+	}, nil
+}
+
+func (h *DynamoDBHandler) handleGetResourcePolicy(ctx context.Context, body []byte) (any, error) {
+	var req resourcePolicyInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	_, err := h.Backend.GetResourcePolicy(ctx, &sdkDDB.GetResourcePolicyInput{
+		ResourceArn: &req.ResourceArn,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &resourcePolicyOutput{}, nil
+}
+
+func (h *DynamoDBHandler) handlePutResourcePolicy(ctx context.Context, body []byte) (any, error) {
+	var req resourcePolicyInput
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, err
+	}
+
+	_, err := h.Backend.PutResourcePolicy(ctx, &sdkDDB.PutResourcePolicyInput{
+		ResourceArn: &req.ResourceArn,
+		Policy:      &req.Policy,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &resourcePolicyOutput{}, nil
+}
+
+// buildGlobalTableDescriptionWire converts the SDK GlobalTableDescription to the wire format.
+func buildGlobalTableDescriptionWire(d *types.GlobalTableDescription) globalTableDescriptionWire {
+	if d == nil {
+		return globalTableDescriptionWire{}
+	}
+
+	replicas := make([]globalTableReplicaWire, 0, len(d.ReplicationGroup))
+	for _, r := range d.ReplicationGroup {
+		replicas = append(replicas, globalTableReplicaWire{RegionName: derefStr(r.RegionName)})
+	}
+
+	wire := globalTableDescriptionWire{
+		GlobalTableName:   derefStr(d.GlobalTableName),
+		GlobalTableArn:    derefStr(d.GlobalTableArn),
+		GlobalTableStatus: string(d.GlobalTableStatus),
+		ReplicationGroup:  replicas,
+	}
+
+	if d.CreationDateTime != nil {
+		wire.CreationDateTime = d.CreationDateTime.UTC().Format(time.RFC3339)
+	}
+
+	return wire
+}
+
+// derefStr safely dereferences a *string, returning "" if nil.
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+
+	return *s
 }

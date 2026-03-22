@@ -148,54 +148,88 @@ func (j *Janitor) sweepTTL(ctx context.Context) {
 	now := float64(time.Now().Unix())
 	totalEvicted := 0
 
+	var replicationQueue []ttlReplicationEntry
+
 	for _, table := range tables {
-		table.mu.RLock("TTLSweepCheck")
-		ttlAttr := table.TTLAttribute
-		table.mu.RUnlock()
+		count, pending := j.sweepTableTTL(ctx, db, table, now)
+		totalEvicted += count
+		replicationQueue = append(replicationQueue, pending...)
+	}
 
-		if ttlAttr == "" {
-			continue
-		}
-
-		table.mu.Lock("TTLSweep")
-		evictedCount := 0
-		// Iterate backwards to safely remove items without affecting index of remaining items
-		for i := len(table.Items) - 1; i >= 0; i-- {
-			item := table.Items[i]
-			expired := false
-			if ttlVal, ok := dynamoattr.ParseNumeric(item[ttlAttr]); ok {
-				if ttlVal < now {
-					expired = true
-				}
-			}
-
-			if expired {
-				// Capture stream REMOVE event? AWS TTL evictions DO capture stream events
-				// but mark them as "userIdentity": {"type": "Service", "principalId": "dynamodb.amazonaws.com"}
-				// We'll capture it as a normal remove for now.
-				table.appendStreamRecord(streamEventRemove, deepCopyItem(item), nil)
-				evictedCount++
-
-				// Evict item using optimized deleteItemAtIndex
-				// This handles O(1) swap and index updates.
-				// We no longer need to call t.rebuildIndexes() here.
-				db.deleteItemAtIndex(table, i)
-			}
-		}
-
-		if evictedCount > 0 {
-			totalEvicted += evictedCount
-			logger.Load(ctx).InfoContext(ctx, "DynamoDB janitor: TTL items evicted",
-				"table", table.Name,
-				"count", evictedCount)
-		}
-		table.mu.Unlock()
+	for _, entry := range replicationQueue {
+		db.replicateItemMutation(entry.tableName, entry.globalTableName, entry.region, entry.item, "DELETE")
 	}
 
 	if totalEvicted > 0 {
 		telemetry.RecordWorkerItems("dynamodb", "TTLSweeper", totalEvicted)
 	}
+
 	telemetry.RecordWorkerTask("dynamodb", "TTLSweeper", "success")
+}
+
+type ttlReplicationEntry struct {
+	item            map[string]any
+	tableName       string
+	globalTableName string
+	region          string
+}
+
+// sweepTableTTL evicts TTL-expired items from a single table and returns
+// the number evicted plus any global-table replication entries to process.
+func (j *Janitor) sweepTableTTL(
+	ctx context.Context,
+	db *InMemoryDB,
+	table *Table,
+	now float64,
+) (int, []ttlReplicationEntry) {
+	table.mu.RLock("TTLSweepCheck")
+	ttlAttr := table.TTLAttribute
+	gtName := table.GlobalTableName
+	tableARN := table.TableArn
+	table.mu.RUnlock()
+
+	if ttlAttr == "" {
+		return 0, nil
+	}
+
+	region := db.regionFromARN(tableARN)
+
+	table.mu.Lock("TTLSweep")
+	defer table.mu.Unlock()
+
+	var pending []ttlReplicationEntry
+	evicted := 0
+
+	for i := len(table.Items) - 1; i >= 0; i-- {
+		item := table.Items[i]
+
+		ttlVal, ok := dynamoattr.ParseNumeric(item[ttlAttr])
+		if !ok || ttlVal >= now {
+			continue
+		}
+
+		table.appendStreamRecord(streamEventRemove, deepCopyItem(item), nil)
+		evicted++
+
+		if gtName != "" {
+			pending = append(pending, ttlReplicationEntry{
+				tableName:       table.Name,
+				globalTableName: gtName,
+				region:          region,
+				item:            deepCopyItem(item),
+			})
+		}
+
+		db.deleteItemAtIndex(table, i)
+	}
+
+	if evicted > 0 {
+		logger.Load(ctx).InfoContext(ctx, "DynamoDB janitor: TTL items evicted",
+			"table", table.Name,
+			"count", evicted)
+	}
+
+	return evicted, pending
 }
 
 // sweepTxnTokens removes committed idempotency tokens that have exceeded their TTL.
