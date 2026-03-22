@@ -740,3 +740,180 @@ func TestDynamoDB_GlobalTable_PersistenceRoundTrip(t *testing.T) {
 	require.True(t, ok2)
 	assert.Len(t, replicas, 2)
 }
+
+func TestDynamoDB_GlobalTable_ActualReplicaCreation(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+
+	// Create a global table spanning two regions; neither region has the table yet.
+	code, _ := invokeOp(t, handler, "CreateGlobalTable", map[string]any{
+		"GlobalTableName": "CrossRegionTable",
+		"ReplicationGroup": []map[string]any{
+			{"RegionName": "us-east-1"},
+			{"RegionName": "eu-west-1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	// Verify actual Table entries were created in both regions.
+	assert.True(t, backend.TableExistsInRegion("us-east-1", "CrossRegionTable"),
+		"table should exist in us-east-1")
+	assert.True(t, backend.TableExistsInRegion("eu-west-1", "CrossRegionTable"),
+		"table should exist in eu-west-1")
+}
+
+func TestDynamoDB_GlobalTable_AdoptsExistingTable(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+
+	// Pre-create a table in the default region (us-east-1).
+	createTableHelper(t, backend, "AdoptedTable", "pk")
+
+	// Create a global table that includes us-east-1 and eu-west-1.
+	code, _ := invokeOp(t, handler, "CreateGlobalTable", map[string]any{
+		"GlobalTableName": "AdoptedTable",
+		"ReplicationGroup": []map[string]any{
+			{"RegionName": "us-east-1"},
+			{"RegionName": "eu-west-1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	// The existing table in us-east-1 should now be marked as part of the global table.
+	assert.Equal(t, "AdoptedTable", backend.GetTableGlobalTableName("AdoptedTable"))
+
+	// A replica should have been created in eu-west-1.
+	assert.True(t, backend.TableExistsInRegion("eu-west-1", "AdoptedTable"),
+		"replica should exist in eu-west-1")
+}
+
+func TestDynamoDB_GlobalTable_CrossRegionWritePropagation(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+
+	// Create a global table in us-east-1 and eu-west-1.
+	createCode, _ := invokeOp(t, handler, "CreateGlobalTable", map[string]any{
+		"GlobalTableName": "WriteTestTable",
+		"ReplicationGroup": []map[string]any{
+			{"RegionName": "us-east-1"},
+			{"RegionName": "eu-west-1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, createCode)
+
+	// Write an item to us-east-1 (default region) via PutItem.
+	putCode, _ := invokeOp(t, handler, "PutItem", map[string]any{
+		"TableName": "WriteTestTable",
+		"Item": map[string]any{
+			"pk":   map[string]any{"S": "item-1"},
+			"data": map[string]any{"S": "hello"},
+		},
+	})
+	require.Equal(t, http.StatusOK, putCode)
+
+	// Verify the item was replicated to eu-west-1 by inspecting the replica directly.
+	euTable, euOK := backend.GetTableInRegion("WriteTestTable", "eu-west-1")
+	require.True(t, euOK, "eu-west-1 table should exist")
+
+	euItems := euTable.GetItems()
+	require.Len(t, euItems, 1, "replicated item should appear in eu-west-1")
+	assert.Equal(t, map[string]any{"S": "hello"}, euItems[0]["data"])
+}
+
+func TestDynamoDB_GlobalTable_CrossRegionDeletePropagation(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+
+	// Create global table in two regions.
+	code, _ := invokeOp(t, handler, "CreateGlobalTable", map[string]any{
+		"GlobalTableName": "DeleteTestTable",
+		"ReplicationGroup": []map[string]any{
+			{"RegionName": "us-east-1"},
+			{"RegionName": "ap-southeast-1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	// Write an item to the primary region.
+	putCode, _ := invokeOp(t, handler, "PutItem", map[string]any{
+		"TableName": "DeleteTestTable",
+		"Item": map[string]any{
+			"pk": map[string]any{"S": "item-del"},
+		},
+	})
+	require.Equal(t, http.StatusOK, putCode)
+
+	// Confirm the item was replicated before deletion.
+	apTableBefore, apOK := backend.GetTableInRegion("DeleteTestTable", "ap-southeast-1")
+	require.True(t, apOK)
+	require.Len(t, apTableBefore.GetItems(), 1)
+
+	// Delete the item from the primary region.
+	delCode, _ := invokeOp(t, handler, "DeleteItem", map[string]any{
+		"TableName": "DeleteTestTable",
+		"Key": map[string]any{
+			"pk": map[string]any{"S": "item-del"},
+		},
+	})
+	require.Equal(t, http.StatusOK, delCode)
+
+	// Verify the deletion replicated to ap-southeast-1.
+	apTable, apOK2 := backend.GetTableInRegion("DeleteTestTable", "ap-southeast-1")
+	require.True(t, apOK2)
+	assert.Empty(t, apTable.GetItems(), "deleted item should not appear in ap-southeast-1")
+}
+
+func TestDynamoDB_GlobalTable_CrossRegionUpdatePropagation(t *testing.T) {
+	t.Parallel()
+
+	backend := dynamodb.NewInMemoryDB()
+	handler := dynamodb.NewHandler(backend)
+
+	// Create a global table in us-east-1 and eu-central-1.
+	code, _ := invokeOp(t, handler, "CreateGlobalTable", map[string]any{
+		"GlobalTableName": "UpdateTestTable",
+		"ReplicationGroup": []map[string]any{
+			{"RegionName": "us-east-1"},
+			{"RegionName": "eu-central-1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, code)
+
+	// Write an item.
+	putCode, _ := invokeOp(t, handler, "PutItem", map[string]any{
+		"TableName": "UpdateTestTable",
+		"Item": map[string]any{
+			"pk":   map[string]any{"S": "item-upd"},
+			"name": map[string]any{"S": "original"},
+		},
+	})
+	require.Equal(t, http.StatusOK, putCode)
+
+	// Update the item.
+	updCode, _ := invokeOp(t, handler, "UpdateItem", map[string]any{
+		"TableName": "UpdateTestTable",
+		"Key": map[string]any{
+			"pk": map[string]any{"S": "item-upd"},
+		},
+		"UpdateExpression":          "SET #n = :val",
+		"ExpressionAttributeNames":  map[string]any{"#n": "name"},
+		"ExpressionAttributeValues": map[string]any{":val": map[string]any{"S": "updated"}},
+	})
+	require.Equal(t, http.StatusOK, updCode)
+
+	// Verify the update propagated to eu-central-1.
+	euTable, euOK := backend.GetTableInRegion("UpdateTestTable", "eu-central-1")
+	require.True(t, euOK, "eu-central-1 table should exist")
+
+	euItems := euTable.GetItems()
+	require.Len(t, euItems, 1, "updated item should appear in eu-central-1")
+	assert.Equal(t, map[string]any{"S": "updated"}, euItems[0]["name"])
+}

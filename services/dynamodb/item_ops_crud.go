@@ -30,12 +30,13 @@ func (db *InMemoryDB) PutItem(
 	wireItem := models.FromSDKItem(input.Item)
 
 	table.mu.Lock("PutItem")
-	defer table.mu.Unlock()
 
 	// Validate item before charging capacity so that validation errors do not
 	// consume tokens (matches real DynamoDB behaviour).
 	err = db.validateItem(wireItem, table)
 	if err != nil {
+		table.mu.Unlock()
+
 		return nil, err
 	}
 
@@ -43,12 +44,16 @@ func (db *InMemoryDB) PutItem(
 	wcu := WriteCapacityUnits(wireItem)
 	region := getRegionFromContext(ctx, db)
 	if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), wcu); throttleErr != nil {
+		table.mu.Unlock()
+
 		return nil, throttleErr
 	}
 
 	oldItem, matchIndex := db.findMatchForPut(table, wireItem)
 	err = db.checkPutCondition(ctx, input, oldItem)
 	if err != nil {
+		table.mu.Unlock()
+
 		return nil, err
 	}
 
@@ -61,7 +66,17 @@ func (db *InMemoryDB) PutItem(
 		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(wireItem))
 	}
 
-	return db.populatePutItemOutput(input, table, oldItem), nil
+	globalTableName := table.GlobalTableName
+	out := db.populatePutItemOutput(input, table, oldItem)
+
+	table.mu.Unlock()
+
+	// Propagate to global table replicas after releasing the primary lock.
+	if globalTableName != "" {
+		db.replicateItemMutation(tableName, globalTableName, region, deepCopyItem(wireItem), "PUT")
+	}
+
+	return out, nil
 }
 
 func (db *InMemoryDB) findMatchForPut(table *Table, item map[string]any) (map[string]any, int) {
@@ -241,11 +256,12 @@ func (db *InMemoryDB) DeleteItem(
 	}
 
 	table.mu.Lock("DeleteItem")
-	defer table.mu.Unlock()
 
 	wireKey := models.FromSDKItem(input.Key)
 	err = validateKeySchema(wireKey, table.KeySchema)
 	if err != nil {
+		table.mu.Unlock()
+
 		return nil, err
 	}
 
@@ -253,6 +269,8 @@ func (db *InMemoryDB) DeleteItem(
 	// consume tokens.
 	region := getRegionFromContext(ctx, db)
 	if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); throttleErr != nil {
+		table.mu.Unlock()
+
 		return nil, throttleErr
 	}
 
@@ -266,28 +284,10 @@ func (db *InMemoryDB) DeleteItem(
 		skDef.AttributeName,
 	)
 
-	// Check condition
-	condition := aws.ToString(input.ConditionExpression)
-	if condition != "" {
-		log := logger.Load(ctx)
-		log.DebugContext(ctx, "Evaluating DeleteItem condition",
-			"expression", condition,
-			"attributeNames", input.ExpressionAttributeNames,
-			"attributeValues", input.ExpressionAttributeValues)
+	if err = db.checkDeleteCondition(ctx, input, oldItem); err != nil {
+		table.mu.Unlock()
 
-		eav := models.FromSDKItem(input.ExpressionAttributeValues)
-		match, matchErr := evaluateExpression(
-			condition,
-			oldItem,
-			eav,
-			input.ExpressionAttributeNames,
-		)
-		if matchErr != nil {
-			return nil, matchErr
-		}
-		if !match {
-			return nil, NewConditionalCheckFailedException("The conditional request failed")
-		}
+		return nil, err
 	}
 
 	if oldItem != nil && matchIndex != -1 {
@@ -296,13 +296,65 @@ func (db *InMemoryDB) DeleteItem(
 		table.appendStreamRecord(streamEventRemove, deepCopyItem(oldItem), nil)
 	}
 
-	// Handle ReturnValues (ALL_OLD)
+	out := db.buildDeleteItemOutput(input, table, oldItem)
+	globalTableName := table.GlobalTableName
+
+	table.mu.Unlock()
+
+	// Propagate deletion to global table replicas after releasing the primary lock.
+	if globalTableName != "" && oldItem != nil {
+		db.replicateItemMutation(tableName, globalTableName, region, deepCopyItem(wireKey), "DELETE")
+	}
+
+	return out, nil
+}
+
+func (db *InMemoryDB) checkDeleteCondition(
+	ctx context.Context,
+	input *dynamodb.DeleteItemInput,
+	oldItem map[string]any,
+) error {
+	condition := aws.ToString(input.ConditionExpression)
+	if condition == "" {
+		return nil
+	}
+
+	log := logger.Load(ctx)
+	log.DebugContext(ctx, "Evaluating DeleteItem condition",
+		"expression", condition,
+		"attributeNames", input.ExpressionAttributeNames,
+		"attributeValues", input.ExpressionAttributeValues)
+
+	eav := models.FromSDKItem(input.ExpressionAttributeValues)
+
+	match, err := evaluateExpression(
+		condition,
+		oldItem,
+		eav,
+		input.ExpressionAttributeNames,
+	)
+	if err != nil {
+		return err
+	}
+
+	if !match {
+		return NewConditionalCheckFailedException("The conditional request failed")
+	}
+
+	return nil
+}
+
+func (db *InMemoryDB) buildDeleteItemOutput(
+	input *dynamodb.DeleteItemInput,
+	table *Table,
+	oldItem map[string]any,
+) *dynamodb.DeleteItemOutput {
 	out := &dynamodb.DeleteItemOutput{}
+
 	if input.ReturnValues == models.ReturnValuesAllOld && oldItem != nil {
 		out.Attributes, _ = models.ToSDKItem(oldItem)
 	}
 
-	// Handle ConsumedCapacity
 	if input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone {
 		cu := 1.0
@@ -313,7 +365,6 @@ func (db *InMemoryDB) DeleteItem(
 		}
 	}
 
-	// Handle ItemCollectionMetrics
 	if input.ReturnItemCollectionMetrics != "" &&
 		input.ReturnItemCollectionMetrics != types.ReturnItemCollectionMetricsNone {
 		out.ItemCollectionMetrics = &types.ItemCollectionMetrics{
@@ -322,7 +373,7 @@ func (db *InMemoryDB) DeleteItem(
 		}
 	}
 
-	return out, nil
+	return out
 }
 
 func (db *InMemoryDB) UpdateItem(
@@ -336,11 +387,12 @@ func (db *InMemoryDB) UpdateItem(
 	}
 
 	table.mu.Lock("UpdateItem")
-	defer table.mu.Unlock()
 
 	wireKey := models.FromSDKItem(input.Key)
 	err = validateKeySchema(wireKey, table.KeySchema)
 	if err != nil {
+		table.mu.Unlock()
+
 		return nil, err
 	}
 
@@ -348,6 +400,8 @@ func (db *InMemoryDB) UpdateItem(
 	// consume tokens.
 	region := getRegionFromContext(ctx, db)
 	if throttleErr := db.throttler.ConsumeWrite(throttleKey(region, tableName), 1.0); throttleErr != nil {
+		table.mu.Unlock()
+
 		return nil, throttleErr
 	}
 
@@ -355,11 +409,15 @@ func (db *InMemoryDB) UpdateItem(
 
 	err = db.checkUpdateCondition(ctx, input, existing)
 	if err != nil {
+		table.mu.Unlock()
+
 		return nil, err
 	}
 
 	updated, updatedPaths, err := db.doUpdate(ctx, table, input, existing, matchIndex)
 	if err != nil {
+		table.mu.Unlock()
+
 		return nil, err
 	}
 
@@ -370,7 +428,17 @@ func (db *InMemoryDB) UpdateItem(
 		table.appendStreamRecord(streamEventInsert, nil, deepCopyItem(updated))
 	}
 
-	return db.populateUpdateOutput(input, table, existing, updated, updatedPaths)
+	globalTableName := table.GlobalTableName
+	out, outErr := db.populateUpdateOutput(input, table, existing, updated, updatedPaths)
+
+	table.mu.Unlock()
+
+	// Propagate the final item state to all global table replicas.
+	if globalTableName != "" {
+		db.replicateItemMutation(tableName, globalTableName, region, deepCopyItem(updated), "PUT")
+	}
+
+	return out, outErr
 }
 
 func (db *InMemoryDB) checkUpdateCondition(

@@ -1152,44 +1152,42 @@ type describeImportOutput struct {
 	ImportTableDescription importTableDescriptionWire `json:"ImportTableDescription"`
 }
 
-// dispatchExtraOps routes the extended DynamoDB operations to their handlers.
+// dispatchExtraOps routes the extended DynamoDB operations to their handlers
+// using a per-action dispatch map to keep complexity low.
 func (h *DynamoDBHandler) dispatchExtraOps(
 	ctx context.Context,
 	action string,
 	body []byte,
 ) (any, error) {
-	switch action {
-	case "CreateGlobalTable":
-		return h.handleCreateGlobalTable(ctx, body)
-	case "DescribeGlobalTable":
-		return h.handleDescribeGlobalTable(ctx, body)
-	case "DescribeGlobalTableSettings":
-		return h.handleDescribeGlobalTableSettings(ctx, body)
-	case "ListGlobalTables":
-		return h.handleListGlobalTables(ctx, body)
-	case "EnableKinesisStreamingDestination":
-		return h.handleEnableKinesisStreamingDestination(ctx, body)
-	case "DescribeKinesisStreamingDestination":
-		return h.handleDescribeKinesisStreamingDestination(ctx, body)
-	case "DisableKinesisStreamingDestination":
-		return h.handleDisableKinesisStreamingDestination(ctx, body)
-	case "DescribeLimits":
-		return h.handleDescribeLimits(ctx)
-	case "DescribeEndpoints":
-		return h.handleDescribeEndpoints(ctx)
-	case "DescribeContributorInsights":
-		return h.handleDescribeContributorInsights(ctx, body)
-	case "GetResourcePolicy":
-		return h.handleGetResourcePolicy(ctx, body)
-	case "PutResourcePolicy":
-		return h.handlePutResourcePolicy(ctx, body)
-	case "DeleteResourcePolicy":
-		return h.handleDeleteResourcePolicy(ctx, body)
-	case "DescribeImport":
-		return h.handleDescribeImport(ctx, body)
-	default:
+	type handlerFn func() (any, error)
+
+	enableKinesis := func() (any, error) { return h.handleEnableKinesisStreamingDestination(ctx, body) }
+	describeKinesis := func() (any, error) { return h.handleDescribeKinesisStreamingDestination(ctx, body) }
+	disableKinesis := func() (any, error) { return h.handleDisableKinesisStreamingDestination(ctx, body) }
+
+	handlers := map[string]handlerFn{
+		"CreateGlobalTable":                   func() (any, error) { return h.handleCreateGlobalTable(ctx, body) },
+		"DescribeGlobalTable":                 func() (any, error) { return h.handleDescribeGlobalTable(ctx, body) },
+		"DescribeGlobalTableSettings":         func() (any, error) { return h.handleDescribeGlobalTableSettings(ctx, body) },
+		"ListGlobalTables":                    func() (any, error) { return h.handleListGlobalTables(ctx, body) },
+		"EnableKinesisStreamingDestination":   enableKinesis,
+		"DescribeKinesisStreamingDestination": describeKinesis,
+		"DisableKinesisStreamingDestination":  disableKinesis,
+		"DescribeLimits":                      func() (any, error) { return h.handleDescribeLimits(ctx) },
+		"DescribeEndpoints":                   func() (any, error) { return h.handleDescribeEndpoints(ctx) },
+		"DescribeContributorInsights":         func() (any, error) { return h.handleDescribeContributorInsights(ctx, body) },
+		"GetResourcePolicy":                   func() (any, error) { return h.handleGetResourcePolicy(ctx, body) },
+		"PutResourcePolicy":                   func() (any, error) { return h.handlePutResourcePolicy(ctx, body) },
+		"DeleteResourcePolicy":                func() (any, error) { return h.handleDeleteResourcePolicy(ctx, body) },
+		"DescribeImport":                      func() (any, error) { return h.handleDescribeImport(ctx, body) },
+	}
+
+	fn, ok := handlers[action]
+	if !ok {
 		return nil, fmt.Errorf("%w:%s", ErrUnknownOperation, action)
 	}
+
+	return fn()
 }
 
 func (h *DynamoDBHandler) handleCreateGlobalTable(ctx context.Context, body []byte) (any, error) {

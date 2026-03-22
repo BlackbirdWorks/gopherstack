@@ -89,13 +89,16 @@ const (
 )
 
 type Table struct {
-	CreationDateTime          time.Time `json:"CreationDateTime"`
-	pkIndex                   map[string]int
-	pkskIndex                 map[string]map[string]int
-	mu                        *lockmetrics.RWMutex
-	activateTimer             *time.Timer
-	Tags                      *tags.Tags                              `json:"Tags,omitempty"`
-	Name                      string                                  `json:"Name"`
+	CreationDateTime time.Time `json:"CreationDateTime"`
+	pkIndex          map[string]int
+	pkskIndex        map[string]map[string]int
+	mu               *lockmetrics.RWMutex
+	activateTimer    *time.Timer
+	Tags             *tags.Tags `json:"Tags,omitempty"`
+	Name             string     `json:"Name"`
+	// GlobalTableName is the name of the global table this replica belongs to.
+	// Empty if the table is not part of a global table.
+	GlobalTableName           string                                  `json:"GlobalTableName,omitempty"`
 	TTLAttribute              string                                  `json:"TTLAttribute,omitempty"`
 	StreamViewType            string                                  `json:"StreamViewType,omitempty"`
 	StreamARN                 string                                  `json:"StreamARN,omitempty"`
