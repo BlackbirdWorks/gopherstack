@@ -17,11 +17,5 @@ func TestSDKCompleteness(t *testing.T) {
 
 	backend := sqs.NewInMemoryBackend()
 	h := sqs.NewHandler(backend)
-	sdkcheck.CheckCompleteness(t, &sqssdk.Client{}, h.GetSupportedOperations(), []string{
-		"AddPermission",
-		"CancelMessageMoveTask",
-		"ListMessageMoveTasks",
-		"RemovePermission",
-		"StartMessageMoveTask",
-	})
+	sdkcheck.CheckCompleteness(t, &sqssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

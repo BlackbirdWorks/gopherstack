@@ -85,20 +85,28 @@ type InFlightMessage struct {
 	ReceiptHandle string    `json:"receiptHandle"`
 }
 
+// QueuePermissionEntry represents a single AddPermission statement on a queue.
+type QueuePermissionEntry struct {
+	AWSAccountIDs []string `json:"awsAccountIDs"`
+	Actions       []string `json:"actions"`
+}
+
 // Queue represents an SQS queue.
 type Queue struct {
 	deduplicationMsgIDs map[string]string
 	DeduplicationIDs    map[string]time.Time
 	Attributes          map[string]string
-	Tags                *tags.Tags
-	dlq                 *Queue        // resolved DLQ queue pointer; nil = no DLQ
-	notify              chan struct{} // closed on SendMessage for broadcast wake-up; replaced each time
-	Name                string
-	URL                 string
-	messages            []*Message
-	inFlightMessages    []*InFlightMessage
-	MaxReceiveCount     int // 0 = no DLQ
-	IsFIFO              bool
+	// Permissions maps a permission label to its entry (account IDs + actions).
+	Permissions      map[string]*QueuePermissionEntry
+	Tags             *tags.Tags
+	dlq              *Queue        // resolved DLQ queue pointer; nil = no DLQ
+	notify           chan struct{} // closed on SendMessage for broadcast wake-up; replaced each time
+	Name             string
+	URL              string
+	messages         []*Message
+	inFlightMessages []*InFlightMessage
+	MaxReceiveCount  int // 0 = no DLQ
+	IsFIFO           bool
 }
 
 // QueueInfo holds the immutable-after-creation fields of a queue, returned by ListAll.
@@ -601,4 +609,87 @@ type ChangeMessageVisibilityBatchResponse struct {
 	ResponseMetadata XMLResponseMetadata                `xml:"ResponseMetadata"`
 	Xmlns            string                             `xml:"xmlns,attr"`
 	Result           ChangeMessageVisibilityBatchResult `xml:"ChangeMessageVisibilityBatchResult"`
+}
+
+// MoveTaskStatus represents the lifecycle state of a StartMessageMoveTask operation.
+type MoveTaskStatus string
+
+const (
+	// MoveTaskStatusRunning indicates the task is actively moving messages.
+	MoveTaskStatusRunning MoveTaskStatus = "RUNNING"
+	// MoveTaskStatusCompleted indicates the task finished successfully.
+	MoveTaskStatusCompleted MoveTaskStatus = "COMPLETED"
+	// MoveTaskStatusCancelling indicates the task has been asked to cancel.
+	MoveTaskStatusCancelling MoveTaskStatus = "CANCELLING"
+	// MoveTaskStatusCancelled indicates the task was cancelled.
+	MoveTaskStatusCancelled MoveTaskStatus = "CANCELLED"
+	// MoveTaskStatusFailed indicates the task failed.
+	MoveTaskStatusFailed MoveTaskStatus = "FAILED"
+)
+
+// MessageMoveTask describes the state of a single message move task.
+type MessageMoveTask struct {
+	// ApproximateNumberOfMessagesToMove is the total messages when the task started.
+	// nil when not yet determined.
+	ApproximateNumberOfMessagesToMove *int64
+	// MaxNumberOfMessagesPerSecond is nil when no rate limit was set.
+	MaxNumberOfMessagesPerSecond *int32
+	// FailureReason is populated when Status is FAILED.
+	FailureReason  *string
+	TaskHandle     string
+	SourceArn      string
+	DestinationArn string
+	Status         MoveTaskStatus
+	// ApproximateNumberOfMessagesMoved is always present (not a pointer), matching
+	// the AWS SDK ListMessageMoveTasksResultEntry.ApproximateNumberOfMessagesMoved.
+	ApproximateNumberOfMessagesMoved int64
+	// StartedTimestamp is always present (Unix epoch ms), matching the AWS SDK.
+	StartedTimestamp int64
+}
+
+// AddPermissionInput is the input for AddPermission.
+type AddPermissionInput struct {
+	QueueURL      string
+	Label         string
+	Actions       []string
+	AWSAccountIDs []string
+}
+
+// RemovePermissionInput is the input for RemovePermission.
+type RemovePermissionInput struct {
+	QueueURL string
+	Label    string
+}
+
+// StartMessageMoveTaskInput is the input for StartMessageMoveTask.
+type StartMessageMoveTaskInput struct {
+	SourceArn                    string
+	DestinationArn               string
+	MaxNumberOfMessagesPerSecond int32
+}
+
+// StartMessageMoveTaskOutput is the output for StartMessageMoveTask.
+type StartMessageMoveTaskOutput struct {
+	TaskHandle string
+}
+
+// CancelMessageMoveTaskInput is the input for CancelMessageMoveTask.
+type CancelMessageMoveTaskInput struct {
+	TaskHandle string
+}
+
+// CancelMessageMoveTaskOutput is the output for CancelMessageMoveTask.
+type CancelMessageMoveTaskOutput struct {
+	ApproximateNumberOfMessagesMoved int64
+}
+
+// ListMessageMoveTasksInput is the input for ListMessageMoveTasks.
+type ListMessageMoveTasksInput struct {
+	SourceArn  string
+	MaxResults int32
+}
+
+// ListMessageMoveTasksOutput is the output for ListMessageMoveTasks.
+type ListMessageMoveTasksOutput struct {
+	Results []MessageMoveTask
 }

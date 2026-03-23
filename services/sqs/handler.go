@@ -54,6 +54,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UntagQueue",
 		"ListQueueTags",
 		"ListDeadLetterSourceQueues",
+		"AddPermission",
+		"RemovePermission",
+		"StartMessageMoveTask",
+		"CancelMessageMoveTask",
+		"ListMessageMoveTasks",
 	}
 }
 
@@ -162,6 +167,11 @@ func (h *Handler) sqsDispatchTable() map[string]sqsDispatchFn {
 		"UntagQueue":                   h.handleUntagQueue,
 		"ListQueueTags":                h.handleListQueueTags,
 		"ListDeadLetterSourceQueues":   h.handleListDeadLetterSourceQueues,
+		"AddPermission":                h.handleAddPermission,
+		"RemovePermission":             h.handleRemovePermission,
+		"StartMessageMoveTask":         h.handleStartMessageMoveTask,
+		"CancelMessageMoveTask":        h.handleCancelMessageMoveTask,
+		"ListMessageMoveTasks":         h.handleListMessageMoveTasks,
 	}
 }
 
@@ -915,60 +925,178 @@ func invalidParameterValueMessage(err error) (string, bool) {
 	}
 }
 
+// errorEntry maps a sentinel error to its SQS error type, message, and HTTP status code.
+type errorEntry struct {
+	errType string
+	message string
+	status  int
+}
+
 // errorDetails maps an error to its SQS JSON error type, message, and HTTP status.
 func errorDetails(err error) (string, string, int) {
 	if msg, ok := invalidParameterValueMessage(err); ok {
 		return errTypeInvalidParameterValue, msg, http.StatusBadRequest
 	}
 
-	switch {
-	case errors.Is(err, ErrQueueNotFound):
-		// The AWS SDK v2 maps "com.amazonaws.sqs#QueueDoesNotExist" →
-		// *types.QueueDoesNotExist via SanitizeErrorCode, which strips the namespace prefix.
-		return "com.amazonaws.sqs#QueueDoesNotExist",
-			"The specified queue does not exist.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrQueueAlreadyExists):
-		return "com.amazonaws.sqs#QueueNameExists",
-			"A queue with this name already exists.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrReceiptHandleInvalid):
-		return "com.amazonaws.sqs#ReceiptHandleIsInvalid",
-			"The receipt handle is not valid.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrMessageNotInflight):
-		return "com.amazonaws.sqs#MessageNotInflight",
-			"The message referred to by the receipt handle is not in-flight.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrTooManyEntriesInBatch):
-		return "com.amazonaws.sqs#TooManyEntriesInBatchRequest",
-			"Too many entries in batch request.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrBatchEntryIDsNotDistinct):
-		return "com.amazonaws.sqs#BatchEntryIdsNotDistinct",
-			"Two or more batch entries in the request have the same Id.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrInvalidBatchEntry):
-		return "com.amazonaws.sqs#EmptyBatchRequest",
-			"The batch request is empty.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrInvalidAttribute):
-		return "com.amazonaws.sqs#InvalidAttributeValue",
-			"Invalid attribute value.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrMessageTooLarge):
-		return "com.amazonaws.sqs#InvalidMessageContents",
-			"The message exceeds the maximum message size.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrUnknownAction):
-		return "com.amazonaws.sqs#InvalidAction",
-			"The action or operation requested is invalid.",
-			http.StatusBadRequest
-	default:
-		return "com.amazonaws.sqs#InternalError",
-			"An internal error occurred.",
-			http.StatusInternalServerError
+	if e, ok := sqsErrorDetails(err); ok {
+		return e.errType, e.message, e.status
 	}
+
+	return "com.amazonaws.sqs#InternalError",
+		"An internal error occurred.",
+		http.StatusInternalServerError
+}
+
+// sqsErrorDetails looks up an error in the well-known SQS error table.
+// Extracted to keep errorDetails itself under the funlen limit.
+// The table is split across two helpers to stay within funlen.
+func sqsErrorDetails(err error) (errorEntry, bool) {
+	if e, ok := sqsCoreErrorDetails(err); ok {
+		return e, true
+	}
+
+	return sqsPermMoveErrorDetails(err)
+}
+
+// sqsCoreErrorDetails handles the core queue/message sentinel errors.
+func sqsCoreErrorDetails(err error) (errorEntry, bool) {
+	type errRow struct {
+		sentinel error
+		entry    errorEntry
+	}
+
+	const badReq = http.StatusBadRequest
+
+	rows := [...]errRow{
+		{
+			ErrQueueNotFound,
+			errorEntry{"com.amazonaws.sqs#QueueDoesNotExist", "The specified queue does not exist.", badReq},
+		},
+		{
+			ErrQueueAlreadyExists,
+			errorEntry{"com.amazonaws.sqs#QueueNameExists", "A queue with this name already exists.", badReq},
+		},
+		{
+			ErrReceiptHandleInvalid,
+			errorEntry{
+				"com.amazonaws.sqs#ReceiptHandleIsInvalid",
+				"The receipt handle is not valid.",
+				badReq,
+			},
+		},
+		{ErrMessageNotInflight, errorEntry{
+			"com.amazonaws.sqs#MessageNotInflight",
+			"The message referred to by the receipt handle is not in-flight.",
+			badReq,
+		}},
+		{
+			ErrTooManyEntriesInBatch,
+			errorEntry{
+				"com.amazonaws.sqs#TooManyEntriesInBatchRequest",
+				"Too many entries in batch request.",
+				badReq,
+			},
+		},
+		{
+			ErrBatchEntryIDsNotDistinct,
+			errorEntry{
+				"com.amazonaws.sqs#BatchEntryIdsNotDistinct",
+				"Two or more batch entries in the request have the same Id.",
+				badReq,
+			},
+		},
+		{
+			ErrInvalidBatchEntry,
+			errorEntry{"com.amazonaws.sqs#EmptyBatchRequest", "The batch request is empty.", badReq},
+		},
+		{
+			ErrInvalidAttribute,
+			errorEntry{"com.amazonaws.sqs#InvalidAttributeValue", "Invalid attribute value.", badReq},
+		},
+		{
+			ErrMessageTooLarge,
+			errorEntry{
+				"com.amazonaws.sqs#InvalidMessageContents",
+				"The message exceeds the maximum message size.",
+				badReq,
+			},
+		},
+		{
+			ErrUnknownAction,
+			errorEntry{
+				"com.amazonaws.sqs#InvalidAction",
+				"The action or operation requested is invalid.",
+				badReq,
+			},
+		},
+	}
+
+	for _, row := range rows {
+		if errors.Is(err, row.sentinel) {
+			return row.entry, true
+		}
+	}
+
+	return errorEntry{}, false
+}
+
+// sqsPermMoveErrorDetails handles permission, move-task, and validation sentinel errors.
+func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
+	type errRow struct {
+		sentinel error
+		entry    errorEntry
+	}
+
+	const badReq = http.StatusBadRequest
+	const conflict = "com.amazonaws.sqs#ResourceInConflict"
+	const ipv = errTypeInvalidParameterValue
+
+	rows := [...]errRow{
+		{ErrTaskHandleInvalid, errorEntry{ipv, "The task handle provided is not valid.", badReq}},
+		{ErrInvalidPermissionLabel, errorEntry{
+			ipv,
+			"The value for the required parameter 'Label' is not valid. Reason: label must not be empty.",
+			badReq,
+		}},
+		{ErrInvalidPermissionActions, errorEntry{
+			ipv,
+			"The value for 'Actions' is not valid. Reason: Actions must not be empty.",
+			badReq,
+		}},
+		{ErrInvalidPermissionAccountIDs, errorEntry{
+			ipv,
+			"The value for 'AWSAccountIds' is not valid. Reason: AWSAccountIds must not be empty.",
+			badReq,
+		}},
+		{ErrInvalidSourceArn, errorEntry{
+			ipv,
+			"The value for 'SourceArn' is not valid. Reason: SourceArn must not be empty.",
+			badReq,
+		}},
+		{ErrInvalidMaxMessagesPerSecond, errorEntry{
+			ipv,
+			"The value for 'MaxNumberOfMessagesPerSecond' is not valid. Reason: must be >= 0.",
+			badReq,
+		}},
+		{ErrMoveTaskAlreadyRunning, errorEntry{
+			conflict,
+			"A message move task already exists for the specified source queue.",
+			badReq,
+		}},
+		{ErrMoveTaskNotRunning, errorEntry{
+			conflict,
+			"A message move task with the specified task handle is not running.",
+			badReq,
+		}},
+	}
+
+	for _, row := range rows {
+		if errors.Is(err, row.sentinel) {
+			return row.entry, true
+		}
+	}
+
+	return errorEntry{}, false
 }
 
 // queueNameFromURL extracts the queue name from a full queue URL.
@@ -1022,4 +1150,181 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+}
+
+// --- JSON request/response types for new operations ---
+
+type jsonAddPermissionReq struct {
+	QueueURL      string   `json:"QueueUrl"`
+	Label         string   `json:"Label"`
+	Actions       []string `json:"Actions"`
+	AWSAccountIDs []string `json:"AWSAccountIds"`
+}
+
+type jsonRemovePermissionReq struct {
+	QueueURL string `json:"QueueUrl"`
+	Label    string `json:"Label"`
+}
+
+type jsonStartMessageMoveTaskReq struct {
+	SourceArn                    string `json:"SourceArn"`
+	DestinationArn               string `json:"DestinationArn"`
+	MaxNumberOfMessagesPerSecond int32  `json:"MaxNumberOfMessagesPerSecond"`
+}
+
+type jsonStartMessageMoveTaskResp struct {
+	TaskHandle string `json:"TaskHandle"`
+}
+
+type jsonCancelMessageMoveTaskReq struct {
+	TaskHandle string `json:"TaskHandle"`
+}
+
+type jsonCancelMessageMoveTaskResp struct {
+	ApproximateNumberOfMessagesMoved int64 `json:"ApproximateNumberOfMessagesMoved"`
+}
+
+type jsonListMessageMoveTasksReq struct {
+	SourceArn  string `json:"SourceArn"`
+	MaxResults int32  `json:"MaxResults"`
+}
+
+type jsonMessageMoveTask struct {
+	ApproximateNumberOfMessagesToMove *int64  `json:"ApproximateNumberOfMessagesToMove,omitempty"`
+	MaxNumberOfMessagesPerSecond      *int32  `json:"MaxNumberOfMessagesPerSecond,omitempty"`
+	FailureReason                     *string `json:"FailureReason,omitempty"`
+	TaskHandle                        string  `json:"TaskHandle,omitempty"`
+	SourceArn                         string  `json:"SourceArn"`
+	DestinationArn                    string  `json:"DestinationArn,omitempty"`
+	Status                            string  `json:"Status"`
+	// Always present — matches AWS SDK ListMessageMoveTasksResultEntry.
+	ApproximateNumberOfMessagesMoved int64 `json:"ApproximateNumberOfMessagesMoved"`
+	StartedTimestamp                 int64 `json:"StartedTimestamp"`
+}
+
+type jsonListMessageMoveTasksResp struct {
+	Results []jsonMessageMoveTask `json:"Results"`
+}
+
+// --- handler methods for new operations ---
+
+func (h *Handler) handleAddPermission(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonAddPermissionReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrUnknownAction
+	}
+
+	if err := h.Backend.AddPermission(&AddPermissionInput{
+		QueueURL:      req.QueueURL,
+		Label:         req.Label,
+		AWSAccountIDs: req.AWSAccountIDs,
+		Actions:       req.Actions,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleRemovePermission(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonRemovePermissionReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrUnknownAction
+	}
+
+	if err := h.Backend.RemovePermission(&RemovePermissionInput{
+		QueueURL: req.QueueURL,
+		Label:    req.Label,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleStartMessageMoveTask(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonStartMessageMoveTaskReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrUnknownAction
+	}
+
+	out, err := h.Backend.StartMessageMoveTask(&StartMessageMoveTaskInput{
+		SourceArn:                    req.SourceArn,
+		DestinationArn:               req.DestinationArn,
+		MaxNumberOfMessagesPerSecond: req.MaxNumberOfMessagesPerSecond,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonStartMessageMoveTaskResp{TaskHandle: out.TaskHandle}, nil
+}
+
+func (h *Handler) handleCancelMessageMoveTask(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonCancelMessageMoveTaskReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrUnknownAction
+	}
+
+	out, err := h.Backend.CancelMessageMoveTask(&CancelMessageMoveTaskInput{
+		TaskHandle: req.TaskHandle,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonCancelMessageMoveTaskResp{
+		ApproximateNumberOfMessagesMoved: out.ApproximateNumberOfMessagesMoved,
+	}, nil
+}
+
+func (h *Handler) handleListMessageMoveTasks(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonListMessageMoveTasksReq
+	// Body may be empty; ignore unmarshal errors.
+	_ = json.Unmarshal(body, &req)
+
+	out, err := h.Backend.ListMessageMoveTasks(&ListMessageMoveTasksInput{
+		SourceArn:  req.SourceArn,
+		MaxResults: req.MaxResults,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]jsonMessageMoveTask, 0, len(out.Results))
+	for _, t := range out.Results {
+		results = append(results, jsonMessageMoveTask{
+			TaskHandle:                        t.TaskHandle,
+			SourceArn:                         t.SourceArn,
+			DestinationArn:                    t.DestinationArn,
+			Status:                            string(t.Status),
+			StartedTimestamp:                  t.StartedTimestamp,
+			ApproximateNumberOfMessagesMoved:  t.ApproximateNumberOfMessagesMoved,
+			ApproximateNumberOfMessagesToMove: t.ApproximateNumberOfMessagesToMove,
+			MaxNumberOfMessagesPerSecond:      t.MaxNumberOfMessagesPerSecond,
+			FailureReason:                     t.FailureReason,
+		})
+	}
+
+	return jsonListMessageMoveTasksResp{Results: results}, nil
 }

@@ -9,22 +9,38 @@ import (
 
 // queueSnapshot captures all serialisable fields of a Queue.
 type queueSnapshot struct {
-	DeduplicationIDs    map[string]time.Time `json:"deduplicationIDs"`
-	Attributes          map[string]string    `json:"attributes"`
-	Tags                *tags.Tags           `json:"tags,omitempty"`
-	DeduplicationMsgIDs map[string]string    `json:"deduplicationMsgIDs"`
-	Name                string               `json:"name"`
-	URL                 string               `json:"url"`
-	Messages            []*Message           `json:"messages"`
-	InFlightMessages    []*InFlightMessage   `json:"inFlightMessages"`
-	MaxReceiveCount     int                  `json:"maxReceiveCount"`
-	IsFIFO              bool                 `json:"isFIFO"`
+	DeduplicationIDs    map[string]time.Time             `json:"deduplicationIDs"`
+	Attributes          map[string]string                `json:"attributes"`
+	Tags                *tags.Tags                       `json:"tags,omitempty"`
+	Permissions         map[string]*QueuePermissionEntry `json:"permissions,omitempty"`
+	DeduplicationMsgIDs map[string]string                `json:"deduplicationMsgIDs"`
+	Name                string                           `json:"name"`
+	URL                 string                           `json:"url"`
+	Messages            []*Message                       `json:"messages"`
+	InFlightMessages    []*InFlightMessage               `json:"inFlightMessages"`
+	MaxReceiveCount     int                              `json:"maxReceiveCount"`
+	IsFIFO              bool                             `json:"isFIFO"`
+}
+
+// moveTaskSnapshot captures the serialisable state of a completed/cancelled/failed move task.
+// Running tasks are NOT persisted because their goroutines cannot be resumed after restart.
+type moveTaskSnapshot struct {
+	TaskHandle    string         `json:"taskHandle"`
+	SourceArn     string         `json:"sourceArn"`
+	DestArn       string         `json:"destArn"`
+	FailureReason string         `json:"failureReason,omitempty"`
+	Status        MoveTaskStatus `json:"status"`
+	StartedAt     int64          `json:"startedAt"`
+	MovedCount    int64          `json:"movedCount"`
+	TotalCount    int64          `json:"totalCount"`
+	MaxPerSec     int32          `json:"maxPerSec,omitempty"`
 }
 
 type backendSnapshot struct {
 	Queues    map[string]*queueSnapshot `json:"queues"`
 	AccountID string                    `json:"accountID"`
 	Region    string                    `json:"region"`
+	MoveTasks []*moveTaskSnapshot       `json:"moveTasks,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -39,6 +55,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			DeduplicationIDs:    q.DeduplicationIDs,
 			Attributes:          q.Attributes,
 			Tags:                q.Tags,
+			Permissions:         q.Permissions,
 			Messages:            q.messages,
 			InFlightMessages:    q.inFlightMessages,
 			DeduplicationMsgIDs: q.deduplicationMsgIDs,
@@ -49,8 +66,39 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		}
 	}
 
+	// Persist terminal move tasks (COMPLETED/CANCELLED/FAILED) so task history
+	// survives restarts. RUNNING tasks are skipped because the goroutine cannot
+	// be resumed, and CANCELLING is a transient state that resolves to CANCELLED.
+	var moveTasks []*moveTaskSnapshot
+	for _, t := range b.moveTasks {
+		t.mu.Lock()
+		status := t.status
+		// Skip non-terminal tasks — only snapshot what can be meaningfully restored.
+		if status != MoveTaskStatusCompleted && status != MoveTaskStatusCancelled && status != MoveTaskStatusFailed {
+			t.mu.Unlock()
+
+			continue
+		}
+
+		snap := &moveTaskSnapshot{
+			TaskHandle:    t.taskHandle,
+			SourceArn:     t.sourceArn,
+			DestArn:       t.destArn,
+			FailureReason: t.failureReason,
+			Status:        status,
+			StartedAt:     t.startedAt,
+			MovedCount:    t.movedCount,
+			TotalCount:    t.totalCount,
+			MaxPerSec:     t.maxPerSec,
+		}
+		t.mu.Unlock()
+
+		moveTasks = append(moveTasks, snap)
+	}
+
 	snap := backendSnapshot{
 		Queues:    queues,
+		MoveTasks: moveTasks,
 		AccountID: b.accountID,
 		Region:    b.region,
 	}
@@ -95,10 +143,15 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			qs.DeduplicationMsgIDs = make(map[string]string)
 		}
 
+		if qs.Permissions == nil {
+			qs.Permissions = make(map[string]*QueuePermissionEntry)
+		}
+
 		b.queues[k] = &Queue{
 			DeduplicationIDs:    qs.DeduplicationIDs,
 			Attributes:          qs.Attributes,
 			Tags:                qs.Tags,
+			Permissions:         qs.Permissions,
 			messages:            qs.Messages,
 			inFlightMessages:    qs.InFlightMessages,
 			deduplicationMsgIDs: qs.DeduplicationMsgIDs,
@@ -107,6 +160,25 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			MaxReceiveCount:     qs.MaxReceiveCount,
 			IsFIFO:              qs.IsFIFO,
 			notify:              make(chan struct{}),
+		}
+	}
+
+	// Restore terminal move task history. A no-op cancel function is used because
+	// these tasks are already in a terminal state and their goroutines are gone.
+	b.moveTasks = make(map[string]*moveTaskState)
+
+	for _, ts := range snap.MoveTasks {
+		b.moveTasks[ts.TaskHandle] = &moveTaskState{
+			cancel:        func() {},
+			taskHandle:    ts.TaskHandle,
+			sourceArn:     ts.SourceArn,
+			destArn:       ts.DestArn,
+			failureReason: ts.FailureReason,
+			status:        ts.Status,
+			startedAt:     ts.StartedAt,
+			movedCount:    ts.MovedCount,
+			totalCount:    ts.TotalCount,
+			maxPerSec:     ts.MaxPerSec,
 		}
 	}
 
