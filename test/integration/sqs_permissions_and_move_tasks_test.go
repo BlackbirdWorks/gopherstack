@@ -204,21 +204,23 @@ func TestIntegration_SQS_MessageMoveTasks(t *testing.T) {
 		return status == "COMPLETED" || status == "CANCELLED" || status == "FAILED"
 	}, 10*time.Second, 100*time.Millisecond, "task should reach a terminal state")
 
-	// Destination queue should have received the messages.
-	var movedCount int
-
+	// Wait for the destination queue to have received all moved messages.
+	// Query the queue depth rather than accumulating across ReceiveMessage retries.
 	require.Eventually(t, func() bool {
-		recvOut, recvErr := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-			QueueUrl:            destURL,
-			MaxNumberOfMessages: 10,
+		attrOut, attrErr := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+			QueueUrl:       destURL,
+			AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameApproximateNumberOfMessages},
 		})
-		if recvErr != nil {
+		if attrErr != nil {
 			return false
 		}
 
-		movedCount += len(recvOut.Messages)
+		count, parseErr := strconv.Atoi(attrOut.Attributes["ApproximateNumberOfMessages"])
+		if parseErr != nil {
+			return false
+		}
 
-		return movedCount >= msgCount
+		return count >= msgCount
 	}, 5*time.Second, 100*time.Millisecond, "destination queue should have all moved messages")
 
 	// DLQ should now be empty.

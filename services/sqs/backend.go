@@ -1333,13 +1333,15 @@ func (b *InMemoryBackend) StartMessageMoveTask(
 	b.mu.Lock("StartMessageMoveTask")
 
 	// Check for existing running task on the same source ARN (AWS realism).
+	// We check task status while holding both b.mu and t.mu to ensure the
+	// status snapshot is consistent with the subsequent task insertion.
 	for _, t := range b.moveTasks {
 		if t.sourceArn == input.SourceArn {
 			t.mu.Lock()
-			taskStatus := t.status
+			isActive := t.status == MoveTaskStatusRunning || t.status == MoveTaskStatusCancelling
 			t.mu.Unlock()
 
-			if taskStatus == MoveTaskStatusRunning || taskStatus == MoveTaskStatusCancelling {
+			if isActive {
 				b.mu.Unlock()
 
 				return nil, ErrMoveTaskAlreadyRunning
@@ -1436,8 +1438,9 @@ func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState,
 		default:
 		}
 
-		// Rate limiting: if a rate limit is set, use a ticker to avoid goroutine leaks
-		// that can occur with time.After inside a loop.
+		// Rate limiting: sleep between messages if a rate limit is configured.
+		// time.After is used here because the interval is typically large (≥1s),
+		// so the small timer allocation cost is negligible.
 		if state.maxPerSec > 0 {
 			interval := time.Second / time.Duration(state.maxPerSec)
 
