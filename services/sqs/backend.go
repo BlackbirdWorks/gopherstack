@@ -1570,9 +1570,10 @@ func (b *InMemoryBackend) ListMessageMoveTasks(
 
 	b.mu.RUnlock()
 
-	// Sort newest first (descending by startedAt) — AWS returns the most recent task first.
+	// Sort descending by startedAt: higher timestamps are newer, so index[0] is the
+	// most recent task. This matches the AWS default of returning the most recent task first.
 	sort.Slice(tasks, func(i, j int) bool {
-		return tasks[i].startedAt > tasks[j].startedAt
+		return tasks[i].startedAt > tasks[j].startedAt // descending (larger = newer)
 	})
 
 	// Apply MaxResults: default to 1 when unset; cap at the AWS maximum of 10.

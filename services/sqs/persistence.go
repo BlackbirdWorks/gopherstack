@@ -73,6 +73,13 @@ func (b *InMemoryBackend) Snapshot() []byte {
 	for _, t := range b.moveTasks {
 		t.mu.Lock()
 		status := t.status
+		// Skip non-terminal tasks — only snapshot what can be meaningfully restored.
+		if status != MoveTaskStatusCompleted && status != MoveTaskStatusCancelled && status != MoveTaskStatusFailed {
+			t.mu.Unlock()
+
+			continue
+		}
+
 		snap := &moveTaskSnapshot{
 			TaskHandle:    t.taskHandle,
 			SourceArn:     t.sourceArn,
@@ -86,9 +93,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		}
 		t.mu.Unlock()
 
-		if status == MoveTaskStatusCompleted || status == MoveTaskStatusCancelled || status == MoveTaskStatusFailed {
-			moveTasks = append(moveTasks, snap)
-		}
+		moveTasks = append(moveTasks, snap)
 	}
 
 	snap := backendSnapshot{
