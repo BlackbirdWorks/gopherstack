@@ -54,6 +54,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"UntagQueue",
 		"ListQueueTags",
 		"ListDeadLetterSourceQueues",
+		"AddPermission",
+		"RemovePermission",
+		"StartMessageMoveTask",
+		"CancelMessageMoveTask",
+		"ListMessageMoveTasks",
 	}
 }
 
@@ -162,6 +167,11 @@ func (h *Handler) sqsDispatchTable() map[string]sqsDispatchFn {
 		"UntagQueue":                   h.handleUntagQueue,
 		"ListQueueTags":                h.handleListQueueTags,
 		"ListDeadLetterSourceQueues":   h.handleListDeadLetterSourceQueues,
+		"AddPermission":                h.handleAddPermission,
+		"RemovePermission":             h.handleRemovePermission,
+		"StartMessageMoveTask":         h.handleStartMessageMoveTask,
+		"CancelMessageMoveTask":        h.handleCancelMessageMoveTask,
+		"ListMessageMoveTasks":         h.handleListMessageMoveTasks,
 	}
 }
 
@@ -964,6 +974,10 @@ func errorDetails(err error) (string, string, int) {
 		return "com.amazonaws.sqs#InvalidAction",
 			"The action or operation requested is invalid.",
 			http.StatusBadRequest
+	case errors.Is(err, ErrTaskHandleInvalid):
+		return "com.amazonaws.sqs#InvalidParameterValue",
+			"The task handle provided is not valid.",
+			http.StatusBadRequest
 	default:
 		return "com.amazonaws.sqs#InternalError",
 			"An internal error occurred.",
@@ -1022,4 +1036,178 @@ func (h *Handler) Reset() {
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
 		b.Reset()
 	}
+}
+
+// --- JSON request/response types for new operations ---
+
+type jsonAddPermissionReq struct {
+	QueueURL      string   `json:"QueueUrl"`
+	Label         string   `json:"Label"`
+	Actions       []string `json:"Actions"`
+	AWSAccountIDs []string `json:"AWSAccountIds"`
+}
+
+type jsonRemovePermissionReq struct {
+	QueueURL string `json:"QueueUrl"`
+	Label    string `json:"Label"`
+}
+
+type jsonStartMessageMoveTaskReq struct {
+	SourceArn                    string `json:"SourceArn"`
+	DestinationArn               string `json:"DestinationArn"`
+	MaxNumberOfMessagesPerSecond int32  `json:"MaxNumberOfMessagesPerSecond"`
+}
+
+type jsonStartMessageMoveTaskResp struct {
+	TaskHandle string `json:"TaskHandle"`
+}
+
+type jsonCancelMessageMoveTaskReq struct {
+	TaskHandle string `json:"TaskHandle"`
+}
+
+type jsonCancelMessageMoveTaskResp struct {
+	ApproximateNumberOfMessagesMoved int64 `json:"ApproximateNumberOfMessagesMoved"`
+}
+
+type jsonListMessageMoveTasksReq struct {
+	SourceArn  string `json:"SourceArn"`
+	MaxResults int32  `json:"MaxResults"`
+}
+
+type jsonMessageMoveTask struct {
+	StartedTimestamp                  *int64 `json:"StartedTimestamp,omitempty"`
+	ApproximateNumberOfMessagesMoved  *int64 `json:"ApproximateNumberOfMessagesMoved,omitempty"`
+	ApproximateNumberOfMessagesToMove *int64 `json:"ApproximateNumberOfMessagesToMove,omitempty"`
+	MaxNumberOfMessagesPerSecond      *int32 `json:"MaxNumberOfMessagesPerSecond,omitempty"`
+	TaskHandle                        string `json:"TaskHandle"`
+	SourceArn                         string `json:"SourceArn"`
+	DestinationArn                    string `json:"DestinationArn,omitempty"`
+	Status                            string `json:"Status"`
+}
+
+type jsonListMessageMoveTasksResp struct {
+	Results []jsonMessageMoveTask `json:"Results"`
+}
+
+// --- handler methods for new operations ---
+
+func (h *Handler) handleAddPermission(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonAddPermissionReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrUnknownAction
+	}
+
+	if err := h.Backend.AddPermission(&AddPermissionInput{
+		QueueURL:      req.QueueURL,
+		Label:         req.Label,
+		AWSAccountIDs: req.AWSAccountIDs,
+		Actions:       req.Actions,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleRemovePermission(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonRemovePermissionReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrUnknownAction
+	}
+
+	if err := h.Backend.RemovePermission(&RemovePermissionInput{
+		QueueURL: req.QueueURL,
+		Label:    req.Label,
+	}); err != nil {
+		return nil, err
+	}
+
+	return struct{}{}, nil
+}
+
+func (h *Handler) handleStartMessageMoveTask(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonStartMessageMoveTaskReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrUnknownAction
+	}
+
+	out, err := h.Backend.StartMessageMoveTask(&StartMessageMoveTaskInput{
+		SourceArn:                    req.SourceArn,
+		DestinationArn:               req.DestinationArn,
+		MaxNumberOfMessagesPerSecond: req.MaxNumberOfMessagesPerSecond,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonStartMessageMoveTaskResp{TaskHandle: out.TaskHandle}, nil
+}
+
+func (h *Handler) handleCancelMessageMoveTask(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonCancelMessageMoveTaskReq
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil, ErrUnknownAction
+	}
+
+	out, err := h.Backend.CancelMessageMoveTask(&CancelMessageMoveTaskInput{
+		TaskHandle: req.TaskHandle,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonCancelMessageMoveTaskResp{
+		ApproximateNumberOfMessagesMoved: out.ApproximateNumberOfMessagesMoved,
+	}, nil
+}
+
+func (h *Handler) handleListMessageMoveTasks(
+	_ context.Context,
+	_ *http.Request,
+	body []byte,
+) (any, error) {
+	var req jsonListMessageMoveTasksReq
+	// Body may be empty; ignore unmarshal errors.
+	_ = json.Unmarshal(body, &req)
+
+	out, err := h.Backend.ListMessageMoveTasks(&ListMessageMoveTasksInput{
+		SourceArn:  req.SourceArn,
+		MaxResults: req.MaxResults,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]jsonMessageMoveTask, 0, len(out.Results))
+	for _, t := range out.Results {
+		results = append(results, jsonMessageMoveTask{
+			TaskHandle:                        t.TaskHandle,
+			SourceArn:                         t.SourceArn,
+			DestinationArn:                    t.DestinationArn,
+			Status:                            string(t.Status),
+			StartedTimestamp:                  t.StartedTimestamp,
+			ApproximateNumberOfMessagesMoved:  t.ApproximateNumberOfMessagesMoved,
+			ApproximateNumberOfMessagesToMove: t.ApproximateNumberOfMessagesToMove,
+			MaxNumberOfMessagesPerSecond:      t.MaxNumberOfMessagesPerSecond,
+		})
+	}
+
+	return jsonListMessageMoveTasksResp{Results: results}, nil
 }

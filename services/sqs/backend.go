@@ -1,6 +1,7 @@
 package sqs
 
 import (
+	"context"
 	"crypto/md5" //nolint:gosec // MD5 used for SQS wire protocol compatibility, not security
 	"encoding/binary"
 	"encoding/hex"
@@ -10,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -41,12 +43,37 @@ type StorageBackend interface {
 	ListQueueTags(input *ListQueueTagsInput) (*ListQueueTagsOutput, error)
 	ChangeMessageVisibilityBatch(input *ChangeMessageVisibilityBatchInput) (*ChangeMessageVisibilityBatchOutput, error)
 	ListDeadLetterSourceQueues(input *ListDeadLetterSourceQueuesInput) (*ListDeadLetterSourceQueuesOutput, error)
+	AddPermission(input *AddPermissionInput) error
+	RemovePermission(input *RemovePermissionInput) error
+	StartMessageMoveTask(input *StartMessageMoveTaskInput) (*StartMessageMoveTaskOutput, error)
+	CancelMessageMoveTask(input *CancelMessageMoveTaskInput) (*CancelMessageMoveTaskOutput, error)
+	ListMessageMoveTasks(input *ListMessageMoveTasksInput) (*ListMessageMoveTasksOutput, error)
 	ListAll() []QueueInfo
+}
+
+// moveTaskVisibilityTimeoutSecs is the visibility timeout used when receiving
+// messages during a message move task. It provides enough time to send the
+// message to the destination and delete it from the source.
+const moveTaskVisibilityTimeoutSecs = 30
+
+// moveTaskState tracks the live state of a StartMessageMoveTask goroutine.
+type moveTaskState struct {
+	cancel     context.CancelFunc
+	taskHandle string
+	sourceArn  string
+	destArn    string
+	status     MoveTaskStatus
+	startedAt  int64
+	movedCount int64
+	totalCount int64
+	mu         sync.Mutex
+	maxPerSec  int32
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
 	queues         map[string]*Queue
+	moveTasks      map[string]*moveTaskState
 	snsUnsubscribe func()
 	mu             *lockmetrics.RWMutex
 	accountID      string
@@ -64,6 +91,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	return &InMemoryBackend{
 		queues:    make(map[string]*Queue),
+		moveTasks: make(map[string]*moveTaskState),
 		accountID: accountID,
 		region:    region,
 		mu:        lockmetrics.New("sqs"),
@@ -223,6 +251,7 @@ func (b *InMemoryBackend) CreateQueue(input *CreateQueueInput) (*CreateQueueOutp
 		URL:                 queueURL,
 		IsFIFO:              isFIFO,
 		Attributes:          attrs,
+		Permissions:         make(map[string]*QueuePermissionEntry),
 		DeduplicationIDs:    make(map[string]time.Time),
 		deduplicationMsgIDs: make(map[string]string),
 		notify:              make(chan struct{}),
@@ -1192,5 +1221,363 @@ func (b *InMemoryBackend) Reset() {
 		}
 	}
 
+	// Cancel any running move tasks.
+	for _, task := range b.moveTasks {
+		task.cancel()
+	}
+
 	b.queues = make(map[string]*Queue)
+	b.moveTasks = make(map[string]*moveTaskState)
+}
+
+// AddPermission adds a permission statement to the specified queue.
+func (b *InMemoryBackend) AddPermission(input *AddPermissionInput) error {
+	b.mu.Lock("AddPermission")
+	defer b.mu.Unlock()
+
+	name := queueNameFromInput(input.QueueURL)
+
+	q, ok := b.queues[name]
+	if !ok {
+		return ErrQueueNotFound
+	}
+
+	q.Permissions[input.Label] = &QueuePermissionEntry{
+		AWSAccountIDs: slices.Clone(input.AWSAccountIDs),
+		Actions:       slices.Clone(input.Actions),
+	}
+
+	return nil
+}
+
+// RemovePermission removes a permission statement from the specified queue.
+func (b *InMemoryBackend) RemovePermission(input *RemovePermissionInput) error {
+	b.mu.Lock("RemovePermission")
+	defer b.mu.Unlock()
+
+	name := queueNameFromInput(input.QueueURL)
+
+	q, ok := b.queues[name]
+	if !ok {
+		return ErrQueueNotFound
+	}
+
+	delete(q.Permissions, input.Label)
+
+	return nil
+}
+
+// queueURLFromARN returns the URL of the queue with the given ARN.
+// Must be called without b.mu held (it acquires b.mu.RLock internally).
+func (b *InMemoryBackend) queueURLFromARN(queueARN string) (string, bool) {
+	b.mu.RLock("queueURLFromARN")
+	defer b.mu.RUnlock()
+
+	for _, q := range b.queues {
+		if q.Attributes[attrQueueArn] == queueARN {
+			return q.URL, true
+		}
+	}
+
+	return "", false
+}
+
+// findDefaultMoveDestination finds the URL of the queue that has a RedrivePolicy
+// pointing to the DLQ identified by dlqARN.
+// Must be called without b.mu held.
+func (b *InMemoryBackend) findDefaultMoveDestination(dlqARN string) (string, bool) {
+	b.mu.RLock("findDefaultMoveDestination")
+	defer b.mu.RUnlock()
+
+	for _, q := range b.queues {
+		raw, ok := q.Attributes[attrRedrivePolicy]
+		if !ok || raw == "" {
+			continue
+		}
+
+		var pol redrivePolicy
+
+		if err := json.Unmarshal([]byte(raw), &pol); err != nil {
+			continue
+		}
+
+		if pol.DeadLetterTargetArn == dlqARN {
+			return q.URL, true
+		}
+	}
+
+	return "", false
+}
+
+// approximateQueueDepth returns the approximate number of visible messages in the queue with the given URL.
+// Must be called without b.mu held.
+func (b *InMemoryBackend) approximateQueueDepth(queueURL string) int64 {
+	b.mu.RLock("approximateQueueDepth")
+	defer b.mu.RUnlock()
+
+	name := queueNameFromInput(queueURL)
+
+	q, ok := b.queues[name]
+	if !ok {
+		return 0
+	}
+
+	now := time.Now()
+	visible := 0
+
+	for _, msg := range q.messages {
+		if !now.Before(msg.VisibleAt) {
+			visible++
+		}
+	}
+
+	return int64(visible)
+}
+
+// runMoveTask is the goroutine body for StartMessageMoveTask. It reads messages
+// from the source queue one at a time and writes them to the destination queue
+// until the source is empty, the context is cancelled, or a fatal error occurs.
+func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState, srcURL, destURL string) {
+	defer func() {
+		state.mu.Lock()
+		if state.status == MoveTaskStatusRunning {
+			state.status = MoveTaskStatusCompleted
+		}
+
+		state.mu.Unlock()
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			state.mu.Lock()
+			state.status = MoveTaskStatusCancelled
+			state.mu.Unlock()
+
+			return
+		default:
+		}
+
+		// Rate limiting: sleep between messages if a rate limit is set.
+		if state.maxPerSec > 0 {
+			interval := time.Second / time.Duration(state.maxPerSec)
+
+			select {
+			case <-ctx.Done():
+				state.mu.Lock()
+				state.status = MoveTaskStatusCancelled
+				state.mu.Unlock()
+
+				return
+			case <-time.After(interval):
+			}
+		}
+
+		// Receive one message from the source queue.
+		out, err := b.ReceiveMessage(&ReceiveMessageInput{
+			QueueURL:            srcURL,
+			MaxNumberOfMessages: 1,
+			VisibilityTimeout:   moveTaskVisibilityTimeoutSecs,
+		})
+		if err != nil {
+			state.mu.Lock()
+			state.status = MoveTaskStatusFailed
+			state.mu.Unlock()
+
+			return
+		}
+
+		if len(out.Messages) == 0 {
+			// Source queue is empty; task is complete.
+			return
+		}
+
+		msg := out.Messages[0]
+
+		// Send the message to the destination queue.
+		_, sendErr := b.SendMessage(&SendMessageInput{
+			QueueURL:          destURL,
+			MessageBody:       msg.Body,
+			MessageAttributes: msg.MessageAttributes,
+		})
+		if sendErr != nil {
+			// Re-make message visible so it is not lost.
+			_ = b.ChangeMessageVisibility(&ChangeMessageVisibilityInput{
+				QueueURL:          srcURL,
+				ReceiptHandle:     msg.ReceiptHandle,
+				VisibilityTimeout: 0,
+			})
+			state.mu.Lock()
+			state.status = MoveTaskStatusFailed
+			state.mu.Unlock()
+
+			return
+		}
+
+		// Delete the original from the source queue.
+		_ = b.DeleteMessage(&DeleteMessageInput{
+			QueueURL:      srcURL,
+			ReceiptHandle: msg.ReceiptHandle,
+		})
+
+		state.mu.Lock()
+		state.movedCount++
+		state.mu.Unlock()
+	}
+}
+
+// StartMessageMoveTask starts an asynchronous task that moves messages from the
+// source queue (typically a DLQ) to the destination queue.
+// If DestinationArn is empty, the backend looks for a queue whose RedrivePolicy
+// points to the source ARN and uses that as the destination.
+func (b *InMemoryBackend) StartMessageMoveTask(
+	input *StartMessageMoveTaskInput,
+) (*StartMessageMoveTaskOutput, error) {
+	// Resolve source URL.
+	srcURL, ok := b.queueURLFromARN(input.SourceArn)
+	if !ok {
+		return nil, ErrQueueNotFound
+	}
+
+	// Resolve destination URL.
+	destArn := input.DestinationArn
+
+	var destURL string
+
+	if destArn == "" {
+		destURL, ok = b.findDefaultMoveDestination(input.SourceArn)
+		if !ok {
+			return nil, ErrQueueNotFound
+		}
+
+		// Derive destination ARN from its URL for task metadata.
+		destName := queueNameFromInput(destURL)
+		destArn = arn.Build("sqs", b.region, b.accountID, destName)
+	} else {
+		destURL, ok = b.queueURLFromARN(destArn)
+		if !ok {
+			return nil, ErrQueueNotFound
+		}
+	}
+
+	totalCount := b.approximateQueueDepth(srcURL)
+	taskHandle := uuid.New().String()
+
+	//nolint:gosec // cancel is stored in moveTaskState and called from CancelMessageMoveTask or Reset
+	ctx, cancel := context.WithCancel(context.Background())
+
+	state := &moveTaskState{
+		cancel:     cancel,
+		taskHandle: taskHandle,
+		sourceArn:  input.SourceArn,
+		destArn:    destArn,
+		status:     MoveTaskStatusRunning,
+		maxPerSec:  input.MaxNumberOfMessagesPerSecond,
+		startedAt:  time.Now().UnixMilli(),
+		totalCount: totalCount,
+	}
+
+	b.mu.Lock("StartMessageMoveTask")
+	b.moveTasks[taskHandle] = state
+	b.mu.Unlock()
+
+	go b.runMoveTask(ctx, state, srcURL, destURL)
+
+	return &StartMessageMoveTaskOutput{TaskHandle: taskHandle}, nil
+}
+
+// CancelMessageMoveTask cancels an active message move task.
+func (b *InMemoryBackend) CancelMessageMoveTask(
+	input *CancelMessageMoveTaskInput,
+) (*CancelMessageMoveTaskOutput, error) {
+	b.mu.RLock("CancelMessageMoveTask")
+	state, ok := b.moveTasks[input.TaskHandle]
+	b.mu.RUnlock()
+
+	if !ok {
+		return nil, ErrTaskHandleInvalid
+	}
+
+	state.mu.Lock()
+
+	if state.status != MoveTaskStatusRunning {
+		moved := state.movedCount
+		state.mu.Unlock()
+
+		return &CancelMessageMoveTaskOutput{ApproximateNumberOfMessagesMoved: moved}, nil
+	}
+
+	state.status = MoveTaskStatusCancelling
+	state.mu.Unlock()
+
+	state.cancel()
+
+	return &CancelMessageMoveTaskOutput{
+		ApproximateNumberOfMessagesMoved: state.movedCount,
+	}, nil
+}
+
+// ListMessageMoveTasks returns all message move tasks for the given source ARN.
+func (b *InMemoryBackend) ListMessageMoveTasks(
+	input *ListMessageMoveTasksInput,
+) (*ListMessageMoveTasksOutput, error) {
+	b.mu.RLock("ListMessageMoveTasks")
+
+	var tasks []*moveTaskState
+
+	for _, t := range b.moveTasks {
+		if input.SourceArn == "" || t.sourceArn == input.SourceArn {
+			tasks = append(tasks, t)
+		}
+	}
+
+	b.mu.RUnlock()
+
+	// Sort tasks by start time for deterministic output.
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].startedAt < tasks[j].startedAt
+	})
+
+	results := make([]MessageMoveTask, 0, len(tasks))
+
+	for _, t := range tasks {
+		t.mu.Lock()
+		movedCount := t.movedCount
+		totalCount := t.totalCount
+		status := t.status
+		startedAt := t.startedAt
+		maxPerSec := t.maxPerSec
+		taskHandle := t.taskHandle
+		sourceArn := t.sourceArn
+		destArn := t.destArn
+		t.mu.Unlock()
+
+		task := MessageMoveTask{
+			TaskHandle:                       taskHandle,
+			SourceArn:                        sourceArn,
+			DestinationArn:                   destArn,
+			Status:                           status,
+			ApproximateNumberOfMessagesMoved: &movedCount,
+		}
+
+		if totalCount > 0 {
+			task.ApproximateNumberOfMessagesToMove = &totalCount
+		}
+
+		if startedAt > 0 {
+			task.StartedTimestamp = &startedAt
+		}
+
+		if maxPerSec > 0 {
+			task.MaxNumberOfMessagesPerSecond = &maxPerSec
+		}
+
+		results = append(results, task)
+	}
+
+	if input.MaxResults > 0 && len(results) > int(input.MaxResults) {
+		results = results[:input.MaxResults]
+	}
+
+	return &ListMessageMoveTasksOutput{Results: results}, nil
 }

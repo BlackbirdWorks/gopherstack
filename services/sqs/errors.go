@@ -22,4 +22,5 @@ var (
 	ErrInvalidVisibilityTimeout = errors.New("InvalidParameterValue.VisibilityTimeout")
 	ErrMissingMessageGroupID    = errors.New("InvalidParameterValue.MissingMessageGroupID")
 	ErrMissingDeduplicationID   = errors.New("InvalidParameterValue.MissingDeduplicationID")
+	ErrTaskHandleInvalid        = errors.New("InvalidParameterValue.TaskHandle")
 )

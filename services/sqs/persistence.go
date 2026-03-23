@@ -9,16 +9,17 @@ import (
 
 // queueSnapshot captures all serialisable fields of a Queue.
 type queueSnapshot struct {
-	DeduplicationIDs    map[string]time.Time `json:"deduplicationIDs"`
-	Attributes          map[string]string    `json:"attributes"`
-	Tags                *tags.Tags           `json:"tags,omitempty"`
-	DeduplicationMsgIDs map[string]string    `json:"deduplicationMsgIDs"`
-	Name                string               `json:"name"`
-	URL                 string               `json:"url"`
-	Messages            []*Message           `json:"messages"`
-	InFlightMessages    []*InFlightMessage   `json:"inFlightMessages"`
-	MaxReceiveCount     int                  `json:"maxReceiveCount"`
-	IsFIFO              bool                 `json:"isFIFO"`
+	DeduplicationIDs    map[string]time.Time             `json:"deduplicationIDs"`
+	Attributes          map[string]string                `json:"attributes"`
+	Tags                *tags.Tags                       `json:"tags,omitempty"`
+	Permissions         map[string]*QueuePermissionEntry `json:"permissions,omitempty"`
+	DeduplicationMsgIDs map[string]string                `json:"deduplicationMsgIDs"`
+	Name                string                           `json:"name"`
+	URL                 string                           `json:"url"`
+	Messages            []*Message                       `json:"messages"`
+	InFlightMessages    []*InFlightMessage               `json:"inFlightMessages"`
+	MaxReceiveCount     int                              `json:"maxReceiveCount"`
+	IsFIFO              bool                             `json:"isFIFO"`
 }
 
 type backendSnapshot struct {
@@ -39,6 +40,7 @@ func (b *InMemoryBackend) Snapshot() []byte {
 			DeduplicationIDs:    q.DeduplicationIDs,
 			Attributes:          q.Attributes,
 			Tags:                q.Tags,
+			Permissions:         q.Permissions,
 			Messages:            q.messages,
 			InFlightMessages:    q.inFlightMessages,
 			DeduplicationMsgIDs: q.deduplicationMsgIDs,
@@ -95,10 +97,15 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			qs.DeduplicationMsgIDs = make(map[string]string)
 		}
 
+		if qs.Permissions == nil {
+			qs.Permissions = make(map[string]*QueuePermissionEntry)
+		}
+
 		b.queues[k] = &Queue{
 			DeduplicationIDs:    qs.DeduplicationIDs,
 			Attributes:          qs.Attributes,
 			Tags:                qs.Tags,
+			Permissions:         qs.Permissions,
 			messages:            qs.Messages,
 			inFlightMessages:    qs.InFlightMessages,
 			deduplicationMsgIDs: qs.DeduplicationMsgIDs,

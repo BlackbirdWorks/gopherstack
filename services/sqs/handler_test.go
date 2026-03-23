@@ -179,6 +179,28 @@ func (e *errorBackend) ListDeadLetterSourceQueues(
 	return nil, e.err
 }
 
+func (e *errorBackend) AddPermission(_ *sqs.AddPermissionInput) error { return e.err }
+
+func (e *errorBackend) RemovePermission(_ *sqs.RemovePermissionInput) error { return e.err }
+
+func (e *errorBackend) StartMessageMoveTask(
+	_ *sqs.StartMessageMoveTaskInput,
+) (*sqs.StartMessageMoveTaskOutput, error) {
+	return nil, e.err
+}
+
+func (e *errorBackend) CancelMessageMoveTask(
+	_ *sqs.CancelMessageMoveTaskInput,
+) (*sqs.CancelMessageMoveTaskOutput, error) {
+	return nil, e.err
+}
+
+func (e *errorBackend) ListMessageMoveTasks(
+	_ *sqs.ListMessageMoveTasksInput,
+) (*sqs.ListMessageMoveTasksOutput, error) {
+	return nil, e.err
+}
+
 func (e *errorBackend) ListAll() []sqs.QueueInfo { return nil }
 
 func newErrorHandler(t *testing.T, err error) *sqs.Handler {
