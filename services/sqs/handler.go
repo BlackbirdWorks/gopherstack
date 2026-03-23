@@ -938,87 +938,165 @@ func errorDetails(err error) (string, string, int) {
 		return errTypeInvalidParameterValue, msg, http.StatusBadRequest
 	}
 
-	// Ordered table of sentinel errors mapped to their SQS HTTP/JSON wire representation.
-	errorTable := []struct {
-		sentinel error
-		entry    errorEntry
-	}{
-		{ErrQueueNotFound, errorEntry{
-			"com.amazonaws.sqs#QueueDoesNotExist",
-			"The specified queue does not exist.",
-			http.StatusBadRequest,
-		}},
-		{ErrQueueAlreadyExists, errorEntry{
-			"com.amazonaws.sqs#QueueNameExists",
-			"A queue with this name already exists.",
-			http.StatusBadRequest,
-		}},
-		{ErrReceiptHandleInvalid, errorEntry{
-			"com.amazonaws.sqs#ReceiptHandleIsInvalid",
-			"The receipt handle is not valid.",
-			http.StatusBadRequest,
-		}},
-		{ErrMessageNotInflight, errorEntry{
-			"com.amazonaws.sqs#MessageNotInflight",
-			"The message referred to by the receipt handle is not in-flight.",
-			http.StatusBadRequest,
-		}},
-		{ErrTooManyEntriesInBatch, errorEntry{
-			"com.amazonaws.sqs#TooManyEntriesInBatchRequest",
-			"Too many entries in batch request.",
-			http.StatusBadRequest,
-		}},
-		{ErrBatchEntryIDsNotDistinct, errorEntry{
-			"com.amazonaws.sqs#BatchEntryIdsNotDistinct",
-			"Two or more batch entries in the request have the same Id.",
-			http.StatusBadRequest,
-		}},
-		{ErrInvalidBatchEntry, errorEntry{
-			"com.amazonaws.sqs#EmptyBatchRequest",
-			"The batch request is empty.",
-			http.StatusBadRequest,
-		}},
-		{ErrInvalidAttribute, errorEntry{
-			"com.amazonaws.sqs#InvalidAttributeValue",
-			"Invalid attribute value.",
-			http.StatusBadRequest,
-		}},
-		{ErrMessageTooLarge, errorEntry{
-			"com.amazonaws.sqs#InvalidMessageContents",
-			"The message exceeds the maximum message size.",
-			http.StatusBadRequest,
-		}},
-		{ErrUnknownAction, errorEntry{
-			"com.amazonaws.sqs#InvalidAction",
-			"The action or operation requested is invalid.",
-			http.StatusBadRequest,
-		}},
-		{ErrTaskHandleInvalid, errorEntry{
-			errTypeInvalidParameterValue,
-			"The task handle provided is not valid.",
-			http.StatusBadRequest,
-		}},
-		{ErrInvalidPermissionLabel, errorEntry{
-			errTypeInvalidParameterValue,
-			"The value for the required parameter 'Label' is not valid. Reason: label must not be empty.",
-			http.StatusBadRequest,
-		}},
-		{ErrMoveTaskAlreadyRunning, errorEntry{
-			"com.amazonaws.sqs#ResourceInConflict",
-			"A message move task already exists for the specified source queue.",
-			http.StatusBadRequest,
-		}},
-	}
-
-	for _, row := range errorTable {
-		if errors.Is(err, row.sentinel) {
-			return row.entry.errType, row.entry.message, row.entry.status
-		}
+	if e, ok := sqsErrorDetails(err); ok {
+		return e.errType, e.message, e.status
 	}
 
 	return "com.amazonaws.sqs#InternalError",
 		"An internal error occurred.",
 		http.StatusInternalServerError
+}
+
+// sqsErrorDetails looks up an error in the well-known SQS error table.
+// Extracted to keep errorDetails itself under the funlen limit.
+// The table is split across two helpers to stay within funlen.
+func sqsErrorDetails(err error) (errorEntry, bool) {
+	if e, ok := sqsCoreErrorDetails(err); ok {
+		return e, true
+	}
+
+	return sqsPermMoveErrorDetails(err)
+}
+
+// sqsCoreErrorDetails handles the core queue/message sentinel errors.
+func sqsCoreErrorDetails(err error) (errorEntry, bool) {
+	type errRow struct {
+		sentinel error
+		entry    errorEntry
+	}
+
+	const badReq = http.StatusBadRequest
+
+	rows := [...]errRow{
+		{
+			ErrQueueNotFound,
+			errorEntry{"com.amazonaws.sqs#QueueDoesNotExist", "The specified queue does not exist.", badReq},
+		},
+		{
+			ErrQueueAlreadyExists,
+			errorEntry{"com.amazonaws.sqs#QueueNameExists", "A queue with this name already exists.", badReq},
+		},
+		{
+			ErrReceiptHandleInvalid,
+			errorEntry{
+				"com.amazonaws.sqs#ReceiptHandleIsInvalid",
+				"The receipt handle is not valid.",
+				badReq,
+			},
+		},
+		{ErrMessageNotInflight, errorEntry{
+			"com.amazonaws.sqs#MessageNotInflight",
+			"The message referred to by the receipt handle is not in-flight.",
+			badReq,
+		}},
+		{
+			ErrTooManyEntriesInBatch,
+			errorEntry{
+				"com.amazonaws.sqs#TooManyEntriesInBatchRequest",
+				"Too many entries in batch request.",
+				badReq,
+			},
+		},
+		{
+			ErrBatchEntryIDsNotDistinct,
+			errorEntry{
+				"com.amazonaws.sqs#BatchEntryIdsNotDistinct",
+				"Two or more batch entries in the request have the same Id.",
+				badReq,
+			},
+		},
+		{
+			ErrInvalidBatchEntry,
+			errorEntry{"com.amazonaws.sqs#EmptyBatchRequest", "The batch request is empty.", badReq},
+		},
+		{
+			ErrInvalidAttribute,
+			errorEntry{"com.amazonaws.sqs#InvalidAttributeValue", "Invalid attribute value.", badReq},
+		},
+		{
+			ErrMessageTooLarge,
+			errorEntry{
+				"com.amazonaws.sqs#InvalidMessageContents",
+				"The message exceeds the maximum message size.",
+				badReq,
+			},
+		},
+		{
+			ErrUnknownAction,
+			errorEntry{
+				"com.amazonaws.sqs#InvalidAction",
+				"The action or operation requested is invalid.",
+				badReq,
+			},
+		},
+	}
+
+	for _, row := range rows {
+		if errors.Is(err, row.sentinel) {
+			return row.entry, true
+		}
+	}
+
+	return errorEntry{}, false
+}
+
+// sqsPermMoveErrorDetails handles permission, move-task, and validation sentinel errors.
+func sqsPermMoveErrorDetails(err error) (errorEntry, bool) {
+	type errRow struct {
+		sentinel error
+		entry    errorEntry
+	}
+
+	const badReq = http.StatusBadRequest
+	const conflict = "com.amazonaws.sqs#ResourceInConflict"
+	const ipv = errTypeInvalidParameterValue
+
+	rows := [...]errRow{
+		{ErrTaskHandleInvalid, errorEntry{ipv, "The task handle provided is not valid.", badReq}},
+		{ErrInvalidPermissionLabel, errorEntry{
+			ipv,
+			"The value for the required parameter 'Label' is not valid. Reason: label must not be empty.",
+			badReq,
+		}},
+		{ErrInvalidPermissionActions, errorEntry{
+			ipv,
+			"The value for 'Actions' is not valid. Reason: Actions must not be empty.",
+			badReq,
+		}},
+		{ErrInvalidPermissionAccountIDs, errorEntry{
+			ipv,
+			"The value for 'AWSAccountIds' is not valid. Reason: AWSAccountIds must not be empty.",
+			badReq,
+		}},
+		{ErrInvalidSourceArn, errorEntry{
+			ipv,
+			"The value for 'SourceArn' is not valid. Reason: SourceArn must not be empty.",
+			badReq,
+		}},
+		{ErrInvalidMaxMessagesPerSecond, errorEntry{
+			ipv,
+			"The value for 'MaxNumberOfMessagesPerSecond' is not valid. Reason: must be >= 0.",
+			badReq,
+		}},
+		{ErrMoveTaskAlreadyRunning, errorEntry{
+			conflict,
+			"A message move task already exists for the specified source queue.",
+			badReq,
+		}},
+		{ErrMoveTaskNotRunning, errorEntry{
+			conflict,
+			"A message move task with the specified task handle is not running.",
+			badReq,
+		}},
+	}
+
+	for _, row := range rows {
+		if errors.Is(err, row.sentinel) {
+			return row.entry, true
+		}
+	}
+
+	return errorEntry{}, false
 }
 
 // queueNameFromURL extracts the queue name from a full queue URL.

@@ -576,6 +576,57 @@ func TestSQS_MessageMoveTasks_Handler(t *testing.T) {
 			wantCode:        http.StatusBadRequest,
 			wantBodyContain: "ResourceInConflict",
 		},
+		{
+			name:   "StartMessageMoveTask_empty_source_arn_returns_error",
+			action: "StartMessageMoveTask",
+			setup: func(_ *testing.T, _ *sqs.Handler) map[string]any {
+				return map[string]any{
+					"SourceArn":      "",
+					"DestinationArn": buildQueueARN("some-dest"),
+				}
+			},
+			wantCode:        http.StatusBadRequest,
+			wantBodyContain: "InvalidParameterValue",
+		},
+		{
+			name:   "CancelMessageMoveTask_on_completed_task_returns_conflict",
+			action: "CancelMessageMoveTask",
+			setup: func(t *testing.T, h *sqs.Handler) map[string]any {
+				t.Helper()
+				doCreateQueue(t, h, "smt-cancel-done-dlq")
+				doCreateQueue(t, h, "smt-cancel-done-dest")
+
+				// Start a task on an empty queue; it completes immediately.
+				rec := doRequest(t, h, "StartMessageMoveTask", map[string]any{
+					"SourceArn":      buildQueueARN("smt-cancel-done-dlq"),
+					"DestinationArn": buildQueueARN("smt-cancel-done-dest"),
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				var startResp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+				handle, _ := startResp["TaskHandle"].(string)
+				require.NotEmpty(t, handle)
+
+				// Wait for the task to complete via polling ListMessageMoveTasks.
+				dlqARN := buildQueueARN("smt-cancel-done-dlq")
+				b := h.Backend.(*sqs.InMemoryBackend)
+
+				require.Eventually(t, func() bool {
+					listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+						SourceArn:  dlqARN,
+						MaxResults: 1,
+					})
+
+					return listErr == nil && len(listOut.Results) > 0 &&
+						listOut.Results[0].Status == sqs.MoveTaskStatusCompleted
+				}, 2*time.Second, 10*time.Millisecond)
+
+				return map[string]any{"TaskHandle": handle}
+			},
+			wantCode:        http.StatusBadRequest,
+			wantBodyContain: "ResourceInConflict",
+		},
 	}
 
 	for _, tt := range tests {
@@ -789,4 +840,202 @@ func TestSQS_ListMessageMoveTasks_NewestFirst(t *testing.T) {
 		assert.GreaterOrEqual(t, out.Results[i-1].StartedTimestamp, out.Results[i].StartedTimestamp,
 			"results should be sorted newest first")
 	}
+}
+
+// TestSQS_StartMessageMoveTask_Validation tests input validation for StartMessageMoveTask.
+func TestSQS_StartMessageMoveTask_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErrIs error
+		name      string
+		input     sqs.StartMessageMoveTaskInput
+	}{
+		{
+			name: "empty_source_arn_returns_error",
+			input: sqs.StartMessageMoveTaskInput{
+				SourceArn:      "",
+				DestinationArn: "arn:aws:sqs:us-east-1:000000000000:dest",
+			},
+			wantErrIs: sqs.ErrInvalidSourceArn,
+		},
+		{
+			name: "negative_rate_returns_error",
+			input: sqs.StartMessageMoveTaskInput{
+				SourceArn:                    "arn:aws:sqs:us-east-1:000000000000:src",
+				MaxNumberOfMessagesPerSecond: -1,
+			},
+			wantErrIs: sqs.ErrInvalidMaxMessagesPerSecond,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sqs.NewInMemoryBackend()
+
+			_, err := b.StartMessageMoveTask(&tt.input)
+			require.Error(t, err)
+			require.ErrorIs(t, err, tt.wantErrIs)
+		})
+	}
+}
+
+// TestSQS_CancelMessageMoveTask_NotRunning verifies that cancelling a task that has
+// already completed returns ErrMoveTaskNotRunning, matching AWS ResourceInConflict semantics.
+func TestSQS_CancelMessageMoveTask_NotRunning(t *testing.T) {
+	t.Parallel()
+
+	b := sqs.NewInMemoryBackend()
+
+	dlqName := "dlq-cancel-complete"
+	destName := "dest-cancel-complete"
+
+	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName, Endpoint: "localhost"})
+	require.NoError(t, err)
+
+	_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: destName, Endpoint: "localhost"})
+	require.NoError(t, err)
+
+	dlqARN := buildQueueARN(dlqName)
+
+	// Start a task on an empty queue — it will complete immediately.
+	startOut, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
+		SourceArn:      dlqARN,
+		DestinationArn: buildQueueARN(destName),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, startOut.TaskHandle)
+
+	// Wait for task to reach COMPLETED.
+	require.Eventually(t, func() bool {
+		listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+			SourceArn:  dlqARN,
+			MaxResults: 1,
+		})
+
+		return listErr == nil && len(listOut.Results) > 0 &&
+			listOut.Results[0].Status == sqs.MoveTaskStatusCompleted
+	}, 2*time.Second, 10*time.Millisecond, "task should complete")
+
+	// Cancelling a completed task must return ErrMoveTaskNotRunning.
+	_, err = b.CancelMessageMoveTask(&sqs.CancelMessageMoveTaskInput{
+		TaskHandle: startOut.TaskHandle,
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, sqs.ErrMoveTaskNotRunning)
+}
+
+// TestSQS_AddPermission_Validation tests input validation for AddPermission.
+func TestSQS_AddPermission_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErrIs error
+		name      string
+		input     sqs.AddPermissionInput
+	}{
+		{
+			name: "empty_label_returns_error",
+			input: sqs.AddPermissionInput{
+				QueueURL:      "http://localhost/000000000000/q",
+				Label:         "",
+				AWSAccountIDs: []string{"123456789012"},
+				Actions:       []string{"SendMessage"},
+			},
+			wantErrIs: sqs.ErrInvalidPermissionLabel,
+		},
+		{
+			name: "empty_actions_returns_error",
+			input: sqs.AddPermissionInput{
+				QueueURL:      "http://localhost/000000000000/q",
+				Label:         "MyLabel",
+				AWSAccountIDs: []string{"123456789012"},
+				Actions:       []string{},
+			},
+			wantErrIs: sqs.ErrInvalidPermissionActions,
+		},
+		{
+			name: "empty_aws_account_ids_returns_error",
+			input: sqs.AddPermissionInput{
+				QueueURL:      "http://localhost/000000000000/q",
+				Label:         "MyLabel",
+				AWSAccountIDs: []string{},
+				Actions:       []string{"SendMessage"},
+			},
+			wantErrIs: sqs.ErrInvalidPermissionAccountIDs,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sqs.NewInMemoryBackend()
+
+			_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "q", Endpoint: "localhost"})
+			require.NoError(t, err)
+
+			err = b.AddPermission(&tt.input)
+			require.Error(t, err)
+			require.ErrorIs(t, err, tt.wantErrIs)
+		})
+	}
+}
+
+// TestSQS_DeleteQueue_CancelsMoveTasks verifies that deleting a queue that is the
+// source of an active move task cancels the task, preventing a goroutine leak.
+func TestSQS_DeleteQueue_CancelsMoveTasks(t *testing.T) {
+	t.Parallel()
+
+	b := sqs.NewInMemoryBackend()
+
+	dlqName := "dlq-delete-cancel"
+	destName := "dest-delete-cancel"
+
+	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName, Endpoint: "localhost"})
+	require.NoError(t, err)
+
+	_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: destName, Endpoint: "localhost"})
+	require.NoError(t, err)
+
+	dlqURL := "http://localhost/000000000000/" + dlqName
+	dlqARN := buildQueueARN(dlqName)
+
+	// Seed messages so the task doesn't complete before we delete the queue.
+	for i := range 10 {
+		_, sendErr := b.SendMessage(&sqs.SendMessageInput{
+			QueueURL:    dlqURL,
+			MessageBody: "msg-" + strconv.Itoa(i),
+		})
+		require.NoError(t, sendErr)
+	}
+
+	// Start a rate-limited task so it stays RUNNING.
+	startOut, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
+		SourceArn:                    dlqARN,
+		DestinationArn:               buildQueueARN(destName),
+		MaxNumberOfMessagesPerSecond: 1,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, startOut.TaskHandle)
+
+	// Delete the DLQ — the associated move task must reach a terminal state.
+	err = b.DeleteQueue(&sqs.DeleteQueueInput{QueueURL: dlqURL})
+	require.NoError(t, err)
+
+	// The task should eventually transition from RUNNING/CANCELLING to a terminal state.
+	require.Eventually(t, func() bool {
+		listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+			MaxResults: 1,
+		})
+		if listErr != nil || len(listOut.Results) == 0 {
+			return false
+		}
+
+		s := listOut.Results[0].Status
+
+		return s == sqs.MoveTaskStatusCancelled || s == sqs.MoveTaskStatusCompleted || s == sqs.MoveTaskStatusFailed
+	}, 3*time.Second, 10*time.Millisecond, "move task should reach a terminal state after DeleteQueue")
 }

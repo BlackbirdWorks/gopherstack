@@ -119,6 +119,40 @@ func TestSQS_Permissions(t *testing.T) {
 			wantCode:        http.StatusBadRequest,
 			wantBodyContain: "InvalidParameterValue",
 		},
+		{
+			name: "AddPermission_empty_actions_returns_error",
+			setup: func(t *testing.T, h *sqs.Handler) string {
+				t.Helper()
+
+				return doCreateQueue(t, h, "perm-queue-empty-actions")
+			},
+			action: "AddPermission",
+			body: map[string]any{
+				"QueueUrl":      "http://localhost/000000000000/perm-queue-empty-actions",
+				"Label":         "MyLabel",
+				"AWSAccountIds": []string{"123456789012"},
+				"Actions":       []string{},
+			},
+			wantCode:        http.StatusBadRequest,
+			wantBodyContain: "InvalidParameterValue",
+		},
+		{
+			name: "AddPermission_empty_aws_account_ids_returns_error",
+			setup: func(t *testing.T, h *sqs.Handler) string {
+				t.Helper()
+
+				return doCreateQueue(t, h, "perm-queue-empty-accounts")
+			},
+			action: "AddPermission",
+			body: map[string]any{
+				"QueueUrl":      "http://localhost/000000000000/perm-queue-empty-accounts",
+				"Label":         "MyLabel",
+				"AWSAccountIds": []string{},
+				"Actions":       []string{"SendMessage"},
+			},
+			wantCode:        http.StatusBadRequest,
+			wantBodyContain: "InvalidParameterValue",
+		},
 	}
 
 	for _, tt := range tests {

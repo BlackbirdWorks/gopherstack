@@ -383,3 +383,132 @@ func TestIntegration_SQS_StartMessageMoveTask_AlreadyRunning(t *testing.T) {
 	_, err = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: destOut.QueueUrl})
 	require.NoError(t, err)
 }
+
+// TestIntegration_SQS_CancelMessageMoveTask_Completed validates that cancelling
+// a completed message move task returns a ResourceInConflict error.
+func TestIntegration_SQS_CancelMessageMoveTask_Completed(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createSQSClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()
+	dlqName := "int-dlq-cancel-done-" + suffix
+	destName := "int-dest-cancel-done-" + suffix
+
+	dlqOut, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(dlqName)})
+	require.NoError(t, err)
+
+	destOut, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(destName)})
+	require.NoError(t, err)
+
+	dlqAttrOut, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl:       dlqOut.QueueUrl,
+		AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	require.NoError(t, err)
+	dlqARN := dlqAttrOut.Attributes["QueueArn"]
+
+	destAttrOut, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl:       destOut.QueueUrl,
+		AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
+	})
+	require.NoError(t, err)
+	destARN := destAttrOut.Attributes["QueueArn"]
+
+	// Start a task on an empty queue — it completes immediately.
+	startOut, err := client.StartMessageMoveTask(ctx, &sqs.StartMessageMoveTaskInput{
+		SourceArn:      aws.String(dlqARN),
+		DestinationArn: aws.String(destARN),
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(startOut.TaskHandle))
+
+	// Wait for the task to reach a terminal state.
+	require.Eventually(t, func() bool {
+		listOut, listErr := client.ListMessageMoveTasks(ctx, &sqs.ListMessageMoveTasksInput{
+			SourceArn: aws.String(dlqARN),
+		})
+		if listErr != nil || len(listOut.Results) == 0 {
+			return false
+		}
+
+		status := aws.ToString(listOut.Results[0].Status)
+
+		return status == "COMPLETED" || status == "CANCELLED" || status == "FAILED"
+	}, 5*time.Second, 50*time.Millisecond, "task should reach terminal state")
+
+	// Cancelling a completed task should return an error.
+	_, err = client.CancelMessageMoveTask(ctx, &sqs.CancelMessageMoveTaskInput{
+		TaskHandle: startOut.TaskHandle,
+	})
+	require.Error(t, err, "cancelling a completed task should return an error")
+
+	// Cleanup.
+	_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: dlqOut.QueueUrl})
+	_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: destOut.QueueUrl})
+}
+
+// TestIntegration_SQS_AddPermission_Validation validates error cases for AddPermission.
+func TestIntegration_SQS_AddPermission_Validation(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	client := createSQSClient(t)
+	ctx := t.Context()
+
+	suffix := uuid.NewString()
+	queueName := "int-perm-validation-" + suffix
+
+	createOut, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{
+		QueueName: aws.String(queueName),
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name  string
+		input sqs.AddPermissionInput
+	}{
+		{
+			name: "empty_label",
+			input: sqs.AddPermissionInput{
+				QueueUrl:      createOut.QueueUrl,
+				Label:         aws.String(""),
+				AWSAccountIds: []string{"123456789012"},
+				Actions:       []string{"SendMessage"},
+			},
+		},
+		{
+			name: "empty_actions",
+			input: sqs.AddPermissionInput{
+				QueueUrl:      createOut.QueueUrl,
+				Label:         aws.String("TestLabel"),
+				AWSAccountIds: []string{"123456789012"},
+				Actions:       []string{},
+			},
+		},
+		{
+			name: "empty_aws_account_ids",
+			input: sqs.AddPermissionInput{
+				QueueUrl:      createOut.QueueUrl,
+				Label:         aws.String("TestLabel"),
+				AWSAccountIds: []string{},
+				Actions:       []string{"SendMessage"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			dumpContainerLogsOnFailure(t)
+
+			_, addErr := client.AddPermission(ctx, &tt.input)
+			require.Error(t, addErr, "AddPermission with invalid input should return error")
+		})
+	}
+
+	// Cleanup.
+	_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: createOut.QueueUrl})
+}

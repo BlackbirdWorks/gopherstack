@@ -277,6 +277,8 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 		return ErrQueueNotFound
 	}
 
+	queueARN := q.Attributes[attrQueueArn]
+
 	// Close the notify channel so that any goroutines blocked on long-polling
 	// wake up immediately and receive ErrQueueNotFound on their next receiveOnce call.
 	close(q.notify)
@@ -286,6 +288,19 @@ func (b *InMemoryBackend) DeleteQueue(input *DeleteQueueInput) error {
 	}
 
 	delete(b.queues, name)
+
+	// Cancel any active move tasks that involve this queue (either as source or
+	// destination) to prevent goroutine leaks.
+	for _, task := range b.moveTasks {
+		task.mu.Lock()
+		isActive := task.status == MoveTaskStatusRunning || task.status == MoveTaskStatusCancelling
+		involves := task.sourceArn == queueARN || task.destArn == queueARN
+		task.mu.Unlock()
+
+		if isActive && involves {
+			task.cancel()
+		}
+	}
 
 	return nil
 }
@@ -1237,6 +1252,14 @@ func (b *InMemoryBackend) AddPermission(input *AddPermissionInput) error {
 		return ErrInvalidPermissionLabel
 	}
 
+	if len(input.Actions) == 0 {
+		return ErrInvalidPermissionActions
+	}
+
+	if len(input.AWSAccountIDs) == 0 {
+		return ErrInvalidPermissionAccountIDs
+	}
+
 	b.mu.Lock("AddPermission")
 	defer b.mu.Unlock()
 
@@ -1331,6 +1354,14 @@ func approximateQueueDepthLocked(q *Queue) int64 {
 func (b *InMemoryBackend) StartMessageMoveTask(
 	input *StartMessageMoveTaskInput,
 ) (*StartMessageMoveTaskOutput, error) {
+	if input.SourceArn == "" {
+		return nil, ErrInvalidSourceArn
+	}
+
+	if input.MaxNumberOfMessagesPerSecond < 0 {
+		return nil, ErrInvalidMaxMessagesPerSecond
+	}
+
 	b.mu.Lock("StartMessageMoveTask")
 
 	// Check for existing running task on the same source ARN (AWS realism).
@@ -1475,10 +1506,14 @@ func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState,
 		msg := out.Messages[0]
 
 		// Send the message to the destination queue.
+		// Preserve MessageGroupID and MessageDeduplicationID for FIFO queues so that
+		// moved messages retain their original message group and deduplication identities.
 		_, sendErr := b.SendMessage(&SendMessageInput{
-			QueueURL:          destURL,
-			MessageBody:       msg.Body,
-			MessageAttributes: msg.MessageAttributes,
+			QueueURL:               destURL,
+			MessageBody:            msg.Body,
+			MessageAttributes:      msg.MessageAttributes,
+			MessageGroupID:         msg.MessageGroupID,
+			MessageDeduplicationID: msg.MessageDeduplicationID,
 		})
 		if sendErr != nil {
 			// Re-make message visible so it is not lost.
@@ -1508,6 +1543,8 @@ func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState,
 }
 
 // CancelMessageMoveTask cancels an active message move task.
+// Returns ErrMoveTaskNotRunning if the task is not in RUNNING or CANCELLING state,
+// matching AWS behaviour ("A message move task with the specified task handle is not running.").
 func (b *InMemoryBackend) CancelMessageMoveTask(
 	input *CancelMessageMoveTaskInput,
 ) (*CancelMessageMoveTaskOutput, error) {
@@ -1521,11 +1558,11 @@ func (b *InMemoryBackend) CancelMessageMoveTask(
 
 	state.mu.Lock()
 
-	if state.status != MoveTaskStatusRunning {
-		moved := state.movedCount
+	// Per AWS: cancelling a task that is not RUNNING returns ResourceInConflict.
+	if state.status != MoveTaskStatusRunning && state.status != MoveTaskStatusCancelling {
 		state.mu.Unlock()
 
-		return &CancelMessageMoveTaskOutput{ApproximateNumberOfMessagesMoved: moved}, nil
+		return nil, ErrMoveTaskNotRunning
 	}
 
 	state.status = MoveTaskStatusCancelling
