@@ -22,10 +22,25 @@ type queueSnapshot struct {
 	IsFIFO              bool                             `json:"isFIFO"`
 }
 
+// moveTaskSnapshot captures the serialisable state of a completed/cancelled/failed move task.
+// Running tasks are NOT persisted because their goroutines cannot be resumed after restart.
+type moveTaskSnapshot struct {
+	TaskHandle    string         `json:"taskHandle"`
+	SourceArn     string         `json:"sourceArn"`
+	DestArn       string         `json:"destArn"`
+	FailureReason string         `json:"failureReason,omitempty"`
+	Status        MoveTaskStatus `json:"status"`
+	StartedAt     int64          `json:"startedAt"`
+	MovedCount    int64          `json:"movedCount"`
+	TotalCount    int64          `json:"totalCount"`
+	MaxPerSec     int32          `json:"maxPerSec,omitempty"`
+}
+
 type backendSnapshot struct {
 	Queues    map[string]*queueSnapshot `json:"queues"`
 	AccountID string                    `json:"accountID"`
 	Region    string                    `json:"region"`
+	MoveTasks []*moveTaskSnapshot       `json:"moveTasks,omitempty"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -51,8 +66,34 @@ func (b *InMemoryBackend) Snapshot() []byte {
 		}
 	}
 
+	// Persist terminal move tasks (COMPLETED/CANCELLED/FAILED) so task history
+	// survives restarts. RUNNING tasks are skipped because the goroutine cannot
+	// be resumed, and CANCELLING is a transient state that resolves to CANCELLED.
+	var moveTasks []*moveTaskSnapshot
+	for _, t := range b.moveTasks {
+		t.mu.Lock()
+		status := t.status
+		snap := &moveTaskSnapshot{
+			TaskHandle:    t.taskHandle,
+			SourceArn:     t.sourceArn,
+			DestArn:       t.destArn,
+			FailureReason: t.failureReason,
+			Status:        status,
+			StartedAt:     t.startedAt,
+			MovedCount:    t.movedCount,
+			TotalCount:    t.totalCount,
+			MaxPerSec:     t.maxPerSec,
+		}
+		t.mu.Unlock()
+
+		if status == MoveTaskStatusCompleted || status == MoveTaskStatusCancelled || status == MoveTaskStatusFailed {
+			moveTasks = append(moveTasks, snap)
+		}
+	}
+
 	snap := backendSnapshot{
 		Queues:    queues,
+		MoveTasks: moveTasks,
 		AccountID: b.accountID,
 		Region:    b.region,
 	}
@@ -114,6 +155,25 @@ func (b *InMemoryBackend) Restore(data []byte) error {
 			MaxReceiveCount:     qs.MaxReceiveCount,
 			IsFIFO:              qs.IsFIFO,
 			notify:              make(chan struct{}),
+		}
+	}
+
+	// Restore terminal move task history. A no-op cancel function is used because
+	// these tasks are already in a terminal state and their goroutines are gone.
+	b.moveTasks = make(map[string]*moveTaskState)
+
+	for _, ts := range snap.MoveTasks {
+		b.moveTasks[ts.TaskHandle] = &moveTaskState{
+			cancel:        func() {},
+			taskHandle:    ts.TaskHandle,
+			sourceArn:     ts.SourceArn,
+			destArn:       ts.DestArn,
+			failureReason: ts.FailureReason,
+			status:        ts.Status,
+			startedAt:     ts.StartedAt,
+			movedCount:    ts.MovedCount,
+			totalCount:    ts.TotalCount,
+			maxPerSec:     ts.MaxPerSec,
 		}
 	}
 

@@ -629,14 +629,22 @@ const (
 
 // MessageMoveTask describes the state of a single message move task.
 type MessageMoveTask struct {
-	StartedTimestamp                  *int64
-	ApproximateNumberOfMessagesMoved  *int64
+	// ApproximateNumberOfMessagesToMove is the total messages when the task started.
+	// nil when not yet determined.
 	ApproximateNumberOfMessagesToMove *int64
-	MaxNumberOfMessagesPerSecond      *int32
-	TaskHandle                        string
-	SourceArn                         string
-	DestinationArn                    string
-	Status                            MoveTaskStatus
+	// MaxNumberOfMessagesPerSecond is nil when no rate limit was set.
+	MaxNumberOfMessagesPerSecond *int32
+	// FailureReason is populated when Status is FAILED.
+	FailureReason  *string
+	TaskHandle     string
+	SourceArn      string
+	DestinationArn string
+	Status         MoveTaskStatus
+	// ApproximateNumberOfMessagesMoved is always present (not a pointer), matching
+	// the AWS SDK ListMessageMoveTasksResultEntry.ApproximateNumberOfMessagesMoved.
+	ApproximateNumberOfMessagesMoved int64
+	// StartedTimestamp is always present (Unix epoch ms), matching the AWS SDK.
+	StartedTimestamp int64
 }
 
 // AddPermissionInput is the input for AddPermission.

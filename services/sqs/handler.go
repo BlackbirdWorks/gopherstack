@@ -1112,14 +1112,16 @@ type jsonListMessageMoveTasksReq struct {
 }
 
 type jsonMessageMoveTask struct {
-	StartedTimestamp                  *int64 `json:"StartedTimestamp,omitempty"`
-	ApproximateNumberOfMessagesMoved  *int64 `json:"ApproximateNumberOfMessagesMoved,omitempty"`
-	ApproximateNumberOfMessagesToMove *int64 `json:"ApproximateNumberOfMessagesToMove,omitempty"`
-	MaxNumberOfMessagesPerSecond      *int32 `json:"MaxNumberOfMessagesPerSecond,omitempty"`
-	TaskHandle                        string `json:"TaskHandle"`
-	SourceArn                         string `json:"SourceArn"`
-	DestinationArn                    string `json:"DestinationArn,omitempty"`
-	Status                            string `json:"Status"`
+	ApproximateNumberOfMessagesToMove *int64  `json:"ApproximateNumberOfMessagesToMove,omitempty"`
+	MaxNumberOfMessagesPerSecond      *int32  `json:"MaxNumberOfMessagesPerSecond,omitempty"`
+	FailureReason                     *string `json:"FailureReason,omitempty"`
+	TaskHandle                        string  `json:"TaskHandle,omitempty"`
+	SourceArn                         string  `json:"SourceArn"`
+	DestinationArn                    string  `json:"DestinationArn,omitempty"`
+	Status                            string  `json:"Status"`
+	// Always present — matches AWS SDK ListMessageMoveTasksResultEntry.
+	ApproximateNumberOfMessagesMoved int64 `json:"ApproximateNumberOfMessagesMoved"`
+	StartedTimestamp                 int64 `json:"StartedTimestamp"`
 }
 
 type jsonListMessageMoveTasksResp struct {
@@ -1242,6 +1244,7 @@ func (h *Handler) handleListMessageMoveTasks(
 			ApproximateNumberOfMessagesMoved:  t.ApproximateNumberOfMessagesMoved,
 			ApproximateNumberOfMessagesToMove: t.ApproximateNumberOfMessagesToMove,
 			MaxNumberOfMessagesPerSecond:      t.MaxNumberOfMessagesPerSecond,
+			FailureReason:                     t.FailureReason,
 		})
 	}
 

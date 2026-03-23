@@ -58,16 +58,17 @@ const moveTaskVisibilityTimeoutSecs = 30
 
 // moveTaskState tracks the live state of a StartMessageMoveTask goroutine.
 type moveTaskState struct {
-	cancel     context.CancelFunc
-	taskHandle string
-	sourceArn  string
-	destArn    string
-	status     MoveTaskStatus
-	startedAt  int64
-	movedCount int64
-	totalCount int64
-	mu         sync.Mutex
-	maxPerSec  int32
+	cancel        context.CancelFunc
+	taskHandle    string
+	sourceArn     string
+	destArn       string
+	failureReason string
+	status        MoveTaskStatus
+	startedAt     int64
+	movedCount    int64
+	totalCount    int64
+	mu            sync.Mutex
+	maxPerSec     int32
 }
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
@@ -1460,6 +1461,7 @@ func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState,
 		if err != nil {
 			state.mu.Lock()
 			state.status = MoveTaskStatusFailed
+			state.failureReason = "failed to receive message from source queue: " + err.Error()
 			state.mu.Unlock()
 
 			return
@@ -1487,6 +1489,7 @@ func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState,
 			})
 			state.mu.Lock()
 			state.status = MoveTaskStatusFailed
+			state.failureReason = "failed to send message to destination queue: " + sendErr.Error()
 			state.mu.Unlock()
 
 			return
@@ -1538,7 +1541,20 @@ func (b *InMemoryBackend) CancelMessageMoveTask(
 	}, nil
 }
 
-// ListMessageMoveTasks returns all message move tasks for the given source ARN.
+// listMessageMoveTasksDefaultMaxResults is the default number of results returned by
+// ListMessageMoveTasks when MaxResults is not specified, matching AWS behaviour.
+const listMessageMoveTasksDefaultMaxResults = 1
+
+// listMessageMoveTasksMaxAllowed is the maximum number of results AWS allows.
+const listMessageMoveTasksMaxAllowed = 10
+
+// ListMessageMoveTasks returns message move tasks for the given source ARN.
+//
+// Per AWS semantics:
+//   - If MaxResults is 0 (not set), it defaults to 1 (the most recent task).
+//   - The maximum allowed value for MaxResults is 10.
+//   - Results are sorted newest-first (descending by startedAt timestamp).
+//   - TaskHandle is only populated for tasks in RUNNING status.
 func (b *InMemoryBackend) ListMessageMoveTasks(
 	input *ListMessageMoveTasksInput,
 ) (*ListMessageMoveTasksOutput, error) {
@@ -1554,10 +1570,24 @@ func (b *InMemoryBackend) ListMessageMoveTasks(
 
 	b.mu.RUnlock()
 
-	// Sort tasks by start time for deterministic output.
+	// Sort newest first (descending by startedAt) — AWS returns the most recent task first.
 	sort.Slice(tasks, func(i, j int) bool {
-		return tasks[i].startedAt < tasks[j].startedAt
+		return tasks[i].startedAt > tasks[j].startedAt
 	})
+
+	// Apply MaxResults: default to 1 when unset; cap at the AWS maximum of 10.
+	limit := int(input.MaxResults)
+	if limit <= 0 {
+		limit = listMessageMoveTasksDefaultMaxResults
+	}
+
+	if limit > listMessageMoveTasksMaxAllowed {
+		limit = listMessageMoveTasksMaxAllowed
+	}
+
+	if len(tasks) > limit {
+		tasks = tasks[:limit]
+	}
 
 	results := make([]MessageMoveTask, 0, len(tasks))
 
@@ -1571,33 +1601,35 @@ func (b *InMemoryBackend) ListMessageMoveTasks(
 		taskHandle := t.taskHandle
 		sourceArn := t.sourceArn
 		destArn := t.destArn
+		failureReason := t.failureReason
 		t.mu.Unlock()
 
 		task := MessageMoveTask{
-			TaskHandle:                       taskHandle,
 			SourceArn:                        sourceArn,
 			DestinationArn:                   destArn,
 			Status:                           status,
-			ApproximateNumberOfMessagesMoved: &movedCount,
+			ApproximateNumberOfMessagesMoved: movedCount,
+			StartedTimestamp:                 startedAt,
+		}
+
+		// Per AWS: TaskHandle is only populated for RUNNING tasks.
+		if status == MoveTaskStatusRunning {
+			task.TaskHandle = taskHandle
 		}
 
 		if totalCount > 0 {
 			task.ApproximateNumberOfMessagesToMove = &totalCount
 		}
 
-		if startedAt > 0 {
-			task.StartedTimestamp = &startedAt
-		}
-
 		if maxPerSec > 0 {
 			task.MaxNumberOfMessagesPerSecond = &maxPerSec
 		}
 
-		results = append(results, task)
-	}
+		if failureReason != "" {
+			task.FailureReason = &failureReason
+		}
 
-	if input.MaxResults > 0 && len(results) > int(input.MaxResults) {
-		results = results[:input.MaxResults]
+		results = append(results, task)
 	}
 
 	return &ListMessageMoveTasksOutput{Results: results}, nil

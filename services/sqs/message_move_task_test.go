@@ -182,17 +182,20 @@ func TestSQS_DLQRedrive_MovesMessages(t *testing.T) {
 	require.NotEmpty(t, out.TaskHandle)
 
 	// Wait for the goroutine to drain the DLQ.
+	// Per AWS semantics, TaskHandle is only populated for RUNNING tasks in the
+	// ListMessageMoveTasks response, so we check Status directly.
 	require.Eventually(t, func() bool {
 		listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
-			SourceArn: dlqARN,
+			SourceArn:  dlqARN,
+			MaxResults: 1,
 		})
 		if listErr != nil {
 			return false
 		}
 
 		for _, task := range listOut.Results {
-			if task.TaskHandle == out.TaskHandle {
-				return task.Status == sqs.MoveTaskStatusCompleted
+			if task.Status == sqs.MoveTaskStatusCompleted {
+				return true
 			}
 		}
 
@@ -258,17 +261,19 @@ func TestSQS_DLQRedrive_DefaultDestination(t *testing.T) {
 	require.NotEmpty(t, out.TaskHandle)
 
 	// Wait for completion.
+	// Per AWS semantics, TaskHandle is only populated for RUNNING tasks.
 	require.Eventually(t, func() bool {
 		listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
-			SourceArn: dlqARN,
+			SourceArn:  dlqARN,
+			MaxResults: 1,
 		})
 		if listErr != nil {
 			return false
 		}
 
 		for _, task := range listOut.Results {
-			if task.TaskHandle == out.TaskHandle {
-				return task.Status == sqs.MoveTaskStatusCompleted
+			if task.Status == sqs.MoveTaskStatusCompleted {
+				return true
 			}
 		}
 
@@ -587,5 +592,201 @@ func TestSQS_MessageMoveTasks_Handler(t *testing.T) {
 				assert.Contains(t, rec.Body.String(), tt.wantBodyContain)
 			}
 		})
+	}
+}
+
+// TestSQS_ListMessageMoveTasks_TaskHandleOnlyForRunning verifies that the TaskHandle
+// field is only populated in ListMessageMoveTasks for tasks in RUNNING status,
+// matching AWS ListMessageMoveTasksResultEntry semantics.
+func TestSQS_ListMessageMoveTasks_TaskHandleOnlyForRunning(t *testing.T) {
+	t.Parallel()
+
+	b := sqs.NewInMemoryBackend()
+
+	dlqName := "dlq-taskhandle-check"
+	destName := "dest-taskhandle-check"
+
+	_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName, Endpoint: "localhost"})
+	require.NoError(t, err)
+
+	_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: destName, Endpoint: "localhost"})
+	require.NoError(t, err)
+
+	dlqARN := buildQueueARN(dlqName)
+	destARN := buildQueueARN(destName)
+
+	// Start a task on an empty queue — it will complete immediately.
+	startOut, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
+		SourceArn:      dlqARN,
+		DestinationArn: destARN,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, startOut.TaskHandle)
+
+	// Wait for the task to complete.
+	require.Eventually(t, func() bool {
+		listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+			SourceArn:  dlqARN,
+			MaxResults: 1,
+		})
+		if listErr != nil || len(listOut.Results) == 0 {
+			return false
+		}
+
+		return listOut.Results[0].Status == sqs.MoveTaskStatusCompleted
+	}, 2*time.Second, 10*time.Millisecond, "task should complete")
+
+	// After completion, TaskHandle must be empty in the list response.
+	listOut, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+		SourceArn:  dlqARN,
+		MaxResults: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, listOut.Results, 1)
+	assert.Equal(t, sqs.MoveTaskStatusCompleted, listOut.Results[0].Status)
+	assert.Empty(t, listOut.Results[0].TaskHandle,
+		"TaskHandle must not be populated for completed tasks (AWS semantics)")
+
+	// StartedTimestamp and ApproximateNumberOfMessagesMoved should always be present.
+	assert.NotZero(t, listOut.Results[0].StartedTimestamp, "StartedTimestamp should always be present")
+}
+
+// TestSQS_ListMessageMoveTasks_MaxResults validates default (1) and max (10) semantics.
+func TestSQS_ListMessageMoveTasks_MaxResults(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		maxResults int32
+		// taskCount is how many tasks to create (on different source queues).
+		taskCount int
+		wantCount int
+	}{
+		{
+			name:       "default_max_results_is_1",
+			maxResults: 0, // unset → defaults to 1
+			taskCount:  3,
+			wantCount:  1,
+		},
+		{
+			name:       "explicit_max_results_respected",
+			maxResults: 2,
+			taskCount:  3,
+			wantCount:  2,
+		},
+		{
+			name:       "max_results_capped_at_10",
+			maxResults: 20, // over limit → capped to 10
+			taskCount:  11,
+			wantCount:  10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := sqs.NewInMemoryBackend()
+
+			// Create taskCount source queues and start a task on each.
+			for i := range tt.taskCount {
+				dlqName := "dlq-maxr-" + tt.name + "-" + strconv.Itoa(i)
+				destName := "dest-maxr-" + tt.name + "-" + strconv.Itoa(i)
+
+				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName, Endpoint: "localhost"})
+				require.NoError(t, err)
+
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: destName, Endpoint: "localhost"})
+				require.NoError(t, err)
+
+				_, err = b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
+					SourceArn:      buildQueueARN(dlqName),
+					DestinationArn: buildQueueARN(destName),
+				})
+				require.NoError(t, err)
+			}
+
+			// Wait for all tasks to complete (each queue is empty so they finish fast).
+			require.Eventually(t, func() bool {
+				listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+					MaxResults: 10,
+				})
+				if listErr != nil {
+					return false
+				}
+
+				completedOrDone := 0
+				for _, task := range listOut.Results {
+					if task.Status == sqs.MoveTaskStatusCompleted {
+						completedOrDone++
+					}
+				}
+
+				// We want at least min(taskCount, 10) completed in the capped window.
+				expected := min(tt.taskCount, 10)
+
+				return completedOrDone >= expected
+			}, 5*time.Second, 20*time.Millisecond, "all tasks should complete")
+
+			// Now query with the test's MaxResults.
+			out, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+				MaxResults: tt.maxResults,
+			})
+			require.NoError(t, err)
+			assert.Len(t, out.Results, tt.wantCount)
+		})
+	}
+}
+
+// TestSQS_ListMessageMoveTasks_NewestFirst verifies that results are returned newest
+// first (descending by startedAt) matching AWS semantics.
+func TestSQS_ListMessageMoveTasks_NewestFirst(t *testing.T) {
+	t.Parallel()
+
+	b := sqs.NewInMemoryBackend()
+
+	const numQueues = 3
+
+	// Create and start tasks in sequence, ensuring distinct timestamps by letting
+	// each complete before starting the next (to force different startedAt values).
+	for i := range numQueues {
+		name := "dlq-order-" + strconv.Itoa(i)
+		dest := "dest-order-" + strconv.Itoa(i)
+
+		_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: name, Endpoint: "localhost"})
+		require.NoError(t, err)
+
+		_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: dest, Endpoint: "localhost"})
+		require.NoError(t, err)
+
+		_, err = b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
+			SourceArn:      buildQueueARN(name),
+			DestinationArn: buildQueueARN(dest),
+		})
+		require.NoError(t, err)
+
+		// Let the task run to completion before starting the next one.
+		require.Eventually(t, func() bool {
+			listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+				SourceArn:  buildQueueARN(name),
+				MaxResults: 1,
+			})
+
+			return listErr == nil && len(listOut.Results) > 0 &&
+				listOut.Results[0].Status == sqs.MoveTaskStatusCompleted
+		}, 2*time.Second, 10*time.Millisecond)
+	}
+
+	// Retrieve all tasks (up to 10).
+	out, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+		MaxResults: 10,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Results, numQueues)
+
+	// Verify descending order: each result should have a StartedTimestamp ≥ the next.
+	for i := 1; i < len(out.Results); i++ {
+		assert.GreaterOrEqual(t, out.Results[i-1].StartedTimestamp, out.Results[i].StartedTimestamp,
+			"results should be sorted newest first")
 	}
 }
