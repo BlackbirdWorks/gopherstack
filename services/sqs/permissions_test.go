@@ -102,6 +102,23 @@ func TestSQS_Permissions(t *testing.T) {
 			},
 			wantCode: http.StatusOK,
 		},
+		{
+			name: "AddPermission_empty_label_returns_error",
+			setup: func(t *testing.T, h *sqs.Handler) string {
+				t.Helper()
+
+				return doCreateQueue(t, h, "perm-queue-empty-label")
+			},
+			action: "AddPermission",
+			body: map[string]any{
+				"QueueUrl":      "http://localhost/000000000000/perm-queue-empty-label",
+				"Label":         "",
+				"AWSAccountIds": []string{"123456789012"},
+				"Actions":       []string{"SendMessage"},
+			},
+			wantCode:        http.StatusBadRequest,
+			wantBodyContain: "InvalidParameterValue",
+		},
 	}
 
 	for _, tt := range tests {

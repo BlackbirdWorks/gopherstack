@@ -1232,6 +1232,10 @@ func (b *InMemoryBackend) Reset() {
 
 // AddPermission adds a permission statement to the specified queue.
 func (b *InMemoryBackend) AddPermission(input *AddPermissionInput) error {
+	if input.Label == "" {
+		return ErrInvalidPermissionLabel
+	}
+
 	b.mu.Lock("AddPermission")
 	defer b.mu.Unlock()
 
@@ -1267,12 +1271,9 @@ func (b *InMemoryBackend) RemovePermission(input *RemovePermissionInput) error {
 	return nil
 }
 
-// queueURLFromARN returns the URL of the queue with the given ARN.
-// Must be called without b.mu held (it acquires b.mu.RLock internally).
-func (b *InMemoryBackend) queueURLFromARN(queueARN string) (string, bool) {
-	b.mu.RLock("queueURLFromARN")
-	defer b.mu.RUnlock()
-
+// queueURLFromARNLocked returns the URL and ARN of the queue with the given ARN.
+// Must be called with b.mu held (either read or write).
+func (b *InMemoryBackend) queueURLFromARNLocked(queueARN string) (string, bool) {
 	for _, q := range b.queues {
 		if q.Attributes[attrQueueArn] == queueARN {
 			return q.URL, true
@@ -1282,13 +1283,10 @@ func (b *InMemoryBackend) queueURLFromARN(queueARN string) (string, bool) {
 	return "", false
 }
 
-// findDefaultMoveDestination finds the URL of the queue that has a RedrivePolicy
+// findDefaultMoveDestinationLocked finds the URL of the queue that has a RedrivePolicy
 // pointing to the DLQ identified by dlqARN.
-// Must be called without b.mu held.
-func (b *InMemoryBackend) findDefaultMoveDestination(dlqARN string) (string, bool) {
-	b.mu.RLock("findDefaultMoveDestination")
-	defer b.mu.RUnlock()
-
+// Must be called with b.mu held (either read or write).
+func (b *InMemoryBackend) findDefaultMoveDestinationLocked(dlqARN string) (string, bool) {
 	for _, q := range b.queues {
 		raw, ok := q.Attributes[attrRedrivePolicy]
 		if !ok || raw == "" {
@@ -1309,19 +1307,9 @@ func (b *InMemoryBackend) findDefaultMoveDestination(dlqARN string) (string, boo
 	return "", false
 }
 
-// approximateQueueDepth returns the approximate number of visible messages in the queue with the given URL.
-// Must be called without b.mu held.
-func (b *InMemoryBackend) approximateQueueDepth(queueURL string) int64 {
-	b.mu.RLock("approximateQueueDepth")
-	defer b.mu.RUnlock()
-
-	name := queueNameFromInput(queueURL)
-
-	q, ok := b.queues[name]
-	if !ok {
-		return 0
-	}
-
+// approximateQueueDepthLocked returns the approximate number of visible messages in the queue with the given name.
+// Must be called with b.mu held (either read or write).
+func approximateQueueDepthLocked(q *Queue) int64 {
 	now := time.Now()
 	visible := 0
 
@@ -1334,14 +1322,108 @@ func (b *InMemoryBackend) approximateQueueDepth(queueURL string) int64 {
 	return int64(visible)
 }
 
-// runMoveTask is the goroutine body for StartMessageMoveTask. It reads messages
+// StartMessageMoveTask starts an asynchronous task that moves messages from the
+// source queue (typically a DLQ) to the destination queue.
+// If DestinationArn is empty, the backend looks for a queue whose RedrivePolicy
+// points to the source ARN and uses that as the destination.
+// Returns ErrMoveTaskAlreadyRunning if there is already a RUNNING task for the source ARN.
+func (b *InMemoryBackend) StartMessageMoveTask(
+	input *StartMessageMoveTaskInput,
+) (*StartMessageMoveTaskOutput, error) {
+	b.mu.Lock("StartMessageMoveTask")
+
+	// Check for existing running task on the same source ARN (AWS realism).
+	for _, t := range b.moveTasks {
+		if t.sourceArn == input.SourceArn {
+			t.mu.Lock()
+			taskStatus := t.status
+			t.mu.Unlock()
+
+			if taskStatus == MoveTaskStatusRunning || taskStatus == MoveTaskStatusCancelling {
+				b.mu.Unlock()
+
+				return nil, ErrMoveTaskAlreadyRunning
+			}
+		}
+	}
+
+	// Resolve source queue under the lock to avoid TOCTOU races.
+	srcURL, ok := b.queueURLFromARNLocked(input.SourceArn)
+	if !ok {
+		b.mu.Unlock()
+
+		return nil, ErrQueueNotFound
+	}
+
+	// Resolve destination queue under the same lock.
+	destArn := input.DestinationArn
+
+	var destURL string
+
+	if destArn == "" {
+		destURL, ok = b.findDefaultMoveDestinationLocked(input.SourceArn)
+		if !ok {
+			b.mu.Unlock()
+
+			return nil, ErrQueueNotFound
+		}
+
+		// Derive destination ARN from its URL for task metadata.
+		destName := queueNameFromInput(destURL)
+		destArn = arn.Build("sqs", b.region, b.accountID, destName)
+	} else {
+		destURL, ok = b.queueURLFromARNLocked(destArn)
+		if !ok {
+			b.mu.Unlock()
+
+			return nil, ErrQueueNotFound
+		}
+	}
+
+	// Snapshot queue depth under the lock so the estimate is consistent.
+	srcQueue := b.queues[queueNameFromInput(srcURL)]
+	totalCount := approximateQueueDepthLocked(srcQueue)
+
+	taskHandle := uuid.New().String()
+
+	//nolint:gosec // cancel is stored in moveTaskState and called from CancelMessageMoveTask or Reset
+	ctx, cancel := context.WithCancel(context.Background())
+
+	state := &moveTaskState{
+		cancel:     cancel,
+		taskHandle: taskHandle,
+		sourceArn:  input.SourceArn,
+		destArn:    destArn,
+		status:     MoveTaskStatusRunning,
+		maxPerSec:  input.MaxNumberOfMessagesPerSecond,
+		startedAt:  time.Now().UnixMilli(),
+		totalCount: totalCount,
+	}
+
+	b.moveTasks[taskHandle] = state
+	b.mu.Unlock()
+
+	go b.runMoveTask(ctx, state, srcURL, destURL)
+
+	return &StartMessageMoveTaskOutput{TaskHandle: taskHandle}, nil
+}
+
 // from the source queue one at a time and writes them to the destination queue
 // until the source is empty, the context is cancelled, or a fatal error occurs.
 func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState, srcURL, destURL string) {
 	defer func() {
 		state.mu.Lock()
-		if state.status == MoveTaskStatusRunning {
+
+		switch state.status {
+		case MoveTaskStatusRunning:
 			state.status = MoveTaskStatusCompleted
+		case MoveTaskStatusCancelling:
+			// CancelMessageMoveTask set status to CANCELLING and called cancel().
+			// Whether the context was done (cancelled) or the queue was drained,
+			// the task is now stopped — report CANCELLED either way.
+			state.status = MoveTaskStatusCancelled
+		case MoveTaskStatusCompleted, MoveTaskStatusCancelled, MoveTaskStatusFailed:
+			// Terminal state already set (e.g. by an error path within the loop).
 		}
 
 		state.mu.Unlock()
@@ -1350,24 +1432,17 @@ func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState,
 	for {
 		select {
 		case <-ctx.Done():
-			state.mu.Lock()
-			state.status = MoveTaskStatusCancelled
-			state.mu.Unlock()
-
 			return
 		default:
 		}
 
-		// Rate limiting: sleep between messages if a rate limit is set.
+		// Rate limiting: if a rate limit is set, use a ticker to avoid goroutine leaks
+		// that can occur with time.After inside a loop.
 		if state.maxPerSec > 0 {
 			interval := time.Second / time.Duration(state.maxPerSec)
 
 			select {
 			case <-ctx.Done():
-				state.mu.Lock()
-				state.status = MoveTaskStatusCancelled
-				state.mu.Unlock()
-
 				return
 			case <-time.After(interval):
 			}
@@ -1426,66 +1501,6 @@ func (b *InMemoryBackend) runMoveTask(ctx context.Context, state *moveTaskState,
 	}
 }
 
-// StartMessageMoveTask starts an asynchronous task that moves messages from the
-// source queue (typically a DLQ) to the destination queue.
-// If DestinationArn is empty, the backend looks for a queue whose RedrivePolicy
-// points to the source ARN and uses that as the destination.
-func (b *InMemoryBackend) StartMessageMoveTask(
-	input *StartMessageMoveTaskInput,
-) (*StartMessageMoveTaskOutput, error) {
-	// Resolve source URL.
-	srcURL, ok := b.queueURLFromARN(input.SourceArn)
-	if !ok {
-		return nil, ErrQueueNotFound
-	}
-
-	// Resolve destination URL.
-	destArn := input.DestinationArn
-
-	var destURL string
-
-	if destArn == "" {
-		destURL, ok = b.findDefaultMoveDestination(input.SourceArn)
-		if !ok {
-			return nil, ErrQueueNotFound
-		}
-
-		// Derive destination ARN from its URL for task metadata.
-		destName := queueNameFromInput(destURL)
-		destArn = arn.Build("sqs", b.region, b.accountID, destName)
-	} else {
-		destURL, ok = b.queueURLFromARN(destArn)
-		if !ok {
-			return nil, ErrQueueNotFound
-		}
-	}
-
-	totalCount := b.approximateQueueDepth(srcURL)
-	taskHandle := uuid.New().String()
-
-	//nolint:gosec // cancel is stored in moveTaskState and called from CancelMessageMoveTask or Reset
-	ctx, cancel := context.WithCancel(context.Background())
-
-	state := &moveTaskState{
-		cancel:     cancel,
-		taskHandle: taskHandle,
-		sourceArn:  input.SourceArn,
-		destArn:    destArn,
-		status:     MoveTaskStatusRunning,
-		maxPerSec:  input.MaxNumberOfMessagesPerSecond,
-		startedAt:  time.Now().UnixMilli(),
-		totalCount: totalCount,
-	}
-
-	b.mu.Lock("StartMessageMoveTask")
-	b.moveTasks[taskHandle] = state
-	b.mu.Unlock()
-
-	go b.runMoveTask(ctx, state, srcURL, destURL)
-
-	return &StartMessageMoveTaskOutput{TaskHandle: taskHandle}, nil
-}
-
 // CancelMessageMoveTask cancels an active message move task.
 func (b *InMemoryBackend) CancelMessageMoveTask(
 	input *CancelMessageMoveTaskInput,
@@ -1508,12 +1523,15 @@ func (b *InMemoryBackend) CancelMessageMoveTask(
 	}
 
 	state.status = MoveTaskStatusCancelling
+	// Capture movedCount under the lock before releasing it, to avoid a race
+	// with the goroutine that increments movedCount concurrently.
+	moved := state.movedCount
 	state.mu.Unlock()
 
 	state.cancel()
 
 	return &CancelMessageMoveTaskOutput{
-		ApproximateNumberOfMessagesMoved: state.movedCount,
+		ApproximateNumberOfMessagesMoved: moved,
 	}, nil
 }
 

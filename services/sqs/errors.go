@@ -23,4 +23,6 @@ var (
 	ErrMissingMessageGroupID    = errors.New("InvalidParameterValue.MissingMessageGroupID")
 	ErrMissingDeduplicationID   = errors.New("InvalidParameterValue.MissingDeduplicationID")
 	ErrTaskHandleInvalid        = errors.New("InvalidParameterValue.TaskHandle")
+	ErrInvalidPermissionLabel   = errors.New("InvalidParameterValue.PermissionLabel")
+	ErrMoveTaskAlreadyRunning   = errors.New("ResourceInConflict.MoveTaskAlreadyRunning")
 )

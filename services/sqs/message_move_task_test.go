@@ -25,6 +25,7 @@ func TestSQS_DLQRedrive(t *testing.T) {
 
 	tests := []struct {
 		setup          func(t *testing.T, b *sqs.InMemoryBackend) (srcARN, destARN, srcURL string)
+		wantErrIs      error
 		name           string
 		msgCount       int
 		wantTaskHandle bool
@@ -54,11 +55,55 @@ func TestSQS_DLQRedrive(t *testing.T) {
 			},
 		},
 		{
-			name:     "start_task_with_nonexistent_source_returns_error",
-			msgCount: 0,
-			wantErr:  true,
+			name:      "start_task_with_nonexistent_source_returns_error",
+			msgCount:  0,
+			wantErr:   true,
+			wantErrIs: sqs.ErrQueueNotFound,
 			setup: func(_ *testing.T, _ *sqs.InMemoryBackend) (string, string, string) {
 				return buildQueueARN("nonexistent-dlq"), buildQueueARN("some-dest"), ""
+			},
+		},
+		{
+			name:      "start_second_task_for_same_source_returns_conflict",
+			msgCount:  0, // setup already seeds messages
+			wantErr:   true,
+			wantErrIs: sqs.ErrMoveTaskAlreadyRunning,
+			setup: func(t *testing.T, b *sqs.InMemoryBackend) (string, string, string) {
+				t.Helper()
+
+				dlqName := "dlq-conflict"
+				destName := "dest-conflict"
+
+				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName, Endpoint: "localhost"})
+				require.NoError(t, err)
+
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: destName, Endpoint: "localhost"})
+				require.NoError(t, err)
+
+				dlqURL := "http://localhost/000000000000/" + dlqName
+
+				dlqARN := buildQueueARN(dlqName)
+				destARN := buildQueueARN(destName)
+
+				// Pre-seed the source so the task stays RUNNING.
+				for i := range 10 {
+					_, sendErr := b.SendMessage(&sqs.SendMessageInput{
+						QueueURL:    dlqURL,
+						MessageBody: "conflict-" + strconv.Itoa(i),
+					})
+					require.NoError(t, sendErr)
+				}
+
+				// Start first task with rate limiting so it stays alive.
+				_, err = b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
+					SourceArn:                    dlqARN,
+					DestinationArn:               destARN,
+					MaxNumberOfMessagesPerSecond: 1,
+				})
+				require.NoError(t, err)
+
+				// Return the same ARNs; the test will attempt to start a second task.
+				return dlqARN, destARN, ""
 			},
 		},
 	}
@@ -86,6 +131,10 @@ func TestSQS_DLQRedrive(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
+
+				if tt.wantErrIs != nil {
+					require.ErrorIs(t, err, tt.wantErrIs)
+				}
 
 				return
 			}
@@ -357,29 +406,48 @@ func TestSQS_ListMessageMoveTasks(t *testing.T) {
 			setup: func(t *testing.T, b *sqs.InMemoryBackend) (string, int) {
 				t.Helper()
 
-				dlqName := "dlq-maxresults"
+				dlqName1 := "dlq-maxresults-1"
+				dlqName2 := "dlq-maxresults-2"
 				destName := "dest-maxresults"
 
-				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName, Endpoint: "localhost"})
+				_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName1, Endpoint: "localhost"})
+				require.NoError(t, err)
+
+				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: dlqName2, Endpoint: "localhost"})
 				require.NoError(t, err)
 
 				_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: destName, Endpoint: "localhost"})
 				require.NoError(t, err)
 
-				// Start two tasks on the same DLQ (second will complete immediately since DLQ is empty).
+				// Start two tasks on different source queues (each completes immediately as queues are empty).
 				_, err = b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
-					SourceArn:      buildQueueARN(dlqName),
+					SourceArn:      buildQueueARN(dlqName1),
 					DestinationArn: buildQueueARN(destName),
 				})
 				require.NoError(t, err)
 
+				// Wait for first task to complete so the second doesn't conflict.
+				require.Eventually(t, func() bool {
+					listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+						SourceArn: buildQueueARN(dlqName1),
+					})
+					if listErr != nil || len(listOut.Results) == 0 {
+						return false
+					}
+
+					return listOut.Results[0].Status == sqs.MoveTaskStatusCompleted
+				}, 2*time.Second, 10*time.Millisecond)
+
 				_, err = b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
-					SourceArn:      buildQueueARN(dlqName),
+					SourceArn:      buildQueueARN(dlqName2),
 					DestinationArn: buildQueueARN(destName),
 				})
 				require.NoError(t, err)
 
-				return buildQueueARN(dlqName), 2
+				// Return dlqName1's ARN as source for filtering; both tasks in the backend but
+				// MaxResults=1 should limit the output to 1.
+				// We list with empty SourceArn to get all tasks, but test pagination with MaxResults.
+				return "", 2
 			},
 		},
 	}
@@ -391,15 +459,20 @@ func TestSQS_ListMessageMoveTasks(t *testing.T) {
 			b := sqs.NewInMemoryBackend()
 			srcARN, _ := tt.setup(t, b)
 
-			// Give goroutines a moment to start.
-			time.Sleep(10 * time.Millisecond)
+			var out *sqs.ListMessageMoveTasksOutput
 
-			out, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
-				SourceArn:  srcARN,
-				MaxResults: tt.maxResults,
-			})
-			require.NoError(t, err)
-			assert.GreaterOrEqual(t, len(out.Results), tt.wantMin)
+			require.Eventually(t, func() bool {
+				var err error
+
+				out, err = b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+					SourceArn:  srcARN,
+					MaxResults: tt.maxResults,
+				})
+				require.NoError(t, err)
+
+				return len(out.Results) >= tt.wantMin
+			}, 2*time.Second, 10*time.Millisecond, "expected at least %d task(s) to be listed", tt.wantMin)
+
 			assert.LessOrEqual(t, len(out.Results), tt.wantMax)
 		})
 	}
@@ -463,6 +536,40 @@ func TestSQS_MessageMoveTasks_Handler(t *testing.T) {
 				}
 			},
 			wantCode: http.StatusOK,
+		},
+		{
+			name:   "StartMessageMoveTask_already_running_returns_conflict",
+			action: "StartMessageMoveTask",
+			setup: func(t *testing.T, h *sqs.Handler) map[string]any {
+				t.Helper()
+				doCreateQueue(t, h, "smt-conflict-dlq")
+				doCreateQueue(t, h, "smt-conflict-dest")
+
+				// Seed messages so the task stays RUNNING with rate limiting.
+				for i := range 10 {
+					rec := doRequest(t, h, "SendMessage", map[string]any{
+						"QueueUrl":    "http://localhost/000000000000/smt-conflict-dlq",
+						"MessageBody": "msg-" + strconv.Itoa(i),
+					})
+					require.Equal(t, http.StatusOK, rec.Code)
+				}
+
+				// Start first task with rate limiting.
+				rec := doRequest(t, h, "StartMessageMoveTask", map[string]any{
+					"SourceArn":                    buildQueueARN("smt-conflict-dlq"),
+					"DestinationArn":               buildQueueARN("smt-conflict-dest"),
+					"MaxNumberOfMessagesPerSecond": 1,
+				})
+				require.Equal(t, http.StatusOK, rec.Code)
+
+				// The second request body (returned for the test handler loop to use).
+				return map[string]any{
+					"SourceArn":      buildQueueARN("smt-conflict-dlq"),
+					"DestinationArn": buildQueueARN("smt-conflict-dest"),
+				}
+			},
+			wantCode:        http.StatusBadRequest,
+			wantBodyContain: "ResourceInConflict",
 		},
 	}
 

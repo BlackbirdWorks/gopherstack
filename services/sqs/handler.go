@@ -925,64 +925,100 @@ func invalidParameterValueMessage(err error) (string, bool) {
 	}
 }
 
+// errorEntry maps a sentinel error to its SQS error type, message, and HTTP status code.
+type errorEntry struct {
+	errType string
+	message string
+	status  int
+}
+
 // errorDetails maps an error to its SQS JSON error type, message, and HTTP status.
 func errorDetails(err error) (string, string, int) {
 	if msg, ok := invalidParameterValueMessage(err); ok {
 		return errTypeInvalidParameterValue, msg, http.StatusBadRequest
 	}
 
-	switch {
-	case errors.Is(err, ErrQueueNotFound):
-		// The AWS SDK v2 maps "com.amazonaws.sqs#QueueDoesNotExist" →
-		// *types.QueueDoesNotExist via SanitizeErrorCode, which strips the namespace prefix.
-		return "com.amazonaws.sqs#QueueDoesNotExist",
+	// Ordered table of sentinel errors mapped to their SQS HTTP/JSON wire representation.
+	errorTable := []struct {
+		sentinel error
+		entry    errorEntry
+	}{
+		{ErrQueueNotFound, errorEntry{
+			"com.amazonaws.sqs#QueueDoesNotExist",
 			"The specified queue does not exist.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrQueueAlreadyExists):
-		return "com.amazonaws.sqs#QueueNameExists",
+			http.StatusBadRequest,
+		}},
+		{ErrQueueAlreadyExists, errorEntry{
+			"com.amazonaws.sqs#QueueNameExists",
 			"A queue with this name already exists.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrReceiptHandleInvalid):
-		return "com.amazonaws.sqs#ReceiptHandleIsInvalid",
+			http.StatusBadRequest,
+		}},
+		{ErrReceiptHandleInvalid, errorEntry{
+			"com.amazonaws.sqs#ReceiptHandleIsInvalid",
 			"The receipt handle is not valid.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrMessageNotInflight):
-		return "com.amazonaws.sqs#MessageNotInflight",
+			http.StatusBadRequest,
+		}},
+		{ErrMessageNotInflight, errorEntry{
+			"com.amazonaws.sqs#MessageNotInflight",
 			"The message referred to by the receipt handle is not in-flight.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrTooManyEntriesInBatch):
-		return "com.amazonaws.sqs#TooManyEntriesInBatchRequest",
+			http.StatusBadRequest,
+		}},
+		{ErrTooManyEntriesInBatch, errorEntry{
+			"com.amazonaws.sqs#TooManyEntriesInBatchRequest",
 			"Too many entries in batch request.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrBatchEntryIDsNotDistinct):
-		return "com.amazonaws.sqs#BatchEntryIdsNotDistinct",
+			http.StatusBadRequest,
+		}},
+		{ErrBatchEntryIDsNotDistinct, errorEntry{
+			"com.amazonaws.sqs#BatchEntryIdsNotDistinct",
 			"Two or more batch entries in the request have the same Id.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrInvalidBatchEntry):
-		return "com.amazonaws.sqs#EmptyBatchRequest",
+			http.StatusBadRequest,
+		}},
+		{ErrInvalidBatchEntry, errorEntry{
+			"com.amazonaws.sqs#EmptyBatchRequest",
 			"The batch request is empty.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrInvalidAttribute):
-		return "com.amazonaws.sqs#InvalidAttributeValue",
+			http.StatusBadRequest,
+		}},
+		{ErrInvalidAttribute, errorEntry{
+			"com.amazonaws.sqs#InvalidAttributeValue",
 			"Invalid attribute value.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrMessageTooLarge):
-		return "com.amazonaws.sqs#InvalidMessageContents",
+			http.StatusBadRequest,
+		}},
+		{ErrMessageTooLarge, errorEntry{
+			"com.amazonaws.sqs#InvalidMessageContents",
 			"The message exceeds the maximum message size.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrUnknownAction):
-		return "com.amazonaws.sqs#InvalidAction",
+			http.StatusBadRequest,
+		}},
+		{ErrUnknownAction, errorEntry{
+			"com.amazonaws.sqs#InvalidAction",
 			"The action or operation requested is invalid.",
-			http.StatusBadRequest
-	case errors.Is(err, ErrTaskHandleInvalid):
-		return "com.amazonaws.sqs#InvalidParameterValue",
+			http.StatusBadRequest,
+		}},
+		{ErrTaskHandleInvalid, errorEntry{
+			errTypeInvalidParameterValue,
 			"The task handle provided is not valid.",
-			http.StatusBadRequest
-	default:
-		return "com.amazonaws.sqs#InternalError",
-			"An internal error occurred.",
-			http.StatusInternalServerError
+			http.StatusBadRequest,
+		}},
+		{ErrInvalidPermissionLabel, errorEntry{
+			errTypeInvalidParameterValue,
+			"The value for the required parameter 'Label' is not valid. Reason: label must not be empty.",
+			http.StatusBadRequest,
+		}},
+		{ErrMoveTaskAlreadyRunning, errorEntry{
+			"com.amazonaws.sqs#ResourceInConflict",
+			"A message move task already exists for the specified source queue.",
+			http.StatusBadRequest,
+		}},
 	}
+
+	for _, row := range errorTable {
+		if errors.Is(err, row.sentinel) {
+			return row.entry.errType, row.entry.message, row.entry.status
+		}
+	}
+
+	return "com.amazonaws.sqs#InternalError",
+		"An internal error occurred.",
+		http.StatusInternalServerError
 }
 
 // queueNameFromURL extracts the queue name from a full queue URL.
