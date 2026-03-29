@@ -18,6 +18,10 @@ import (
 // eksNodegroupDefaultDesiredSize is the default desired node count for an EKS nodegroup.
 const eksNodegroupDefaultDesiredSize int32 = 2
 
+// maxAutoScalingCapacity is a hard upper bound on AutoScaling group sizes created via CloudFormation.
+// It prevents excessive memory allocations when provisioning AutoScaling groups from untrusted templates.
+const maxAutoScalingCapacity int32 = 1000
+
 // eksNodegroupDefaultMaxSize is the default max node count for an EKS nodegroup.
 const eksNodegroupDefaultMaxSize int32 = 5
 
@@ -382,6 +386,26 @@ func (rc *ResourceCreator) createAutoScalingGroup(
 
 	if v, ok := props["DesiredCapacity"].(float64); ok {
 		desired = int32(v)
+	}
+
+	// Clamp sizes to a safe range to avoid excessive allocations from untrusted templates.
+	if minSize < 0 {
+		minSize = 0
+	}
+	if maxSize < 0 {
+		maxSize = 0
+	}
+	if desired < 0 {
+		desired = 0
+	}
+	if minSize > maxAutoScalingCapacity {
+		minSize = maxAutoScalingCapacity
+	}
+	if maxSize > maxAutoScalingCapacity {
+		maxSize = maxAutoScalingCapacity
+	}
+	if desired > maxAutoScalingCapacity {
+		desired = maxAutoScalingCapacity
 	}
 
 	_, err := rc.backends.Autoscaling.Backend.CreateAutoScalingGroup(autoscalingbackend.CreateAutoScalingGroupInput{
