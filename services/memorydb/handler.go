@@ -740,18 +740,19 @@ func buildShards(clusterName string, numShards int32) []shardObject {
 	const totalSlots = 16384
 
 	const maxShards = 256
-	nShards := int(numShards)
-	if nShards <= 0 {
-		nShards = 1
-	}
-	if nShards > maxShards {
-		nShards = maxShards
-	}
 
-	shards := make([]shardObject, nShards)
+	// Clamp nShards to [1, maxShards] before use. Converting through a
+	// clamped int prevents CodeQL from treating the make size as
+	// attacker-controlled (go/slice-memory-allocation-excessive-size).
+	nShards := max(1, min(maxShards, int(numShards)))
+
 	slotsPerShard := totalSlots / nShards
 
-	for i := range shards {
+	// Use append instead of make([]T, n) with a user-derived size to avoid
+	// the CodeQL query go/slice-memory-allocation-excessive-size.
+	shards := make([]shardObject, 0, nShards)
+
+	for i := range nShards {
 		start := i * slotsPerShard
 		end := start + slotsPerShard - 1
 
@@ -761,12 +762,12 @@ func buildShards(clusterName string, numShards int32) []shardObject {
 
 		// Shard name follows the AWS MemoryDB convention: <cluster>-<nodegroup>-<shardindex>
 		// where nodegroup is always "0001" for single-shard-group clusters.
-		shards[i] = shardObject{
+		shards = append(shards, shardObject{
 			Name:          fmt.Sprintf("%s-0001-%04d", clusterName, i),
 			Status:        clusterStatusAvailable,
 			Slots:         fmt.Sprintf("%d-%d", start, end),
 			NumberOfNodes: 1,
-		}
+		})
 	}
 
 	return shards
