@@ -177,7 +177,6 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		},
 	}
 
-
 	h.renderTemplate(w, "doc.html", data)
 }
 

@@ -103,7 +103,11 @@ func (h *DashboardHandler) glacierCreateVault(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	_, err := h.GlacierOps.Backend.CreateVault(h.getGlobalConfig().GetAccountID(), h.getGlobalConfig().GetRegion(), name)
+	_, err := h.GlacierOps.Backend.CreateVault(
+		h.getGlobalConfig().GetAccountID(),
+		h.getGlobalConfig().GetRegion(),
+		name,
+	)
 	if err != nil {
 		h.Logger.Error("failed to create glacier vault", "name", name, "error", err)
 
@@ -128,7 +132,11 @@ func (h *DashboardHandler) glacierDeleteVault(c *echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	if err := h.GlacierOps.Backend.DeleteVault(h.getGlobalConfig().GetAccountID(), h.getGlobalConfig().GetRegion(), name); err != nil {
+	if err := h.GlacierOps.Backend.DeleteVault(
+		h.getGlobalConfig().GetAccountID(),
+		h.getGlobalConfig().GetRegion(),
+		name,
+	); err != nil {
 		h.Logger.Error("failed to delete glacier vault", "name", name, "error", err)
 
 		return c.NoContent(http.StatusBadRequest)

@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -376,4 +377,9 @@ func pathToOperation(path string) string {
 
 func errorResponse(code, msg string) map[string]string {
 	return map[string]string{"__type": code, "message": msg}
+}
+
+// Purge implements service.Purgeable by removing all Bedrock Runtime invocation records older than cutoff.
+func (h *Handler) Purge(cutoff time.Time) {
+	h.Backend.Purge(cutoff)
 }

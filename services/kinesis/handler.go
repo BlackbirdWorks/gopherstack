@@ -1334,3 +1334,10 @@ func (h *Handler) Reset() {
 	h.tags = make(map[string]*svcTags.Tags)
 	h.tagsMu.Unlock()
 }
+
+// Purge implements service.Purgeable by removing all Kinesis streams older than cutoff.
+func (h *Handler) Purge(cutoff time.Time) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Purge(cutoff)
+	}
+}

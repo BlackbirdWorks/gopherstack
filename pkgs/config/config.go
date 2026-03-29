@@ -13,7 +13,13 @@ type GlobalConfig struct {
 }
 
 // NewGlobalConfig creates a new GlobalConfig with the given initial state.
-func NewGlobalConfig(accountID, region string, latencyMs int, janitorTimeout time.Duration, enforceIAM bool, autoPurgeTTL time.Duration) *GlobalConfig {
+func NewGlobalConfig(
+	accountID, region string,
+	latencyMs int,
+	janitorTimeout time.Duration,
+	enforceIAM bool,
+	autoPurgeTTL time.Duration,
+) *GlobalConfig {
 	return &GlobalConfig{
 		state: &sharedState{
 			AccountID:      accountID,
@@ -28,67 +34,99 @@ func NewGlobalConfig(accountID, region string, latencyMs int, janitorTimeout tim
 
 // sharedState holds the actual configuration values.
 type sharedState struct {
-	mu             sync.RWMutex
 	AccountID      string
 	Region         string
 	LatencyMs      int
 	JanitorTimeout time.Duration
-	EnforceIAM     bool
 	AutoPurgeTTL   time.Duration
+	mu             sync.RWMutex
+	EnforceIAM     bool
+}
+
+// ensureState lazily initialises the internal state so that a zero-value
+// *GlobalConfig (e.g., &GlobalConfig{}) is safe to use.
+func (c *GlobalConfig) ensureState() *sharedState {
+	if c == nil {
+		return &sharedState{}
+	}
+	if c.state == nil {
+		c.state = &sharedState{}
+	}
+
+	return c.state
 }
 
 // GetAccountID returns the mock AWS account ID.
 func (c *GlobalConfig) GetAccountID() string {
-	c.state.mu.RLock()
-	defer c.state.mu.RUnlock()
-	return c.state.AccountID
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.AccountID
 }
 
 // GetRegion returns the default AWS region.
 func (c *GlobalConfig) GetRegion() string {
-	c.state.mu.RLock()
-	defer c.state.mu.RUnlock()
-	return c.state.Region
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.Region
 }
 
 // GetLatencyMs returns the maximum simulated response latency.
 func (c *GlobalConfig) GetLatencyMs() int {
-	c.state.mu.RLock()
-	defer c.state.mu.RUnlock()
-	return c.state.LatencyMs
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.LatencyMs
 }
 
 // GetJanitorTimeout returns the per-task janitor timeout.
 func (c *GlobalConfig) GetJanitorTimeout() time.Duration {
-	c.state.mu.RLock()
-	defer c.state.mu.RUnlock()
-	return c.state.JanitorTimeout
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.JanitorTimeout
 }
 
 // IsIAMEnforced returns true if IAM policy enforcement is enabled.
 func (c *GlobalConfig) IsIAMEnforced() bool {
-	c.state.mu.RLock()
-	defer c.state.mu.RUnlock()
-	return c.state.EnforceIAM
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.EnforceIAM
 }
 
 // GetAutoPurgeTTL returns the auto-purge TTL duration.
 func (c *GlobalConfig) GetAutoPurgeTTL() time.Duration {
-	c.state.mu.RLock()
-	defer c.state.mu.RUnlock()
-	return c.state.AutoPurgeTTL
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.AutoPurgeTTL
 }
 
 // Update updates the configuration state with new values.
-func (c *GlobalConfig) Update(accountID, region string, latencyMs int, janitorTimeout time.Duration, enforceIAM bool, autoPurgeTTL time.Duration) {
-	c.state.mu.Lock()
-	defer c.state.mu.Unlock()
-	c.state.AccountID = accountID
-	c.state.Region = region
-	c.state.LatencyMs = latencyMs
-	c.state.JanitorTimeout = janitorTimeout
-	c.state.EnforceIAM = enforceIAM
-	c.state.AutoPurgeTTL = autoPurgeTTL
+func (c *GlobalConfig) Update(
+	accountID, region string,
+	latencyMs int,
+	janitorTimeout time.Duration,
+	enforceIAM bool,
+	autoPurgeTTL time.Duration,
+) {
+	s := c.ensureState()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AccountID = accountID
+	s.Region = region
+	s.LatencyMs = latencyMs
+	s.JanitorTimeout = janitorTimeout
+	s.EnforceIAM = enforceIAM
+	s.AutoPurgeTTL = autoPurgeTTL
 }
 
 // Provider is implemented by the CLI / any runtime configuration object

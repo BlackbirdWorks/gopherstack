@@ -1897,6 +1897,7 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 				for i, m := range members {
 					if m == name {
 						b.groupMembers[g] = append(members[:i], members[i+1:]...)
+
 						break
 					}
 				}

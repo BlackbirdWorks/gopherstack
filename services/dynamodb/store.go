@@ -465,7 +465,7 @@ func (db *InMemoryDB) Purge(cutoff time.Time) {
 			delete(db.Backups, n)
 		}
 	}
-	
+
 	for n, gt := range db.GlobalTables {
 		if gt.CreationDateTime.Before(cutoff) {
 			delete(db.GlobalTables, n)

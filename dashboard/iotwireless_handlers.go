@@ -65,7 +65,10 @@ func (h *DashboardHandler) iotwirelessIndex(c *echo.Context) error {
 		return nil
 	}
 
-	rawProfiles := h.IoTWirelessOps.Backend.ListServiceProfiles(h.getGlobalConfig().GetAccountID(), h.getGlobalConfig().GetRegion())
+	rawProfiles := h.IoTWirelessOps.Backend.ListServiceProfiles(
+		h.getGlobalConfig().GetAccountID(),
+		h.getGlobalConfig().GetRegion(),
+	)
 	views := make([]iotwirelessServiceProfileView, 0, len(rawProfiles))
 
 	for _, sp := range rawProfiles {
@@ -103,7 +106,12 @@ func (h *DashboardHandler) iotwirelessCreateServiceProfile(c *echo.Context) erro
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	_, err := h.IoTWirelessOps.Backend.CreateServiceProfile(h.getGlobalConfig().GetAccountID(), h.getGlobalConfig().GetRegion(), name, nil)
+	_, err := h.IoTWirelessOps.Backend.CreateServiceProfile(
+		h.getGlobalConfig().GetAccountID(),
+		h.getGlobalConfig().GetRegion(),
+		name,
+		nil,
+	)
 	if err != nil {
 		h.Logger.Error("failed to create iot wireless service profile", "name", name, "error", err)
 

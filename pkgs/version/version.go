@@ -21,5 +21,6 @@ func Get() string {
 			return info.Main.Version
 		}
 	}
+
 	return "dev"
 }

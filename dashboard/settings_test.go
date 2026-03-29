@@ -160,13 +160,13 @@ func TestSettingsPage_ServiceSettings(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := rec.Body.String()
-	
+
 	// Check for service-specific labels and sections
 	assert.Contains(t, body, "Service TTLs & Intervals")
 	assert.Contains(t, body, "S3")
 	assert.Contains(t, body, "Lambda")
 	assert.Contains(t, body, "DynamoDB")
-	
+
 	// Check for specific field names (subset)
 	assert.Contains(t, body, `name="s3-DefaultRegion"`)
 	assert.Contains(t, body, `name="lambda-PoolSize"`)
@@ -198,11 +198,11 @@ func TestSettingsUpdate_ServiceFields(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/dashboard/settings/update", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
-	
+
 	h.SubRouter.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	
+
 	// Verify mock was updated
 	assert.Equal(t, "us-west-2", mc.settings.S3.DefaultRegion)
 	assert.Equal(t, 10, mc.settings.Lambda.PoolSize)
@@ -214,9 +214,9 @@ type mockConfigManager struct {
 	settings dashboard.Settings
 }
 
-func (m *mockConfigManager) GetSettings() dashboard.Settings { return m.settings }
+func (m *mockConfigManager) GetSettings() dashboard.Settings     { return m.settings }
 func (m *mockConfigManager) UpdateSettings(s dashboard.Settings) { m.settings = s }
-func (m *mockConfigManager) SaveConfig() error                { return nil }
+func (m *mockConfigManager) SaveConfig() error                   { return nil }
 
 func TestSettingsPage_UILayout(t *testing.T) {
 	t.Parallel()

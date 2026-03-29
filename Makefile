@@ -5,6 +5,12 @@ VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
 BUILD_VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 
 build:
+	go build \
+		-trimpath \
+		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \
+		-o bin/$(BINARY_NAME) .
+
+build-linux:
 	CGO_ENABLED=0 GOOS=linux go build \
 		-trimpath \
 		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \

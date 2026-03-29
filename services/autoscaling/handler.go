@@ -799,3 +799,10 @@ type describeScalingActivitiesResponse struct {
 	ResponseMetadata xmlResponseMetadata             `xml:"ResponseMetadata"`
 	Result           describeScalingActivitiesResult `xml:"DescribeScalingActivitiesResult"`
 }
+
+// Purge implements service.Purgeable by removing all Auto Scaling resources older than cutoff.
+func (h *Handler) Purge(cutoff time.Time) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Purge(cutoff)
+	}
+}

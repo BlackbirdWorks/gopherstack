@@ -39,3 +39,75 @@ func TestGlobalConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestGlobalConfig_ZeroValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		cfg  *config.GlobalConfig
+		name string
+	}{
+		{
+			name: "zero value struct",
+			cfg:  &config.GlobalConfig{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Empty(t, tc.cfg.GetAccountID())
+			assert.Empty(t, tc.cfg.GetRegion())
+			assert.Equal(t, 0, tc.cfg.GetLatencyMs())
+			assert.False(t, tc.cfg.IsIAMEnforced())
+		})
+	}
+}
+
+func TestGlobalConfig_Update(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		accountID     string
+		region        string
+		wantAccountID string
+		wantRegion    string
+		latencyMs     int
+		enforceIAM    bool
+	}{
+		{
+			name:          "updates all fields",
+			accountID:     "111111111111",
+			region:        "eu-central-1",
+			latencyMs:     100,
+			enforceIAM:    true,
+			wantAccountID: "111111111111",
+			wantRegion:    "eu-central-1",
+		},
+		{
+			name:          "update on zero value",
+			accountID:     "222222222222",
+			region:        "ap-southeast-1",
+			latencyMs:     0,
+			enforceIAM:    false,
+			wantAccountID: "222222222222",
+			wantRegion:    "ap-southeast-1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &config.GlobalConfig{}
+			cfg.Update(tc.accountID, tc.region, tc.latencyMs, 0, tc.enforceIAM, 0)
+
+			assert.Equal(t, tc.wantAccountID, cfg.GetAccountID())
+			assert.Equal(t, tc.wantRegion, cfg.GetRegion())
+			assert.Equal(t, tc.latencyMs, cfg.GetLatencyMs())
+			assert.Equal(t, tc.enforceIAM, cfg.IsIAMEnforced())
+		})
+	}
+}

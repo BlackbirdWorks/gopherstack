@@ -425,7 +425,7 @@ func TestIAMDashboard_EnforcementBadge(t *testing.T) {
 			t.Parallel()
 
 			h := dashboard.NewHandler(dashboard.Config{
-				Logger: slog.Default(),
+				Logger:       slog.Default(),
 				GlobalConfig: config.NewGlobalConfig("000000000000", "us-east-1", 0, 0, tt.enforceIAM, 0),
 			})
 

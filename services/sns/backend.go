@@ -206,8 +206,8 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 	}
 
 	topic := &Topic{
-		TopicArn: topicArn,
-		Attributes: attrs,
+		TopicArn:          topicArn,
+		Attributes:        attrs,
 		CreationTimestamp: time.Now().UTC(),
 	}
 	b.topics[topicArn] = topic

@@ -70,8 +70,8 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	// 1. Start Gopherstack with 5s TTL
-	_, ep := startPurgeContainer(t, "5s")
+	// 1. Start Gopherstack with 20s TTL
+	_, ep := startPurgeContainer(t, "20s")
 
 	cfg, err := awsconfig.LoadDefaultConfig(t.Context(),
 		awsconfig.WithRegion("us-east-1"),
@@ -145,11 +145,11 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 3. Wait for TTL to pass (5s)
+	// 3. Wait for TTL to pass (20s + buffer)
 	t.Log("Waiting for resources to expire...")
-	time.Sleep(6 * time.Second)
+	time.Sleep(22 * time.Second)
 
-	// 4. Create "new" resouces
+	// 4. Create "new" resources
 	bucketNew := "new-bucket"
 	_, err = s3Client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: &bucketNew})
 	require.NoError(t, err)
@@ -193,10 +193,26 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// 5. Wait for purge ticker (runs every 5s)
+	// 5. Poll until old S3 bucket is purged or deadline is reached (TTL ticker fires every 20s).
 	t.Log("Waiting for purge cycle...")
-	time.Sleep(6 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		buckets, err := s3Client.ListBuckets(ctx, &s3.ListBucketsInput{})
+		if err == nil {
+			found := false
+			for _, b := range buckets.Buckets {
+				if *b.Name == bucketOld {
+					found = true
 
+					break
+				}
+			}
+			if !found {
+				break
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
 
 	// 6. Verify old are gone, new remain
 	// S3

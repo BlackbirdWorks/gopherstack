@@ -154,51 +154,42 @@ type OperationsProvider interface {
 
 // Settings holds configurable dashboard variables to render in the UI.
 type Settings struct {
-	// Pointers/Large fields first
-	DataDir             string
-	AccountID           string
+	DNSResolveIP        string
+	OpenSearchEngine    string
 	Region              string
 	LogLevel            string
 	Port                string
 	DNSListenAddr       string
-	DNSResolveIP        string
-	OpenSearchEngine    string
+	AccountID           string
+	DataDir             string
 	ElasticsearchEngine string
 	ElastiCacheEngine   string
-
-	// Durations/64-bit first
-	AutoPurgeTTL      time.Duration
-	JanitorTimeout    time.Duration
-	InitScriptTimeout time.Duration
-
-	// Ints
-	LatencyMs      int
-	PortRangeStart int
-	PortRangeEnd   int
-
-	// Bools
-	EnforceIAM bool
-	Persist    bool
-	Demo       bool
-
-	// Service settings
-	S3             S3Settings
-	Lambda         LambdaSettings
-	DynamoDB       DynamoDBSettings
-	EC2            EC2Settings
-	Backup         BackupSettings
-	STS            STSSettings
-	XRay           XRaySettings
-	SSM            SSMSettings
-	CodeBuild      CodeBuildSettings
-	CloudWatchLogs CloudWatchLogsSettings
-	SES            SESSettings
-	Batch          BatchSettings
-	FIS            FISSettings
-	EMR            EMRSettings
-	Athena         AthenaSettings
-	Kinesis        KinesisSettings
-	KMS            KMSSettings
+	S3                  S3Settings
+	Lambda              LambdaSettings
+	DynamoDB            DynamoDBSettings
+	Batch               BatchSettings
+	EC2                 EC2Settings
+	CodeBuild           CodeBuildSettings
+	FIS                 FISSettings
+	Athena              AthenaSettings
+	EMR                 EMRSettings
+	SES                 SESSettings
+	SSM                 SSMSettings
+	XRay                XRaySettings
+	Backup              BackupSettings
+	PortRangeEnd        int
+	STS                 STSSettings
+	LatencyMs           int
+	PortRangeStart      int
+	JanitorTimeout      time.Duration
+	CloudWatchLogs      CloudWatchLogsSettings
+	InitScriptTimeout   time.Duration
+	AutoPurgeTTL        time.Duration
+	Kinesis             KinesisSettings
+	KMS                 KMSSettings
+	EnforceIAM          bool
+	Demo                bool
+	Persist             bool
 }
 
 type S3Settings struct {
@@ -302,7 +293,6 @@ var staticFS embed.FS
 
 //go:embed templates/*
 var templateFS embed.FS
-
 
 // SnippetData holds the code snippets for a specific AWS resource interaction.
 type SnippetData struct {
@@ -2079,6 +2069,7 @@ func (h *DashboardHandler) handleS3File(w http.ResponseWriter, r *http.Request, 
 // SettingsPageData holds the data rendered by the settings page template.
 type SettingsPageData struct {
 	docPageData
+
 	BuildVersion string
 	Config       Settings
 }
@@ -2112,6 +2103,49 @@ func (h *DashboardHandler) settingsIndex(c *echo.Context) error {
 	return nil
 }
 
+// parseDurationField parses a duration from a form value, returning d if the field is empty or invalid.
+func parseDurationField(r *http.Request, key string, d time.Duration) time.Duration {
+	v := r.FormValue(key)
+	if v == "" {
+		return d
+	}
+
+	parsed, err := time.ParseDuration(v)
+	if err != nil {
+		return d
+	}
+
+	return parsed
+}
+
+// applyServiceSettingsFromForm fills service-specific settings in cfg from r's form values.
+func applyServiceSettingsFromForm(r *http.Request, cfg *Settings) {
+	cfg.S3.DefaultRegion = r.FormValue("s3-DefaultRegion")
+	if bytes, err := strconv.Atoi(r.FormValue("s3-CompressionMinBytes")); err == nil {
+		cfg.S3.CompressionMinBytes = bytes
+	}
+	cfg.Lambda.DockerHost = r.FormValue("lambda-DockerHost")
+	cfg.Lambda.ContainerRuntime = r.FormValue("lambda-ContainerRuntime")
+	if size, err := strconv.Atoi(r.FormValue("lambda-PoolSize")); err == nil {
+		cfg.Lambda.PoolSize = size
+	}
+	cfg.Lambda.IdleTimeout = parseDurationField(r, "lambda-IdleTimeout", cfg.Lambda.IdleTimeout)
+	if maxRuntimes, err := strconv.Atoi(r.FormValue("lambda-MaxRuntimes")); err == nil {
+		cfg.Lambda.MaxRuntimes = maxRuntimes
+	}
+	cfg.DynamoDB.DefaultRegion = r.FormValue("dynamodb-DefaultRegion")
+	cfg.DynamoDB.EnforceThroughput = r.FormValue("dynamodb-EnforceThroughput") == constStrTrue
+	cfg.DynamoDB.CreateDelay = parseDurationField(r, "dynamodb-CreateDelay", cfg.DynamoDB.CreateDelay)
+	cfg.EC2.TerminatedTTL = parseDurationField(r, "ec2-TerminatedTTL", cfg.EC2.TerminatedTTL)
+	cfg.SSM.CommandTTL = parseDurationField(r, "ssm-CommandTTL", cfg.SSM.CommandTTL)
+	cfg.SES.EmailTTL = parseDurationField(r, "ses-EmailTTL", cfg.SES.EmailTTL)
+	cfg.Backup.JobTTL = parseDurationField(r, "backup-JobTTL", cfg.Backup.JobTTL)
+	cfg.XRay.TraceTTL = parseDurationField(r, "xray-TraceTTL", cfg.XRay.TraceTTL)
+	cfg.EMR.TerminatedTTL = parseDurationField(r, "emr-TerminatedTTL", cfg.EMR.TerminatedTTL)
+	cfg.Athena.ExecutionTTL = parseDurationField(r, "athena-ExecutionTTL", cfg.Athena.ExecutionTTL)
+	cfg.FIS.ExperimentTTL = parseDurationField(r, "fis-ExperimentTTL", cfg.FIS.ExperimentTTL)
+}
+
 // settingsUpdate handles POST /dashboard/settings/update.
 func (h *DashboardHandler) settingsUpdate(c *echo.Context) error {
 	r := c.Request()
@@ -2120,111 +2154,51 @@ func (h *DashboardHandler) settingsUpdate(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": "Invalid form data"})
 	}
 
-	if h.ConfigManager != nil {
-		cfg := h.ConfigManager.GetSettings()
+	if h.ConfigManager == nil {
+		return c.JSON(http.StatusNotImplemented, map[string]string{"message": "Settings persistence is not configured"})
+	}
 
-		cfg.AccountID = r.FormValue("accountID")
-		cfg.Region = r.FormValue("region")
-		if latencyMs, err := strconv.Atoi(r.FormValue("latencyMs")); err == nil {
-			cfg.LatencyMs = latencyMs
-		}
-		if timeout, err := time.ParseDuration(r.FormValue("janitorTimeout")); err == nil && r.FormValue("janitorTimeout") != "" {
-			cfg.JanitorTimeout = timeout
-		}
-		if ttl, err := time.ParseDuration(r.FormValue("autoPurgeTTL")); err == nil && r.FormValue("autoPurgeTTL") != "" {
-			cfg.AutoPurgeTTL = ttl
-		}
-		cfg.EnforceIAM = r.FormValue("enforceIAM") == "true"
-		cfg.Persist = r.FormValue("persist") == "true"
-		cfg.Demo = r.FormValue("demo") == "true"
-		cfg.LogLevel = r.FormValue("logLevel")
-		cfg.Port = r.FormValue("port")
-		cfg.DNSListenAddr = r.FormValue("dnsListenAddr")
-		cfg.DNSResolveIP = r.FormValue("dnsResolveIP")
-		cfg.OpenSearchEngine = r.FormValue("openSearchEngine")
-		cfg.ElasticsearchEngine = r.FormValue("elasticsearchEngine")
-		cfg.ElastiCacheEngine = r.FormValue("elastiCacheEngine")
-		cfg.DataDir = r.FormValue("dataDir")
+	cfg := h.ConfigManager.GetSettings()
 
-		if start, err := strconv.Atoi(r.FormValue("portRangeStart")); err == nil {
-			cfg.PortRangeStart = start
-		}
+	cfg.AccountID = r.FormValue("accountID")
+	cfg.Region = r.FormValue("region")
+	if latencyMs, err := strconv.Atoi(r.FormValue("latencyMs")); err == nil {
+		cfg.LatencyMs = latencyMs
+	}
+	cfg.JanitorTimeout = parseDurationField(r, "janitorTimeout", cfg.JanitorTimeout)
+	cfg.AutoPurgeTTL = parseDurationField(r, "autoPurgeTTL", cfg.AutoPurgeTTL)
+	cfg.EnforceIAM = r.FormValue("enforceIAM") == constStrTrue
+	cfg.Persist = r.FormValue("persist") == constStrTrue
+	cfg.Demo = r.FormValue("demo") == constStrTrue
+	cfg.LogLevel = r.FormValue("logLevel")
+	cfg.Port = r.FormValue("port")
+	cfg.DNSListenAddr = r.FormValue("dnsListenAddr")
+	cfg.DNSResolveIP = r.FormValue("dnsResolveIP")
+	cfg.OpenSearchEngine = r.FormValue("openSearchEngine")
+	cfg.ElasticsearchEngine = r.FormValue("elasticsearchEngine")
+	cfg.ElastiCacheEngine = r.FormValue("elastiCacheEngine")
+	cfg.DataDir = r.FormValue("dataDir")
 
-		if end, err := strconv.Atoi(r.FormValue("portRangeEnd")); err == nil {
-			cfg.PortRangeEnd = end
-		}
+	if start, err := strconv.Atoi(r.FormValue("portRangeStart")); err == nil {
+		cfg.PortRangeStart = start
+	}
 
-		if timeout, err := time.ParseDuration(r.FormValue("initScriptTimeout")); err == nil && r.FormValue("initScriptTimeout") != "" {
-			cfg.InitScriptTimeout = timeout
-		}
+	if end, err := strconv.Atoi(r.FormValue("portRangeEnd")); err == nil {
+		cfg.PortRangeEnd = end
+	}
 
-		// Service settings mapping
-		cfg.S3.DefaultRegion = r.FormValue("s3-DefaultRegion")
+	cfg.InitScriptTimeout = parseDurationField(r, "initScriptTimeout", cfg.InitScriptTimeout)
 
-		if bytes, err := strconv.Atoi(r.FormValue("s3-CompressionMinBytes")); err == nil {
-			cfg.S3.CompressionMinBytes = bytes
-		}
+	applyServiceSettingsFromForm(r, &cfg)
 
-		cfg.Lambda.DockerHost = r.FormValue("lambda-DockerHost")
-		cfg.Lambda.ContainerRuntime = r.FormValue("lambda-ContainerRuntime")
+	h.ConfigManager.UpdateSettings(cfg)
 
-		if size, err := strconv.Atoi(r.FormValue("lambda-PoolSize")); err == nil {
-			cfg.Lambda.PoolSize = size
-		}
+	if err := h.ConfigManager.SaveConfig(); err != nil {
+		h.Logger.Error("failed to save config", "error", err)
 
-		if timeout, err := time.ParseDuration(r.FormValue("lambda-IdleTimeout")); err == nil && r.FormValue("lambda-IdleTimeout") != "" {
-			cfg.Lambda.IdleTimeout = timeout
-		}
-
-		if maxRuntimes, err := strconv.Atoi(r.FormValue("lambda-MaxRuntimes")); err == nil {
-			cfg.Lambda.MaxRuntimes = maxRuntimes
-		}
-
-		cfg.DynamoDB.DefaultRegion = r.FormValue("dynamodb-DefaultRegion")
-		cfg.DynamoDB.EnforceThroughput = r.FormValue("dynamodb-EnforceThroughput") == "true"
-
-		if d, err := time.ParseDuration(r.FormValue("dynamodb-CreateDelay")); err == nil && r.FormValue("dynamodb-CreateDelay") != "" {
-			cfg.DynamoDB.CreateDelay = d
-		}
-
-		if d, err := time.ParseDuration(r.FormValue("ec2-TerminatedTTL")); err == nil && r.FormValue("ec2-TerminatedTTL") != "" {
-			cfg.EC2.TerminatedTTL = d
-		}
-
-		if d, err := time.ParseDuration(r.FormValue("ssm-CommandTTL")); err == nil && r.FormValue("ssm-CommandTTL") != "" {
-			cfg.SSM.CommandTTL = d
-		}
-
-		if d, err := time.ParseDuration(r.FormValue("ses-EmailTTL")); err == nil && r.FormValue("ses-EmailTTL") != "" {
-			cfg.SES.EmailTTL = d
-		}
-
-		if d, err := time.ParseDuration(r.FormValue("backup-JobTTL")); err == nil && r.FormValue("backup-JobTTL") != "" {
-			cfg.Backup.JobTTL = d
-		}
-
-		if d, err := time.ParseDuration(r.FormValue("xray-TraceTTL")); err == nil && r.FormValue("xray-TraceTTL") != "" {
-			cfg.XRay.TraceTTL = d
-		}
-
-		if d, err := time.ParseDuration(r.FormValue("emr-TerminatedTTL")); err == nil && r.FormValue("emr-TerminatedTTL") != "" {
-			cfg.EMR.TerminatedTTL = d
-		}
-
-		if d, err := time.ParseDuration(r.FormValue("athena-ExecutionTTL")); err == nil && r.FormValue("athena-ExecutionTTL") != "" {
-			cfg.Athena.ExecutionTTL = d
-		}
-
-		if d, err := time.ParseDuration(r.FormValue("fis-ExperimentTTL")); err == nil && r.FormValue("fis-ExperimentTTL") != "" {
-			cfg.FIS.ExperimentTTL = d
-		}
-
-		h.ConfigManager.UpdateSettings(cfg)
-
-		if err := h.ConfigManager.SaveConfig(); err != nil {
-			h.Logger.Error("failed to save config", "error", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"message": "Failed to persist config: " + err.Error()})
-		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"message": "Failed to persist config: " + err.Error(),
+		})
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"message": "Settings updated and persisted successfully"})

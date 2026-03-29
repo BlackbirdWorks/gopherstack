@@ -157,8 +157,10 @@ func (m *mockAWSProvider) GetVerifiedPermissionsHandler() service.Registerable  
 func (m *mockAWSProvider) GetWafv2Handler() service.Registerable                   { return nil }
 func (m *mockAWSProvider) GetXrayHandler() service.Registerable                    { return nil }
 func (m *mockAWSProvider) GetS3TablesHandler() service.Registerable                { return nil }
-func (m *mockAWSProvider) GetGlobalConfig() *globalcfg.GlobalConfig                { return &globalcfg.GlobalConfig{} }
-func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore                        { return nil }
+func (m *mockAWSProvider) GetGlobalConfig() *globalcfg.GlobalConfig {
+	return globalcfg.NewGlobalConfig("000000000000", "us-east-1", 0, 0, false, 0)
+}
+func (m *mockAWSProvider) GetFaultStore() *chaos.FaultStore { return nil }
 
 func TestDashboardProvider_Name(t *testing.T) {
 	t.Parallel()

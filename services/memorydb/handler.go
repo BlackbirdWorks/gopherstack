@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -815,5 +816,12 @@ func toParameterGroupObject(pg *ParameterGroup) parameterGroupObject {
 		ARN:         pg.ARN,
 		Description: pg.Description,
 		Family:      pg.Family,
+	}
+}
+
+// Purge implements service.Purgeable by removing all MemoryDB resources older than cutoff.
+func (h *Handler) Purge(cutoff time.Time) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Purge(cutoff)
 	}
 }

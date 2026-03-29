@@ -2334,18 +2334,24 @@ func (h *Handler) Purge(cutoff time.Time) {
 		b.Purge(cutoff)
 	}
 
-	// Clean up tags for purged functions
+	// Build the set of function ARNs that still exist in the backend after purge.
+	remaining := make(map[string]struct{})
+	pg := h.Backend.ListFunctions("", -1)
+	for _, fn := range pg.Data {
+		remaining[fn.FunctionArn] = struct{}{}
+	}
+
+	// Remove tags for any function that no longer exists.
 	h.tagsMu.Lock("Purge")
 	defer h.tagsMu.Unlock()
 
-	for id, t := range h.tags {
-		// Since we don't have CreateDate easily accessible for tags here without
-		// querying the backend, we can just rely on the backend cleaning up its
-		// state and we could potentially leak some tags until Reset.
-		// However, most tags are keyed by function ARN.
-		// For simplicity, we'll leave tags alone or we could do a more thorough cleanup.
-		_ = id
-		_ = t
+	for arn, t := range h.tags {
+		if _, ok := remaining[arn]; !ok {
+			if t != nil {
+				t.Close()
+			}
+			delete(h.tags, arn)
+		}
 	}
 }
 

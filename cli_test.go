@@ -514,18 +514,20 @@ func TestARNServiceIs(t *testing.T) {
 
 type mockPurgeableService struct {
 	service.Registerable
+
 	purged bool
 }
 
 func (m *mockPurgeableService) Purge(_ time.Time) { m.purged = true }
-func (m *mockPurgeableService) Name() string           { return "MockPurgeable" }
+func (m *mockPurgeableService) Name() string      { return "MockPurgeable" }
 
 type mockResettableService struct {
 	service.Registerable
+
 	resetted bool
 }
 
-func (m *mockResettableService) Reset()      { m.resetted = true }
+func (m *mockResettableService) Reset()       { m.resetted = true }
 func (m *mockResettableService) Name() string { return "MockResettable" }
 
 func TestCLI_AutoPurgeLoop(t *testing.T) {
@@ -548,6 +550,7 @@ func TestCLI_AutoPurgeLoop(t *testing.T) {
 		for _, svc := range services {
 			if p, ok := svc.(service.Purgeable); ok {
 				p.Purge(cutoff)
+
 				continue
 			}
 			if r, ok := svc.(service.Resettable); ok {
