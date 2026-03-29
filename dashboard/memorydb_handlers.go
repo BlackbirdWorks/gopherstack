@@ -137,8 +137,8 @@ func (h *DashboardHandler) memorydbCreateCluster(c *echo.Context) error {
 	}
 
 	if _, err := h.MemoryDBOps.Backend.CreateCluster(
-		h.GlobalConfig.Region,
-		h.GlobalConfig.AccountID,
+		h.getGlobalConfig().GetRegion(),
+		h.getGlobalConfig().GetAccountID(),
 		req,
 	); err != nil {
 		h.Logger.ErrorContext(ctx, "memorydb: failed to create cluster", "error", err)

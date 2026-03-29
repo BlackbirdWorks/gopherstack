@@ -79,6 +79,7 @@ type StorageBackend interface {
 	DeleteFunction(name string) error
 	UpdateFunction(fn *FunctionConfiguration) error
 	InvokeFunction(ctx context.Context, name string, invocationType InvocationType, payload []byte) ([]byte, int, error)
+	Purge(cutoff time.Time)
 }
 
 // QualifierInvoker is an optional extension of StorageBackend that supports qualified invocations.
@@ -2836,6 +2837,77 @@ func (b *InMemoryBackend) Reset() {
 		wg.Go(func() {
 			_ = srv.server.Shutdown(ctx)
 
+			if b.portAlloc != nil {
+				_ = b.portAlloc.Release(srv.port)
+			}
+		})
+	}
+
+	for _, rt := range rts {
+		wg.Go(func() { b.cleanupRuntime(ctx, rt) })
+	}
+
+	wg.Wait()
+}
+
+// Purge removes all functions older than the given cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+
+	var purgedFunctions []string
+	var urlServers []*functionURLServer
+	var rts []*functionRuntime
+
+	for name, fn := range b.functions {
+		if fn.CreatedAt.Before(cutoff) {
+			purgedFunctions = append(purgedFunctions, name)
+
+			// Collect resources to clean up outside the lock
+			if srv, ok := b.functionURLServers[name]; ok {
+				urlServers = append(urlServers, srv)
+			}
+			if rt, ok := b.runtimes[name]; ok {
+				rts = append(rts, rt)
+			}
+
+			// Delete from primary maps
+			delete(b.functions, name)
+			delete(b.runtimes, name)
+			delete(b.functionURLServers, name)
+			delete(b.functionURLConfigs, name)
+			delete(b.aliases, name)
+			delete(b.versionCounters, name)
+			delete(b.versions, name)
+			delete(b.eventInvokeConfigs, name)
+			delete(b.functionConcurrencies, name)
+			delete(b.activeConcurrencies, name)
+			delete(b.provisionedConcurrencies, name)
+			delete(b.fisFaults, name)
+
+			// Delete event source mappings for this function
+			for id, m := range b.eventSourceMappings {
+				if strings.HasSuffix(m.FunctionARN, ":function:"+name) {
+					delete(b.eventSourceMappings, id)
+				}
+			}
+		}
+	}
+
+	b.mu.Unlock()
+
+	if len(purgedFunctions) == 0 {
+		return
+	}
+
+	// Shut down URL servers and release ports outside the lock.
+	ctx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	for _, srv := range urlServers {
+		wg.Go(func() {
+			_ = srv.server.Shutdown(ctx)
 			if b.portAlloc != nil {
 				_ = b.portAlloc.Release(srv.port)
 			}

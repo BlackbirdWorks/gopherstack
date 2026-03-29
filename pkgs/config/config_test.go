@@ -32,13 +32,10 @@ func TestGlobalConfig(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg := config.GlobalConfig{
-				AccountID: tc.accountID,
-				Region:    tc.region,
-			}
+			cfg := config.NewGlobalConfig(tc.accountID, tc.region, 0, 0, false, 0)
 
-			assert.Equal(t, tc.accountID, cfg.AccountID)
-			assert.Equal(t, tc.region, cfg.Region)
+			assert.Equal(t, tc.accountID, cfg.GetAccountID())
+			assert.Equal(t, tc.region, cfg.GetRegion())
 		})
 	}
 }

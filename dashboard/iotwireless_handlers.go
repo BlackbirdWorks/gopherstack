@@ -65,7 +65,7 @@ func (h *DashboardHandler) iotwirelessIndex(c *echo.Context) error {
 		return nil
 	}
 
-	rawProfiles := h.IoTWirelessOps.Backend.ListServiceProfiles(h.GlobalConfig.AccountID, h.GlobalConfig.Region)
+	rawProfiles := h.IoTWirelessOps.Backend.ListServiceProfiles(h.getGlobalConfig().GetAccountID(), h.getGlobalConfig().GetRegion())
 	views := make([]iotwirelessServiceProfileView, 0, len(rawProfiles))
 
 	for _, sp := range rawProfiles {
@@ -103,7 +103,7 @@ func (h *DashboardHandler) iotwirelessCreateServiceProfile(c *echo.Context) erro
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	_, err := h.IoTWirelessOps.Backend.CreateServiceProfile(h.GlobalConfig.AccountID, h.GlobalConfig.Region, name, nil)
+	_, err := h.IoTWirelessOps.Backend.CreateServiceProfile(h.getGlobalConfig().GetAccountID(), h.getGlobalConfig().GetRegion(), name, nil)
 	if err != nil {
 		h.Logger.Error("failed to create iot wireless service profile", "name", name, "error", err)
 
@@ -129,8 +129,8 @@ func (h *DashboardHandler) iotwirelessDeleteServiceProfile(c *echo.Context) erro
 	}
 
 	if err := h.IoTWirelessOps.Backend.DeleteServiceProfile(
-		h.GlobalConfig.AccountID,
-		h.GlobalConfig.Region,
+		h.getGlobalConfig().GetAccountID(),
+		h.getGlobalConfig().GetRegion(),
 		id,
 	); err != nil {
 		h.Logger.Error("failed to delete iot wireless service profile", "id", id, "error", err)

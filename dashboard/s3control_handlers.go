@@ -111,7 +111,7 @@ func (h *DashboardHandler) s3controlPutConfig(c *echo.Context) error {
 
 	accountID := c.Request().FormValue("account_id")
 	if accountID == "" {
-		accountID = h.GlobalConfig.AccountID
+		accountID = h.getGlobalConfig().GetAccountID()
 	}
 
 	h.S3ControlOps.Backend.PutPublicAccessBlock(s3control.PublicAccessBlock{

@@ -203,8 +203,8 @@ func (h *DashboardHandler) fisCreateTemplate(c *echo.Context) error {
 
 	if _, err := h.FISOps.Backend.CreateExperimentTemplate(
 		input,
-		h.GlobalConfig.AccountID,
-		h.GlobalConfig.Region,
+		h.getGlobalConfig().GetAccountID(),
+		h.getGlobalConfig().GetRegion(),
 	); err != nil {
 		h.Logger.Error("failed to create FIS experiment template", "error", err)
 
@@ -263,8 +263,8 @@ func (h *DashboardHandler) fisStartExperiment(c *echo.Context) error {
 	if _, err := h.FISOps.Backend.StartExperiment(
 		c.Request().Context(),
 		input,
-		h.GlobalConfig.AccountID,
-		h.GlobalConfig.Region,
+		h.getGlobalConfig().GetAccountID(),
+		h.getGlobalConfig().GetRegion(),
 	); err != nil {
 		h.Logger.Error("failed to start FIS experiment", "templateId", templateID, "error", err)
 

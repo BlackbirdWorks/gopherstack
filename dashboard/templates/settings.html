@@ -1,96 +1,584 @@
 {{template "layout" .}}
 
 {{define "content"}}
-<div class="p-4 sm:ml-64">
-    <div class="p-4 mt-14">
+<div class="max-w-6xl mx-auto pb-20">
 
-        <!-- Header -->
-        <div class="flex items-center justify-between mb-6">
-            <div>
-                <h1 class="text-2xl font-bold text-slate-900 dark:text-white">⚙️ Settings</h1>
-                <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Runtime configuration — read only</p>
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-6">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-900 dark:text-white">⚙️ Settings</h1>
+            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Runtime configuration and persistence</p>
+        </div>
+        <div id="save-feedback" class="hidden animate-fade-in px-4 py-2 rounded-lg text-sm font-medium"></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="mb-6 border-b border-gray-200 dark:border-gray-700">
+        <ul class="flex flex-wrap -mb-px text-sm font-medium text-center" id="settings-tab" data-tabs-toggle="#settings-tab-content" role="tablist">
+            <li class="mr-2" role="presentation">
+                <button class="inline-block p-4 border-b-2 rounded-t-lg align-middle transition-colors ease-in-out" id="global-tab" data-tabs-target="#global" type="button" role="tab" aria-controls="global" aria-selected="true">Global Settings</button>
+            </li>
+            <li class="mr-2" role="presentation">
+                <button class="inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 transition-colors ease-in-out" id="services-tab" data-tabs-target="#services" type="button" role="tab" aria-controls="services" aria-selected="false">Service Settings</button>
+            </li>
+        </ul>
+    </div>
+
+    <!-- Tab Content -->
+    <div id="settings-tab-content">
+        <!-- Global Settings Tab -->
+        <div class="rounded-lg" id="global" role="tabpanel" aria-labelledby="global-tab">
+            <div class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 text-blue-700 dark:text-blue-400 p-4 mb-6 rounded-r-lg text-sm flex gap-3 shadow-sm items-start">
+                <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <p><strong>Note:</strong> Settings modifying the server port, DNS binding, data directory, and engines require a restart to fully take effect.</p>
             </div>
+
+            <form id="settings-form" class="space-y-6" onsubmit="updateSettings(event)">
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <span class="text-xs text-slate-400 italic">Build Version: {{.BuildVersion}}</span>
+                    </div>
+                    <button type="submit" id="save-settings-btn" disabled class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg text-sm font-semibold transition-all shadow-sm flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                        Save Settings
+                    </button>
+                </div>
+
+                <!-- Config Cards -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                    <!-- Core & Network -->
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
+                        <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                            <span>🏦</span> Core & Network
+                        </h2>
+                        <div class="space-y-4">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="Mock AWS account ID used in ARNs.">Account ID</label>
+                                    <input type="text" name="accountID" value="{{.Config.AccountID}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="AWS region">Default Region</label>
+                                    <input type="text" name="region" value="{{.Config.Region}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="HTTP server port">HTTP Port *</label>
+                                    <input type="text" name="port" value="{{.Config.Port}}" readonly class="w-full px-3 py-2 text-sm font-mono bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-md cursor-not-allowed outline-none">
+                                    <p class="text-[10px] text-gray-500 mt-1">Set PORT env var to modify</p>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="Log level (debug|info|warn|error)">Log Level</label>
+                                    <select name="logLevel" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                        <option value="debug" {{if eq .Config.LogLevel "debug"}}selected{{end}}>Debug</option>
+                                        <option value="info" {{if eq .Config.LogLevel "info"}}selected{{end}}>Info</option>
+                                        <option value="warn" {{if eq .Config.LogLevel "warn"}}selected{{end}}>Warn</option>
+                                        <option value="error" {{if eq .Config.LogLevel "error"}}selected{{end}}>Error</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="Address for embedded DNS server (e.g. :10053). Empty = disabled.">DNS Listen Addr *</label>
+                                    <input type="text" name="dnsListenAddr" value="{{.Config.DNSListenAddr}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="IP address synthetic hostnames resolve to.">DNS Resolve IP *</label>
+                                    <input type="text" name="dnsResolveIP" value="{{.Config.DNSResolveIP}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Performance & Lifecycle -->
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 shadow-sm flex flex-col">
+                        <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                            <span>⚡</span> Performance & Lifecycle
+                        </h2>
+                        <div class="space-y-4 flex-grow">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="Max simulated latency">Latency (ms)</label>
+                                    <input type="number" name="latencyMs" value="{{.Config.LatencyMs}}" min="0" max="5000" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="Janitor operation task timeout">Janitor Timeout</label>
+                                    <input type="text" name="janitorTimeout" value="{{.Config.JanitorTimeout}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white" placeholder="30s">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="Automatic service reset timer">Auto-Purge TTL</label>
+                                <input type="text" name="autoPurgeTTL" value="{{.Config.AutoPurgeTTL}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white" placeholder="e.g. 10m, 1h">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4 pt-2">
+                                <div class="flex items-center justify-between">
+                                    <span class="block text-sm font-medium text-slate-700 dark:text-slate-200">IAM Execution</span>
+                                    <label class="flex items-center cursor-pointer">
+                                        <div class="relative flex items-center shrink-0">
+                                            <input type="checkbox" name="enforceIAM" value="true" class="sr-only peer" {{if .Config.EnforceIAM}}checked{{end}}>
+                                            <div class="w-11 h-6 bg-gray-200 rounded-full dark:bg-gray-700 peer-checked:bg-indigo-600 border border-gray-300 dark:border-gray-600 peer-checked:border-indigo-600 transition-colors duration-200 block"></div>
+                                            <div class="absolute left-1 bg-white border border-gray-300 rounded-full w-4 h-4 transition-transform duration-200 peer-checked:translate-x-5 shadow-sm"></div>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Persistence & System -->
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 shadow-sm col-span-1 lg:col-span-2">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <!-- Column 1: Persistence -->
+                            <div class="space-y-4">
+                                <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-widest flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                                    Persistence
+                                </h3>
+                                <div class="flex items-center justify-between mt-1 mb-2">
+                                    <span class="block text-sm font-medium text-slate-700 dark:text-slate-200">Enable Persistence</span>
+                                    <label class="flex items-center cursor-pointer">
+                                        <div class="relative flex items-center shrink-0">
+                                            <input type="checkbox" name="persist" value="true" class="sr-only peer" {{if .Config.Persist}}checked{{end}}>
+                                            <div class="w-11 h-6 bg-gray-200 rounded-full dark:bg-gray-700 peer-checked:bg-indigo-600 border border-gray-300 dark:border-gray-600 peer-checked:border-indigo-600 transition-colors duration-200 block"></div>
+                                            <div class="absolute left-1 bg-white border border-gray-300 rounded-full w-4 h-4 transition-transform duration-200 peer-checked:translate-x-5 shadow-sm"></div>
+                                        </div>
+                                    </label>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Data Directory *</label>
+                                    <input type="text" name="dataDir" value="{{.Config.DataDir}}" readonly class="w-full px-3 py-2 text-sm font-mono bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400 border border-gray-200 dark:border-gray-700 rounded-md cursor-not-allowed outline-none">
+                                    <p class="text-[10px] text-gray-500 mt-1">Set GOPHERSTACK_DATA_DIR env var to modify</p>
+                                </div>
+                            </div>
+
+                            <!-- Column 2: Networking & System -->
+                            <div class="space-y-4">
+                                <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-widest flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                    Networking & System
+                                </h3>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Port Range Start</label>
+                                        <input type="number" name="portRangeStart" value="{{.Config.PortRangeStart}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                    </div>
+                                    <div>
+                                        <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Port Range End</label>
+                                        <input type="number" name="portRangeEnd" value="{{.Config.PortRangeEnd}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Init Script Timeout</label>
+                                    <input type="text" name="initScriptTimeout" value="{{.Config.InitScriptTimeout}}" placeholder="30s" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
         </div>
 
-        <!-- Config Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Service Settings Tab -->
+        <div class="hidden p-6 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-sm" id="services" role="tabpanel" aria-labelledby="services-tab">
+            <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-6">Service Engines</h2>
+            
+            <form id="services-form" class="space-y-6" onsubmit="updateSettings(event)">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <!-- Engine Mode Group -->
+                    <div class="col-span-1 md:col-span-2 lg:col-span-3 pb-4 border-b border-gray-100 dark:border-gray-700">
+                        <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-2 mb-4">
+                            🚀 Engine Selection
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="OpenSearch mode: stub or docker">OpenSearch</label>
+                                <select name="openSearchEngine" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                    <option value="stub" {{if eq .Config.OpenSearchEngine "stub"}}selected{{end}}>stub</option>
+                                    <option value="docker" {{if eq .Config.OpenSearchEngine "docker"}}selected{{end}}>docker</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="Elasticsearch mode: stub or docker">Elasticsearch</label>
+                                <select name="elasticsearchEngine" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                    <option value="stub" {{if eq .Config.ElasticsearchEngine "stub"}}selected{{end}}>stub</option>
+                                    <option value="docker" {{if eq .Config.ElasticsearchEngine "docker"}}selected{{end}}>docker</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1" title="ElastiCache mode: embedded, stub, or docker">ElastiCache</label>
+                                <select name="elastiCacheEngine" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white">
+                                    <option value="embedded" {{if eq .Config.ElastiCacheEngine "embedded"}}selected{{end}}>embedded</option>
+                                    <option value="stub" {{if eq .Config.ElastiCacheEngine "stub"}}selected{{end}}>stub</option>
+                                    <option value="docker" {{if eq .Config.ElastiCacheEngine "docker"}}selected{{end}}>docker</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
 
-            <!-- Account & Region -->
-            <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                <h2 class="text-lg font-semibold text-slate-900 dark:text-white mb-4">🏦 Identity</h2>
-                <dl class="space-y-3">
-                    <div class="flex justify-between items-center">
-                        <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Account ID</dt>
-                        <dd>
-                            <span class="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded">
-                                {{.AccountID}}
-                            </span>
-                        </dd>
+                    <!-- S3 Settings -->
+                    <div class="p-4 bg-slate-50/50 dark:bg-slate-900/30 rounded-lg border border-slate-100 dark:border-slate-800">
+                        <h4 class="text-xs font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                             🪣 S3
+                        </h4>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 uppercase mb-1">Default Region</label>
+                                <input type="text" name="s3-DefaultRegion" value="{{.Config.S3.DefaultRegion}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 uppercase mb-1">Compression Threshold (Bytes)</label>
+                                <input type="number" name="s3-CompressionMinBytes" value="{{.Config.S3.CompressionMinBytes}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                        </div>
                     </div>
-                    <div class="flex justify-between items-center">
-                        <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Default Region</dt>
-                        <dd>
-                            <span class="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded">
-                                {{.Region}}
-                            </span>
-                        </dd>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Latency Simulation</dt>
-                        <dd>
-                            {{if gt .LatencyMs 0}}
-                            <span class="px-2 py-1 text-xs font-mono bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 rounded">
-                                [0, {{.LatencyMs}}) ms
-                            </span>
-                            {{else}}
-                            <span class="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded">
-                                disabled
-                            </span>
-                            {{end}}
-                        </dd>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">IAM Enforcement</dt>
-                        <dd>
-                            {{if .EnforceIAM}}
-                            <span class="px-2 py-1 text-xs font-mono bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 rounded">
-                                enabled
-                            </span>
-                            {{else}}
-                            <span class="px-2 py-1 text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded">
-                                disabled
-                            </span>
-                            {{end}}
-                        </dd>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <dt class="text-sm font-medium text-slate-500 dark:text-slate-400">Build Version</dt>
-                        <dd>
-                            <span class="px-2 py-1 text-xs font-mono bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200 rounded">
-                                {{.BuildVersion}}
-                            </span>
-                        </dd>
-                    </div>
-                </dl>
-            </div>
 
-            <!-- Info Notice -->
-            <div class="bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 p-6 flex flex-col justify-center">
-                <h2 class="text-lg font-semibold text-blue-800 dark:text-blue-200 mb-2">ℹ️ How to change</h2>
-                <p class="text-sm text-blue-700 dark:text-blue-300">
-                    Configuration is set at startup via CLI flags or environment variables.
-                    Restart the server with updated values to change them.
-                </p>
-                <ul class="mt-3 text-xs text-blue-600 dark:text-blue-400 font-mono space-y-1">
-                    <li>--account-id / ACCOUNT_ID</li>
-                    <li>--region / REGION</li>
-                    <li>--latency-ms / LATENCY_MS</li>
-                    <li>--enforce-iam / GOPHERSTACK_ENFORCE_IAM</li>
-                </ul>
-            </div>
+                    <!-- Lambda Settings -->
+                    <div class="p-4 bg-slate-50/50 dark:bg-slate-900/30 rounded-lg border border-slate-100 dark:border-slate-800">
+                        <h4 class="text-xs font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                             ƛ Lambda
+                        </h4>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 uppercase mb-1">Container Runtime</label>
+                                <select name="lambda-ContainerRuntime" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                                    <option value="docker" {{if eq .Config.Lambda.ContainerRuntime "docker"}}selected{{end}}>docker</option>
+                                    <option value="podman" {{if eq .Config.Lambda.ContainerRuntime "podman"}}selected{{end}}>podman</option>
+                                    <option value="auto" {{if eq .Config.Lambda.ContainerRuntime "auto"}}selected{{end}}>auto</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 uppercase mb-1">Warm Pool Size</label>
+                                <input type="number" name="lambda-PoolSize" value="{{.Config.Lambda.PoolSize}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                        </div>
+                    </div>
 
+                    <!-- DynamoDB Settings -->
+                    <div class="p-4 bg-slate-50/50 dark:bg-slate-900/30 rounded-lg border border-slate-100 dark:border-slate-800">
+                        <h4 class="text-xs font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
+                             📈 DynamoDB
+                        </h4>
+                        <div class="space-y-4">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-medium text-slate-500 uppercase">Enforce Throughput</span>
+                                <label class="flex items-center cursor-pointer">
+                                    <div class="relative flex items-center shrink-0">
+                                        <input type="checkbox" name="dynamodb-EnforceThroughput" value="true" class="sr-only peer" {{if .Config.DynamoDB.EnforceThroughput}}checked{{end}}>
+                                        <div class="w-11 h-6 bg-gray-200 rounded-full dark:bg-gray-700 peer-checked:bg-indigo-600 border border-gray-300 dark:border-gray-600 transition-colors duration-200 block"></div>
+                                        <div class="absolute left-1 bg-white border border-gray-300 rounded-full w-4 h-4 transition-transform duration-200 peer-checked:translate-x-5 shadow-sm"></div>
+                                    </div>
+                                </label>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 uppercase mb-1">Creation Delay</label>
+                                <input type="text" name="dynamodb-CreateDelay" value="{{.Config.DynamoDB.CreateDelay}}" placeholder="5s" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Other Services Group -->
+                    <div class="col-span-1 md:col-span-2 lg:col-span-3 p-4 bg-indigo-50/30 dark:bg-indigo-900/10 rounded-lg border border-indigo-100 dark:border-indigo-900/30">
+                        <h4 class="text-xs font-bold text-indigo-900 dark:text-indigo-400 mb-4 flex items-center gap-2">
+                             ⏳ Service TTLs & Intervals
+                        </h4>
+                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase mb-1">EC2 Terminated TTL</label>
+                                <input type="text" name="ec2-TerminatedTTL" value="{{.Config.EC2.TerminatedTTL}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase mb-1">SSM Command TTL</label>
+                                <input type="text" name="ssm-CommandTTL" value="{{.Config.SSM.CommandTTL}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase mb-1">SES Email TTL</label>
+                                <input type="text" name="ses-EmailTTL" value="{{.Config.SES.EmailTTL}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase mb-1">Backup Job TTL</label>
+                                <input type="text" name="backup-JobTTL" value="{{.Config.Backup.JobTTL}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase mb-1">X-Ray Trace TTL</label>
+                                <input type="text" name="xray-TraceTTL" value="{{.Config.XRay.TraceTTL}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase mb-1">EMR Cluster TTL</label>
+                                <input type="text" name="emr-TerminatedTTL" value="{{.Config.EMR.TerminatedTTL}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase mb-1">Athena Exec TTL</label>
+                                <input type="text" name="athena-ExecutionTTL" value="{{.Config.Athena.ExecutionTTL}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                             <div>
+                                <label class="block text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase mb-1">FIS Experiment TTL</label>
+                                <input type="text" name="fis-ExperimentTTL" value="{{.Config.FIS.ExperimentTTL}}" class="w-full px-3 py-2 text-sm font-mono bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+                    <button type="submit" id="save-services-btn" disabled class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg text-sm font-semibold transition-all shadow-sm flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg>
+                        Save Settings
+                    </button>
+                </div>
+            </form>
         </div>
+    </div>
 
+    <!-- Service Management Section -->
+    <div class="mt-12">
+        <h2 class="text-xl font-bold text-slate-900 dark:text-white mb-4">🔧 Service Management</h2>
+        <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-4 w-full md:w-auto">
+                <select id="reset-service-select" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5 min-w-[200px] dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-indigo-500 dark:focus:border-indigo-500">
+                    <option value="">All Services (Global Reset)</option>
+                </select>
+                <button type="button" onclick="resetSelectedService()" class="text-white bg-red-600 hover:bg-red-700 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-6 py-2.5 dark:bg-red-500 dark:hover:bg-red-600 focus:outline-none dark:focus:ring-red-800 flex items-center gap-2 whitespace-nowrap">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    Reset Data
+                </button>
+                <span id="reset-success-msg" class="text-green-600 dark:text-green-400 text-sm hidden font-medium flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                    Cleared
+                </span>
+            </div>
+            
+            <a href="https://github.com/blackbirdworks/gopherstack" target="_blank"
+                class="inline-flex items-center gap-2 text-slate-700 hover:text-slate-900 border border-gray-300 dark:border-gray-600 bg-white hover:bg-gray-50 dark:bg-gray-700 dark:text-slate-200 dark:hover:bg-gray-600 shadow-sm focus:ring-4 focus:outline-none focus:ring-gray-200 dark:focus:ring-gray-700 font-medium rounded-lg text-sm px-4 py-2 text-center transition-colors">
+                <svg class="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd" /></svg>
+                GitHub Repo
+            </a>
+        </div>
+    </div>
+
+    <!-- Documentation Section -->
+    <div id="docs-section" class="mt-16 pt-8 border-t border-gray-200 dark:border-gray-700">
+        <div class="mb-6">
+            <h2 class="text-xl font-bold text-slate-900 dark:text-white">📚 Documentation</h2>
+            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1 mb-6">Explore supported features and integration examples</p>
+            
+            <div class="relative w-full md:w-96">
+                <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                    <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
+                <input type="text" id="docs-search-input" onkeyup="filterDocs()" class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Filter documentation...">
+            </div>
+        </div>
+        
+        <div id="docs-search-results" class="space-y-4">
+            {{template "doc_content" .}}
+        </div>
+    </div>
+
+</div>
+
+<!-- Back to Top Button -->
+<button id="back-to-top" onclick="window.scrollTo({top: 0, behavior: 'smooth'})" 
+    class="fixed bottom-8 right-8 bg-indigo-600 text-white p-3 rounded-full shadow-xl opacity-0 transition-all duration-300 hover:bg-indigo-700 focus:outline-none z-50 transform hover:scale-110 translate-y-10 pointer-events-none">
+    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+</button>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // Fetch services and populate dropdown for reset
+        fetch("/_gopherstack/health")
+            .then(res => res.json())
+            .then(data => {
+                const selectElement = document.getElementById("reset-service-select");
+                if (data && data.services) {
+                    data.services.forEach(svc => {
+                        const option = document.createElement("option");
+                        option.value = svc;
+                        option.textContent = svc;
+                        selectElement.appendChild(option);
+                    });
+                }
+            })
+            .catch(err => console.error("Failed to fetch services list", err));
+
+        // Form change detection
+        const setupChangeDetection = (formId, btnId) => {
+            const form = document.getElementById(formId);
+            const btn = document.getElementById(btnId);
+            if (!form || !btn) return;
+            
+            // Store initial values
+            const initialData = new FormData(form);
+            const initialState = new URLSearchParams(initialData).toString();
+            
+            form.addEventListener('input', () => {
+                const currentData = new FormData(form);
+                const currentState = new URLSearchParams(currentData).toString();
+                btn.disabled = initialState === currentState;
+            });
+            form.addEventListener('change', () => {
+                const currentData = new FormData(form);
+                const currentState = new URLSearchParams(currentData).toString();
+                btn.disabled = initialState === currentState;
+            });
+        };
+        
+        setupChangeDetection('settings-form', 'save-settings-btn');
+        setupChangeDetection('services-form', 'save-services-btn');
+
+        // Back to top visibility
+        window.onscroll = function() {
+            const btn = document.getElementById("back-to-top");
+            if (document.body.scrollTop > 300 || document.documentElement.scrollTop > 300) {
+                btn.classList.remove("opacity-0", "pointer-events-none", "translate-y-10");
+                btn.classList.add("opacity-100", "translate-y-0");
+            } else {
+                btn.classList.add("opacity-0", "pointer-events-none", "translate-y-10");
+                btn.classList.remove("opacity-100", "translate-y-0");
+            }
+        };
+    });
+
+    function updateSettings(event) {
+        event.preventDefault();
+        const form = event.target;
+        const formData = new FormData(form);
+        const feedback = document.getElementById("save-feedback");
+
+        fetch("/dashboard/settings/update", {
+            method: "POST",
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            feedback.textContent = data.message || "Settings updated successfully";
+            feedback.className = "px-4 py-2 rounded-lg text-sm font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 animate-fade-in";
+            feedback.classList.remove("hidden");
+            setTimeout(() => feedback.classList.add("hidden"), 3000);
+        })
+        .catch(err => {
+            feedback.textContent = "Failed to update settings: " + err;
+            feedback.className = "px-4 py-2 rounded-lg text-sm font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400";
+            feedback.classList.remove("hidden");
+            setTimeout(() => feedback.classList.add("hidden"), 5000);
+        });
+    }
+
+    function resetSelectedService() {
+        const service = document.getElementById("reset-service-select").value;
+        const targetName = document.getElementById("reset-target-name");
+        targetName.textContent = service ? service : "All Services";
+        document.getElementById("reset-confirm-modal").classList.remove("hidden");
+    }
+
+    function hideResetModal() {
+        document.getElementById("reset-confirm-modal").classList.add("hidden");
+    }
+
+    function confirmResetSelectedService() {
+        hideResetModal();
+        const service = document.getElementById("reset-service-select").value;
+        const msg = document.getElementById("reset-success-msg");
+        msg.classList.add("hidden");
+
+        const url = service ? `/_gopherstack/reset?service=${encodeURIComponent(service)}` : '/_gopherstack/reset';
+
+        fetch(url, { method: "POST" })
+            .then(r => r.json())
+            .then(() => {
+                msg.classList.remove("hidden");
+                msg.textContent = (service ? service : "All Services") + " cleared";
+                setTimeout(() => {
+                    msg.classList.add("hidden");
+                }, 3000);
+            })
+            .catch(err => {
+                alert("Failed to reset service");
+            });
+    }
+
+    function filterDocs() {
+        const input = document.getElementById('docs-search-input');
+        const filter = input.value.toLowerCase();
+        const container = document.getElementById('docs-search-results');
+        
+        const grids = container.querySelectorAll('.grid');
+        const headers = container.querySelectorAll('h2');
+        
+        grids.forEach((grid, index) => {
+            const cards = grid.querySelectorAll('.glass-panel');
+            let hasVisibleCard = false;
+            
+            cards.forEach(card => {
+                const text = card.textContent.toLowerCase();
+                if (text.includes(filter)) {
+                    card.classList.remove('hidden');
+                    hasVisibleCard = true;
+                } else {
+                    card.classList.add('hidden');
+                }
+            });
+            
+            const header = headers[index];
+            if (header) {
+                if (hasVisibleCard) {
+                    header.classList.remove('hidden');
+                    grid.classList.remove('hidden');
+                } else {
+                    header.classList.add('hidden');
+                    grid.classList.add('hidden');
+                }
+            }
+        });
+        
+        const headerTop = container.querySelectorAll('h1, p');
+        if (filter !== '') {
+            headerTop.forEach(el => {
+                if(el.parentElement === container.querySelector('.prose')) el.classList.add('hidden');
+            });
+        } else {
+            headerTop.forEach(el => {
+                if(el.parentElement === container.querySelector('.prose')) el.classList.remove('hidden');
+            });
+        }
+    }
+</script>
+
+<!-- Reset Confirmation Modal -->
+<div id="reset-confirm-modal" tabindex="-1" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 overflow-x-hidden overflow-y-auto bg-gray-900/50 backdrop-blur-sm">
+    <div class="relative w-full max-w-md bg-white rounded-lg shadow dark:bg-gray-800">
+        <button type="button" onclick="hideResetModal()" class="absolute top-3 right-2.5 text-gray-400 bg-transparent hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm w-8 h-8 ml-auto inline-flex justify-center items-center dark:hover:bg-gray-600 dark:hover:text-white">
+            <svg class="w-3 h-3" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 14 14">
+                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m1 1 6 6m0 0 6 6M7 7l6-6M7 7l-6 6"/>
+            </svg>
+            <span class="sr-only">Close modal</span>
+        </button>
+        <div class="p-6 text-center">
+            <div class="mx-auto mb-4 flex items-center justify-center w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30">
+                <svg class="text-red-600 dark:text-red-500 w-6 h-6" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20">
+                    <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 11V6m0 8h.01M19 10a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+                </svg>
+            </div>
+            <h3 class="mb-2 text-lg font-normal text-gray-500 dark:text-gray-400">Are you sure you want to completely erase the data for <span id="reset-target-name" class="font-bold text-gray-900 dark:text-white"></span>?</h3>
+            <p class="mb-5 text-sm text-red-600 font-medium">This action cannot be undone.</p>
+            <button onclick="confirmResetSelectedService()" type="button" class="text-white bg-red-600 hover:bg-red-800 focus:ring-4 focus:outline-none focus:ring-red-300 dark:focus:ring-red-800 font-medium rounded-lg text-sm inline-flex items-center px-5 py-2.5 text-center mr-2 box-border">
+                Yes, I'm sure
+            </button>
+            <button onclick="hideResetModal()" type="button" class="text-gray-500 bg-white hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-gray-200 rounded-lg border border-gray-200 text-sm font-medium px-5 py-2.5 hover:text-gray-900 focus:z-10 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-500 dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-gray-600 box-border">
+                No, cancel
+            </button>
+        </div>
     </div>
 </div>
+
+<style>
+    @keyframes fade-in {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+        animation: fade-in 0.3s ease-out forwards;
+    }
+</style>
 {{end}}

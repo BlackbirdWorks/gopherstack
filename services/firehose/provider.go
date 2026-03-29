@@ -20,8 +20,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	if cp, ok := ctx.Config.(config.Provider); ok {
 		cfg := cp.GetGlobalConfig()
-		accountID = cfg.AccountID
-		region = cfg.Region
+		accountID = cfg.GetAccountID()
+		region = cfg.GetRegion()
 	}
 
 	backend := NewInMemoryBackendWithContext(ctx.JanitorCtx, accountID, region)

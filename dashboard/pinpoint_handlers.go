@@ -118,8 +118,8 @@ func (h *DashboardHandler) pinpointCreateApp(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	if _, err := h.PinpointOps.Backend.CreateApp(
-		h.GlobalConfig.Region,
-		h.GlobalConfig.AccountID,
+		h.getGlobalConfig().GetRegion(),
+		h.getGlobalConfig().GetAccountID(),
 		name,
 		nil,
 	); err != nil {

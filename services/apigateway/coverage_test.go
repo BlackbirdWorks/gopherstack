@@ -20,8 +20,8 @@ import (
 // mockAPIGWConfigProvider implements config.Provider for testing.
 type mockAPIGWConfigProvider struct{}
 
-func (m *mockAPIGWConfigProvider) GetGlobalConfig() config.GlobalConfig {
-	return config.GlobalConfig{AccountID: "111111111111", Region: "eu-west-1"}
+func (m *mockAPIGWConfigProvider) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig("111111111111", "eu-west-1", 0, 0, false, 0)
 }
 
 func TestProvider_APIGateway(t *testing.T) {

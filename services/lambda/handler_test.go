@@ -139,6 +139,8 @@ func (m *mockBackend) InvokeFunction(
 	return result, http.StatusOK, nil
 }
 
+func (m *mockBackend) Purge(_ time.Time) {}
+
 // ---- helpers ----
 
 func newHandler(t *testing.T) (*lambda.Handler, *mockBackend) {
@@ -1827,7 +1829,7 @@ func TestProvider_Init(t *testing.T) {
 		name   string
 		config interface {
 			GetLambdaSettings() lambda.Settings
-			GetGlobalConfig() config.GlobalConfig
+			GetGlobalConfig() *config.GlobalConfig
 		}
 		wantAccountID string
 		wantRegion    string
@@ -1884,8 +1886,8 @@ func (m *mockConfig) GetLambdaSettings() lambda.Settings {
 	return lambda.DefaultSettings()
 }
 
-func (m *mockConfig) GetGlobalConfig() config.GlobalConfig {
-	return config.GlobalConfig{AccountID: m.accountID, Region: m.region}
+func (m *mockConfig) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig(m.accountID, m.region, 0, 0, false, 0)
 }
 
 // ---- Function URL tests ----

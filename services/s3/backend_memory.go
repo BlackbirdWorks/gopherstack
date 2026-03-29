@@ -3216,6 +3216,30 @@ func (b *InMemoryBackend) CreateSession(_ context.Context, bucketName string) (s
 	return sessionXML, nil
 }
 
+// Purge removes all buckets created before the given cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	for _, regionBuckets := range b.buckets {
+		for bucketName, bucket := range regionBuckets {
+			if bucket.CreationDate.Before(cutoff) {
+				bucket.mu.Close()
+				delete(regionBuckets, bucketName)
+				delete(b.bucketIndex, bucketName)
+
+				// Clean up associated tags and uploads
+				for tagKey := range b.tags {
+					if strings.HasPrefix(tagKey, bucketName+"/") {
+						delete(b.tags, tagKey)
+					}
+				}
+				delete(b.uploads, bucketName)
+			}
+		}
+	}
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {

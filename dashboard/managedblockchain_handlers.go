@@ -115,8 +115,8 @@ func (h *DashboardHandler) managedblockchainCreateNetwork(c *echo.Context) error
 	}
 
 	if _, _, err := h.ManagedBlockchainOps.Backend.CreateNetwork(
-		h.GlobalConfig.Region,
-		h.GlobalConfig.AccountID,
+		h.getGlobalConfig().GetRegion(),
+		h.getGlobalConfig().GetAccountID(),
 		name,
 		"",
 		"",

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -182,10 +183,11 @@ import (
 
 const (
 	defaultPort        = "8000"
-	defaultRegion      = config.DefaultRegion
+	defaultRegion      = "us-east-1"
 	defaultTimeout     = 30 * time.Second
 	shutdownTimeout    = 5 * time.Second
 	healthCheckTimeout = 5 * time.Second
+	configFilename     = "config.json"
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -365,19 +367,26 @@ type CLI struct {
 	JanitorTimeout                time.Duration             `                                  name:"janitor-timeout"      env:"JANITOR_TIMEOUT"         default:"30s"          help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
 	LatencyMs                     int                       `                                  name:"latency-ms"           env:"LATENCY_MS"              default:"0"            help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
 	EnforceIAM                    bool                      `                                  name:"enforce-iam"          env:"GOPHERSTACK_ENFORCE_IAM" default:"false"        help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	Persist                       bool                      `                                  name:"persist"              env:"PERSIST"                 default:"false"        help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	Demo                          bool                      `                                  name:"demo"                 env:"DEMO"                    default:"false"        help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	AutoPurgeTTL                  time.Duration             `                                  name:"auto-purge-ttl"       env:"AUTO_PURGE_TTL"          help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`
+	Persist                       bool                      `                                  name:"persist"              env:"PERSIST"                 default:"false"        help:"Enable snapshot-based persistence across restarts."` //nolint:lll // config struct tags are intentionally verbose
+	Demo                          bool                      `                                  name:"demo"                 env:"DEMO"                    default:"false"        help:"Load demo data on startup."`                         //nolint:lll // config struct tags are intentionally verbose
+	globalConfig                  *config.GlobalConfig
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
-func (c *CLI) GetGlobalConfig() config.GlobalConfig {
-	return config.GlobalConfig{
-		AccountID:      c.AccountID,
-		Region:         c.Region,
-		LatencyMs:      c.LatencyMs,
-		EnforceIAM:     c.EnforceIAM,
-		JanitorTimeout: c.JanitorTimeout,
+func (c *CLI) GetGlobalConfig() *config.GlobalConfig {
+	if c.globalConfig == nil {
+		c.globalConfig = config.NewGlobalConfig(
+			c.AccountID,
+			c.Region,
+			c.LatencyMs,
+			c.JanitorTimeout,
+			c.EnforceIAM,
+			c.AutoPurgeTTL,
+		)
 	}
+
+	return c.globalConfig
 }
 
 // resolvedDataDir returns the effective data directory for persistence.
@@ -402,8 +411,6 @@ func (c *CLI) resolvedDataDir() string {
 func (c *CLI) createPersistenceStore() (*persistence.FileStore, error) {
 	return persistence.NewFileStore(c.resolvedDataDir())
 }
-
-// GetDynamoDBSettings returns DynamoDB settings (dynamodb.ConfigProvider).
 func (c *CLI) GetDynamoDBSettings() ddbbackend.Settings {
 	return c.DynamoDB
 }
@@ -445,6 +452,359 @@ func (c *CLI) GetKMSSettings() kmsbackend.Settings {
 // GetSTSSettings returns STS settings (sts.ConfigProvider).
 func (c *CLI) GetSTSSettings() stsbackend.Settings {
 	return c.STS
+}
+
+// PersistableConfig holds settings that can be saved to disk.
+type PersistableConfig struct {
+	// Large types first
+	DataDir             string `json:"data_dir"`
+	AccountID           string `json:"account_id"`
+	Region              string `json:"region"`
+	LogLevel            string `json:"log_level"`
+	Port                string `json:"port"`
+	OpenSearchEngine    string `json:"opensearch_engine"`
+	ElasticsearchEngine string `json:"elasticsearch_engine"`
+	ElastiCacheEngine   string `json:"elasticache_engine"`
+	DNSListenAddr       string `json:"dns_listen_addr"`
+	DNSResolveIP        string `json:"dns_resolve_ip"`
+
+	// 64-bit first
+	AutoPurgeTTL      time.Duration `json:"auto_purge_ttl"`
+	JanitorTimeout    time.Duration `json:"janitor_timeout"`
+	InitScriptTimeout time.Duration `json:"init_script_timeout"`
+
+	// 32-bit
+	LatencyMs      int `json:"latency_ms"`
+	PortRangeStart int `json:"port_range_start"`
+	PortRangeEnd   int `json:"port_range_end"`
+
+	EnforceIAM bool `json:"enforce_iam"`
+	Persist    bool `json:"persist"`
+	Demo       bool `json:"demo"`
+
+	// Service settings
+	S3             s3backend.Settings        `json:"s3"`
+	Lambda         lambdabackend.Settings    `json:"lambda"`
+	DynamoDB       ddbbackend.Settings       `json:"dynamodb"`
+	Backup         backupbackend.Settings    `json:"backup"`
+	STS            stsbackend.Settings       `json:"sts"`
+	EC2            ec2backend.Settings       `json:"ec2"`
+	XRay           xraybackend.Settings      `json:"xray"`
+	SSM            ssmbackend.Settings       `json:"ssm"`
+	CodeBuild      codebuildbackend.Settings `json:"codebuild"`
+	CloudWatchLogs cwlogsbackend.Settings    `json:"cloudwatchlogs"`
+	SES            sesbackend.Settings       `json:"ses"`
+	Batch          batchbackend.Settings     `json:"batch"`
+	FIS            fisbackend.Settings       `json:"fis"`
+	EMR            emrbackend.Settings       `json:"emr"`
+	Athena         athenabackend.Settings    `json:"athena"`
+	Kinesis        kinesisbackend.Settings   `json:"kinesis"`
+	KMS            kmsbackend.Settings       `json:"kms"`
+}
+
+// SaveConfig saves the current configuration to disk.
+// GetSettings returns the dashboard configuration settings.
+func (c *CLI) GetSettings() dashboard.Settings {
+	return dashboard.Settings{
+		AccountID:           c.AccountID,
+		Region:              c.Region,
+		LatencyMs:           c.LatencyMs,
+		EnforceIAM:          c.EnforceIAM,
+		AutoPurgeTTL:        c.AutoPurgeTTL,
+		JanitorTimeout:      c.JanitorTimeout,
+		LogLevel:            c.LogLevel,
+		Port:                c.Port,
+		DNSListenAddr:       c.DNSListenAddr,
+		DNSResolveIP:        c.DNSResolveIP,
+		OpenSearchEngine:    c.OpenSearchEngine,
+		ElasticsearchEngine: c.ElasticsearchEngine,
+		ElastiCacheEngine:   c.ElastiCacheEngine,
+		Persist:             c.Persist,
+		Demo:                c.Demo,
+		DataDir:             c.DataDir,
+		PortRangeStart:      c.PortRangeStart,
+		PortRangeEnd:        c.PortRangeEnd,
+		InitScriptTimeout:   c.InitScriptTimeout,
+
+		// Service settings
+		S3: dashboard.S3Settings{
+			DefaultRegion:       c.S3.DefaultRegion,
+			JanitorInterval:     c.S3.JanitorInterval,
+			CompressionMinBytes: c.S3.CompressionMinBytes,
+		},
+		Lambda: dashboard.LambdaSettings{
+			DockerHost:       c.Lambda.DockerHost,
+			ContainerRuntime: c.Lambda.ContainerRuntime,
+			PoolSize:         c.Lambda.PoolSize,
+			IdleTimeout:      c.Lambda.IdleTimeout,
+			MaxRuntimes:      c.Lambda.MaxRuntimes,
+		},
+		DynamoDB: dashboard.DynamoDBSettings{
+			DefaultRegion:     c.DynamoDB.DefaultRegion,
+			JanitorInterval:   c.DynamoDB.JanitorInterval,
+			CreateDelay:       c.DynamoDB.CreateDelay,
+			EnforceThroughput: c.DynamoDB.EnforceThroughput,
+		},
+		EC2: dashboard.EC2Settings{
+			JanitorInterval:  c.EC2.JanitorInterval,
+			TerminatedTTL:    c.EC2.TerminatedTTL,
+			CancelledSpotTTL: c.EC2.CancelledSpotTTL,
+		},
+		Backup: dashboard.BackupSettings{
+			JanitorInterval: c.Backup.JanitorInterval,
+			JobTTL:          c.Backup.JobTTL,
+		},
+		STS: dashboard.STSSettings{
+			JanitorInterval: c.STS.JanitorInterval,
+		},
+		XRay: dashboard.XRaySettings{
+			JanitorInterval: c.XRay.JanitorInterval,
+			TraceTTL:        c.XRay.TraceTTL,
+		},
+		SSM: dashboard.SSMSettings{
+			JanitorInterval: c.SSM.JanitorInterval,
+			CommandTTL:      c.SSM.CommandTTL,
+		},
+		CodeBuild: dashboard.CodeBuildSettings{
+			JanitorInterval: c.CodeBuild.JanitorInterval,
+			BuildTTL:        c.CodeBuild.BuildTTL,
+		},
+		CloudWatchLogs: dashboard.CloudWatchLogsSettings{
+			JanitorInterval: c.CloudWatchLogs.JanitorInterval,
+		},
+		SES: dashboard.SESSettings{
+			JanitorInterval: c.SES.JanitorInterval,
+			EmailTTL:        c.SES.EmailTTL,
+		},
+		Batch: dashboard.BatchSettings{
+			JanitorInterval:   c.Batch.JanitorInterval,
+			InactiveJobDefTTL: c.Batch.InactiveJobDefTTL,
+			CompletedJobTTL:   c.Batch.CompletedJobTTL,
+		},
+		FIS: dashboard.FISSettings{
+			JanitorInterval: c.FIS.JanitorInterval,
+			ExperimentTTL:   c.FIS.ExperimentTTL,
+		},
+		EMR: dashboard.EMRSettings{
+			JanitorInterval: c.EMR.JanitorInterval,
+			TerminatedTTL:   c.EMR.TerminatedTTL,
+		},
+		Athena: dashboard.AthenaSettings{
+			JanitorInterval: c.Athena.JanitorInterval,
+			ExecutionTTL:    c.Athena.ExecutionTTL,
+		},
+		Kinesis: dashboard.KinesisSettings{
+			JanitorInterval: c.Kinesis.JanitorInterval,
+		},
+		KMS: dashboard.KMSSettings{
+			JanitorInterval: c.KMS.JanitorInterval,
+		},
+	}
+}
+
+// UpdateSettings updates both the CLI state and the shared GlobalConfig pointer.
+func (c *CLI) UpdateSettings(s dashboard.Settings) {
+	c.AccountID = s.AccountID
+	c.Region = s.Region
+	c.LatencyMs = s.LatencyMs
+	c.EnforceIAM = s.EnforceIAM
+	c.AutoPurgeTTL = s.AutoPurgeTTL
+	c.JanitorTimeout = s.JanitorTimeout
+	c.LogLevel = s.LogLevel
+	c.Port = s.Port
+	c.DNSListenAddr = s.DNSListenAddr
+	c.DNSResolveIP = s.DNSResolveIP
+	c.OpenSearchEngine = s.OpenSearchEngine
+	c.ElasticsearchEngine = s.ElasticsearchEngine
+	c.ElastiCacheEngine = s.ElastiCacheEngine
+	c.Persist = s.Persist
+	c.Demo = s.Demo
+	c.DataDir = s.DataDir
+	c.PortRangeStart = s.PortRangeStart
+	c.PortRangeEnd = s.PortRangeEnd
+	c.InitScriptTimeout = s.InitScriptTimeout
+
+	// Service settings
+	c.S3.DefaultRegion = s.S3.DefaultRegion
+	c.S3.JanitorInterval = s.S3.JanitorInterval
+	c.S3.CompressionMinBytes = s.S3.CompressionMinBytes
+
+	c.Lambda.DockerHost = s.Lambda.DockerHost
+	c.Lambda.ContainerRuntime = s.Lambda.ContainerRuntime
+	c.Lambda.PoolSize = s.Lambda.PoolSize
+	c.Lambda.IdleTimeout = s.Lambda.IdleTimeout
+	c.Lambda.MaxRuntimes = s.Lambda.MaxRuntimes
+
+	c.DynamoDB.DefaultRegion = s.DynamoDB.DefaultRegion
+	c.DynamoDB.JanitorInterval = s.DynamoDB.JanitorInterval
+	c.DynamoDB.CreateDelay = s.DynamoDB.CreateDelay
+	c.DynamoDB.EnforceThroughput = s.DynamoDB.EnforceThroughput
+
+	c.EC2.JanitorInterval = s.EC2.JanitorInterval
+	c.EC2.TerminatedTTL = s.EC2.TerminatedTTL
+	c.EC2.CancelledSpotTTL = s.EC2.CancelledSpotTTL
+
+	c.Backup.JanitorInterval = s.Backup.JanitorInterval
+	c.Backup.JobTTL = s.Backup.JobTTL
+
+	c.STS.JanitorInterval = s.STS.JanitorInterval
+
+	c.XRay.JanitorInterval = s.XRay.JanitorInterval
+	c.XRay.TraceTTL = s.XRay.TraceTTL
+
+	c.SSM.JanitorInterval = s.SSM.JanitorInterval
+	c.SSM.CommandTTL = s.SSM.CommandTTL
+
+	c.CodeBuild.JanitorInterval = s.CodeBuild.JanitorInterval
+	c.CodeBuild.BuildTTL = s.CodeBuild.BuildTTL
+
+	c.CloudWatchLogs.JanitorInterval = s.CloudWatchLogs.JanitorInterval
+
+	c.SES.JanitorInterval = s.SES.JanitorInterval
+	c.SES.EmailTTL = s.SES.EmailTTL
+
+	c.Batch.JanitorInterval = s.Batch.JanitorInterval
+	c.Batch.InactiveJobDefTTL = s.Batch.InactiveJobDefTTL
+	c.Batch.CompletedJobTTL = s.Batch.CompletedJobTTL
+
+	c.FIS.JanitorInterval = s.FIS.JanitorInterval
+	c.FIS.ExperimentTTL = s.FIS.ExperimentTTL
+
+	c.EMR.JanitorInterval = s.EMR.JanitorInterval
+	c.EMR.TerminatedTTL = s.EMR.TerminatedTTL
+
+	c.Athena.JanitorInterval = s.Athena.JanitorInterval
+	c.Athena.ExecutionTTL = s.Athena.ExecutionTTL
+
+	c.Kinesis.JanitorInterval = s.Kinesis.JanitorInterval
+	c.KMS.JanitorInterval = s.KMS.JanitorInterval
+
+	if c.globalConfig != nil {
+		c.globalConfig.Update(s.AccountID, s.Region, s.LatencyMs, s.JanitorTimeout, s.EnforceIAM, s.AutoPurgeTTL)
+	}
+}
+
+func (c *CLI) SaveConfig() error {
+	if c.Demo {
+		return nil
+	}
+	p := filepath.Join(c.resolvedDataDir(), configFilename)
+	dir := filepath.Dir(p)
+
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	cfg := PersistableConfig{
+		AccountID:           c.AccountID,
+		Region:              c.Region,
+		LatencyMs:           c.LatencyMs,
+		EnforceIAM:          c.EnforceIAM,
+		AutoPurgeTTL:        c.AutoPurgeTTL,
+		JanitorTimeout:      c.JanitorTimeout,
+		LogLevel:            c.LogLevel,
+		PortRangeStart:      c.PortRangeStart,
+		PortRangeEnd:        c.PortRangeEnd,
+		Port:                c.Port,
+		DNSListenAddr:       c.DNSListenAddr,
+		DNSResolveIP:        c.DNSResolveIP,
+		OpenSearchEngine:    c.OpenSearchEngine,
+		ElasticsearchEngine: c.ElasticsearchEngine,
+		ElastiCacheEngine:   c.ElastiCacheEngine,
+		Persist:             c.Persist,
+		Demo:                c.Demo,
+		DataDir:             c.DataDir,
+		InitScriptTimeout:   c.InitScriptTimeout,
+
+		// Service settings
+		S3:             c.S3,
+		Lambda:         c.Lambda,
+		DynamoDB:       c.DynamoDB,
+		Backup:         c.Backup,
+		STS:            c.STS,
+		EC2:            c.EC2,
+		XRay:           c.XRay,
+		SSM:            c.SSM,
+		CodeBuild:      c.CodeBuild,
+		CloudWatchLogs: c.CloudWatchLogs,
+		SES:            c.SES,
+		Batch:          c.Batch,
+		FIS:            c.FIS,
+		EMR:            c.EMR,
+		Athena:         c.Athena,
+		Kinesis:        c.Kinesis,
+		KMS:            c.KMS,
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	return os.WriteFile(p, data, 0o600)
+}
+
+// LoadConfig loads the configuration from disk if it exists.
+func (c *CLI) LoadConfig() error {
+	if c.Demo {
+		return nil
+	}
+	p := filepath.Join(c.resolvedDataDir(), configFilename)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+
+		return fmt.Errorf("failed to read config: %w", err)
+	}
+
+	var cfg PersistableConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	// Apply loaded settings to CLI
+	c.AccountID = cfg.AccountID
+	c.Region = cfg.Region
+	c.LatencyMs = cfg.LatencyMs
+	c.EnforceIAM = cfg.EnforceIAM
+	c.AutoPurgeTTL = cfg.AutoPurgeTTL
+	c.JanitorTimeout = cfg.JanitorTimeout
+	c.LogLevel = cfg.LogLevel
+	c.PortRangeStart = cfg.PortRangeStart
+	c.PortRangeEnd = cfg.PortRangeEnd
+	c.Port = cfg.Port
+	c.DNSListenAddr = cfg.DNSListenAddr
+	c.DNSResolveIP = cfg.DNSResolveIP
+	c.OpenSearchEngine = cfg.OpenSearchEngine
+	c.ElasticsearchEngine = cfg.ElasticsearchEngine
+	c.ElastiCacheEngine = cfg.ElastiCacheEngine
+	c.Persist = cfg.Persist
+	c.Demo = cfg.Demo
+	c.DataDir = cfg.DataDir
+	c.InitScriptTimeout = cfg.InitScriptTimeout
+
+	// Service settings
+	c.S3 = cfg.S3
+	c.Lambda = cfg.Lambda
+	c.DynamoDB = cfg.DynamoDB
+	c.Backup = cfg.Backup
+	c.STS = cfg.STS
+	c.EC2 = cfg.EC2
+	c.XRay = cfg.XRay
+	c.SSM = cfg.SSM
+	c.CodeBuild = cfg.CodeBuild
+	c.CloudWatchLogs = cfg.CloudWatchLogs
+	c.SES = cfg.SES
+	c.Batch = cfg.Batch
+	c.FIS = cfg.FIS
+	c.EMR = cfg.EMR
+	c.Athena = cfg.Athena
+	c.Kinesis = cfg.Kinesis
+	c.KMS = cfg.KMS
+
+	return nil
 }
 
 // GetAthenaSettings returns Athena settings (athena.ConfigProvider).
@@ -1226,6 +1586,23 @@ func run(ctx context.Context, cli CLI) error {
 	log := buildLogger(cli.LogLevel)
 	ctx = logger.Save(ctx, log)
 
+	if cli.Persist {
+		if err := cli.LoadConfig(); err != nil {
+			log.WarnContext(ctx, "Failed to load config", "error", err)
+		}
+	}
+
+	// Initialize the globalConfig pointer with loaded/CLI settings.
+	gcfg := cli.GetGlobalConfig()
+	gcfg.Update(
+		cli.AccountID,
+		cli.Region,
+		cli.LatencyMs,
+		cli.JanitorTimeout,
+		cli.EnforceIAM,
+		cli.AutoPurgeTTL,
+	)
+
 	// --- Port allocator ---
 	portAlloc, err := portalloc.New(cli.PortRangeStart, cli.PortRangeEnd)
 	if err != nil {
@@ -1320,6 +1697,34 @@ func run(ctx context.Context, cli CLI) error {
 	chaos.RegisterRoutes(chaosGroup, faultStore, registry)
 
 	startBackgroundWorkers(janitorCtx, services)
+
+	if cli.AutoPurgeTTL > 0 {
+		log.Info("AUTO_PURGE_TTL enabled", "ttl", cli.AutoPurgeTTL)
+		go func(ctx context.Context, ttl time.Duration, svcs []service.Registerable) {
+			ticker := time.NewTicker(ttl)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					cutoff := time.Now().UTC().Add(-ttl)
+					log.Info("running automatic service purge", "ttl", ttl, "cutoff", cutoff)
+					for _, svc := range svcs {
+						if p, ok := svc.(service.Purgeable); ok {
+							p.Purge(cutoff)
+							continue
+						}
+						// Fallback to Reset if Purge is not implemented (not recommended)
+						if r, ok := svc.(service.Resettable); ok {
+							r.Reset()
+						}
+					}
+				}
+			}
+		}(ctx, cli.AutoPurgeTTL, services)
+	}
+
 	inMemMux.Handle("/", e)
 
 	if cli.Demo {
@@ -1427,9 +1832,13 @@ func buildEchoServer(
 	// Reset endpoint: clear all in-memory state for every service that supports it.
 	e.POST("/_gopherstack/reset", func(c *echo.Context) error {
 		reset := 0
+		reqService := c.QueryParam("service")
 
 		for _, svc := range services {
 			if r, ok := svc.(service.Resettable); ok {
+				if reqService != "" && !strings.EqualFold(reqService, svc.Name()) {
+					continue
+				}
 				r.Reset()
 				reset++
 			}
@@ -3331,7 +3740,7 @@ func setupRegistry(
 	services []service.Registerable,
 	latencyMs int,
 	enforceIAM bool,
-	globalCfg config.GlobalConfig,
+	globalCfg *config.GlobalConfig,
 	faultStore *chaos.FaultStore,
 ) (*service.Registry, error) {
 	registry := service.NewRegistry()
@@ -3351,8 +3760,7 @@ func setupRegistry(
 			log.Info("IAM policy enforcement enabled")
 
 			ecfg := iambackend.EnforcementConfig{
-				AccountID:         globalCfg.AccountID,
-				Region:            globalCfg.Region,
+				Global:            globalCfg,
 				ResourceProviders: buildResourcePolicyProviders(services),
 				ActionExtractors:  buildActionExtractors(services),
 			}
@@ -3691,7 +4099,7 @@ func initPersistenceManager(ctx context.Context, cli *CLI) (*persistence.Manager
 	log := logger.Load(ctx)
 	var store persistence.Store = persistence.NullStore{}
 
-	if cli.Persist {
+	if cli.Persist && !cli.Demo {
 		fs, err := cli.createPersistenceStore()
 		if err != nil {
 			return nil, fmt.Errorf("persistence: create file store: %w", err)

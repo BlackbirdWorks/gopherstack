@@ -13,10 +13,10 @@ import (
 
 // mockConfig implements config.Provider for testing.
 type mockConfig struct {
-	cfg config.GlobalConfig
+	cfg *config.GlobalConfig
 }
 
-func (m *mockConfig) GetGlobalConfig() config.GlobalConfig { return m.cfg }
+func (m *mockConfig) GetGlobalConfig() *config.GlobalConfig { return m.cfg }
 
 func TestProvider_Name(t *testing.T) {
 	t.Parallel()
@@ -41,10 +41,7 @@ func TestProvider_Init_WithContext(t *testing.T) {
 	p := &cognitoidentity.Provider{}
 	ctx := &service.AppContext{
 		Config: &mockConfig{
-			cfg: config.GlobalConfig{
-				AccountID: "123456789012",
-				Region:    "eu-west-1",
-			},
+			cfg: config.NewGlobalConfig("123456789012", "eu-west-1", 0, 0, false, 0),
 		},
 	}
 

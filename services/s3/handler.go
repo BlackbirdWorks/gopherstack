@@ -491,7 +491,12 @@ func findBucketInParts(parts []string) string {
 
 // parseRange parses a "bytes=X-Y" Range header and returns clamped [start, end] indices.
 
-// Multipart Upload Handlers
+// Purge removes resources created before the given cutoff time.
+func (h *S3Handler) Purge(cutoff time.Time) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Purge(cutoff)
+	}
+}
 
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.

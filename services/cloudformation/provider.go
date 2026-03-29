@@ -118,8 +118,8 @@ func (p *Provider) Name() string { return "CloudFormation" }
 func extractBackends(bp BackendsProvider) *ServiceBackends {
 	cfg := bp.GetGlobalConfig()
 	backends := &ServiceBackends{
-		AccountID: cfg.AccountID,
-		Region:    cfg.Region,
+		AccountID: cfg.GetAccountID(),
+		Region:    cfg.GetRegion(),
 	}
 
 	extractCoreBackends(bp, backends)
@@ -215,8 +215,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		region = backends.Region
 	} else if cp, isCP := ctx.Config.(config.Provider); isCP {
 		cfg := cp.GetGlobalConfig()
-		accountID = cfg.AccountID
-		region = cfg.Region
+		accountID = cfg.GetAccountID()
+		region = cfg.GetRegion()
 	}
 
 	creator := NewResourceCreator(backends)

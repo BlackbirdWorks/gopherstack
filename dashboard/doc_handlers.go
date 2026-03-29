@@ -82,21 +82,8 @@ type docPageData struct {
 	S3TablesOps                []string
 }
 
-// docIndex renders the documentation page.
-func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
-	data := docPageData{
-		PageData: PageData{
-			Title:     "API Documentation",
-			ActiveTab: "docs",
-			Snippet: &SnippetData{
-				ID:    "docs-operations",
-				Title: "Using Docs",
-				Cli:   "aws docs help --endpoint-url http://localhost:8000",
-				Go:    "/* Write AWS SDK v2 Code for Docs */",
-				Python: "# Write boto3 code for Docs\nimport boto3\n" +
-					"client = boto3.client('docs', endpoint_url='http://localhost:8000')",
-			},
-		},
+func (h *DashboardHandler) getDocPageData() docPageData {
+	return docPageData{
 		DynamoDBOps:                h.getSupportedOps(h.DDBOps),
 		S3Ops:                      h.getSupportedOps(h.S3Ops),
 		SSMOps:                     h.getSupportedOps(h.SSMOps),
@@ -172,6 +159,24 @@ func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
 		XrayOps:                    h.getSupportedOps(h.XrayOps),
 		S3TablesOps:                h.getSupportedOps(h.S3TablesOps),
 	}
+}
+
+// docIndex renders the documentation page.
+func (h *DashboardHandler) docIndex(w http.ResponseWriter, _ *http.Request) {
+	data := h.getDocPageData()
+	data.PageData = PageData{
+		Title:     "API Documentation",
+		ActiveTab: "docs",
+		Snippet: &SnippetData{
+			ID:    "docs-operations",
+			Title: "Using Docs",
+			Cli:   "aws docs help --endpoint-url http://localhost:8000",
+			Go:    "/* Write AWS SDK v2 Code for Docs */",
+			Python: "# Write boto3 code for Docs\nimport boto3\n" +
+				"client = boto3.client('docs', endpoint_url='http://localhost:8000')",
+		},
+	}
+
 
 	h.renderTemplate(w, "doc.html", data)
 }

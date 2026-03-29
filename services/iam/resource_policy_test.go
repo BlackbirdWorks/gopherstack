@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/services/iam"
 )
 
@@ -117,8 +118,7 @@ func TestEnforcementMiddleware_ResourceBasedPolicy(t *testing.T) {
 			tt.setupBackend(backend)
 
 			ecfg := iam.EnforcementConfig{
-				AccountID:         "000000000000",
-				Region:            "us-east-1",
+				Global:            config.NewGlobalConfig("000000000000", "us-east-1", 0, 0, false, 0),
 				ResourceProviders: []iam.ResourcePolicyProvider{provider},
 			}
 

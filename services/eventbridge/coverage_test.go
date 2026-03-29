@@ -19,8 +19,8 @@ import (
 // mockConfigProvider implements config.Provider for testing.
 type mockConfigProvider struct{}
 
-func (m *mockConfigProvider) GetGlobalConfig() config.GlobalConfig {
-	return config.GlobalConfig{AccountID: "111111111111", Region: "eu-west-1"}
+func (m *mockConfigProvider) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig("111111111111", "eu-west-1", 0, 0, false, 0)
 }
 
 func TestProvider_Name(t *testing.T) {

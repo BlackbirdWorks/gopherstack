@@ -436,6 +436,43 @@ func stopTableTimers(table *Table) {
 	}
 }
 
+// Purge removes tables and backups created before the cutoff time.
+func (db *InMemoryDB) Purge(cutoff time.Time) {
+	db.mu.Lock("Purge")
+	defer db.mu.Unlock()
+
+	for _, regionTables := range db.Tables {
+		for n, table := range regionTables {
+			if table.CreationDateTime.Before(cutoff) {
+				stopTableTimers(table)
+				if table.Tags != nil {
+					table.Tags.Close()
+				}
+				table.mu.Close()
+				delete(regionTables, n)
+			}
+		}
+	}
+
+	for arn, table := range db.streamARNIndex {
+		if table.CreationDateTime.Before(cutoff) {
+			delete(db.streamARNIndex, arn)
+		}
+	}
+
+	for n, backup := range db.Backups {
+		if backup.CreationDateTime.Before(cutoff) {
+			delete(db.Backups, n)
+		}
+	}
+	
+	for n, gt := range db.GlobalTables {
+		if gt.CreationDateTime.Before(cutoff) {
+			delete(db.GlobalTables, n)
+		}
+	}
+}
+
 // Reset clears all in-memory state from the database. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (db *InMemoryDB) Reset() {

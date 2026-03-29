@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -31,6 +32,13 @@ func NewHandler(backend StorageBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string {
 	return "SQS"
+}
+
+// Purge implements service.Purgeable by delegating to the backend structure if supported.
+func (h *Handler) Purge(cutoff time.Time) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Purge(cutoff)
+	}
 }
 
 // GetSupportedOperations returns the list of supported SQS operations.

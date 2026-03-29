@@ -54,7 +54,7 @@ func (h *DashboardHandler) dynamoDBTableList(w http.ResponseWriter, r *http.Requ
 
 	region := r.URL.Query().Get("region")
 	if region == "" {
-		region = h.GlobalConfig.Region
+		region = h.getGlobalConfig().GetRegion()
 	}
 
 	search := strings.ToLower(r.URL.Query().Get("search"))

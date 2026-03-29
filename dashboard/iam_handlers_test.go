@@ -426,11 +426,7 @@ func TestIAMDashboard_EnforcementBadge(t *testing.T) {
 
 			h := dashboard.NewHandler(dashboard.Config{
 				Logger: slog.Default(),
-				GlobalConfig: config.GlobalConfig{
-					AccountID:  "000000000000",
-					Region:     "us-east-1",
-					EnforceIAM: tt.enforceIAM,
-				},
+				GlobalConfig: config.NewGlobalConfig("000000000000", "us-east-1", 0, 0, tt.enforceIAM, 0),
 			})
 
 			req := httptest.NewRequest(http.MethodGet, "/dashboard/iam", nil)

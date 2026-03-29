@@ -1222,6 +1222,45 @@ func (b *InMemoryBackend) DeleteMessagesLocal(queueURL string, receiptHandles []
 }
 
 // Reset clears all in-memory queue state from the backend. It is used by the
+// Purge removes all queues created before the given cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	for k, q := range b.queues {
+		createdStr, ok := q.Attributes[attrCreatedTimestamp]
+		if !ok {
+			continue
+		}
+
+		createdUnix, err := strconv.ParseInt(createdStr, 10, 64)
+		if err == nil {
+			createdTime := time.Unix(createdUnix, 0)
+			if createdTime.Before(cutoff) {
+				close(q.notify)
+				if q.Tags != nil {
+					q.Tags.Close()
+				}
+				delete(b.queues, k)
+
+				// Cancel active move tasks involving this queue.
+				queueARN := q.Attributes[attrQueueArn]
+				for _, task := range b.moveTasks {
+					task.mu.Lock()
+					isActive := task.status == MoveTaskStatusRunning || task.status == MoveTaskStatusCancelling
+					involves := task.sourceArn == queueARN || task.destArn == queueARN
+					task.mu.Unlock()
+
+					if isActive && involves {
+						task.cancel()
+					}
+				}
+			}
+		}
+	}
+}
+
+// Reset clears all in-memory state from the database. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 // The active SNS subscription listener is kept intact so that SNS→SQS delivery
 // continues to work after a reset (wireSNSToSQS is only wired at startup and is

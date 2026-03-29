@@ -69,14 +69,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 }
 
 // NewInMemoryBackendWithConfig creates a new InMemoryBackend with the given config.
-func NewInMemoryBackendWithConfig(cfg config.GlobalConfig) *InMemoryBackend {
+func NewInMemoryBackendWithConfig(cfg *config.GlobalConfig) *InMemoryBackend {
 	b := NewInMemoryBackend()
-	if cfg.Region != "" {
-		b.region = cfg.Region
+	if cfg.GetRegion() != "" {
+		b.region = cfg.GetRegion()
 	}
 
-	if cfg.AccountID != "" {
-		b.accountID = cfg.AccountID
+	if cfg.GetAccountID() != "" {
+		b.accountID = cfg.GetAccountID()
 	}
 
 	return b

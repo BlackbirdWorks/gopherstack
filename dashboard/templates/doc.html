@@ -1,4 +1,4 @@
-{{define "content"}}
+{{define "doc_content"}}
 <div class="prose max-w-none">
     <h1 class="mb-4 text-slate-900 dark:text-white">Supported API Operations</h1>
     <p class="mb-8 text-slate-600 dark:text-slate-300">This page lists all AWS operations currently
@@ -1072,4 +1072,12 @@
         </div>
     </div>
 </div>
+{{end}}
+
+{{define "content"}}
+    <div class="p-4 sm:ml-64">
+        <div class="p-4 mt-14">
+            {{template "doc_content" .}}
+        </div>
+    </div>
 {{end}}

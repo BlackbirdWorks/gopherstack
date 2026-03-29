@@ -22,8 +22,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	if ctx != nil {
 		if cp, ok := ctx.Config.(config.Provider); ok {
 			cfg := cp.GetGlobalConfig()
-			accountID = cfg.AccountID
-			region = cfg.Region
+			accountID = cfg.GetAccountID()
+			region = cfg.GetRegion()
 		}
 
 		if ep, ok := ctx.Config.(endpointProvider); ok {

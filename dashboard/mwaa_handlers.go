@@ -130,13 +130,13 @@ func (h *DashboardHandler) mwaaCreateEnvironment(c *echo.Context) error {
 
 	req := &mwaabackend.ExportedCreateEnvironmentRequest{
 		DagS3Path:        "dags/",
-		ExecutionRoleArn: "arn:aws:iam::" + h.GlobalConfig.AccountID + ":role/mwaa-role",
+		ExecutionRoleArn: "arn:aws:iam::" + h.getGlobalConfig().GetAccountID() + ":role/mwaa-role",
 		SourceBucketArn:  "arn:aws:s3:::mwaa-bucket-" + name,
 	}
 
 	if _, err := h.MWAAOps.Backend.CreateEnvironment(
-		h.GlobalConfig.Region,
-		h.GlobalConfig.AccountID,
+		h.getGlobalConfig().GetRegion(),
+		h.getGlobalConfig().GetAccountID(),
 		name,
 		req,
 	); err != nil {

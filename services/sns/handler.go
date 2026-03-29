@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -47,6 +48,13 @@ func NewHandler(backend StorageBackend) *Handler {
 // Name returns the service name.
 func (h *Handler) Name() string {
 	return "SNS"
+}
+
+// Purge implements service.Purgeable by deleting resources older than cutoff.
+func (h *Handler) Purge(cutoff time.Time) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Purge(cutoff)
+	}
 }
 
 // GetSupportedOperations returns the list of supported SNS operations.

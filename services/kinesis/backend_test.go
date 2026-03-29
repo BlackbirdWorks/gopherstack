@@ -16,8 +16,8 @@ import (
 // fakeConfigProvider implements config.Provider for tests.
 type fakeConfigProvider struct{}
 
-func (fakeConfigProvider) GetGlobalConfig() config.GlobalConfig {
-	return config.GlobalConfig{AccountID: "111111111111", Region: "ap-southeast-2"}
+func (fakeConfigProvider) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig("111111111111", "ap-southeast-2", 0, 0, false, 0)
 }
 
 // fakeContextConfig wraps fakeConfigProvider for service.AppContext.

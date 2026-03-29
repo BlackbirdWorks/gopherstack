@@ -23,7 +23,7 @@ func (h *DashboardHandler) iamIndex(c *echo.Context) error {
 	w := c.Response()
 
 	data := iamPageData{
-		EnforcementActive: h.GlobalConfig.EnforceIAM,
+		EnforcementActive: h.getGlobalConfig().IsIAMEnforced(),
 		PageData: PageData{
 			Title:     "IAM",
 			ActiveTab: "iam",

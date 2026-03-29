@@ -183,6 +183,8 @@ type StorageBackend interface {
 	// Enforcement helpers
 	GetUserByAccessKeyID(accessKeyID string) (*User, error)
 	GetPoliciesForUser(userName string) ([]string, error)
+
+	Purge(cutoff time.Time)
 }
 
 // iamDefaultMaxItems is the default page size for IAM list operations.
@@ -1875,4 +1877,86 @@ func (b *InMemoryBackend) Reset() {
 	b.userInlinePolicies = make(map[string]map[string]string)
 	b.roleInlinePolicies = make(map[string]map[string]string)
 	b.groupInlinePolicies = make(map[string]map[string]string)
+}
+
+// Purge removes all resources older than the given cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	// 1. Purge Users
+	for name, u := range b.users {
+		if u.CreateDate.Before(cutoff) {
+			delete(b.users, name)
+			// Clean up associated user data
+			delete(b.loginProfiles, name)
+			delete(b.userPolicies, name)
+			delete(b.userInlinePolicies, name)
+			// Remove from groups
+			for g, members := range b.groupMembers {
+				for i, m := range members {
+					if m == name {
+						b.groupMembers[g] = append(members[:i], members[i+1:]...)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Purge Roles
+	for name, r := range b.roles {
+		if r.CreateDate.Before(cutoff) {
+			delete(b.roles, name)
+			delete(b.rolePolicies, name)
+			delete(b.roleInlinePolicies, name)
+		}
+	}
+
+	// 3. Purge Policies
+	for name, p := range b.policies {
+		if p.CreateDate.Before(cutoff) {
+			delete(b.policies, name)
+			// Note: Attachments will fail for non-existent policies anyway,
+			// but we could orphan-clean them if we wanted.
+		}
+	}
+
+	// 4. Purge Groups
+	for name, g := range b.groups {
+		if g.CreateDate.Before(cutoff) {
+			delete(b.groups, name)
+			delete(b.groupPolicies, name)
+			delete(b.groupInlinePolicies, name)
+			delete(b.groupMembers, name)
+		}
+	}
+
+	// 5. Purge Access Keys
+	for id, ak := range b.accessKeys {
+		if ak.CreateDate.Before(cutoff) {
+			delete(b.accessKeys, id)
+		}
+	}
+
+	// 6. Purge Instance Profiles
+	for name, ip := range b.instanceProfiles {
+		if ip.CreateDate.Before(cutoff) {
+			delete(b.instanceProfiles, name)
+		}
+	}
+
+	// 7. Purge SAML Providers
+	for arnStr, p := range b.samlProviders {
+		if p.CreateDate.Before(cutoff) {
+			delete(b.samlProviders, arnStr)
+		}
+	}
+
+	// 8. Purge OIDC Providers
+	for arnStr, p := range b.oidcProviders {
+		if p.CreateDate.Before(cutoff) {
+			delete(b.oidcProviders, arnStr)
+		}
+	}
 }
