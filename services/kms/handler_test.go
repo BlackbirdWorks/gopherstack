@@ -2459,11 +2459,8 @@ func TestKMSBackendReEncryptShortBlob(t *testing.T) {
 // mockConfigProvider implements config.Provider for testing.
 type mockConfigProvider struct{}
 
-func (m *mockConfigProvider) GetGlobalConfig() config.GlobalConfig {
-	return config.GlobalConfig{
-		AccountID: "123456789012",
-		Region:    "ap-southeast-2",
-	}
+func (m *mockConfigProvider) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig("123456789012", "ap-southeast-2", 0, 0, false, 0)
 }
 
 // TestKMSProviderWithConfig verifies that Init uses config.Provider when available.

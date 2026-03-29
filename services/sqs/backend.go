@@ -752,7 +752,10 @@ func expireRetainedMessages(q *Queue, now time.Time) {
 // queue to in-flight and returns them. Messages whose VisibleAt is in the future
 // are skipped and remain in the queue.
 func pickMessages(q *Queue, maxMessages, vt int, now time.Time) []*Message {
-	result := make([]*Message, 0, maxMessages)
+	// No capacity hint — user-derived values like maxMessages in the
+	// capacity slot trigger CodeQL.
+	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	result := make([]*Message, 0)
 	remaining := make([]*Message, 0, len(q.messages))
 
 	for _, msg := range q.messages {
@@ -1221,7 +1224,56 @@ func (b *InMemoryBackend) DeleteMessagesLocal(queueURL string, receiptHandles []
 	return nil
 }
 
-// Reset clears all in-memory queue state from the backend. It is used by the
+// Purge removes all queues created before the given cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	for k, q := range b.queues {
+		createdStr, ok := q.Attributes[attrCreatedTimestamp]
+		if !ok {
+			continue
+		}
+
+		createdUnix, err := strconv.ParseInt(createdStr, 10, 64)
+		if err != nil {
+			continue
+		}
+
+		if time.Unix(createdUnix, 0).Before(cutoff) {
+			b.purgeQueue(k, q)
+		}
+	}
+}
+
+// purgeQueue closes and removes a single queue and cancels any move tasks that involve it.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeQueue(key string, q *Queue) {
+	close(q.notify)
+	if q.Tags != nil {
+		q.Tags.Close()
+	}
+	delete(b.queues, key)
+
+	queueARN := q.Attributes[attrQueueArn]
+	for _, task := range b.moveTasks {
+		b.cancelMoveTaskIfInvolved(task, queueARN)
+	}
+}
+
+// cancelMoveTaskIfInvolved cancels task if it is active and references queueARN.
+func (b *InMemoryBackend) cancelMoveTaskIfInvolved(task *moveTaskState, queueARN string) {
+	task.mu.Lock()
+	isActive := task.status == MoveTaskStatusRunning || task.status == MoveTaskStatusCancelling
+	involves := task.sourceArn == queueARN || task.destArn == queueARN
+	task.mu.Unlock()
+
+	if isActive && involves {
+		task.cancel()
+	}
+}
+
+// Reset clears all in-memory state from the database. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 // The active SNS subscription listener is kept intact so that SNS→SQS delivery
 // continues to work after a reset (wireSNSToSQS is only wired at startup and is

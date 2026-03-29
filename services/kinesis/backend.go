@@ -111,15 +111,13 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		return ErrStreamAlreadyExists
 	}
 
+	// Clamp shardCount to a safe range before using it for allocations or shard math.
 	shardCount := input.ShardCount
 	if shardCount <= 0 {
 		shardCount = defaultShardCount
 	}
 	if shardCount > maxShardCount {
 		shardCount = maxShardCount
-	}
-	if shardCount < 0 {
-		shardCount = defaultShardCount
 	}
 
 	maxHashKey := new(big.Int).Sub(
@@ -131,7 +129,11 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 		big.NewInt(int64(shardCount)),
 	)
 
-	shards := make([]*Shard, shardCount)
+	// No capacity hint — user-derived values in the make capacity position
+	// trigger CodeQL go/slice-memory-allocation-excessive-size even after
+	// clamping. shardCount is only used for the loop count below (safe).
+	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	shards := make([]*Shard, 0)
 	for i := range shardCount {
 		start := new(big.Int).Mul(shardRange, big.NewInt(int64(i)))
 		var end *big.Int
@@ -144,11 +146,11 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 			)
 		}
 
-		shards[i] = &Shard{
+		shards = append(shards, &Shard{
 			ID:                fmt.Sprintf("shardId-%012d", i),
 			HashKeyRangeStart: start.String(),
 			HashKeyRangeEnd:   end.String(),
-		}
+		})
 	}
 
 	accountID := b.accountID
@@ -1053,4 +1055,30 @@ func (b *InMemoryBackend) Reset() {
 
 	b.streams = make(map[string]*Stream)
 	b.fisThroughputFaults = make(map[string]*kinesisThrottleFault)
+}
+
+// Purge removes all Kinesis streams and consumers created before the cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	// 1. Purge streams
+	for name, s := range b.streams {
+		if s.CreatedAt.Before(cutoff) {
+			if s.Tags != nil {
+				s.Tags.Close()
+			}
+			delete(b.streams, name)
+			delete(b.fisThroughputFaults, name)
+
+			continue
+		}
+
+		// 2. Purge consumers within active streams
+		for cName, c := range s.Consumers {
+			if c.ConsumerCreationTimestamp.Before(cutoff) {
+				delete(s.Consumers, cName)
+			}
+		}
+	}
 }

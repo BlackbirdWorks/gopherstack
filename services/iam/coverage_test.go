@@ -649,8 +649,8 @@ type mockIAMConfig struct {
 	accountID string
 }
 
-func (m *mockIAMConfig) GetGlobalConfig() config.GlobalConfig {
-	return config.GlobalConfig{AccountID: m.accountID, Region: "us-east-1"}
+func (m *mockIAMConfig) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig(m.accountID, "us-east-1", 0, 0, false, 0)
 }
 
 // ---- marshalXML error coverage via invalid input ----

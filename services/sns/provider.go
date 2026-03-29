@@ -22,8 +22,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 
 	if cp, ok := ctx.Config.(config.Provider); ok {
 		cfg := cp.GetGlobalConfig()
-		backend = NewInMemoryBackendWithContext(ctx.JanitorCtx, cfg.AccountID, cfg.Region)
-		defaultRegion = cfg.Region
+		backend = NewInMemoryBackendWithContext(ctx.JanitorCtx, cfg.GetAccountID(), cfg.GetRegion())
+		defaultRegion = cfg.GetRegion()
 	} else {
 		backend = NewInMemoryBackendWithContext(ctx.JanitorCtx, "", "")
 	}

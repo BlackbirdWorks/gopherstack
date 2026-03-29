@@ -18,6 +18,10 @@ import (
 // eksNodegroupDefaultDesiredSize is the default desired node count for an EKS nodegroup.
 const eksNodegroupDefaultDesiredSize int32 = 2
 
+// maxAutoScalingCapacity is a hard upper bound on AutoScaling group sizes created via CloudFormation.
+// It prevents excessive memory allocations when provisioning AutoScaling groups from untrusted templates.
+const maxAutoScalingCapacity int32 = 1000
+
 // eksNodegroupDefaultMaxSize is the default max node count for an EKS nodegroup.
 const eksNodegroupDefaultMaxSize int32 = 5
 
@@ -346,22 +350,9 @@ func (rc *ResourceCreator) deleteCloudFrontDistribution(arn string) error {
 
 // ---- AutoScaling ----
 
-func (rc *ResourceCreator) createAutoScalingGroup(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, error) {
-	if rc.backends.Autoscaling == nil {
-		return logicalID + "-stub", nil
-	}
-
-	name := strProp(props, "AutoScalingGroupName", params, physicalIDs)
-	if name == "" {
-		name = logicalID
-	}
-
-	lcName := strProp(props, "LaunchConfigurationName", params, physicalIDs)
-
+// parseASGSizes reads MinSize, MaxSize, and DesiredCapacity from CloudFormation
+// template properties, returning clamped int32 values safe for allocation.
+func parseASGSizes(props map[string]any, params, physicalIDs map[string]string) (int32, int32, int32) {
 	var minSize, maxSize, desired int32 = 1, 1, 1
 
 	if v, ok := props["MinSize"].(float64); ok {
@@ -383,6 +374,31 @@ func (rc *ResourceCreator) createAutoScalingGroup(
 	if v, ok := props["DesiredCapacity"].(float64); ok {
 		desired = int32(v)
 	}
+
+	// Clamp to [0, maxAutoScalingCapacity] to prevent excessive allocations.
+	minSize = min(max(0, minSize), maxAutoScalingCapacity)
+	maxSize = min(max(0, maxSize), maxAutoScalingCapacity)
+	desired = min(max(0, desired), maxAutoScalingCapacity)
+
+	return minSize, maxSize, desired
+}
+
+func (rc *ResourceCreator) createAutoScalingGroup(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.Autoscaling == nil {
+		return logicalID + "-stub", nil
+	}
+
+	name := strProp(props, "AutoScalingGroupName", params, physicalIDs)
+	if name == "" {
+		name = logicalID
+	}
+
+	lcName := strProp(props, "LaunchConfigurationName", params, physicalIDs)
+	minSize, maxSize, desired := parseASGSizes(props, params, physicalIDs)
 
 	_, err := rc.backends.Autoscaling.Backend.CreateAutoScalingGroup(autoscalingbackend.CreateAutoScalingGroupInput{
 		AutoScalingGroupName:    name,

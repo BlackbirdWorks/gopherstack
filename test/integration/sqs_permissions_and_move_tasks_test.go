@@ -172,8 +172,9 @@ func TestIntegration_SQS_MessageMoveTasks(t *testing.T) {
 
 	// StartMessageMoveTask: move from DLQ to dest.
 	startOut, err := client.StartMessageMoveTask(ctx, &sqs.StartMessageMoveTaskInput{
-		SourceArn:      aws.String(dlqARN),
-		DestinationArn: aws.String(destARN),
+		SourceArn:                    aws.String(dlqARN),
+		DestinationArn:               aws.String(destARN),
+		MaxNumberOfMessagesPerSecond: aws.Int32(1),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(startOut.TaskHandle), "TaskHandle should be returned")
@@ -273,8 +274,8 @@ func TestIntegration_SQS_CancelMessageMoveTask(t *testing.T) {
 
 	destARN := destAttrOut.Attributes["QueueArn"]
 
-	// Seed the DLQ with messages.
-	for i := range 3 {
+	// Seed the DLQ with more messages to avoid the task finishing too fast in-memory.
+	for i := range 100 {
 		_, err = client.SendMessage(ctx, &sqs.SendMessageInput{
 			QueueUrl:    dlqOut.QueueUrl,
 			MessageBody: aws.String("cancel-test-" + strconv.Itoa(i)),
@@ -284,8 +285,9 @@ func TestIntegration_SQS_CancelMessageMoveTask(t *testing.T) {
 
 	// Start the task.
 	startOut, err := client.StartMessageMoveTask(ctx, &sqs.StartMessageMoveTaskInput{
-		SourceArn:      aws.String(dlqARN),
-		DestinationArn: aws.String(destARN),
+		SourceArn:                    aws.String(dlqARN),
+		DestinationArn:               aws.String(destARN),
+		MaxNumberOfMessagesPerSecond: aws.Int32(1),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(startOut.TaskHandle))
@@ -372,8 +374,9 @@ func TestIntegration_SQS_StartMessageMoveTask_AlreadyRunning(t *testing.T) {
 
 	// Starting a second task for the same source should fail.
 	_, err = client.StartMessageMoveTask(ctx, &sqs.StartMessageMoveTaskInput{
-		SourceArn:      aws.String(dlqARN),
-		DestinationArn: aws.String(destARN),
+		SourceArn:                    aws.String(dlqARN),
+		DestinationArn:               aws.String(destARN),
+		MaxNumberOfMessagesPerSecond: aws.Int32(1),
 	})
 	require.Error(t, err, "second StartMessageMoveTask for same source should return conflict error")
 
@@ -419,8 +422,9 @@ func TestIntegration_SQS_CancelMessageMoveTask_Completed(t *testing.T) {
 
 	// Start a task on an empty queue — it completes immediately.
 	startOut, err := client.StartMessageMoveTask(ctx, &sqs.StartMessageMoveTaskInput{
-		SourceArn:      aws.String(dlqARN),
-		DestinationArn: aws.String(destARN),
+		SourceArn:                    aws.String(dlqARN),
+		DestinationArn:               aws.String(destARN),
+		MaxNumberOfMessagesPerSecond: aws.Int32(1),
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(startOut.TaskHandle))

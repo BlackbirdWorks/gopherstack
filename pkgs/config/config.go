@@ -1,31 +1,136 @@
 // Package config provides centralized AWS configuration shared by all Gopherstack services.
 package config
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
-// GlobalConfig holds the centralized AWS account and region configuration
-// injected into every service backend at construction time.
+// GlobalConfig holds a reference to the shared AWS configuration state.
+// It is thread-safe and can be updated at runtime.
 type GlobalConfig struct {
-	// AccountID is the mock AWS account ID used in ARNs (default: "000000000000").
-	AccountID string
-	// Region is the default AWS region used when none can be extracted from a request.
-	Region string
-	// LatencyMs is the maximum simulated response latency in milliseconds.
-	// Each request sleeps for a random duration in [0, LatencyMs). Zero disables latency simulation.
-	LatencyMs int
-	// JanitorTimeout is the per-task timeout applied to individual janitor operations
-	// (TTL sweeps, table cleaners, stream sweepers, etc.). A context derived from the
-	// janitor's parent context is bounded by this duration so that a stalled operation
-	// cannot block the janitor loop indefinitely. Zero disables per-task timeouts.
+	state *sharedState
+}
+
+// NewGlobalConfig creates a new GlobalConfig with the given initial state.
+func NewGlobalConfig(
+	accountID, region string,
+	latencyMs int,
+	janitorTimeout time.Duration,
+	enforceIAM bool,
+	autoPurgeTTL time.Duration,
+) *GlobalConfig {
+	return &GlobalConfig{
+		state: &sharedState{
+			AccountID:      accountID,
+			Region:         region,
+			LatencyMs:      latencyMs,
+			JanitorTimeout: janitorTimeout,
+			EnforceIAM:     enforceIAM,
+			AutoPurgeTTL:   autoPurgeTTL,
+		},
+	}
+}
+
+// sharedState holds the actual configuration values.
+type sharedState struct {
+	AccountID      string
+	Region         string
+	LatencyMs      int
 	JanitorTimeout time.Duration
-	// EnforceIAM enables IAM policy enforcement when true.
-	// When false (default), all requests are allowed regardless of policies.
-	// When true, every incoming AWS API request is evaluated against attached IAM policies.
-	EnforceIAM bool
+	AutoPurgeTTL   time.Duration
+	mu             sync.RWMutex
+	EnforceIAM     bool
+}
+
+// ensureState lazily initialises the internal state so that a zero-value
+// *GlobalConfig (e.g., &GlobalConfig{}) is safe to use.
+func (c *GlobalConfig) ensureState() *sharedState {
+	if c == nil {
+		return &sharedState{}
+	}
+	if c.state == nil {
+		c.state = &sharedState{}
+	}
+
+	return c.state
+}
+
+// GetAccountID returns the mock AWS account ID.
+func (c *GlobalConfig) GetAccountID() string {
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.AccountID
+}
+
+// GetRegion returns the default AWS region.
+func (c *GlobalConfig) GetRegion() string {
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.Region
+}
+
+// GetLatencyMs returns the maximum simulated response latency.
+func (c *GlobalConfig) GetLatencyMs() int {
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.LatencyMs
+}
+
+// GetJanitorTimeout returns the per-task janitor timeout.
+func (c *GlobalConfig) GetJanitorTimeout() time.Duration {
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.JanitorTimeout
+}
+
+// IsIAMEnforced returns true if IAM policy enforcement is enabled.
+func (c *GlobalConfig) IsIAMEnforced() bool {
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.EnforceIAM
+}
+
+// GetAutoPurgeTTL returns the auto-purge TTL duration.
+func (c *GlobalConfig) GetAutoPurgeTTL() time.Duration {
+	s := c.ensureState()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.AutoPurgeTTL
+}
+
+// Update updates the configuration state with new values.
+func (c *GlobalConfig) Update(
+	accountID, region string,
+	latencyMs int,
+	janitorTimeout time.Duration,
+	enforceIAM bool,
+	autoPurgeTTL time.Duration,
+) {
+	s := c.ensureState()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AccountID = accountID
+	s.Region = region
+	s.LatencyMs = latencyMs
+	s.JanitorTimeout = janitorTimeout
+	s.EnforceIAM = enforceIAM
+	s.AutoPurgeTTL = autoPurgeTTL
 }
 
 // Provider is implemented by the CLI / any runtime configuration object
-// that can supply a GlobalConfig to services.
+// that can supply a GlobalConfig pointer to services.
 type Provider interface {
-	GetGlobalConfig() GlobalConfig
+	GetGlobalConfig() *GlobalConfig
 }

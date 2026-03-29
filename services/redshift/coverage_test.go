@@ -383,8 +383,8 @@ func postRedshiftFormSetup(h *redshift.Handler, body string) {
 
 type mockRedshiftConfig struct{}
 
-func (m *mockRedshiftConfig) GetGlobalConfig() config.GlobalConfig {
-	return config.GlobalConfig{AccountID: "123456789012", Region: "eu-west-1"}
+func (m *mockRedshiftConfig) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig("123456789012", "eu-west-1", 0, 0, false, 0)
 }
 
 func TestRedshiftProvider(t *testing.T) {

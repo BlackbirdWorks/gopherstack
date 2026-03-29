@@ -22,6 +22,10 @@ var (
 	ErrFunctionNameRequired = errors.New("FunctionName is required for Lambda::Permission")
 	// ErrRestAPIIDRequired is returned when RestApiId is missing from ApiGateway::Stage.
 	ErrRestAPIIDRequired = errors.New("RestApiId is required for ApiGateway::Stage")
+	// ErrInvalidShardCountType is returned when a Kinesis ShardCount property has an unexpected type.
+	ErrInvalidShardCountType = errors.New("invalid ShardCount type in Kinesis stream template")
+	// ErrShardCountOutOfRange is returned when a Kinesis ShardCount is outside the allowed range.
+	ErrShardCountOutOfRange = errors.New("ShardCount out of range for Kinesis stream")
 )
 
 // ---- IAM ----
@@ -713,9 +717,27 @@ func (rc *ResourceCreator) createKinesisStream(
 		name = logicalID
 	}
 
+	// Default and validate ShardCount from template properties. This value ultimately
+	// comes from user-controlled input, so enforce sane bounds here to avoid
+	// excessive allocations or backend errors.
 	shardCount := 1
-	if v, ok := props["ShardCount"].(float64); ok {
-		shardCount = int(v)
+	if v, ok := props["ShardCount"]; ok {
+		switch n := v.(type) {
+		case float64:
+			shardCount = int(n)
+		case int:
+			shardCount = n
+		case int64:
+			shardCount = int(n)
+		default:
+			return "", fmt.Errorf("create Kinesis stream %s: %w", name, ErrInvalidShardCountType)
+		}
+	}
+
+	// Reject non-positive or excessively large shard counts to prevent resource exhaustion.
+	const maxKinesisShardCount = 1000
+	if shardCount <= 0 || shardCount > maxKinesisShardCount {
+		return "", fmt.Errorf("create Kinesis stream %s (got %d): %w", name, shardCount, ErrShardCountOutOfRange)
 	}
 
 	if err := rc.backends.Kinesis.Backend.CreateStream(&kinesisbackend.CreateStreamInput{

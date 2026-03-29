@@ -35,8 +35,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	// Override account ID and region from global config if available.
 	if cp, ok := ctx.Config.(config.Provider); ok {
 		cfg := cp.GetGlobalConfig()
-		backend.accountID = cfg.AccountID
-		backend.defaultRegion = cfg.Region
+		backend.accountID = cfg.GetAccountID()
+		backend.defaultRegion = cfg.GetRegion()
 	}
 
 	backend.createDelay = settings.CreateDelay

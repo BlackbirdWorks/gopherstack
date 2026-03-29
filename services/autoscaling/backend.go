@@ -15,6 +15,11 @@ import (
 // completedProgress is the progress value for a successfully completed scaling activity.
 const completedProgress = int32(100)
 
+// maxDesiredCapacity is the upper bound on DesiredCapacity for any ASG, used to
+// cap user-supplied values and prevent excessive slice allocations
+// (go/slice-memory-allocation-excessive-size).
+const maxDesiredCapacity = 100
+
 var (
 	// ErrGroupNotFound is returned when the requested Auto Scaling group does not exist.
 	ErrGroupNotFound = errors.New("AutoScalingGroupNotFound")
@@ -109,7 +114,10 @@ func NewInMemoryBackend() *InMemoryBackend {
 // The fake service immediately puts instances in InService/Healthy state so that
 // Terraform provider capacity checks do not time out.
 func makeInstances(count int32, azs []string, launchConfigName string) []Instance {
-	if count <= 0 {
+	// Clamp to valid range before use to avoid CodeQL
+	// go/slice-memory-allocation-excessive-size on the capacity hint.
+	n := max(0, min(maxDesiredCapacity, int(count)))
+	if n == 0 {
 		return []Instance{}
 	}
 
@@ -118,9 +126,12 @@ func makeInstances(count int32, azs []string, launchConfigName string) []Instanc
 		az = azs[0]
 	}
 
-	instances := make([]Instance, 0, count)
+	// No capacity hint — append grows naturally; any user-derived value in
+	// the capacity position would trigger CodeQL go/slice-memory-allocation-excessive-size.
+	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	instances := make([]Instance, 0)
 
-	for range count {
+	for range n {
 		// Use full UUID (stripped of dashes) to generate a unique, collision-free instance ID.
 		id := "i-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:17]
 		instances = append(instances, Instance{
@@ -174,10 +185,9 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		desired = input.MinSize
 	}
 
-	const maxDesiredCapacity = 100
-	if desired > maxDesiredCapacity {
-		desired = maxDesiredCapacity
-	}
+	// Clamp desired to [0, maxDesiredCapacity] so that CodeQL can verify
+	// the make capacity hint is bounded (go/slice-memory-allocation-excessive-size).
+	desiredN := max(0, min(maxDesiredCapacity, int(desired)))
 
 	healthCheckType := input.HealthCheckType
 	if healthCheckType == "" {
@@ -189,8 +199,11 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 		az = input.AvailabilityZones[0]
 	}
 
-	instances := make([]Instance, 0, desired)
-	for range desired {
+	// No capacity hint — user-derived values in make capacity trigger CodeQL
+	// go/slice-memory-allocation-excessive-size even after clamping.
+	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	instances := make([]Instance, 0)
+	for range desiredN {
 		instances = append(instances, Instance{
 			InstanceID:              "i-" + uuid.NewString()[:8],
 			AvailabilityZone:        az,
@@ -294,7 +307,8 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 	}
 
 	if input.DesiredCapacity != nil {
-		g.DesiredCapacity = *input.DesiredCapacity
+		desired := min(*input.DesiredCapacity, maxDesiredCapacity)
+		g.DesiredCapacity = desired
 		g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
 	}
 
@@ -454,4 +468,25 @@ func (b *InMemoryBackend) DescribeScalingActivities(groupName string) ([]Scaling
 	})
 
 	return result, nil
+}
+
+// Purge removes all AutoScaling groups and launch configurations created before the cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	// 1. Purge groups
+	for name, g := range b.groups {
+		if g.CreatedTime.Before(cutoff) {
+			delete(b.groups, name)
+			delete(b.activities, name)
+		}
+	}
+
+	// 2. Purge launch configurations
+	for name, lc := range b.launchConfigurations {
+		if lc.CreatedTime.Before(cutoff) {
+			delete(b.launchConfigurations, name)
+		}
+	}
 }

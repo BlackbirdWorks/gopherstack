@@ -222,11 +222,67 @@ window.TableManager = {
         if (localStorage.getItem('gopherstack-table-compact') === 'true') {
             document.body.classList.add('table-compact');
         }
+        this.injectToggles();
     },
     toggleCompactMode: function () {
         document.body.classList.toggle('table-compact');
         const isCompact = document.body.classList.contains('table-compact');
         localStorage.setItem('gopherstack-table-compact', isCompact ? 'true' : 'false');
+        this.updateToggleIcons();
+    },
+    injectToggles: function () {
+        document.querySelectorAll('.relative.overflow-x-auto').forEach(wrapper => {
+            // Only target wrappers that contain an actual data table
+            const table = wrapper.querySelector('table');
+            if (!table) return;
+
+            // Strict exclusion for code snippets and documentation modals
+            if (wrapper.closest('.code-snippet-generator') || 
+                wrapper.closest('.prism-code') || 
+                wrapper.closest('pre') ||
+                wrapper.closest('[id^="snippetModal-"]')) {
+                return;
+            }
+
+            if (wrapper.dataset.hasToggle) return;
+            
+            // Re-check for existing toggle container to prevent duplicates after HTMX swaps
+            if (wrapper.previousElementSibling && wrapper.previousElementSibling.classList.contains('tb-compact-container')) {
+                wrapper.dataset.hasToggle = 'true';
+                return;
+            }
+
+            wrapper.dataset.hasToggle = 'true';
+            
+            const btnContainer = document.createElement('div');
+            btnContainer.className = 'flex justify-end mb-2 tb-compact-container';
+            
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'tb-compact-toggle flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-slate-500 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-900 focus:outline-none dark:text-slate-400 dark:bg-slate-800 dark:border-slate-700 dark:hover:bg-slate-700 dark:hover:text-white transition-colors shadow-sm';
+            btn.title = 'Toggle Compact View';
+            btn.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg> Compact`;
+            btn.onclick = (e) => {
+                e.preventDefault();
+                window.TableManager.toggleCompactMode();
+            };
+            
+            btnContainer.appendChild(btn);
+            wrapper.parentNode.insertBefore(btnContainer, wrapper);
+        });
+        this.updateToggleIcons();
+    },
+    updateToggleIcons: function() {
+        const isCompact = document.body.classList.contains('table-compact');
+        document.querySelectorAll('.tb-compact-toggle').forEach(btn => {
+            if (isCompact) {
+                btn.classList.add('text-indigo-600', 'bg-indigo-50', 'border-indigo-200', 'dark:text-indigo-400', 'dark:bg-indigo-900/30', 'dark:border-indigo-800/50');
+                btn.classList.remove('text-slate-500', 'bg-white', 'border-slate-200', 'dark:text-slate-400', 'dark:bg-slate-800', 'dark:border-slate-700');
+            } else {
+                btn.classList.remove('text-indigo-600', 'bg-indigo-50', 'border-indigo-200', 'dark:text-indigo-400', 'dark:bg-indigo-900/30', 'dark:border-indigo-800/50');
+                btn.classList.add('text-slate-500', 'bg-white', 'border-slate-200', 'dark:text-slate-400', 'dark:bg-slate-800', 'dark:border-slate-700');
+            }
+        });
     }
 };
 

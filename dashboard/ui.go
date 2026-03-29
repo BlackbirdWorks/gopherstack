@@ -7,7 +7,10 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -147,6 +150,142 @@ const (
 // OperationsProvider defines an interface for retrieving supported operations.
 type OperationsProvider interface {
 	GetSupportedOperations() []string
+}
+
+// Settings holds configurable dashboard variables to render in the UI.
+type Settings struct {
+	DNSResolveIP        string
+	OpenSearchEngine    string
+	Region              string
+	LogLevel            string
+	Port                string
+	DNSListenAddr       string
+	AccountID           string
+	DataDir             string
+	ElasticsearchEngine string
+	ElastiCacheEngine   string
+	S3                  S3Settings
+	Lambda              LambdaSettings
+	DynamoDB            DynamoDBSettings
+	Batch               BatchSettings
+	EC2                 EC2Settings
+	CodeBuild           CodeBuildSettings
+	FIS                 FISSettings
+	Athena              AthenaSettings
+	EMR                 EMRSettings
+	SES                 SESSettings
+	SSM                 SSMSettings
+	XRay                XRaySettings
+	Backup              BackupSettings
+	PortRangeEnd        int
+	STS                 STSSettings
+	LatencyMs           int
+	PortRangeStart      int
+	JanitorTimeout      time.Duration
+	CloudWatchLogs      CloudWatchLogsSettings
+	InitScriptTimeout   time.Duration
+	AutoPurgeTTL        time.Duration
+	Kinesis             KinesisSettings
+	KMS                 KMSSettings
+	EnforceIAM          bool
+	Demo                bool
+	Persist             bool
+}
+
+type S3Settings struct {
+	DefaultRegion       string
+	JanitorInterval     time.Duration
+	CompressionMinBytes int
+}
+
+type LambdaSettings struct {
+	DockerHost       string
+	ContainerRuntime string
+	PoolSize         int
+	IdleTimeout      time.Duration
+	MaxRuntimes      int
+}
+
+type DynamoDBSettings struct {
+	DefaultRegion     string
+	JanitorInterval   time.Duration
+	CreateDelay       time.Duration
+	EnforceThroughput bool
+}
+
+type EC2Settings struct {
+	JanitorInterval  time.Duration
+	TerminatedTTL    time.Duration
+	CancelledSpotTTL time.Duration
+}
+
+type BackupSettings struct {
+	JanitorInterval time.Duration
+	JobTTL          time.Duration
+}
+
+type STSSettings struct {
+	JanitorInterval time.Duration
+}
+
+type XRaySettings struct {
+	JanitorInterval time.Duration
+	TraceTTL        time.Duration
+}
+
+type SSMSettings struct {
+	JanitorInterval time.Duration
+	CommandTTL      time.Duration
+}
+
+type CodeBuildSettings struct {
+	JanitorInterval time.Duration
+	BuildTTL        time.Duration
+}
+
+type CloudWatchLogsSettings struct {
+	JanitorInterval time.Duration
+}
+
+type SESSettings struct {
+	JanitorInterval time.Duration
+	EmailTTL        time.Duration
+}
+
+type BatchSettings struct {
+	JanitorInterval   time.Duration
+	InactiveJobDefTTL time.Duration
+	CompletedJobTTL   time.Duration
+}
+
+type FISSettings struct {
+	JanitorInterval time.Duration
+	ExperimentTTL   time.Duration
+}
+
+type EMRSettings struct {
+	JanitorInterval time.Duration
+	TerminatedTTL   time.Duration
+}
+
+type AthenaSettings struct {
+	JanitorInterval time.Duration
+	ExecutionTTL    time.Duration
+}
+
+type KinesisSettings struct {
+	JanitorInterval time.Duration
+}
+
+type KMSSettings struct {
+	JanitorInterval time.Duration
+}
+
+// ConfigManager defines an interface for saving server configuration.
+type ConfigManager interface {
+	GetSettings() Settings
+	UpdateSettings(Settings)
+	SaveConfig() error
 }
 
 //go:embed static/*
@@ -351,14 +490,16 @@ type DashboardHandler struct {
 	// XrayOps provides access to the X-Ray backend.
 	XrayOps *xraybackend.Handler
 	// S3TablesOps provides access to the S3 Tables backend.
-	S3TablesOps  *s3tablesbackend.Handler
-	SubRouter    *echo.Echo
-	ddbProvider  *ddbbackend.DashboardProvider
-	s3Provider   *s3backend.DashboardProvider
-	FaultStore   *chaos.FaultStore
-	Logger       *slog.Logger
-	layout       *template.Template
-	GlobalConfig config.GlobalConfig
+	S3TablesOps   *s3tablesbackend.Handler
+	SubRouter     *echo.Echo
+	ddbProvider   *ddbbackend.DashboardProvider
+	s3Provider    *s3backend.DashboardProvider
+	FaultStore    *chaos.FaultStore
+	Logger        *slog.Logger
+	layout        *template.Template
+	GlobalConfig  *config.GlobalConfig
+	ConfigManager ConfigManager
+	mu            sync.RWMutex
 }
 
 // Config holds all dependencies for the Dashboard handler.
@@ -599,9 +740,9 @@ type Config struct {
 	// FaultStore provides access to the Chaos fault store for the dashboard UI.
 	FaultStore *chaos.FaultStore
 	// Logger is the structured logger for dashboard operations.
-	Logger *slog.Logger
-	// GlobalConfig holds the centralized account and region configuration shown on the settings page.
-	GlobalConfig config.GlobalConfig
+	Logger        *slog.Logger
+	GlobalConfig  *config.GlobalConfig
+	ConfigManager ConfigManager
 }
 
 // parseDashboardTemplates loads and parses all HTML templates for the dashboard.
@@ -878,6 +1019,7 @@ func newDashboardHandler(cfg Config, tmpl *template.Template) *DashboardHandler 
 		MemoryDBOps:                cfg.MemoryDBOps,
 		OrganizationsOps:           cfg.OrganizationsOps,
 		GlobalConfig:               cfg.GlobalConfig,
+		ConfigManager:              cfg.ConfigManager,
 		Logger:                     cfg.Logger,
 		FaultStore:                 cfg.FaultStore,
 		layout:                     tmpl,
@@ -1321,6 +1463,7 @@ func (h *DashboardHandler) setupMetaRoutes() {
 	dashboardGroup := h.SubRouter.Group("/dashboard")
 	RegisterMetricsHandlers(dashboardGroup, h)
 	h.SubRouter.GET("/dashboard/settings", h.settingsIndex)
+	h.SubRouter.POST("/dashboard/settings/update", h.settingsUpdate)
 	h.SubRouter.GET("/dashboard/api/regions", h.apiRegions)
 }
 
@@ -1466,12 +1609,47 @@ func (h *DashboardHandler) setupLatestServiceRoutes() {
 	h.setupXrayRoutes()
 	h.setupS3TablesRoutes()
 }
+
+// Handler returns the HTTP handler for the dashboard.
 func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
+		h.mu.RLock()
+		if h.SubRouter == nil {
+			h.mu.RUnlock()
+			h.mu.Lock()
+			if h.SubRouter == nil {
+				h.SubRouter = echo.New()
+				h.setupSubRouter()
+			}
+			h.mu.Unlock()
+			h.mu.RLock()
+		}
+		defer h.mu.RUnlock()
+
 		h.SubRouter.ServeHTTP(c.Response(), c.Request())
 
 		return nil
 	}
+}
+
+// getGlobalConfig returns the shared GlobalConfig pointer, or a default if not set.
+func (h *DashboardHandler) getGlobalConfig() *config.GlobalConfig {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if h.GlobalConfig != nil {
+		return h.GlobalConfig
+	}
+
+	// Fallback to a default configuration if not provided (e.g., in unit tests).
+	return config.NewGlobalConfig(
+		config.DefaultAccountID,
+		config.DefaultRegion,
+		0,
+		0,
+		false,
+		0,
+	)
 }
 
 // Name returns the service identifier.
@@ -1890,29 +2068,169 @@ func (h *DashboardHandler) handleS3File(w http.ResponseWriter, r *http.Request, 
 
 // SettingsPageData holds the data rendered by the settings page template.
 type SettingsPageData struct {
-	PageData
+	docPageData
 
-	AccountID    string
-	Region       string
 	BuildVersion string
-	LatencyMs    int
-	EnforceIAM   bool
+	Config       Settings
 }
 
 // settingsIndex renders the read-only settings/config page.
 func (h *DashboardHandler) settingsIndex(c *echo.Context) error {
-	data := SettingsPageData{
-		PageData:     PageData{Title: "Settings", ActiveTab: "settings"},
-		AccountID:    h.GlobalConfig.AccountID,
-		Region:       h.GlobalConfig.Region,
-		LatencyMs:    h.GlobalConfig.LatencyMs,
-		EnforceIAM:   h.GlobalConfig.EnforceIAM,
-		BuildVersion: version.Build,
+	var cfg Settings
+	if h.ConfigManager != nil {
+		cfg = h.ConfigManager.GetSettings()
+	} else {
+		gcfg := h.getGlobalConfig()
+		cfg = Settings{
+			AccountID:      gcfg.GetAccountID(),
+			Region:         gcfg.GetRegion(),
+			LatencyMs:      gcfg.GetLatencyMs(),
+			EnforceIAM:     gcfg.IsIAMEnforced(),
+			AutoPurgeTTL:   gcfg.GetAutoPurgeTTL(),
+			JanitorTimeout: gcfg.GetJanitorTimeout(),
+		}
 	}
+
+	data := SettingsPageData{
+		docPageData:  h.getDocPageData(),
+		BuildVersion: version.Get(),
+		Config:       cfg,
+	}
+	data.PageData = PageData{Title: "Settings", ActiveTab: "settings"}
 
 	h.renderTemplate(c.Response(), "settings.html", data)
 
 	return nil
+}
+
+// parseDurationField parses a duration from a form value, returning d if the field is empty or invalid.
+func parseDurationField(r *http.Request, key string, d time.Duration) time.Duration {
+	v := r.FormValue(key)
+	if v == "" {
+		return d
+	}
+
+	parsed, err := time.ParseDuration(v)
+	if err != nil {
+		return d
+	}
+
+	return parsed
+}
+
+// applyServiceSettingsFromForm fills service-specific settings in cfg from r's form values only if present.
+func applyServiceSettingsFromForm(r *http.Request, cfg *Settings) {
+	updateIfPresent(r, "s3-DefaultRegion", &cfg.S3.DefaultRegion)
+	if size, ok := getIntField(r, "s3-CompressionMinBytes"); ok {
+		cfg.S3.CompressionMinBytes = size
+	}
+	updateIfPresent(r, "lambda-DockerHost", &cfg.Lambda.DockerHost)
+	updateIfPresent(r, "lambda-ContainerRuntime", &cfg.Lambda.ContainerRuntime)
+	if size, ok := getIntField(r, "lambda-PoolSize"); ok {
+		cfg.Lambda.PoolSize = size
+	}
+	cfg.Lambda.IdleTimeout = parseDurationField(r, "lambda-IdleTimeout", cfg.Lambda.IdleTimeout)
+	if maxRuntimes, ok := getIntField(r, "lambda-MaxRuntimes"); ok {
+		cfg.Lambda.MaxRuntimes = maxRuntimes
+	}
+	updateIfPresent(r, "dynamodb-DefaultRegion", &cfg.DynamoDB.DefaultRegion)
+	if val, ok := getBoolField(r, "dynamodb-EnforceThroughput"); ok {
+		cfg.DynamoDB.EnforceThroughput = val
+	}
+	cfg.DynamoDB.CreateDelay = parseDurationField(r, "dynamodb-CreateDelay", cfg.DynamoDB.CreateDelay)
+	cfg.EC2.TerminatedTTL = parseDurationField(r, "ec2-TerminatedTTL", cfg.EC2.TerminatedTTL)
+	cfg.SSM.CommandTTL = parseDurationField(r, "ssm-CommandTTL", cfg.SSM.CommandTTL)
+	cfg.SES.EmailTTL = parseDurationField(r, "ses-EmailTTL", cfg.SES.EmailTTL)
+	cfg.Backup.JobTTL = parseDurationField(r, "backup-JobTTL", cfg.Backup.JobTTL)
+	cfg.XRay.TraceTTL = parseDurationField(r, "xray-TraceTTL", cfg.XRay.TraceTTL)
+	cfg.EMR.TerminatedTTL = parseDurationField(r, "emr-TerminatedTTL", cfg.EMR.TerminatedTTL)
+	cfg.Athena.ExecutionTTL = parseDurationField(r, "athena-ExecutionTTL", cfg.Athena.ExecutionTTL)
+	cfg.FIS.ExperimentTTL = parseDurationField(r, "fis-ExperimentTTL", cfg.FIS.ExperimentTTL)
+}
+
+// updateIfPresent updates s to the value of key in r if it exists.
+func updateIfPresent(r *http.Request, key string, s *string) {
+	if r.Form.Has(key) {
+		*s = r.FormValue(key)
+	}
+}
+
+// getBoolField returns the boolean value of key in r if it exists.
+func getBoolField(r *http.Request, key string) (bool, bool) {
+	if r.Form.Has(key) {
+		return r.FormValue(key) == constStrTrue, true
+	}
+
+	return false, false
+}
+
+// getIntField returns the integer value of key in r if it exists and is a valid integer.
+func getIntField(r *http.Request, key string) (int, bool) {
+	if r.Form.Has(key) {
+		if i, err := strconv.Atoi(r.FormValue(key)); err == nil {
+			return i, true
+		}
+	}
+
+	return 0, false
+}
+
+// settingsUpdate handles POST /dashboard/settings/update.
+func (h *DashboardHandler) settingsUpdate(c *echo.Context) error {
+	r := c.Request()
+
+	if err := r.ParseForm(); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"message": "Invalid form data"})
+	}
+
+	if h.ConfigManager == nil {
+		return c.JSON(http.StatusNotImplemented, map[string]string{"message": "Settings persistence is not configured"})
+	}
+
+	cfg := h.ConfigManager.GetSettings()
+
+	updateIfPresent(r, "accountID", &cfg.AccountID)
+	updateIfPresent(r, "region", &cfg.Region)
+	if latencyMs, ok := getIntField(r, "latencyMs"); ok {
+		cfg.LatencyMs = latencyMs
+	}
+	cfg.JanitorTimeout = parseDurationField(r, "janitorTimeout", cfg.JanitorTimeout)
+	cfg.AutoPurgeTTL = parseDurationField(r, "autoPurgeTTL", cfg.AutoPurgeTTL)
+	if val, ok := getBoolField(r, "enforceIAM"); ok {
+		cfg.EnforceIAM = val
+	}
+	// Sensitive fields (Persist, Demo, LogLevel, Port, DataDir) are removed from the dashboard update
+	// to prevent Path Traversal and other insecure configuration overrides.
+	// Users should use Environment Variables or CLI flags for these.
+
+	updateIfPresent(r, "dnsListenAddr", &cfg.DNSListenAddr)
+	updateIfPresent(r, "dnsResolveIP", &cfg.DNSResolveIP)
+	updateIfPresent(r, "openSearchEngine", &cfg.OpenSearchEngine)
+	updateIfPresent(r, "elasticsearchEngine", &cfg.ElasticsearchEngine)
+	updateIfPresent(r, "elastiCacheEngine", &cfg.ElastiCacheEngine)
+
+	if start, ok := getIntField(r, "portRangeStart"); ok {
+		cfg.PortRangeStart = start
+	}
+	if end, ok := getIntField(r, "portRangeEnd"); ok {
+		cfg.PortRangeEnd = end
+	}
+
+	cfg.InitScriptTimeout = parseDurationField(r, "initScriptTimeout", cfg.InitScriptTimeout)
+
+	applyServiceSettingsFromForm(r, &cfg)
+
+	h.ConfigManager.UpdateSettings(cfg)
+
+	if err := h.ConfigManager.SaveConfig(); err != nil {
+		h.Logger.Error("failed to save config", "error", err)
+
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"message": "Failed to persist config: " + err.Error(),
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{"message": "Settings updated and persisted successfully"})
 }
 
 // regionsResponse is the JSON shape returned by apiRegions.
@@ -1937,7 +2255,7 @@ func (h *DashboardHandler) apiRegions(c *echo.Context) error {
 		}
 	}
 
-	defaultRegion := h.GlobalConfig.Region
+	defaultRegion := h.getGlobalConfig().GetRegion()
 	seen[defaultRegion] = struct{}{}
 
 	regions := make([]string, 0, len(seen))

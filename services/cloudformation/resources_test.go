@@ -1926,15 +1926,15 @@ func (m *mockBackendsProvider) GetCloudWatchHandler() service.Registerable     {
 func (m *mockBackendsProvider) GetRoute53Handler() service.Registerable        { return nil }
 func (m *mockBackendsProvider) GetElastiCacheHandler() service.Registerable    { return nil }
 func (m *mockBackendsProvider) GetSchedulerHandler() service.Registerable      { return nil }
-func (m *mockBackendsProvider) GetGlobalConfig() config.GlobalConfig {
-	return config.GlobalConfig{AccountID: "111111111111", Region: "eu-west-1"}
+func (m *mockBackendsProvider) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig("111111111111", "eu-west-1", 0, 0, false, 0)
 }
 
 // mockConfigProvider implements only config.Provider (no BackendsProvider).
 type mockConfigProvider struct{}
 
-func (m *mockConfigProvider) GetGlobalConfig() config.GlobalConfig {
-	return config.GlobalConfig{AccountID: "222222222222", Region: "ap-southeast-1"}
+func (m *mockConfigProvider) GetGlobalConfig() *config.GlobalConfig {
+	return config.NewGlobalConfig("222222222222", "ap-southeast-1", 0, 0, false, 0)
 }
 
 func TestProvider_Init_WithConfig(t *testing.T) {

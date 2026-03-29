@@ -152,13 +152,13 @@ func resolveDynamicRefsInValue(v any, resolver DynamicRefResolver) (any, error) 
 // Returns a descriptive error (wrapping ErrDynamicRefFailed) if any reference cannot be resolved.
 // If resolver is nil the function is a no-op.
 func ResolveDynamicRefsInTemplate(tmpl *Template, resolver DynamicRefResolver) error {
-	if resolver == nil {
-		return nil
-	}
-
 	for logicalID, res := range tmpl.Resources {
 		if len(res.Properties) == 0 {
 			continue
+		}
+
+		if resolver == nil {
+			return nil
 		}
 
 		resolved, err := resolveDynamicRefsInValue(res.Properties, resolver)

@@ -20,17 +20,22 @@ func (p *Provider) Name() string { return "ECR" }
 //
 //nolint:ireturn,nolintlint // architecturally required to return interface
 func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error) {
-	var globalCfg config.GlobalConfig
+	var globalCfg *config.GlobalConfig
 	if cfgProvider, ok := appCtx.Config.(config.Provider); ok {
 		globalCfg = cfgProvider.GetGlobalConfig()
+	} else {
+		globalCfg = config.NewGlobalConfig(config.DefaultAccountID, config.DefaultRegion, 0, 0, false, 0)
 	}
 
-	if globalCfg.AccountID == "" {
-		globalCfg.AccountID = config.DefaultAccountID
+	accountID := globalCfg.GetAccountID()
+	region := globalCfg.GetRegion()
+
+	if accountID == "" {
+		accountID = config.DefaultAccountID
 	}
 
-	if globalCfg.Region == "" {
-		globalCfg.Region = config.DefaultRegion
+	if region == "" {
+		region = config.DefaultRegion
 	}
 
 	log := appCtx.Logger
@@ -43,7 +48,7 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 	// The endpoint for repository URIs is set to the Gopherstack server address.
 	// At init time we don't know the actual port; the CLI sets this after startup.
 	// For now use an empty string; SetEndpoint() can be called later.
-	backend := NewInMemoryBackend(globalCfg.AccountID, globalCfg.Region, "")
+	backend := NewInMemoryBackend(accountID, region, "")
 
 	if localRegistryEnabled {
 		log.Info("ECR local registry enabled; starting embedded Docker registry v2")

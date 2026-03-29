@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
@@ -40,12 +41,9 @@ type EnforcementBackend interface {
 	GetPoliciesForUser(userName string) ([]string, error)
 }
 
-// EnforcementConfig carries optional configuration for the enforcement middleware.
 type EnforcementConfig struct {
-	// AccountID is the mock AWS account ID used in resource ARN construction.
-	AccountID string
-	// Region is the default region used in resource ARN construction.
-	Region string
+	// Global is the shared AWS configuration state.
+	Global *config.GlobalConfig
 	// ResourceProviders is a list of backends that can return resource-based
 	// policies (e.g. S3 bucket policies, SQS queue policies).
 	ResourceProviders []ResourcePolicyProvider
@@ -128,7 +126,15 @@ func enforceIAMPolicy(c *echo.Context, next echo.HandlerFunc, backend Enforcemen
 		return next(c)
 	}
 
-	resourceARN := extractResourceARN(r, cfg.AccountID, cfg.Region)
+	accountID := ""
+	region := ""
+
+	if cfg.Global != nil {
+		accountID = cfg.Global.GetAccountID()
+		region = cfg.Global.GetRegion()
+	}
+
+	resourceARN := extractResourceARN(r, accountID, region)
 
 	// Collect resource-based policies for the accessed resource.
 	resourceDocs := collectResourcePolicies(ctx, cfg.ResourceProviders, resourceARN)

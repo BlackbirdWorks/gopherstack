@@ -1656,3 +1656,8 @@ func (h *Handler) Reset() {
 		b.Reset()
 	}
 }
+
+// Purge removes all resources older than the given cutoff time.
+func (h *Handler) Purge(cutoff time.Time) {
+	h.Backend.Purge(cutoff)
+}

@@ -52,6 +52,9 @@ import (
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+
+	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
+	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
 // BackendsProvider is a private interface to extract service backends for resource creation.
@@ -96,7 +99,6 @@ type BackendsProvider interface {
 	GetAPIGatewayV2Handler() service.Registerable
 	GetCodeBuildHandler() service.Registerable
 	GetGlueHandler() service.Registerable
-	GetDocDBHandler() service.Registerable
 	GetNeptuneHandler() service.Registerable
 	GetKafkaHandler() service.Registerable
 	GetTransferHandler() service.Registerable
@@ -105,7 +107,24 @@ type BackendsProvider interface {
 	GetIoTHandler() service.Registerable
 	GetPipesHandler() service.Registerable
 	GetEMRHandler() service.Registerable
-	GetGlobalConfig() config.GlobalConfig
+	GetBedrockHandler() service.Registerable
+	GetBedrockRuntimeHandler() service.Registerable
+	GetMemoryDBHandler() service.Registerable
+	GetCloudControlHandler() service.Registerable
+	GetCeHandler() service.Registerable
+	GetDMSHandler() service.Registerable
+	GetCodeArtifactHandler() service.Registerable
+	GetCodeConnectionsHandler() service.Registerable
+	GetCodeCommitHandler() service.Registerable
+	GetCodeDeployHandler() service.Registerable
+	GetCodeStarConnectionsHandler() service.Registerable
+	GetDynamoDBStreamsHandler() service.Registerable
+	GetElasticbeanstalkHandler() service.Registerable
+	GetDocDBHandler() service.Registerable
+	GetFISHandler() service.Registerable
+	GetIdentityStoreHandler() service.Registerable
+	GetCognitoIdentityHandler() service.Registerable
+	GetGlobalConfig() *config.GlobalConfig
 }
 
 // Provider implements service.Provider for the CloudFormation service.
@@ -118,8 +137,8 @@ func (p *Provider) Name() string { return "CloudFormation" }
 func extractBackends(bp BackendsProvider) *ServiceBackends {
 	cfg := bp.GetGlobalConfig()
 	backends := &ServiceBackends{
-		AccountID: cfg.AccountID,
-		Region:    cfg.Region,
+		AccountID: cfg.GetAccountID(),
+		Region:    cfg.GetRegion(),
 	}
 
 	extractCoreBackends(bp, backends)
@@ -137,6 +156,9 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.SSM, _ = getHandler[*ssmbackend.Handler](bp.GetSSMHandler())
 	backends.KMS, _ = getHandler[*kmsbackend.Handler](bp.GetKMSHandler())
 	backends.SecretsManager, _ = getHandler[*secretsmanagerbackend.Handler](bp.GetSecretsManagerHandler())
+	// Added handlers for dynamic ref resolution and resource provisioning
+	backends.MemoryDB, _ = getHandler[*memorydb.Handler](bp.GetMemoryDBHandler())
+	backends.BedrockRuntime, _ = getHandler[*bedrockruntime.Handler](bp.GetBedrockRuntimeHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.
@@ -215,8 +237,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		region = backends.Region
 	} else if cp, isCP := ctx.Config.(config.Provider); isCP {
 		cfg := cp.GetGlobalConfig()
-		accountID = cfg.AccountID
-		region = cfg.Region
+		accountID = cfg.GetAccountID()
+		region = cfg.GetRegion()
 	}
 
 	creator := NewResourceCreator(backends)

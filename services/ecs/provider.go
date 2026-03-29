@@ -23,12 +23,12 @@ func (p *Provider) Init(appCtx *service.AppContext) (service.Registerable, error
 
 	if cfgProvider, ok := appCtx.Config.(config.Provider); ok {
 		cfg := cfgProvider.GetGlobalConfig()
-		if cfg.AccountID != "" {
-			accountID = cfg.AccountID
+		if cfg.GetAccountID() != "" {
+			accountID = cfg.GetAccountID()
 		}
 
-		if cfg.Region != "" {
-			region = cfg.Region
+		if cfg.GetRegion() != "" {
+			region = cfg.GetRegion()
 		}
 	}
 

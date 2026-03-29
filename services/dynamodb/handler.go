@@ -282,6 +282,13 @@ func (h *DynamoDBHandler) Name() string {
 	return "DynamoDB"
 }
 
+// Purge implements service.Purgeable by deleting resources older than cutoff.
+func (h *DynamoDBHandler) Purge(cutoff time.Time) {
+	if db, ok := h.Backend.(*InMemoryDB); ok {
+		db.Purge(cutoff)
+	}
+}
+
 // RouteMatcher returns a matcher for DynamoDB requests (by X-Amz-Target header).
 func (h *DynamoDBHandler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {

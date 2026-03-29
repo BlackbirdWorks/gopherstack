@@ -109,8 +109,8 @@ func (h *DashboardHandler) kinesisanalyticsCreateApplication(c *echo.Context) er
 	}
 
 	if _, err := h.KinesisAnalyticsOps.Backend.CreateApplication(
-		h.GlobalConfig.Region,
-		h.GlobalConfig.AccountID,
+		h.getGlobalConfig().GetRegion(),
+		h.getGlobalConfig().GetAccountID(),
 		name,
 		c.Request().FormValue("description"),
 		"",

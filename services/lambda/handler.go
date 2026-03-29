@@ -2328,6 +2328,33 @@ func (h *Handler) handleListProvisionedConcurrencyConfigs(c *echo.Context, name 
 	})
 }
 
+// Purge removes all resources older than the given cutoff time.
+func (h *Handler) Purge(cutoff time.Time) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Purge(cutoff)
+	}
+
+	// Build the set of function ARNs that still exist in the backend after purge.
+	remaining := make(map[string]struct{})
+	pg := h.Backend.ListFunctions("", -1)
+	for _, fn := range pg.Data {
+		remaining[fn.FunctionArn] = struct{}{}
+	}
+
+	// Remove tags for any function that no longer exists.
+	h.tagsMu.Lock("Purge")
+	defer h.tagsMu.Unlock()
+
+	for arn, t := range h.tags {
+		if _, ok := remaining[arn]; !ok {
+			if t != nil {
+				t.Close()
+			}
+			delete(h.tags, arn)
+		}
+	}
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (h *Handler) Reset() {

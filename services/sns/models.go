@@ -1,24 +1,29 @@
 package sns
 
-import "encoding/xml"
+import (
+	"encoding/xml"
+	"time"
+)
 
 // Topic represents an SNS topic.
 type Topic struct {
-	Attributes map[string]string `json:"attributes,omitempty"`
-	TopicArn   string            `json:"topicArn"`
+	CreationTimestamp time.Time         `json:"creationTimestamp"`
+	Attributes        map[string]string `json:"attributes,omitempty"`
+	TopicArn          string            `json:"topicArn"`
 }
 
 // Subscription represents an SNS subscription.
 type Subscription struct {
-	SubscriptionArn     string `json:"subscriptionArn"`
-	TopicArn            string `json:"topicArn"`
-	Protocol            string `json:"protocol"`
-	Endpoint            string `json:"endpoint"`
-	Owner               string `json:"owner"`
-	FilterPolicy        string `json:"filterPolicy,omitempty"`
-	RedrivePolicy       string `json:"redrivePolicy,omitempty"`
-	RawMessageDelivery  bool   `json:"rawMessageDelivery,omitempty"`
-	PendingConfirmation bool   `json:"pendingConfirmation"`
+	CreationTimestamp   time.Time `json:"creationTimestamp"`
+	SubscriptionArn     string    `json:"subscriptionArn"`
+	TopicArn            string    `json:"topicArn"`
+	Protocol            string    `json:"protocol"`
+	Endpoint            string    `json:"endpoint"`
+	Owner               string    `json:"owner"`
+	FilterPolicy        string    `json:"filterPolicy,omitempty"`
+	RedrivePolicy       string    `json:"redrivePolicy,omitempty"`
+	RawMessageDelivery  bool      `json:"rawMessageDelivery,omitempty"`
+	PendingConfirmation bool      `json:"pendingConfirmation"`
 }
 
 // Message represents a published SNS message.
@@ -239,12 +244,14 @@ type SetSubscriptionAttributesResponse struct {
 
 // PlatformApplication represents an SNS platform application for mobile push.
 type PlatformApplication struct {
+	CreationTimestamp      time.Time         `json:"creationTimestamp"`
 	Attributes             map[string]string `json:"attributes,omitempty"`
 	PlatformApplicationArn string            `json:"platformApplicationArn"`
 }
 
 // PlatformEndpoint represents an SNS platform endpoint (device token registration).
 type PlatformEndpoint struct {
+	CreationTimestamp      time.Time         `json:"creationTimestamp"`
 	Attributes             map[string]string `json:"attributes,omitempty"`
 	EndpointArn            string            `json:"endpointArn"`
 	PlatformApplicationArn string            `json:"platformApplicationArn"`

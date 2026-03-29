@@ -122,8 +122,8 @@ func (h *DashboardHandler) mediastoreCreateContainer(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	if _, err := h.MediaStoreOps.Backend.CreateContainer(
-		h.GlobalConfig.Region,
-		h.GlobalConfig.AccountID,
+		h.getGlobalConfig().GetRegion(),
+		h.getGlobalConfig().GetAccountID(),
 		name,
 		nil,
 	); err != nil {

@@ -51,7 +51,7 @@ func (h *DashboardHandler) s3BucketList(w http.ResponseWriter, r *http.Request) 
 
 	region := r.URL.Query().Get("region")
 	if region == "" {
-		region = h.GlobalConfig.Region
+		region = h.getGlobalConfig().GetRegion()
 	}
 
 	var buckets []types.Bucket

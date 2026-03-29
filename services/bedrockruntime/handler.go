@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -302,14 +303,13 @@ func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
 
 	// Prelude (12 bytes) + headers + payload + message CRC (4 bytes).
 	// Guard against integer overflow when calculating totalLen.
-	if payloadLen < 0 || headerLen > math.MaxInt32-eventStreamPreludeLen-payloadLen-eventStreamMsgCRCLen {
+	totalLen := uint64(eventStreamPreludeLen) + uint64(headerLen) + uint64(payloadLen) + uint64(eventStreamMsgCRCLen)
+	if totalLen > math.MaxInt32 {
 		return nil
 	}
 
-	totalLen := eventStreamPreludeLen + headerLen + payloadLen + eventStreamMsgCRCLen
 	buf := make([]byte, totalLen)
 
-	//nolint:gosec // totalLen is bounded by the overflow check above
 	binary.BigEndian.PutUint32(buf[0:4], uint32(totalLen))
 	//nolint:gosec // headerLen is bounded by the overflow check above
 	binary.BigEndian.PutUint32(buf[4:8], uint32(headerLen))
@@ -377,4 +377,9 @@ func pathToOperation(path string) string {
 
 func errorResponse(code, msg string) map[string]string {
 	return map[string]string{"__type": code, "message": msg}
+}
+
+// Purge implements service.Purgeable by removing all Bedrock Runtime invocation records older than cutoff.
+func (h *Handler) Purge(cutoff time.Time) {
+	h.Backend.Purge(cutoff)
 }

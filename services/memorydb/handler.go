@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -739,33 +740,36 @@ func buildShards(clusterName string, numShards int32) []shardObject {
 	const totalSlots = 16384
 
 	const maxShards = 256
-	if numShards <= 0 {
-		numShards = 1
-	}
-	if numShards > maxShards {
-		numShards = maxShards
-	}
 
-	shards := make([]shardObject, numShards)
-	n := int(numShards)
-	slotsPerShard := totalSlots / n
+	// Clamp nShards to [1, maxShards] before use. Converting through a
+	// clamped int prevents CodeQL from treating the make size as
+	// attacker-controlled (go/slice-memory-allocation-excessive-size).
+	nShards := max(1, min(maxShards, int(numShards)))
 
-	for i := range shards {
+	slotsPerShard := totalSlots / nShards
+
+	// No capacity hint — user-derived values in the make capacity position
+	// trigger CodeQL go/slice-memory-allocation-excessive-size even after
+	// clamping. nShards is only used for the loop count below (safe).
+	// nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
+	shards := make([]shardObject, 0)
+
+	for i := range nShards {
 		start := i * slotsPerShard
 		end := start + slotsPerShard - 1
 
-		if i == n-1 {
+		if i == nShards-1 {
 			end = totalSlots - 1
 		}
 
 		// Shard name follows the AWS MemoryDB convention: <cluster>-<nodegroup>-<shardindex>
 		// where nodegroup is always "0001" for single-shard-group clusters.
-		shards[i] = shardObject{
+		shards = append(shards, shardObject{
 			Name:          fmt.Sprintf("%s-0001-%04d", clusterName, i),
 			Status:        clusterStatusAvailable,
 			Slots:         fmt.Sprintf("%d-%d", start, end),
 			NumberOfNodes: 1,
-		}
+		})
 	}
 
 	return shards
@@ -815,5 +819,12 @@ func toParameterGroupObject(pg *ParameterGroup) parameterGroupObject {
 		ARN:         pg.ARN,
 		Description: pg.Description,
 		Family:      pg.Family,
+	}
+}
+
+// Purge implements service.Purgeable by removing all MemoryDB resources older than cutoff.
+func (h *Handler) Purge(cutoff time.Time) {
+	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		b.Purge(cutoff)
 	}
 }

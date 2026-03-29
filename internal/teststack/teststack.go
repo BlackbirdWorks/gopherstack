@@ -1040,7 +1040,7 @@ func newCFNHandler(
 // newDashboardConfig builds the dashboard.Config for the test stack.
 func newDashboardConfig(h handlers, clients sdkClients) (dashboard.Config, *chaos.FaultStore) {
 	fs := chaos.NewFaultStore()
-	gc := config.GlobalConfig{AccountID: config.DefaultAccountID, Region: config.DefaultRegion}
+	gc := config.NewGlobalConfig(config.DefaultAccountID, config.DefaultRegion, 0, 0, false, 0)
 
 	cfg := dashboard.Config{
 		DDBClient:                  clients.DDB,

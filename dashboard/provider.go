@@ -90,7 +90,7 @@ import (
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
-	globalcfg "github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 	"github.com/blackbirdworks/gopherstack/services/dynamodbstreams"
@@ -250,7 +250,7 @@ type AWSSDKProvider interface {
 	GetWafv2Handler() service.Registerable
 	GetXrayHandler() service.Registerable
 	GetS3TablesHandler() service.Registerable
-	GetGlobalConfig() globalcfg.GlobalConfig
+	GetGlobalConfig() *config.GlobalConfig
 	GetFaultStore() *chaos.FaultStore
 }
 
@@ -385,7 +385,8 @@ type extractedConfig struct {
 	xrayOps                   *xraybackend.Handler
 	s3tablesOps               *s3tablesbackend.Handler
 	faultStore                *chaos.FaultStore
-	gCfg                      globalcfg.GlobalConfig
+	configManager             ConfigManager
+	gCfg                      *config.GlobalConfig
 }
 
 // extractFromProvider tries to extract all service types from the AppContext.Config.
@@ -402,6 +403,7 @@ func extractFromProvider(ctx *service.AppContext) extractedConfig {
 	ec.ssmClient = ap.GetSSMClient()
 	ec.gCfg = ap.GetGlobalConfig()
 	ec.faultStore = ap.GetFaultStore()
+	ec.configManager, _ = ap.(ConfigManager)
 	ec.ddb, _ = ap.GetDynamoDBHandler().(*dynamodb.DynamoDBHandler)
 	ec.s3h, _ = ap.GetS3Handler().(*s3.S3Handler)
 	ec.cloudFormationOps, _ = ap.GetCloudFormationHandler().(*cfnbackend.Handler)
@@ -951,6 +953,7 @@ func extractSsoAndMLHandlers(ap AWSSDKProvider, ec *extractedConfig) {
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	ec := extractFromProvider(ctx)
 	cfg := buildDashboardConfig(&ec, ctx.Logger)
+	cfg.ConfigManager = ec.configManager
 	handler := NewHandler(cfg)
 
 	return handler, nil
@@ -984,6 +987,9 @@ func buildBaseConfig(ec *extractedConfig, log *slog.Logger) Config {
 		EventBridgeOps:             ec.eventBridgeOps,
 		APIGatewayOps:              ec.apiGatewayOps,
 		CloudWatchLogsOps:          ec.cloudWatchLogsOps,
+		GlobalConfig:               ec.gCfg,
+		Logger:                     log,
+		FaultStore:                 ec.faultStore,
 		StepFunctionsOps:           ec.stepFunctionsOps,
 		CloudWatchOps:              ec.cloudWatchOps,
 		CloudFormationOps:          ec.cloudFormationOps,
@@ -1063,9 +1069,6 @@ func buildBaseConfig(ec *extractedConfig, log *slog.Logger) Config {
 		MediaStoreDataOps:          ec.mediastoredataOps,
 		MemoryDBOps:                ec.memorydbOps,
 		OrganizationsOps:           ec.organizationsOps,
-		GlobalConfig:               ec.gCfg,
-		FaultStore:                 ec.faultStore,
-		Logger:                     log,
 	}
 }
 

@@ -183,6 +183,8 @@ type StorageBackend interface {
 	// Enforcement helpers
 	GetUserByAccessKeyID(accessKeyID string) (*User, error)
 	GetPoliciesForUser(userName string) ([]string, error)
+
+	Purge(cutoff time.Time)
 }
 
 // iamDefaultMaxItems is the default page size for IAM list operations.
@@ -1875,4 +1877,123 @@ func (b *InMemoryBackend) Reset() {
 	b.userInlinePolicies = make(map[string]map[string]string)
 	b.roleInlinePolicies = make(map[string]map[string]string)
 	b.groupInlinePolicies = make(map[string]map[string]string)
+}
+
+// Purge removes all resources older than the given cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	b.purgeUsersLocked(cutoff)
+	b.purgeRolesLocked(cutoff)
+	b.purgePoliciesLocked(cutoff)
+	b.purgeGroupsLocked(cutoff)
+	b.purgeAccessKeysLocked(cutoff)
+	b.purgeInstanceProfilesLocked(cutoff)
+	b.purgeSAMLProvidersLocked(cutoff)
+	b.purgeOIDCProvidersLocked(cutoff)
+}
+
+// purgeUsersLocked removes users created before cutoff and cleans up associated data.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeUsersLocked(cutoff time.Time) {
+	for name, u := range b.users {
+		if !u.CreateDate.Before(cutoff) {
+			continue
+		}
+		delete(b.users, name)
+		delete(b.loginProfiles, name)
+		delete(b.userPolicies, name)
+		delete(b.userInlinePolicies, name)
+		b.removeUserFromGroupsLocked(name)
+	}
+}
+
+// removeUserFromGroupsLocked removes a user from all group membership lists.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) removeUserFromGroupsLocked(userName string) {
+	for g, members := range b.groupMembers {
+		for i, m := range members {
+			if m == userName {
+				b.groupMembers[g] = append(members[:i], members[i+1:]...)
+
+				break
+			}
+		}
+	}
+}
+
+// purgeRolesLocked removes roles created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeRolesLocked(cutoff time.Time) {
+	for name, r := range b.roles {
+		if r.CreateDate.Before(cutoff) {
+			delete(b.roles, name)
+			delete(b.rolePolicies, name)
+			delete(b.roleInlinePolicies, name)
+		}
+	}
+}
+
+// purgePoliciesLocked removes policies created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgePoliciesLocked(cutoff time.Time) {
+	for name, p := range b.policies {
+		if p.CreateDate.Before(cutoff) {
+			delete(b.policies, name)
+		}
+	}
+}
+
+// purgeGroupsLocked removes groups created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeGroupsLocked(cutoff time.Time) {
+	for name, g := range b.groups {
+		if g.CreateDate.Before(cutoff) {
+			delete(b.groups, name)
+			delete(b.groupPolicies, name)
+			delete(b.groupInlinePolicies, name)
+			delete(b.groupMembers, name)
+		}
+	}
+}
+
+// purgeAccessKeysLocked removes access keys created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeAccessKeysLocked(cutoff time.Time) {
+	for id, ak := range b.accessKeys {
+		if ak.CreateDate.Before(cutoff) {
+			delete(b.accessKeys, id)
+		}
+	}
+}
+
+// purgeInstanceProfilesLocked removes instance profiles created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeInstanceProfilesLocked(cutoff time.Time) {
+	for name, ip := range b.instanceProfiles {
+		if ip.CreateDate.Before(cutoff) {
+			delete(b.instanceProfiles, name)
+		}
+	}
+}
+
+// purgeSAMLProvidersLocked removes SAML providers created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeSAMLProvidersLocked(cutoff time.Time) {
+	for arnStr, p := range b.samlProviders {
+		if p.CreateDate.Before(cutoff) {
+			delete(b.samlProviders, arnStr)
+		}
+	}
+}
+
+// purgeOIDCProvidersLocked removes OIDC providers created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeOIDCProvidersLocked(cutoff time.Time) {
+	for arnStr, p := range b.oidcProviders {
+		if p.CreateDate.Before(cutoff) {
+			delete(b.oidcProviders, arnStr)
+		}
+	}
 }

@@ -59,6 +59,9 @@ import (
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+
+	"github.com/blackbirdworks/gopherstack/services/bedrockruntime"
+	"github.com/blackbirdworks/gopherstack/services/memorydb"
 )
 
 // ServiceBackends holds references to all service backends.
@@ -95,25 +98,27 @@ type ServiceBackends struct {
 	ACM             *acmbackend.Handler
 	CognitoIDP      *cognitoidpbackend.Handler
 	// Phase-3 backends
-	EKS          *eksbackend.Handler
-	EFS          *efsbackend.Handler
-	Batch        *batchbackend.Handler
-	CloudFront   *cloudfrontbackend.Handler
-	Autoscaling  *autoscalingbackend.Handler
-	APIGatewayV2 *apigatewayv2backend.Handler
-	CodeBuild    *codebuildbackend.Handler
-	Glue         *gluebackend.Handler
-	DocDB        *docdbbackend.Handler
-	Neptune      *neptunebackend.Handler
-	Kafka        *kafkabackend.Handler
-	Transfer     *transferbackend.Handler
-	CloudTrail   *cloudtrailbackend.Handler
-	CodePipeline *codepipelinebackend.Handler
-	IoT          *iotbackend.Handler
-	Pipes        *pipesbackend.Handler
-	EMR          *emrbackend.Handler
-	AccountID    string
-	Region       string
+	EKS            *eksbackend.Handler
+	EFS            *efsbackend.Handler
+	Batch          *batchbackend.Handler
+	CloudFront     *cloudfrontbackend.Handler
+	Autoscaling    *autoscalingbackend.Handler
+	APIGatewayV2   *apigatewayv2backend.Handler
+	CodeBuild      *codebuildbackend.Handler
+	Glue           *gluebackend.Handler
+	DocDB          *docdbbackend.Handler
+	Neptune        *neptunebackend.Handler
+	Kafka          *kafkabackend.Handler
+	Transfer       *transferbackend.Handler
+	CloudTrail     *cloudtrailbackend.Handler
+	CodePipeline   *codepipelinebackend.Handler
+	IoT            *iotbackend.Handler
+	Pipes          *pipesbackend.Handler
+	EMR            *emrbackend.Handler
+	MemoryDB       *memorydb.Handler
+	BedrockRuntime *bedrockruntime.Handler
+	AccountID      string
+	Region         string
 }
 
 // ResourceCreator creates and deletes cloud resources.

@@ -205,7 +205,11 @@ func (b *InMemoryBackend) CreateTopicInRegion(name, region string, attributes ma
 		attrs["Policy"] = `{"Version":"2012-10-17","Statement":[]}`
 	}
 
-	topic := &Topic{TopicArn: topicArn, Attributes: attrs}
+	topic := &Topic{
+		TopicArn:          topicArn,
+		Attributes:        attrs,
+		CreationTimestamp: time.Now().UTC(),
+	}
 	b.topics[topicArn] = topic
 
 	return topic, nil
@@ -315,6 +319,7 @@ func (b *InMemoryBackend) Subscribe(topicArn, protocol, endpoint, filterPolicy s
 		Owner:               b.accountID,
 		FilterPolicy:        filterPolicy,
 		PendingConfirmation: pending,
+		CreationTimestamp:   time.Now().UTC(),
 	}
 
 	b.subscriptions[subArn] = sub
@@ -944,6 +949,7 @@ func (b *InMemoryBackend) CreatePlatformApplication(
 	app := &PlatformApplication{
 		PlatformApplicationArn: appArn,
 		Attributes:             attrs,
+		CreationTimestamp:      time.Now().UTC(),
 	}
 	b.platformApplications[appArn] = app
 
@@ -1065,6 +1071,7 @@ func (b *InMemoryBackend) CreatePlatformEndpoint(
 		EndpointArn:            endpointArn,
 		PlatformApplicationArn: platformApplicationArn,
 		Attributes:             attrs,
+		CreationTimestamp:      time.Now().UTC(),
 	}
 	b.platformEndpoints[endpointArn] = ep
 
@@ -1190,7 +1197,41 @@ func (b *InMemoryBackend) WaitDeliveries() {
 	b.deliveryWg.Wait()
 }
 
-// Reset clears all in-memory state from the backend. It is used by the
+// Purge removes all SNS resources created before the given cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	for arn, topic := range b.topics {
+		if topic.CreationTimestamp.Before(cutoff) {
+			delete(b.topics, arn)
+			if t := b.topicTags[arn]; t != nil {
+				t.Close()
+				delete(b.topicTags, arn)
+			}
+		}
+	}
+
+	for arn, sub := range b.subscriptions {
+		if sub.CreationTimestamp.Before(cutoff) {
+			delete(b.subscriptions, arn)
+		}
+	}
+
+	for arn, app := range b.platformApplications {
+		if app.CreationTimestamp.Before(cutoff) {
+			delete(b.platformApplications, arn)
+		}
+	}
+
+	for arn, ep := range b.platformEndpoints {
+		if ep.CreationTimestamp.Before(cutoff) {
+			delete(b.platformEndpoints, arn)
+		}
+	}
+}
+
+// Reset clears all in-memory state from the database. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
