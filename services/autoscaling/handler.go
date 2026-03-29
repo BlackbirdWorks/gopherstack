@@ -194,6 +194,16 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid DesiredCapacity", ErrInvalidParameter)
 	}
 
+	// Enforce bounds on sizes to prevent excessive memory allocation when creating
+	// the initial instances slice in the backend.
+	if minSize < 0 || maxSize < 0 || desiredCapacity < 0 {
+		return nil, fmt.Errorf("%w: sizes must be non-negative", ErrInvalidParameter)
+	}
+
+	if minSize > maxDesiredCapacity || maxSize > maxDesiredCapacity || desiredCapacity > maxDesiredCapacity {
+		return nil, fmt.Errorf("%w: sizes must not exceed %d", ErrInvalidParameter, maxDesiredCapacity)
+	}
+
 	defaultCooldown, err := parseIntVal(vals.Get("DefaultCooldown"))
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid DefaultCooldown", ErrInvalidParameter)
