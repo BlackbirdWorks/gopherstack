@@ -71,7 +71,7 @@ func (db *InMemoryDB) CreateTable(
 
 	newTable := newTableFromCreateInput(tableName, input)
 	newTable.TableID = uuid.New().String()
-	newTable.CreationDateTime = time.Now()
+	newTable.CreationDateTime = time.Now().UTC()
 	newTable.TableArn = arn.Build("dynamodb", region, db.accountID, "table/"+tableName)
 
 	if input.StreamSpecification != nil && aws.ToBool(input.StreamSpecification.StreamEnabled) {

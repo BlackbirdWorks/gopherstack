@@ -1704,10 +1704,8 @@ func run(ctx context.Context, cli CLI) error {
 
 	startBackgroundWorkers(janitorCtx, services)
 
-	if cli.AutoPurgeTTL > 0 {
-		log.InfoContext(ctx, "AUTO_PURGE_TTL enabled", "ttl", cli.AutoPurgeTTL)
-		go startPurgeWorker(ctx, log, cli.AutoPurgeTTL, services)
-	}
+	// Start automatic purge background worker. It dynamically checks for TTL updates from the config.
+	go startPurgeWorker(janitorCtx, log, cli.globalConfig, services)
 
 	inMemMux.Handle("/", e)
 
@@ -2399,18 +2397,38 @@ func getMostRecentServiceProviders() []service.Provider {
 // startPurgeWorker runs the auto-purge ticker loop.
 // It calls Purge on every service.Purgeable with a per-service timeout context
 // so a slow or deadlocked backend cannot stall the entire purge cycle.
-func startPurgeWorker(ctx context.Context, log *slog.Logger, ttl time.Duration, svcs []service.Registerable) {
-	const purgeTimeout = 30 * time.Second
+// startPurgeWorker periodically checks for and deletes resources older than the configured TTL.
+// It dynamically reads the TTL from the global configuration, allowing runtime updates.
+func startPurgeWorker(ctx context.Context, log *slog.Logger, gcfg *config.GlobalConfig, svcs []service.Registerable) {
+	const (
+		purgeTimeout  = 30 * time.Second
+		checkInterval = 10 * time.Second
+	)
 
-	ticker := time.NewTicker(ttl)
+	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
+
+	var lastPurgeAt time.Time
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			cutoff := time.Now().UTC().Add(-ttl)
+			ttl := gcfg.GetAutoPurgeTTL()
+			if ttl <= 0 {
+				continue
+			}
+
+			// Avoid purging too frequently if the interval is short.
+			// Only purge if at least 'ttl' has passed since the last start,
+			// or if we've never purged.
+			if !lastPurgeAt.IsZero() && time.Since(lastPurgeAt) < ttl {
+				continue
+			}
+
+			lastPurgeAt = time.Now().UTC()
+			cutoff := lastPurgeAt.Add(-ttl)
 			log.InfoContext(ctx, "running automatic service purge", "ttl", ttl, "cutoff", cutoff)
 			purgeAllServices(ctx, log, svcs, cutoff, purgeTimeout)
 		}

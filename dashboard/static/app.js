@@ -232,9 +232,21 @@ window.TableManager = {
     },
     injectToggles: function () {
         document.querySelectorAll('.relative.overflow-x-auto').forEach(wrapper => {
+            // Only target wrappers that contain an actual data table
+            const table = wrapper.querySelector('table');
+            if (!table) return;
+
+            // Strict exclusion for code snippets and documentation modals
+            if (wrapper.closest('.code-snippet-generator') || 
+                wrapper.closest('.prism-code') || 
+                wrapper.closest('pre') ||
+                wrapper.closest('[id^="snippetModal-"]')) {
+                return;
+            }
+
             if (wrapper.dataset.hasToggle) return;
             
-            // Check if we already injected a button for this table (survives HTMX swaps if outer element isn't swapped)
+            // Re-check for existing toggle container to prevent duplicates after HTMX swaps
             if (wrapper.previousElementSibling && wrapper.previousElementSibling.classList.contains('tb-compact-container')) {
                 wrapper.dataset.hasToggle = 'true';
                 return;

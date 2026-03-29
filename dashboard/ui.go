@@ -2118,23 +2118,25 @@ func parseDurationField(r *http.Request, key string, d time.Duration) time.Durat
 	return parsed
 }
 
-// applyServiceSettingsFromForm fills service-specific settings in cfg from r's form values.
+// applyServiceSettingsFromForm fills service-specific settings in cfg from r's form values only if present.
 func applyServiceSettingsFromForm(r *http.Request, cfg *Settings) {
-	cfg.S3.DefaultRegion = r.FormValue("s3-DefaultRegion")
-	if bytes, err := strconv.Atoi(r.FormValue("s3-CompressionMinBytes")); err == nil {
-		cfg.S3.CompressionMinBytes = bytes
+	updateIfPresent(r, "s3-DefaultRegion", &cfg.S3.DefaultRegion)
+	if size, ok := getIntField(r, "s3-CompressionMinBytes"); ok {
+		cfg.S3.CompressionMinBytes = size
 	}
-	cfg.Lambda.DockerHost = r.FormValue("lambda-DockerHost")
-	cfg.Lambda.ContainerRuntime = r.FormValue("lambda-ContainerRuntime")
-	if size, err := strconv.Atoi(r.FormValue("lambda-PoolSize")); err == nil {
+	updateIfPresent(r, "lambda-DockerHost", &cfg.Lambda.DockerHost)
+	updateIfPresent(r, "lambda-ContainerRuntime", &cfg.Lambda.ContainerRuntime)
+	if size, ok := getIntField(r, "lambda-PoolSize"); ok {
 		cfg.Lambda.PoolSize = size
 	}
 	cfg.Lambda.IdleTimeout = parseDurationField(r, "lambda-IdleTimeout", cfg.Lambda.IdleTimeout)
-	if maxRuntimes, err := strconv.Atoi(r.FormValue("lambda-MaxRuntimes")); err == nil {
+	if maxRuntimes, ok := getIntField(r, "lambda-MaxRuntimes"); ok {
 		cfg.Lambda.MaxRuntimes = maxRuntimes
 	}
-	cfg.DynamoDB.DefaultRegion = r.FormValue("dynamodb-DefaultRegion")
-	cfg.DynamoDB.EnforceThroughput = r.FormValue("dynamodb-EnforceThroughput") == constStrTrue
+	updateIfPresent(r, "dynamodb-DefaultRegion", &cfg.DynamoDB.DefaultRegion)
+	if val, ok := getBoolField(r, "dynamodb-EnforceThroughput"); ok {
+		cfg.DynamoDB.EnforceThroughput = val
+	}
 	cfg.DynamoDB.CreateDelay = parseDurationField(r, "dynamodb-CreateDelay", cfg.DynamoDB.CreateDelay)
 	cfg.EC2.TerminatedTTL = parseDurationField(r, "ec2-TerminatedTTL", cfg.EC2.TerminatedTTL)
 	cfg.SSM.CommandTTL = parseDurationField(r, "ssm-CommandTTL", cfg.SSM.CommandTTL)
@@ -2144,6 +2146,33 @@ func applyServiceSettingsFromForm(r *http.Request, cfg *Settings) {
 	cfg.EMR.TerminatedTTL = parseDurationField(r, "emr-TerminatedTTL", cfg.EMR.TerminatedTTL)
 	cfg.Athena.ExecutionTTL = parseDurationField(r, "athena-ExecutionTTL", cfg.Athena.ExecutionTTL)
 	cfg.FIS.ExperimentTTL = parseDurationField(r, "fis-ExperimentTTL", cfg.FIS.ExperimentTTL)
+}
+
+// updateIfPresent updates s to the value of key in r if it exists.
+func updateIfPresent(r *http.Request, key string, s *string) {
+	if r.Form.Has(key) {
+		*s = r.FormValue(key)
+	}
+}
+
+// getBoolField returns the boolean value of key in r if it exists.
+func getBoolField(r *http.Request, key string) (bool, bool) {
+	if r.Form.Has(key) {
+		return r.FormValue(key) == constStrTrue, true
+	}
+
+	return false, false
+}
+
+// getIntField returns the integer value of key in r if it exists and is a valid integer.
+func getIntField(r *http.Request, key string) (int, bool) {
+	if r.Form.Has(key) {
+		if i, err := strconv.Atoi(r.FormValue(key)); err == nil {
+			return i, true
+		}
+	}
+
+	return 0, false
 }
 
 // settingsUpdate handles POST /dashboard/settings/update.
@@ -2160,30 +2189,30 @@ func (h *DashboardHandler) settingsUpdate(c *echo.Context) error {
 
 	cfg := h.ConfigManager.GetSettings()
 
-	cfg.AccountID = r.FormValue("accountID")
-	cfg.Region = r.FormValue("region")
-	if latencyMs, err := strconv.Atoi(r.FormValue("latencyMs")); err == nil {
+	updateIfPresent(r, "accountID", &cfg.AccountID)
+	updateIfPresent(r, "region", &cfg.Region)
+	if latencyMs, ok := getIntField(r, "latencyMs"); ok {
 		cfg.LatencyMs = latencyMs
 	}
 	cfg.JanitorTimeout = parseDurationField(r, "janitorTimeout", cfg.JanitorTimeout)
 	cfg.AutoPurgeTTL = parseDurationField(r, "autoPurgeTTL", cfg.AutoPurgeTTL)
-	cfg.EnforceIAM = r.FormValue("enforceIAM") == constStrTrue
-	cfg.Persist = r.FormValue("persist") == constStrTrue
-	cfg.Demo = r.FormValue("demo") == constStrTrue
-	cfg.LogLevel = r.FormValue("logLevel")
-	cfg.Port = r.FormValue("port")
-	cfg.DNSListenAddr = r.FormValue("dnsListenAddr")
-	cfg.DNSResolveIP = r.FormValue("dnsResolveIP")
-	cfg.OpenSearchEngine = r.FormValue("openSearchEngine")
-	cfg.ElasticsearchEngine = r.FormValue("elasticsearchEngine")
-	cfg.ElastiCacheEngine = r.FormValue("elastiCacheEngine")
-	cfg.DataDir = r.FormValue("dataDir")
+	if val, ok := getBoolField(r, "enforceIAM"); ok {
+		cfg.EnforceIAM = val
+	}
+	// Sensitive fields (Persist, Demo, LogLevel, Port, DataDir) are removed from the dashboard update
+	// to prevent Path Traversal and other insecure configuration overrides.
+	// Users should use Environment Variables or CLI flags for these.
 
-	if start, err := strconv.Atoi(r.FormValue("portRangeStart")); err == nil {
+	updateIfPresent(r, "dnsListenAddr", &cfg.DNSListenAddr)
+	updateIfPresent(r, "dnsResolveIP", &cfg.DNSResolveIP)
+	updateIfPresent(r, "openSearchEngine", &cfg.OpenSearchEngine)
+	updateIfPresent(r, "elasticsearchEngine", &cfg.ElasticsearchEngine)
+	updateIfPresent(r, "elastiCacheEngine", &cfg.ElastiCacheEngine)
+
+	if start, ok := getIntField(r, "portRangeStart"); ok {
 		cfg.PortRangeStart = start
 	}
-
-	if end, err := strconv.Atoi(r.FormValue("portRangeEnd")); err == nil {
+	if end, ok := getIntField(r, "portRangeEnd"); ok {
 		cfg.PortRangeEnd = end
 	}
 
