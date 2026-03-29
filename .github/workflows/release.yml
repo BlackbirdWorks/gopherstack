@@ -60,6 +60,8 @@ jobs:
     permissions:
       contents: write
       packages: write
+    env:
+      COPILOT_TOKEN: ${{ secrets.RELEASER_COPILOT_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -73,19 +75,19 @@ jobs:
           cache: true
 
       - name: Build Releaser
-        if: (github.event.inputs.use_ai_releaser != 'false') && (secrets.RELEASER_COPILOT_TOKEN != '' || secrets.GITHUB_TOKEN != '')
+        if: (github.event.inputs.use_ai_releaser != 'false') && (env.COPILOT_TOKEN != '')
         run: go build -o releaser ./pkgs/releaser/cmd/releaser
 
       - name: Install Copilot CLI
-        if: (github.event.inputs.use_ai_releaser != 'false') && (secrets.RELEASER_COPILOT_TOKEN != '' || secrets.GITHUB_TOKEN != '')
+        if: (github.event.inputs.use_ai_releaser != 'false') && (env.COPILOT_TOKEN != '')
         run: npm install -g @github/copilot
 
       - name: Generate Release Notes
         id: release_notes
-        if: (github.event.inputs.use_ai_releaser != 'false') && (secrets.RELEASER_COPILOT_TOKEN != '' || secrets.GITHUB_TOKEN != '')
+        if: (github.event.inputs.use_ai_releaser != 'false') && (env.COPILOT_TOKEN != '')
         continue-on-error: true
         run: |
-          ./releaser --provider copilot --token ${{ secrets.RELEASER_COPILOT_TOKEN || secrets.GITHUB_TOKEN }} --model raptor-mini > release-notes.md
+          ./releaser --provider copilot --token ${{ env.COPILOT_TOKEN }} --model raptor-mini > release-notes.md
           if [ -s release-notes.md ]; then
             echo "HAS_NOTES=true" >> $GITHUB_OUTPUT
           fi
