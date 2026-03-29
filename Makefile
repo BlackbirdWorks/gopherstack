@@ -10,6 +10,12 @@ build:
 		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \
 		-o bin/$(BINARY_NAME) .
 
+build-releaser:
+	go build \
+		-trimpath \
+		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \
+		-o bin/releaser ./pkgs/releaser/cmd/releaser
+
 build-linux:
 	CGO_ENABLED=0 GOOS=linux go build \
 		-trimpath \

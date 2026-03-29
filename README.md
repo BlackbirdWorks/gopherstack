@@ -10,7 +10,10 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/blackbirdworks/gopherstack)](https://goreportcard.com/report/github.com/blackbirdworks/gopherstack)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Gopherstack is a lightweight, in-memory AWS stack implementation for Go. It provides high-performance, mock-compatible versions of core AWS services, designed for rapid development, testing, and CI/CD pipelines. It currently supports DynamoDB, S3, SSM Parameter Store, IAM, STS, SNS, SQS, KMS, Secrets Manager, and **Lambda (image-based)**.
+Gopherstack is a lightweight, in-memory AWS stack implementation for Go. It provides high-performance, mock-compatible versions of over 100 AWS services, designed for rapid development, testing, and CI/CD pipelines. It features advanced integration logic such as **Event Source Mappings (ESM)**, **EventBridge Scheduler**, and **EventBridge Pipes**.
+
+> [!TIP]
+> Gopherstack is significantly faster and lighter than LocalStack, making it ideal for unit and integration tests where speed is critical.
 
 > [!IMPORTANT]
 > **This project is vibe coded.** 🚀 It's built for speed, performance, and developer experience.
@@ -54,10 +57,12 @@ Gopherstack supports AWS Lambda with **Docker image-based functions only** (`Pac
 
 > **Important:** Only `PackageType: Image` is supported. Zip deployments, S3-based code delivery, and direct Go binary execution on the host are **not supported**. Your function must be packaged as a Docker image (e.g. a standard AWS base image or your own custom image).
 
-- **Supported operations**: `CreateFunction`, `GetFunction`, `ListFunctions`, `DeleteFunction`, `UpdateFunctionCode`, `UpdateFunctionConfiguration`, `Invoke`
+- **Supported operations**: `CreateFunction`, `GetFunction`, `ListFunctions`, `DeleteFunction`, `UpdateFunctionCode`, `UpdateFunctionConfiguration`, `Invoke`, `PutFunctionConcurrency`, `GetFunctionConcurrency`
 - **Invocation modes**: `RequestResponse` (synchronous) and `Event` (asynchronous / fire-and-forget)
 - **Lambda Runtime API**: Full implementation of the [Lambda Runtime API](https://docs.aws.amazon.com/lambda/latest/dg/runtimes-api.html) — standard AWS base images work without modification
 - **Warm container pool**: Configurable per-function pool keeps containers warm to reduce cold-start latency
+- **Reserved Concurrency**: Enforces invocation limits for both sync and async calls.
+- **Asynchronous Realism**: Implements AWS-realistic retry semantics and dead-letter queues (via SNS/SQS).
 - **Environment variables**: Passed directly to the container
 - **Requires Docker**: Lambda functions need a running Docker daemon. All other Gopherstack services continue to work without Docker.
 
@@ -137,6 +142,41 @@ Features:
   - Upload and Download files
   - Manage versioning
   - View object metadata
+
+### Event Source Mappings (ESM)
+Gopherstack supports Event Source Mappings for **DynamoDB Streams**. This allows you to automatically trigger Lambda functions when items are created, modified, or deleted in a DynamoDB table.
+
+- **Automatic Triggering**: Once an ESM is created, Gopherstack manages the polling and invocation automatically.
+- **Realism**: Respects batch size, starting position (`TRIM_HORIZON`, `LATEST`), and state.
+
+### EventBridge Scheduler & Pipes
+- **Scheduler**: Create and manage scheduled tasks that trigger AWS services (Lambda, SQS, SNS, etc.) on a recurring or one-time basis.
+- **Pipes**: Create direct, point-to-point integrations between supported sources (SQS) and targets (Lambda, Step Functions) with optional filtering and enrichment.
+
+### Performance & Scalability
+- **O(1) ARN Indexing**: Tagging and resource lookup across many services use a centralized O(1) ARN index for high-performance operations even with thousands of resources.
+- **Memory Optimization**: Struct field alignment and efficient data structures minimize the memory footprint.
+
+## Supported Services
+
+Gopherstack provides mocks for a vast array of AWS services. Below is the list of currently supported service APIs:
+
+| Category | Supported Services |
+|----------|-------------------|
+| **Core** | DynamoDB, S3, IAM, STS, Lambda, EC2 |
+| **Compute** | Batch, ECR, ECS, EKS, AppSync, Step Functions |
+| **Messaging** | SQS, SNS, EventBridge, EventBridge Pipes, EventBridge Scheduler, MQ, SES, SESv2 |
+| **Storage** | EFS, Backup, Glacier, S3 Control, S3 Tables |
+| **Database** | RDS, Redshift, ElastiCache, MemoryDB, DocDB, Neptune, QLDB |
+| **Security** | KMS, Secrets Manager, ACM, ACM PCA, Shield, WAFv2, RAM, Verified Permissions |
+| **AI/ML** | Bedrock, Bedrock Runtime, SageMaker, SageMaker Runtime, Textract, Transcribe |
+| **Analytics** | Athena, Kinesis, Kinesis Analytics, Kinesis Analytics v2, Glue, OpenSearch, Elasticsearch, LakeFormation |
+| **IoT** | IoT, IoT Analytics, IoT Data Plane, IoT Wireless |
+| **Management** | SSM, CloudWatch, CloudWatch Logs, CloudFormation, CloudTrail, Config, Resource Groups, Service Discovery |
+| **Dev Tools** | CodeArtifact, CodeBuild, CodeCommit, CodeDeploy, CodePipeline, CodeConnections |
+| **Other** | Amplify, AppConfig, Application Auto Scaling, DMS, FIS, MWAA, Pinpoint, Organizations, Transfer, X-Ray |
+
+*Note: For a full list of supported operations for each service, refer to the [STATUS.md](STATUS.md) file.*
 
 ## Usage
 

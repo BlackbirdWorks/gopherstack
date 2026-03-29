@@ -161,6 +161,25 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/verifiedpermissions v1.31.4
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.71.2
 	github.com/aws/aws-sdk-go-v2/service/xray v1.36.20
+	github.com/google/generative-ai-go v0.20.1
+	google.golang.org/api v0.273.0
+)
+
+require (
+	cloud.google.com/go v0.115.1 // indirect
+	cloud.google.com/go/ai v0.8.0 // indirect
+	cloud.google.com/go/auth v0.18.2 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
+	cloud.google.com/go/compute/metadata v0.9.0 // indirect
+	cloud.google.com/go/longrunning v0.5.7 // indirect
+	github.com/github/copilot-sdk/go v0.2.0 // indirect
+	github.com/google/jsonschema-go v0.4.2 // indirect
+	github.com/google/s2a-go v0.1.9 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
+	github.com/googleapis/gax-go/v2 v2.19.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0 // indirect
+	golang.org/x/oauth2 v0.36.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 )
 
 require (
