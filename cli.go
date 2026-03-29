@@ -495,7 +495,6 @@ type PersistableConfig struct {
 	Persist             bool                      `json:"persist"`
 }
 
-// SaveConfig saves the current configuration to disk.
 // GetSettings returns the dashboard configuration settings.
 func (c *CLI) GetSettings() dashboard.Settings {
 	return dashboard.Settings{
@@ -617,7 +616,15 @@ func (c *CLI) UpdateSettings(s dashboard.Settings) {
 	c.PortRangeEnd = s.PortRangeEnd
 	c.InitScriptTimeout = s.InitScriptTimeout
 
-	// Service settings
+	c.applyServiceSettings(s)
+
+	if c.globalConfig != nil {
+		c.globalConfig.Update(s.AccountID, s.Region, s.LatencyMs, s.JanitorTimeout, s.EnforceIAM, s.AutoPurgeTTL)
+	}
+}
+
+// applyServiceSettings copies per-service settings from s into c.
+func (c *CLI) applyServiceSettings(s dashboard.Settings) {
 	c.S3.DefaultRegion = s.S3.DefaultRegion
 	c.S3.JanitorInterval = s.S3.JanitorInterval
 	c.S3.CompressionMinBytes = s.S3.CompressionMinBytes
@@ -671,10 +678,6 @@ func (c *CLI) UpdateSettings(s dashboard.Settings) {
 
 	c.Kinesis.JanitorInterval = s.Kinesis.JanitorInterval
 	c.KMS.JanitorInterval = s.KMS.JanitorInterval
-
-	if c.globalConfig != nil {
-		c.globalConfig.Update(s.AccountID, s.Region, s.LatencyMs, s.JanitorTimeout, s.EnforceIAM, s.AutoPurgeTTL)
-	}
 }
 
 func (c *CLI) SaveConfig() error {
@@ -753,8 +756,8 @@ func (c *CLI) LoadConfig() error {
 	}
 
 	var cfg PersistableConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return fmt.Errorf("failed to unmarshal config: %w", err)
+	if unmarshalErr := json.Unmarshal(data, &cfg); unmarshalErr != nil {
+		return fmt.Errorf("failed to unmarshal config: %w", unmarshalErr)
 	}
 
 	// Apply loaded settings to CLI

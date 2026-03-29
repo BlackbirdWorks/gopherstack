@@ -197,10 +197,10 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	t.Log("Waiting for purge cycle...")
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
-		buckets, err := s3Client.ListBuckets(ctx, &s3.ListBucketsInput{})
-		if err == nil {
+		result, listErr := s3Client.ListBuckets(ctx, &s3.ListBucketsInput{})
+		if listErr == nil {
 			found := false
-			for _, b := range buckets.Buckets {
+			for _, b := range result.Buckets {
 				if *b.Name == bucketOld {
 					found = true
 

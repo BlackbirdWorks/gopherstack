@@ -2852,54 +2852,68 @@ func (b *InMemoryBackend) Reset() {
 
 // Purge removes all functions older than the given cutoff time.
 func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	purgedFunctions, urlServers, rts := b.collectAndDeleteFunctions(cutoff)
+
+	if len(purgedFunctions) == 0 {
+		return
+	}
+
+	b.shutdownPurgedResources(urlServers, rts)
+}
+
+// collectAndDeleteFunctions removes functions older than cutoff under the lock and returns
+// the names, URL servers, and runtimes that need external cleanup.
+func (b *InMemoryBackend) collectAndDeleteFunctions(cutoff time.Time) (
+	[]string, []*functionURLServer, []*functionRuntime,
+) {
 	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
 
 	var purgedFunctions []string
 	var urlServers []*functionURLServer
 	var rts []*functionRuntime
 
 	for name, fn := range b.functions {
-		if fn.CreatedAt.Before(cutoff) {
-			purgedFunctions = append(purgedFunctions, name)
+		if !fn.CreatedAt.Before(cutoff) {
+			continue
+		}
+		purgedFunctions = append(purgedFunctions, name)
+		if srv, ok := b.functionURLServers[name]; ok {
+			urlServers = append(urlServers, srv)
+		}
+		if rt, ok := b.runtimes[name]; ok {
+			rts = append(rts, rt)
+		}
+		b.deleteFunctionMapsLocked(name)
+	}
 
-			// Collect resources to clean up outside the lock
-			if srv, ok := b.functionURLServers[name]; ok {
-				urlServers = append(urlServers, srv)
-			}
-			if rt, ok := b.runtimes[name]; ok {
-				rts = append(rts, rt)
-			}
+	return purgedFunctions, urlServers, rts
+}
 
-			// Delete from primary maps
-			delete(b.functions, name)
-			delete(b.runtimes, name)
-			delete(b.functionURLServers, name)
-			delete(b.functionURLConfigs, name)
-			delete(b.aliases, name)
-			delete(b.versionCounters, name)
-			delete(b.versions, name)
-			delete(b.eventInvokeConfigs, name)
-			delete(b.functionConcurrencies, name)
-			delete(b.activeConcurrencies, name)
-			delete(b.provisionedConcurrencies, name)
-			delete(b.fisFaults, name)
-
-			// Delete event source mappings for this function
-			for id, m := range b.eventSourceMappings {
-				if strings.HasSuffix(m.FunctionARN, ":function:"+name) {
-					delete(b.eventSourceMappings, id)
-				}
-			}
+// deleteFunctionMapsLocked removes all map entries for a function.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) deleteFunctionMapsLocked(name string) {
+	delete(b.functions, name)
+	delete(b.runtimes, name)
+	delete(b.functionURLServers, name)
+	delete(b.functionURLConfigs, name)
+	delete(b.aliases, name)
+	delete(b.versionCounters, name)
+	delete(b.versions, name)
+	delete(b.eventInvokeConfigs, name)
+	delete(b.functionConcurrencies, name)
+	delete(b.activeConcurrencies, name)
+	delete(b.provisionedConcurrencies, name)
+	delete(b.fisFaults, name)
+	for id, m := range b.eventSourceMappings {
+		if strings.HasSuffix(m.FunctionARN, ":function:"+name) {
+			delete(b.eventSourceMappings, id)
 		}
 	}
+}
 
-	b.mu.Unlock()
-
-	if len(purgedFunctions) == 0 {
-		return
-	}
-
-	// Shut down URL servers and release ports outside the lock.
+// shutdownPurgedResources shuts down URL servers and runtimes outside the lock.
+func (b *InMemoryBackend) shutdownPurgedResources(urlServers []*functionURLServer, rts []*functionRuntime) {
 	ctx, cancel := context.WithTimeout(context.Background(), containerShutdownTimeout)
 	defer cancel()
 

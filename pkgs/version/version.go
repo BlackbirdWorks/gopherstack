@@ -11,7 +11,7 @@ import "runtime/debug"
 var Build = "dev" //nolint:gochecknoglobals // Build information is standard as a global
 
 // Get returns the build version. It uses the ldflags injected version if available,
-// falling back to debug.BuildInfo for standard go installations, and finally "dev".
+// falling back to [debug.BuildInfo] for standard go installations, and finally "dev".
 func Get() string {
 	if Build != "dev" {
 		return Build

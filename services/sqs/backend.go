@@ -1233,29 +1233,40 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 		}
 
 		createdUnix, err := strconv.ParseInt(createdStr, 10, 64)
-		if err == nil {
-			createdTime := time.Unix(createdUnix, 0)
-			if createdTime.Before(cutoff) {
-				close(q.notify)
-				if q.Tags != nil {
-					q.Tags.Close()
-				}
-				delete(b.queues, k)
-
-				// Cancel active move tasks involving this queue.
-				queueARN := q.Attributes[attrQueueArn]
-				for _, task := range b.moveTasks {
-					task.mu.Lock()
-					isActive := task.status == MoveTaskStatusRunning || task.status == MoveTaskStatusCancelling
-					involves := task.sourceArn == queueARN || task.destArn == queueARN
-					task.mu.Unlock()
-
-					if isActive && involves {
-						task.cancel()
-					}
-				}
-			}
+		if err != nil {
+			continue
 		}
+
+		if time.Unix(createdUnix, 0).Before(cutoff) {
+			b.purgeQueue(k, q)
+		}
+	}
+}
+
+// purgeQueue closes and removes a single queue and cancels any move tasks that involve it.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeQueue(key string, q *Queue) {
+	close(q.notify)
+	if q.Tags != nil {
+		q.Tags.Close()
+	}
+	delete(b.queues, key)
+
+	queueARN := q.Attributes[attrQueueArn]
+	for _, task := range b.moveTasks {
+		b.cancelMoveTaskIfInvolved(task, queueARN)
+	}
+}
+
+// cancelMoveTaskIfInvolved cancels task if it is active and references queueARN.
+func (b *InMemoryBackend) cancelMoveTaskIfInvolved(task *moveTaskState, queueARN string) {
+	task.mu.Lock()
+	isActive := task.status == MoveTaskStatusRunning || task.status == MoveTaskStatusCancelling
+	involves := task.sourceArn == queueARN || task.destArn == queueARN
+	task.mu.Unlock()
+
+	if isActive && involves {
+		task.cancel()
 	}
 }
 

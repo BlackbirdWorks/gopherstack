@@ -1884,28 +1884,48 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
-	// 1. Purge Users
-	for name, u := range b.users {
-		if u.CreateDate.Before(cutoff) {
-			delete(b.users, name)
-			// Clean up associated user data
-			delete(b.loginProfiles, name)
-			delete(b.userPolicies, name)
-			delete(b.userInlinePolicies, name)
-			// Remove from groups
-			for g, members := range b.groupMembers {
-				for i, m := range members {
-					if m == name {
-						b.groupMembers[g] = append(members[:i], members[i+1:]...)
+	b.purgeUsersLocked(cutoff)
+	b.purgeRolesLocked(cutoff)
+	b.purgePoliciesLocked(cutoff)
+	b.purgeGroupsLocked(cutoff)
+	b.purgeAccessKeysLocked(cutoff)
+	b.purgeInstanceProfilesLocked(cutoff)
+	b.purgeSAMLProvidersLocked(cutoff)
+	b.purgeOIDCProvidersLocked(cutoff)
+}
 
-						break
-					}
-				}
+// purgeUsersLocked removes users created before cutoff and cleans up associated data.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeUsersLocked(cutoff time.Time) {
+	for name, u := range b.users {
+		if !u.CreateDate.Before(cutoff) {
+			continue
+		}
+		delete(b.users, name)
+		delete(b.loginProfiles, name)
+		delete(b.userPolicies, name)
+		delete(b.userInlinePolicies, name)
+		b.removeUserFromGroupsLocked(name)
+	}
+}
+
+// removeUserFromGroupsLocked removes a user from all group membership lists.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) removeUserFromGroupsLocked(userName string) {
+	for g, members := range b.groupMembers {
+		for i, m := range members {
+			if m == userName {
+				b.groupMembers[g] = append(members[:i], members[i+1:]...)
+
+				break
 			}
 		}
 	}
+}
 
-	// 2. Purge Roles
+// purgeRolesLocked removes roles created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeRolesLocked(cutoff time.Time) {
 	for name, r := range b.roles {
 		if r.CreateDate.Before(cutoff) {
 			delete(b.roles, name)
@@ -1913,17 +1933,21 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 			delete(b.roleInlinePolicies, name)
 		}
 	}
+}
 
-	// 3. Purge Policies
+// purgePoliciesLocked removes policies created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgePoliciesLocked(cutoff time.Time) {
 	for name, p := range b.policies {
 		if p.CreateDate.Before(cutoff) {
 			delete(b.policies, name)
-			// Note: Attachments will fail for non-existent policies anyway,
-			// but we could orphan-clean them if we wanted.
 		}
 	}
+}
 
-	// 4. Purge Groups
+// purgeGroupsLocked removes groups created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeGroupsLocked(cutoff time.Time) {
 	for name, g := range b.groups {
 		if g.CreateDate.Before(cutoff) {
 			delete(b.groups, name)
@@ -1932,29 +1956,41 @@ func (b *InMemoryBackend) Purge(cutoff time.Time) {
 			delete(b.groupMembers, name)
 		}
 	}
+}
 
-	// 5. Purge Access Keys
+// purgeAccessKeysLocked removes access keys created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeAccessKeysLocked(cutoff time.Time) {
 	for id, ak := range b.accessKeys {
 		if ak.CreateDate.Before(cutoff) {
 			delete(b.accessKeys, id)
 		}
 	}
+}
 
-	// 6. Purge Instance Profiles
+// purgeInstanceProfilesLocked removes instance profiles created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeInstanceProfilesLocked(cutoff time.Time) {
 	for name, ip := range b.instanceProfiles {
 		if ip.CreateDate.Before(cutoff) {
 			delete(b.instanceProfiles, name)
 		}
 	}
+}
 
-	// 7. Purge SAML Providers
+// purgeSAMLProvidersLocked removes SAML providers created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeSAMLProvidersLocked(cutoff time.Time) {
 	for arnStr, p := range b.samlProviders {
 		if p.CreateDate.Before(cutoff) {
 			delete(b.samlProviders, arnStr)
 		}
 	}
+}
 
-	// 8. Purge OIDC Providers
+// purgeOIDCProvidersLocked removes OIDC providers created before cutoff.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) purgeOIDCProvidersLocked(cutoff time.Time) {
 	for arnStr, p := range b.oidcProviders {
 		if p.CreateDate.Before(cutoff) {
 			delete(b.oidcProviders, arnStr)
