@@ -608,7 +608,12 @@ func (h *Handler) handlePutRecords(
 		return nil, ErrInvalidArgument
 	}
 
-	entries := make([]PutRecordsEntry, len(req.Records))
+	numRecords := len(req.Records)
+	const maxPutRecords = 500
+	if numRecords > maxPutRecords {
+		numRecords = maxPutRecords
+	}
+	entries := make([]PutRecordsEntry, numRecords)
 	for i, r := range req.Records {
 		entries[i] = PutRecordsEntry{
 			PartitionKey: r.PartitionKey,
@@ -679,7 +684,12 @@ func (h *Handler) handleGetRecords(
 		return nil, err
 	}
 
-	records := make([]jsonRecord, len(out.Records))
+	numRecords := len(out.Records)
+	const maxGetRecords = 10000
+	if numRecords > maxGetRecords {
+		numRecords = maxGetRecords
+	}
+	records := make([]jsonRecord, numRecords)
 	for i, r := range out.Records {
 		records[i] = jsonRecord{
 			Data:                        r.Data,
@@ -1196,13 +1206,12 @@ func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
 	payloadLen := len(payload)
 	// prelude (12 bytes) + headers + payload + message CRC (4 bytes)
 	// Guard against integer overflow when calculating totalLen.
-	if payloadLen < 0 || headerLen > math.MaxInt32-eventStreamPreludeLen-payloadLen-eventStreamMsgCRCLen {
+	totalLen := uint64(eventStreamPreludeLen) + uint64(headerLen) + uint64(payloadLen) + uint64(eventStreamMsgCRCLen)
+	if totalLen > math.MaxInt32 {
 		return nil
 	}
-	totalLen := eventStreamPreludeLen + headerLen + payloadLen + eventStreamMsgCRCLen
 
 	buf := make([]byte, totalLen)
-	//nolint:gosec // totalLen is bounded by AWS event stream protocol constraints
 	binary.BigEndian.PutUint32(buf[0:4], uint32(totalLen))
 	//nolint:gosec // headerLen is bounded by AWS event stream protocol constraints
 	binary.BigEndian.PutUint32(buf[4:8], uint32(headerLen))

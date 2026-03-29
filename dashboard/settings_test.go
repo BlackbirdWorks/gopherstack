@@ -217,3 +217,32 @@ type mockConfigManager struct {
 func (m *mockConfigManager) GetSettings() dashboard.Settings { return m.settings }
 func (m *mockConfigManager) UpdateSettings(s dashboard.Settings) { m.settings = s }
 func (m *mockConfigManager) SaveConfig() error                { return nil }
+
+func TestSettingsPage_UILayout(t *testing.T) {
+	t.Parallel()
+
+	h := dashboard.NewHandler(dashboard.Config{
+		GlobalConfig: config.NewGlobalConfig("000000000000", "us-east-1", 0, 0, false, 0),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/settings", nil)
+	rec := httptest.NewRecorder()
+	h.SubRouter.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+
+	// Check for tabs
+	assert.Contains(t, body, "Global Settings")
+	assert.Contains(t, body, "Service Settings")
+	assert.Contains(t, body, `id="services-tab"`)
+
+	// Check for top-right save button
+	assert.Contains(t, body, `id="save-settings-btn"`)
+	assert.Contains(t, body, "Save Settings")
+
+	// Check for readonly fields and instructions
+	assert.Contains(t, body, "readonly")
+	assert.Contains(t, body, "Set PORT env var to modify")
+	assert.Contains(t, body, "Set GOPHERSTACK_DATA_DIR env var to modify")
+}

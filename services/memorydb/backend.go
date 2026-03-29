@@ -936,3 +936,52 @@ func (b *InMemoryBackend) ListClusters() []*Cluster {
 
 	return result
 }
+
+// Purge removes all MemoryDB resources created before the cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// 1. Purge Clusters
+	for name, c := range b.clusters {
+		if c.CreatedAt.Before(cutoff) {
+			delete(b.clusters, name)
+			delete(b.arnToResource, c.ARN)
+		}
+	}
+
+	// 2. Purge ACLs (except the default open-access ACL)
+	for name, a := range b.acls {
+		if name == openAccessACL {
+			continue
+		}
+		if a.CreatedAt.Before(cutoff) {
+			delete(b.acls, name)
+			delete(b.arnToResource, a.ARN)
+		}
+	}
+
+	// 3. Purge Subnet Groups
+	for name, sg := range b.subnetGroups {
+		if sg.CreatedAt.Before(cutoff) {
+			delete(b.subnetGroups, name)
+			delete(b.arnToResource, sg.ARN)
+		}
+	}
+
+	// 4. Purge Users
+	for name, u := range b.users {
+		if u.CreatedAt.Before(cutoff) {
+			delete(b.users, name)
+			delete(b.arnToResource, u.ARN)
+		}
+	}
+
+	// 5. Purge Parameter Groups
+	for name, pg := range b.parameterGroups {
+		if pg.CreatedAt.Before(cutoff) {
+			delete(b.parameterGroups, name)
+			delete(b.arnToResource, pg.ARN)
+		}
+	}
+}

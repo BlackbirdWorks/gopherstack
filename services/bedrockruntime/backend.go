@@ -79,3 +79,18 @@ func (b *InMemoryBackend) ListInvocations() []*Invocation {
 
 	return out
 }
+
+// Purge removes all model invocations recorded before the cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	n := 0
+	for _, inv := range b.invocations {
+		if !inv.CreatedAt.Before(cutoff) {
+			b.invocations[n] = inv
+			n++
+		}
+	}
+	b.invocations = b.invocations[:n]
+}

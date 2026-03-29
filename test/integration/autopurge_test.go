@@ -65,6 +65,7 @@ func startPurgeContainer(t *testing.T, ttl string) (testcontainers.Container, st
 }
 
 func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -232,11 +233,11 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	queues, err := sqsClient.ListQueues(ctx, &sqs.ListQueuesInput{})
 	require.NoError(t, err)
 	foundOldSQS, foundNewSQS := false, false
-	for _, qUrl := range queues.QueueUrls {
-		if strings.Contains(qUrl, queueOld) {
+	for _, qURL := range queues.QueueUrls {
+		if strings.Contains(qURL, queueOld) {
 			foundOldSQS = true
 		}
-		if strings.Contains(qUrl, queueNew) {
+		if strings.Contains(qURL, queueNew) {
 			foundNewSQS = true
 		}
 	}

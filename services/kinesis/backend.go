@@ -1054,3 +1054,29 @@ func (b *InMemoryBackend) Reset() {
 	b.streams = make(map[string]*Stream)
 	b.fisThroughputFaults = make(map[string]*kinesisThrottleFault)
 }
+
+// Purge removes all Kinesis streams and consumers created before the cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	// 1. Purge streams
+	for name, s := range b.streams {
+		if s.CreatedAt.Before(cutoff) {
+			if s.Tags != nil {
+				s.Tags.Close()
+			}
+			delete(b.streams, name)
+			delete(b.fisThroughputFaults, name)
+
+			continue
+		}
+
+		// 2. Purge consumers within active streams
+		for cName, c := range s.Consumers {
+			if c.ConsumerCreationTimestamp.Before(cutoff) {
+				delete(s.Consumers, cName)
+			}
+		}
+	}
+}

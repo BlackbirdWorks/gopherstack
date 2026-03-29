@@ -1221,7 +1221,6 @@ func (b *InMemoryBackend) DeleteMessagesLocal(queueURL string, receiptHandles []
 	return nil
 }
 
-// Reset clears all in-memory queue state from the backend. It is used by the
 // Purge removes all queues created before the given cutoff time.
 func (b *InMemoryBackend) Purge(cutoff time.Time) {
 	b.mu.Lock("Purge")

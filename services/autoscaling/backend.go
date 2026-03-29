@@ -294,7 +294,12 @@ func (b *InMemoryBackend) UpdateAutoScalingGroup(input UpdateAutoScalingGroupInp
 	}
 
 	if input.DesiredCapacity != nil {
-		g.DesiredCapacity = *input.DesiredCapacity
+		desired := *input.DesiredCapacity
+		const maxDesiredCapacity = 100
+		if desired > maxDesiredCapacity {
+			desired = maxDesiredCapacity
+		}
+		g.DesiredCapacity = desired
 		g.Instances = adjustInstances(g.Instances, g.DesiredCapacity, g.AvailabilityZones, g.LaunchConfigurationName)
 	}
 
@@ -454,4 +459,25 @@ func (b *InMemoryBackend) DescribeScalingActivities(groupName string) ([]Scaling
 	})
 
 	return result, nil
+}
+
+// Purge removes all AutoScaling groups and launch configurations created before the cutoff time.
+func (b *InMemoryBackend) Purge(cutoff time.Time) {
+	b.mu.Lock("Purge")
+	defer b.mu.Unlock()
+
+	// 1. Purge groups
+	for name, g := range b.groups {
+		if g.CreatedTime.Before(cutoff) {
+			delete(b.groups, name)
+			delete(b.activities, name)
+		}
+	}
+
+	// 2. Purge launch configurations
+	for name, lc := range b.launchConfigurations {
+		if lc.CreatedTime.Before(cutoff) {
+			delete(b.launchConfigurations, name)
+		}
+	}
 }

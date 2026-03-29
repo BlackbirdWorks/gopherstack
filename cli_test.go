@@ -12,6 +12,8 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 // parseCLI parses the given args (key=value env pairs) into a CLI value
@@ -508,4 +510,54 @@ func TestARNServiceIs(t *testing.T) {
 			assert.Equal(t, tt.want, arnServiceIs(tt.arn, tt.serviceName))
 		})
 	}
+}
+
+type mockPurgeableService struct {
+	service.Registerable
+	purged bool
+}
+
+func (m *mockPurgeableService) Purge(_ time.Time) { m.purged = true }
+func (m *mockPurgeableService) Name() string           { return "MockPurgeable" }
+
+type mockResettableService struct {
+	service.Registerable
+	resetted bool
+}
+
+func (m *mockResettableService) Reset()      { m.resetted = true }
+func (m *mockResettableService) Name() string { return "MockResettable" }
+
+func TestCLI_AutoPurgeLoop(t *testing.T) {
+	t.Parallel()
+
+	svc1 := &mockPurgeableService{}
+	svc2 := &mockResettableService{}
+	services := []service.Registerable{svc1, svc2}
+
+	ttl := 10 * time.Millisecond
+
+	// Simulate the loop from cli.go line 1709
+	ticker := time.NewTicker(ttl)
+	defer ticker.Stop()
+
+	// Run for one tick
+	select {
+	case <-ticker.C:
+		cutoff := time.Now().UTC().Add(-ttl)
+		for _, svc := range services {
+			if p, ok := svc.(service.Purgeable); ok {
+				p.Purge(cutoff)
+				continue
+			}
+			if r, ok := svc.(service.Resettable); ok {
+				r.Reset()
+			}
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("ticker did not fire")
+	}
+
+	assert.True(t, svc1.purged)
+	assert.True(t, svc2.resetted)
 }

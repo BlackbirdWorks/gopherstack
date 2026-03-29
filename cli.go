@@ -187,7 +187,8 @@ const (
 	defaultTimeout     = 30 * time.Second
 	shutdownTimeout    = 5 * time.Second
 	healthCheckTimeout = 5 * time.Second
-	configFilename     = "config.json"
+	configFilename             = "config.json"
+	defaultReadHeaderTimeout   = 5 * time.Second
 )
 
 // CLI holds all command-line / environment-variable configuration for Gopherstack.
@@ -1699,7 +1700,7 @@ func run(ctx context.Context, cli CLI) error {
 	startBackgroundWorkers(janitorCtx, services)
 
 	if cli.AutoPurgeTTL > 0 {
-		log.Info("AUTO_PURGE_TTL enabled", "ttl", cli.AutoPurgeTTL)
+		log.InfoContext(ctx, "AUTO_PURGE_TTL enabled", "ttl", cli.AutoPurgeTTL)
 		go func(ctx context.Context, ttl time.Duration, svcs []service.Registerable) {
 			ticker := time.NewTicker(ttl)
 			defer ticker.Stop()
@@ -1713,11 +1714,6 @@ func run(ctx context.Context, cli CLI) error {
 					for _, svc := range svcs {
 						if p, ok := svc.(service.Purgeable); ok {
 							p.Purge(cutoff)
-							continue
-						}
-						// Fallback to Reset if Purge is not implemented (not recommended)
-						if r, ok := svc.(service.Resettable); ok {
-							r.Reset()
 						}
 					}
 				}
@@ -3674,11 +3670,12 @@ func startServer(ctx context.Context, port string, e *echo.Echo) error {
 
 	h2s := &http2.Server{}
 	server := &http.Server{
-		Addr:         port,
-		Handler:      h2c.NewHandler(e, h2s),
-		ReadTimeout:  defaultTimeout,
-		WriteTimeout: defaultTimeout,
-		IdleTimeout:  defaultTimeout,
+		Addr:              port,
+		Handler:           h2c.NewHandler(e, h2s),
+		ReadTimeout:       defaultTimeout,
+		ReadHeaderTimeout: defaultReadHeaderTimeout, // Security best practice
+		WriteTimeout:      defaultTimeout,
+		IdleTimeout:       defaultTimeout,
 	}
 
 	errChan := make(chan error, 1)

@@ -739,22 +739,22 @@ func buildShards(clusterName string, numShards int32) []shardObject {
 	const totalSlots = 16384
 
 	const maxShards = 256
-	if numShards <= 0 {
-		numShards = 1
+	nShards := int(numShards)
+	if nShards <= 0 {
+		nShards = 1
 	}
-	if numShards > maxShards {
-		numShards = maxShards
+	if nShards > maxShards {
+		nShards = maxShards
 	}
 
-	shards := make([]shardObject, numShards)
-	n := int(numShards)
-	slotsPerShard := totalSlots / n
+	shards := make([]shardObject, nShards)
+	slotsPerShard := totalSlots / nShards
 
 	for i := range shards {
 		start := i * slotsPerShard
 		end := start + slotsPerShard - 1
 
-		if i == n-1 {
+		if i == nShards-1 {
 			end = totalSlots - 1
 		}
 
