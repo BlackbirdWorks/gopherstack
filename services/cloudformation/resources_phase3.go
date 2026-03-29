@@ -350,22 +350,9 @@ func (rc *ResourceCreator) deleteCloudFrontDistribution(arn string) error {
 
 // ---- AutoScaling ----
 
-func (rc *ResourceCreator) createAutoScalingGroup(
-	logicalID string,
-	props map[string]any,
-	params, physicalIDs map[string]string,
-) (string, error) {
-	if rc.backends.Autoscaling == nil {
-		return logicalID + "-stub", nil
-	}
-
-	name := strProp(props, "AutoScalingGroupName", params, physicalIDs)
-	if name == "" {
-		name = logicalID
-	}
-
-	lcName := strProp(props, "LaunchConfigurationName", params, physicalIDs)
-
+// parseASGSizes reads MinSize, MaxSize, and DesiredCapacity from CloudFormation
+// template properties, returning clamped int32 values safe for allocation.
+func parseASGSizes(props map[string]any, params, physicalIDs map[string]string) (int32, int32, int32) {
 	var minSize, maxSize, desired int32 = 1, 1, 1
 
 	if v, ok := props["MinSize"].(float64); ok {
@@ -388,25 +375,30 @@ func (rc *ResourceCreator) createAutoScalingGroup(
 		desired = int32(v)
 	}
 
-	// Clamp sizes to a safe range to avoid excessive allocations from untrusted templates.
-	if minSize < 0 {
-		minSize = 0
+	// Clamp to [0, maxAutoScalingCapacity] to prevent excessive allocations.
+	minSize = min(max(0, minSize), maxAutoScalingCapacity)
+	maxSize = min(max(0, maxSize), maxAutoScalingCapacity)
+	desired = min(max(0, desired), maxAutoScalingCapacity)
+
+	return minSize, maxSize, desired
+}
+
+func (rc *ResourceCreator) createAutoScalingGroup(
+	logicalID string,
+	props map[string]any,
+	params, physicalIDs map[string]string,
+) (string, error) {
+	if rc.backends.Autoscaling == nil {
+		return logicalID + "-stub", nil
 	}
-	if maxSize < 0 {
-		maxSize = 0
+
+	name := strProp(props, "AutoScalingGroupName", params, physicalIDs)
+	if name == "" {
+		name = logicalID
 	}
-	if desired < 0 {
-		desired = 0
-	}
-	if minSize > maxAutoScalingCapacity {
-		minSize = maxAutoScalingCapacity
-	}
-	if maxSize > maxAutoScalingCapacity {
-		maxSize = maxAutoScalingCapacity
-	}
-	if desired > maxAutoScalingCapacity {
-		desired = maxAutoScalingCapacity
-	}
+
+	lcName := strProp(props, "LaunchConfigurationName", params, physicalIDs)
+	minSize, maxSize, desired := parseASGSizes(props, params, physicalIDs)
 
 	_, err := rc.backends.Autoscaling.Backend.CreateAutoScalingGroup(autoscalingbackend.CreateAutoScalingGroupInput{
 		AutoScalingGroupName:    name,

@@ -15,13 +15,9 @@ import (
 // completedProgress is the progress value for a successfully completed scaling activity.
 const completedProgress = int32(100)
 
-// maxDesiredCapacity is a hard upper bound on the number of instances that can be
-// created in a single Auto Scaling group. This protects against excessive memory
-// allocation from untrusted input (see go/slice-memory-allocation-excessive-size).
-const maxDesiredCapacity = 1000
-
 // maxDesiredCapacity is the upper bound on DesiredCapacity for any ASG, used to
-// cap user-supplied values and prevent excessive slice allocations.
+// cap user-supplied values and prevent excessive slice allocations
+// (go/slice-memory-allocation-excessive-size).
 const maxDesiredCapacity = 100
 
 var (
@@ -201,7 +197,7 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 	}
 
 	instances := make([]Instance, 0, desiredN)
-	for i := 0; i < desiredN; i++ {
+	for range desiredN {
 		instances = append(instances, Instance{
 			InstanceID:              "i-" + uuid.NewString()[:8],
 			AvailabilityZone:        az,

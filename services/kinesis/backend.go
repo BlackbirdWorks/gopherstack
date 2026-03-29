@@ -131,7 +131,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) error {
 
 	// Preallocate up to the validated shardCount capacity.
 	shards := make([]*Shard, 0, shardCount)
-	for i := 0; i < shardCount; i++ {
+	for i := range shardCount {
 		start := new(big.Int).Mul(shardRange, big.NewInt(int64(i)))
 		var end *big.Int
 		if i == shardCount-1 {
